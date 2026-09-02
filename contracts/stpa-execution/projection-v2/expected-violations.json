@@ -1,0 +1,8 @@
+{
+  "forged-reference.json": ["condition_reference_mismatch"],
+  "negative-time.json": ["condition_value_invalid"],
+  "reversed-window.json": ["condition_value_invalid"],
+  "unknown-field.json": ["unexpected_field"],
+  "binding-state-mismatch.json": ["semantic_binding_state_mismatch"],
+  "runtime-observation.json": ["runtime_observation_forbidden", "unexpected_field"]
+}

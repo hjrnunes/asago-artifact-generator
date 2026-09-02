@@ -1,8 +1,8 @@
 # Asago Artifact Generator
 
-Policy-driven agentic red-teaming: takes pre-built scenario YAMLs, classifies
-their injection surface, and generates red-teaming artifacts for downstream
-evaluation platforms.
+Policy-driven agentic red-teaming: consumes verified STPA execution bundles,
+binds explicit runtime facts, and generates traceable downstream artifacts.
+Historical taxonomy-era scenario YAMLs are isolated behind `generate-legacy`.
 
 ## Commands
 
@@ -10,7 +10,7 @@ evaluation platforms.
 uv sync --locked
 ./scripts/quality.sh
 uv run pytest tests/ -q
-asago-artifact-generator generate -v
+asago-artifact-generator generate --bundle <run>/execution-bundle.json --platform garak
 ```
 
 Deterministic tests do not require an LLM endpoint. Live generation requires
@@ -19,18 +19,22 @@ via `.env` or environment variables.
 
 ## Architecture
 
-- `src/asago_artifact_generator/` contains shared domain models, the LLM
-  client, and the `typer` CLI.
-- `src/asago_artifact_generator/garak/` contains the Garak platform generator:
-  classification, gating, artifact specification, artifact I/O, prompt templates,
-  and Garak plugin sources (probe + detector).
+- `src/asago_artifact_generator/` contains strict bundle models, typed runtime
+  binding/readiness, platform seams, atomic output, the LLM client, and the
+  `typer` CLI.
+- `bundle/loader.py` is the only bundle-loading seam; `planning/bind.py` is the
+  pure typed readiness seam. Platform compilers accept only ready plans.
+- `garak/` contains deterministic capabilities, ready-plan translation,
+  compiler/validator/trace integration, and isolated historical code.
 - `examples/scenarios/` contains committed input scenario YAMLs.
 - `examples/demo/` contains the interactive Jupyter walkthrough and runtime.
 - `runs/` holds generated artifacts (gitignored).
 
-Read `README.md` before changing the pipeline interface. Each platform
-generator lives in its own subpackage (`garak/`, future `agentdojo/`, `pyrit/`)
-and shares the parent package modules (`extract`, `llm`).
+Read `README.md` before changing the pipeline interface. The primary `generate`
+command requires an explicit canonical STPA bundle and never falls back to
+legacy YAML/narrative inference. Model-backed presentation authoring runs only
+after deterministic readiness and receives fixed text slots, never execution
+choices. `--force` is rejected for authoritative STPA inputs.
 
 ## Development
 

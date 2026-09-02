@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stpa-execution-projection-v2",
+  "title": "STPA execution projection v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "scenario_id", "candidate_id", "ica_slot_id", "ica_id", "controller_id", "control_action_id", "uca_type", "causal_factors", "steps", "unsafe_outcome", "execution_requirements", "trace_refs", "semantic_digest"],
+  "properties": {
+    "schema_version": {"const": "stpa-execution-projection-v2"},
+    "run_id": {"$ref": "#/$defs/nonempty"},
+    "scenario_id": {"$ref": "#/$defs/nonempty"},
+    "candidate_id": {"$ref": "#/$defs/nonempty"},
+    "ica_slot_id": {"$ref": "#/$defs/nonempty"},
+    "ica_id": {"$ref": "#/$defs/nonempty"},
+    "controller_id": {"$ref": "#/$defs/nonempty"},
+    "control_action_id": {"$ref": "#/$defs/nonempty"},
+    "uca_type": {"enum": ["NOT_PROVIDED", "INCORRECT", "WRONG_TIMING", "WRONG_DURATION"]},
+    "causal_factors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/factor"}},
+    "steps": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/step"}},
+    "unsafe_outcome": {"$ref": "#/$defs/unsafe_outcome"},
+    "execution_requirements": {"$ref": "#/$defs/requirements"},
+    "trace_refs": {"$ref": "#/$defs/trace_refs"},
+    "semantic_digest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "nonempty": {"type": "string", "minLength": 1},
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "scalar": {"anyOf": [{"type": "string"}, {"type": "integer"}, {"type": "number"}, {"type": "boolean"}]},
+    "placeholder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binding_ref", "value_type", "description"],
+      "properties": {
+        "binding_ref": {"type": "string", "pattern": "^SEM-[A-Za-z0-9._-]+$"},
+        "value_type": {"enum": ["string", "integer", "number", "boolean"]},
+        "description": {"$ref": "#/$defs/nonempty"},
+        "minimum": {"type": ["integer", "number", "null"], "minimum": 0},
+        "maximum": {"type": ["integer", "number", "null"], "minimum": 0}
+      }
+    },
+    "scalar_or_placeholder": {"anyOf": [{"$ref": "#/$defs/scalar"}, {"$ref": "#/$defs/placeholder"}]},
+    "operator": {"enum": ["equals", "not_equals", "contains", "not_contains", "greater_than", "greater_than_or_equal", "less_than", "less_than_or_equal"]},
+    "condition": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["type", "reference_step_id", "relation"], "properties": {"type": {"const": "ordering"}, "reference_step_id": {"type": "string", "pattern": "^S-\\d+$"}, "relation": {"enum": ["before", "after"]}}},
+        {"type": "object", "additionalProperties": false, "required": ["type", "reference_ref", "delay_ms"], "properties": {"type": {"const": "delay"}, "reference_ref": {"$ref": "#/$defs/nonempty"}, "delay_ms": {"anyOf": [{"type": "integer", "minimum": 0}, {"$ref": "#/$defs/placeholder"}]}}},
+        {"type": "object", "additionalProperties": false, "required": ["type", "reference_ref", "duration_ms"], "properties": {"type": {"const": "duration"}, "reference_ref": {"$ref": "#/$defs/nonempty"}, "duration_ms": {"anyOf": [{"type": "integer", "minimum": 0}, {"$ref": "#/$defs/placeholder"}]}}},
+        {"type": "object", "additionalProperties": false, "required": ["type", "reference_ref", "window_from_ms", "window_to_ms"], "properties": {"type": {"const": "window"}, "reference_ref": {"$ref": "#/$defs/nonempty"}, "window_from_ms": {"anyOf": [{"type": "integer", "minimum": 0}, {"$ref": "#/$defs/placeholder"}]}, "window_to_ms": {"anyOf": [{"type": "integer", "minimum": 0}, {"$ref": "#/$defs/placeholder"}]}}},
+        {"type": "object", "additionalProperties": false, "required": ["type", "reference_ref", "until_step_id"], "properties": {"type": {"const": "absence"}, "reference_ref": {"$ref": "#/$defs/nonempty"}, "until_step_id": {"type": "string", "pattern": "^S-\\d+$"}}},
+        {"type": "object", "additionalProperties": false, "required": ["type", "control_action_id", "expected"], "properties": {"type": {"const": "action_presence"}, "control_action_id": {"$ref": "#/$defs/nonempty"}, "expected": {"const": "not_provided"}}},
+        {"type": "object", "additionalProperties": false, "required": ["type", "control_action_id", "property", "operator", "expected"], "properties": {"type": {"const": "action_value"}, "control_action_id": {"$ref": "#/$defs/nonempty"}, "property": {"$ref": "#/$defs/nonempty"}, "operator": {"$ref": "#/$defs/operator"}, "expected": {"$ref": "#/$defs/scalar_or_placeholder"}}},
+        {"type": "object", "additionalProperties": false, "required": ["type", "subject_ref", "property", "operator", "expected"], "properties": {"type": {"const": "state_value"}, "subject_ref": {"$ref": "#/$defs/nonempty"}, "property": {"$ref": "#/$defs/nonempty"}, "operator": {"$ref": "#/$defs/operator"}, "expected": {"$ref": "#/$defs/scalar_or_placeholder"}}}
+      ]
+    },
+    "factor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["factor_id", "order", "kind", "structural_source_id", "description", "evidence_status", "capability_refs", "access_refs", "bounded_assumption", "temporal_condition"],
+      "properties": {
+        "factor_id": {"type": "string", "pattern": "^CF-\\d+$"},
+        "order": {"type": "integer", "minimum": 1},
+        "kind": {"enum": ["PROCESS_MODEL_FLAW", "FEEDBACK_DELAY", "SENSOR_ANOMALY", "ACTUATOR_ANOMALY"]},
+        "structural_source_id": {"$ref": "#/$defs/nonempty"},
+        "description": {"$ref": "#/$defs/nonempty"},
+        "evidence_status": {"enum": ["structural_failure", "reachable_capability", "bounded_assumption"]},
+        "capability_refs": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "access_refs": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "bounded_assumption": {"type": ["string", "null"]},
+        "temporal_condition": {"anyOf": [{"$ref": "#/$defs/condition"}, {"type": "null"}]}
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step_id", "order", "kind", "factor_id", "structural_source_id"],
+      "properties": {
+        "step_id": {"type": "string", "pattern": "^S-\\d+$"},
+        "order": {"type": "integer", "minimum": 1},
+        "kind": {"enum": ["CAUSAL_FACTOR", "UNSAFE_CONTROL_ACTION"]},
+        "factor_id": {"anyOf": [{"type": "string", "pattern": "^CF-\\d+$"}, {"type": "null"}]},
+        "structural_source_id": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "unsafe_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome_id", "control_action_id", "uca_type", "condition", "semantic_binding_required", "hazard_refs", "constraint_refs"],
+      "properties": {
+        "outcome_id": {"type": "string", "pattern": "^OUTCOME-[A-Za-z0-9._-]+$"},
+        "control_action_id": {"$ref": "#/$defs/nonempty"},
+        "uca_type": {"enum": ["NOT_PROVIDED", "INCORRECT", "WRONG_TIMING", "WRONG_DURATION"]},
+        "condition": {"$ref": "#/$defs/condition"},
+        "semantic_binding_required": {"type": "boolean"},
+        "hazard_refs": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "constraint_refs": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}}
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requires_multi_turn", "requires_tool_execution", "requires_persistent_state", "requires_multi_agent", "requires_real_clock", "requires_state_observation", "required_surface_categories"],
+      "properties": {
+        "requires_multi_turn": {"type": "boolean"},
+        "requires_tool_execution": {"type": "boolean"},
+        "requires_persistent_state": {"type": "boolean"},
+        "requires_multi_agent": {"type": "boolean"},
+        "requires_real_clock": {"type": "boolean"},
+        "requires_state_observation": {"type": "boolean"},
+        "required_surface_categories": {"type": "array", "uniqueItems": true, "items": {"enum": ["external_input", "system_instruction", "tool_result", "tool_definition", "persistent_data", "agent_message", "environment_event"]}}
+      }
+    },
+    "trace_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["obligation_ids", "risk_ids", "attack_pattern_ids", "technique_ids", "loss_ids", "hazard_ids", "constraint_ids", "source_pins"],
+      "properties": {
+        "obligation_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "risk_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "attack_pattern_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "technique_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "loss_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "hazard_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "constraint_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "source_pins": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["control_structure", "loss_analysis", "ica_enumeration", "scenario_context"],
+          "properties": {
+            "control_structure": {"$ref": "#/$defs/digest"},
+            "loss_analysis": {"$ref": "#/$defs/digest"},
+            "ica_enumeration": {"$ref": "#/$defs/digest"},
+            "scenario_context": {"$ref": "#/$defs/digest"}
+          }
+        }
+      }
+    }
+  }
+}

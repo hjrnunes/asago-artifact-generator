@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stpa-execution-bundle-v1",
+  "title": "STPA execution bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "producer", "entries", "bundle_digest"],
+  "properties": {
+    "schema_version": {"const": "stpa-execution-bundle-v1"},
+    "run_id": {"$ref": "#/$defs/nonempty"},
+    "producer": {"$ref": "#/$defs/producer"},
+    "entries": {"type": "array", "items": {"$ref": "#/$defs/entry"}},
+    "bundle_digest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "nonempty": {"type": "string", "minLength": 1},
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {"name": {"$ref": "#/$defs/nonempty"}, "version": {"$ref": "#/$defs/nonempty"}}
+    },
+    "file_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "content_sha256"],
+      "properties": {"path": {"$ref": "#/$defs/nonempty"}, "content_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "projection_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "schema_version", "content_sha256", "semantic_digest"],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonempty"},
+        "schema_version": {"const": "stpa-execution-projection-v2"},
+        "content_sha256": {"$ref": "#/$defs/digest"},
+        "semantic_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "validator_version"],
+      "properties": {"status": {"const": "valid"}, "validator_version": {"const": "stpa-execution-projection-v2"}}
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario_id", "candidate_id", "ica_slot_id", "ica_id", "scenario", "projection", "validation"],
+      "properties": {
+        "scenario_id": {"$ref": "#/$defs/nonempty"},
+        "candidate_id": {"$ref": "#/$defs/nonempty"},
+        "ica_slot_id": {"$ref": "#/$defs/nonempty"},
+        "ica_id": {"$ref": "#/$defs/nonempty"},
+        "scenario": {"$ref": "#/$defs/file_ref"},
+        "projection": {"$ref": "#/$defs/projection_ref"},
+        "validation": {"$ref": "#/$defs/validation"}
+      }
+    }
+  }
+}

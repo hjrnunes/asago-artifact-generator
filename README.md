@@ -1,12 +1,16 @@
 # Policy-Driven Agentic Red Teaming
 
-Takes pre-built **scenario** YAMLs, classifies their injection surface, and generates red-teaming artifacts that can be run on downstream evaluation platforms.
+Consumes verified STPA execution bundles, binds their explicit runtime facts,
+and compiles ready plans into traceable Garak artifacts. Historical taxonomy-era
+scenario YAML generation is retained only behind the explicit
+`generate-legacy` command.
 
 ```
-examples/scenarios/*.yaml
-  → classify (injection surface + platform coverage)
-  → generate a platform-specific artifact
-  → runs/{scenario_id}/
+execution-bundle.json + runtime-binding-set.yaml
+  → strict load and identity/digest verification
+  → typed binding and platform readiness
+  → deterministic Garak plan and constrained presentation authoring
+  → runs/<run-id>/<scenario-id>/
 ```
 
 ## Setup
@@ -26,11 +30,16 @@ Supported LLM backends: **Gemini** (default when `GEMINI_API_KEY` is set), **Ope
 
 ## How it works
 
-1. **Classify** the injection surface from `narrative.entry_point` (`input` → `user_turn`, `tool_execution` → `tool_return`). Supply chain threats (`threat_name`) skip with no coverage.
-2. **Skip** surfaces the target platform cannot express (including supply chain).
-3. **Generate** a red-teaming artifact for that platform (transcript + detector rubric).
-4. **Validate** deos the artifact pass all checks (`ok` / `errors`). 
-5. **Gate** platform coverage: `full`, `partial`, or `skip`.
+1. **Verify** the canonical bundle, paired scenario/projection bytes, closed
+   schema, identities, and semantic digests.
+2. **Bind** reviewed semantic values, concrete surfaces, control-action tools,
+   and observers through `RuntimeBindingSet`.
+3. **Assess readiness** independently for source integrity, semantic/runtime
+   binding, and Garak support. Only `overall: ready` reaches authoring.
+4. **Plan and compile** a fixed ordered transcript, bound tool declaration and
+   call, and an oracle derived from the producer unsafe condition.
+5. **Publish** readiness, execution-plan, artifact, validation, trace, and a
+   batch manifest atomically. Runtime observations are separate receipts.
 
 ## Supported platforms
 
@@ -43,45 +52,78 @@ Supported LLM backends: **Gemini** (default when `GEMINI_API_KEY` is set), **Ope
 Each platform generator lives in its own subpackage under
 `src/asago_artifact_generator/` and writes artifacts under `runs/`.
 
-## Generate artifacts
+## Generate STPA artifacts
 
 ```bash
-# One scenario
-asago-artifact-generator generate examples/scenarios/AP-T2-01-28712e.yaml --force -v
+# Verify, bind and compile all bundle entries for Garak
+asago-artifact-generator generate \
+  --bundle <run>/execution-bundle.json \
+  --bindings <runtime-binding-set.yaml> \
+  --platform garak \
+  --output-dir runs
 
-# All scenarios in examples/scenarios/
-asago-artifact-generator generate -v
+# Readiness and plan only; no authoring, model client, or artifact compilation
+asago-artifact-generator generate \
+  --bundle <run>/execution-bundle.json \
+  --bindings <runtime-binding-set.yaml> \
+  --readiness-only
 ```
 
 | Flag | Effect |
 |------|--------|
-| `--force` | Write garak JSON even when structural validation fails |
-| `--dry-run` | Classify + LLM + validate only — no files written |
-| `--no-llm` | Skip LLM (useful to test pre-plan surface skips) |
+| `--bundle PATH` | Required canonical `stpa-execution-bundle-v1` JSON index |
+| `--bindings PATH` | Optional reviewed `runtime-binding-set-v1` YAML/JSON |
+| `--platform garak` | Select the deterministic Garak adapter |
+| `--readiness-only` | Validate, bind, and plan without authoring or compilation |
+| `--no-llm` | Compile only when all presentation slots are already supplied |
+| `--entry SCENARIO_ID` | Process one exact entry after bundle verification |
 | `--output-dir DIR` | Override default `runs/` output directory |
+| `--force` | Rejected for authoritative STPA inputs; it cannot bypass readiness |
 | `-v` | Verbose logging |
 
 ### Pipeline
 
-1. **Classify** injection surface from `narrative.entry_point` (`input` → `user_turn`, `tool_execution` → `tool_return`). `threat_name` containing “supply chain” is `none` (no coverage).
-2. **Skip** unwritable surfaces (supply chain / `none`) — writes a minimal artifact without calling the LLM.
-3. **Generate** artifact via one-shot LLM (`prompts/generate_artifact.md`).
-4. **Validate** structural gates (rubric completeness, surface/turn alignment, schema). 
-5. **Gate** platform coverage: `full`, `partial`, or `skip` .
+The primary command never autodetects YAML or falls back to narrative parsing.
+The model-backed author receives only fixed presentation slots after readiness;
+it cannot choose steps, surfaces, tools, values, observers, or detector logic.
+
+### Historical generation
+
+The retired taxonomy-era workflow remains available only when explicitly named:
+
+```bash
+asago-artifact-generator generate-legacy \
+  examples/scenarios/AP-T2-01-28712e.yaml \
+  --output-dir runs
+```
+
+It is heuristic compatibility behavior and is not an input path for the STPA
+consumer.
 
 ## Output layout
 
-Each scenario gets its own directory under `runs/`:
+Each bundle run gets its own directory under `runs/`:
 
 ```
 runs/
-  manifest.json
-  AP-T2-01-28712e/
-    AP-T2-01-28712e-garak.json    # Garak artifact
-    validation.json               # structural gate result
+  <run-id>/
+    artifact-manifest.json
+    SCN-001/
+      readiness.json
+      execution-plan.json
+      SCN-001-garak.json
+      artifact-trace.json
+      validation.json
+      observations/              # optional append-only receipts
 ```
 
-**`{scenario_id}-garak.json`** — Garak artifact (transcript + detector predicates):
+For a ready STPA entry, `{scenario_id}-garak.json` contains the fixed transcript,
+bound tool declaration/call, unsafe-condition detector, source/binding identity,
+and `artifact_digest`. `artifact-trace.json` closes every emitted step and oracle
+back to the verified projection and binding set. No platform artifact is written
+for invalid, unbound, or unsupported entries.
+
+The historical `generate-legacy` command retains its former artifact shape:
 
 - `scenario_id`, `injection_surface`, `platform_coverage` (`full` | `partial` | `null` for skips)
 - `narrative.summary`
@@ -91,7 +133,7 @@ runs/
 - `turns[]` with adversarial attack turn
 - `detector_rubric` (judge prompt + success/blocked rubrics)
 
-**`validation.json`** — sidecar from the structural gate:
+**`validation.json`** — sidecar from the STPA compiler (or historical gate):
 
 ```json
 {
@@ -103,7 +145,8 @@ runs/
 
 Skipped scenarios (supply chain / unwritable surfaces) get a pre-plan `checks` string and no LLM call.
 
-**`manifest.json`** — batch summary (`ok`, `gate_result`, `gate_reason`, `artifact_path`, optional `errors` per scenario). `gate_result` is coverage only.
+**`artifact-manifest.json`** — run-level summary retaining exact readiness
+states, diagnostics, output paths, and per-entry errors.
 
 ## Interactive demo
 
@@ -130,13 +173,18 @@ uv run pytest tests/ -q
 
 The unit test suite is deterministic and does not require an LLM endpoint.
 
+The strict bundle, immutable intent, runtime-binding, and readiness seams are
+documented in [docs/stpa-execution-consumer.md](docs/stpa-execution-consumer.md).
+
 ## Project structure
 
 ```
-├── src/asago_artifact_generator/    # shared models, LLM client, CLI
-│   └── garak/                        # Garak platform generator
-│       ├── plugins/                  # probe + detector sources
-│       └── prompts/                  # generation prompt
+├── src/asago_artifact_generator/    # strict consumer models, planning, CLI
+│   ├── bundle/                       # verified bundle loader
+│   ├── models/                       # immutable intent/binding/readiness values
+│   ├── planning/                     # pure binding and readiness
+│   ├── platforms/                    # typed adapter seams
+│   └── garak/                        # capabilities, plan, compiler, legacy code
 ├── tests/                            # unit tests
 ├── examples/
 │   ├── scenarios/                    # input scenario YAMLs
@@ -148,7 +196,17 @@ The unit test suite is deterministic and does not require an LLM endpoint.
 
 | Module | Role |
 |--------|------|
-| `cli.py` | `typer` CLI — orchestrates classify → generate → validate → save |
+| `cli.py` | Explicit STPA `generate` CLI and isolated `generate-legacy` command |
+| `bundle/loader.py` | Strict bundle, pair, path, schema, and digest verification |
+| `models/` | Immutable `ExecutionIntent`, `RuntimeBindingSet`, and readiness models |
+| `planning/bind.py` | Pure typed runtime binding and platform readiness |
+| `platforms/base.py` | Generic platform plan/compiler and compiled-artifact seams |
+| `authoring.py` | Constrained presentation-only author interface |
+| `garak/capabilities.py` | Deterministic Garak capability facts |
+| `garak/plan.py` | Ready-plan to immutable Garak plan translation |
+| `garak/compile.py` | Deterministic Garak artifact, validator, and trace compiler |
+| `trace.py` | Immutable artifact trace and observation-receipt contracts |
+| `output.py` | Atomic readiness, plan, artifact, trace, and manifest output |
 | `garak/gen.py` | Core generation logic for Garak artifacts |
 | `garak/artifact_spec.py` | `ScenarioArtifact` schema, LLM call, `gate_artifact_errors`, artifact dicts |
 | `garak/spec_io.py` | Paths and I/O for `runs/{id}/{id}-garak.json` and `validation.json` |
