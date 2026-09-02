@@ -161,6 +161,32 @@ class ObserverPlan(ImmutableModel):
     expected: Any = None
 
 
+class StimulusPlan(ImmutableModel):
+    """One reviewed adversarial content slot in the prompt-side conversation."""
+
+    stimulus_id: StrictStr = Field(min_length=1)
+    projection_step_id: StrictStr = Field(min_length=1)
+    factor_id: StrictStr = Field(min_length=1)
+    content_slot_id: StrictStr = Field(min_length=1)
+    delivery_class: Literal["direct_prompt", "indirect_content", "conversation_context"]
+    surface: Literal["system_prompt", "user_turn", "assistant_turn", "tool_result"]
+    source_kind: Literal[
+        "user_authored", "tool_output", "retrieved_document", "conversation_history"
+    ]
+    carrier_tool_name: StrictStr = ""
+    carrier_tool_schema: Mapping[str, Any] = Field(default_factory=dict)
+    carrier_tool_arguments: Mapping[str, Any] = Field(default_factory=dict)
+    intent: StrictStr = Field(min_length=1)
+    desired_effect: StrictStr = Field(min_length=1)
+
+    @field_validator("carrier_tool_schema", "carrier_tool_arguments", mode="before")
+    @classmethod
+    def _freeze_carrier_mapping(cls, value: Any) -> Mapping[str, Any]:
+        if not isinstance(value, Mapping):
+            raise TypeError("carrier tool values must be objects")
+        return freeze_value(value)
+
+
 class ReadyExecutionPlan(ImmutableModel):
     """Complete platform plan; the only accepted input to a compiler."""
 
@@ -184,6 +210,7 @@ class ReadyExecutionPlan(ImmutableModel):
     steps: tuple[PlanStep, ...] = ()
     resolved_semantic_bindings: tuple[ResolvedSemanticBinding, ...] = ()
     observers: tuple[ObserverPlan, ...] = ()
+    stimuli: tuple[StimulusPlan, ...] = ()
     clock_binding: ClockBinding | None = None
     state_channels: tuple[StrictStr, ...] = ()
     agent_channels: tuple[StrictStr, ...] = ()
@@ -194,6 +221,7 @@ class ReadyExecutionPlan(ImmutableModel):
     @field_validator(
         "resolved_semantic_bindings",
         "observers",
+        "stimuli",
         "state_channels",
         "agent_channels",
         "content_slots",
@@ -279,6 +307,7 @@ __all__ = [
     "ReadinessDiagnostic",
     "ReadyExecutionPlan",
     "ResolvedSemanticBinding",
+    "StimulusPlan",
     "RuntimeBindingStatus",
     "SemanticBindingStatus",
     "SourceStatus",

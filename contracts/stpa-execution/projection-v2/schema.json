@@ -4,7 +4,7 @@
   "title": "STPA execution projection v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "run_id", "scenario_id", "candidate_id", "ica_slot_id", "ica_id", "controller_id", "control_action_id", "uca_type", "causal_factors", "steps", "unsafe_outcome", "execution_requirements", "trace_refs", "semantic_digest"],
+  "required": ["schema_version", "run_id", "scenario_id", "candidate_id", "ica_slot_id", "ica_id", "controller_id", "control_action_id", "uca_type", "causal_factors", "steps", "unsafe_outcome", "stimulus_requirements", "execution_requirements", "trace_refs", "semantic_digest"],
   "properties": {
     "schema_version": {"const": "stpa-execution-projection-v2"},
     "run_id": {"$ref": "#/$defs/nonempty"},
@@ -18,6 +18,7 @@
     "causal_factors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/factor"}},
     "steps": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/step"}},
     "unsafe_outcome": {"$ref": "#/$defs/unsafe_outcome"},
+    "stimulus_requirements": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/stimulus_requirement"}},
     "execution_requirements": {"$ref": "#/$defs/requirements"},
     "trace_refs": {"$ref": "#/$defs/trace_refs"},
     "semantic_digest": {"$ref": "#/$defs/digest"}
@@ -93,6 +94,17 @@
         "semantic_binding_required": {"type": "boolean"},
         "hazard_refs": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
         "constraint_refs": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}}
+      }
+    },
+    "stimulus_requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stimulus_id", "intent", "desired_effect", "eligible_factor_ids"],
+      "properties": {
+        "stimulus_id": {"type": "string", "pattern": "^STIM-\\d+$"},
+        "intent": {"$ref": "#/$defs/nonempty"},
+        "desired_effect": {"$ref": "#/$defs/nonempty"},
+        "eligible_factor_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^CF-\\d+$"}}
       }
     },
     "requirements": {

@@ -1,1 +1,11 @@
-{"content_sha256":{"valid/minimal-run/execution-bundle.json":"b2d791f08474d3dfa2ac856a048840844f18cd8deb8f2ab8e5a0b9367d5f279b","valid/minimal-run/scenarios/SCN-001.scenario.json":"adb324dce13129a1bc806119271575e4d824de98ad473ee743ef0132aab79c1d","valid/minimal-run/scenarios/canonical/SCN-001.projection.json":"d8e3f4da86199896b97d86a6d7b7263c2c4cb6a078bcfcb7b16aa139fcbe26a7"},"semantic_digests":{"valid/minimal-run/execution-bundle.json":"441208d4441e19cfaefcb779d789d096b3e5c95ac8762217eafaec369fcebefc","valid/minimal-run/scenarios/canonical/SCN-001.projection.json":"e0c2c8011878679fb033c187f3cc110f0f9f699480cafca0c10bdb9f12d88525"}}
+{
+  "content_sha256": {
+    "valid/minimal-run/execution-bundle.json": "ad6d500fea7f324ca2990d59dc810e1cc7fb011cee1374e6fa696db6c7ee0fbf",
+    "valid/minimal-run/scenarios/SCN-001.scenario.json": "adb324dce13129a1bc806119271575e4d824de98ad473ee743ef0132aab79c1d",
+    "valid/minimal-run/scenarios/canonical/SCN-001.projection.json": "14a9219649d9b815f473699c5682237c1f463944d068bff865ae43d662234437"
+  },
+  "semantic_digests": {
+    "valid/minimal-run/execution-bundle.json": "2ee02480996ef3ed97f252e7fb2aa90fe83faf96363e562463e6d2e76fb80a12",
+    "valid/minimal-run/scenarios/canonical/SCN-001.projection.json": "12c0576f69bb40cfdab2de4de91af966dd001e16ba121d9457dbf42ceeb9bdcd"
+  }
+}

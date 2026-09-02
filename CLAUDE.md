@@ -25,7 +25,7 @@ via `.env` or environment variables.
 - `bundle/loader.py` is the only bundle-loading seam; `planning/bind.py` is the
   pure typed readiness seam. Platform compilers accept only ready plans.
 - `garak/` contains deterministic capabilities, ready-plan translation,
-  compiler/validator/trace integration, and isolated historical code.
+  target-facing conversation/oracle compilation, and isolated historical code.
 - `examples/scenarios/` contains committed input scenario YAMLs.
 - `examples/demo/` contains the interactive Jupyter walkthrough and runtime.
 - `runs/` holds generated artifacts (gitignored).
@@ -35,6 +35,11 @@ command requires an explicit canonical STPA bundle and never falls back to
 legacy YAML/narrative inference. Model-backed presentation authoring runs only
 after deterministic readiness and receives fixed text slots, never execution
 choices. `--force` is rejected for authoritative STPA inputs.
+The current pre-alpha execution contracts change in place. A producer stimulus
+requirement states adversarial intent and eligible causal factors; a reviewed
+runtime binding chooses direct prompt, indirect content, or ordinary
+conversation context. Compilation must end before the target response. Probe
+selection and Garak execution belong to a separate campaign orchestrator.
 
 ## Development
 

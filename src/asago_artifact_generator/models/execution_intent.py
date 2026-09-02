@@ -232,6 +232,28 @@ class ExecutionRequirements(ImmutableModel):
         return self
 
 
+class AdversarialStimulusRequirement(ImmutableModel):
+    """Producer-owned adversarial intent awaiting a deployment binding."""
+
+    stimulus_id: StrictStr = Field(min_length=1, pattern=r"^STIM-\d+$")
+    intent: StrictStr = Field(min_length=1)
+    desired_effect: StrictStr = Field(min_length=1)
+    eligible_factor_ids: tuple[StrictStr, ...] = Field(min_length=1)
+
+    @field_validator("eligible_factor_ids", mode="before")
+    @classmethod
+    def _factor_ids_as_tuple(cls, value: Any) -> tuple[str, ...]:
+        if not isinstance(value, (list, tuple)):
+            raise TypeError("eligible_factor_ids must be an array")
+        return tuple(value)
+
+    @model_validator(mode="after")
+    def _unique_factor_ids(self) -> AdversarialStimulusRequirement:
+        if len(self.eligible_factor_ids) != len(set(self.eligible_factor_ids)):
+            raise ValueError("eligible_factor_ids must be unique")
+        return self
+
+
 class TraceReferences(ImmutableModel):
     """Producer provenance retained for artifact traceability only."""
 
@@ -304,6 +326,7 @@ class ExecutionIntent(ImmutableModel):
     causal_factors: tuple[CausalFactor, ...] = ()
     steps: tuple[ExecutionStep, ...] = ()
     unsafe_outcome: UnsafeOutcome
+    stimulus_requirements: tuple[AdversarialStimulusRequirement, ...] = ()
     execution_requirements: ExecutionRequirements
     trace_refs: TraceReferences
     presentation_context: Mapping[str, Any] = Field(default_factory=dict)
@@ -317,6 +340,13 @@ class ExecutionIntent(ImmutableModel):
         if not isinstance(value, Mapping):
             raise TypeError("presentation_context must be an object")
         return freeze_value(value)
+
+    @field_validator("stimulus_requirements", mode="before")
+    @classmethod
+    def _stimulus_requirements_as_tuple(cls, value: Any) -> tuple[Any, ...]:
+        if not isinstance(value, (list, tuple)):
+            raise TypeError("stimulus_requirements must be an array")
+        return tuple(value)
 
     @field_validator("source_file_digests", mode="before")
     @classmethod
@@ -333,6 +363,7 @@ class ExecutionIntent(ImmutableModel):
         _validate_intent_identity(self)
         _validate_intent_outcome(self)
         _validate_intent_sequences(self)
+        _validate_intent_stimuli(self)
         _validate_intent_placeholder_refs(self)
         return self
 
@@ -433,6 +464,19 @@ def _validate_intent_placeholder_refs(value: ExecutionIntent) -> None:
         raise ValueError("semantic binding references must be unique within a projection")
 
 
+def _validate_intent_stimuli(value: ExecutionIntent) -> None:
+    if not value.stimulus_requirements:
+        raise ValueError("published execution intent requires stimulus_requirements")
+    factor_ids = {factor.factor_id for factor in value.causal_factors}
+    stimulus_ids = [item.stimulus_id for item in value.stimulus_requirements]
+    if len(stimulus_ids) != len(set(stimulus_ids)):
+        raise ValueError("stimulus requirements must have unique IDs")
+    if any(
+        not set(item.eligible_factor_ids) <= factor_ids for item in value.stimulus_requirements
+    ):
+        raise ValueError("stimulus requirement refers to an unknown causal factor")
+
+
 def _intent_placeholder_refs(value: ExecutionIntent) -> tuple[str, ...]:
     factor_refs = tuple(
         placeholder.binding_ref
@@ -447,6 +491,7 @@ def _intent_placeholder_refs(value: ExecutionIntent) -> tuple[str, ...]:
 
 
 __all__ = [
+    "AdversarialStimulusRequirement",
     "CONDITION_TYPES",
     "OPERATORS",
     "SURFACE_CATEGORIES",

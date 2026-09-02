@@ -1477,7 +1477,9 @@ def compile_execution_artifact(
 
     if not isinstance(plan, ReadyExecutionPlan):
         raise TypeError("compile_execution_artifact requires a ReadyExecutionPlan")
-    return _compile_garak_plan(build_garak_plan(plan), author)
+    from .conversation import compile_conversation_case
+
+    return compile_conversation_case(plan, author)
 
 
 __all__ = [

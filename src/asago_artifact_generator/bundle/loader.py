@@ -55,6 +55,7 @@ _PROJECTION_FIELDS = frozenset(
         "causal_factors",
         "steps",
         "unsafe_outcome",
+        "stimulus_requirements",
         "execution_requirements",
         "trace_refs",
         "semantic_digest",

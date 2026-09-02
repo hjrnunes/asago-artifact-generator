@@ -9,7 +9,8 @@ scenario YAML generation is retained only behind the explicit
 execution-bundle.json + runtime-binding-set.yaml
   → strict load and identity/digest verification
   → typed binding and platform readiness
-  → deterministic Garak plan and constrained presentation authoring
+  → reviewed stimulus placement and constrained conversation authoring
+  → deterministic prompt history plus target-response oracle
   → runs/<run-id>/<scenario-id>/
 ```
 
@@ -32,12 +33,13 @@ Supported LLM backends: **Gemini** (default when `GEMINI_API_KEY` is set), **Ope
 
 1. **Verify** the canonical bundle, paired scenario/projection bytes, closed
    schema, identities, and semantic digests.
-2. **Bind** reviewed semantic values, concrete surfaces, control-action tools,
-   and observers through `RuntimeBindingSet`.
+2. **Bind** reviewed semantic values, concrete surfaces, adversarial stimulus
+   placement, control-action tools, and observers through `RuntimeBindingSet`.
 3. **Assess readiness** independently for source integrity, semantic/runtime
    binding, and Garak support. Only `overall: ready` reaches authoring.
-4. **Plan and compile** a fixed ordered transcript, bound tool declaration and
-   call, and an oracle derived from the producer unsafe condition.
+4. **Plan and compile** fixed prompt-side messages, bound tool declarations,
+   and an oracle derived from the producer unsafe condition. The target response
+   is never authored or inserted into the compiled conversation.
 5. **Publish** readiness, execution-plan, artifact, validation, trace, and a
    batch manifest atomically. Runtime observations are separate receipts.
 
@@ -84,8 +86,11 @@ asago-artifact-generator generate \
 ### Pipeline
 
 The primary command never autodetects YAML or falls back to narrative parsing.
-The model-backed author receives only fixed presentation slots after readiness;
+The model-backed author receives only fixed conversation slots after readiness;
 it cannot choose steps, surfaces, tools, values, observers, or detector logic.
+The artifact generator does not choose or run a Garak probe; a separate
+campaign orchestrator routes the compiled case using its typed delivery
+profile.
 
 ### Historical generation
 
@@ -111,17 +116,20 @@ runs/
     SCN-001/
       readiness.json
       execution-plan.json
-      SCN-001-garak.json
+      executable-conversation.json
       artifact-trace.json
       validation.json
       observations/              # optional append-only receipts
 ```
 
-For a ready STPA entry, `{scenario_id}-garak.json` contains the fixed transcript,
-bound tool declaration/call, unsafe-condition detector, source/binding identity,
-and `artifact_digest`. `artifact-trace.json` closes every emitted step and oracle
-back to the verified projection and binding set. No platform artifact is written
-for invalid, unbound, or unsupported entries.
+For a ready STPA entry, `executable-conversation.json` contains OpenAI-style
+prompt-side `messages`, reviewed tools, delivery profile, structured oracle,
+source/binding identity, and a semantic digest. Direct prompts, indirect tool
+results, and ordinary multi-turn context use the same compiler. The messages
+end before the target response; the oracle describes the unsafe behavior the
+runner must observe. `artifact-trace.json` closes the stimulus and oracle back
+to the verified projection and binding set. No artifact is written for invalid,
+unbound, or unsupported entries.
 
 The historical `generate-legacy` command retains its former artifact shape:
 
@@ -204,7 +212,8 @@ documented in [docs/stpa-execution-consumer.md](docs/stpa-execution-consumer.md)
 | `authoring.py` | Constrained presentation-only author interface |
 | `garak/capabilities.py` | Deterministic Garak capability facts |
 | `garak/plan.py` | Ready-plan to immutable Garak plan translation |
-| `garak/compile.py` | Deterministic Garak artifact, validator, and trace compiler |
+| `garak/conversation.py` | Target-facing prompt-history and oracle compiler |
+| `garak/compile.py` | Public compiler seam plus isolated historical compiler |
 | `trace.py` | Immutable artifact trace and observation-receipt contracts |
 | `output.py` | Atomic readiness, plan, artifact, trace, and manifest output |
 | `garak/gen.py` | Core generation logic for Garak artifacts |

@@ -1,1 +1,99 @@
-{"candidate_id":"EXEC:CL-1:CM-1:WRONG_TIMING","causal_factors":[{"access_refs":[],"bounded_assumption":null,"capability_refs":[],"description":"the model state diverges","evidence_status":"structural_failure","factor_id":"CF-1","kind":"PROCESS_MODEL_FLAW","order":1,"structural_source_id":"PM-1-1","temporal_condition":null}],"control_action_id":"CM-1","controller_id":"CL-1","execution_requirements":{"required_surface_categories":["external_input"],"requires_multi_agent":false,"requires_multi_turn":false,"requires_persistent_state":false,"requires_real_clock":false,"requires_state_observation":false,"requires_tool_execution":true},"ica_id":"CL-1:CM-1:WRONG_TIMING:1","ica_slot_id":"CL-1:CM-1:WRONG_TIMING","run_id":"run-1","scenario_id":"SCN-001","schema_version":"stpa-execution-projection-v2","semantic_digest":"d77b42835bb98382f5a9734334b341520409ad8e8c32d974e579fc7bf499913f","steps":[{"factor_id":"CF-1","kind":"CAUSAL_FACTOR","order":1,"step_id":"S-1","structural_source_id":"PM-1-1"},{"factor_id":null,"kind":"UNSAFE_CONTROL_ACTION","order":2,"step_id":"S-2","structural_source_id":"CM-1"}],"trace_refs":{"attack_pattern_ids":[],"constraint_ids":["SC-1"],"hazard_ids":["H-1"],"loss_ids":[],"obligation_ids":[],"risk_ids":[],"source_pins":{"control_structure":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ica_enumeration":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","loss_analysis":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","scenario_context":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},"technique_ids":[]},"uca_type":"WRONG_TIMING","unsafe_outcome":{"condition":{"delay_ms":500,"reference_ref":"PM-1-1","type":"delay"},"constraint_refs":["SC-1"],"control_action_id":"CM-1","hazard_refs":["H-1"],"outcome_id":"OUTCOME-1","semantic_binding_required":false,"uca_type":"WRONG_TIMING"}}
+{
+  "candidate_id": "EXEC:CL-1:CM-1:WRONG_TIMING",
+  "causal_factors": [
+    {
+      "access_refs": [],
+      "bounded_assumption": null,
+      "capability_refs": [],
+      "description": "the model state diverges",
+      "evidence_status": "structural_failure",
+      "factor_id": "CF-1",
+      "kind": "PROCESS_MODEL_FLAW",
+      "order": 1,
+      "structural_source_id": "PM-1-1",
+      "temporal_condition": null
+    }
+  ],
+  "control_action_id": "CM-1",
+  "controller_id": "CL-1",
+  "execution_requirements": {
+    "required_surface_categories": [
+      "external_input"
+    ],
+    "requires_multi_agent": false,
+    "requires_multi_turn": false,
+    "requires_persistent_state": false,
+    "requires_real_clock": false,
+    "requires_state_observation": false,
+    "requires_tool_execution": true
+  },
+  "ica_id": "CL-1:CM-1:WRONG_TIMING:1",
+  "ica_slot_id": "CL-1:CM-1:WRONG_TIMING",
+  "run_id": "run-1",
+  "scenario_id": "SCN-001",
+  "schema_version": "stpa-execution-projection-v2",
+  "steps": [
+    {
+      "factor_id": "CF-1",
+      "kind": "CAUSAL_FACTOR",
+      "order": 1,
+      "step_id": "S-1",
+      "structural_source_id": "PM-1-1"
+    },
+    {
+      "factor_id": null,
+      "kind": "UNSAFE_CONTROL_ACTION",
+      "order": 2,
+      "step_id": "S-2",
+      "structural_source_id": "CM-1"
+    }
+  ],
+  "trace_refs": {
+    "attack_pattern_ids": [],
+    "constraint_ids": [
+      "SC-1"
+    ],
+    "hazard_ids": [
+      "H-1"
+    ],
+    "loss_ids": [],
+    "obligation_ids": [],
+    "risk_ids": [],
+    "source_pins": {
+      "control_structure": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ica_enumeration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "loss_analysis": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "scenario_context": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "technique_ids": []
+  },
+  "uca_type": "WRONG_TIMING",
+  "unsafe_outcome": {
+    "condition": {
+      "delay_ms": 500,
+      "reference_ref": "PM-1-1",
+      "type": "delay"
+    },
+    "constraint_refs": [
+      "SC-1"
+    ],
+    "control_action_id": "CM-1",
+    "hazard_refs": [
+      "H-1"
+    ],
+    "outcome_id": "OUTCOME-1",
+    "semantic_binding_required": false,
+    "uca_type": "WRONG_TIMING"
+  },
+  "stimulus_requirements": [
+    {
+      "stimulus_id": "STIM-1",
+      "intent": "Influence the control decision through its external input.",
+      "desired_effect": "Cause the unsafe target action.",
+      "eligible_factor_ids": [
+        "CF-1"
+      ]
+    }
+  ],
+  "semantic_digest": "58bd27dd455c6a51bc1cd65febe3d649c482457bec3e0c5738f6832fafa8d750"
+}

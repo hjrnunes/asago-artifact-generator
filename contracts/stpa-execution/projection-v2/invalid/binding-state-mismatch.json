@@ -1,1 +1,107 @@
-{"candidate_id":"EXEC:CL-1:CM-1:INCORRECT","causal_factors":[{"access_refs":[],"bounded_assumption":null,"capability_refs":[],"description":"the model state diverges","evidence_status":"structural_failure","factor_id":"CF-1","kind":"PROCESS_MODEL_FLAW","order":1,"structural_source_id":"PM-1-1","temporal_condition":null}],"control_action_id":"CM-1","controller_id":"CL-1","execution_requirements":{"required_surface_categories":["external_input"],"requires_multi_agent":false,"requires_multi_turn":false,"requires_persistent_state":false,"requires_real_clock":false,"requires_state_observation":false,"requires_tool_execution":true},"ica_id":"CL-1:CM-1:INCORRECT:1","ica_slot_id":"CL-1:CM-1:INCORRECT","run_id":"run-1","scenario_id":"SCN-001","schema_version":"stpa-execution-projection-v2","semantic_digest":"7fc767f4c741bc08f0da6b50951ff1b402e3de770ec272705d0fa44660ec356d","steps":[{"factor_id":"CF-1","kind":"CAUSAL_FACTOR","order":1,"step_id":"S-1","structural_source_id":"PM-1-1"},{"factor_id":null,"kind":"UNSAFE_CONTROL_ACTION","order":2,"step_id":"S-2","structural_source_id":"CM-1"}],"trace_refs":{"attack_pattern_ids":[],"constraint_ids":["SC-1"],"hazard_ids":["H-1"],"loss_ids":[],"obligation_ids":[],"risk_ids":[],"source_pins":{"control_structure":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ica_enumeration":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","loss_analysis":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","scenario_context":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},"technique_ids":[]},"uca_type":"INCORRECT","unsafe_outcome":{"condition":{"control_action_id":"CM-1","expected":{"binding_ref":"SEM-1","description":"authorized account","maximum":null,"minimum":null,"value_type":"string"},"operator":"not_equals","property":"authorized_destination","type":"action_value"},"constraint_refs":["SC-1"],"control_action_id":"CM-1","hazard_refs":["H-1"],"outcome_id":"OUTCOME-1","semantic_binding_required":false,"uca_type":"INCORRECT"}}
+{
+  "candidate_id": "EXEC:CL-1:CM-1:INCORRECT",
+  "causal_factors": [
+    {
+      "access_refs": [],
+      "bounded_assumption": null,
+      "capability_refs": [],
+      "description": "the model state diverges",
+      "evidence_status": "structural_failure",
+      "factor_id": "CF-1",
+      "kind": "PROCESS_MODEL_FLAW",
+      "order": 1,
+      "structural_source_id": "PM-1-1",
+      "temporal_condition": null
+    }
+  ],
+  "control_action_id": "CM-1",
+  "controller_id": "CL-1",
+  "execution_requirements": {
+    "required_surface_categories": [
+      "external_input"
+    ],
+    "requires_multi_agent": false,
+    "requires_multi_turn": false,
+    "requires_persistent_state": false,
+    "requires_real_clock": false,
+    "requires_state_observation": false,
+    "requires_tool_execution": true
+  },
+  "ica_id": "CL-1:CM-1:INCORRECT:1",
+  "ica_slot_id": "CL-1:CM-1:INCORRECT",
+  "run_id": "run-1",
+  "scenario_id": "SCN-001",
+  "schema_version": "stpa-execution-projection-v2",
+  "steps": [
+    {
+      "factor_id": "CF-1",
+      "kind": "CAUSAL_FACTOR",
+      "order": 1,
+      "step_id": "S-1",
+      "structural_source_id": "PM-1-1"
+    },
+    {
+      "factor_id": null,
+      "kind": "UNSAFE_CONTROL_ACTION",
+      "order": 2,
+      "step_id": "S-2",
+      "structural_source_id": "CM-1"
+    }
+  ],
+  "trace_refs": {
+    "attack_pattern_ids": [],
+    "constraint_ids": [
+      "SC-1"
+    ],
+    "hazard_ids": [
+      "H-1"
+    ],
+    "loss_ids": [],
+    "obligation_ids": [],
+    "risk_ids": [],
+    "source_pins": {
+      "control_structure": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ica_enumeration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "loss_analysis": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "scenario_context": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "technique_ids": []
+  },
+  "uca_type": "INCORRECT",
+  "unsafe_outcome": {
+    "condition": {
+      "control_action_id": "CM-1",
+      "expected": {
+        "binding_ref": "SEM-1",
+        "description": "authorized account",
+        "maximum": null,
+        "minimum": null,
+        "value_type": "string"
+      },
+      "operator": "not_equals",
+      "property": "authorized_destination",
+      "type": "action_value"
+    },
+    "constraint_refs": [
+      "SC-1"
+    ],
+    "control_action_id": "CM-1",
+    "hazard_refs": [
+      "H-1"
+    ],
+    "outcome_id": "OUTCOME-1",
+    "semantic_binding_required": false,
+    "uca_type": "INCORRECT"
+  },
+  "stimulus_requirements": [
+    {
+      "stimulus_id": "STIM-1",
+      "intent": "Influence the control decision through its external input.",
+      "desired_effect": "Cause the unsafe target action.",
+      "eligible_factor_ids": [
+        "CF-1"
+      ]
+    }
+  ],
+  "semantic_digest": "9f23174ac2356d4844a0d65087180cca3c53f629d5af9e20be21cd245c9b7316"
+}

@@ -20,8 +20,10 @@ from ..models.readiness import (
     ReadinessDiagnostic,
     ReadyExecutionPlan,
     ResolvedSemanticBinding,
+    StimulusPlan,
 )
 from ..models.runtime_binding import (
+    AdversarialStimulusBinding,
     ControlActionBinding,
     RuntimeBindingSet,
     SurfaceBinding,
@@ -205,7 +207,13 @@ def _resolve_surfaces(
     complete = True
     for source_ref in source_refs:
         complete = (
-            _resolve_surface(source_ref, supplied.get(source_ref), capabilities, diagnostics)
+            _resolve_surface(
+                source_ref,
+                supplied.get(source_ref),
+                capabilities,
+                diagnostics,
+                target_output=source_ref == intent.control_action_id,
+            )
             and complete
         )
     return ("complete" if complete else "incomplete"), supplied
@@ -233,6 +241,8 @@ def _resolve_surface(
     item: SurfaceBinding | None,
     capabilities: PlatformCapabilities | None,
     diagnostics: list[ReadinessDiagnostic],
+    *,
+    target_output: bool = False,
 ) -> bool:
     if item is None:
         diagnostics.append(
@@ -244,8 +254,9 @@ def _resolve_surface(
             )
         )
         return False
-    writable = _validate_surface_writable(source_ref, item, diagnostics)
-    _diagnose_unsupported_surface(source_ref, item, capabilities, diagnostics)
+    writable = target_output or _validate_surface_writable(source_ref, item, diagnostics)
+    if not target_output:
+        _diagnose_unsupported_surface(source_ref, item, capabilities, diagnostics)
     return writable
 
 
@@ -400,7 +411,16 @@ def _surface_action_pair_is_compatible(surface: str, operation: str) -> bool:
     return surface != "tool_call"
 
 
-def _expected_observer_kind(condition: SemanticCondition) -> str:
+def _expected_observer_kind(
+    condition: SemanticCondition,
+    action: ControlActionBinding | None,
+) -> str:
+    if (
+        condition.type == "action_value"
+        and action is not None
+        and action.adapter_operation == "chat_completion"
+    ):
+        return "output_text"
     return {
         "ordering": "event_order",
         "delay": "elapsed_time",
@@ -418,6 +438,7 @@ def _resolve_observer(
     bindings: RuntimeBindingSet | None,
     capabilities: PlatformCapabilities | None,
     values: Mapping[tuple[str, str], Any],
+    action: ControlActionBinding | None,
     diagnostics: list[ReadinessDiagnostic],
 ) -> tuple[str, tuple[ObserverPlan, ...]]:
     conditions = _required_observer_conditions(intent)
@@ -432,6 +453,7 @@ def _resolve_observer(
             supplied.get(condition_ref),
             capabilities,
             values,
+            action,
             diagnostics,
         )
         complete = valid and complete
@@ -482,6 +504,7 @@ def _resolve_one_observer(
     observer: Any,
     capabilities: PlatformCapabilities | None,
     values: Mapping[tuple[str, str], Any],
+    action: ControlActionBinding | None,
     diagnostics: list[ReadinessDiagnostic],
 ) -> tuple[ObserverPlan | None, bool]:
     if observer is None:
@@ -494,7 +517,7 @@ def _resolve_one_observer(
             )
         )
         return None, False
-    valid = _validate_observer(condition_ref, condition, observer, diagnostics)
+    valid = _validate_observer(condition_ref, condition, observer, action, diagnostics)
     _diagnose_observer_support(condition_ref, observer, capabilities, diagnostics)
     return (
         ObserverPlan(
@@ -516,10 +539,11 @@ def _validate_observer(
     condition_ref: str,
     condition: SemanticCondition,
     observer: Any,
+    action: ControlActionBinding | None,
     diagnostics: list[ReadinessDiagnostic],
 ) -> bool:
     checks = (
-        _validate_observer_kind(condition_ref, condition, observer, diagnostics),
+        _validate_observer_kind(condition_ref, condition, observer, action, diagnostics),
         _validate_observer_property(condition_ref, condition, observer, diagnostics),
         _validate_observer_field_path(condition_ref, condition, observer, diagnostics),
         _validate_observer_sources(condition_ref, condition, observer, diagnostics),
@@ -531,9 +555,10 @@ def _validate_observer_kind(
     condition_ref: str,
     condition: SemanticCondition,
     observer: Any,
+    action: ControlActionBinding | None,
     diagnostics: list[ReadinessDiagnostic],
 ) -> bool:
-    expected_kind = _expected_observer_kind(condition)
+    expected_kind = _expected_observer_kind(condition, action)
     if observer.observer_kind == expected_kind:
         return True
     diagnostics.append(
@@ -683,6 +708,117 @@ def _check_requirements(
     _check_clock_requirement(requirements.requires_real_clock, bindings, diagnostics)
 
 
+def _resolve_stimuli(
+    intent: ExecutionIntent,
+    bindings: RuntimeBindingSet | None,
+    capabilities: PlatformCapabilities,
+    surfaces: Mapping[str, SurfaceBinding],
+    diagnostics: list[ReadinessDiagnostic],
+) -> tuple[str, tuple[StimulusPlan, ...]]:
+    supplied = {
+        item.stimulus_id: item for item in (bindings.stimulus_bindings if bindings else ())
+    }
+    required = {item.stimulus_id: item for item in intent.stimulus_requirements}
+    complete = True
+    plans: list[StimulusPlan] = []
+    for stimulus_id in sorted(set(supplied) - set(required)):
+        complete = False
+        diagnostics.append(
+            _diagnostic(
+                "runtime_binding",
+                "unsolicited_stimulus_binding",
+                f"stimulus binding {stimulus_id} is not declared by the projection",
+                "stimulus_bindings",
+            )
+        )
+    for requirement in intent.stimulus_requirements:
+        binding = supplied.get(requirement.stimulus_id)
+        if binding is None:
+            complete = False
+            diagnostics.append(
+                _diagnostic(
+                    "runtime_binding",
+                    "stimulus_binding_missing",
+                    f"no reviewed delivery is bound for {requirement.stimulus_id}",
+                    requirement.stimulus_id,
+                )
+            )
+            continue
+        valid = _validate_stimulus_binding(
+            intent, requirement, binding, capabilities, surfaces, diagnostics
+        )
+        complete = valid and complete
+        if valid:
+            plans.append(
+                StimulusPlan(
+                    stimulus_id=binding.stimulus_id,
+                    projection_step_id=binding.projection_step_id,
+                    factor_id=binding.factor_id,
+                    content_slot_id=binding.content_slot_id,
+                    delivery_class=binding.delivery_class,
+                    surface=binding.surface,
+                    source_kind=binding.source_kind,
+                    carrier_tool_name=binding.carrier_tool_name,
+                    carrier_tool_schema=binding.carrier_tool_schema,
+                    carrier_tool_arguments=binding.carrier_tool_arguments,
+                    intent=requirement.intent,
+                    desired_effect=requirement.desired_effect,
+                )
+            )
+    return ("complete" if complete else "incomplete"), tuple(plans)
+
+
+def _validate_stimulus_binding(
+    intent: ExecutionIntent,
+    requirement: Any,
+    binding: AdversarialStimulusBinding,
+    capabilities: PlatformCapabilities,
+    surfaces: Mapping[str, SurfaceBinding],
+    diagnostics: list[ReadinessDiagnostic],
+) -> bool:
+    step = next(
+        (item for item in intent.steps if item.step_id == binding.projection_step_id), None
+    )
+    valid = True
+    if (
+        step is None
+        or step.kind != "CAUSAL_FACTOR"
+        or step.factor_id != binding.factor_id
+        or binding.factor_id not in requirement.eligible_factor_ids
+    ):
+        valid = False
+        diagnostics.append(
+            _diagnostic(
+                "runtime_binding",
+                "stimulus_projection_mismatch",
+                "stimulus binding must name one eligible causal-factor step",
+                binding.stimulus_id,
+            )
+        )
+    surface = surfaces.get(step.structural_source_id) if step is not None else None
+    if surface is None or surface.surface != binding.surface:
+        valid = False
+        diagnostics.append(
+            _diagnostic(
+                "runtime_binding",
+                "stimulus_surface_mismatch",
+                "stimulus surface must equal the causal step's reviewed surface",
+                binding.stimulus_id,
+            )
+        )
+    if not capabilities.supports_surface(binding.surface):
+        valid = False
+        diagnostics.append(
+            _diagnostic(
+                "platform_support",
+                "stimulus_surface_unsupported",
+                f"platform {capabilities.platform} cannot deliver {binding.surface}",
+                binding.stimulus_id,
+            )
+        )
+    return valid
+
+
 def _diagnose_indeterminate_capabilities(
     diagnostics: list[ReadinessDiagnostic],
 ) -> None:
@@ -761,7 +897,7 @@ def _check_capability_requirements(
 
 
 _CATEGORY_SURFACES: dict[str, set[str]] = {
-    "external_input": {"user_turn", "agent_message"},
+    "external_input": {"user_turn", "tool_result", "agent_message"},
     "system_instruction": {"system_prompt"},
     "tool_result": {"tool_result"},
     "tool_definition": {"tool_definition"},
@@ -858,10 +994,13 @@ def bind_and_plan(
     action = _resolve_action(intent, bindings, capabilities, diagnostics)
     _diagnose_surface_action_pair(intent, surfaces, action, diagnostics)
     observer_status, observers = _resolve_observer(
-        intent, bindings, capabilities, values, diagnostics
+        intent, bindings, capabilities, values, action, diagnostics
+    )
+    stimulus_status, stimuli = _resolve_stimuli(
+        intent, bindings, capabilities, surfaces, diagnostics
     )
     _check_requirements(intent, bindings, capabilities, surfaces, action, diagnostics)
-    runtime_status = _runtime_status(surface_status, observer_status, diagnostics)
+    runtime_status = _runtime_status(surface_status, observer_status, stimulus_status, diagnostics)
     platform_status = _platform_status(capabilities, diagnostics)
     overall = _overall(source_status, semantic_status, runtime_status, platform_status)
     if not _can_make_plan(overall, bindings, action):
@@ -873,7 +1012,7 @@ def bind_and_plan(
             overall,
             diagnostics,
         )
-    plan = _ready_plan(intent, bindings, capabilities, resolved, observers, surfaces)
+    plan = _ready_plan(intent, bindings, capabilities, resolved, observers, stimuli, surfaces)
     return ExecutionPlanResult(
         source_status=source_status,
         semantic_binding_status=semantic_status,
@@ -929,9 +1068,10 @@ def _binding_source_status(
 def _runtime_status(
     surface_status: str,
     observer_status: str,
+    stimulus_status: str,
     diagnostics: list[ReadinessDiagnostic],
 ) -> str:
-    if surface_status == "incomplete" or observer_status == "incomplete":
+    if "incomplete" in {surface_status, observer_status, stimulus_status}:
         return "incomplete"
     if any(item.axis == "runtime_binding" for item in diagnostics):
         return "incomplete"
@@ -981,9 +1121,10 @@ def _ready_plan(
     capabilities: PlatformCapabilities,
     resolved: tuple[ResolvedSemanticBinding, ...],
     observers: tuple[ObserverPlan, ...],
+    stimuli: tuple[StimulusPlan, ...],
     surfaces: Mapping[str, SurfaceBinding],
 ) -> ReadyExecutionPlan:
-    steps, trace_map = _plan_steps(intent, surfaces, bindings, capabilities)
+    steps, trace_map = _plan_steps(intent, surfaces, bindings, capabilities, stimuli)
     return ReadyExecutionPlan(
         bundle_digest=intent.bundle_digest,
         projection_semantic_digest=intent.projection_semantic_digest,
@@ -1004,6 +1145,7 @@ def _ready_plan(
         steps=steps,
         resolved_semantic_bindings=resolved,
         observers=observers,
+        stimuli=stimuli,
         clock_binding=bindings.clock_binding,
         state_channels=_surface_refs(surfaces, {"memory", "data_store"}),
         agent_channels=_surface_refs(surfaces, {"agent_message"}),
@@ -1026,8 +1168,10 @@ def _plan_steps(
     surfaces: Mapping[str, SurfaceBinding],
     bindings: RuntimeBindingSet,
     capabilities: PlatformCapabilities,
+    stimuli: tuple[StimulusPlan, ...],
 ) -> tuple[tuple[PlanStep, ...], dict[str, Any]]:
     action = _action_for_plan(intent, bindings)
+    stimulus_slots = {item.projection_step_id: item.content_slot_id for item in stimuli}
     steps: list[PlanStep] = []
     trace_map: dict[str, Any] = {}
     for index, projection_step in enumerate(intent.steps, start=1):
@@ -1039,6 +1183,7 @@ def _plan_steps(
             surfaces[projection_step.structural_source_id],
             intent.control_action_id,
             action,
+            stimulus_slots.get(projection_step.step_id),
         )
         steps.append(step)
         trace_map[plan_id] = {
@@ -1067,10 +1212,15 @@ def _plan_step(
     surface: SurfaceBinding,
     control_action_id: str,
     action: ControlActionBinding,
+    content_slot_id: str | None,
 ) -> PlanStep:
     is_target = projection_step.kind == "UNSAFE_CONTROL_ACTION"
     action_fields = _plan_step_action_fields(
-        is_target, projection_step.step_id, control_action_id, action
+        is_target,
+        projection_step.step_id,
+        control_action_id,
+        action,
+        content_slot_id,
     )
     return PlanStep(
         plan_step_id=plan_id,
@@ -1090,6 +1240,7 @@ def _plan_step_action_fields(
     projection_step_id: str,
     control_action_id: str,
     action: ControlActionBinding,
+    content_slot_id: str | None,
 ) -> dict[str, Any]:
     if is_target:
         return {
@@ -1106,7 +1257,7 @@ def _plan_step_action_fields(
         "tool_name": "",
         "tool_schema": {},
         "safe_arguments": {},
-        "content_slot_id": f"content:{projection_step_id}",
+        "content_slot_id": content_slot_id or f"content:{projection_step_id}",
     }
 
 

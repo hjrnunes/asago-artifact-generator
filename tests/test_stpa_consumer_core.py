@@ -32,6 +32,7 @@ from asago_artifact_generator.garak.capabilities import garak_capabilities
 from asago_artifact_generator.garak.compile import compile_execution_artifact
 from asago_artifact_generator.models._base import canonical_json_bytes, compute_framed_digest
 from asago_artifact_generator.models.execution_intent import (
+    AdversarialStimulusRequirement,
     CausalFactor,
     ExecutionIntent,
     ExecutionRequirements,
@@ -42,6 +43,7 @@ from asago_artifact_generator.models.execution_intent import (
 )
 from asago_artifact_generator.models.readiness import ExecutionPlanResult, PlatformCapabilities
 from asago_artifact_generator.models.runtime_binding import (
+    AdversarialStimulusBinding,
     ClockBinding,
     ControlActionBinding,
     ObservationBinding,
@@ -137,6 +139,14 @@ def _projection(*, temporal: dict | None = None, semantic_placeholder: bool = Fa
             "hazard_refs": ["H-1"],
             "constraint_refs": ["SC-1"],
         },
+        "stimulus_requirements": [
+            {
+                "stimulus_id": "STIM-1",
+                "intent": "Influence the control decision through its external input.",
+                "desired_effect": "Cause the unsafe target action.",
+                "eligible_factor_ids": ["CF-1"],
+            }
+        ],
         "execution_requirements": {
             "requires_multi_turn": False,
             "requires_tool_execution": True,
@@ -292,6 +302,14 @@ def _intent(*, placeholder: bool = False, temporal: bool = False) -> ExecutionIn
             hazard_refs=("H-1",),
             constraint_refs=("SC-1",),
         ),
+        stimulus_requirements=(
+            AdversarialStimulusRequirement(
+                stimulus_id="STIM-1",
+                intent="Influence the control decision through its external input.",
+                desired_effect="Cause the unsafe target action.",
+                eligible_factor_ids=("CF-1",),
+            ),
+        ),
         execution_requirements=ExecutionRequirements(
             requires_tool_execution=True,
             requires_real_clock=temporal,
@@ -403,6 +421,18 @@ def _bindings(
             )
         ],
         observation_bindings=observations,
+        stimulus_bindings=[
+            AdversarialStimulusBinding(
+                stimulus_id="STIM-1",
+                projection_step_id="S-1",
+                factor_id="CF-1",
+                content_slot_id="stimulus:STIM-1",
+                delivery_class="direct_prompt",
+                surface="user_turn",
+                source_kind="user_authored",
+                review=review,
+            )
+        ],
         clock_binding=(
             ClockBinding(
                 clock_kind="monotonic",
@@ -528,6 +558,18 @@ def _vendored_runtime_bindings(intent: ExecutionIntent) -> RuntimeBindingSet:
         surface_bindings=list(surfaces_by_ref.values()),
         control_action_bindings=[action],
         observation_bindings=observations,
+        stimulus_bindings=[
+            AdversarialStimulusBinding(
+                stimulus_id="STIM-1",
+                projection_step_id="S-1",
+                factor_id="CF-1",
+                content_slot_id="stimulus:STIM-1",
+                delivery_class="direct_prompt",
+                surface="user_turn",
+                source_kind="user_authored",
+                review=review,
+            )
+        ],
         clock_binding=(
             ClockBinding(
                 clock_kind="monotonic",
@@ -572,7 +614,7 @@ def test_vendored_contract_lock_and_minimal_bundle_are_authoritative() -> None:
 
     upstream = json.loads((CONTRACT_ROOT / "UPSTREAM.lock").read_text())
     assert upstream["repository"] == "asago-scenario-generator"
-    assert upstream["revision"] == "40249d31293053b70dbc841aff3a14c7b7f92290"
+    assert upstream["revision"] == "8b54bc9112d3deaff85aac4c8f27660698787dd6"
     assert upstream["source"] == "data/contracts/stpa-execution/CONTRACT.lock"
     assert (
         upstream["contract_lock_sha256"]

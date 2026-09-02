@@ -122,6 +122,57 @@ class SurfaceBinding(ImmutableModel):
     writable: StrictBool
 
 
+class AdversarialStimulusBinding(ImmutableModel):
+    """Reviewed deployment placement for one producer stimulus requirement."""
+
+    stimulus_id: StrictStr = Field(min_length=1, pattern=r"^STIM-\d+$")
+    projection_step_id: StrictStr = Field(min_length=1, pattern=r"^S-\d+$")
+    factor_id: StrictStr = Field(min_length=1, pattern=r"^CF-\d+$")
+    content_slot_id: StrictStr = Field(min_length=1)
+    delivery_class: Literal["direct_prompt", "indirect_content", "conversation_context"]
+    surface: Literal["system_prompt", "user_turn", "assistant_turn", "tool_result"]
+    source_kind: Literal[
+        "user_authored", "tool_output", "retrieved_document", "conversation_history"
+    ]
+    carrier_tool_name: StrictStr = ""
+    carrier_tool_schema: Mapping[str, Any] = Field(default_factory=dict)
+    carrier_tool_arguments: Mapping[str, Any] = Field(default_factory=dict)
+    review: ReviewEvidence
+
+    @field_validator("carrier_tool_schema", "carrier_tool_arguments", mode="before")
+    @classmethod
+    def _freeze_carrier_mapping(cls, value: Any) -> Mapping[str, Any]:
+        if value is None:
+            return {}
+        if not isinstance(value, Mapping):
+            raise TypeError("carrier tool schema and arguments must be objects")
+        return freeze_value(value)
+
+    @model_validator(mode="after")
+    def _validate_delivery_shape(self) -> AdversarialStimulusBinding:
+        if self.delivery_class == "direct_prompt" and (
+            self.surface != "user_turn" or self.source_kind != "user_authored"
+        ):
+            raise ValueError("direct_prompt requires user_turn/user_authored")
+        if self.delivery_class == "indirect_content" and (
+            self.surface != "tool_result"
+            or self.source_kind not in {"tool_output", "retrieved_document"}
+        ):
+            raise ValueError(
+                "indirect_content requires a tool_result from tool output or retrieval"
+            )
+        carrier_present = bool(
+            self.carrier_tool_name or self.carrier_tool_schema or self.carrier_tool_arguments
+        )
+        if self.delivery_class == "indirect_content" and not (
+            self.carrier_tool_name and self.carrier_tool_schema and self.carrier_tool_arguments
+        ):
+            raise ValueError("indirect_content requires a complete carrier tool binding")
+        if self.delivery_class != "indirect_content" and carrier_present:
+            raise ValueError("carrier tool fields are reserved for indirect_content")
+        return self
+
+
 class ControlActionBinding(ImmutableModel):
     """Concrete adapter operation and deployment-owned tool declaration."""
 
@@ -200,6 +251,7 @@ class RuntimeBindingSet(ImmutableModel):
     surface_bindings: tuple[SurfaceBinding, ...] = ()
     control_action_bindings: tuple[ControlActionBinding, ...] = ()
     observation_bindings: tuple[ObservationBinding, ...] = ()
+    stimulus_bindings: tuple[AdversarialStimulusBinding, ...] = ()
     clock_binding: ClockBinding | None = None
     review: ReviewEvidence
     semantic_digest: SHA256Digest | None = None
@@ -209,6 +261,7 @@ class RuntimeBindingSet(ImmutableModel):
         "surface_bindings",
         "control_action_bindings",
         "observation_bindings",
+        "stimulus_bindings",
         mode="before",
     )
     @classmethod
@@ -269,6 +322,8 @@ class RuntimeBindingSet(ImmutableModel):
         control_action_bindings: tuple[ControlActionBinding, ...]
         | list[ControlActionBinding] = (),
         observation_bindings: tuple[ObservationBinding, ...] | list[ObservationBinding] = (),
+        stimulus_bindings: tuple[AdversarialStimulusBinding, ...]
+        | list[AdversarialStimulusBinding] = (),
         clock_binding: ClockBinding | None = None,
     ) -> RuntimeBindingSet:
         """Build and attest a binding set without a placeholder digest."""
@@ -281,6 +336,7 @@ class RuntimeBindingSet(ImmutableModel):
             surface_bindings=surface_bindings,
             control_action_bindings=control_action_bindings,
             observation_bindings=observation_bindings,
+            stimulus_bindings=stimulus_bindings,
             clock_binding=clock_binding,
             review=review,
         )
@@ -293,6 +349,7 @@ def _runtime_binding_keys(value: RuntimeBindingSet) -> tuple[tuple[str, ...], ..
         + _surface_binding_keys(value.surface_bindings)
         + _action_binding_keys(value.control_action_bindings)
         + _observation_binding_keys(value.observation_bindings)
+        + _stimulus_binding_keys(value.stimulus_bindings)
     )
 
 
@@ -318,6 +375,12 @@ def _observation_binding_keys(
     return tuple(("observation", item.condition_ref) for item in bindings)
 
 
+def _stimulus_binding_keys(
+    bindings: tuple[AdversarialStimulusBinding, ...],
+) -> tuple[tuple[str, ...], ...]:
+    return tuple(("stimulus", item.stimulus_id, item.content_slot_id) for item in bindings)
+
+
 def parse_runtime_binding_set(value: Mapping[str, Any]) -> RuntimeBindingSet:
     """Parse and verify one strict runtime-binding mapping."""
 
@@ -332,6 +395,7 @@ def parse_runtime_binding_set(value: Mapping[str, Any]) -> RuntimeBindingSet:
         "surface_bindings",
         "control_action_bindings",
         "observation_bindings",
+        "stimulus_bindings",
         "clock_binding",
         "review",
         "semantic_digest",
@@ -372,6 +436,7 @@ def load_runtime_binding_set(path: str | Path) -> RuntimeBindingSet:
 
 
 __all__ = [
+    "AdversarialStimulusBinding",
     "ClockBinding",
     "ControlActionBinding",
     "OBSERVER_KINDS",

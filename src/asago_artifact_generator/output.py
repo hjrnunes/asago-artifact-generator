@@ -84,7 +84,9 @@ def write_entry_outputs(
     if compiled is None:
         return paths
     artifact, trace, validation = compiled_documents(compiled)
-    paths["artifact"] = str(atomic_write_json(entry_dir / f"{scenario_id}-garak.json", artifact))
+    paths["artifact"] = str(
+        atomic_write_json(entry_dir / "executable-conversation.json", artifact)
+    )
     paths["validation"] = str(atomic_write_json(entry_dir / "validation.json", validation))
     paths["trace"] = str(atomic_write_json(entry_dir / "artifact-trace.json", trace))
     return paths

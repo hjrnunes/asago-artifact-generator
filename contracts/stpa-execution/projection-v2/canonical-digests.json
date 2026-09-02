@@ -1,1 +1,30 @@
-{"files":{"schema.json":"e6aad684f93fc60186d60a0c36dbfc9b2eb962fc3946176c4cd2db66aa36e57c","valid/absence.json":"05d95e818d8a0ec9faa4308d117cfd372be315e63f7a7568d976414c450d6d84","valid/delay.json":"28e8388efe5387d98092cabcdc2f2421b81f35b990f50b1aca22b0863a094d98","valid/delay-placeholder.json":"1fae4dc2d2035d60e7ae703c951f40ecdae6520fac72e275a6dc29bd2a85706e","valid/duration.json":"a78b2737e4522ec0c6e32611ff70b31918dd35e033a83e4227f4a12a8ec90c5f","valid/fully-bound.json":"05e14764e4bd8406b15dd0ebd4c6b97185d625fd5922c592fbf1ed9a073e9ec2","valid/ordering.json":"18c014afe9b532e91fded58b2f66113b4f7cdbfbf30aed23336fed39b0dfa7aa","valid/semantic-binding-required.json":"f8cf6cb8fd59aaa3c324347d52ef686a83f8d2cc91044b46b0f0c706775d0289","valid/window.json":"d602e5d342a1dffae9f09ecee9b4db8ac8d41e10f6c72ef36ba89dba3e1ae2de","invalid/binding-state-mismatch.json":"91bf651997fa911e23b772b025a611dee1e861d6ef47f5af4a6f4506d150e0b3","invalid/forged-reference.json":"f77684d787f902a52453a7381eaa4d4636422a0e345418b30fdff43d309ae460","invalid/negative-time.json":"bd37a3a956d8f0383ced7d751514b9dec69387c9949326c777b553f45c4b5c88","invalid/reversed-window.json":"2924ae27b4c6595dc3dc649f77683407b3d16409cf38c7e3fe86b4d807d95c84","invalid/runtime-observation.json":"2c40c24b583dc20cf5a002079b52f687c65d1a5f8f505318c5c749c9b6a03eb2","invalid/unknown-field.json":"54cad12ee3812e545211e1a002fc115251093ccfb16846745a1489afc33e3aea","expected-violations.json":"8ebaec710e73c018ad1806f17b9716c960d16bed6080283970affbcb77de1d51"},"semantic_digests":{"valid/absence.json":"d3b4ee9610f7012f827ec56dbe0175b5c51e83827fc0024139e3dcb47e5d7346","valid/delay.json":"d77b42835bb98382f5a9734334b341520409ad8e8c32d974e579fc7bf499913f","valid/delay-placeholder.json":"f83b20a092e2a444454a63ae575276d36723a98c1cf4393f8959803a6e435935","valid/duration.json":"62f97f53ce84f8ac70b20b538309be9602e1c256c0aec9b48d9ab454c5b6a9a9","valid/fully-bound.json":"d128a03763e55a665188b6ee20d094586bf49cefdeda49b98b7b969dd37e3932","valid/ordering.json":"f16535772aafb9f1fa654af6d6ba2c67048ed699696c587d52fe3e2afea8520b","valid/semantic-binding-required.json":"7fc767f4c741bc08f0da6b50951ff1b402e3de770ec272705d0fa44660ec356d","valid/window.json":"23ac32a0442e2dc86cea4cb781e5e46a1bed906918cd4a6bdd08d90ac85222e4"}}
+{
+  "files": {
+    "schema.json": "2231e2136bf6439b7671671105b6abb41f680bfd032a3827a69f384e02331a50",
+    "valid/absence.json": "fbf477e2c6fa4eefa12e7e8cf45434df0b831366867b093e1b5069c038d47e20",
+    "valid/delay.json": "c34c7188b934d21c3c1c9a20fc48232660481862c01a5ad0eb1b33bf7a285fd1",
+    "valid/delay-placeholder.json": "c528239e7af4aaf9096da16de66759b2b6d4ff04ad3301c5b735f74b74d59edd",
+    "valid/duration.json": "3280a0b55d27209d28e21ff468418eb1214b2810c0f98a89a8005fc6e9dd729c",
+    "valid/fully-bound.json": "8d92a69dd340c52462301bc7f451ad2b8e13c9a6b5dc1adced974a0247648230",
+    "valid/ordering.json": "4058cf91f2440897984fde70fafe653c156cc3c8cb48fce6eda5f76d55cf39e3",
+    "valid/semantic-binding-required.json": "6fc4586bfa833c6c2a90af4ea44dac6bf1be43293dacac2cdf449f346559d461",
+    "valid/window.json": "6a691e09f62c2825b8b92442fe577e17903a297d80280f135c17a875426a34ca",
+    "invalid/binding-state-mismatch.json": "542c0c3096c112e5fd03dc4e4cdf2946e985ec0f23384ac51fd090cd392fcddf",
+    "invalid/forged-reference.json": "fe4e59e7fc7b0393a192323aff1b64078e8a4416dc924bfabe4216554bff126b",
+    "invalid/negative-time.json": "ec53f8e0a5571f5b55b56efaa13996dc4c6014b645f42352fc253d747f10c868",
+    "invalid/reversed-window.json": "2d3e9d10036ec0759e9baed383bbc830eb7f6095b364f24aa831b2638dfe241f",
+    "invalid/runtime-observation.json": "762fa0575b6a7319ba9d74830b2989a51c701fbb5d4c392c231b62641f8c64ac",
+    "invalid/unknown-field.json": "a471b0250b269f9d3f1b4cdb587c7d03bedad3fd8d73d0785988167eaaaeabcd",
+    "expected-violations.json": "8ebaec710e73c018ad1806f17b9716c960d16bed6080283970affbcb77de1d51"
+  },
+  "semantic_digests": {
+    "valid/absence.json": "b4cad1c51af28c9aa49d291a0db1300f5ddca2b6327a2ee439220a312fad234a",
+    "valid/delay.json": "58bd27dd455c6a51bc1cd65febe3d649c482457bec3e0c5738f6832fafa8d750",
+    "valid/delay-placeholder.json": "3dbf97898f15ebc7d8f58820fbe9ba02d266ee0c752a4d02565f3a000d998c8c",
+    "valid/duration.json": "16da6e4d63234204e0b70c335542ec10319e32ef090711aa8955eedd2e343651",
+    "valid/fully-bound.json": "9a52da59d58e630b05871a5f9074b8cd3f2b5ce2543c08979c07ce3c8dad1358",
+    "valid/ordering.json": "29b77a2470a63736ec560c1ab41798f29b1ef16c16e46f792ce989b375c61a03",
+    "valid/semantic-binding-required.json": "ce7c1ffaa9539207a8e1d89bd620d6ef53dde7edaf483947c407851364c6f4fc",
+    "valid/window.json": "c114e2e6643eac630c9d2de8f8bb22b1a4a121bbe6e45517f9db73550669ff43"
+  }
+}

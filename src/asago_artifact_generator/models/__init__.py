@@ -6,6 +6,7 @@ seam for versioned STPA execution bundles.
 """
 
 from .execution_intent import (
+    AdversarialStimulusRequirement,
     CausalFactor,
     ExecutionIntent,
     ExecutionRequirements,
@@ -21,8 +22,10 @@ from .readiness import (
     PlatformCapabilities,
     ReadinessDiagnostic,
     ReadyExecutionPlan,
+    StimulusPlan,
 )
 from .runtime_binding import (
+    AdversarialStimulusBinding,
     ClockBinding,
     ControlActionBinding,
     ObservationBinding,
@@ -46,6 +49,8 @@ from .semantic_conditions import (
 )
 
 __all__ = [
+    "AdversarialStimulusBinding",
+    "AdversarialStimulusRequirement",
     "CausalFactor",
     "AbsenceCondition",
     "ActionPresenceCondition",
@@ -71,6 +76,7 @@ __all__ = [
     "SemanticCondition",
     "SemanticValue",
     "SurfaceBinding",
+    "StimulusPlan",
     "StateValueCondition",
     "TraceReferences",
     "UnsafeOutcome",
