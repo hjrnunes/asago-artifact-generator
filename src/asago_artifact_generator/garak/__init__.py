@@ -11,6 +11,7 @@ from .conversation import (
     compile_conversation_case,
     validate_conversation_case,
 )
+from .default_bindings import complete_garak_runtime_bindings
 from .plan import GarakPlan, GarakPlanStep, build_garak_plan
 
 __all__ = [
@@ -19,6 +20,7 @@ __all__ = [
     "GarakPlanStep",
     "build_garak_plan",
     "compile_conversation_case",
+    "complete_garak_runtime_bindings",
     "compile_execution_artifact",
     "compile_garak_artifact",
     "garak_capabilities",

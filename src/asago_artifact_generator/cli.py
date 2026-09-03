@@ -304,10 +304,11 @@ def _validate_stpa_options(bundle: Path | None, platform: str, force: bool) -> N
         raise typer.BadParameter(f"unsupported platform: {platform}")
 
 
-def _load_stpa_dependencies() -> tuple[Any, Any, Any, Any, Any, Any]:
+def _load_stpa_dependencies() -> tuple[Any, Any, Any, Any, Any, Any, Any]:
     from .bundle.loader import load_execution_bundle
     from .garak.capabilities import garak_capabilities
     from .garak.compile import compile_execution_artifact
+    from .garak.default_bindings import complete_garak_runtime_bindings
     from .garak.plan import build_garak_plan
     from .planning.bind import bind_and_plan
     from .planning.resolve_case import resolve_execution_case
@@ -319,6 +320,7 @@ def _load_stpa_dependencies() -> tuple[Any, Any, Any, Any, Any, Any]:
         build_garak_plan,
         bind_and_plan,
         resolve_execution_case,
+        complete_garak_runtime_bindings,
     )
 
 
@@ -374,6 +376,7 @@ def _process_stpa_entry(
     compile_execution_artifact: Any,
     target_profile: ExecutionTargetProfile | None,
     resolve_execution_case: Any,
+    complete_runtime_bindings: Any,
 ) -> tuple[dict[str, Any], bool]:
     try:
         execution_case = resolve_execution_case(bundle_entry.intent, target_profile)
@@ -385,11 +388,16 @@ def _process_stpa_entry(
     if isinstance(execution_case, ExecutionCaseExclusion):
         paths = write_case_exclusion(run_dir, bundle_entry.scenario_id, execution_case)
         return _case_exclusion_entry(bundle_entry.scenario_id, execution_case, paths)
+    effective_bindings = complete_runtime_bindings(
+        execution_case,
+        runtime_bindings,
+        target_profile,
+    )
     readiness, garak_plan, compiled, paths, errors, failed = _run_stpa_entry(
         bundle_entry,
         execution_case,
         run_dir,
-        runtime_bindings,
+        effective_bindings,
         capabilities,
         readiness_only,
         no_llm,
@@ -530,6 +538,7 @@ def _process_stpa_entries(
     compile_execution_artifact: Any,
     target_profile: ExecutionTargetProfile | None,
     resolve_execution_case: Any,
+    complete_runtime_bindings: Any,
 ) -> tuple[list[dict[str, Any]], bool]:
     entries: list[dict[str, Any]] = []
     failed = False
@@ -546,6 +555,7 @@ def _process_stpa_entries(
             compile_execution_artifact,
             target_profile,
             resolve_execution_case,
+            complete_runtime_bindings,
         )
         entries.append(manifest_entry)
         failed = failed or entry_failed
@@ -664,6 +674,7 @@ def generate_stpa(
         build_garak_plan,
         bind_and_plan,
         resolve_execution_case,
+        complete_garak_runtime_bindings,
     ) = _load_stpa_dependencies()
     verified = load_execution_bundle(bundle)
     runtime_bindings = _load_runtime_bindings(bindings)
@@ -683,6 +694,7 @@ def generate_stpa(
         compile_execution_artifact,
         profile,
         resolve_execution_case,
+        complete_garak_runtime_bindings,
     )
     manifest = _stpa_manifest(verified, platform, manifest_entries)
     manifest_path = write_manifest(run_dir, manifest)

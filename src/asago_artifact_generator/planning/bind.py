@@ -189,11 +189,18 @@ def _diagnose_invalid_semantic_binding(
 
 
 def _required_source_refs(intent: ExecutionIntent) -> tuple[str, ...]:
-    refs: list[str] = []
-    for factor in intent.causal_factors:
-        refs.append(factor.structural_source_id)
-    refs.extend(step.structural_source_id for step in intent.steps)
+    """Return only sources actively delivered or invoked by this plan."""
+    selected_factors = {item.factor_id for item in intent.stimulus_requirements}
+    refs = [
+        step.structural_source_id
+        for step in intent.steps
+        if step.factor_id in selected_factors or step.kind == "UNSAFE_CONTROL_ACTION"
+    ]
     return tuple(dict.fromkeys(refs))
+
+
+def _exported_source_refs(intent: ExecutionIntent) -> set[str]:
+    return {step.structural_source_id for step in intent.steps}
 
 
 def _resolve_surfaces(
@@ -204,7 +211,7 @@ def _resolve_surfaces(
 ) -> tuple[str, dict[str, SurfaceBinding]]:
     source_refs = set(_required_source_refs(intent))
     supplied = {item.source_ref: item for item in (bindings.surface_bindings if bindings else ())}
-    _diagnose_unsolicited_surfaces(bindings, source_refs, diagnostics)
+    _diagnose_unsolicited_surfaces(bindings, _exported_source_refs(intent), diagnostics)
     complete = True
     for source_ref in source_refs:
         complete = (
@@ -417,7 +424,7 @@ def _expected_observer_kind(
     action: ControlActionBinding | None,
 ) -> str:
     if (
-        condition.type == "action_value"
+        condition.type in {"action_value", "action_presence"}
         and action is not None
         and action.adapter_operation == "chat_completion"
     ):
@@ -466,10 +473,11 @@ def _resolve_observer(
 def _required_observer_conditions(
     intent: ExecutionIntent,
 ) -> list[tuple[str, SemanticCondition]]:
+    selected_factors = {item.factor_id for item in intent.stimulus_requirements}
     conditions = [
         (factor.factor_id, factor.temporal_condition)
         for factor in intent.causal_factors
-        if factor.temporal_condition is not None
+        if factor.temporal_condition is not None and factor.factor_id in selected_factors
     ]
     conditions.append((intent.unsafe_outcome.outcome_id, intent.unsafe_outcome.condition))
     return conditions
@@ -1303,12 +1311,20 @@ def _plan_steps(
 ) -> tuple[tuple[PlanStep, ...], dict[str, Any]]:
     action = _action_for_plan(intent, bindings)
     stimulus_slots = {item.projection_step_id: item.content_slot_id for item in stimuli}
+    steps = _build_plan_steps(intent, surfaces, stimulus_slots, action)
+    return steps, _plan_trace(intent, steps)
+
+
+def _build_plan_steps(
+    intent: ExecutionIntent,
+    surfaces: Mapping[str, SurfaceBinding],
+    stimulus_slots: Mapping[str, str],
+    action: ControlActionBinding,
+) -> tuple[PlanStep, ...]:
     steps: list[PlanStep] = []
-    trace_map: dict[str, Any] = {}
-    for index, projection_step in enumerate(intent.steps, start=1):
-        plan_id = f"plan-{index}"
+    for index, projection_step in enumerate(_active_steps(intent), start=1):
         step = _plan_step(
-            plan_id,
+            f"plan-{index}",
             index,
             projection_step,
             surfaces[projection_step.structural_source_id],
@@ -1317,16 +1333,46 @@ def _plan_steps(
             stimulus_slots.get(projection_step.step_id),
         )
         steps.append(step)
-        trace_map[plan_id] = {
+    return tuple(steps)
+
+
+def _plan_trace(
+    intent: ExecutionIntent,
+    steps: tuple[PlanStep, ...],
+) -> dict[str, Any]:
+    trace_map = {
+        step.plan_step_id: {
             "projection_step_id": projection_step.step_id,
             "factor_id": projection_step.factor_id,
             "structural_source_id": projection_step.structural_source_id,
         }
+        for step, projection_step in zip(steps, _active_steps(intent), strict=True)
+    }
     trace_map["oracle-1"] = {
         "condition_ref": intent.unsafe_outcome.outcome_id,
         "condition_type": intent.unsafe_outcome.condition.type,
     }
-    return tuple(steps), trace_map
+    active_ids = {step.projection_step_id for step in steps}
+    trace_map["provenance_factors"] = [
+        {
+            "projection_step_id": step.step_id,
+            "factor_id": step.factor_id,
+            "structural_source_id": step.structural_source_id,
+        }
+        for step in intent.steps
+        if step.kind == "CAUSAL_FACTOR" and step.step_id not in active_ids
+    ]
+    return trace_map
+
+
+def _active_steps(intent: ExecutionIntent) -> tuple[Any, ...]:
+    """Keep provenance-only factors out of executable prompt steps."""
+    selected_factors = {item.factor_id for item in intent.stimulus_requirements}
+    return tuple(
+        step
+        for step in intent.steps
+        if step.kind == "UNSAFE_CONTROL_ACTION" or step.factor_id in selected_factors
+    )
 
 
 def _action_for_plan(intent: ExecutionIntent, bindings: RuntimeBindingSet) -> ControlActionBinding:

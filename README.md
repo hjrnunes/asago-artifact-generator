@@ -6,7 +6,7 @@ scenario YAML generation is retained only behind the explicit
 `generate-legacy` command.
 
 ```
-execution-bundle.json + runtime-binding-set.yaml
+execution-bundle.json + optional target/runtime bindings
   → strict load and identity/digest verification
   → typed binding and platform readiness
   → reviewed stimulus placement and constrained conversation authoring
@@ -33,14 +33,16 @@ Supported LLM backends: **Gemini** (default when `GEMINI_API_KEY` is set), **Ope
 
 1. **Verify** the canonical bundle, paired scenario/projection bytes, closed
    schema, identities, and semantic digests.
-2. **Resolve** each producer-owned execution contract against an explicit,
-   reviewed target profile. This produces either a `BoundExecutionCase` or a
-   typed exclusion; the consumer never invents a tool or changes the attack.
-   An explicit complete simulation profile may be inferred, but its selected
-   simulation behavior is retained and the resulting claim stays
-   simulation-scoped.
-3. **Bind** reviewed semantic values, concrete surfaces, stimulus delivery,
-   control-action tools, and observers through `RuntimeBindingSet`.
+2. **Resolve** each producer-owned execution contract against its requested
+   environment basis. Target-agnostic model conversations need no profile;
+   tools and other resource-backed actions require an explicit reviewed target
+   profile. An explicit complete simulation profile may instead be inferred,
+   but its selected behavior is retained and the claim stays simulation-scoped.
+   Resolution produces either a `BoundExecutionCase` or a typed exclusion; the
+   consumer never invents a tool or changes the attack.
+3. **Bind** deployment-specific values through `RuntimeBindingSet`. The Garak
+   adapter deterministically supplies its standard user-turn, conversation,
+   chat-completion, target-response, and semantic-output-observer mechanics.
 4. **Assess readiness** independently for source integrity, semantic/runtime
    binding, and Garak support. Only `overall: ready` reaches authoring.
 5. **Plan and compile** fixed prompt-side messages, bound tool declarations,
@@ -67,21 +69,20 @@ Each platform generator lives in its own subpackage under
 # Verify, bind and compile all bundle entries for Garak
 asago-artifact-generator generate \
   --bundle <run>/execution-bundle.json \
-  --bindings <runtime-binding-set.yaml> \
   --platform garak \
   --output-dir runs
 
 # Readiness and plan only; no authoring, model client, or artifact compilation
 asago-artifact-generator generate \
   --bundle <run>/execution-bundle.json \
-  --bindings <runtime-binding-set.yaml> \
   --readiness-only
 ```
 
 | Flag | Effect |
 |------|--------|
 | `--bundle PATH` | Required canonical `stpa-execution-bundle-v1` JSON index |
-| `--bindings PATH` | Optional reviewed `runtime-binding-set-v1` YAML/JSON |
+| `--bindings PATH` | Optional deployment-specific `runtime-binding-set-v1` YAML/JSON; Garak fills routine chat mechanics |
+| `--target-profile PATH` | Required when the contract names target tools, integrations, state, or other environment resources |
 | `--platform garak` | Select the deterministic Garak adapter |
 | `--readiness-only` | Validate, bind, and plan without authoring or compilation |
 | `--no-llm` | Compile only when all presentation slots are already supplied |
@@ -102,6 +103,16 @@ target resources; without one, the entry is retained as a typed exclusion.
 Every profile match includes the requirement's exact surfaces, operation,
 owner, role, properties, and attacker-influence facts; no fuzzy or prose
 fallback is used.
+
+The Garak adapter does not require operators to restate mechanics it already
+owns. A literal direct-prompt/model-output or conversation-context/model-output
+case can therefore reach readiness without `--bindings`. Only the
+stimulus-selected factor becomes a writable prompt-side surface; other causal
+factors remain traceable provenance. Semantic placeholders, target tools,
+indirect carrier invocations, real clocks, persistent state, and external
+observers still require explicit evidence. A semantic model-output oracle is
+compiled from its property, operator, and expected literal rather than treated
+as an exact full-response string comparison.
 
 ### Historical generation
 
@@ -226,6 +237,7 @@ documented in [docs/stpa-execution-consumer.md](docs/stpa-execution-consumer.md)
 | `platforms/base.py` | Generic platform plan/compiler and compiled-artifact seams |
 | `authoring.py` | Constrained presentation-only author interface |
 | `garak/capabilities.py` | Deterministic Garak capability facts |
+| `garak/default_bindings.py` | Deterministic completion of routine Garak chat bindings |
 | `garak/plan.py` | Ready-plan to immutable Garak plan translation |
 | `garak/conversation.py` | Target-facing prompt-history and oracle compiler |
 | `garak/compile.py` | Public compiler seam plus isolated historical compiler |
