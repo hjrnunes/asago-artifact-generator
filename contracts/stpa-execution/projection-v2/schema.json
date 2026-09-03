@@ -1,150 +1,1342 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "stpa-execution-projection-v2",
-  "title": "STPA execution projection v2",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["schema_version", "run_id", "scenario_id", "candidate_id", "ica_slot_id", "ica_id", "controller_id", "control_action_id", "uca_type", "causal_factors", "steps", "unsafe_outcome", "stimulus_requirements", "execution_requirements", "trace_refs", "semantic_digest"],
-  "properties": {
-    "schema_version": {"const": "stpa-execution-projection-v2"},
-    "run_id": {"$ref": "#/$defs/nonempty"},
-    "scenario_id": {"$ref": "#/$defs/nonempty"},
-    "candidate_id": {"$ref": "#/$defs/nonempty"},
-    "ica_slot_id": {"$ref": "#/$defs/nonempty"},
-    "ica_id": {"$ref": "#/$defs/nonempty"},
-    "controller_id": {"$ref": "#/$defs/nonempty"},
-    "control_action_id": {"$ref": "#/$defs/nonempty"},
-    "uca_type": {"enum": ["NOT_PROVIDED", "INCORRECT", "WRONG_TIMING", "WRONG_DURATION"]},
-    "causal_factors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/factor"}},
-    "steps": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/step"}},
-    "unsafe_outcome": {"$ref": "#/$defs/unsafe_outcome"},
-    "stimulus_requirements": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/stimulus_requirement"}},
-    "execution_requirements": {"$ref": "#/$defs/requirements"},
-    "trace_refs": {"$ref": "#/$defs/trace_refs"},
-    "semantic_digest": {"$ref": "#/$defs/digest"}
-  },
   "$defs": {
-    "nonempty": {"type": "string", "minLength": 1},
-    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "scalar": {"anyOf": [{"type": "string"}, {"type": "integer"}, {"type": "number"}, {"type": "boolean"}]},
-    "placeholder": {
-      "type": "object",
+    "classification_AmbiguousExecutionMatch": {
       "additionalProperties": false,
-      "required": ["binding_ref", "value_type", "description"],
+      "description": "All exact candidates retained when a role is not uniquely resolved.",
       "properties": {
-        "binding_ref": {"type": "string", "pattern": "^SEM-[A-Za-z0-9._-]+$"},
-        "value_type": {"enum": ["string", "integer", "number", "boolean"]},
-        "description": {"$ref": "#/$defs/nonempty"},
-        "minimum": {"type": ["integer", "number", "null"], "minimum": 0},
-        "maximum": {"type": ["integer", "number", "null"], "minimum": 0}
-      }
+        "candidate_resource_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "title": "Candidate Resource Ids",
+          "type": "array"
+        },
+        "requirement_id": {
+          "pattern": "^REQ-[A-Za-z0-9._-]+$",
+          "title": "Requirement Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "candidate_resource_ids"
+      ],
+      "title": "AmbiguousExecutionMatch",
+      "type": "object"
     },
-    "scalar_or_placeholder": {"anyOf": [{"$ref": "#/$defs/scalar"}, {"$ref": "#/$defs/placeholder"}]},
-    "operator": {"enum": ["equals", "not_equals", "contains", "not_contains", "greater_than", "greater_than_or_equal", "less_than", "less_than_or_equal"]},
+    "classification_ExecutionClassification": {
+      "additionalProperties": false,
+      "description": "Deterministic classification and evidence for one execution contract.",
+      "properties": {
+        "classification_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "stpa-execution-classification-v1"
+        },
+        "binding_completeness": {
+          "$ref": "#/$defs/classification_BindingCompleteness"
+        },
+        "environment_basis": {
+          "$ref": "#/$defs/classification_EnvironmentBasis"
+        },
+        "profile_fit": {
+          "$ref": "#/$defs/classification_ExecutionProfileFit"
+        },
+        "claim_scope": {
+          "$ref": "#/$defs/classification_ExecutionClaimScope"
+        },
+        "resolved_bindings": {
+          "items": {
+            "$ref": "#/$defs/classification_ResolvedExecutionBinding"
+          },
+          "type": "array"
+        },
+        "unresolved_requirement_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ambiguous_matches": {
+          "items": {
+            "$ref": "#/$defs/classification_AmbiguousExecutionMatch"
+          },
+          "type": "array"
+        },
+        "unsupported_requirement_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/classification_ExecutionClassificationDiagnostic"
+          },
+          "type": "array"
+        },
+        "target_profile_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "binding_completeness",
+        "environment_basis",
+        "profile_fit",
+        "claim_scope",
+        "classification_digest"
+      ],
+      "title": "ExecutionClassification",
+      "type": "object"
+    },
+    "contract_SemanticExecutionContract": {
+      "additionalProperties": false,
+      "description": "Closed scenario-owned semantic execution intent.",
+      "properties": {
+        "semantic_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "stpa-execution-contract-v1"
+        },
+        "disposition": {
+          "$ref": "#/$defs/contract_ExecutionContractDisposition"
+        },
+        "requested_environment_basis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/contract_RequestedEnvironmentBasis"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delivery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/contract_SemanticExecutionDelivery"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "action_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/contract_ExecutionActionKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resource_requirements": {
+          "items": {
+            "$ref": "#/$defs/contract_ExecutionResourceRequirement"
+          },
+          "type": "array"
+        },
+        "gaps": {
+          "items": {
+            "$ref": "#/$defs/contract_SemanticExecutionGap"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "disposition",
+        "requested_environment_basis",
+        "delivery",
+        "action_kind",
+        "resource_requirements",
+        "gaps",
+        "semantic_digest"
+      ],
+      "title": "SemanticExecutionContract",
+      "type": "object"
+    },
+    "classification_BindingCompleteness": {
+      "description": "Whether semantic resource roles are completely resolved.",
+      "enum": [
+        "concrete",
+        "parameterized",
+        "analytical_only"
+      ],
+      "title": "BindingCompleteness",
+      "type": "string"
+    },
+    "classification_EnvironmentBasis": {
+      "description": "The evidence basis available for executing a semantic contract.",
+      "enum": [
+        "target_agnostic",
+        "target_profile",
+        "simulation_profile",
+        "none"
+      ],
+      "title": "EnvironmentBasis",
+      "type": "string"
+    },
+    "classification_ExecutionClaimScope": {
+      "description": "The strongest claim a producer classification is allowed to make.",
+      "enum": [
+        "model_behavior_only",
+        "target_specific_intent",
+        "agent_behavior_with_simulated_tools",
+        "no_execution_claim"
+      ],
+      "title": "ExecutionClaimScope",
+      "type": "string"
+    },
+    "classification_ExecutionClassificationDiagnostic": {
+      "additionalProperties": false,
+      "description": "One deterministic reason a semantic contract is not fully bound.",
+      "properties": {
+        "candidate_resource_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Resource Ids",
+          "type": "array"
+        },
+        "code": {
+          "$ref": "#/$defs/classification_ExecutionDiagnosticCode"
+        },
+        "detail": {
+          "minLength": 1,
+          "title": "Detail",
+          "type": "string"
+        },
+        "requirement_id": {
+          "anyOf": [
+            {
+              "pattern": "^REQ-[A-Za-z0-9._-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requirement Id"
+        }
+      },
+      "required": [
+        "code",
+        "detail"
+      ],
+      "title": "ExecutionClassificationDiagnostic",
+      "type": "object"
+    },
+    "classification_ExecutionDiagnosticCode": {
+      "description": "Closed deterministic diagnostic vocabulary.",
+      "enum": [
+        "target_profile_not_supplied",
+        "target_resource_unresolved",
+        "target_resource_ambiguous",
+        "operation_unsupported",
+        "profile_inventory_unknown",
+        "profile_inferred_only",
+        "simulation_contract_missing",
+        "oracle_missing",
+        "execution_route_missing",
+        "explicit_target_ref_dangling",
+        "target_profile_digest_mismatch"
+      ],
+      "title": "ExecutionDiagnosticCode",
+      "type": "string"
+    },
+    "classification_ExecutionProfileFit": {
+      "description": "Deterministic fit of a contract against a selected profile.",
+      "enum": [
+        "not_required",
+        "matched",
+        "needs_binding",
+        "ambiguous",
+        "unsupported",
+        "invalid"
+      ],
+      "title": "ExecutionProfileFit",
+      "type": "string"
+    },
+    "classification_ResolvedExecutionBinding": {
+      "additionalProperties": false,
+      "description": "One exact requirement/resource/operation match.",
+      "properties": {
+        "operation_id": {
+          "minLength": 1,
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "requirement_id": {
+          "pattern": "^REQ-[A-Za-z0-9._-]+$",
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "resource_id": {
+          "minLength": 1,
+          "title": "Resource Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "resource_id",
+        "operation_id"
+      ],
+      "title": "ResolvedExecutionBinding",
+      "type": "object"
+    },
     "condition": {
       "oneOf": [
-        {"type": "object", "additionalProperties": false, "required": ["type", "reference_step_id", "relation"], "properties": {"type": {"const": "ordering"}, "reference_step_id": {"type": "string", "pattern": "^S-\\d+$"}, "relation": {"enum": ["before", "after"]}}},
-        {"type": "object", "additionalProperties": false, "required": ["type", "reference_ref", "delay_ms"], "properties": {"type": {"const": "delay"}, "reference_ref": {"$ref": "#/$defs/nonempty"}, "delay_ms": {"anyOf": [{"type": "integer", "minimum": 0}, {"$ref": "#/$defs/placeholder"}]}}},
-        {"type": "object", "additionalProperties": false, "required": ["type", "reference_ref", "duration_ms"], "properties": {"type": {"const": "duration"}, "reference_ref": {"$ref": "#/$defs/nonempty"}, "duration_ms": {"anyOf": [{"type": "integer", "minimum": 0}, {"$ref": "#/$defs/placeholder"}]}}},
-        {"type": "object", "additionalProperties": false, "required": ["type", "reference_ref", "window_from_ms", "window_to_ms"], "properties": {"type": {"const": "window"}, "reference_ref": {"$ref": "#/$defs/nonempty"}, "window_from_ms": {"anyOf": [{"type": "integer", "minimum": 0}, {"$ref": "#/$defs/placeholder"}]}, "window_to_ms": {"anyOf": [{"type": "integer", "minimum": 0}, {"$ref": "#/$defs/placeholder"}]}}},
-        {"type": "object", "additionalProperties": false, "required": ["type", "reference_ref", "until_step_id"], "properties": {"type": {"const": "absence"}, "reference_ref": {"$ref": "#/$defs/nonempty"}, "until_step_id": {"type": "string", "pattern": "^S-\\d+$"}}},
-        {"type": "object", "additionalProperties": false, "required": ["type", "control_action_id", "expected"], "properties": {"type": {"const": "action_presence"}, "control_action_id": {"$ref": "#/$defs/nonempty"}, "expected": {"const": "not_provided"}}},
-        {"type": "object", "additionalProperties": false, "required": ["type", "control_action_id", "property", "operator", "expected"], "properties": {"type": {"const": "action_value"}, "control_action_id": {"$ref": "#/$defs/nonempty"}, "property": {"$ref": "#/$defs/nonempty"}, "operator": {"$ref": "#/$defs/operator"}, "expected": {"$ref": "#/$defs/scalar_or_placeholder"}}},
-        {"type": "object", "additionalProperties": false, "required": ["type", "subject_ref", "property", "operator", "expected"], "properties": {"type": {"const": "state_value"}, "subject_ref": {"$ref": "#/$defs/nonempty"}, "property": {"$ref": "#/$defs/nonempty"}, "operator": {"$ref": "#/$defs/operator"}, "expected": {"$ref": "#/$defs/scalar_or_placeholder"}}}
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reference_step_id": {
+              "pattern": "^S-\\d+$",
+              "type": "string"
+            },
+            "relation": {
+              "enum": [
+                "before",
+                "after"
+              ]
+            },
+            "type": {
+              "const": "ordering"
+            }
+          },
+          "required": [
+            "type",
+            "reference_step_id",
+            "relation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "delay_ms": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "$ref": "#/$defs/placeholder"
+                }
+              ]
+            },
+            "reference_ref": {
+              "$ref": "#/$defs/nonempty"
+            },
+            "type": {
+              "const": "delay"
+            }
+          },
+          "required": [
+            "type",
+            "reference_ref",
+            "delay_ms"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "duration_ms": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "$ref": "#/$defs/placeholder"
+                }
+              ]
+            },
+            "reference_ref": {
+              "$ref": "#/$defs/nonempty"
+            },
+            "type": {
+              "const": "duration"
+            }
+          },
+          "required": [
+            "type",
+            "reference_ref",
+            "duration_ms"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reference_ref": {
+              "$ref": "#/$defs/nonempty"
+            },
+            "type": {
+              "const": "window"
+            },
+            "window_from_ms": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "$ref": "#/$defs/placeholder"
+                }
+              ]
+            },
+            "window_to_ms": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "$ref": "#/$defs/placeholder"
+                }
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "reference_ref",
+            "window_from_ms",
+            "window_to_ms"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reference_ref": {
+              "$ref": "#/$defs/nonempty"
+            },
+            "type": {
+              "const": "absence"
+            },
+            "until_step_id": {
+              "pattern": "^S-\\d+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "reference_ref",
+            "until_step_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "control_action_id": {
+              "$ref": "#/$defs/nonempty"
+            },
+            "expected": {
+              "const": "not_provided"
+            },
+            "type": {
+              "const": "action_presence"
+            }
+          },
+          "required": [
+            "type",
+            "control_action_id",
+            "expected"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "control_action_id": {
+              "$ref": "#/$defs/nonempty"
+            },
+            "expected": {
+              "$ref": "#/$defs/scalar_or_placeholder"
+            },
+            "operator": {
+              "$ref": "#/$defs/operator"
+            },
+            "property": {
+              "$ref": "#/$defs/nonempty"
+            },
+            "type": {
+              "const": "action_value"
+            }
+          },
+          "required": [
+            "type",
+            "control_action_id",
+            "property",
+            "operator",
+            "expected"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "expected": {
+              "$ref": "#/$defs/scalar_or_placeholder"
+            },
+            "operator": {
+              "$ref": "#/$defs/operator"
+            },
+            "property": {
+              "$ref": "#/$defs/nonempty"
+            },
+            "subject_ref": {
+              "$ref": "#/$defs/nonempty"
+            },
+            "type": {
+              "const": "state_value"
+            }
+          },
+          "required": [
+            "type",
+            "subject_ref",
+            "property",
+            "operator",
+            "expected"
+          ],
+          "type": "object"
+        }
       ]
     },
+    "contract_AttackerInfluence": {
+      "description": "Whether an adversary can influence a target resource.",
+      "enum": [
+        "none",
+        "direct",
+        "indirect",
+        "unknown"
+      ],
+      "title": "AttackerInfluence",
+      "type": "string"
+    },
+    "contract_ExecutionActionKind": {
+      "description": "The semantic action whose unsafe outcome is observed.",
+      "enum": [
+        "model_output",
+        "tool_call",
+        "state_change",
+        "agent_message",
+        "environment_action"
+      ],
+      "title": "ExecutionActionKind",
+      "type": "string"
+    },
+    "contract_ExecutionContractDisposition": {
+      "description": "Whether Stage 5 supplied an executable route or a semantic gap.",
+      "enum": [
+        "executable_route",
+        "analytical_only"
+      ],
+      "title": "ExecutionContractDisposition",
+      "type": "string"
+    },
+    "contract_ExecutionDeliveryClass": {
+      "description": "The one producer-selected way an adversarial stimulus enters.",
+      "enum": [
+        "direct_prompt",
+        "indirect_content",
+        "conversation_context"
+      ],
+      "title": "ExecutionDeliveryClass",
+      "type": "string"
+    },
+    "contract_ExecutionResourceKind": {
+      "description": "Platform-neutral kind of semantic resource.",
+      "enum": [
+        "surface",
+        "tool",
+        "integration",
+        "state_store",
+        "agent_channel"
+      ],
+      "title": "ExecutionResourceKind",
+      "type": "string"
+    },
+    "contract_ExecutionSurface": {
+      "description": "Closed semantic surfaces exposed by a target resource.",
+      "enum": [
+        "user_input",
+        "external_content",
+        "conversation_context",
+        "tool_call",
+        "tool_result",
+        "tool_definition",
+        "state_observation",
+        "agent_message",
+        "environment_event"
+      ],
+      "title": "ExecutionSurface",
+      "type": "string"
+    },
+    "contract_ExecutionResourcePurpose": {
+      "description": "Why a semantic execution resource is needed.",
+      "enum": [
+        "stimulus_carrier",
+        "target_action",
+        "state_resource",
+        "agent_channel"
+      ],
+      "title": "ExecutionResourcePurpose",
+      "type": "string"
+    },
+    "contract_ExecutionResourceRequirement": {
+      "additionalProperties": false,
+      "description": "One semantic resource role required by the selected execution path.",
+      "properties": {
+        "evidence_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "exact_resource_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exact Resource Id"
+        },
+        "factor_id": {
+          "anyOf": [
+            {
+              "pattern": "^CF-\\d+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Factor Id"
+        },
+        "late_bindable": {
+          "title": "Late Bindable",
+          "type": "boolean"
+        },
+        "operation": {
+          "minLength": 1,
+          "pattern": "^(?:[a-z][a-z0-9]*(?:_[a-z0-9]+)*|(?:CA|CM)-[A-Za-z0-9._-]+)$",
+          "title": "Operation",
+          "type": "string"
+        },
+        "owner_ref": {
+          "minLength": 1,
+          "title": "Owner Ref",
+          "type": "string"
+        },
+        "purpose": {
+          "$ref": "#/$defs/contract_ExecutionResourcePurpose"
+        },
+        "required_attacker_influence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/contract_AttackerInfluence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "required_properties": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Properties",
+          "type": "array"
+        },
+        "required_surfaces": {
+          "items": {
+            "$ref": "#/$defs/contract_ExecutionSurface"
+          },
+          "minItems": 1,
+          "title": "Required Surfaces",
+          "type": "array"
+        },
+        "requirement_id": {
+          "pattern": "^REQ-[A-Za-z0-9._-]+$",
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "acceptable_resource_kinds": {
+          "items": {
+            "$ref": "#/$defs/contract_ExecutionResourceKind"
+          },
+          "minItems": 1,
+          "title": "Acceptable Resource Kinds",
+          "type": "array"
+        },
+        "role_id": {
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+          "title": "Role Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "purpose",
+        "owner_ref",
+        "acceptable_resource_kinds",
+        "role_id",
+        "operation",
+        "required_surfaces",
+        "late_bindable"
+      ],
+      "title": "ExecutionResourceRequirement",
+      "type": "object"
+    },
+    "contract_ExecutionSemanticGapCode": {
+      "description": "Closed reasons why a finding cannot describe an executable route.",
+      "enum": [
+        "delivery_path_missing",
+        "operation_missing",
+        "resource_role_missing",
+        "observable_oracle_missing"
+      ],
+      "title": "ExecutionSemanticGapCode",
+      "type": "string"
+    },
+    "contract_RequestedEnvironmentBasis": {
+      "description": "Environment basis explicitly selected by the producer caller.",
+      "enum": [
+        "target_profile",
+        "simulation_profile",
+        "target_agnostic"
+      ],
+      "title": "RequestedEnvironmentBasis",
+      "type": "string"
+    },
+    "contract_SemanticExecutionDelivery": {
+      "additionalProperties": false,
+      "description": "One selected delivery route and its request-local factor handle.",
+      "properties": {
+        "carrier_requirement_id": {
+          "anyOf": [
+            {
+              "pattern": "^REQ-[A-Za-z0-9._-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Carrier Requirement Id"
+        },
+        "delivery_class": {
+          "$ref": "#/$defs/contract_ExecutionDeliveryClass"
+        },
+        "factor_id": {
+          "pattern": "^CF-\\d+$",
+          "title": "Factor Id",
+          "type": "string"
+        },
+        "source_role": {
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+          "title": "Source Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "delivery_class",
+        "factor_id",
+        "source_role"
+      ],
+      "title": "SemanticExecutionDelivery",
+      "type": "object"
+    },
+    "contract_SemanticExecutionGap": {
+      "additionalProperties": false,
+      "description": "Explicit evidence that a finding is analytical rather than executable.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/contract_ExecutionSemanticGapCode"
+        },
+        "detail": {
+          "minLength": 1,
+          "title": "Detail",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "code",
+        "detail",
+        "evidence_refs"
+      ],
+      "title": "SemanticExecutionGap",
+      "type": "object"
+    },
+    "digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
     "factor": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["factor_id", "order", "kind", "structural_source_id", "description", "evidence_status", "capability_refs", "access_refs", "bounded_assumption", "temporal_condition"],
       "properties": {
-        "factor_id": {"type": "string", "pattern": "^CF-\\d+$"},
-        "order": {"type": "integer", "minimum": 1},
-        "kind": {"enum": ["PROCESS_MODEL_FLAW", "FEEDBACK_DELAY", "SENSOR_ANOMALY", "ACTUATOR_ANOMALY"]},
-        "structural_source_id": {"$ref": "#/$defs/nonempty"},
-        "description": {"$ref": "#/$defs/nonempty"},
-        "evidence_status": {"enum": ["structural_failure", "reachable_capability", "bounded_assumption"]},
-        "capability_refs": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
-        "access_refs": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
-        "bounded_assumption": {"type": ["string", "null"]},
-        "temporal_condition": {"anyOf": [{"$ref": "#/$defs/condition"}, {"type": "null"}]}
-      }
+        "access_refs": {
+          "items": {
+            "$ref": "#/$defs/nonempty"
+          },
+          "type": "array"
+        },
+        "bounded_assumption": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capability_refs": {
+          "items": {
+            "$ref": "#/$defs/nonempty"
+          },
+          "type": "array"
+        },
+        "description": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "evidence_status": {
+          "enum": [
+            "structural_failure",
+            "reachable_capability",
+            "bounded_assumption"
+          ]
+        },
+        "factor_id": {
+          "pattern": "^CF-\\d+$",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "PROCESS_MODEL_FLAW",
+            "FEEDBACK_DELAY",
+            "SENSOR_ANOMALY",
+            "ACTUATOR_ANOMALY"
+          ]
+        },
+        "order": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "structural_source_id": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "temporal_condition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/condition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "factor_id",
+        "order",
+        "kind",
+        "structural_source_id",
+        "description",
+        "evidence_status",
+        "capability_refs",
+        "access_refs",
+        "bounded_assumption",
+        "temporal_condition"
+      ],
+      "type": "object"
     },
-    "step": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["step_id", "order", "kind", "factor_id", "structural_source_id"],
-      "properties": {
-        "step_id": {"type": "string", "pattern": "^S-\\d+$"},
-        "order": {"type": "integer", "minimum": 1},
-        "kind": {"enum": ["CAUSAL_FACTOR", "UNSAFE_CONTROL_ACTION"]},
-        "factor_id": {"anyOf": [{"type": "string", "pattern": "^CF-\\d+$"}, {"type": "null"}]},
-        "structural_source_id": {"$ref": "#/$defs/nonempty"}
-      }
+    "nonempty": {
+      "minLength": 1,
+      "type": "string"
     },
-    "unsafe_outcome": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["outcome_id", "control_action_id", "uca_type", "condition", "semantic_binding_required", "hazard_refs", "constraint_refs"],
-      "properties": {
-        "outcome_id": {"type": "string", "pattern": "^OUTCOME-[A-Za-z0-9._-]+$"},
-        "control_action_id": {"$ref": "#/$defs/nonempty"},
-        "uca_type": {"enum": ["NOT_PROVIDED", "INCORRECT", "WRONG_TIMING", "WRONG_DURATION"]},
-        "condition": {"$ref": "#/$defs/condition"},
-        "semantic_binding_required": {"type": "boolean"},
-        "hazard_refs": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
-        "constraint_refs": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}}
-      }
+    "operator": {
+      "enum": [
+        "equals",
+        "not_equals",
+        "contains",
+        "not_contains",
+        "greater_than",
+        "greater_than_or_equal",
+        "less_than",
+        "less_than_or_equal"
+      ]
     },
-    "stimulus_requirement": {
-      "type": "object",
+    "placeholder": {
       "additionalProperties": false,
-      "required": ["stimulus_id", "intent", "desired_effect", "eligible_factor_ids"],
       "properties": {
-        "stimulus_id": {"type": "string", "pattern": "^STIM-\\d+$"},
-        "intent": {"$ref": "#/$defs/nonempty"},
-        "desired_effect": {"$ref": "#/$defs/nonempty"},
-        "eligible_factor_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^CF-\\d+$"}}
-      }
+        "binding_ref": {
+          "pattern": "^SEM-[A-Za-z0-9._-]+$",
+          "type": "string"
+        },
+        "description": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "maximum": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "number",
+            "null"
+          ]
+        },
+        "minimum": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "number",
+            "null"
+          ]
+        },
+        "value_type": {
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean"
+          ]
+        }
+      },
+      "required": [
+        "binding_ref",
+        "value_type",
+        "description"
+      ],
+      "type": "object"
     },
     "requirements": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["requires_multi_turn", "requires_tool_execution", "requires_persistent_state", "requires_multi_agent", "requires_real_clock", "requires_state_observation", "required_surface_categories"],
       "properties": {
-        "requires_multi_turn": {"type": "boolean"},
-        "requires_tool_execution": {"type": "boolean"},
-        "requires_persistent_state": {"type": "boolean"},
-        "requires_multi_agent": {"type": "boolean"},
-        "requires_real_clock": {"type": "boolean"},
-        "requires_state_observation": {"type": "boolean"},
-        "required_surface_categories": {"type": "array", "uniqueItems": true, "items": {"enum": ["external_input", "system_instruction", "tool_result", "tool_definition", "persistent_data", "agent_message", "environment_event"]}}
-      }
+        "required_surface_categories": {
+          "items": {
+            "enum": [
+              "external_input",
+              "system_instruction",
+              "tool_result",
+              "tool_definition",
+              "persistent_data",
+              "agent_message",
+              "environment_event"
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "requires_multi_agent": {
+          "type": "boolean"
+        },
+        "requires_multi_turn": {
+          "type": "boolean"
+        },
+        "requires_persistent_state": {
+          "type": "boolean"
+        },
+        "requires_real_clock": {
+          "type": "boolean"
+        },
+        "requires_state_observation": {
+          "type": "boolean"
+        },
+        "requires_tool_execution": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "requires_multi_turn",
+        "requires_tool_execution",
+        "requires_persistent_state",
+        "requires_multi_agent",
+        "requires_real_clock",
+        "requires_state_observation",
+        "required_surface_categories"
+      ],
+      "type": "object"
+    },
+    "scalar": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        }
+      ]
+    },
+    "scalar_or_placeholder": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/scalar"
+        },
+        {
+          "$ref": "#/$defs/placeholder"
+        }
+      ]
+    },
+    "step": {
+      "additionalProperties": false,
+      "properties": {
+        "factor_id": {
+          "anyOf": [
+            {
+              "pattern": "^CF-\\d+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "enum": [
+            "CAUSAL_FACTOR",
+            "UNSAFE_CONTROL_ACTION"
+          ]
+        },
+        "order": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "step_id": {
+          "pattern": "^S-\\d+$",
+          "type": "string"
+        },
+        "structural_source_id": {
+          "$ref": "#/$defs/nonempty"
+        }
+      },
+      "required": [
+        "step_id",
+        "order",
+        "kind",
+        "factor_id",
+        "structural_source_id"
+      ],
+      "type": "object"
+    },
+    "stimulus_requirement": {
+      "additionalProperties": false,
+      "properties": {
+        "carrier_requirement_id": {
+          "anyOf": [
+            {
+              "pattern": "^REQ-[A-Za-z0-9._-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "delivery_class": {
+          "$ref": "#/$defs/contract_ExecutionDeliveryClass"
+        },
+        "desired_effect": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "factor_id": {
+          "pattern": "^CF-\\d+$",
+          "type": "string"
+        },
+        "intent": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "source_role": {
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+          "type": "string"
+        },
+        "stimulus_id": {
+          "pattern": "^STIM-\\d+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stimulus_id",
+        "intent",
+        "desired_effect",
+        "delivery_class",
+        "factor_id",
+        "source_role"
+      ],
+      "type": "object"
     },
     "trace_refs": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["obligation_ids", "risk_ids", "attack_pattern_ids", "technique_ids", "loss_ids", "hazard_ids", "constraint_ids", "source_pins"],
       "properties": {
-        "obligation_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
-        "risk_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
-        "attack_pattern_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
-        "technique_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
-        "loss_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
-        "hazard_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
-        "constraint_ids": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "attack_pattern_ids": {
+          "items": {
+            "$ref": "#/$defs/nonempty"
+          },
+          "type": "array"
+        },
+        "constraint_ids": {
+          "items": {
+            "$ref": "#/$defs/nonempty"
+          },
+          "type": "array"
+        },
+        "hazard_ids": {
+          "items": {
+            "$ref": "#/$defs/nonempty"
+          },
+          "type": "array"
+        },
+        "loss_ids": {
+          "items": {
+            "$ref": "#/$defs/nonempty"
+          },
+          "type": "array"
+        },
+        "obligation_ids": {
+          "items": {
+            "$ref": "#/$defs/nonempty"
+          },
+          "type": "array"
+        },
+        "risk_ids": {
+          "items": {
+            "$ref": "#/$defs/nonempty"
+          },
+          "type": "array"
+        },
         "source_pins": {
-          "type": "object",
           "additionalProperties": false,
-          "required": ["control_structure", "loss_analysis", "ica_enumeration", "scenario_context"],
           "properties": {
-            "control_structure": {"$ref": "#/$defs/digest"},
-            "loss_analysis": {"$ref": "#/$defs/digest"},
-            "ica_enumeration": {"$ref": "#/$defs/digest"},
-            "scenario_context": {"$ref": "#/$defs/digest"}
-          }
+            "control_structure": {
+              "$ref": "#/$defs/digest"
+            },
+            "ica_enumeration": {
+              "$ref": "#/$defs/digest"
+            },
+            "loss_analysis": {
+              "$ref": "#/$defs/digest"
+            },
+            "scenario_context": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "control_structure",
+            "loss_analysis",
+            "ica_enumeration",
+            "scenario_context"
+          ],
+          "type": "object"
+        },
+        "technique_ids": {
+          "items": {
+            "$ref": "#/$defs/nonempty"
+          },
+          "type": "array"
         }
-      }
+      },
+      "required": [
+        "obligation_ids",
+        "risk_ids",
+        "attack_pattern_ids",
+        "technique_ids",
+        "loss_ids",
+        "hazard_ids",
+        "constraint_ids",
+        "source_pins"
+      ],
+      "type": "object"
+    },
+    "unsafe_outcome": {
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "$ref": "#/$defs/condition"
+        },
+        "constraint_refs": {
+          "items": {
+            "$ref": "#/$defs/nonempty"
+          },
+          "type": "array"
+        },
+        "control_action_id": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "hazard_refs": {
+          "items": {
+            "$ref": "#/$defs/nonempty"
+          },
+          "type": "array"
+        },
+        "outcome_id": {
+          "pattern": "^OUTCOME-[A-Za-z0-9._-]+$",
+          "type": "string"
+        },
+        "semantic_binding_required": {
+          "type": "boolean"
+        },
+        "uca_type": {
+          "enum": [
+            "NOT_PROVIDED",
+            "INCORRECT",
+            "WRONG_TIMING",
+            "WRONG_DURATION"
+          ]
+        }
+      },
+      "required": [
+        "outcome_id",
+        "control_action_id",
+        "uca_type",
+        "condition",
+        "semantic_binding_required",
+        "hazard_refs",
+        "constraint_refs"
+      ],
+      "type": "object"
     }
-  }
+  },
+  "$id": "stpa-execution-projection-v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "candidate_id": {
+      "$ref": "#/$defs/nonempty"
+    },
+    "causal_factors": {
+      "items": {
+        "$ref": "#/$defs/factor"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "control_action_id": {
+      "$ref": "#/$defs/nonempty"
+    },
+    "controller_id": {
+      "$ref": "#/$defs/nonempty"
+    },
+    "execution_classification": {
+      "$ref": "#/$defs/classification_ExecutionClassification"
+    },
+    "execution_contract": {
+      "$ref": "#/$defs/contract_SemanticExecutionContract"
+    },
+    "execution_requirements": {
+      "$ref": "#/$defs/requirements"
+    },
+    "ica_id": {
+      "$ref": "#/$defs/nonempty"
+    },
+    "ica_slot_id": {
+      "$ref": "#/$defs/nonempty"
+    },
+    "run_id": {
+      "$ref": "#/$defs/nonempty"
+    },
+    "scenario_id": {
+      "$ref": "#/$defs/nonempty"
+    },
+    "schema_version": {
+      "const": "stpa-execution-projection-v2"
+    },
+    "semantic_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/step"
+      },
+      "minItems": 2,
+      "type": "array"
+    },
+    "stimulus_requirements": {
+      "items": {
+        "$ref": "#/$defs/stimulus_requirement"
+      },
+      "type": "array"
+    },
+    "trace_refs": {
+      "$ref": "#/$defs/trace_refs"
+    },
+    "uca_type": {
+      "enum": [
+        "NOT_PROVIDED",
+        "INCORRECT",
+        "WRONG_TIMING",
+        "WRONG_DURATION"
+      ]
+    },
+    "unsafe_outcome": {
+      "$ref": "#/$defs/unsafe_outcome"
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "scenario_id",
+    "candidate_id",
+    "ica_slot_id",
+    "ica_id",
+    "controller_id",
+    "control_action_id",
+    "uca_type",
+    "causal_factors",
+    "steps",
+    "unsafe_outcome",
+    "stimulus_requirements",
+    "execution_requirements",
+    "trace_refs",
+    "execution_contract",
+    "execution_classification",
+    "semantic_digest"
+  ],
+  "title": "STPA execution projection v2",
+  "type": "object"
 }

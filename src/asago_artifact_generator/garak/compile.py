@@ -151,6 +151,38 @@ def _source_metadata(ready: ReadyExecutionPlan) -> dict[str, Any]:
         "ica_slot_id": ready.ica_slot_id,
         "ica_id": ready.ica_id,
     }
+    data.update(_case_metadata(ready))
+    return data
+
+
+def _case_metadata(ready: ReadyExecutionPlan) -> dict[str, Any]:
+    """Return bound result metadata plus the retained source classification."""
+
+    data = {
+        "case_id": ready.case_id,
+        "case_digest": ready.case_digest,
+        "execution_classification_digest": ready.execution_classification_digest,
+        "binding_completeness": ready.binding_completeness,
+        "environment_basis": ready.environment_basis,
+        "profile_fit": ready.profile_fit,
+        "claim_scope": ready.claim_scope,
+        "source_binding_completeness": ready.source_binding_completeness,
+        "source_environment_basis": ready.source_environment_basis,
+        "source_profile_fit": ready.source_profile_fit,
+        "source_claim_scope": ready.source_claim_scope,
+        "selected_simulation_resources": [
+            item.model_dump(mode="json") for item in ready.selected_simulation_resources
+        ],
+    }
+    if ready.selected_profile_id is not None:
+        data.update(
+            {
+                "selected_profile_id": ready.selected_profile_id,
+                "selected_profile_basis": ready.selected_profile_basis,
+                "target_environment_id": ready.target_environment_id,
+                "target_profile_digest": ready.target_profile_digest,
+            }
+        )
     return data
 
 
@@ -464,6 +496,13 @@ def _identity_digest_errors(data: Mapping[str, Any]) -> list[str]:
         "artifact_digest",
     ):
         if not _is_digest(data.get(field)):
+            errors.append(f"{field} must be a lowercase SHA-256 digest")
+    for field in (
+        "case_digest",
+        "execution_classification_digest",
+        "target_profile_digest",
+    ):
+        if field in data and data[field] is not None and not _is_digest(data[field]):
             errors.append(f"{field} must be a lowercase SHA-256 digest")
     return errors
 
@@ -1134,11 +1173,17 @@ def _ready_identity_errors(data: Mapping[str, Any], ready: ReadyExecutionPlan) -
         "uca_type",
         "adapter_version",
     )
-    return [
+    errors = [
         f"artifact {field} differs from ReadyExecutionPlan authority"
         for field in fields
         if data.get(field) != getattr(ready, field)
     ]
+    errors.extend(
+        f"artifact {field} differs from ReadyExecutionPlan authority"
+        for field, value in _case_metadata(ready).items()
+        if data.get(field) != value
+    )
+    return errors
 
 
 def _ready_trace_authority_errors(
@@ -1167,6 +1212,7 @@ def _ready_source_authority_errors(source: Any, ready: ReadyExecutionPlan) -> li
         "ica_slot_id": ready.ica_slot_id,
         "ica_id": ready.ica_id,
     }
+    expected.update(_case_metadata(ready))
     return [
         f"artifact_trace source {field} differs from ReadyExecutionPlan authority"
         for field, value in expected.items()
@@ -1400,7 +1446,7 @@ def _artifact_body(
     detectors: list[dict[str, Any]],
     trace: ArtifactTrace,
 ) -> dict[str, Any]:
-    return {
+    body = {
         "schema_version": GARAK_ARTIFACT_SCHEMA_VERSION,
         "platform": "garak",
         "adapter_version": plan.ready.adapter_version,
@@ -1430,6 +1476,8 @@ def _artifact_body(
         },
         "artifact_trace": trace.to_dict(),
     }
+    body.update(_case_metadata(plan.ready))
+    return body
 
 
 def _finalize_artifact(

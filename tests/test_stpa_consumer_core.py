@@ -31,6 +31,20 @@ from asago_artifact_generator.bundle.loader import (
 from asago_artifact_generator.garak.capabilities import garak_capabilities
 from asago_artifact_generator.garak.compile import compile_execution_artifact
 from asago_artifact_generator.models._base import canonical_json_bytes, compute_framed_digest
+from asago_artifact_generator.models.execution_case import BoundExecutionCase
+from asago_artifact_generator.models.execution_classification import (
+    BindingCompleteness,
+    EnvironmentBasis,
+    ExecutionActionKind,
+    ExecutionClaimScope,
+    ExecutionClassification,
+    ExecutionDeliveryClass,
+    ExecutionProfileFit,
+    ExecutionTargetProfile,
+    RequestedEnvironmentBasis,
+    SemanticExecutionContract,
+    SemanticExecutionDelivery,
+)
 from asago_artifact_generator.models.execution_intent import (
     AdversarialStimulusRequirement,
     CausalFactor,
@@ -73,6 +87,7 @@ from asago_artifact_generator.planning.bind import (
     _replace_placeholder,
     bind_and_plan,
 )
+from asago_artifact_generator.planning.resolve_case import resolve_execution_case
 
 CONTRACT_ROOT = Path(__file__).parents[1] / "contracts" / "stpa-execution"
 
@@ -144,7 +159,10 @@ def _projection(*, temporal: dict | None = None, semantic_placeholder: bool = Fa
                 "stimulus_id": "STIM-1",
                 "intent": "Influence the control decision through its external input.",
                 "desired_effect": "Cause the unsafe target action.",
-                "eligible_factor_ids": ["CF-1"],
+                "delivery_class": "direct_prompt",
+                "factor_id": "CF-1",
+                "source_role": "direct_user_input",
+                "carrier_requirement_id": None,
             }
         ],
         "execution_requirements": {
@@ -155,6 +173,33 @@ def _projection(*, temporal: dict | None = None, semantic_placeholder: bool = Fa
             "requires_real_clock": bool(temporal),
             "requires_state_observation": False,
             "required_surface_categories": ["external_input"],
+        },
+        "execution_contract": {
+            "schema_version": "stpa-execution-contract-v1",
+            "disposition": "executable_route",
+            "requested_environment_basis": "target_agnostic",
+            "delivery": {
+                "delivery_class": "direct_prompt",
+                "factor_id": "CF-1",
+                "source_role": "direct_user_input",
+                "carrier_requirement_id": None,
+            },
+            "action_kind": "model_output",
+            "resource_requirements": [],
+            "gaps": [],
+        },
+        "execution_classification": {
+            "schema_version": "stpa-execution-classification-v1",
+            "binding_completeness": "concrete",
+            "environment_basis": "target_agnostic",
+            "profile_fit": "not_required",
+            "claim_scope": "model_behavior_only",
+            "resolved_bindings": [],
+            "unresolved_requirement_ids": [],
+            "ambiguous_matches": [],
+            "unsupported_requirement_ids": [],
+            "diagnostics": [],
+            "target_profile_digest": None,
         },
         "trace_refs": {
             "obligation_ids": [],
@@ -172,6 +217,22 @@ def _projection(*, temporal: dict | None = None, semantic_placeholder: bool = Fa
             },
         },
     }
+    value["execution_contract"]["semantic_digest"] = compute_framed_digest(
+        "stpa-execution-contract-v1",
+        {
+            key: item
+            for key, item in value["execution_contract"].items()
+            if key != "semantic_digest"
+        },
+    )
+    value["execution_classification"]["classification_digest"] = compute_framed_digest(
+        "stpa-execution-classification-v1",
+        {
+            key: item
+            for key, item in value["execution_classification"].items()
+            if key != "classification_digest"
+        },
+    )
     value["semantic_digest"] = compute_framed_digest(
         "stpa-execution-projection-v2",
         {key: item for key, item in value.items() if key != "semantic_digest"},
@@ -307,13 +368,30 @@ def _intent(*, placeholder: bool = False, temporal: bool = False) -> ExecutionIn
                 stimulus_id="STIM-1",
                 intent="Influence the control decision through its external input.",
                 desired_effect="Cause the unsafe target action.",
-                eligible_factor_ids=("CF-1",),
+                delivery_class=ExecutionDeliveryClass.direct_prompt,
+                factor_id="CF-1",
+                source_role="direct_user_input",
             ),
         ),
         execution_requirements=ExecutionRequirements(
             requires_tool_execution=True,
             requires_real_clock=temporal,
             required_surface_categories=("external_input",),
+        ),
+        execution_contract=SemanticExecutionContract(
+            requested_environment_basis=RequestedEnvironmentBasis.target_agnostic,
+            delivery=SemanticExecutionDelivery(
+                delivery_class=ExecutionDeliveryClass.direct_prompt,
+                factor_id="CF-1",
+                source_role="direct_user_input",
+            ),
+            action_kind=ExecutionActionKind.model_output,
+        ),
+        execution_classification=ExecutionClassification(
+            binding_completeness=BindingCompleteness.concrete,
+            environment_basis=EnvironmentBasis.target_agnostic,
+            profile_fit=ExecutionProfileFit.not_required,
+            claim_scope=ExecutionClaimScope.model_behavior_only,
         ),
         trace_refs=TraceReferences(
             source_pins={
@@ -325,6 +403,13 @@ def _intent(*, placeholder: bool = False, temporal: bool = False) -> ExecutionIn
         ),
         source_file_digests={"scenario": "e" * 64, "projection": "f" * 64},
     )
+
+
+def _execution_case(intent: ExecutionIntent) -> BoundExecutionCase:
+    """Resolve a test intent before exercising readiness or compilation."""
+    result = resolve_execution_case(intent, None)
+    assert isinstance(result, BoundExecutionCase)
+    return result
 
 
 def _capabilities(*, clock: bool = False) -> PlatformCapabilities:
@@ -614,7 +699,7 @@ def test_vendored_contract_lock_and_minimal_bundle_are_authoritative() -> None:
 
     upstream = json.loads((CONTRACT_ROOT / "UPSTREAM.lock").read_text())
     assert upstream["repository"] == "asago-scenario-generator"
-    assert upstream["revision"] == "8b54bc9112d3deaff85aac4c8f27660698787dd6"
+    assert upstream["revision"] == "4d1d7bef846c659bf5777918e3bab07710e5865d"
     assert upstream["source"] == "data/contracts/stpa-execution/CONTRACT.lock"
     assert (
         upstream["contract_lock_sha256"]
@@ -655,7 +740,7 @@ def test_coordinated_cross_repo_eight_case_acceptance_matrix(
     bundle_path = CONTRACT_ROOT / "bundle-v1" / "valid" / "minimal-run" / "execution-bundle.json"
     verified = load_execution_bundle(bundle_path)
     ready_result = bind_and_plan(
-        verified.intent,
+        _execution_case(verified.intent),
         _vendored_runtime_bindings(verified.intent),
         garak_capabilities(),
     )
@@ -672,7 +757,9 @@ def test_coordinated_cross_repo_eight_case_acceptance_matrix(
 
     # 2. The producer placeholder fixture remains semantic-binding gated.
     semantic_result = bind_and_plan(
-        _vendored_intent("semantic-binding-required.json"), None, garak_capabilities()
+        _execution_case(_vendored_intent("semantic-binding-required.json")),
+        None,
+        garak_capabilities(),
     )
     assert semantic_result.overall == "needs_semantic_binding"
     _assert_unready_cannot_compile(semantic_result)
@@ -680,14 +767,16 @@ def test_coordinated_cross_repo_eight_case_acceptance_matrix(
 
     # 3. A valid temporal projection without runtime bindings is runtime gated.
     runtime_intent = _vendored_intent("delay.json")
-    runtime_result = bind_and_plan(runtime_intent, None, garak_capabilities())
+    runtime_result = bind_and_plan(_execution_case(runtime_intent), None, garak_capabilities())
     assert runtime_result.overall == "needs_runtime_binding"
     _assert_unready_cannot_compile(runtime_result)
     executed.add("runtime_binding_needed")
 
     # 4. The same valid temporal projection is unsupported by Garak once bound.
     unsupported_result = bind_and_plan(
-        runtime_intent, _vendored_runtime_bindings(runtime_intent), garak_capabilities()
+        _execution_case(runtime_intent),
+        _vendored_runtime_bindings(runtime_intent),
+        garak_capabilities(),
     )
     assert unsupported_result.overall == "unsupported"
     _assert_unready_cannot_compile(unsupported_result)
@@ -714,7 +803,9 @@ def test_coordinated_cross_repo_eight_case_acceptance_matrix(
     binding_data = _vendored_runtime_bindings(verified.intent).model_dump(mode="python")
     binding_data["semantic_digest"] = "0" * 64
     tampered_bindings = RuntimeBindingSet.model_validate(binding_data)
-    binding_result = bind_and_plan(verified.intent, tampered_bindings, garak_capabilities())
+    binding_result = bind_and_plan(
+        _execution_case(verified.intent), tampered_bindings, garak_capabilities()
+    )
     assert binding_result.overall == "invalid"
     assert any(item.code == "binding_digest_mismatch" for item in binding_result.diagnostics)
     _assert_unready_cannot_compile(binding_result)
@@ -745,6 +836,21 @@ def test_vendored_invalid_bundle_fixtures_fail_closed(fixture_name: str) -> None
 
     actual_codes = {violation.code for violation in error.value.violations}
     assert set(expected_codes) <= actual_codes
+
+
+def test_vendored_target_profile_fixture_matches_consumer_wire() -> None:
+    path = CONTRACT_ROOT / "target-profile-v1" / "valid" / "minimal.json"
+    document = json.loads(path.read_text())
+    profile = ExecutionTargetProfile.model_validate(document)
+
+    assert profile.semantic_digest == document["semantic_digest"]
+    assert profile.model_dump(mode="json") == document
+
+    invalid = json.loads(
+        (CONTRACT_ROOT / "target-profile-v1" / "invalid" / "unknown-field.json").read_text()
+    )
+    with pytest.raises(ValidationError, match="unexpected_field"):
+        ExecutionTargetProfile.model_validate(invalid)
 
 
 @pytest.mark.parametrize(
@@ -1083,14 +1189,104 @@ def test_loader_closes_factor_registry_evidence_and_outcome_identity() -> None:
     assert any(item.code == "schema_field_invalid" for item in _validate_projection(bad_outcome))
 
 
+def test_loader_requires_contract_delivery_factor_to_resolve() -> None:
+    projection = _projection()
+    projection["causal_factors"] = []
+
+    violations = _validate_projection(projection)
+
+    assert any(
+        item.path == "$.projection.execution_contract.delivery.factor_id" for item in violations
+    )
+
+
+def test_loader_rechecks_target_action_requirement_against_unsafe_outcome() -> None:
+    projection = _projection()
+    contract = projection["execution_contract"]
+    contract["requested_environment_basis"] = "target_profile"
+    contract["delivery"] = {
+        "delivery_class": "indirect_content",
+        "factor_id": "CF-1",
+        "source_role": "attacker_influenced_content",
+        "carrier_requirement_id": "REQ-1",
+    }
+    contract["action_kind"] = "tool_call"
+    contract["resource_requirements"] = [
+        {
+            "requirement_id": "REQ-1",
+            "purpose": "stimulus_carrier",
+            "factor_id": "CF-1",
+            "owner_ref": "PM-1-1",
+            "acceptable_resource_kinds": ["tool"],
+            "role_id": "attacker_influenced_content_source",
+            "operation": "retrieve_content",
+            "required_surfaces": ["tool_result"],
+            "required_properties": ["content_reaches_model_context"],
+            "required_attacker_influence": "direct",
+            "exact_resource_id": None,
+            "late_bindable": True,
+            "evidence_refs": ["CF-1"],
+        },
+        {
+            "requirement_id": "REQ-2",
+            "purpose": "target_action",
+            "factor_id": None,
+            "owner_ref": "CM-9",
+            "acceptable_resource_kinds": ["tool"],
+            "role_id": "target_control_action",
+            "operation": "CM-9",
+            "required_surfaces": ["tool_call"],
+            "required_properties": [],
+            "required_attacker_influence": "none",
+            "exact_resource_id": "TOOL-action",
+            "late_bindable": False,
+            "evidence_refs": ["CM-1"],
+        },
+    ]
+    contract.pop("semantic_digest", None)
+    contract["semantic_digest"] = compute_framed_digest(
+        "stpa-execution-contract-v1",
+        {key: item for key, item in contract.items() if key != "semantic_digest"},
+    )
+    projection["semantic_digest"] = compute_framed_digest(
+        "stpa-execution-projection-v2",
+        {key: item for key, item in projection.items() if key != "semantic_digest"},
+    )
+
+    violations = _validate_projection(projection)
+
+    assert any(
+        item.code == "identity_mismatch" and item.path.endswith("resource_requirements[1]")
+        for item in violations
+    )
+
+
+def test_loader_requires_classification_to_match_contract_result() -> None:
+    projection = _projection()
+    classification = projection["execution_classification"]
+    classification["binding_completeness"] = "parameterized"
+    classification["classification_digest"] = compute_framed_digest(
+        "stpa-execution-classification-v1",
+        {key: item for key, item in classification.items() if key != "classification_digest"},
+    )
+
+    violations = _validate_projection(projection)
+
+    assert any(
+        item.path == "$.projection.execution_classification"
+        and item.code == "schema_field_invalid"
+        for item in violations
+    )
+
+
 def test_bind_and_plan_rejects_raw_mappings() -> None:
-    with pytest.raises(TypeError, match="ExecutionIntent"):
+    with pytest.raises(TypeError, match="BoundExecutionCase"):
         bind_and_plan({}, None, _capabilities())  # type: ignore[arg-type]
 
 
 def test_missing_semantic_value_wins_readiness_precedence() -> None:
     intent = _intent(placeholder=True)
-    result = bind_and_plan(intent, None, _capabilities())
+    result = bind_and_plan(_execution_case(intent), None, _capabilities())
 
     assert result.overall == "needs_semantic_binding"
     assert result.semantic_binding_status == "incomplete"
@@ -1101,7 +1297,7 @@ def test_missing_semantic_value_wins_readiness_precedence() -> None:
 
 def test_reviewed_semantic_binding_and_runtime_bindings_make_ready_plan() -> None:
     intent = _intent(placeholder=True)
-    result = bind_and_plan(intent, _bindings(intent), _capabilities())
+    result = bind_and_plan(_execution_case(intent), _bindings(intent), _capabilities())
 
     assert result.overall == "ready"
     assert result.plan is not None
@@ -1111,6 +1307,29 @@ def test_reviewed_semantic_binding_and_runtime_bindings_make_ready_plan() -> Non
     assert result.plan.steps[-1].content_slot_id is None
     assert result.plan.scenario_content_sha256 == "e" * 64
     assert result.plan.projection_content_sha256 == "f" * 64
+
+
+@pytest.mark.parametrize(
+    "update, expected_code",
+    (
+        ({"projection_step_id": "S-999"}, "stimulus_projection_mismatch"),
+        ({"surface": "tool_result"}, "stimulus_surface_mismatch"),
+    ),
+)
+def test_stimulus_binding_mismatches_remain_unready(
+    update: dict[str, str], expected_code: str
+) -> None:
+    intent = _intent()
+    bindings = _bindings(intent)
+    stimulus = bindings.stimulus_bindings[0].model_copy(update=update)
+    tampered = bindings.model_copy(
+        update={"stimulus_bindings": (stimulus,), "semantic_digest": None}
+    ).with_computed_digest()
+
+    result = bind_and_plan(_execution_case(intent), tampered, _capabilities())
+
+    assert result.overall != "ready"
+    assert any(item.code == expected_code for item in result.diagnostics)
 
 
 def test_inward_models_reject_non_hex_digest_values() -> None:
@@ -1145,7 +1364,7 @@ def test_tool_execution_requirement_checks_target_operation() -> None:
         observer_kinds=("tool_argument",),
     )
 
-    result = bind_and_plan(intent, bindings, capabilities)
+    result = bind_and_plan(_execution_case(intent), bindings, capabilities)
 
     assert intent.execution_requirements.requires_tool_execution is True
     assert result.overall == "needs_runtime_binding"
@@ -1154,7 +1373,9 @@ def test_tool_execution_requirement_checks_target_operation() -> None:
 
 def test_tool_action_requires_a_compatible_target_surface() -> None:
     intent = _intent()
-    result = bind_and_plan(intent, _bindings(intent, target_surface="user_turn"), _capabilities())
+    result = bind_and_plan(
+        _execution_case(intent), _bindings(intent, target_surface="user_turn"), _capabilities()
+    )
 
     assert result.overall == "needs_runtime_binding"
     assert any(item.code == "surface_action_incompatible" for item in result.diagnostics)
@@ -1166,7 +1387,7 @@ def test_derived_binding_digest_case_is_invalid() -> None:
     binding_data["semantic_digest"] = "0" * 64
     tampered = RuntimeBindingSet.model_validate(binding_data)
 
-    result = bind_and_plan(intent, tampered, _capabilities())
+    result = bind_and_plan(_execution_case(intent), tampered, _capabilities())
 
     assert result.overall == "invalid"
     assert result.source_status == "invalid"
@@ -1175,7 +1396,9 @@ def test_derived_binding_digest_case_is_invalid() -> None:
 
 def test_temporal_factor_requires_its_own_observer_and_platform_support() -> None:
     intent = _intent(temporal=True)
-    result = bind_and_plan(intent, _bindings(intent, temporal=False), _capabilities())
+    result = bind_and_plan(
+        _execution_case(intent), _bindings(intent, temporal=False), _capabilities()
+    )
 
     assert result.overall == "needs_runtime_binding"
     assert any(
@@ -1183,7 +1406,11 @@ def test_temporal_factor_requires_its_own_observer_and_platform_support() -> Non
         for item in result.diagnostics
     )
 
-    result = bind_and_plan(intent, _bindings(intent, temporal=True), _capabilities(clock=False))
+    result = bind_and_plan(
+        _execution_case(intent),
+        _bindings(intent, temporal=True),
+        _capabilities(clock=False),
+    )
     assert result.overall == "unsupported"
     assert any(item.code == "real_clock_unsupported" for item in result.diagnostics)
 
@@ -1421,7 +1648,7 @@ def test_remaining_model_invariants_reject_inconsistent_values() -> None:
             capability_refs=("CAP-1",),
         )
 
-    ready = bind_and_plan(intent, _bindings(intent), _capabilities())
+    ready = bind_and_plan(_execution_case(intent), _bindings(intent), _capabilities())
     assert ready.plan is not None
     result_data = ready.model_dump(mode="python")
     result_data["plan"] = None

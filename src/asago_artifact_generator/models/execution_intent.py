@@ -22,6 +22,11 @@ from pydantic import (
 )
 
 from ._base import ImmutableModel, SHA256Digest, freeze_value
+from .execution_classification import (
+    ExecutionClassification,
+    ExecutionDeliveryClass,
+    SemanticExecutionContract,
+)
 from .semantic_conditions import (
     CONDITION_TYPES,
     OPERATORS,
@@ -238,19 +243,23 @@ class AdversarialStimulusRequirement(ImmutableModel):
     stimulus_id: StrictStr = Field(min_length=1, pattern=r"^STIM-\d+$")
     intent: StrictStr = Field(min_length=1)
     desired_effect: StrictStr = Field(min_length=1)
-    eligible_factor_ids: tuple[StrictStr, ...] = Field(min_length=1)
-
-    @field_validator("eligible_factor_ids", mode="before")
-    @classmethod
-    def _factor_ids_as_tuple(cls, value: Any) -> tuple[str, ...]:
-        if not isinstance(value, (list, tuple)):
-            raise TypeError("eligible_factor_ids must be an array")
-        return tuple(value)
+    delivery_class: ExecutionDeliveryClass
+    factor_id: StrictStr = Field(min_length=1, pattern=r"^CF-\d+$")
+    source_role: StrictStr = Field(
+        min_length=1,
+        pattern=r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+    )
+    carrier_requirement_id: StrictStr | None = Field(
+        default=None, pattern=r"^REQ-[A-Za-z0-9._-]+$"
+    )
 
     @model_validator(mode="after")
-    def _unique_factor_ids(self) -> AdversarialStimulusRequirement:
-        if len(self.eligible_factor_ids) != len(set(self.eligible_factor_ids)):
-            raise ValueError("eligible_factor_ids must be unique")
+    def _validate_delivery(self) -> AdversarialStimulusRequirement:
+        if self.delivery_class is ExecutionDeliveryClass.indirect_content:
+            if self.carrier_requirement_id is None:
+                raise ValueError("indirect_content stimuli require carrier_requirement_id")
+        elif self.carrier_requirement_id is not None:
+            raise ValueError("only indirect_content stimuli may name a carrier requirement")
         return self
 
 
@@ -328,6 +337,8 @@ class ExecutionIntent(ImmutableModel):
     unsafe_outcome: UnsafeOutcome
     stimulus_requirements: tuple[AdversarialStimulusRequirement, ...] = ()
     execution_requirements: ExecutionRequirements
+    execution_contract: SemanticExecutionContract
+    execution_classification: ExecutionClassification
     trace_refs: TraceReferences
     presentation_context: Mapping[str, Any] = Field(default_factory=dict)
     source_file_digests: Mapping[str, SHA256Digest]
@@ -362,6 +373,7 @@ class ExecutionIntent(ImmutableModel):
     def _validate_identity_and_sequences(self) -> ExecutionIntent:
         _validate_intent_identity(self)
         _validate_intent_outcome(self)
+        _validate_target_action_requirements(self)
         _validate_intent_sequences(self)
         _validate_intent_stimuli(self)
         _validate_intent_placeholder_refs(self)
@@ -408,6 +420,19 @@ def _validate_intent_outcome(value: ExecutionIntent) -> None:
         raise ValueError("unsafe outcome control action does not match intent")
     if value.unsafe_outcome.uca_type != value.uca_type:
         raise ValueError("unsafe outcome UCA type does not match intent")
+
+
+def _validate_target_action_requirements(value: ExecutionIntent) -> None:
+    """Keep every external-action requirement tied to the selected UCA."""
+
+    action_id = value.unsafe_outcome.control_action_id
+    for requirement in value.execution_contract.resource_requirements:
+        if requirement.purpose.value != "target_action":
+            continue
+        if requirement.owner_ref != action_id or requirement.operation != action_id:
+            raise ValueError(
+                "target_action requirement must name the unsafe outcome control action"
+            )
 
 
 def _validate_intent_sequences(value: ExecutionIntent) -> None:
@@ -465,16 +490,69 @@ def _validate_intent_placeholder_refs(value: ExecutionIntent) -> None:
 
 
 def _validate_intent_stimuli(value: ExecutionIntent) -> None:
-    if not value.stimulus_requirements:
-        raise ValueError("published execution intent requires stimulus_requirements")
+    if value.execution_contract.disposition == "analytical_only":
+        _reject_analytical_stimuli(value)
+        return
+    _validate_executable_stimuli(value)
+
+
+def _reject_analytical_stimuli(value: ExecutionIntent) -> None:
+    if value.stimulus_requirements:
+        raise ValueError("analytical_only execution intents cannot contain stimulus routes")
+
+
+def _validate_executable_stimuli(value: ExecutionIntent) -> None:
+    if len(value.stimulus_requirements) != 1:
+        raise ValueError("executable execution intents require exactly one stimulus route")
+    _validate_stimulus_ids(value)
+    stimulus = value.stimulus_requirements[0]
     factor_ids = {factor.factor_id for factor in value.causal_factors}
+    if stimulus.factor_id not in factor_ids:
+        raise ValueError("stimulus requirement refers to an unknown causal factor")
+    _validate_stimulus_delivery(value, stimulus)
+
+
+def _validate_stimulus_ids(value: ExecutionIntent) -> None:
     stimulus_ids = [item.stimulus_id for item in value.stimulus_requirements]
     if len(stimulus_ids) != len(set(stimulus_ids)):
         raise ValueError("stimulus requirements must have unique IDs")
-    if any(
-        not set(item.eligible_factor_ids) <= factor_ids for item in value.stimulus_requirements
-    ):
-        raise ValueError("stimulus requirement refers to an unknown causal factor")
+
+
+def _validate_stimulus_delivery(
+    value: ExecutionIntent, stimulus: AdversarialStimulusRequirement
+) -> None:
+    delivery = value.execution_contract.delivery
+    if not _stimulus_matches_delivery(stimulus, delivery):
+        raise ValueError("stimulus route must match the execution contract delivery")
+
+
+def _stimulus_matches_delivery(
+    stimulus: AdversarialStimulusRequirement,
+    delivery: Any,
+) -> bool:
+    if delivery is None:
+        return False
+    return _stimulus_delivery_tuple(stimulus) == _delivery_tuple(delivery)
+
+
+def _stimulus_delivery_tuple(
+    stimulus: AdversarialStimulusRequirement,
+) -> tuple[Any, str, str, str | None]:
+    return (
+        stimulus.delivery_class,
+        stimulus.factor_id,
+        stimulus.source_role,
+        stimulus.carrier_requirement_id,
+    )
+
+
+def _delivery_tuple(delivery: Any) -> tuple[Any, str, str, str | None]:
+    return (
+        delivery.delivery_class,
+        delivery.factor_id,
+        delivery.source_role,
+        delivery.carrier_requirement_id,
+    )
 
 
 def _intent_placeholder_refs(value: ExecutionIntent) -> tuple[str, ...]:
@@ -499,6 +577,8 @@ __all__ = [
     "CausalFactor",
     "ExecutionIntent",
     "ExecutionRequirements",
+    "ExecutionClassification",
+    "SemanticExecutionContract",
     "ExecutionStep",
     "SemanticBindingPlaceholder",
     "SemanticCondition",

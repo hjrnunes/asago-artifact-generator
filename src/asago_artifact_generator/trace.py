@@ -95,6 +95,138 @@ def _validate_trace_source(source: Any) -> None:
         ("run_id", "scenario_id", "candidate_id", "ica_slot_id", "ica_id"),
         "artifact trace source",
     )
+    _validate_optional_case_fields(source)
+
+
+def _validate_optional_case_fields(source: Mapping[str, Any]) -> None:
+    """Validate the bound-case provenance group when a case is present."""
+
+    case_fields = (
+        "case_id",
+        "case_digest",
+        "execution_classification_digest",
+        "binding_completeness",
+        "environment_basis",
+        "profile_fit",
+        "claim_scope",
+        "source_binding_completeness",
+        "source_environment_basis",
+        "source_profile_fit",
+        "source_claim_scope",
+        "selected_simulation_resources",
+    )
+    if "case_id" not in source:
+        if any(field in source for field in case_fields[1:]):
+            raise ValueError("artifact trace case metadata requires case_id")
+        return
+    _validate_text_fields(source, ("case_id",), "artifact trace source")
+    _validate_digest_fields(
+        source,
+        ("case_digest", "execution_classification_digest"),
+        "artifact trace source",
+    )
+    if source.get("binding_completeness") not in {
+        "concrete",
+        "parameterized",
+        "analytical_only",
+    }:
+        raise ValueError("artifact trace source has an invalid binding_completeness")
+    if source.get("environment_basis") not in {
+        "target_agnostic",
+        "target_profile",
+        "simulation_profile",
+    }:
+        raise ValueError("artifact trace source has an invalid environment_basis")
+    if source.get("profile_fit") not in {
+        "not_required",
+        "matched",
+        "needs_binding",
+        "ambiguous",
+        "unsupported",
+        "invalid",
+    }:
+        raise ValueError("artifact trace source has an invalid profile_fit")
+    if source.get("claim_scope") not in {
+        "model_behavior_only",
+        "target_specific_intent",
+        "agent_behavior_with_simulated_tools",
+        "no_execution_claim",
+    }:
+        raise ValueError("artifact trace source has an invalid claim_scope")
+    if source.get("source_binding_completeness") not in {
+        "concrete",
+        "parameterized",
+        "analytical_only",
+    }:
+        raise ValueError("artifact trace source has an invalid source_binding_completeness")
+    if source.get("source_environment_basis") not in {
+        "target_agnostic",
+        "target_profile",
+        "simulation_profile",
+        "none",
+    }:
+        raise ValueError("artifact trace source has an invalid source_environment_basis")
+    if source.get("source_profile_fit") not in {
+        "not_required",
+        "matched",
+        "needs_binding",
+        "ambiguous",
+        "unsupported",
+        "invalid",
+    }:
+        raise ValueError("artifact trace source has an invalid source_profile_fit")
+    if source.get("source_claim_scope") not in {
+        "model_behavior_only",
+        "target_specific_intent",
+        "agent_behavior_with_simulated_tools",
+        "no_execution_claim",
+    }:
+        raise ValueError("artifact trace source has an invalid source_claim_scope")
+    _validate_simulation_resource_evidence(source)
+    profile_fields = (
+        "selected_profile_id",
+        "selected_profile_basis",
+        "target_environment_id",
+        "target_profile_digest",
+    )
+    has_profile = any(field in source for field in profile_fields)
+    if not has_profile:
+        return
+    _validate_text_fields(
+        source,
+        ("selected_profile_id", "selected_profile_basis", "target_environment_id"),
+        "artifact trace source",
+    )
+    _validate_digest_fields(source, ("target_profile_digest",), "artifact trace source")
+    if source.get("selected_profile_basis") not in {"target", "simulation"}:
+        raise ValueError("artifact trace source has an invalid selected_profile_basis")
+
+
+def _validate_simulation_resource_evidence(source: Mapping[str, Any]) -> None:
+    """Validate serialized simulation behavior evidence when it is present."""
+
+    values = source.get("selected_simulation_resources")
+    if values is None:
+        return
+    if not isinstance(values, list):
+        raise ValueError("artifact trace simulation resources must be an array")
+    if source.get("environment_basis") == "simulation_profile" and not values:
+        raise ValueError("simulation artifact trace requires selected resources")
+    if source.get("environment_basis") != "simulation_profile" and values:
+        raise ValueError("non-simulation artifact trace cannot carry simulation resources")
+    resource_ids: list[str] = []
+    for item in values:
+        if not isinstance(item, Mapping):
+            raise ValueError("artifact trace simulation resources must be objects")
+        resource_id = item.get("resource_id")
+        behavior = item.get("simulation_behavior")
+        if not isinstance(resource_id, str) or not resource_id.strip():
+            raise ValueError("artifact trace simulation resource_id is required")
+        if not isinstance(behavior, Mapping):
+            raise ValueError("artifact trace simulation_behavior is required")
+        resource_ids.append(resource_id)
+    if len(resource_ids) != len(set(resource_ids)):
+        raise ValueError("artifact trace simulation resources must be unique")
 
 
 def _validate_digest_fields(values: Mapping[str, Any], keys: tuple[str, ...], label: str) -> None:

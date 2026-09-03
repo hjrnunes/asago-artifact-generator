@@ -12,15 +12,35 @@ import yaml
 
 from .authoring import PresentationRequest, PresentationResult
 from .garak.plan import GarakPlan
+from .models.execution_case import BoundExecutionCase, ExecutionCaseExclusion
+from .models.execution_classification import ExecutionTargetProfile
 from .models.readiness import ExecutionPlanResult
 from .models.runtime_binding import RuntimeBindingSet
-from .output import write_entry_outputs, write_manifest
+from .output import write_case_exclusion, write_entry_outputs, write_manifest
 from .platforms.base import CompiledArtifact
 
 app = typer.Typer(
     help="Policy-driven agentic red-teaming artifact generator.",
     no_args_is_help=True,
 )
+
+_READINESS_STATES = (
+    "invalid",
+    "needs_semantic_binding",
+    "needs_runtime_binding",
+    "unsupported",
+    "ready",
+)
+_EXECUTION_CASE_CODES = (
+    "analytical_only",
+    "needs_target_binding",
+    "ambiguous",
+    "unsupported",
+    "invalid_profile",
+    "invalid_source_binding",
+)
+_SOURCE_CLASSIFICATION_STATES = ("concrete", "parameterized", "analytical_only")
+_ENVIRONMENT_STATES = ("target_agnostic", "target_profile", "simulation_profile")
 
 
 @app.callback()
@@ -176,6 +196,23 @@ def _load_runtime_bindings(path: Path | None) -> RuntimeBindingSet | None:
     return bindings
 
 
+def _load_target_profile(path: Path | None) -> ExecutionTargetProfile | None:
+    """Load one explicit, digest-attested target or simulation profile."""
+
+    if path is None:
+        return None
+    if not path.is_file():
+        raise ValueError(f"target profile file not found: {path}")
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("target profile root must be an object")
+    if "semantic_digest" not in raw:
+        raise ValueError("target profile must include semantic_digest")
+    profile = ExecutionTargetProfile.model_validate(raw)
+    profile.assert_integrity()
+    return profile
+
+
 class _LLMPresentationAuthor:
     """Late-bound provider adapter restricted to compiler-owned text slots."""
 
@@ -225,7 +262,9 @@ def _manifest_entry(
     result: ExecutionPlanResult,
     paths: dict[str, str],
     errors: list[str],
+    execution_case: BoundExecutionCase,
 ) -> dict[str, Any]:
+    classification = execution_case.execution_classification
     entry: dict[str, Any] = {
         "scenario_id": scenario_id,
         "overall": result.overall,
@@ -242,6 +281,14 @@ def _manifest_entry(
         ),
         "diagnostics": _diagnostic_documents(result),
         "paths": paths,
+        "binding_completeness": execution_case.binding_completeness,
+        "environment_basis": execution_case.environment_basis,
+        "profile_fit": execution_case.profile_fit,
+        "claim_scope": execution_case.claim_scope,
+        "source_binding_completeness": classification.binding_completeness,
+        "source_environment_basis": classification.environment_basis,
+        "source_profile_fit": classification.profile_fit,
+        "source_claim_scope": classification.claim_scope,
     }
     if errors:
         entry["errors"] = errors
@@ -257,12 +304,13 @@ def _validate_stpa_options(bundle: Path | None, platform: str, force: bool) -> N
         raise typer.BadParameter(f"unsupported platform: {platform}")
 
 
-def _load_stpa_dependencies() -> tuple[Any, Any, Any, Any, Any]:
+def _load_stpa_dependencies() -> tuple[Any, Any, Any, Any, Any, Any]:
     from .bundle.loader import load_execution_bundle
     from .garak.capabilities import garak_capabilities
     from .garak.compile import compile_execution_artifact
     from .garak.plan import build_garak_plan
     from .planning.bind import bind_and_plan
+    from .planning.resolve_case import resolve_execution_case
 
     return (
         load_execution_bundle,
@@ -270,6 +318,7 @@ def _load_stpa_dependencies() -> tuple[Any, Any, Any, Any, Any]:
         compile_execution_artifact,
         build_garak_plan,
         bind_and_plan,
+        resolve_execution_case,
     )
 
 
@@ -323,9 +372,22 @@ def _process_stpa_entry(
     bind_and_plan: Any,
     build_garak_plan: Any,
     compile_execution_artifact: Any,
+    target_profile: ExecutionTargetProfile | None,
+    resolve_execution_case: Any,
 ) -> tuple[dict[str, Any], bool]:
+    try:
+        execution_case = resolve_execution_case(bundle_entry.intent, target_profile)
+    except Exception as exc:
+        return (
+            _pre_readiness_entry(bundle_entry.scenario_id, {}, [str(exc)]),
+            True,
+        )
+    if isinstance(execution_case, ExecutionCaseExclusion):
+        paths = write_case_exclusion(run_dir, bundle_entry.scenario_id, execution_case)
+        return _case_exclusion_entry(bundle_entry.scenario_id, execution_case, paths)
     readiness, garak_plan, compiled, paths, errors, failed = _run_stpa_entry(
         bundle_entry,
+        execution_case,
         run_dir,
         runtime_bindings,
         capabilities,
@@ -337,11 +399,51 @@ def _process_stpa_entry(
     )
     if readiness is None:
         return _pre_readiness_entry(bundle_entry.scenario_id, paths, errors), failed
-    return _manifest_entry(bundle_entry.scenario_id, readiness, paths, errors), failed
+    return (
+        _manifest_entry(
+            bundle_entry.scenario_id,
+            readiness,
+            paths,
+            errors,
+            execution_case,
+        ),
+        failed,
+    )
+
+
+def _case_exclusion_entry(
+    scenario_id: str,
+    exclusion: ExecutionCaseExclusion,
+    paths: dict[str, str],
+) -> tuple[dict[str, Any], bool]:
+    """Represent a semantic exclusion without treating it as a compiler error."""
+
+    entry = {
+        "scenario_id": scenario_id,
+        "overall": "execution_case_excluded",
+        "execution_case_code": exclusion.code,
+        "source_status": "valid",
+        "semantic_binding_status": "not_required",
+        "runtime_binding_status": "incomplete",
+        "platform_support_status": "indeterminate",
+        "artifact_status": "not_attempted",
+        "diagnostics": [item.model_dump(mode="json") for item in exclusion.diagnostics],
+        "paths": paths,
+        "binding_completeness": exclusion.execution_classification.binding_completeness,
+        "environment_basis": exclusion.execution_classification.environment_basis,
+        "profile_fit": exclusion.execution_classification.profile_fit,
+        "claim_scope": exclusion.execution_classification.claim_scope,
+        "source_binding_completeness": exclusion.execution_classification.binding_completeness,
+        "source_environment_basis": exclusion.execution_classification.environment_basis,
+        "source_profile_fit": exclusion.execution_classification.profile_fit,
+        "source_claim_scope": exclusion.execution_classification.claim_scope,
+    }
+    return entry, exclusion.code in {"invalid_profile", "invalid_source_binding"}
 
 
 def _run_stpa_entry(
     bundle_entry: Any,
+    execution_case: Any,
     run_dir: Path,
     runtime_bindings: RuntimeBindingSet | None,
     capabilities: Any,
@@ -364,7 +466,7 @@ def _run_stpa_entry(
     garak_plan: GarakPlan | None = None
     compiled: CompiledArtifact | None = None
     try:
-        readiness = bind_and_plan(bundle_entry.intent, runtime_bindings, capabilities)
+        readiness = bind_and_plan(execution_case, runtime_bindings, capabilities)
         if readiness.ready:
             garak_plan = build_garak_plan(readiness.plan)
             compiled = _compile_ready_entry(
@@ -377,6 +479,7 @@ def _run_stpa_entry(
             run_dir,
             bundle_entry.scenario_id,
             readiness,
+            execution_case=execution_case,
             plan=garak_plan if readiness.ready else None,
             compiled=compiled,
         )
@@ -391,6 +494,7 @@ def _run_stpa_entry(
             readiness,
             garak_plan,
             paths,
+            execution_case,
         )
         return readiness, garak_plan, compiled, paths, errors, failed
 
@@ -401,6 +505,7 @@ def _write_partial_readiness(
     readiness: ExecutionPlanResult | None,
     garak_plan: GarakPlan | None,
     paths: dict[str, str],
+    execution_case: BoundExecutionCase,
 ) -> dict[str, str]:
     if readiness is None or "readiness" in paths:
         return paths
@@ -408,6 +513,7 @@ def _write_partial_readiness(
         run_dir,
         scenario_id,
         readiness,
+        execution_case=execution_case,
         plan=garak_plan if readiness.ready else None,
     )
 
@@ -422,6 +528,8 @@ def _process_stpa_entries(
     bind_and_plan: Any,
     build_garak_plan: Any,
     compile_execution_artifact: Any,
+    target_profile: ExecutionTargetProfile | None,
+    resolve_execution_case: Any,
 ) -> tuple[list[dict[str, Any]], bool]:
     entries: list[dict[str, Any]] = []
     failed = False
@@ -436,28 +544,56 @@ def _process_stpa_entries(
             bind_and_plan,
             build_garak_plan,
             compile_execution_artifact,
+            target_profile,
+            resolve_execution_case,
         )
         entries.append(manifest_entry)
         failed = failed or entry_failed
     return entries, failed
 
 
+def _manifest_field_counts(
+    entries: list[dict[str, Any]], field: str, values: tuple[str, ...]
+) -> dict[str, int]:
+    return {value: sum(item.get(field) == value for item in entries) for value in values}
+
+
+def _manifest_summary_counts(
+    entries: list[dict[str, Any]],
+    readiness_counts: dict[str, int],
+    case_counts: dict[str, int],
+) -> dict[str, Any]:
+    return {
+        "readiness": readiness_counts,
+        "execution_case_excluded": sum(
+            item["overall"] == "execution_case_excluded" for item in entries
+        ),
+        "analytical_only": case_counts["analytical_only"],
+    }
+
+
 def _stpa_manifest(verified: Any, platform: str, entries: list[dict[str, Any]]) -> dict[str, Any]:
-    states = (
-        "invalid",
-        "needs_semantic_binding",
-        "needs_runtime_binding",
-        "unsupported",
-        "ready",
+    readiness_counts = _manifest_field_counts(entries, "overall", _READINESS_STATES)
+    case_counts = _manifest_field_counts(entries, "execution_case_code", _EXECUTION_CASE_CODES)
+    summary_counts = _manifest_summary_counts(entries, readiness_counts, case_counts)
+    source_counts = _manifest_field_counts(
+        entries, "source_binding_completeness", _SOURCE_CLASSIFICATION_STATES
     )
-    counts = {state: sum(item["overall"] == state for item in entries) for state in states}
+    environment_counts = _manifest_field_counts(entries, "environment_basis", _ENVIRONMENT_STATES)
+    source_environment_counts = _manifest_field_counts(
+        entries, "source_environment_basis", (*_ENVIRONMENT_STATES, "none")
+    )
     return {
         "schema_version": "artifact-manifest-v1",
         "run_id": verified.run_id,
         "bundle_digest": verified.bundle_digest,
         "platform": platform,
         "entry_count": len(entries),
-        "counts": counts,
+        "counts": summary_counts,
+        "source_classification_counts": source_counts,
+        "environment_basis_counts": environment_counts,
+        "source_environment_basis_counts": source_environment_counts,
+        "execution_case_counts": case_counts,
         "entries": entries,
     }
 
@@ -471,6 +607,13 @@ def generate_stpa(
     bindings: Annotated[
         Path | None,
         typer.Option("--bindings", help="Reviewed runtime-binding-set-v1 YAML/JSON."),
+    ] = None,
+    target_profile: Annotated[
+        Path | None,
+        typer.Option(
+            "--target-profile",
+            help="Explicit digest-attested execution-target-profile-v1 YAML/JSON.",
+        ),
     ] = None,
     platform: Annotated[
         str,
@@ -520,9 +663,11 @@ def generate_stpa(
         compile_execution_artifact,
         build_garak_plan,
         bind_and_plan,
+        resolve_execution_case,
     ) = _load_stpa_dependencies()
     verified = load_execution_bundle(bundle)
     runtime_bindings = _load_runtime_bindings(bindings)
+    profile = _load_target_profile(target_profile)
     capabilities = garak_capabilities()
     selected = _select_stpa_entries(verified, entry)
     run_dir = output_dir / verified.run_id
@@ -536,6 +681,8 @@ def generate_stpa(
         bind_and_plan,
         build_garak_plan,
         compile_execution_artifact,
+        profile,
+        resolve_execution_case,
     )
     manifest = _stpa_manifest(verified, platform, manifest_entries)
     manifest_path = write_manifest(run_dir, manifest)

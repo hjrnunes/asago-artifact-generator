@@ -16,6 +16,7 @@ from pydantic import (
 )
 
 from ._base import ImmutableModel, SHA256Digest, freeze_value
+from .execution_case import SelectedSimulationResource
 from .execution_intent import UCAType
 from .runtime_binding import ClockBinding
 
@@ -217,6 +218,38 @@ class ReadyExecutionPlan(ImmutableModel):
     content_slots: tuple[StrictStr, ...] = ()
     trace_map: Mapping[str, Any] = Field(default_factory=dict)
     presentation_context: Mapping[str, Any] = Field(default_factory=dict)
+    case_id: StrictStr
+    case_digest: SHA256Digest
+    execution_classification_digest: SHA256Digest
+    binding_completeness: Literal["concrete", "parameterized", "analytical_only"]
+    environment_basis: Literal["target_agnostic", "target_profile", "simulation_profile"]
+    profile_fit: Literal[
+        "not_required", "matched", "needs_binding", "ambiguous", "unsupported", "invalid"
+    ]
+    claim_scope: Literal[
+        "model_behavior_only",
+        "target_specific_intent",
+        "agent_behavior_with_simulated_tools",
+        "no_execution_claim",
+    ]
+    source_binding_completeness: Literal["concrete", "parameterized", "analytical_only"]
+    source_environment_basis: Literal[
+        "target_agnostic", "target_profile", "simulation_profile", "none"
+    ]
+    source_profile_fit: Literal[
+        "not_required", "matched", "needs_binding", "ambiguous", "unsupported", "invalid"
+    ]
+    source_claim_scope: Literal[
+        "model_behavior_only",
+        "target_specific_intent",
+        "agent_behavior_with_simulated_tools",
+        "no_execution_claim",
+    ]
+    selected_profile_id: StrictStr | None = None
+    selected_profile_basis: Literal["target", "simulation"] | None = None
+    target_environment_id: StrictStr | None = None
+    target_profile_digest: SHA256Digest | None = None
+    selected_simulation_resources: tuple[SelectedSimulationResource, ...] = ()
 
     @field_validator(
         "resolved_semantic_bindings",
@@ -225,6 +258,7 @@ class ReadyExecutionPlan(ImmutableModel):
         "state_channels",
         "agent_channels",
         "content_slots",
+        "selected_simulation_resources",
         mode="before",
     )
     @classmethod
@@ -249,6 +283,7 @@ class ReadyExecutionPlan(ImmutableModel):
         for index, step in enumerate(self.steps, start=1):
             if step.order != index or step.plan_step_id != f"plan-{index}":
                 raise ValueError("ready plan steps must be ordered as plan-1, plan-2, ...")
+        _validate_case_metadata(self)
         return self
 
 
@@ -294,6 +329,53 @@ def _require_ready_plan(overall: OverallReadiness, plan: ReadyExecutionPlan | No
 def _reject_non_ready_plan(overall: OverallReadiness, plan: ReadyExecutionPlan | None) -> None:
     if overall != "ready" and plan is not None:
         raise ValueError("non-ready result must not carry a ReadyExecutionPlan")
+
+
+def _validate_case_metadata(plan: ReadyExecutionPlan) -> None:
+    """Require a complete provenance group when a bound case is attached."""
+
+    if plan.binding_completeness != "concrete":
+        raise ValueError("ready plans must carry concrete bound-case completeness")
+    if plan.environment_basis == "target_agnostic":
+        if plan.profile_fit != "not_required" or plan.claim_scope != "model_behavior_only":
+            raise ValueError("target-agnostic ready plan has inconsistent case result")
+    elif plan.profile_fit != "matched":
+        raise ValueError("profile-backed ready plan must have matched profile_fit")
+
+    has_profile = any(
+        value is not None
+        for value in (
+            plan.selected_profile_id,
+            plan.selected_profile_basis,
+            plan.target_environment_id,
+            plan.target_profile_digest,
+        )
+    )
+    if has_profile and any(
+        value is None
+        for value in (
+            plan.selected_profile_id,
+            plan.selected_profile_basis,
+            plan.target_environment_id,
+            plan.target_profile_digest,
+        )
+    ):
+        raise ValueError("bound-case profile metadata is incomplete")
+    _validate_simulation_resources(plan)
+
+
+def _validate_simulation_resources(plan: ReadyExecutionPlan) -> None:
+    """Require simulation behavior evidence on simulation-backed plans."""
+
+    if plan.environment_basis == "simulation_profile":
+        if not plan.selected_simulation_resources:
+            raise ValueError("simulation ready plan requires selected simulation resources")
+        resource_ids = tuple(item.resource_id for item in plan.selected_simulation_resources)
+        if len(resource_ids) != len(set(resource_ids)):
+            raise ValueError("ready plan simulation resources must be unique")
+        return
+    if plan.selected_simulation_resources:
+        raise ValueError("only simulation ready plans may carry simulation resources")
 
 
 __all__ = [

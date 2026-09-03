@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .garak.plan import GarakPlan
+from .models.execution_case import BoundExecutionCase, ExecutionCaseExclusion
 from .models.readiness import ExecutionPlanResult, ReadyExecutionPlan
 from .platforms.base import CompiledArtifact
 
@@ -68,6 +69,7 @@ def write_entry_outputs(
     scenario_id: str,
     readiness: ExecutionPlanResult,
     *,
+    execution_case: BoundExecutionCase | None = None,
     plan: GarakPlan | None = None,
     compiled: CompiledArtifact | None = None,
 ) -> dict[str, str]:
@@ -75,6 +77,14 @@ def write_entry_outputs(
 
     entry_dir = Path(run_dir) / scenario_id
     paths: dict[str, str] = {}
+    if execution_case is not None:
+        execution_case.assert_integrity()
+        paths["execution_case"] = str(
+            atomic_write_json(
+                entry_dir / "bound-execution-case.json",
+                execution_case.model_dump(mode="json"),
+            )
+        )
     paths["readiness"] = str(
         atomic_write_json(entry_dir / "readiness.json", readiness_document(readiness))
     )
@@ -92,6 +102,22 @@ def write_entry_outputs(
     return paths
 
 
+def write_case_exclusion(
+    run_dir: Path, scenario_id: str, exclusion: ExecutionCaseExclusion
+) -> dict[str, str]:
+    """Persist a semantic case exclusion without creating runtime output."""
+
+    entry_dir = Path(run_dir) / scenario_id
+    return {
+        "execution_case_exclusion": str(
+            atomic_write_json(
+                entry_dir / "execution-case-exclusion.json",
+                exclusion.model_dump(mode="json"),
+            )
+        )
+    }
+
+
 def write_manifest(run_dir: Path, manifest: Mapping[str, Any]) -> Path:
     """Atomically publish the batch manifest last."""
 
@@ -104,5 +130,6 @@ __all__ = [
     "plan_document",
     "readiness_document",
     "write_entry_outputs",
+    "write_case_exclusion",
     "write_manifest",
 ]

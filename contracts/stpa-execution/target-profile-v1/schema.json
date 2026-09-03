@@ -1,0 +1,302 @@
+{
+  "$defs": {
+    "profile_AttackerInfluence": {
+      "description": "Whether an adversary can influence a target resource.",
+      "enum": [
+        "none",
+        "direct",
+        "indirect",
+        "unknown"
+      ],
+      "title": "AttackerInfluence",
+      "type": "string"
+    },
+    "profile_ExecutionResourceKind": {
+      "description": "Platform-neutral kind of semantic resource.",
+      "enum": [
+        "surface",
+        "tool",
+        "integration",
+        "state_store",
+        "agent_channel"
+      ],
+      "title": "ExecutionResourceKind",
+      "type": "string"
+    },
+    "profile_ExecutionSurface": {
+      "description": "Closed semantic surfaces exposed by a target resource.",
+      "enum": [
+        "user_input",
+        "external_content",
+        "conversation_context",
+        "tool_call",
+        "tool_result",
+        "tool_definition",
+        "state_observation",
+        "agent_message",
+        "environment_event"
+      ],
+      "title": "ExecutionSurface",
+      "type": "string"
+    },
+    "profile_InventoryCompleteness": {
+      "description": "Whether a role search can be treated as unique.",
+      "enum": [
+        "unknown",
+        "inferred_partial",
+        "reviewed_complete"
+      ],
+      "title": "InventoryCompleteness",
+      "type": "string"
+    },
+    "profile_ProfileAuthority": {
+      "description": "How the profile's resource facts were established.",
+      "enum": [
+        "reviewed",
+        "inferred"
+      ],
+      "title": "ProfileAuthority",
+      "type": "string"
+    },
+    "profile_ProfileBasis": {
+      "description": "The profile describes a real target or an explicit simulation.",
+      "enum": [
+        "target",
+        "simulation"
+      ],
+      "title": "ProfileBasis",
+      "type": "string"
+    },
+    "profile_SimulationBehavior": {
+      "additionalProperties": false,
+      "description": "Closed deterministic behavior of one simulated resource.",
+      "properties": {
+        "emitted_events": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Emitted Events",
+          "type": "array"
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "title": "Inputs",
+          "type": "object"
+        },
+        "observation_points": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Observation Points",
+          "type": "array"
+        },
+        "outputs": {
+          "additionalProperties": true,
+          "title": "Outputs",
+          "type": "object"
+        },
+        "state_changes": {
+          "additionalProperties": true,
+          "title": "State Changes",
+          "type": "object"
+        }
+      },
+      "title": "SimulationBehavior",
+      "type": "object"
+    },
+    "profile_TargetProfileOperation": {
+      "additionalProperties": false,
+      "description": "One reviewed operation exposed by an execution target resource.",
+      "properties": {
+        "argument_names": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Argument Names",
+          "type": "array"
+        },
+        "observable_properties": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Observable Properties",
+          "type": "array"
+        },
+        "operation_id": {
+          "minLength": 1,
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "semantic_operation": {
+          "minLength": 1,
+          "pattern": "^(?:[a-z][a-z0-9]*(?:_[a-z0-9]+)*|(?:CA|CM)-[A-Za-z0-9._-]+)$",
+          "title": "Semantic Operation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "semantic_operation"
+      ],
+      "title": "TargetProfileOperation",
+      "type": "object"
+    },
+    "profile_TargetProfileResource": {
+      "additionalProperties": false,
+      "description": "One semantic resource record in a target or simulation profile.",
+      "properties": {
+        "attacker_influence": {
+          "$ref": "#/$defs/profile_AttackerInfluence"
+        },
+        "authority": {
+          "$ref": "#/$defs/profile_ProfileAuthority",
+          "default": "reviewed"
+        },
+        "evidence_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "interface_schema": {
+          "additionalProperties": true,
+          "title": "Interface Schema",
+          "type": "object"
+        },
+        "operations": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/profile_TargetProfileOperation"
+          },
+          "title": "Operations",
+          "type": "array"
+        },
+        "resource_id": {
+          "minLength": 1,
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_kind": {
+          "$ref": "#/$defs/profile_ExecutionResourceKind"
+        },
+        "role_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Role Ids",
+          "type": "array"
+        },
+        "simulation_behavior": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/profile_SimulationBehavior"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "structural_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Structural Refs",
+          "type": "array"
+        },
+        "surfaces": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/profile_ExecutionSurface"
+          },
+          "title": "Surfaces",
+          "type": "array"
+        }
+      },
+      "required": [
+        "resource_id",
+        "resource_kind",
+        "attacker_influence"
+      ],
+      "title": "TargetProfileResource",
+      "type": "object"
+    }
+  },
+  "$id": "execution-target-profile-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Reviewed, content-addressed semantic target or simulation inventory.",
+  "properties": {
+    "authority": {
+      "$ref": "#/$defs/profile_ProfileAuthority"
+    },
+    "basis": {
+      "$ref": "#/$defs/profile_ProfileBasis"
+    },
+    "environment_id": {
+      "minLength": 1,
+      "title": "Environment Id",
+      "type": "string"
+    },
+    "evidence_refs": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Refs",
+      "type": "array"
+    },
+    "inventory_completeness": {
+      "$ref": "#/$defs/profile_InventoryCompleteness"
+    },
+    "profile_id": {
+      "minLength": 1,
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "resources": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/profile_TargetProfileResource"
+      },
+      "title": "Resources",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "execution-target-profile-v1",
+      "default": "execution-target-profile-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantic_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Semantic Digest"
+    }
+  },
+  "required": [
+    "profile_id",
+    "environment_id",
+    "basis",
+    "authority",
+    "inventory_completeness"
+  ],
+  "title": "Execution target profile v1",
+  "type": "object"
+}

@@ -7,7 +7,7 @@ import pytest
 from typer.testing import CliRunner
 
 from asago_artifact_generator.authoring import DeterministicPresentationAuthor
-from asago_artifact_generator.cli import app
+from asago_artifact_generator.cli import _load_target_profile, app
 from asago_artifact_generator.garak.capabilities import garak_capabilities
 from asago_artifact_generator.garak.compile import (
     GARAK_ARTIFACT_SCHEMA_VERSION,
@@ -47,10 +47,10 @@ def test_garak_capabilities_are_honest_about_supported_observation() -> None:
 
 
 def test_real_garak_capabilities_reach_ready_and_compile() -> None:
-    from tests.test_stpa_consumer_core import _bindings, _intent
+    from tests.test_stpa_consumer_core import _bindings, _execution_case, _intent
 
     intent = _intent(placeholder=True)
-    result = bind_and_plan(intent, _bindings(intent), garak_capabilities())
+    result = bind_and_plan(_execution_case(intent), _bindings(intent), garak_capabilities())
 
     assert result.overall == "ready"
     assert result.plan is not None
@@ -69,9 +69,30 @@ def test_real_garak_capabilities_reach_ready_and_compile() -> None:
 
 
 def test_indirect_stimulus_compiles_openai_tool_call_and_result_history() -> None:
-    from tests.test_stpa_consumer_core import _bindings, _intent
+    from asago_artifact_generator.models.execution_classification import (
+        BindingCompleteness,
+        EnvironmentBasis,
+        ExecutionClaimScope,
+        ExecutionProfileFit,
+    )
+    from asago_artifact_generator.planning.resolve_case import resolve_execution_case
+    from tests.test_execution_case import (
+        _classification,
+        _intent_with_contract,
+        _profile,
+        _tool_contract,
+    )
+    from tests.test_stpa_consumer_core import _bindings
 
-    intent = _intent(placeholder=True)
+    intent = _intent_with_contract(
+        _tool_contract(),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.target_profile,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.target_specific_intent,
+        ),
+    )
     bindings = _bindings(intent)
     review = bindings.review
     surfaces = tuple(
@@ -103,7 +124,8 @@ def test_indirect_stimulus_compiles_openai_tool_call_and_result_history() -> Non
         update={"surface_bindings": surfaces, "stimulus_bindings": (stimulus,)}
     ).with_computed_digest()
 
-    result = bind_and_plan(intent, rebound, garak_capabilities())
+    case = resolve_execution_case(intent, _profile())
+    result = bind_and_plan(case, rebound, garak_capabilities())
     assert result.overall == "ready"
     assert result.plan is not None
     compiled = compile_execution_artifact(
@@ -178,7 +200,7 @@ def test_conversation_context_compiles_multi_turn_history_without_target_respons
 
 
 def test_direct_text_attack_compiles_target_text_oracle_without_preauthored_answer() -> None:
-    from tests.test_stpa_consumer_core import _bindings, _intent
+    from tests.test_stpa_consumer_core import _bindings, _execution_case, _intent
 
     intent = _intent(placeholder=False).model_copy(
         update={
@@ -219,7 +241,7 @@ def test_direct_text_attack_compiles_target_text_oracle_without_preauthored_answ
         }
     ).with_computed_digest()
 
-    result = bind_and_plan(intent, rebound, garak_capabilities())
+    result = bind_and_plan(_execution_case(intent), rebound, garak_capabilities())
     assert result.overall == "ready"
     assert result.plan is not None
     compiled = compile_execution_artifact(
@@ -255,6 +277,17 @@ def test_ready_plan_compiles_to_bound_garak_artifact_and_trace() -> None:
         uca_type="INCORRECT",
         platform="garak",
         adapter_version="garak-stpa-v1",
+        case_id="SCN-001:target-agnostic",
+        case_digest="1" * 64,
+        execution_classification_digest="2" * 64,
+        binding_completeness="concrete",
+        environment_basis="target_agnostic",
+        profile_fit="not_required",
+        claim_scope="model_behavior_only",
+        source_binding_completeness="concrete",
+        source_environment_basis="target_agnostic",
+        source_profile_fit="not_required",
+        source_claim_scope="model_behavior_only",
         steps=(
             PlanStep(
                 plan_step_id="plan-1",
@@ -558,6 +591,8 @@ def test_validator_closes_rehashed_trace_to_ready_plan_authority() -> None:
 def test_cli_normal_path_writes_plan_artifact_validation_trace_and_manifest(
     tmp_path, monkeypatch
 ) -> None:
+    from tests.test_stpa_consumer_core import _intent
+
     ready = _ready_plan()
     readiness = ExecutionPlanResult(
         source_status="valid",
@@ -567,7 +602,7 @@ def test_cli_normal_path_writes_plan_artifact_validation_trace_and_manifest(
         overall="ready",
         plan=ready,
     )
-    bundle_entry = SimpleNamespace(scenario_id=ready.scenario_id, intent=object())
+    bundle_entry = SimpleNamespace(scenario_id=ready.scenario_id, intent=_intent())
     verified = SimpleNamespace(
         entries=(bundle_entry,),
         run_id=ready.run_id,
@@ -604,6 +639,7 @@ def test_cli_normal_path_writes_plan_artifact_validation_trace_and_manifest(
 
     assert result.exit_code == 0, result.stdout
     entry_dir = output_dir / ready.run_id / ready.scenario_id
+    assert (entry_dir / "bound-execution-case.json").is_file()
     assert (entry_dir / "readiness.json").is_file()
     assert (entry_dir / "execution-plan.json").is_file()
     assert (entry_dir / "executable-conversation.json").is_file()
@@ -611,9 +647,13 @@ def test_cli_normal_path_writes_plan_artifact_validation_trace_and_manifest(
     assert (entry_dir / "artifact-trace.json").is_file()
     manifest = json.loads((output_dir / ready.run_id / "artifact-manifest.json").read_text())
     assert manifest["entries"][0]["artifact_status"] == "generated"
+    assert manifest["source_classification_counts"]["concrete"] == 1
+    assert manifest["environment_basis_counts"]["target_agnostic"] == 1
 
 
 def test_cli_readiness_only_never_constructs_author_or_compiler(tmp_path, monkeypatch) -> None:
+    from tests.test_stpa_consumer_core import _intent
+
     ready = _ready_plan()
     readiness = ExecutionPlanResult(
         source_status="valid",
@@ -623,7 +663,7 @@ def test_cli_readiness_only_never_constructs_author_or_compiler(tmp_path, monkey
         overall="ready",
         plan=ready,
     )
-    bundle_entry = SimpleNamespace(scenario_id=ready.scenario_id, intent=object())
+    bundle_entry = SimpleNamespace(scenario_id=ready.scenario_id, intent=_intent())
     verified = SimpleNamespace(
         entries=(bundle_entry,),
         run_id=ready.run_id,
@@ -672,6 +712,147 @@ def test_cli_readiness_only_never_constructs_author_or_compiler(tmp_path, monkey
     assert not list(entry_dir.glob("*-garak.json"))
     manifest = json.loads((output_dir / ready.run_id / "artifact-manifest.json").read_text())
     assert manifest["entries"][0]["artifact_status"] == "not_attempted"
+    assert manifest["source_classification_counts"]["concrete"] == 1
+
+
+def test_cli_parameterized_case_writes_exclusion_without_binding_or_authoring(
+    tmp_path, monkeypatch
+) -> None:
+    from tests.test_execution_case import (
+        BindingCompleteness,
+        EnvironmentBasis,
+        ExecutionClaimScope,
+        ExecutionProfileFit,
+        _classification,
+        _intent_with_contract,
+        _tool_contract,
+    )
+
+    intent = _intent_with_contract(
+        _tool_contract(),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+    )
+    bundle_entry = SimpleNamespace(scenario_id=intent.scenario_id, intent=intent)
+    verified = SimpleNamespace(
+        entries=(bundle_entry,), run_id=intent.run_id, bundle_digest=intent.bundle_digest
+    )
+    monkeypatch.setattr(
+        "asago_artifact_generator.bundle.loader.load_execution_bundle",
+        lambda path: verified,
+    )
+    monkeypatch.setattr(
+        "asago_artifact_generator.garak.compile.compile_execution_artifact",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("excluded cases must not compile")
+        ),
+    )
+    output_dir = tmp_path / "runs"
+    result = CliRunner().invoke(
+        app,
+        [
+            "generate",
+            "--bundle",
+            str(tmp_path / "execution-bundle.json"),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    entry_dir = output_dir / intent.run_id / intent.scenario_id
+    assert (entry_dir / "execution-case-exclusion.json").is_file()
+    manifest = json.loads((output_dir / intent.run_id / "artifact-manifest.json").read_text())
+    assert manifest["entries"][0]["execution_case_code"] == "needs_target_binding"
+    assert manifest["execution_case_counts"]["needs_target_binding"] == 1
+    assert manifest["source_classification_counts"]["parameterized"] == 1
+
+
+def test_cli_analytical_only_case_is_visible_in_manifest_summary(tmp_path, monkeypatch) -> None:
+    from tests.test_execution_case import (
+        BindingCompleteness,
+        EnvironmentBasis,
+        ExecutionClaimScope,
+        ExecutionContractGap,
+        ExecutionContractGapCode,
+        ExecutionProfileFit,
+        SemanticExecutionContract,
+        _classification,
+        _intent_with_contract,
+    )
+
+    contract = SemanticExecutionContract(
+        disposition="analytical_only",
+        gaps=(
+            ExecutionContractGap(
+                code=ExecutionContractGapCode.operation_missing,
+                detail="No executable target operation is established.",
+                evidence_refs=("CF-1",),
+            ),
+        ),
+    )
+    intent = _intent_with_contract(
+        contract,
+        _classification(
+            completeness=BindingCompleteness.analytical_only,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.invalid,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+    )
+    verified = SimpleNamespace(
+        entries=(SimpleNamespace(scenario_id=intent.scenario_id, intent=intent),),
+        run_id=intent.run_id,
+        bundle_digest=intent.bundle_digest,
+    )
+    monkeypatch.setattr(
+        "asago_artifact_generator.bundle.loader.load_execution_bundle",
+        lambda path: verified,
+    )
+    output_dir = tmp_path / "runs"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "generate",
+            "--bundle",
+            str(tmp_path / "execution-bundle.json"),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    manifest = json.loads((output_dir / intent.run_id / "artifact-manifest.json").read_text())
+    assert manifest["counts"] == {
+        "analytical_only": 1,
+        "execution_case_excluded": 1,
+        "readiness": {
+            "invalid": 0,
+            "needs_runtime_binding": 0,
+            "needs_semantic_binding": 0,
+            "ready": 0,
+            "unsupported": 0,
+        },
+    }
+    assert manifest["execution_case_counts"]["analytical_only"] == 1
+    assert manifest["source_classification_counts"]["analytical_only"] == 1
+    assert json.loads(result.stdout)["counts"] == manifest["counts"]
+
+
+def test_target_profile_loader_requires_attested_digest(tmp_path) -> None:
+    from tests.test_execution_case import _profile
+
+    path = tmp_path / "target-profile.json"
+    path.write_text(json.dumps(_profile().model_dump(mode="json")), encoding="utf-8")
+    assert _load_target_profile(path) is not None
+    path.write_text(json.dumps({"profile_id": "target-1"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="semantic_digest"):
+        _load_target_profile(path)
 
 
 def test_observation_receipt_is_append_only_and_digest_verified() -> None:
@@ -690,8 +871,10 @@ def test_observation_receipt_is_append_only_and_digest_verified() -> None:
 
 
 def test_cli_entry_failure_is_retained_in_manifest(tmp_path, monkeypatch) -> None:
+    from tests.test_stpa_consumer_core import _intent
+
     ready = _ready_plan()
-    bundle_entry = SimpleNamespace(scenario_id=ready.scenario_id, intent=object())
+    bundle_entry = SimpleNamespace(scenario_id=ready.scenario_id, intent=_intent())
     verified = SimpleNamespace(
         entries=(bundle_entry,),
         run_id=ready.run_id,
@@ -746,6 +929,17 @@ def _ready_plan() -> ReadyExecutionPlan:
         uca_type="INCORRECT",
         platform="garak",
         adapter_version="garak-stpa-v1",
+        case_id="SCN-001:target-agnostic",
+        case_digest="1" * 64,
+        execution_classification_digest="2" * 64,
+        binding_completeness="concrete",
+        environment_basis="target_agnostic",
+        profile_fit="not_required",
+        claim_scope="model_behavior_only",
+        source_binding_completeness="concrete",
+        source_environment_basis="target_agnostic",
+        source_profile_fit="not_required",
+        source_claim_scope="model_behavior_only",
         steps=(
             PlanStep(
                 plan_step_id="plan-1",

@@ -1,0 +1,46 @@
+{
+  "authority": "reviewed",
+  "basis": "target",
+  "environment_id": "fixture-target",
+  "evidence_refs": [
+    "fixture-review"
+  ],
+  "inventory_completeness": "reviewed_complete",
+  "profile_id": "fixture-target",
+  "resources": [
+    {
+      "attacker_influence": "indirect",
+      "authority": "reviewed",
+      "evidence_refs": [
+        "fixture-tool"
+      ],
+      "interface_schema": {
+        "type": "object"
+      },
+      "operations": [
+        {
+          "argument_names": [],
+          "observable_properties": [
+            "content_reaches_model_context"
+          ],
+          "operation_id": "retrieve-1",
+          "semantic_operation": "retrieve_content"
+        }
+      ],
+      "resource_id": "TOOL-retrieval",
+      "resource_kind": "tool",
+      "role_ids": [
+        "attacker_influenced_content_source"
+      ],
+      "simulation_behavior": null,
+      "structural_refs": [
+        "PM-1-1"
+      ],
+      "surfaces": [
+        "tool_result"
+      ]
+    }
+  ],
+  "schema_version": "execution-target-profile-v1",
+  "semantic_digest": "f862ad29bfc0bf3b81c04c7445beef37806d197873955d89ba14623bdd2a5b16"
+}

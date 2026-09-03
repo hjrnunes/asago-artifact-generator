@@ -35,11 +35,17 @@ command requires an explicit canonical STPA bundle and never falls back to
 legacy YAML/narrative inference. Model-backed presentation authoring runs only
 after deterministic readiness and receives fixed text slots, never execution
 choices. `--force` is rejected for authoritative STPA inputs.
-The current pre-alpha execution contracts change in place. A producer stimulus
-requirement states adversarial intent and eligible causal factors; a reviewed
-runtime binding chooses direct prompt, indirect content, or ordinary
-conversation context. Compilation must end before the target response. Probe
-selection and Garak execution belong to a separate campaign orchestrator.
+The current pre-alpha execution contracts change in place. The producer fixes
+the route, causal factor, operation, action, and oracle semantics. The consumer
+resolves that contract only against an explicit, reviewed target profile; an
+explicit complete simulation profile may instead carry inferred authority and
+is always simulation-scoped. It does not reinterpret prose or invent resources.
+Runtime bindings then supply
+locators, values, credentials, and observers. Compilation must end before the
+target response. Probe selection and Garak execution belong to a separate
+campaign orchestrator.
+Manifest summaries keep readiness outcomes separate from semantic case
+exclusions and report analytical-only exclusions explicitly.
 
 ## Development
 

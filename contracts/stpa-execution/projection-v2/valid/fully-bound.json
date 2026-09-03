@@ -16,6 +16,35 @@
   ],
   "control_action_id": "CM-1",
   "controller_id": "CL-1",
+  "execution_classification": {
+    "ambiguous_matches": [],
+    "binding_completeness": "concrete",
+    "claim_scope": "model_behavior_only",
+    "classification_digest": "0dfd057f6d3b0db5afeb0c067f20b72f9d793cc5076362631557cf7a3ac6915e",
+    "diagnostics": [],
+    "environment_basis": "target_agnostic",
+    "profile_fit": "not_required",
+    "resolved_bindings": [],
+    "schema_version": "stpa-execution-classification-v1",
+    "target_profile_digest": null,
+    "unresolved_requirement_ids": [],
+    "unsupported_requirement_ids": []
+  },
+  "execution_contract": {
+    "action_kind": "model_output",
+    "delivery": {
+      "carrier_requirement_id": null,
+      "delivery_class": "direct_prompt",
+      "factor_id": "CF-1",
+      "source_role": "direct_user_input"
+    },
+    "disposition": "executable_route",
+    "gaps": [],
+    "requested_environment_basis": "target_agnostic",
+    "resource_requirements": [],
+    "schema_version": "stpa-execution-contract-v1",
+    "semantic_digest": "e5005c0931e3dc16d9ebd0206513720859469ea578b015f35316b6d57ce5e990"
+  },
   "execution_requirements": {
     "required_surface_categories": [
       "external_input"
@@ -32,6 +61,7 @@
   "run_id": "run-1",
   "scenario_id": "SCN-001",
   "schema_version": "stpa-execution-projection-v2",
+  "semantic_digest": "adcf2293bb0caa5dff72e1b044264048942e31a3828a84b3f260f3b0d892a4e3",
   "steps": [
     {
       "factor_id": "CF-1",
@@ -46,6 +76,17 @@
       "order": 2,
       "step_id": "S-2",
       "structural_source_id": "CM-1"
+    }
+  ],
+  "stimulus_requirements": [
+    {
+      "carrier_requirement_id": null,
+      "delivery_class": "direct_prompt",
+      "desired_effect": "Cause the unsafe target action.",
+      "factor_id": "CF-1",
+      "intent": "Influence the control decision through its external input.",
+      "source_role": "direct_user_input",
+      "stimulus_id": "STIM-1"
     }
   ],
   "trace_refs": {
@@ -86,16 +127,5 @@
     "outcome_id": "OUTCOME-1",
     "semantic_binding_required": false,
     "uca_type": "INCORRECT"
-  },
-  "stimulus_requirements": [
-    {
-      "stimulus_id": "STIM-1",
-      "intent": "Influence the control decision through its external input.",
-      "desired_effect": "Cause the unsafe target action.",
-      "eligible_factor_ids": [
-        "CF-1"
-      ]
-    }
-  ],
-  "semantic_digest": "9a52da59d58e630b05871a5f9074b8cd3f2b5ce2543c08979c07ce3c8dad1358"
+  }
 }

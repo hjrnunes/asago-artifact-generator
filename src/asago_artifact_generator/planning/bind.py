@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..models._base import freeze_value
+from ..models.execution_case import BoundExecutionCase
 from ..models.execution_intent import (
     ExecutionIntent,
     SemanticBindingPlaceholder,
@@ -715,14 +716,61 @@ def _resolve_stimuli(
     surfaces: Mapping[str, SurfaceBinding],
     diagnostics: list[ReadinessDiagnostic],
 ) -> tuple[str, tuple[StimulusPlan, ...]]:
-    supplied = {
-        item.stimulus_id: item for item in (bindings.stimulus_bindings if bindings else ())
-    }
-    required = {item.stimulus_id: item for item in intent.stimulus_requirements}
-    complete = True
+    supplied = _stimulus_bindings_by_id(bindings)
+    required = _stimulus_requirements_by_id(intent)
     plans: list[StimulusPlan] = []
+    complete = not _diagnose_unsolicited_stimuli(supplied, required, diagnostics)
+    plans, required_complete = _resolve_stimulus_plans(
+        intent, supplied, capabilities, surfaces, diagnostics
+    )
+    complete = required_complete and complete
+    return ("complete" if complete else "incomplete"), tuple(plans)
+
+
+def _stimulus_bindings_by_id(
+    bindings: RuntimeBindingSet | None,
+) -> dict[str, AdversarialStimulusBinding]:
+    return {item.stimulus_id: item for item in (bindings.stimulus_bindings if bindings else ())}
+
+
+def _stimulus_requirements_by_id(
+    intent: ExecutionIntent,
+) -> dict[str, Any]:
+    return {item.stimulus_id: item for item in intent.stimulus_requirements}
+
+
+def _resolve_stimulus_plans(
+    intent: ExecutionIntent,
+    supplied: Mapping[str, AdversarialStimulusBinding],
+    capabilities: PlatformCapabilities,
+    surfaces: Mapping[str, SurfaceBinding],
+    diagnostics: list[ReadinessDiagnostic],
+) -> tuple[list[StimulusPlan], bool]:
+    plans: list[StimulusPlan] = []
+    complete = True
+    for requirement in intent.stimulus_requirements:
+        valid, plan = _resolve_one_stimulus(
+            intent,
+            requirement,
+            supplied.get(requirement.stimulus_id),
+            capabilities,
+            surfaces,
+            diagnostics,
+        )
+        complete = valid and complete
+        if plan is not None:
+            plans.append(plan)
+    return plans, complete
+
+
+def _diagnose_unsolicited_stimuli(
+    supplied: Mapping[str, AdversarialStimulusBinding],
+    required: Mapping[str, Any],
+    diagnostics: list[ReadinessDiagnostic],
+) -> bool:
+    unsolicited = False
     for stimulus_id in sorted(set(supplied) - set(required)):
-        complete = False
+        unsolicited = True
         diagnostics.append(
             _diagnostic(
                 "runtime_binding",
@@ -731,41 +779,48 @@ def _resolve_stimuli(
                 "stimulus_bindings",
             )
         )
-    for requirement in intent.stimulus_requirements:
-        binding = supplied.get(requirement.stimulus_id)
-        if binding is None:
-            complete = False
-            diagnostics.append(
-                _diagnostic(
-                    "runtime_binding",
-                    "stimulus_binding_missing",
-                    f"no reviewed delivery is bound for {requirement.stimulus_id}",
-                    requirement.stimulus_id,
-                )
+    return unsolicited
+
+
+def _resolve_one_stimulus(
+    intent: ExecutionIntent,
+    requirement: Any,
+    binding: AdversarialStimulusBinding | None,
+    capabilities: PlatformCapabilities,
+    surfaces: Mapping[str, SurfaceBinding],
+    diagnostics: list[ReadinessDiagnostic],
+) -> tuple[bool, StimulusPlan | None]:
+    if binding is None:
+        diagnostics.append(
+            _diagnostic(
+                "runtime_binding",
+                "stimulus_binding_missing",
+                f"no reviewed delivery is bound for {requirement.stimulus_id}",
+                requirement.stimulus_id,
             )
-            continue
-        valid = _validate_stimulus_binding(
-            intent, requirement, binding, capabilities, surfaces, diagnostics
         )
-        complete = valid and complete
-        if valid:
-            plans.append(
-                StimulusPlan(
-                    stimulus_id=binding.stimulus_id,
-                    projection_step_id=binding.projection_step_id,
-                    factor_id=binding.factor_id,
-                    content_slot_id=binding.content_slot_id,
-                    delivery_class=binding.delivery_class,
-                    surface=binding.surface,
-                    source_kind=binding.source_kind,
-                    carrier_tool_name=binding.carrier_tool_name,
-                    carrier_tool_schema=binding.carrier_tool_schema,
-                    carrier_tool_arguments=binding.carrier_tool_arguments,
-                    intent=requirement.intent,
-                    desired_effect=requirement.desired_effect,
-                )
-            )
-    return ("complete" if complete else "incomplete"), tuple(plans)
+        return False, None
+    valid = _validate_stimulus_binding(
+        intent, requirement, binding, capabilities, surfaces, diagnostics
+    )
+    return (valid, _stimulus_plan(requirement, binding) if valid else None)
+
+
+def _stimulus_plan(requirement: Any, binding: AdversarialStimulusBinding) -> StimulusPlan:
+    return StimulusPlan(
+        stimulus_id=binding.stimulus_id,
+        projection_step_id=binding.projection_step_id,
+        factor_id=binding.factor_id,
+        content_slot_id=binding.content_slot_id,
+        delivery_class=binding.delivery_class,
+        surface=binding.surface,
+        source_kind=binding.source_kind,
+        carrier_tool_name=binding.carrier_tool_name,
+        carrier_tool_schema=binding.carrier_tool_schema,
+        carrier_tool_arguments=binding.carrier_tool_arguments,
+        intent=requirement.intent,
+        desired_effect=requirement.desired_effect,
+    )
 
 
 def _validate_stimulus_binding(
@@ -776,47 +831,89 @@ def _validate_stimulus_binding(
     surfaces: Mapping[str, SurfaceBinding],
     diagnostics: list[ReadinessDiagnostic],
 ) -> bool:
-    step = next(
+    step = _stimulus_step(intent, binding)
+    projection_valid = _validate_stimulus_projection(step, requirement, binding, diagnostics)
+    surface_valid = _validate_stimulus_surface(step, binding, surfaces, diagnostics)
+    platform_valid = _validate_stimulus_platform(binding, capabilities, diagnostics)
+    return projection_valid and surface_valid and platform_valid
+
+
+def _stimulus_step(intent: ExecutionIntent, binding: AdversarialStimulusBinding) -> Any:
+    return next(
         (item for item in intent.steps if item.step_id == binding.projection_step_id), None
     )
-    valid = True
-    if (
-        step is None
-        or step.kind != "CAUSAL_FACTOR"
-        or step.factor_id != binding.factor_id
-        or binding.factor_id not in requirement.eligible_factor_ids
-    ):
-        valid = False
-        diagnostics.append(
-            _diagnostic(
-                "runtime_binding",
-                "stimulus_projection_mismatch",
-                "stimulus binding must name one eligible causal-factor step",
-                binding.stimulus_id,
-            )
+
+
+def _validate_stimulus_projection(
+    step: Any,
+    requirement: Any,
+    binding: AdversarialStimulusBinding,
+    diagnostics: list[ReadinessDiagnostic],
+) -> bool:
+    if _stimulus_projection_matches(step, requirement, binding):
+        return True
+    diagnostics.append(
+        _diagnostic(
+            "runtime_binding",
+            "stimulus_projection_mismatch",
+            "stimulus binding must name one eligible causal-factor step",
+            binding.stimulus_id,
         )
+    )
+    return False
+
+
+def _stimulus_projection_matches(
+    step: Any,
+    requirement: Any,
+    binding: AdversarialStimulusBinding,
+) -> bool:
+    if step is None:
+        return False
+    return (
+        step.kind == "CAUSAL_FACTOR"
+        and step.factor_id == binding.factor_id
+        and binding.factor_id == requirement.factor_id
+        and binding.delivery_class == requirement.delivery_class
+    )
+
+
+def _validate_stimulus_surface(
+    step: Any,
+    binding: AdversarialStimulusBinding,
+    surfaces: Mapping[str, SurfaceBinding],
+    diagnostics: list[ReadinessDiagnostic],
+) -> bool:
     surface = surfaces.get(step.structural_source_id) if step is not None else None
-    if surface is None or surface.surface != binding.surface:
-        valid = False
-        diagnostics.append(
-            _diagnostic(
-                "runtime_binding",
-                "stimulus_surface_mismatch",
-                "stimulus surface must equal the causal step's reviewed surface",
-                binding.stimulus_id,
-            )
+    if surface is not None and surface.surface == binding.surface:
+        return True
+    diagnostics.append(
+        _diagnostic(
+            "runtime_binding",
+            "stimulus_surface_mismatch",
+            "stimulus surface must equal the causal step's reviewed surface",
+            binding.stimulus_id,
         )
-    if not capabilities.supports_surface(binding.surface):
-        valid = False
-        diagnostics.append(
-            _diagnostic(
-                "platform_support",
-                "stimulus_surface_unsupported",
-                f"platform {capabilities.platform} cannot deliver {binding.surface}",
-                binding.stimulus_id,
-            )
+    )
+    return False
+
+
+def _validate_stimulus_platform(
+    binding: AdversarialStimulusBinding,
+    capabilities: PlatformCapabilities,
+    diagnostics: list[ReadinessDiagnostic],
+) -> bool:
+    if capabilities.supports_surface(binding.surface):
+        return True
+    diagnostics.append(
+        _diagnostic(
+            "platform_support",
+            "stimulus_surface_unsupported",
+            f"platform {capabilities.platform} cannot deliver {binding.surface}",
+            binding.stimulus_id,
         )
-    return valid
+    )
+    return False
 
 
 def _diagnose_indeterminate_capabilities(
@@ -974,7 +1071,7 @@ def _overall(
 
 
 def bind_and_plan(
-    intent: ExecutionIntent,
+    intent: BoundExecutionCase,
     bindings: RuntimeBindingSet | None,
     capabilities: PlatformCapabilities,
 ) -> ExecutionPlanResult:
@@ -987,19 +1084,25 @@ def bind_and_plan(
     """
 
     _require_typed_inputs(intent, bindings, capabilities)
+    execution_case = intent
+    source_intent = execution_case.intent
     diagnostics: list[ReadinessDiagnostic] = []
-    source_status = _binding_source_status(intent, bindings, diagnostics)
-    semantic_status, resolved, values = _resolve_semantic_bindings(intent, bindings, diagnostics)
-    surface_status, surfaces = _resolve_surfaces(intent, bindings, capabilities, diagnostics)
-    action = _resolve_action(intent, bindings, capabilities, diagnostics)
-    _diagnose_surface_action_pair(intent, surfaces, action, diagnostics)
+    source_status = _binding_source_status(source_intent, bindings, diagnostics)
+    semantic_status, resolved, values = _resolve_semantic_bindings(
+        source_intent, bindings, diagnostics
+    )
+    surface_status, surfaces = _resolve_surfaces(
+        source_intent, bindings, capabilities, diagnostics
+    )
+    action = _resolve_action(source_intent, bindings, capabilities, diagnostics)
+    _diagnose_surface_action_pair(source_intent, surfaces, action, diagnostics)
     observer_status, observers = _resolve_observer(
-        intent, bindings, capabilities, values, action, diagnostics
+        source_intent, bindings, capabilities, values, action, diagnostics
     )
     stimulus_status, stimuli = _resolve_stimuli(
-        intent, bindings, capabilities, surfaces, diagnostics
+        source_intent, bindings, capabilities, surfaces, diagnostics
     )
-    _check_requirements(intent, bindings, capabilities, surfaces, action, diagnostics)
+    _check_requirements(source_intent, bindings, capabilities, surfaces, action, diagnostics)
     runtime_status = _runtime_status(surface_status, observer_status, stimulus_status, diagnostics)
     platform_status = _platform_status(capabilities, diagnostics)
     overall = _overall(source_status, semantic_status, runtime_status, platform_status)
@@ -1012,7 +1115,16 @@ def bind_and_plan(
             overall,
             diagnostics,
         )
-    plan = _ready_plan(intent, bindings, capabilities, resolved, observers, stimuli, surfaces)
+    plan = _ready_plan(
+        source_intent,
+        bindings,
+        capabilities,
+        resolved,
+        observers,
+        stimuli,
+        surfaces,
+        execution_case=execution_case,
+    )
     return ExecutionPlanResult(
         source_status=source_status,
         semantic_binding_status=semantic_status,
@@ -1025,12 +1137,12 @@ def bind_and_plan(
 
 
 def _require_typed_inputs(
-    intent: ExecutionIntent,
+    intent: BoundExecutionCase,
     bindings: RuntimeBindingSet | None,
     capabilities: PlatformCapabilities,
 ) -> None:
-    if not isinstance(intent, ExecutionIntent):
-        raise TypeError("bind_and_plan requires an ExecutionIntent, not a raw mapping")
+    if not isinstance(intent, BoundExecutionCase):
+        raise TypeError("bind_and_plan requires a BoundExecutionCase")
     if bindings is not None and not isinstance(bindings, RuntimeBindingSet):
         raise TypeError("bind_and_plan requires a RuntimeBindingSet, not a raw mapping")
     if not isinstance(capabilities, PlatformCapabilities):
@@ -1123,6 +1235,7 @@ def _ready_plan(
     observers: tuple[ObserverPlan, ...],
     stimuli: tuple[StimulusPlan, ...],
     surfaces: Mapping[str, SurfaceBinding],
+    execution_case: BoundExecutionCase,
 ) -> ReadyExecutionPlan:
     steps, trace_map = _plan_steps(intent, surfaces, bindings, capabilities, stimuli)
     return ReadyExecutionPlan(
@@ -1152,6 +1265,24 @@ def _ready_plan(
         content_slots=_content_slots(steps),
         trace_map=freeze_value(trace_map),
         presentation_context=intent.presentation_context,
+        case_id=execution_case.case_id,
+        case_digest=execution_case.case_digest,
+        execution_classification_digest=execution_case.execution_classification.classification_digest,
+        binding_completeness=execution_case.binding_completeness.value,
+        environment_basis=execution_case.environment_basis.value,
+        profile_fit=execution_case.profile_fit.value,
+        claim_scope=execution_case.claim_scope.value,
+        source_binding_completeness=(
+            execution_case.execution_classification.binding_completeness.value
+        ),
+        source_environment_basis=(execution_case.execution_classification.environment_basis.value),
+        source_profile_fit=execution_case.execution_classification.profile_fit.value,
+        source_claim_scope=execution_case.execution_classification.claim_scope.value,
+        selected_profile_id=execution_case.selected_profile_id,
+        selected_profile_basis=execution_case.selected_profile_basis,
+        target_environment_id=execution_case.target_environment_id,
+        target_profile_digest=execution_case.target_profile_digest,
+        selected_simulation_resources=execution_case.selected_simulation_resources,
     )
 
 

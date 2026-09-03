@@ -363,7 +363,7 @@ def compile_conversation_case(
     oracle = _oracle(plan)
     body = {
         "schema_version": CONVERSATION_SCHEMA_VERSION,
-        "case_id": plan.scenario_id,
+        "case_id": plan.case_id,
         "profile": _delivery_profile(plan, messages),
         "messages": messages,
         "tools": carrier_tools + target_tools,
@@ -388,6 +388,33 @@ def compile_conversation_case(
         "author": {"result_digest": author_digest} if author_digest else None,
         "compiler_version": CONVERSATION_COMPILER_VERSION,
     }
+    body["source"].update(
+        {
+            "case_id": plan.case_id,
+            "case_digest": plan.case_digest,
+            "execution_classification_digest": plan.execution_classification_digest,
+            "binding_completeness": plan.binding_completeness,
+            "environment_basis": plan.environment_basis,
+            "profile_fit": plan.profile_fit,
+            "claim_scope": plan.claim_scope,
+            "source_binding_completeness": plan.source_binding_completeness,
+            "source_environment_basis": plan.source_environment_basis,
+            "source_profile_fit": plan.source_profile_fit,
+            "source_claim_scope": plan.source_claim_scope,
+            "selected_simulation_resources": [
+                item.model_dump(mode="json") for item in plan.selected_simulation_resources
+            ],
+        }
+    )
+    if plan.selected_profile_id is not None:
+        body["source"].update(
+            {
+                "selected_profile_id": plan.selected_profile_id,
+                "selected_profile_basis": plan.selected_profile_basis,
+                "target_environment_id": plan.target_environment_id,
+                "target_profile_digest": plan.target_profile_digest,
+            }
+        )
     digest = compute_framed_digest(CONVERSATION_SCHEMA_VERSION, body)
     artifact = {**body, "semantic_digest": digest}
     errors = validate_conversation_case(artifact)

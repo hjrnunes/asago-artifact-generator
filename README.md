@@ -33,14 +33,21 @@ Supported LLM backends: **Gemini** (default when `GEMINI_API_KEY` is set), **Ope
 
 1. **Verify** the canonical bundle, paired scenario/projection bytes, closed
    schema, identities, and semantic digests.
-2. **Bind** reviewed semantic values, concrete surfaces, adversarial stimulus
-   placement, control-action tools, and observers through `RuntimeBindingSet`.
-3. **Assess readiness** independently for source integrity, semantic/runtime
+2. **Resolve** each producer-owned execution contract against an explicit,
+   reviewed target profile. This produces either a `BoundExecutionCase` or a
+   typed exclusion; the consumer never invents a tool or changes the attack.
+   An explicit complete simulation profile may be inferred, but its selected
+   simulation behavior is retained and the resulting claim stays
+   simulation-scoped.
+3. **Bind** reviewed semantic values, concrete surfaces, stimulus delivery,
+   control-action tools, and observers through `RuntimeBindingSet`.
+4. **Assess readiness** independently for source integrity, semantic/runtime
    binding, and Garak support. Only `overall: ready` reaches authoring.
-4. **Plan and compile** fixed prompt-side messages, bound tool declarations,
+5. **Plan and compile** fixed prompt-side messages, bound tool declarations,
    and an oracle derived from the producer unsafe condition. The target response
    is never authored or inserted into the compiled conversation.
-5. **Publish** readiness, execution-plan, artifact, validation, trace, and a
+6. **Publish** the bound case or exclusion alongside readiness, execution-plan,
+   artifact, validation, trace, and a
    batch manifest atomically. Runtime observations are separate receipts.
 
 ## Supported platforms
@@ -90,7 +97,11 @@ The model-backed author receives only fixed conversation slots after readiness;
 it cannot choose steps, surfaces, tools, values, observers, or detector logic.
 The artifact generator does not choose or run a Garak probe; a separate
 campaign orchestrator routes the compiled case using its typed delivery
-profile.
+profile. A target profile is explicit input when the producer contract needs
+target resources; without one, the entry is retained as a typed exclusion.
+Every profile match includes the requirement's exact surfaces, operation,
+owner, role, properties, and attacker-influence facts; no fuzzy or prose
+fallback is used.
 
 ### Historical generation
 
@@ -114,6 +125,7 @@ runs/
   <run-id>/
     artifact-manifest.json
     SCN-001/
+      bound-execution-case.json  # or execution-case-exclusion.json
       readiness.json
       execution-plan.json
       executable-conversation.json
@@ -154,7 +166,10 @@ The historical `generate-legacy` command retains its former artifact shape:
 Skipped scenarios (supply chain / unwritable surfaces) get a pre-plan `checks` string and no LLM call.
 
 **`artifact-manifest.json`** — run-level summary retaining exact readiness
-states, diagnostics, output paths, and per-entry errors.
+states, diagnostics, output paths, and per-entry errors. Its `counts.readiness`
+map is independent of `counts.execution_case_excluded` and
+`counts.analytical_only`, so a bundle containing only analytical exclusions is
+reported explicitly instead of appearing to contain zero results.
 
 ## Interactive demo
 

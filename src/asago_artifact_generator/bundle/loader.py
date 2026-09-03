@@ -18,6 +18,15 @@ from typing import Any
 from pydantic import ValidationError
 
 from ..models._base import canonical_json_bytes, compute_framed_digest, freeze_value, sha256_bytes
+from ..models.execution_classification import (
+    BindingCompleteness,
+    EnvironmentBasis,
+    ExecutionClaimScope,
+    ExecutionClassification,
+    ExecutionContractDisposition,
+    ExecutionProfileFit,
+    SemanticExecutionContract,
+)
 from ..models.execution_intent import CONDITION_TYPES, OPERATORS, ExecutionIntent
 
 BUNDLE_SCHEMA_VERSION = "stpa-execution-bundle-v1"
@@ -57,6 +66,8 @@ _PROJECTION_FIELDS = frozenset(
         "unsafe_outcome",
         "stimulus_requirements",
         "execution_requirements",
+        "execution_contract",
+        "execution_classification",
         "trace_refs",
         "semantic_digest",
     }
@@ -1512,6 +1523,157 @@ def _validate_projection_requirements(
     )
 
 
+def _validate_projection_execution_models(
+    value: dict[str, Any], violations: list[ValidationViolation]
+) -> None:
+    """Validate the v2 contract/classification as closed producer models."""
+
+    contract = _parse_projection_contract(value, violations)
+    classification = _parse_projection_classification(value, violations)
+    if contract is None or classification is None:
+        return
+    _validate_contract_factor_reference(contract, value, violations)
+    _validate_target_action_requirements(contract, value, violations)
+    _validate_projection_classification(contract, classification, violations)
+
+
+def _parse_projection_contract(
+    value: dict[str, Any], violations: list[ValidationViolation]
+) -> SemanticExecutionContract | None:
+    try:
+        return SemanticExecutionContract.model_validate(value.get("execution_contract"))
+    except (ValidationError, TypeError, ValueError) as exc:
+        violations.append(
+            _violation(
+                "schema_field_invalid",
+                "$.projection.execution_contract",
+                f"execution contract is invalid: {exc}",
+            )
+        )
+        return None
+
+
+def _parse_projection_classification(
+    value: dict[str, Any], violations: list[ValidationViolation]
+) -> ExecutionClassification | None:
+    try:
+        return ExecutionClassification.model_validate(value.get("execution_classification"))
+    except (ValidationError, TypeError, ValueError) as exc:
+        violations.append(
+            _violation(
+                "schema_field_invalid",
+                "$.projection.execution_classification",
+                f"execution classification is invalid: {exc}",
+            )
+        )
+        return None
+
+
+def _validate_contract_factor_reference(
+    contract: SemanticExecutionContract,
+    value: dict[str, Any],
+    violations: list[ValidationViolation],
+) -> None:
+    factors = value.get("causal_factors")
+    factor_ids = (
+        {item.get("factor_id") for item in factors if isinstance(item, dict)}
+        if isinstance(factors, list)
+        else set()
+    )
+    if contract.delivery is not None and contract.delivery.factor_id not in factor_ids:
+        violations.append(
+            _violation(
+                "schema_field_invalid",
+                "$.projection.execution_contract.delivery.factor_id",
+                "execution delivery factor_id must resolve to a causal factor",
+            )
+        )
+
+
+def _validate_target_action_requirements(
+    contract: SemanticExecutionContract,
+    value: dict[str, Any],
+    violations: list[ValidationViolation],
+) -> None:
+    """Require external-action requirements to name the selected UCA."""
+
+    outcome = value.get("unsafe_outcome")
+    action_id = outcome.get("control_action_id") if isinstance(outcome, dict) else None
+    if not isinstance(action_id, str):
+        return
+    for index, requirement in enumerate(contract.resource_requirements):
+        if requirement.purpose.value != "target_action":
+            continue
+        if requirement.owner_ref == action_id and requirement.operation == action_id:
+            continue
+        violations.append(
+            _violation(
+                "identity_mismatch",
+                f"$.projection.execution_contract.resource_requirements[{index}]",
+                "target_action requirement must name the unsafe outcome control action",
+            )
+        )
+
+
+def _validate_projection_classification(
+    contract: SemanticExecutionContract,
+    classification: ExecutionClassification,
+    violations: list[ValidationViolation],
+) -> None:
+    expected = _expected_classification(contract)
+    if expected is None:
+        return
+    actual = (
+        classification.binding_completeness,
+        classification.environment_basis,
+        classification.profile_fit,
+        classification.claim_scope,
+    )
+    if actual != expected or _classification_has_bindings(classification):
+        detail = (
+            "analytical_only contracts require the analytical classification tuple"
+            if contract.disposition is ExecutionContractDisposition.analytical_only
+            else "resource-free contracts require the target-agnostic classification tuple"
+        )
+        violations.append(
+            _violation(
+                "schema_field_invalid",
+                "$.projection.execution_classification",
+                detail,
+            )
+        )
+
+
+def _expected_classification(
+    contract: SemanticExecutionContract,
+) -> tuple[BindingCompleteness, EnvironmentBasis, ExecutionProfileFit, ExecutionClaimScope] | None:
+    if contract.disposition is ExecutionContractDisposition.analytical_only:
+        return (
+            BindingCompleteness.analytical_only,
+            EnvironmentBasis.none,
+            ExecutionProfileFit.invalid,
+            ExecutionClaimScope.no_execution_claim,
+        )
+    if not contract.resource_requirements:
+        return (
+            BindingCompleteness.concrete,
+            EnvironmentBasis.target_agnostic,
+            ExecutionProfileFit.not_required,
+            ExecutionClaimScope.model_behavior_only,
+        )
+    return None
+
+
+def _classification_has_bindings(classification: ExecutionClassification) -> bool:
+    return bool(
+        classification.resolved_bindings
+        or classification.unresolved_requirement_ids
+        or classification.ambiguous_matches
+        or classification.unsupported_requirement_ids
+        or classification.target_profile_digest is not None
+    )
+
+
 def _validate_projection_trace(
     value: dict[str, Any], violations: list[ValidationViolation]
 ) -> None:
@@ -1570,6 +1732,7 @@ def _validate_projection(value: Any) -> list[ValidationViolation]:
     _validate_projection_steps(value, sources, factors, violations)
     refs.update(_validate_projection_outcome(value, refs, violations))
     _validate_projection_requirements(value, violations)
+    _validate_projection_execution_models(value, violations)
     _validate_projection_trace(value, violations)
     _validate_projection_digest(value, violations)
     return violations
