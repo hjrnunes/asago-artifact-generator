@@ -23,9 +23,6 @@ _SEMANTIC_PROPOSITION_ID = re.compile(
     r"\b(?:PM|FB|CA|CM|CL|CP|RESP|H|L|SC|CF|SEM|REQ|OUTCOME|EXEC|SCN)-[A-Za-z0-9._-]+\b"
 )
 _SEMANTIC_PROPOSITION_URL = re.compile(r"\b(?:https?|ftp)://|\bwww\.", re.IGNORECASE)
-_SEMANTIC_PROPOSITION_SECRET = re.compile(
-    r"\b(?:api[_ -]?key|credential|password|secret|token)\b", re.IGNORECASE
-)
 
 _STRUCTURAL_REFERENCE = re.compile(r"^(?:PM|FB|CA|CM)-\d+(?:-\d+)?$|^S-\d+$")
 _ACTION_REFERENCE = re.compile(r"^(?:CA|CM)-\d+(?:-\d+)?$")
@@ -391,8 +388,6 @@ def _validate_proposition_line(value: str) -> None:
 def _validate_proposition_references(value: str) -> None:
     if _SEMANTIC_PROPOSITION_URL.search(value):
         raise ValueError("semantic_proposition must not contain a runtime URL")
-    if _SEMANTIC_PROPOSITION_SECRET.search(value):
-        raise ValueError("semantic_proposition must not contain credential material")
     if _SEMANTIC_PROPOSITION_ID.search(value):
         raise ValueError("semantic_proposition must not contain structural identifiers")
 

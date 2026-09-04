@@ -1570,7 +1570,8 @@ def _validate_output_proposition_requirement(
 ) -> None:
     """Require producer meaning when the selected action is model output."""
 
-    if contract.action_kind.value != "model_output":
+    action_kind = contract.action_kind
+    if action_kind is None or action_kind.value != "model_output":
         return
     outcome = value.get("unsafe_outcome")
     if isinstance(outcome, dict):

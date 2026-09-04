@@ -12,6 +12,7 @@ import pytest
 from asago_artifact_generator.authoring import DeterministicPresentationAuthor
 from asago_artifact_generator.bundle.loader import (
     BundleValidationError,
+    _validate_output_proposition_requirement,
     _validate_projection,
     load_execution_bundle,
 )
@@ -19,6 +20,11 @@ from asago_artifact_generator.garak.capabilities import garak_capabilities
 from asago_artifact_generator.garak.compile import compile_execution_artifact
 from asago_artifact_generator.garak.default_bindings import complete_garak_runtime_bindings
 from asago_artifact_generator.models._base import canonical_json_bytes, compute_framed_digest
+from asago_artifact_generator.models.execution_classification import (
+    ExecutionContractGap,
+    ExecutionContractGapCode,
+    SemanticExecutionContract,
+)
 from asago_artifact_generator.models.execution_intent import ExecutionIntent
 from asago_artifact_generator.planning.bind import bind_and_plan
 from asago_artifact_generator.planning.resolve_case import resolve_execution_case
@@ -54,6 +60,36 @@ def test_valid_lineaged_projection_preserves_proposition_and_refs(tmp_path: Path
     assert intent.unsafe_outcome.hazard_refs == ("H-1",)
     assert intent.unsafe_outcome.constraint_refs == ("SC-1",)
     assert intent.trace_refs.loss_ids == ("L-1",)
+
+
+def test_security_terms_in_a_proposition_are_not_treated_as_secret_values() -> None:
+    projection = _lineaged_projection()
+    proposition = "The session token is stale, so the response uses the wrong user identity."
+    projection["unsafe_outcome"]["semantic_proposition"] = proposition
+    projection["semantic_digest"] = compute_framed_digest(
+        "stpa-execution-projection-v2",
+        {key: item for key, item in projection.items() if key != "semantic_digest"},
+    )
+
+    assert _validate_projection(projection) == []
+
+
+def test_analytical_contract_does_not_require_an_action_kind_or_proposition() -> None:
+    contract = SemanticExecutionContract(
+        disposition="analytical_only",
+        gaps=(
+            ExecutionContractGap(
+                code=ExecutionContractGapCode.operation_missing,
+                detail="No executable operation is established.",
+                evidence_refs=("CF-1",),
+            ),
+        ),
+    )
+    violations = []
+
+    _validate_output_proposition_requirement(contract, {}, violations)
+
+    assert violations == []
 
 
 def test_missing_proposition_is_rejected_before_intent_construction() -> None:
