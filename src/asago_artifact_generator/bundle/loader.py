@@ -28,6 +28,7 @@ from ..models.execution_classification import (
     SemanticExecutionContract,
 )
 from ..models.execution_intent import CONDITION_TYPES, OPERATORS, ExecutionIntent
+from ..models.semantic_conditions import normalize_semantic_proposition
 
 BUNDLE_SCHEMA_VERSION = "stpa-execution-bundle-v1"
 PROJECTION_SCHEMA_VERSION = "stpa-execution-projection-v2"
@@ -93,6 +94,7 @@ _OUTCOME_FIELDS = frozenset(
         "control_action_id",
         "uca_type",
         "condition",
+        "semantic_proposition",
         "semantic_binding_required",
         "hazard_refs",
         "constraint_refs",
@@ -807,7 +809,7 @@ def _validate_quantity(value: Any, path: str, violations: list[ValidationViolati
         }:
             violations.append(
                 _violation(
-                    "condition_value_invalid",
+                    "semantic_binding_state_mismatch",
                     f"{path}.value_type",
                     "time placeholders must be numeric",
                 )
@@ -1377,6 +1379,11 @@ def _validate_outcome_fields(
                 )
             )
     _validate_outcome_id(outcome.get("outcome_id"), path, violations)
+    _validate_semantic_proposition(
+        outcome.get("semantic_proposition"),
+        f"{path}.semantic_proposition",
+        violations,
+    )
     for key in ("hazard_refs", "constraint_refs"):
         _strings_array(outcome.get(key), f"{path}.{key}", violations)
     _strict_bool(
@@ -1384,6 +1391,24 @@ def _validate_outcome_fields(
         f"{path}.semantic_binding_required",
         violations,
     )
+
+
+def _validate_semantic_proposition(
+    value: Any,
+    path: str,
+    violations: list[ValidationViolation],
+    *,
+    required: bool = False,
+) -> bool:
+    if value is not None and not isinstance(value, str):
+        violations.append(_violation("container_type_mismatch", path, "expected a string or null"))
+        return False
+    try:
+        normalize_semantic_proposition(value, required=required)
+    except (TypeError, ValueError) as exc:
+        violations.append(_violation("condition_value_invalid", path, str(exc)))
+        return False
+    return True
 
 
 def _validate_outcome_id(
@@ -1532,9 +1557,55 @@ def _validate_projection_execution_models(
     classification = _parse_projection_classification(value, violations)
     if contract is None or classification is None:
         return
+    _validate_output_proposition_requirement(contract, value, violations)
     _validate_contract_factor_reference(contract, value, violations)
     _validate_target_action_requirements(contract, value, violations)
     _validate_projection_classification(contract, classification, violations)
+
+
+def _validate_output_proposition_requirement(
+    contract: SemanticExecutionContract,
+    value: dict[str, Any],
+    violations: list[ValidationViolation],
+) -> None:
+    """Require producer meaning when the selected action is model output."""
+
+    if contract.action_kind.value != "model_output":
+        return
+    outcome = value.get("unsafe_outcome")
+    if isinstance(outcome, dict):
+        _validate_semantic_proposition(
+            outcome.get("semantic_proposition"),
+            "$.projection.unsafe_outcome.semantic_proposition",
+            violations,
+            required=True,
+        )
+        if value.get("uca_type") == "INCORRECT" and not _fixed_model_output_condition(
+            outcome.get("condition"), value.get("control_action_id")
+        ):
+            violations.append(
+                _violation(
+                    "condition_field_mismatch",
+                    "$.projection.unsafe_outcome.condition",
+                    "model_output INCORRECT outcomes require the fixed semantic-proposition "
+                    "action_value condition",
+                )
+            )
+
+
+def _fixed_model_output_condition(condition: Any, control_action_id: Any) -> bool:
+    """Return whether an output INCORRECT outcome uses the closed condition."""
+
+    if not isinstance(condition, dict):
+        return False
+    if (
+        condition.get("type"),
+        condition.get("control_action_id"),
+        condition.get("property"),
+        condition.get("operator"),
+    ) != ("action_value", control_action_id, "semantic_proposition", "equals"):
+        return False
+    return condition.get("expected") is True
 
 
 def _parse_projection_contract(
@@ -1702,6 +1773,138 @@ def _validate_projection_trace(
         _digest(item, f"{path}.source_pins.{key}", violations)
 
 
+def _validate_projection_lineage(
+    value: dict[str, Any],
+    violations: list[ValidationViolation],
+) -> None:
+    """Prove only the consumer-visible closure between outcome and trace.
+
+    The consumer has no LossAnalysis authority, so it intentionally checks
+    identity, cardinality, and exact equality only; semantic truth remains a
+    producer-owned decision.
+    """
+
+    documents = _executable_lineage_documents(value)
+    if documents is None:
+        return
+    outcome, trace = documents
+    outcome_path = "$.projection.unsafe_outcome"
+    trace_path = "$.projection.trace_refs"
+    for field in ("hazard_refs", "constraint_refs"):
+        _validate_outcome_lineage_field(outcome, field, outcome_path, violations)
+    _validate_loss_lineage(trace, trace_path, violations)
+    _validate_outcome_trace_pairs(outcome, trace, outcome_path, trace_path, violations)
+
+
+def _executable_lineage_documents(
+    value: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    contract = _executable_lineage_contract(value)
+    if contract is None:
+        return None
+    outcome = _lineage_document(value, "unsafe_outcome")
+    if outcome is None:
+        return None
+    trace = _lineage_document(value, "trace_refs")
+    if trace is None:
+        return None
+    return outcome, trace
+
+
+def _executable_lineage_contract(value: dict[str, Any]) -> dict[str, Any] | None:
+    contract = value.get("execution_contract")
+    if not isinstance(contract, dict):
+        return None
+    if contract.get("disposition") != "executable_route":
+        return None
+    return contract
+
+
+def _lineage_document(value: dict[str, Any], field: str) -> dict[str, Any] | None:
+    document = value.get(field)
+    if not isinstance(document, dict):
+        return None
+    return document
+
+
+def _validate_outcome_lineage_field(
+    outcome: dict[str, Any],
+    field: str,
+    outcome_path: str,
+    violations: list[ValidationViolation],
+) -> None:
+    outcome_refs = outcome.get(field)
+    if not isinstance(outcome_refs, list):
+        return
+    if not outcome_refs:
+        violations.append(
+            _violation(
+                "lineage_incomplete",
+                f"{outcome_path}.{field}",
+                "executable unsafe outcome requires at least one reference",
+            )
+        )
+    _validate_lineage_uniqueness(outcome_refs, f"{outcome_path}.{field}", violations)
+
+
+def _validate_loss_lineage(
+    trace: dict[str, Any],
+    trace_path: str,
+    violations: list[ValidationViolation],
+) -> None:
+    loss_refs = trace.get("loss_ids")
+    if not isinstance(loss_refs, list):
+        return
+    if not loss_refs:
+        violations.append(
+            _violation(
+                "loss_trace_missing",
+                f"{trace_path}.loss_ids",
+                "executable projection requires at least one loss trace reference",
+            )
+        )
+    _validate_lineage_uniqueness(loss_refs, f"{trace_path}.loss_ids", violations)
+
+
+def _validate_outcome_trace_pairs(
+    outcome: dict[str, Any],
+    trace: dict[str, Any],
+    outcome_path: str,
+    trace_path: str,
+    violations: list[ValidationViolation],
+) -> None:
+    for outcome_field, trace_field in (
+        ("hazard_refs", "hazard_ids"),
+        ("constraint_refs", "constraint_ids"),
+    ):
+        outcome_refs = outcome.get(outcome_field)
+        if not isinstance(outcome_refs, list):
+            continue
+        trace_refs = trace.get(trace_field)
+        if not isinstance(trace_refs, list):
+            continue
+        _validate_lineage_uniqueness(trace_refs, f"{trace_path}.{trace_field}", violations)
+        if outcome_refs != trace_refs:
+            violations.append(
+                _violation(
+                    "outcome_trace_mismatch",
+                    f"{outcome_path}.{outcome_field}",
+                    f"{outcome_field} must exactly equal {trace_field}",
+                )
+            )
+
+
+def _validate_lineage_uniqueness(
+    values: list[Any],
+    path: str,
+    violations: list[ValidationViolation],
+) -> None:
+    if all(isinstance(value, str) for value in values) and len(values) != len(set(values)):
+        violations.append(
+            _violation("lineage_duplicate", path, "lineage references must be unique")
+        )
+
+
 def _validate_projection_digest(
     value: dict[str, Any], violations: list[ValidationViolation]
 ) -> None:
@@ -1734,6 +1937,7 @@ def _validate_projection(value: Any) -> list[ValidationViolation]:
     _validate_projection_requirements(value, violations)
     _validate_projection_execution_models(value, violations)
     _validate_projection_trace(value, violations)
+    _validate_projection_lineage(value, violations)
     _validate_projection_digest(value, violations)
     return violations
 
@@ -2056,6 +2260,11 @@ def _read_projection_document(
         violation = _canonical_bytes_violation(raw, document, str(path))
         if violation is not None:
             violations.append(violation)
+        violations.extend(_validate_projection(document))
+    else:
+        violations.append(
+            _violation("container_type_mismatch", str(path), "projection root must be an object")
+        )
     return document, violations
 
 

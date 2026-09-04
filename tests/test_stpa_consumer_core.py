@@ -92,18 +92,13 @@ from asago_artifact_generator.planning.resolve_case import resolve_execution_cas
 CONTRACT_ROOT = Path(__file__).parents[1] / "contracts" / "stpa-execution"
 
 
-def _projection(*, temporal: dict | None = None, semantic_placeholder: bool = False) -> dict:
-    expected: object = (
-        {"binding_ref": "SEM-1", "value_type": "string", "description": "authorized account"}
-        if semantic_placeholder
-        else "AUTHORIZED-ACCOUNT-001"
-    )
+def _projection(*, temporal: dict | None = None) -> dict:
     condition = {
         "type": "action_value",
         "control_action_id": "CM-1",
-        "property": "authorized_destination",
-        "operator": "not_equals",
-        "expected": expected,
+        "property": "semantic_proposition",
+        "operator": "equals",
+        "expected": True,
     }
     value = {
         "schema_version": "stpa-execution-projection-v2",
@@ -150,7 +145,8 @@ def _projection(*, temporal: dict | None = None, semantic_placeholder: bool = Fa
             "control_action_id": "CM-1",
             "uca_type": "INCORRECT",
             "condition": condition,
-            "semantic_binding_required": semantic_placeholder,
+            "semantic_proposition": "The response exhibits the unsafe semantic behavior.",
+            "semantic_binding_required": False,
             "hazard_refs": ["H-1"],
             "constraint_refs": ["SC-1"],
         },
@@ -206,7 +202,7 @@ def _projection(*, temporal: dict | None = None, semantic_placeholder: bool = Fa
             "risk_ids": [],
             "attack_pattern_ids": [],
             "technique_ids": [],
-            "loss_ids": [],
+            "loss_ids": ["L-1"],
             "hazard_ids": ["H-1"],
             "constraint_ids": ["SC-1"],
             "source_pins": {
@@ -304,18 +300,11 @@ def _write_bundle(tmp_path: Path, projection: dict | None = None) -> Path:
 
 def _intent(*, placeholder: bool = False, temporal: bool = False) -> ExecutionIntent:
     temporal_condition = DelayCondition(reference_ref="FB-1-1", delay_ms=100) if temporal else None
-    semantic = (
-        SemanticBindingPlaceholder(
-            binding_ref="SEM-1", value_type="string", description="authorized account"
-        )
-        if placeholder
-        else "AUTHORIZED-ACCOUNT-001"
-    )
     condition = ActionValueCondition(
         control_action_id="CM-1",
-        property="authorized_destination",
-        operator="not_equals",
-        expected=semantic,
+        property="semantic_proposition",
+        operator="equals",
+        expected=True,
     )
     factor = CausalFactor(
         factor_id="CF-1",
@@ -359,7 +348,8 @@ def _intent(*, placeholder: bool = False, temporal: bool = False) -> ExecutionIn
             control_action_id="CM-1",
             uca_type="INCORRECT",
             condition=condition,
-            semantic_binding_required=placeholder,
+            semantic_proposition="The response exhibits the unsafe semantic behavior.",
+            semantic_binding_required=False,
             hazard_refs=("H-1",),
             constraint_refs=("SC-1",),
         ),
@@ -394,12 +384,15 @@ def _intent(*, placeholder: bool = False, temporal: bool = False) -> ExecutionIn
             claim_scope=ExecutionClaimScope.model_behavior_only,
         ),
         trace_refs=TraceReferences(
+            loss_ids=("L-1",),
+            hazard_ids=("H-1",),
+            constraint_ids=("SC-1",),
             source_pins={
                 "control_structure": "a" * 64,
                 "loss_analysis": "b" * 64,
                 "ica_enumeration": "c" * 64,
                 "scenario_context": "d" * 64,
-            }
+            },
         ),
         source_file_digests={"scenario": "e" * 64, "projection": "f" * 64},
     )
@@ -454,14 +447,10 @@ def _bindings(
             condition_ref="OUTCOME-1",
             observer_kind="tool_argument",
             event_source="trace.tool_calls",
-            semantic_property="authorized_destination",
+            semantic_property="semantic_proposition",
             field_path="arguments.account_id",
-            comparison="not_equals",
-            expected_from=(
-                "semantic_binding:SEM-1"
-                if intent.unsafe_outcome.semantic_binding_required
-                else "projection"
-            ),
+            comparison="equals",
+            expected_from="projection",
         )
     ]
     if temporal:
@@ -699,7 +688,7 @@ def test_vendored_contract_lock_and_minimal_bundle_are_authoritative() -> None:
 
     upstream = json.loads((CONTRACT_ROOT / "UPSTREAM.lock").read_text())
     assert upstream["repository"] == "asago-scenario-generator"
-    assert upstream["revision"] == "8de82a33e0bbbe15e722825ee8c99cd0be317f92"
+    assert upstream["revision"] == "80c81f6f95eb2f23899ddc6b380a4a74bff0ddca"
     assert upstream["source"] == "data/contracts/stpa-execution/CONTRACT.lock"
     assert (
         upstream["contract_lock_sha256"]
@@ -775,9 +764,9 @@ def test_coordinated_cross_repo_eight_case_acceptance_matrix(
     assert compiled.validation["ok"] is True
     executed.add("fully_declared_projection_garak_executable")
 
-    # 2. The producer placeholder fixture remains semantic-binding gated.
+    # 2. The producer temporal placeholder fixture remains semantic-binding gated.
     semantic_result = bind_and_plan(
-        _execution_case(_vendored_intent("semantic-binding-required.json")),
+        _execution_case(_vendored_intent("delay-placeholder.json")),
         None,
         garak_capabilities(),
     )
@@ -1305,7 +1294,7 @@ def test_bind_and_plan_rejects_raw_mappings() -> None:
 
 
 def test_missing_semantic_value_wins_readiness_precedence() -> None:
-    intent = _intent(placeholder=True)
+    intent = _vendored_intent("delay-placeholder.json")
     result = bind_and_plan(_execution_case(intent), None, _capabilities())
 
     assert result.overall == "needs_semantic_binding"
@@ -1316,8 +1305,10 @@ def test_missing_semantic_value_wins_readiness_precedence() -> None:
 
 
 def test_reviewed_semantic_binding_and_runtime_bindings_make_ready_plan() -> None:
-    intent = _intent(placeholder=True)
-    result = bind_and_plan(_execution_case(intent), _bindings(intent), _capabilities())
+    intent = _vendored_intent("delay-placeholder.json")
+    result = bind_and_plan(
+        _execution_case(intent), _vendored_runtime_bindings(intent), _capabilities(clock=True)
+    )
 
     assert result.overall == "ready"
     assert result.plan is not None
@@ -1325,8 +1316,8 @@ def test_reviewed_semantic_binding_and_runtime_bindings_make_ready_plan() -> Non
     assert result.plan.observers[0].condition_ref == "OUTCOME-1"
     assert result.plan.trace_map["plan-2"]["projection_step_id"] == "S-2"
     assert result.plan.steps[-1].content_slot_id is None
-    assert result.plan.scenario_content_sha256 == "e" * 64
-    assert result.plan.projection_content_sha256 == "f" * 64
+    assert result.plan.scenario_content_sha256 == intent.source_file_digests["scenario"]
+    assert result.plan.projection_content_sha256 == intent.source_file_digests["projection"]
 
 
 @pytest.mark.parametrize(

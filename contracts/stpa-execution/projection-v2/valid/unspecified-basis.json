@@ -49,6 +49,7 @@
       "operator": "not_equals",
       "expected": "AUTHORIZED-ACCOUNT-001"
     },
+    "semantic_proposition": null,
     "semantic_binding_required": false,
     "hazard_refs": [
       "H-1"
@@ -147,7 +148,9 @@
     "risk_ids": [],
     "attack_pattern_ids": [],
     "technique_ids": [],
-    "loss_ids": [],
+    "loss_ids": [
+      "L-1"
+    ],
     "hazard_ids": [
       "H-1"
     ],
@@ -161,5 +164,5 @@
       "scenario_context": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     }
   },
-  "semantic_digest": "be7802157555a6a4c0671f7ec42a2e4e5bdf8f1add3352ffab61ee76a1a16515"
+  "semantic_digest": "fa0d4355dc9e80b88ebd947cd36a1744b0fb882d45017ea3ce4a805f5777e0f7"
 }

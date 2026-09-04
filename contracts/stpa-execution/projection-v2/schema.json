@@ -1222,6 +1222,18 @@
         "semantic_binding_required": {
           "type": "boolean"
         },
+        "semantic_proposition": {
+          "anyOf": [
+            {
+              "maxLength": 600,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Semantic Proposition"
+        },
         "uca_type": {
           "enum": [
             "NOT_PROVIDED",
@@ -1237,6 +1249,7 @@
         "uca_type",
         "condition",
         "semantic_binding_required",
+        "semantic_proposition",
         "hazard_refs",
         "constraint_refs"
       ],

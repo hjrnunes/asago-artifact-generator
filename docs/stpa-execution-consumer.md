@@ -14,6 +14,16 @@ digest, and frozen presentation-only context. The raw documents are retained
 only as recursively immutable values for trace inspection; they are never an
 authority for planning.
 
+The inward intent preserves the producer's `semantic_proposition` exactly. The
+field is present on every v2 unsafe outcome (nullable for machine-only
+conditions), and model-output/output-text routes require a bounded non-empty
+plain line. Executable outcomes also retain duplicate-free hazard and
+constraint references, while the trace retains the exact selected loss
+references. The consumer checks only projection closure: outcome references
+must equal the corresponding trace references, and loss lineage must be
+present. It does not decide whether the proposition is semantically true of a
+hazard; that authority remains with the producer.
+
 ## Readiness seam
 
 `planning.bind.bind_and_plan` accepts a resolved `BoundExecutionCase`, an
@@ -42,6 +52,11 @@ deployment facts it cannot know, including internal agent channels and
 indirect-content carriers. It also binds surfaces only for the selected
 stimulus factor and final target action; other structural factors stay in the
 ready plan's provenance trace without becoming prompt messages.
+
+Readiness copies the exact proposition and hazard/constraint/loss references
+onto each outcome observer. An `output_text` observer without the producer
+proposition is `needs_runtime_binding`, even when all runtime bindings are
+otherwise complete; a runtime binding cannot supply or replace that meaning.
 
 ## Case resolution
 

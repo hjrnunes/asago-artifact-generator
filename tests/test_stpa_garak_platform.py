@@ -50,9 +50,12 @@ def test_garak_capabilities_are_honest_about_supported_observation() -> None:
 
 
 def _model_output_intent(*, placeholder: bool = False):
-    from tests.test_stpa_consumer_core import _intent
+    from tests.test_stpa_consumer_core import _intent, _vendored_intent
 
-    intent = _intent(placeholder=placeholder)
+    # The producer's fixed model-output INCORRECT condition cannot carry a
+    # semantic placeholder.  Exercise placeholder readiness with the
+    # producer-owned temporal fixture instead.
+    intent = _vendored_intent("delay-placeholder.json") if placeholder else _intent()
     return intent.model_copy(
         update={
             "execution_requirements": intent.execution_requirements.model_copy(
@@ -83,7 +86,10 @@ def test_garak_derives_standard_direct_chat_bindings_without_binding_file() -> N
         ),
     )
     assert compiled.artifact["structured_oracle"]["semantic_property"]
-    assert "semantically has" in compiled.artifact["judge_description"]
+    assert (
+        "The response exhibits the unsafe semantic behavior."
+        in compiled.artifact["judge_description"]
+    )
 
 
 def test_garak_defaults_do_not_invent_semantic_placeholder_values() -> None:
@@ -100,10 +106,10 @@ def test_garak_defaults_do_not_invent_semantic_placeholder_values() -> None:
 
 def test_garak_merges_explicit_semantic_value_with_platform_defaults() -> None:
     from asago_artifact_generator.models.runtime_binding import SemanticBinding
-    from tests.test_stpa_consumer_core import _bindings, _execution_case
+    from tests.test_stpa_consumer_core import _execution_case
 
     case = _execution_case(_model_output_intent(placeholder=True))
-    reviewed = _bindings(case.intent)
+    reviewed = complete_garak_runtime_bindings(case)
     semantic_only = reviewed.model_copy(
         update={
             "surface_bindings": (),
@@ -113,8 +119,8 @@ def test_garak_merges_explicit_semantic_value_with_platform_defaults() -> None:
             "semantic_bindings": (
                 SemanticBinding(
                     condition_ref="OUTCOME-1",
-                    binding_ref="SEM-1",
-                    value="AUTHORIZED-ACCOUNT-001",
+                    binding_ref="SEM-2",
+                    value=100,
                     reviewed_by="operator@example",
                     rationale="Deployment-specific expected value.",
                     evidence_refs=("change-1",),
@@ -127,7 +133,10 @@ def test_garak_merges_explicit_semantic_value_with_platform_defaults() -> None:
     completed = complete_garak_runtime_bindings(case, semantic_only)
     result = bind_and_plan(case, completed, garak_capabilities())
 
-    assert result.overall == "ready"
+    # The explicit value is retained, while the temporal observer still needs
+    # a runtime binding that Garak does not synthesize.
+    assert result.overall == "needs_runtime_binding"
+    assert not any(item.code == "semantic_binding_missing" for item in result.diagnostics)
     assert completed.semantic_bindings == semantic_only.semantic_bindings
     assert completed.review == semantic_only.review
 
@@ -375,7 +384,7 @@ def test_provenance_only_factor_needs_no_surface_or_prompt_message() -> None:
 def test_real_garak_capabilities_reach_ready_and_compile() -> None:
     from tests.test_stpa_consumer_core import _bindings, _execution_case, _intent
 
-    intent = _intent(placeholder=True)
+    intent = _intent()
     result = bind_and_plan(_execution_case(intent), _bindings(intent), garak_capabilities())
 
     assert result.overall == "ready"
@@ -559,8 +568,8 @@ def test_direct_text_attack_compiles_target_text_oracle_without_preauthored_answ
                     condition_ref="OUTCOME-1",
                     observer_kind="output_text",
                     event_source="target.response",
-                    semantic_property="authorized_destination",
-                    comparison="not_equals",
+                    semantic_property="semantic_proposition",
+                    comparison="equals",
                     expected_from="projection",
                 ),
             ),

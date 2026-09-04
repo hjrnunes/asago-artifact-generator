@@ -8,14 +8,17 @@ from .compile import (
 )
 from .conversation import (
     CONVERSATION_SCHEMA_VERSION,
+    CONVERSATION_TRACE_SCHEMA_VERSION,
     compile_conversation_case,
     validate_conversation_case,
+    validate_conversation_trace,
 )
 from .default_bindings import complete_garak_runtime_bindings
 from .plan import GarakPlan, GarakPlanStep, build_garak_plan
 
 __all__ = [
     "CONVERSATION_SCHEMA_VERSION",
+    "CONVERSATION_TRACE_SCHEMA_VERSION",
     "GarakPlan",
     "GarakPlanStep",
     "build_garak_plan",
@@ -26,4 +29,5 @@ __all__ = [
     "garak_capabilities",
     "validate_garak_artifact",
     "validate_conversation_case",
+    "validate_conversation_trace",
 ]

@@ -116,9 +116,10 @@ case can therefore reach readiness without `--bindings`. Only the
 stimulus-selected factor becomes a writable prompt-side surface; other causal
 factors remain traceable provenance. Semantic placeholders, target tools,
 indirect carrier invocations, real clocks, persistent state, and external
-observers still require explicit evidence. A semantic model-output oracle is
-compiled from its property, operator, and expected literal rather than treated
-as an exact full-response string comparison.
+observers still require explicit evidence. A model-output oracle carries the
+producer-authored `semantic_proposition` verbatim, alongside its typed machine
+condition; the consumer never turns a generic `semantic_value == true` label
+into a judge or rewrites the proposition.
 
 ### Historical generation
 
@@ -156,9 +157,10 @@ prompt-side `messages`, reviewed tools, delivery profile, structured oracle,
 source/binding identity, and a semantic digest. Direct prompts, indirect tool
 results, and ordinary multi-turn context use the same compiler. The messages
 end before the target response; the oracle describes the unsafe behavior the
-runner must observe. `artifact-trace.json` closes the stimulus and oracle back
-to the verified projection and binding set. No artifact is written for invalid,
-unbound, or unsupported entries.
+runner must observe and retains the exact producer proposition plus selected
+hazard/constraint lineage. `artifact-trace.json` records a digest of that
+proposition and closes the outcome references back to the verified ready plan.
+No artifact is written for invalid, unbound, or unsupported entries.
 
 The historical `generate-legacy` command retains its former artifact shape:
 

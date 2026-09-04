@@ -19,6 +19,7 @@ from ._base import ImmutableModel, SHA256Digest, freeze_value
 from .execution_case import SelectedSimulationResource
 from .execution_intent import UCAType
 from .runtime_binding import ClockBinding
+from .semantic_conditions import normalize_semantic_proposition
 
 SourceStatus = Literal["valid", "invalid"]
 SemanticBindingStatus = Literal["complete", "incomplete", "not_required"]
@@ -160,6 +161,53 @@ class ObserverPlan(ImmutableModel):
     comparison: StrictStr = Field(min_length=1)
     expected_from: StrictStr = Field(min_length=1)
     expected: Any = None
+    # These are producer-owned outcome authorities.  They are optional on
+    # non-outcome observers, but an output-text outcome must carry the exact
+    # proposition and source lineage copied from the inward intent.
+    semantic_proposition: StrictStr | None = None
+    hazard_refs: tuple[StrictStr, ...] = ()
+    constraint_refs: tuple[StrictStr, ...] = ()
+    loss_refs: tuple[StrictStr, ...] = ()
+
+    @field_validator("hazard_refs", "constraint_refs", "loss_refs", mode="before")
+    @classmethod
+    def _refs_as_tuple(cls, value: Any) -> tuple[str, ...]:
+        if value is None:
+            return ()
+        if not isinstance(value, (list, tuple)):
+            raise TypeError("observer lineage references must be arrays")
+        return tuple(value)
+
+    @field_validator("semantic_proposition")
+    @classmethod
+    def _validate_proposition(cls, value: str | None) -> str | None:
+        return normalize_semantic_proposition(value)
+
+    @model_validator(mode="after")
+    def _unique_lineage_refs(self) -> ObserverPlan:
+        for field_name in ("hazard_refs", "constraint_refs", "loss_refs"):
+            values = getattr(self, field_name)
+            if len(values) != len(set(values)):
+                raise ValueError(f"{field_name} must contain unique IDs")
+        return self
+
+    @property
+    def hazard_ids(self) -> tuple[str, ...]:
+        """Expose source terminology without duplicating stored authority."""
+
+        return self.hazard_refs
+
+    @property
+    def constraint_ids(self) -> tuple[str, ...]:
+        """Expose source terminology without duplicating stored authority."""
+
+        return self.constraint_refs
+
+    @property
+    def loss_ids(self) -> tuple[str, ...]:
+        """Expose source terminology without duplicating stored authority."""
+
+        return self.loss_refs
 
 
 class StimulusPlan(ImmutableModel):

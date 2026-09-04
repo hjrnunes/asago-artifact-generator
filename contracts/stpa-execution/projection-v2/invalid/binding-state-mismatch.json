@@ -11,7 +11,17 @@
       "kind": "PROCESS_MODEL_FLAW",
       "order": 1,
       "structural_source_id": "PM-1-1",
-      "temporal_condition": null
+      "temporal_condition": {
+        "type": "delay",
+        "reference_ref": "PM-1-1",
+        "delay_ms": {
+          "binding_ref": "SEM-1",
+          "description": "authorized account",
+          "maximum": null,
+          "minimum": null,
+          "value_type": "string"
+        }
+      }
     }
   ],
   "control_action_id": "CM-1",
@@ -97,7 +107,9 @@
     "hazard_ids": [
       "H-1"
     ],
-    "loss_ids": [],
+    "loss_ids": [
+      "L-1"
+    ],
     "obligation_ids": [],
     "risk_ids": [],
     "source_pins": {
@@ -111,17 +123,11 @@
   "uca_type": "INCORRECT",
   "unsafe_outcome": {
     "condition": {
+      "type": "action_value",
       "control_action_id": "CM-1",
-      "expected": {
-        "binding_ref": "SEM-1",
-        "description": "authorized account",
-        "maximum": null,
-        "minimum": null,
-        "value_type": "string"
-      },
-      "operator": "not_equals",
-      "property": "authorized_destination",
-      "type": "action_value"
+      "property": "semantic_proposition",
+      "operator": "equals",
+      "expected": true
     },
     "constraint_refs": [
       "SC-1"
@@ -132,6 +138,7 @@
     ],
     "outcome_id": "OUTCOME-1",
     "semantic_binding_required": false,
-    "uca_type": "INCORRECT"
+    "uca_type": "INCORRECT",
+    "semantic_proposition": "The response exhibits the unsafe semantic behavior."
   }
 }

@@ -59,6 +59,7 @@ from .execution_intent import (
 )
 from .readiness import (
     ExecutionPlanResult,
+    ObserverPlan,
     PlatformCapabilities,
     ReadinessDiagnostic,
     ReadyExecutionPlan,
@@ -106,6 +107,7 @@ __all__ = [
     "OrderingCondition",
     "ObservationBinding",
     "PlatformCapabilities",
+    "ObserverPlan",
     "ReadinessDiagnostic",
     "ReadyExecutionPlan",
     "ReviewEvidence",

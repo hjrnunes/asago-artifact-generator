@@ -97,7 +97,9 @@
     "hazard_ids": [
       "H-1"
     ],
-    "loss_ids": [],
+    "loss_ids": [
+      "L-1"
+    ],
     "obligation_ids": [],
     "risk_ids": [],
     "source_pins": {
@@ -125,6 +127,7 @@
     ],
     "outcome_id": "OUTCOME-1",
     "semantic_binding_required": false,
-    "uca_type": "WRONG_TIMING"
+    "uca_type": "WRONG_TIMING",
+    "semantic_proposition": "The response exhibits the unsafe semantic behavior."
   }
 }

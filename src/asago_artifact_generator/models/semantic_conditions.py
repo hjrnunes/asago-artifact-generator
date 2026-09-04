@@ -15,6 +15,18 @@ from pydantic import Field, StrictBool, StrictFloat, StrictInt, StrictStr, model
 
 from ._base import ImmutableModel
 
+# Keep this leaf deliberately independent from projection/adapter code.  The
+# producer owns the proposition's meaning; the consumer only checks that the
+# persisted value is bounded plain text before preserving it byte-for-byte.
+_SEMANTIC_PROPOSITION_MAX_LENGTH = 600
+_SEMANTIC_PROPOSITION_ID = re.compile(
+    r"\b(?:PM|FB|CA|CM|CL|CP|RESP|H|L|SC|CF|SEM|REQ|OUTCOME|EXEC|SCN)-[A-Za-z0-9._-]+\b"
+)
+_SEMANTIC_PROPOSITION_URL = re.compile(r"\b(?:https?|ftp)://|\bwww\.", re.IGNORECASE)
+_SEMANTIC_PROPOSITION_SECRET = re.compile(
+    r"\b(?:api[_ -]?key|credential|password|secret|token)\b", re.IGNORECASE
+)
+
 _STRUCTURAL_REFERENCE = re.compile(r"^(?:PM|FB|CA|CM)-\d+(?:-\d+)?$|^S-\d+$")
 _ACTION_REFERENCE = re.compile(r"^(?:CA|CM)-\d+(?:-\d+)?$")
 CONDITION_TYPES = (
@@ -316,6 +328,75 @@ def _validate_time_value(value: SemanticValue, field_name: str) -> None:
         raise ValueError(f"{field_name} must be non-negative")
 
 
+def normalize_semantic_proposition(
+    value: str | None,
+    *,
+    required: bool = False,
+) -> str | None:
+    """Validate one producer-authored proposition without assigning meaning.
+
+    The proposition is copied into the execution oracle exactly as supplied by
+    the producer.  This function therefore validates the closed, bounded text
+    contract but does not rewrite, paraphrase, or infer a replacement value.
+    Producer-side materialization performs the one permitted outer-whitespace
+    normalization before publication.
+    """
+
+    if value is None:
+        _require_proposition(value, required)
+        return None
+    if not isinstance(value, str):
+        raise ValueError("semantic_proposition must be a string or null")
+    if not value:
+        _require_proposition(value, required)
+        return None
+    _validate_proposition_text(value)
+    return value
+
+
+def _require_proposition(value: str | None, required: bool) -> None:
+    if not required:
+        return
+    message = (
+        "semantic_proposition is required for output-text observation"
+        if value is None
+        else "semantic_proposition must be non-empty"
+    )
+    raise ValueError(message)
+
+
+def _validate_proposition_text(value: str) -> None:
+    _validate_proposition_whitespace(value)
+    _validate_proposition_length(value)
+    _validate_proposition_line(value)
+    _validate_proposition_references(value)
+
+
+def _validate_proposition_whitespace(value: str) -> None:
+    if value != value.strip():
+        raise ValueError("semantic_proposition must be outer-whitespace normalized")
+
+
+def _validate_proposition_length(value: str) -> None:
+    if len(value) > _SEMANTIC_PROPOSITION_MAX_LENGTH:
+        limit = _SEMANTIC_PROPOSITION_MAX_LENGTH
+        raise ValueError(f"semantic_proposition exceeds maximum length of {limit} characters")
+
+
+def _validate_proposition_line(value: str) -> None:
+    if "\n" in value or "\r" in value:
+        raise ValueError("semantic_proposition must be one plain line")
+
+
+def _validate_proposition_references(value: str) -> None:
+    if _SEMANTIC_PROPOSITION_URL.search(value):
+        raise ValueError("semantic_proposition must not contain a runtime URL")
+    if _SEMANTIC_PROPOSITION_SECRET.search(value):
+        raise ValueError("semantic_proposition must not contain credential material")
+    if _SEMANTIC_PROPOSITION_ID.search(value):
+        raise ValueError("semantic_proposition must not contain structural identifiers")
+
+
 __all__ = [
     "AbsenceCondition",
     "ActionPresenceCondition",
@@ -333,4 +414,5 @@ __all__ = [
     "SemanticValue",
     "StateValueCondition",
     "WindowCondition",
+    "normalize_semantic_proposition",
 ]

@@ -1403,6 +1403,11 @@ def test_readiness_rejects_a_bare_intent() -> None:
 
 
 def test_garak_artifact_carries_bound_case_provenance() -> None:
+    from asago_artifact_generator.garak.capabilities import garak_capabilities
+    from asago_artifact_generator.garak.default_bindings import (
+        complete_garak_runtime_bindings,
+    )
+
     contract = _direct_contract()
     classification = _classification(
         completeness=BindingCompleteness.concrete,
@@ -1410,9 +1415,15 @@ def test_garak_artifact_carries_bound_case_provenance() -> None:
         fit=ExecutionProfileFit.not_required,
         claim=ExecutionClaimScope.model_behavior_only,
     )
-    intent = _intent_with_contract(contract, classification)
+    intent = _intent_with_contract(contract, classification).model_copy(
+        update={
+            "execution_requirements": _intent().execution_requirements.model_copy(
+                update={"requires_tool_execution": False}
+            )
+        }
+    )
     case = resolve_execution_case(intent, None)
-    readiness = bind_and_plan(case, _bindings(intent), _capabilities())
+    readiness = bind_and_plan(case, complete_garak_runtime_bindings(case), garak_capabilities())
 
     assert readiness.plan is not None
     plan = build_garak_plan(readiness.plan)

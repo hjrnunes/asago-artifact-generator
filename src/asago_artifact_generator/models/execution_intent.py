@@ -30,9 +30,11 @@ from .execution_classification import (
 from .semantic_conditions import (
     CONDITION_TYPES,
     OPERATORS,
+    ActionValueCondition,
     SemanticBindingPlaceholder,
     SemanticCondition,
     SemanticValue,
+    normalize_semantic_proposition,
 )
 
 UCAType = Literal["NOT_PROVIDED", "INCORRECT", "WRONG_TIMING", "WRONG_DURATION"]
@@ -103,6 +105,10 @@ class UnsafeOutcome(ImmutableModel):
     control_action_id: StrictStr = Field(min_length=1)
     uca_type: UCAType
     condition: SemanticCondition
+    # Persisted v2 documents require this key; the inward model keeps a
+    # nullable default so existing in-process analytical/test values can still
+    # represent machine-only outcomes without inventing semantic prose.
+    semantic_proposition: StrictStr | None = None
     semantic_binding_required: StrictBool
     hazard_refs: tuple[StrictStr, ...] = ()
     constraint_refs: tuple[StrictStr, ...] = ()
@@ -119,6 +125,9 @@ class UnsafeOutcome(ImmutableModel):
     @model_validator(mode="after")
     def _check_condition_compatibility(self) -> UnsafeOutcome:
         _validate_uca_condition_type(self.uca_type, self.condition.type)
+        normalize_semantic_proposition(self.semantic_proposition)
+        _validate_unique_refs(self.hazard_refs, "hazard_refs")
+        _validate_unique_refs(self.constraint_refs, "constraint_refs")
         _validate_outcome_binding_state(self.semantic_binding_required, self.condition)
         _validate_outcome_action(self.control_action_id, self.condition)
         return self
@@ -197,6 +206,11 @@ def _validate_outcome_action(control_action_id: str, condition: SemanticConditio
     condition_action = getattr(condition, "control_action_id", None)
     if condition_action and condition_action != control_action_id:
         raise ValueError("unsafe condition control_action_id does not match outcome")
+
+
+def _validate_unique_refs(values: tuple[str, ...], field_name: str) -> None:
+    if len(values) != len(set(values)):
+        raise ValueError(f"{field_name} must contain unique IDs")
 
 
 class ExecutionRequirements(ImmutableModel):
@@ -309,6 +323,20 @@ class TraceReferences(ImmutableModel):
             raise ValueError("source_pins must contain exactly the four producer digests")
         return frozen
 
+    @model_validator(mode="after")
+    def _unique_trace_refs(self) -> TraceReferences:
+        for field_name in (
+            "obligation_ids",
+            "risk_ids",
+            "attack_pattern_ids",
+            "technique_ids",
+            "loss_ids",
+            "hazard_ids",
+            "constraint_ids",
+        ):
+            _validate_unique_refs(getattr(self, field_name), field_name)
+        return self
+
 
 class ExecutionIntent(ImmutableModel):
     """Closed immutable pair-normalised execution intent.
@@ -373,6 +401,7 @@ class ExecutionIntent(ImmutableModel):
     def _validate_identity_and_sequences(self) -> ExecutionIntent:
         _validate_intent_identity(self)
         _validate_intent_outcome(self)
+        _validate_model_output_condition(self)
         _validate_target_action_requirements(self)
         _validate_intent_sequences(self)
         _validate_intent_stimuli(self)
@@ -420,6 +449,40 @@ def _validate_intent_outcome(value: ExecutionIntent) -> None:
         raise ValueError("unsafe outcome control action does not match intent")
     if value.unsafe_outcome.uca_type != value.uca_type:
         raise ValueError("unsafe outcome UCA type does not match intent")
+
+
+def _validate_model_output_condition(value: ExecutionIntent) -> None:
+    """Keep output INCORRECT intent on the producer's fixed machine condition."""
+
+    action_kind = value.execution_contract.action_kind
+    if action_kind is None:
+        return
+    if action_kind.value != "model_output":
+        return
+    if value.uca_type != "INCORRECT":
+        return
+    condition = value.unsafe_outcome.condition
+    if _is_fixed_model_output_condition(condition, value.control_action_id):
+        return
+    raise ValueError(
+        "model_output INCORRECT outcomes require the fixed semantic-proposition "
+        "action_value condition"
+    )
+
+
+def _is_fixed_model_output_condition(
+    condition: SemanticCondition,
+    control_action_id: str,
+) -> bool:
+    if not isinstance(condition, ActionValueCondition):
+        return False
+    if (
+        condition.control_action_id,
+        condition.property,
+        condition.operator,
+    ) != (control_action_id, "semantic_proposition", "equals"):
+        return False
+    return condition.expected is True
 
 
 def _validate_target_action_requirements(value: ExecutionIntent) -> None:

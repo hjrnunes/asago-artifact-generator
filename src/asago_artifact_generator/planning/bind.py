@@ -462,7 +462,13 @@ def _resolve_observer(
             capabilities,
             values,
             action,
-            diagnostics,
+            outcome=(
+                intent.unsafe_outcome
+                if condition_ref == intent.unsafe_outcome.outcome_id
+                else None
+            ),
+            trace_refs=intent.trace_refs,
+            diagnostics=diagnostics,
         )
         complete = valid and complete
         if plan is not None:
@@ -507,6 +513,34 @@ def _diagnose_unsolicited_observations(
             )
 
 
+def _validate_bound_observer(
+    condition_ref: str,
+    condition: SemanticCondition,
+    observer: Any,
+    outcome: Any | None,
+    action: ControlActionBinding | None,
+    diagnostics: list[ReadinessDiagnostic],
+) -> bool:
+    valid = _validate_observer(condition_ref, condition, observer, action, diagnostics)
+    if not _validate_observer_proposition(condition_ref, observer, outcome, diagnostics):
+        valid = False
+    return valid
+
+
+def _observer_lineage(
+    outcome: Any | None,
+    trace_refs: Any,
+) -> tuple[str | None, tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    if outcome is None:
+        return None, (), (), ()
+    return (
+        outcome.semantic_proposition,
+        outcome.hazard_refs,
+        outcome.constraint_refs,
+        trace_refs.loss_ids,
+    )
+
+
 def _resolve_one_observer(
     condition_ref: str,
     condition: SemanticCondition,
@@ -514,6 +548,8 @@ def _resolve_one_observer(
     capabilities: PlatformCapabilities | None,
     values: Mapping[tuple[str, str], Any],
     action: ControlActionBinding | None,
+    outcome: Any | None,
+    trace_refs: Any,
     diagnostics: list[ReadinessDiagnostic],
 ) -> tuple[ObserverPlan | None, bool]:
     if observer is None:
@@ -526,8 +562,18 @@ def _resolve_one_observer(
             )
         )
         return None, False
-    valid = _validate_observer(condition_ref, condition, observer, action, diagnostics)
+    valid = _validate_bound_observer(
+        condition_ref,
+        condition,
+        observer,
+        outcome,
+        action,
+        diagnostics,
+    )
     _diagnose_observer_support(condition_ref, observer, capabilities, diagnostics)
+    semantic_proposition, hazard_refs, constraint_refs, loss_refs = _observer_lineage(
+        outcome, trace_refs
+    )
     return (
         ObserverPlan(
             condition_ref=condition_ref,
@@ -539,9 +585,37 @@ def _resolve_one_observer(
             comparison=observer.comparison,
             expected_from=observer.expected_from,
             expected=_condition_expected(condition, values, condition_ref),
+            semantic_proposition=semantic_proposition,
+            hazard_refs=hazard_refs,
+            constraint_refs=constraint_refs,
+            loss_refs=loss_refs,
         ),
         valid,
     )
+
+
+def _validate_observer_proposition(
+    condition_ref: str,
+    observer: Any,
+    outcome: Any | None,
+    diagnostics: list[ReadinessDiagnostic],
+) -> bool:
+    """Require producer meaning before creating an output-text plan."""
+
+    if observer.observer_kind != "output_text":
+        return True
+    proposition = outcome.semantic_proposition if outcome is not None else None
+    if proposition:
+        return True
+    diagnostics.append(
+        _diagnostic(
+            "runtime_binding",
+            "semantic_proposition_missing",
+            "output-text observers require the producer semantic proposition",
+            condition_ref,
+        )
+    )
+    return False
 
 
 def _validate_observer(
@@ -1351,6 +1425,10 @@ def _plan_trace(
     trace_map["oracle-1"] = {
         "condition_ref": intent.unsafe_outcome.outcome_id,
         "condition_type": intent.unsafe_outcome.condition.type,
+        "semantic_proposition": intent.unsafe_outcome.semantic_proposition,
+        "hazard_refs": list(intent.unsafe_outcome.hazard_refs),
+        "constraint_refs": list(intent.unsafe_outcome.constraint_refs),
+        "loss_refs": list(intent.trace_refs.loss_ids),
     }
     active_ids = {step.projection_step_id for step in steps}
     trace_map["provenance_factors"] = [

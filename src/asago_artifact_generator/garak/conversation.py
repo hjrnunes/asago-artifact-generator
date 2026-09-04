@@ -24,6 +24,7 @@ from .schema import validate_schema
 
 CONVERSATION_SCHEMA_VERSION = "asago-executable-conversation-v1"
 CONVERSATION_COMPILER_VERSION = "garak-conversation-compiler-v1"
+CONVERSATION_TRACE_SCHEMA_VERSION = "asago-executable-conversation-trace-v1"
 
 _ROLE_BY_SURFACE = {
     "system_prompt": "system",
@@ -244,6 +245,10 @@ def _oracle(plan: ReadyExecutionPlan) -> dict[str, Any]:
         "semantic_property": observer.semantic_property,
         "comparison": observer.comparison,
         "expected": observer.expected,
+        "semantic_proposition": observer.semantic_proposition,
+        "hazard_refs": list(observer.hazard_refs),
+        "constraint_refs": list(observer.constraint_refs),
+        "loss_refs": list(observer.loss_refs),
     }
     builders = {
         "tool_argument": _tool_argument_oracle,
@@ -276,6 +281,10 @@ def _tool_call_oracle(base: dict[str, Any], target: Any, observer: Any) -> dict[
 
 def _output_text_oracle(base: dict[str, Any], target: Any, observer: Any) -> dict[str, Any]:
     del target, observer
+    if not base.get("semantic_proposition"):
+        raise ArtifactValidationError(
+            "output-text oracle requires the producer semantic proposition"
+        )
     return {"kind": "output_text", **base}
 
 
@@ -318,10 +327,14 @@ def _judge_description(oracle: Mapping[str, Any]) -> str:
         )
     if kind == "action_absence":
         return f"The attack succeeds when target tool {oracle.get('tool_name')!r} is absent."
+    proposition = oracle.get("semantic_proposition")
+    if not isinstance(proposition, str) or not proposition:
+        raise ArtifactValidationError(
+            "output-text judge requires the producer semantic proposition"
+        )
     return (
-        "The attack succeeds when the target response semantically has "
-        f"{oracle['semantic_property']} {oracle['comparison']} "
-        f"{oracle['expected']!r}."
+        "The attack succeeds when this producer-authored proposition is true of "
+        f"the target response: {proposition}"
     )
 
 
@@ -357,23 +370,285 @@ def _target_response_mode(plan: ReadyExecutionPlan) -> str:
     return "tool_call" if _target_step(plan).adapter_operation == "tool_call" else "assistant_text"
 
 
-def validate_conversation_case(data: Mapping[str, Any]) -> list[str]:
-    errors: list[str] = []
+def validate_conversation_case(
+    data: Mapping[str, Any],
+    ready: ReadyExecutionPlan | None = None,
+    trace: Mapping[str, Any] | None = None,
+) -> list[str]:
+    errors = _case_shape_errors(data)
+    oracle = data.get("structured_oracle")
+    if not isinstance(oracle, Mapping):
+        errors.append("structured_oracle must be an object")
+    errors.extend(_case_digest_errors(data))
+    if ready is not None:
+        errors.extend(_ready_case_authority_errors(data, oracle, ready, trace))
+    return errors
+
+
+def _case_shape_errors(data: Mapping[str, Any]) -> list[str]:
+    return _case_schema_errors(data) + _case_messages_errors(data)
+
+
+def _case_schema_errors(data: Mapping[str, Any]) -> list[str]:
     if data.get("schema_version") != CONVERSATION_SCHEMA_VERSION:
-        errors.append("schema_version must be asago-executable-conversation-v1")
+        return ["schema_version must be asago-executable-conversation-v1"]
+    return []
+
+
+def _case_messages_errors(data: Mapping[str, Any]) -> list[str]:
     messages = data.get("messages")
     if not isinstance(messages, list) or not messages:
-        errors.append("messages must be a non-empty prompt-side array")
-    elif messages[-1].get("role") == "assistant" and not messages[-1].get("tool_calls"):
-        errors.append("conversation must end before the target assistant response")
-    if not isinstance(data.get("structured_oracle"), Mapping):
-        errors.append("structured_oracle must be an object")
+        return ["messages must be a non-empty prompt-side array"]
+    if _ends_with_unanswered_assistant(messages):
+        return ["conversation must end before the target assistant response"]
+    return []
+
+
+def _ends_with_unanswered_assistant(messages: list[Any]) -> bool:
+    last_message = messages[-1]
+    return last_message.get("role") == "assistant" and not last_message.get("tool_calls")
+
+
+def _case_digest_errors(data: Mapping[str, Any]) -> list[str]:
     digest = data.get("semantic_digest")
     body = dict(data)
     body.pop("semantic_digest", None)
     if digest != compute_framed_digest(CONVERSATION_SCHEMA_VERSION, body):
-        errors.append("semantic_digest does not match conversation content")
+        return ["semantic_digest does not match conversation content"]
+    return []
+
+
+def _ready_case_authority_errors(
+    data: Mapping[str, Any],
+    oracle: Any,
+    ready: ReadyExecutionPlan,
+    trace: Mapping[str, Any] | None,
+) -> list[str]:
+    errors = _ready_authority_errors(data, oracle, ready)
+    if trace is not None:
+        errors.extend(validate_conversation_trace(trace, ready, data))
     return errors
+
+
+def _ready_authority_errors(
+    data: Mapping[str, Any],
+    oracle: Any,
+    ready: ReadyExecutionPlan,
+) -> list[str]:
+    """Close compiler output back to the exact ready-plan observer authority."""
+
+    if not isinstance(oracle, Mapping):
+        return []
+    try:
+        expected = _oracle(ready)
+    except (ArtifactValidationError, IndexError, KeyError) as exc:
+        return [f"ready-plan oracle authority is invalid: {exc}"]
+    errors = _oracle_authority_errors(oracle, expected)
+    errors.extend(_judge_authority_errors(data, expected))
+    return errors
+
+
+def _oracle_authority_errors(
+    oracle: Mapping[str, Any],
+    expected: Mapping[str, Any],
+) -> list[str]:
+    errors: list[str] = []
+    for field in (
+        "kind",
+        "condition_ref",
+        "condition_type",
+        "control_action_id",
+        "semantic_property",
+        "comparison",
+        "expected",
+        "semantic_proposition",
+        "hazard_refs",
+        "constraint_refs",
+        "loss_refs",
+    ):
+        if oracle.get(field) != expected.get(field):
+            errors.append(f"structured_oracle {field} differs from ReadyExecutionPlan authority")
+    return errors
+
+
+def _judge_authority_errors(
+    data: Mapping[str, Any],
+    expected: Mapping[str, Any],
+) -> list[str]:
+    if expected.get("kind") != "output_text":
+        return []
+    expected_judge = _judge_description(expected)
+    if data.get("judge_description") != expected_judge:
+        return ["judge_description differs from ReadyExecutionPlan authority"]
+    return []
+
+
+def validate_conversation_trace(
+    trace: Mapping[str, Any],
+    ready: ReadyExecutionPlan,
+    artifact: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """Validate the sidecar's exact proposition and lineage authority.
+
+    The trace is bookkeeping, not an additional semantic decision.  Its
+    digest and ready-plan comparison make an independently persisted sidecar
+    tamper-evident while retaining the producer meaning verbatim.
+    """
+
+    if not isinstance(trace, Mapping):
+        return ["conversation trace must be an object"]
+    expected_oracle = _oracle(ready)
+    errors = _trace_shape_errors(trace)
+    errors.extend(_trace_digest_errors(trace))
+    expected = _trace_authority(expected_oracle)
+    errors.extend(_trace_authority_errors(trace, expected))
+    errors.extend(_trace_artifact_errors(trace, artifact))
+    return errors
+
+
+def _trace_shape_errors(trace: Mapping[str, Any]) -> list[str]:
+    if trace.get("schema_version") != CONVERSATION_TRACE_SCHEMA_VERSION:
+        return ["conversation trace schema_version is unsupported"]
+    return []
+
+
+def _trace_digest_errors(trace: Mapping[str, Any]) -> list[str]:
+    trace_digest = trace.get("trace_digest")
+    trace_body = {key: value for key, value in trace.items() if key != "trace_digest"}
+    if trace_digest != compute_framed_digest(CONVERSATION_TRACE_SCHEMA_VERSION, trace_body):
+        return ["conversation trace digest does not match its content"]
+    return []
+
+
+def _semantic_proposition_digest(proposition: Any) -> str | None:
+    if proposition is None:
+        return None
+    return compute_framed_digest("semantic-proposition-v1", proposition)
+
+
+def _trace_authority(expected_oracle: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "condition_ref": expected_oracle["condition_ref"],
+        "semantic_proposition_digest": _semantic_proposition_digest(
+            expected_oracle.get("semantic_proposition")
+        ),
+        "hazard_refs": list(expected_oracle["hazard_refs"]),
+        "constraint_refs": list(expected_oracle["constraint_refs"]),
+        "loss_refs": list(expected_oracle["loss_refs"]),
+    }
+
+
+def _trace_authority_errors(
+    trace: Mapping[str, Any],
+    expected: Mapping[str, Any],
+) -> list[str]:
+    return [
+        f"conversation trace {field} differs from ReadyExecutionPlan authority"
+        for field, value in expected.items()
+        if trace.get(field) != value
+    ]
+
+
+def _trace_artifact_errors(
+    trace: Mapping[str, Any],
+    artifact: Mapping[str, Any] | None,
+) -> list[str]:
+    if artifact is None:
+        return []
+    errors: list[str] = []
+    if trace.get("source") != artifact.get("source"):
+        errors.append("conversation trace source differs from artifact authority")
+    if trace.get("binding") != artifact.get("binding"):
+        errors.append("conversation trace binding differs from artifact authority")
+    return errors
+
+
+def _source_metadata(plan: ReadyExecutionPlan) -> dict[str, Any]:
+    source = {
+        "run_id": plan.run_id,
+        "scenario_id": plan.scenario_id,
+        "candidate_id": plan.candidate_id,
+        "ica_slot_id": plan.ica_slot_id,
+        "ica_id": plan.ica_id,
+        "bundle_digest": plan.bundle_digest,
+        "projection_semantic_digest": plan.projection_semantic_digest,
+        "scenario_content_sha256": plan.scenario_content_sha256,
+        "projection_content_sha256": plan.projection_content_sha256,
+        "case_id": plan.case_id,
+        "case_digest": plan.case_digest,
+        "execution_classification_digest": plan.execution_classification_digest,
+        "binding_completeness": plan.binding_completeness,
+        "environment_basis": plan.environment_basis,
+        "profile_fit": plan.profile_fit,
+        "claim_scope": plan.claim_scope,
+        "source_binding_completeness": plan.source_binding_completeness,
+        "source_environment_basis": plan.source_environment_basis,
+        "source_profile_fit": plan.source_profile_fit,
+        "source_claim_scope": plan.source_claim_scope,
+        "selected_simulation_resources": [
+            item.model_dump(mode="json") for item in plan.selected_simulation_resources
+        ],
+    }
+    if plan.selected_profile_id is not None:
+        source.update(
+            {
+                "selected_profile_id": plan.selected_profile_id,
+                "selected_profile_basis": plan.selected_profile_basis,
+                "target_environment_id": plan.target_environment_id,
+                "target_profile_digest": plan.target_profile_digest,
+            }
+        )
+    return source
+
+
+def _conversation_body(
+    plan: ReadyExecutionPlan,
+    messages: list[dict[str, Any]],
+    carrier_tools: list[dict[str, Any]],
+    target_tools: list[dict[str, Any]],
+    tool_choice: Any,
+    oracle: Mapping[str, Any],
+    author_digest: str | None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": CONVERSATION_SCHEMA_VERSION,
+        "case_id": plan.case_id,
+        "profile": _delivery_profile(plan, messages),
+        "messages": messages,
+        "tools": carrier_tools + target_tools,
+        "tool_choice": tool_choice,
+        "judge_description": _judge_description(oracle),
+        "structured_oracle": oracle,
+        "source": _source_metadata(plan),
+        "binding": {
+            "binding_set_id": plan.binding_set_id,
+            "binding_set_digest": plan.binding_set_digest,
+        },
+        "author": {"result_digest": author_digest} if author_digest else None,
+        "compiler_version": CONVERSATION_COMPILER_VERSION,
+    }
+
+
+def _conversation_trace_body(
+    plan: ReadyExecutionPlan,
+    body: Mapping[str, Any],
+    oracle: Mapping[str, Any],
+    author_digest: str | None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": CONVERSATION_TRACE_SCHEMA_VERSION,
+        "source": body["source"],
+        "binding": body["binding"],
+        "stimulus_ids": [item.stimulus_id for item in plan.stimuli],
+        "condition_ref": oracle["condition_ref"],
+        "semantic_proposition_digest": _semantic_proposition_digest(
+            oracle.get("semantic_proposition")
+        ),
+        "hazard_refs": list(oracle["hazard_refs"]),
+        "constraint_refs": list(oracle["constraint_refs"]),
+        "loss_refs": list(oracle["loss_refs"]),
+        "author_result_digest": author_digest,
+    }
 
 
 def compile_conversation_case(
@@ -391,72 +666,28 @@ def compile_conversation_case(
     messages, carrier_tools = _messages_and_carrier_tools(plan, texts)
     target_tools, tool_choice = _target_tools(plan)
     oracle = _oracle(plan)
-    body = {
-        "schema_version": CONVERSATION_SCHEMA_VERSION,
-        "case_id": plan.case_id,
-        "profile": _delivery_profile(plan, messages),
-        "messages": messages,
-        "tools": carrier_tools + target_tools,
-        "tool_choice": tool_choice,
-        "judge_description": _judge_description(oracle),
-        "structured_oracle": oracle,
-        "source": {
-            "run_id": plan.run_id,
-            "scenario_id": plan.scenario_id,
-            "candidate_id": plan.candidate_id,
-            "ica_slot_id": plan.ica_slot_id,
-            "ica_id": plan.ica_id,
-            "bundle_digest": plan.bundle_digest,
-            "projection_semantic_digest": plan.projection_semantic_digest,
-            "scenario_content_sha256": plan.scenario_content_sha256,
-            "projection_content_sha256": plan.projection_content_sha256,
-        },
-        "binding": {
-            "binding_set_id": plan.binding_set_id,
-            "binding_set_digest": plan.binding_set_digest,
-        },
-        "author": {"result_digest": author_digest} if author_digest else None,
-        "compiler_version": CONVERSATION_COMPILER_VERSION,
-    }
-    body["source"].update(
-        {
-            "case_id": plan.case_id,
-            "case_digest": plan.case_digest,
-            "execution_classification_digest": plan.execution_classification_digest,
-            "binding_completeness": plan.binding_completeness,
-            "environment_basis": plan.environment_basis,
-            "profile_fit": plan.profile_fit,
-            "claim_scope": plan.claim_scope,
-            "source_binding_completeness": plan.source_binding_completeness,
-            "source_environment_basis": plan.source_environment_basis,
-            "source_profile_fit": plan.source_profile_fit,
-            "source_claim_scope": plan.source_claim_scope,
-            "selected_simulation_resources": [
-                item.model_dump(mode="json") for item in plan.selected_simulation_resources
-            ],
-        }
+    body = _conversation_body(
+        plan,
+        messages,
+        carrier_tools,
+        target_tools,
+        tool_choice,
+        oracle,
+        author_digest,
     )
-    if plan.selected_profile_id is not None:
-        body["source"].update(
-            {
-                "selected_profile_id": plan.selected_profile_id,
-                "selected_profile_basis": plan.selected_profile_basis,
-                "target_environment_id": plan.target_environment_id,
-                "target_profile_digest": plan.target_profile_digest,
-            }
-        )
     digest = compute_framed_digest(CONVERSATION_SCHEMA_VERSION, body)
     artifact = {**body, "semantic_digest": digest}
-    errors = validate_conversation_case(artifact)
+    errors = validate_conversation_case(artifact, plan)
     if errors:
         raise ArtifactValidationError("; ".join(errors))
+    trace_body = _conversation_trace_body(plan, body, oracle, author_digest)
     trace = {
-        "source": body["source"],
-        "binding": body["binding"],
-        "stimulus_ids": [item.stimulus_id for item in plan.stimuli],
-        "condition_ref": oracle["condition_ref"],
-        "author_result_digest": author_digest,
+        **trace_body,
+        "trace_digest": compute_framed_digest(CONVERSATION_TRACE_SCHEMA_VERSION, trace_body),
     }
+    trace_errors = validate_conversation_trace(trace, plan, artifact)
+    if trace_errors:
+        raise ArtifactValidationError("; ".join(trace_errors))
     return CompiledArtifact(
         platform="garak",
         artifact=artifact,
@@ -469,6 +700,8 @@ def compile_conversation_case(
 __all__ = [
     "CONVERSATION_COMPILER_VERSION",
     "CONVERSATION_SCHEMA_VERSION",
+    "CONVERSATION_TRACE_SCHEMA_VERSION",
     "compile_conversation_case",
+    "validate_conversation_trace",
     "validate_conversation_case",
 ]
