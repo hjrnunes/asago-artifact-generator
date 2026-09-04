@@ -172,6 +172,7 @@ class ExecutionDiagnosticCode(StrEnum):
     operation_unsupported = "operation_unsupported"
     profile_inventory_unknown = "profile_inventory_unknown"
     profile_inferred_only = "profile_inferred_only"
+    environment_profile_not_supplied = "environment_profile_not_supplied"
     simulation_contract_missing = "simulation_contract_missing"
     oracle_missing = "oracle_missing"
     execution_route_missing = "execution_route_missing"
@@ -421,9 +422,10 @@ def _set_default_environment_basis(
     requirements: tuple[ExecutionResourceRequirement, ...],
 ) -> None:
     if requirements:
-        raise ValueError(
-            "resource-bearing executable routes require an explicit environment basis"
-        )
+        # An omitted basis is an intentional unresolved environment choice.
+        # The caller may select a target or simulation profile later at the
+        # consumer boundary; it must not be rewritten as a real-target request.
+        return
     object.__setattr__(
         value,
         "requested_environment_basis",

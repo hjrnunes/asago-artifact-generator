@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from pydantic import ValidationError
 
@@ -11,6 +13,7 @@ from asago_artifact_generator.models._base import compute_framed_digest
 from asago_artifact_generator.models.execution_case import (
     BoundExecutionCase,
     ExecutionCaseExclusion,
+    _validate_target_agnostic_result,
 )
 from asago_artifact_generator.models.execution_classification import (
     AmbiguousExecutionMatch,
@@ -230,6 +233,18 @@ def _classification(
     )
 
 
+def _parameterized_intent(contract: SemanticExecutionContract) -> ExecutionIntent:
+    return _intent_with_contract(
+        contract,
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+    )
+
+
 def _agent_requirement() -> ExecutionResourceRequirement:
     return ExecutionResourceRequirement(
         requirement_id="REQ-AGENT",
@@ -326,6 +341,164 @@ def test_parameterized_case_without_profile_is_excluded() -> None:
     assert isinstance(result, ExecutionCaseExclusion)
     assert result.code == "needs_target_binding"
     assert result.requirement_ids == ("REQ-1", "REQ-2")
+
+
+def test_parameterized_contract_preserves_an_unspecified_environment_choice() -> None:
+    payload = _tool_contract().model_dump(mode="json")
+    payload["requested_environment_basis"] = None
+    payload.pop("semantic_digest", None)
+
+    contract = SemanticExecutionContract.model_validate(payload)
+
+    assert contract.requested_environment_basis is None
+    assert contract.resource_requirements
+
+
+def test_unspecified_parameterized_case_without_profile_needs_environment_binding() -> None:
+    payload = _tool_contract().model_dump(mode="json")
+    payload["requested_environment_basis"] = None
+    payload.pop("semantic_digest", None)
+    intent = _intent_with_contract(
+        SemanticExecutionContract.model_validate(payload),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+    )
+
+    result = resolve_execution_case(intent, None)
+
+    assert isinstance(result, ExecutionCaseExclusion)
+    assert result.code == "needs_environment_binding"
+    assert result.requirement_ids == ("REQ-1", "REQ-2")
+    assert result.diagnostics[0].code == "environment_profile_not_supplied"
+
+
+def test_explicit_simulation_request_without_profile_needs_simulation_binding() -> None:
+    intent = _intent_with_contract(
+        _simulation_contract(),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+    )
+
+    result = resolve_execution_case(intent, None)
+
+    assert isinstance(result, ExecutionCaseExclusion)
+    assert result.code == "needs_simulation_binding"
+    assert result.diagnostics[0].code == "simulation_contract_missing"
+
+
+def test_unspecified_parameterized_case_uses_supplied_target_profile_as_basis() -> None:
+    payload = _tool_contract().model_dump(mode="json")
+    payload["requested_environment_basis"] = None
+    payload.pop("semantic_digest", None)
+    intent = _intent_with_contract(
+        SemanticExecutionContract.model_validate(payload),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+    )
+
+    result = resolve_execution_case(intent, _profile())
+
+    assert isinstance(result, BoundExecutionCase)
+    assert result.environment_basis is EnvironmentBasis.target_profile
+    assert result.selected_profile_basis == "target"
+
+
+def test_unspecified_parameterized_case_uses_supplied_simulation_profile_as_basis() -> None:
+    payload = _tool_contract().model_dump(mode="json")
+    payload["requested_environment_basis"] = None
+    payload.pop("semantic_digest", None)
+    intent = _intent_with_contract(
+        SemanticExecutionContract.model_validate(payload),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+    )
+
+    result = resolve_execution_case(intent, _simulation_profile())
+
+    assert isinstance(result, BoundExecutionCase)
+    assert result.environment_basis is EnvironmentBasis.simulation_profile
+    assert result.selected_profile_basis == "simulation"
+
+
+def test_explicit_environment_basis_must_match_supplied_profile() -> None:
+    target_intent = _intent_with_contract(
+        _tool_contract(),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+    )
+    simulation_intent = _intent_with_contract(
+        _simulation_contract(),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+    )
+
+    target_result = resolve_execution_case(target_intent, _simulation_profile())
+    simulation_result = resolve_execution_case(simulation_intent, _profile())
+
+    assert isinstance(target_result, ExecutionCaseExclusion)
+    assert target_result.code == "invalid_profile"
+    assert isinstance(simulation_result, ExecutionCaseExclusion)
+    assert simulation_result.code == "invalid_profile"
+
+
+def test_mixed_bundle_keeps_each_environment_basis_independent() -> None:
+    pending_payload = _tool_contract().model_dump(mode="json")
+    pending_payload["requested_environment_basis"] = None
+    pending_payload.pop("semantic_digest", None)
+    pending = _parameterized_intent(SemanticExecutionContract.model_validate(pending_payload))
+    target = _parameterized_intent(_tool_contract())
+    simulation = _parameterized_intent(_simulation_contract())
+    target_agnostic = _intent_with_contract(
+        _direct_contract(),
+        _classification(
+            completeness=BindingCompleteness.concrete,
+            environment=EnvironmentBasis.target_agnostic,
+            fit=ExecutionProfileFit.not_required,
+            claim=ExecutionClaimScope.model_behavior_only,
+        ),
+    )
+    results = (
+        resolve_execution_case(target_agnostic, _profile()),
+        resolve_execution_case(pending, None),
+        resolve_execution_case(target, _profile()),
+        resolve_execution_case(simulation, _simulation_profile()),
+    )
+
+    assert isinstance(results[0], BoundExecutionCase)
+    assert results[0].environment_basis is EnvironmentBasis.target_agnostic
+    assert results[0].selected_profile_id is None
+    assert isinstance(results[1], ExecutionCaseExclusion)
+    assert results[1].code == "needs_environment_binding"
+    assert isinstance(results[2], BoundExecutionCase)
+    assert results[2].environment_basis is EnvironmentBasis.target_profile
+    assert results[2].selected_profile_basis == "target"
+    assert isinstance(results[3], BoundExecutionCase)
+    assert results[3].environment_basis is EnvironmentBasis.simulation_profile
+    assert results[3].selected_profile_basis == "simulation"
 
 
 def test_reviewed_profile_binds_exact_semantic_operation() -> None:
@@ -841,6 +1014,17 @@ def test_target_agnostic_bound_case_rejects_profile_backed_result(
 
     with pytest.raises(ValueError, match=message):
         BoundExecutionCase.model_validate(payload)
+
+
+def test_target_agnostic_bound_case_rejects_domain_resources() -> None:
+    value = SimpleNamespace(
+        intent=SimpleNamespace(
+            execution_contract=SimpleNamespace(resource_requirements=("REQ-1",))
+        )
+    )
+
+    with pytest.raises(ValueError, match="domain resources"):
+        _validate_target_agnostic_result(value)
 
 
 def test_bound_case_profile_identity_is_required() -> None:

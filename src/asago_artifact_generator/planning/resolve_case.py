@@ -1,4 +1,4 @@
-"""Pure exact resolution of semantic execution cases to target profiles."""
+"""Pure exact resolution of semantic execution cases to selected environments."""
 
 from __future__ import annotations
 
@@ -45,13 +45,30 @@ def resolve_execution_case(
     contract, classification = _execution_sources(intent)
     source_error = _source_integrity_error(contract, classification)
     if source_error is not None:
-        return _exclusion(
-            intent,
-            classification,
-            "invalid_source_binding",
-            (),
-            _diagnostic("target_profile_digest_mismatch", source_error),
-        )
+        return _source_integrity_exclusion(intent, classification, source_error)
+    return _resolve_verified_case(intent, contract, classification, profile)
+
+
+def _source_integrity_exclusion(
+    intent: ExecutionIntent,
+    classification: ExecutionClassification,
+    detail: str,
+) -> ExecutionCaseExclusion:
+    return _exclusion(
+        intent,
+        classification,
+        "invalid_source_binding",
+        (),
+        _diagnostic("target_profile_digest_mismatch", detail),
+    )
+
+
+def _resolve_verified_case(
+    intent: ExecutionIntent,
+    contract: SemanticExecutionContract,
+    classification: ExecutionClassification,
+    profile: ExecutionTargetProfile | None,
+) -> ExecutionCaseResolution:
     target_action_error = _target_action_requirement_error(intent)
     if target_action_error is not None:
         detail, requirement_ids = target_action_error
@@ -184,27 +201,83 @@ def _without_profile(
     contract: SemanticExecutionContract,
     classification: ExecutionClassification,
 ) -> ExecutionCaseResolution:
-    if contract.requested_environment_basis is RequestedEnvironmentBasis.target_agnostic:
-        source_error = _validate_target_agnostic_classification(classification)
-        if source_error is not None:
-            code, requirement_ids, diagnostics = source_error
-            return _exclusion(intent, classification, code, requirement_ids, *diagnostics)
-        if contract.resource_requirements:
-            return _exclusion(
-                intent,
-                classification,
-                "invalid_source_binding",
-                tuple(item.requirement_id for item in contract.resource_requirements),
-                _diagnostic(
-                    "execution_route_missing",
-                    "target_agnostic contract unexpectedly contains resource requirements",
-                ),
-            )
-        return _bound(
+    requested = contract.requested_environment_basis
+    if requested is RequestedEnvironmentBasis.target_agnostic:
+        return _without_profile_target_agnostic(intent, contract, classification)
+    if requested is None:
+        return _without_profile_unselected_environment(intent, contract, classification)
+    if requested is RequestedEnvironmentBasis.simulation_profile:
+        return _without_profile_simulation(intent, contract, classification)
+    return _without_profile_target(intent, contract, classification)
+
+
+def _without_profile_target_agnostic(
+    intent: ExecutionIntent,
+    contract: SemanticExecutionContract,
+    classification: ExecutionClassification,
+) -> ExecutionCaseResolution:
+    source_error = _validate_target_agnostic_classification(classification)
+    if source_error is not None:
+        code, requirement_ids, diagnostics = source_error
+        return _exclusion(intent, classification, code, requirement_ids, *diagnostics)
+    if contract.resource_requirements:
+        return _exclusion(
             intent,
             classification,
-            claim_scope=ExecutionClaimScope.model_behavior_only,
+            "invalid_source_binding",
+            tuple(item.requirement_id for item in contract.resource_requirements),
+            _diagnostic(
+                "execution_route_missing",
+                "target_agnostic contract unexpectedly contains resource requirements",
+            ),
         )
+    return _bound(
+        intent,
+        classification,
+        claim_scope=ExecutionClaimScope.model_behavior_only,
+    )
+
+
+def _without_profile_unselected_environment(
+    intent: ExecutionIntent,
+    contract: SemanticExecutionContract,
+    classification: ExecutionClassification,
+) -> ExecutionCaseResolution:
+    return _exclusion(
+        intent,
+        classification,
+        "needs_environment_binding",
+        tuple(item.requirement_id for item in contract.resource_requirements),
+        _diagnostic(
+            "environment_profile_not_supplied",
+            "the execution contract has no requested environment basis and "
+            "no profile was supplied",
+        ),
+    )
+
+
+def _without_profile_simulation(
+    intent: ExecutionIntent,
+    contract: SemanticExecutionContract,
+    classification: ExecutionClassification,
+) -> ExecutionCaseResolution:
+    return _exclusion(
+        intent,
+        classification,
+        "needs_simulation_binding",
+        tuple(item.requirement_id for item in contract.resource_requirements),
+        _diagnostic(
+            "simulation_contract_missing",
+            "the execution contract requests a simulation profile but none was supplied",
+        ),
+    )
+
+
+def _without_profile_target(
+    intent: ExecutionIntent,
+    contract: SemanticExecutionContract,
+    classification: ExecutionClassification,
+) -> ExecutionCaseResolution:
     return _exclusion(
         intent,
         classification,
@@ -293,30 +366,62 @@ def _with_profile(
     classification: ExecutionClassification,
     profile: ExecutionTargetProfile,
 ) -> ExecutionCaseResolution:
-    if contract.requested_environment_basis is RequestedEnvironmentBasis.target_agnostic:
+    requested = contract.requested_environment_basis
+    if requested is RequestedEnvironmentBasis.target_agnostic:
         # A caller may pass one global profile for a mixed bundle.  A
         # target-agnostic contract does not consume it and must retain its
         # model-only claim rather than becoming an invalid target case.
         return _without_profile(intent, contract, classification)
-    if contract.requested_environment_basis is RequestedEnvironmentBasis.target_profile:
-        if profile.basis is not ProfileBasis.target:
-            return _exclusion(
-                intent,
-                classification,
-                "invalid_profile",
-                (),
-                _diagnostic("profile_inferred_only", "a target profile is required"),
-            )
+    if requested is None:
+        return _resolve_inferred_profile(intent, contract, classification, profile)
+    if requested is RequestedEnvironmentBasis.target_profile:
+        return _resolve_requested_target_profile(intent, contract, classification, profile)
+    return _resolve_requested_simulation_profile(intent, contract, classification, profile)
+
+
+def _resolve_inferred_profile(
+    intent: ExecutionIntent,
+    contract: SemanticExecutionContract,
+    classification: ExecutionClassification,
+    profile: ExecutionTargetProfile,
+) -> ExecutionCaseResolution:
+    if profile.basis is ProfileBasis.target:
         return _resolve_target_profile(intent, contract, classification, profile)
-    if profile.basis is not ProfileBasis.simulation:
-        return _exclusion(
-            intent,
-            classification,
-            "invalid_profile",
-            (),
-            _diagnostic("simulation_contract_missing", "a simulation profile is required"),
-        )
     return _resolve_simulation_profile(intent, contract, classification, profile)
+
+
+def _resolve_requested_target_profile(
+    intent: ExecutionIntent,
+    contract: SemanticExecutionContract,
+    classification: ExecutionClassification,
+    profile: ExecutionTargetProfile,
+) -> ExecutionCaseResolution:
+    if profile.basis is ProfileBasis.target:
+        return _resolve_target_profile(intent, contract, classification, profile)
+    return _exclusion(
+        intent,
+        classification,
+        "invalid_profile",
+        (),
+        _diagnostic("profile_inferred_only", "a target profile is required"),
+    )
+
+
+def _resolve_requested_simulation_profile(
+    intent: ExecutionIntent,
+    contract: SemanticExecutionContract,
+    classification: ExecutionClassification,
+    profile: ExecutionTargetProfile,
+) -> ExecutionCaseResolution:
+    if profile.basis is ProfileBasis.simulation:
+        return _resolve_simulation_profile(intent, contract, classification, profile)
+    return _exclusion(
+        intent,
+        classification,
+        "invalid_profile",
+        (),
+        _diagnostic("simulation_contract_missing", "a simulation profile is required"),
+    )
 
 
 def _resolve_target_profile(

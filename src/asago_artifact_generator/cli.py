@@ -33,7 +33,9 @@ _READINESS_STATES = (
 )
 _EXECUTION_CASE_CODES = (
     "analytical_only",
+    "needs_environment_binding",
     "needs_target_binding",
+    "needs_simulation_binding",
     "ambiguous",
     "unsupported",
     "invalid_profile",
@@ -282,6 +284,9 @@ def _manifest_entry(
         "diagnostics": _diagnostic_documents(result),
         "paths": paths,
         "binding_completeness": execution_case.binding_completeness,
+        "requested_environment_basis": (
+            execution_case.intent.execution_contract.requested_environment_basis
+        ),
         "environment_basis": execution_case.environment_basis,
         "profile_fit": execution_case.profile_fit,
         "claim_scope": execution_case.claim_scope,
@@ -438,6 +443,9 @@ def _case_exclusion_entry(
         "diagnostics": [item.model_dump(mode="json") for item in exclusion.diagnostics],
         "paths": paths,
         "binding_completeness": exclusion.execution_classification.binding_completeness,
+        "requested_environment_basis": (
+            exclusion.intent.execution_contract.requested_environment_basis
+        ),
         "environment_basis": exclusion.execution_classification.environment_basis,
         "profile_fit": exclusion.execution_classification.profile_fit,
         "claim_scope": exclusion.execution_classification.claim_scope,
@@ -622,7 +630,10 @@ def generate_stpa(
         Path | None,
         typer.Option(
             "--target-profile",
-            help="Explicit digest-attested execution-target-profile-v1 YAML/JSON.",
+            help=(
+                "Explicit digest-attested execution-target-profile-v1 YAML/JSON "
+                "selecting a target or simulation environment."
+            ),
         ),
     ] = None,
     platform: Annotated[

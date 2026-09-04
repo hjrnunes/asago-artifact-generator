@@ -247,6 +247,7 @@
     "classification_ExecutionDiagnosticCode": {
       "description": "Closed deterministic diagnostic vocabulary.",
       "enum": [
+        "environment_profile_not_supplied",
         "target_profile_not_supplied",
         "target_resource_unresolved",
         "target_resource_ambiguous",

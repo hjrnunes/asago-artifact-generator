@@ -37,10 +37,11 @@ after deterministic readiness and receives fixed text slots, never execution
 choices. `--force` is rejected for authoritative STPA inputs.
 The current pre-alpha execution contracts change in place. The producer fixes
 the route, causal factor, operation, action, and oracle semantics. The consumer
-resolves target-agnostic model conversations without a profile, while tools and
-other resource-backed actions require an explicit reviewed target profile. An
-explicit complete simulation profile may instead carry inferred authority and
-is always simulation-scoped. It does not reinterpret prose or invent resources.
+resolves target-agnostic model conversations without a profile. Resource-backed
+actions with no selected environment remain pending until an explicit target or
+simulation profile is supplied; an explicit complete simulation profile may
+carry inferred authority and is always simulation-scoped. It does not
+reinterpret prose or invent resources.
 The Garak adapter deterministically supplies routine chat surfaces, stimulus
 placement, chat completion, and semantic output observation. Runtime bindings
 then supply only unresolved deployment locators, values, credentials, tools,

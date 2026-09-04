@@ -1,4 +1,4 @@
-"""Immutable semantic execution cases resolved for one explicit profile."""
+"""Immutable semantic execution cases and typed environment exclusions."""
 
 from __future__ import annotations
 
@@ -23,7 +23,9 @@ EXECUTION_CASE_EXCLUSION_SCHEMA_VERSION = "execution-case-exclusion-v1"
 EXECUTION_CASE_DIGEST_FRAME = EXECUTION_CASE_SCHEMA_VERSION
 ExecutionCaseExclusionCode = Literal[
     "analytical_only",
+    "needs_environment_binding",
     "needs_target_binding",
+    "needs_simulation_binding",
     "ambiguous",
     "unsupported",
     "invalid_profile",
@@ -248,6 +250,8 @@ def _validate_simulation_resources(value: BoundExecutionCase) -> None:
 
 
 def _validate_target_agnostic_result(value: BoundExecutionCase) -> None:
+    if value.intent.execution_contract.resource_requirements:
+        raise ValueError("target-agnostic bound case cannot require domain resources")
     if value.profile_fit is not ExecutionProfileFit.not_required:
         raise ValueError("target-agnostic bound case must have profile_fit not_required")
     if value.claim_scope is not ExecutionClaimScope.model_behavior_only:

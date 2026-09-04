@@ -34,12 +34,15 @@ Supported LLM backends: **Gemini** (default when `GEMINI_API_KEY` is set), **Ope
 1. **Verify** the canonical bundle, paired scenario/projection bytes, closed
    schema, identities, and semantic digests.
 2. **Resolve** each producer-owned execution contract against its requested
-   environment basis. Target-agnostic model conversations need no profile;
-   tools and other resource-backed actions require an explicit reviewed target
-   profile. An explicit complete simulation profile may instead be inferred,
-   but its selected behavior is retained and the claim stays simulation-scoped.
-   Resolution produces either a `BoundExecutionCase` or a typed exclusion; the
-   consumer never invents a tool or changes the attack.
+   environment basis. Target-agnostic model conversations need no profile.
+   Resource-backed actions with an omitted basis are retained as
+   `needs_environment_binding` until a supplied target or simulation profile
+   selects the environment. Explicit target and simulation requests retain
+   their distinct pending results. An explicit complete simulation profile may
+   carry inferred authority, but its selected behavior is retained and the
+   claim stays simulation-scoped. Resolution produces either a
+   `BoundExecutionCase` or a typed exclusion; the consumer never invents a
+   tool or changes the attack.
 3. **Bind** deployment-specific values through `RuntimeBindingSet`. The Garak
    adapter deterministically supplies its standard user-turn, conversation,
    chat-completion, target-response, and semantic-output-observer mechanics.
@@ -82,7 +85,7 @@ asago-artifact-generator generate \
 |------|--------|
 | `--bundle PATH` | Required canonical `stpa-execution-bundle-v1` JSON index |
 | `--bindings PATH` | Optional deployment-specific `runtime-binding-set-v1` YAML/JSON; Garak fills routine chat mechanics |
-| `--target-profile PATH` | Required when the contract names target tools, integrations, state, or other environment resources |
+| `--target-profile PATH` | Selects the reviewed target or complete simulation profile when the contract names domain resources |
 | `--platform garak` | Select the deterministic Garak adapter |
 | `--readiness-only` | Validate, bind, and plan without authoring or compilation |
 | `--no-llm` | Compile only when all presentation slots are already supplied |
@@ -98,8 +101,11 @@ The model-backed author receives only fixed conversation slots after readiness;
 it cannot choose steps, surfaces, tools, values, observers, or detector logic.
 The artifact generator does not choose or run a Garak probe; a separate
 campaign orchestrator routes the compiled case using its typed delivery
-profile. A target profile is explicit input when the producer contract needs
-target resources; without one, the entry is retained as a typed exclusion.
+profile. A target or simulation profile is explicit input when the producer
+contract needs domain resources; without one, an entry with an omitted basis is
+retained as a `needs_environment_binding` exclusion, while explicit target and
+simulation requests retain `needs_target_binding` and
+`needs_simulation_binding` respectively.
 Every profile match includes the requirement's exact surfaces, operation,
 owner, role, properties, and attacker-influence facts; no fuzzy or prose
 fallback is used.
@@ -180,7 +186,10 @@ Skipped scenarios (supply chain / unwritable surfaces) get a pre-plan `checks` s
 states, diagnostics, output paths, and per-entry errors. Its `counts.readiness`
 map is independent of `counts.execution_case_excluded` and
 `counts.analytical_only`, so a bundle containing only analytical exclusions is
-reported explicitly instead of appearing to contain zero results.
+reported explicitly instead of appearing to contain zero results. The
+`execution_case_counts` map separately reports unselected environments
+(`needs_environment_binding`), explicit target requests, explicit simulation
+requests, analytical-only findings, and profile-resolution failures.
 
 ## Interactive demo
 

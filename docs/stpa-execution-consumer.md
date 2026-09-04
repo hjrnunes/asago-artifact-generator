@@ -38,9 +38,40 @@ merges optional explicit bindings with deterministic adapter facts. Direct
 prompts use `user_turn`; conversation-context stimuli use conversation history;
 model output uses `chat_completion`, read-only `assistant_turn`, and an
 `output_text` semantic observer. The adapter derives none of the target or
-deployment facts it cannot know. It also binds surfaces only for the selected
+deployment facts it cannot know, including internal agent channels and
+indirect-content carriers. It also binds surfaces only for the selected
 stimulus factor and final target action; other structural factors stay in the
 ready plan's provenance trace without becoming prompt messages.
+
+## Case resolution
+
+`planning.resolve_case.resolve_execution_case` accepts one verified
+`ExecutionIntent` plus an optional `ExecutionTargetProfile`. A
+target-agnostic, resource-free contract produces a `BoundExecutionCase`
+without a profile. A resource-backed contract with an omitted requested basis
+and no profile is retained as a typed `needs_environment_binding` exclusion:
+no environment has been selected yet. Explicit target and simulation requests
+produce the distinct `needs_target_binding` and `needs_simulation_binding`
+exclusions when their profile is absent. Supplying a profile for an omitted
+request explicitly selects that profile's basis and resolves the exact
+requirement/resource/operation tuples. A complete simulation profile may
+provide deterministic behavior while preserving a simulation-only claim.
+Explicit profile requests cannot consume the opposite profile basis.
+
+The requested basis is therefore a four-state contract value, not a nullable
+spelling of `target_profile`:
+
+| Producer request | Domain resources | Supplied profile | Consumer result |
+|---|---:|---|---|
+| `target_agnostic` | no | ignored | model-only bound case |
+| `null` | yes | none | `needs_environment_binding` |
+| `null` | yes | target or simulation | resolve against the supplied basis |
+| `target_profile` / `simulation_profile` | yes | matching basis required | bound case or basis-specific exclusion |
+
+Resource-free executable contracts normalize to `target_agnostic`.
+`target_agnostic` with domain-resource requirements is invalid source data.
+The generic `null` case deliberately remains pending so the consumer never
+turns an omitted environment choice into real-target authority.
 
 ## Vendored contract
 

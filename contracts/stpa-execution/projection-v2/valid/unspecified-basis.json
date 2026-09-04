@@ -1,0 +1,165 @@
+{
+  "schema_version": "stpa-execution-projection-v2",
+  "run_id": "run-1",
+  "scenario_id": "SCN-001",
+  "candidate_id": "EXEC:CL-1:CM-1:INCORRECT",
+  "ica_slot_id": "CL-1:CM-1:INCORRECT",
+  "ica_id": "CL-1:CM-1:INCORRECT:1",
+  "controller_id": "CL-1",
+  "control_action_id": "CM-1",
+  "uca_type": "INCORRECT",
+  "causal_factors": [
+    {
+      "factor_id": "CF-1",
+      "order": 1,
+      "kind": "PROCESS_MODEL_FLAW",
+      "structural_source_id": "PM-1-1",
+      "description": "the model state diverges",
+      "evidence_status": "structural_failure",
+      "capability_refs": [],
+      "access_refs": [],
+      "bounded_assumption": null,
+      "temporal_condition": null
+    }
+  ],
+  "steps": [
+    {
+      "step_id": "S-1",
+      "order": 1,
+      "kind": "CAUSAL_FACTOR",
+      "factor_id": "CF-1",
+      "structural_source_id": "PM-1-1"
+    },
+    {
+      "step_id": "S-2",
+      "order": 2,
+      "kind": "UNSAFE_CONTROL_ACTION",
+      "factor_id": null,
+      "structural_source_id": "CM-1"
+    }
+  ],
+  "unsafe_outcome": {
+    "outcome_id": "OUTCOME-1",
+    "control_action_id": "CM-1",
+    "uca_type": "INCORRECT",
+    "condition": {
+      "type": "action_value",
+      "control_action_id": "CM-1",
+      "property": "authorized_destination",
+      "operator": "not_equals",
+      "expected": "AUTHORIZED-ACCOUNT-001"
+    },
+    "semantic_binding_required": false,
+    "hazard_refs": [
+      "H-1"
+    ],
+    "constraint_refs": [
+      "SC-1"
+    ]
+  },
+  "stimulus_requirements": [
+    {
+      "stimulus_id": "STIM-1",
+      "intent": "Influence the control decision through its external input.",
+      "desired_effect": "Cause the unsafe target action.",
+      "delivery_class": "direct_prompt",
+      "factor_id": "CF-1",
+      "source_role": "direct_user_input",
+      "carrier_requirement_id": null
+    }
+  ],
+  "execution_requirements": {
+    "requires_multi_turn": false,
+    "requires_tool_execution": false,
+    "requires_persistent_state": false,
+    "requires_multi_agent": true,
+    "requires_real_clock": false,
+    "requires_state_observation": false,
+    "required_surface_categories": [
+      "external_input",
+      "agent_message"
+    ]
+  },
+  "execution_contract": {
+    "semantic_digest": "b250eec85a19ab305926086b4a1a110d9c6161c7abba0627fd4d5302771a6c72",
+    "schema_version": "stpa-execution-contract-v1",
+    "disposition": "executable_route",
+    "requested_environment_basis": null,
+    "delivery": {
+      "delivery_class": "direct_prompt",
+      "factor_id": "CF-1",
+      "source_role": "direct_user_input",
+      "carrier_requirement_id": null
+    },
+    "action_kind": "agent_message",
+    "resource_requirements": [
+      {
+        "requirement_id": "REQ-agent-channel",
+        "purpose": "agent_channel",
+        "factor_id": null,
+        "owner_ref": "CL-1",
+        "acceptable_resource_kinds": [
+          "agent_channel"
+        ],
+        "role_id": "agent_message",
+        "operation": "deliver_agent_message",
+        "required_surfaces": [
+          "agent_message"
+        ],
+        "required_properties": [
+          "agent_message_observable"
+        ],
+        "required_attacker_influence": "direct",
+        "exact_resource_id": null,
+        "late_bindable": true,
+        "evidence_refs": [
+          "CF-1"
+        ]
+      }
+    ],
+    "gaps": []
+  },
+  "execution_classification": {
+    "classification_digest": "df558e9cd95fd1bb134bd354cd5ee25dd5bc97ab104b3ee047609799bd58b89a",
+    "schema_version": "stpa-execution-classification-v1",
+    "binding_completeness": "parameterized",
+    "environment_basis": "none",
+    "profile_fit": "needs_binding",
+    "claim_scope": "no_execution_claim",
+    "resolved_bindings": [],
+    "unresolved_requirement_ids": [
+      "REQ-agent-channel"
+    ],
+    "ambiguous_matches": [],
+    "unsupported_requirement_ids": [],
+    "diagnostics": [
+      {
+        "code": "environment_profile_not_supplied",
+        "detail": "no selected environment profile was supplied",
+        "requirement_id": "REQ-agent-channel",
+        "candidate_resource_ids": []
+      }
+    ],
+    "target_profile_digest": null
+  },
+  "trace_refs": {
+    "obligation_ids": [],
+    "risk_ids": [],
+    "attack_pattern_ids": [],
+    "technique_ids": [],
+    "loss_ids": [],
+    "hazard_ids": [
+      "H-1"
+    ],
+    "constraint_ids": [
+      "SC-1"
+    ],
+    "source_pins": {
+      "control_structure": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "loss_analysis": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "ica_enumeration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "scenario_context": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  },
+  "semantic_digest": "be7802157555a6a4c0671f7ec42a2e4e5bdf8f1add3352ffab61ee76a1a16515"
+}

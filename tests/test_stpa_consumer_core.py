@@ -699,7 +699,7 @@ def test_vendored_contract_lock_and_minimal_bundle_are_authoritative() -> None:
 
     upstream = json.loads((CONTRACT_ROOT / "UPSTREAM.lock").read_text())
     assert upstream["repository"] == "asago-scenario-generator"
-    assert upstream["revision"] == "4d1d7bef846c659bf5777918e3bab07710e5865d"
+    assert upstream["revision"] == "8de82a33e0bbbe15e722825ee8c99cd0be317f92"
     assert upstream["source"] == "data/contracts/stpa-execution/CONTRACT.lock"
     assert (
         upstream["contract_lock_sha256"]
@@ -712,6 +712,26 @@ def test_vendored_contract_lock_and_minimal_bundle_are_authoritative() -> None:
     assert verified.entries[0].candidate_id == "EXEC:RESP-1:CA-1-1:INCORRECT"
     projection = json.loads(verified.entries[0].projection_bytes)
     assert verified.entries[0].intent.projection_semantic_digest == projection["semantic_digest"]
+
+
+def test_vendored_unspecified_environment_fixture_stays_pending() -> None:
+    fixture_path = CONTRACT_ROOT / "projection-v2" / "valid" / "unspecified-basis.json"
+    projection = json.loads(fixture_path.read_bytes())
+
+    assert _validate_projection(projection) == []
+
+    intent = _vendored_intent("unspecified-basis.json")
+
+    assert intent.execution_contract.requested_environment_basis is None
+    assert intent.execution_contract.resource_requirements
+    assert intent.execution_classification.diagnostics[0].code == (
+        "environment_profile_not_supplied"
+    )
+
+    result = resolve_execution_case(intent, None)
+
+    assert result.code == "needs_environment_binding"
+    assert result.requirement_ids == ("REQ-agent-channel",)
 
 
 def test_coordinated_cross_repo_eight_case_acceptance_matrix(

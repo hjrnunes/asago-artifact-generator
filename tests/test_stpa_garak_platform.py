@@ -184,6 +184,95 @@ def test_garak_uses_only_profile_resolved_tool_operation() -> None:
         complete_garak_runtime_bindings(case, target_profile=other_profile)
 
 
+def test_garak_defaults_do_not_synthesize_agent_channels_or_carriers() -> None:
+    from asago_artifact_generator.models.execution_classification import (
+        BindingCompleteness,
+        EnvironmentBasis,
+        ExecutionActionKind,
+        ExecutionClaimScope,
+        ExecutionDeliveryClass,
+        ExecutionProfileFit,
+        ExecutionResourceKind,
+        ExecutionResourcePurpose,
+        ExecutionResourceRequirement,
+        ExecutionTargetProfile,
+        ProfileAuthority,
+        ProfileBasis,
+        SemanticExecutionContract,
+        SemanticExecutionDelivery,
+        TargetProfileOperation,
+        TargetProfileResource,
+    )
+    from asago_artifact_generator.planning.resolve_case import resolve_execution_case
+    from tests.test_execution_case import _classification, _intent_with_contract
+
+    requirement = ExecutionResourceRequirement(
+        requirement_id="REQ-AGENT",
+        purpose=ExecutionResourcePurpose.agent_channel,
+        owner_ref="agent",
+        acceptable_resource_kinds=(ExecutionResourceKind.agent_channel,),
+        role_id="agent_channel",
+        operation="send_message",
+        required_surfaces=("agent_message",),
+        late_bindable=True,
+        evidence_refs=("review:agent",),
+    )
+    contract = SemanticExecutionContract(
+        requested_environment_basis=None,
+        delivery=SemanticExecutionDelivery(
+            delivery_class=ExecutionDeliveryClass.direct_prompt,
+            factor_id="CF-1",
+            source_role="direct_user_input",
+        ),
+        action_kind=ExecutionActionKind.agent_message,
+        resource_requirements=(requirement,),
+    )
+    intent = _intent_with_contract(
+        contract,
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+    )
+    profile = ExecutionTargetProfile(
+        profile_id="agent-target",
+        environment_id="agent-target",
+        basis=ProfileBasis.target,
+        authority=ProfileAuthority.reviewed,
+        inventory_completeness="reviewed_complete",
+        evidence_refs=("review:target",),
+        resources=(
+            TargetProfileResource(
+                resource_id="CHANNEL-agent",
+                resource_kind=ExecutionResourceKind.agent_channel,
+                role_ids=("agent_channel",),
+                structural_refs=("agent",),
+                attacker_influence="none",
+                surfaces=("agent_message",),
+                operations=(
+                    TargetProfileOperation(
+                        operation_id="send-message",
+                        semantic_operation="send_message",
+                    ),
+                ),
+                evidence_refs=("review:channel",),
+            ),
+        ),
+    )
+
+    case = resolve_execution_case(intent, profile)
+    assert case.environment_basis is EnvironmentBasis.target_profile
+    bindings = complete_garak_runtime_bindings(case, target_profile=profile)
+
+    assert not any(item.surface == "agent_message" for item in bindings.surface_bindings)
+    assert not any(
+        item.carrier_tool_name or item.carrier_tool_schema or item.carrier_tool_arguments
+        for item in bindings.stimulus_bindings
+    )
+
+
 def test_garak_derives_conversation_context_mechanics() -> None:
     from asago_artifact_generator.models.execution_classification import (
         ExecutionDeliveryClass,
@@ -1038,6 +1127,62 @@ def test_cli_parameterized_case_writes_exclusion_without_binding_or_authoring(
     assert manifest["entries"][0]["execution_case_code"] == "needs_target_binding"
     assert manifest["execution_case_counts"]["needs_target_binding"] == 1
     assert manifest["source_classification_counts"]["parameterized"] == 1
+
+
+def test_cli_unspecified_parameterized_case_reports_pending_environment_choice(
+    tmp_path, monkeypatch
+) -> None:
+    from tests.test_execution_case import (
+        BindingCompleteness,
+        EnvironmentBasis,
+        ExecutionClaimScope,
+        ExecutionProfileFit,
+        SemanticExecutionContract,
+        _classification,
+        _intent_with_contract,
+        _tool_contract,
+    )
+
+    contract_data = _tool_contract().model_dump(mode="json")
+    contract_data["requested_environment_basis"] = None
+    contract_data.pop("semantic_digest", None)
+    intent = _intent_with_contract(
+        SemanticExecutionContract.model_validate(contract_data),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+    )
+    verified = SimpleNamespace(
+        entries=(SimpleNamespace(scenario_id=intent.scenario_id, intent=intent),),
+        run_id=intent.run_id,
+        bundle_digest=intent.bundle_digest,
+    )
+    monkeypatch.setattr(
+        "asago_artifact_generator.bundle.loader.load_execution_bundle",
+        lambda path: verified,
+    )
+    output_dir = tmp_path / "runs"
+    result = CliRunner().invoke(
+        app,
+        [
+            "generate",
+            "--bundle",
+            str(tmp_path / "execution-bundle.json"),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    manifest = json.loads((output_dir / intent.run_id / "artifact-manifest.json").read_text())
+    entry = manifest["entries"][0]
+    assert entry["execution_case_code"] == "needs_environment_binding"
+    assert entry["requested_environment_basis"] is None
+    assert manifest["execution_case_counts"]["needs_environment_binding"] == 1
+    assert manifest["source_environment_basis_counts"]["none"] == 1
 
 
 def test_cli_analytical_only_case_is_visible_in_manifest_summary(tmp_path, monkeypatch) -> None:
