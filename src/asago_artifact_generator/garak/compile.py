@@ -57,15 +57,19 @@ def _contains_placeholder(value: Any) -> bool:
 
 def _slot_request(plan: GarakPlan) -> PresentationRequest:
     ready = plan.ready
-    context = ready.presentation_context
-    narrative = context.get("narrative", context.get("scenario_narrative", ""))
-    loss_context = context.get("loss_context", "")
+    # Keep the compatibility compiler on the same compact semantic author
+    # view as the active conversation compiler.  The raw narrative remains
+    # traceable in the ready plan but is not a provider prompt input.
+    from .conversation import _author_context
+
+    author_context = _author_context(ready, None)
     allowed_values = tuple(item.value for item in ready.resolved_semantic_bindings)
     tools = tuple(step.tool_name for step in plan.steps if step.tool_name)
     return PresentationRequest(
         slots=plan.content_slots,
-        scenario_narrative=str(narrative),
-        loss_context=str(loss_context),
+        author_context=author_context,
+        scenario_narrative="",
+        loss_context=author_context.loss_context,
         allowed_tools=tools,
         allowed_values=allowed_values,
     )
@@ -181,6 +185,17 @@ def _case_metadata(ready: ReadyExecutionPlan) -> dict[str, Any]:
                 "selected_profile_basis": ready.selected_profile_basis,
                 "target_environment_id": ready.target_environment_id,
                 "target_profile_digest": ready.target_profile_digest,
+                "target_realization_digest": ready.target_realization_digest,
+                "inventory_authority": (
+                    ready.inventory_authority.value
+                    if ready.inventory_authority is not None
+                    else None
+                ),
+                "semantic_authority": (
+                    ready.semantic_authority.value
+                    if ready.semantic_authority is not None
+                    else None
+                ),
             }
         )
     return data
@@ -501,6 +516,7 @@ def _identity_digest_errors(data: Mapping[str, Any]) -> list[str]:
         "case_digest",
         "execution_classification_digest",
         "target_profile_digest",
+        "target_realization_digest",
     ):
         if field in data and data[field] is not None and not _is_digest(data[field]):
             errors.append(f"{field} must be a lowercase SHA-256 digest")
@@ -1085,16 +1101,13 @@ def _ready_tool_authority_errors(data: Mapping[str, Any], ready: ReadyExecutionP
     for step in ready.steps:
         if step.tool_name and step.tool_name not in names:
             names.add(step.tool_name)
-            expected.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name": step.tool_name,
-                        "description": "Deployment-bound control-action tool.",
-                        "parameters": dict(step.tool_schema),
-                    },
-                }
-            )
+            function: dict[str, Any] = {
+                "name": step.tool_name,
+                "parameters": dict(step.tool_schema),
+            }
+            if step.tool_description is not None:
+                function["description"] = step.tool_description
+            expected.append({"type": "function", "function": function})
     if data.get("tools") != expected:
         return ["artifact tools differ from ReadyExecutionPlan authority"]
     return []
@@ -1520,6 +1533,10 @@ def compile_garak_artifact(
 def compile_execution_artifact(
     plan: ReadyExecutionPlan,
     author: PresentationAuthor | None = None,
+    *,
+    prebound_texts: Mapping[str, str] | None = None,
+    runtime_context: Mapping[str, Any] | None = None,
+    runtime_context_provenance: Mapping[str, Any] | None = None,
 ) -> CompiledArtifact:
     """Compile one ready execution plan through the public consumer seam."""
 
@@ -1527,7 +1544,13 @@ def compile_execution_artifact(
         raise TypeError("compile_execution_artifact requires a ReadyExecutionPlan")
     from .conversation import compile_conversation_case
 
-    return compile_conversation_case(plan, author)
+    return compile_conversation_case(
+        plan,
+        author,
+        prebound_texts=prebound_texts,
+        runtime_context=runtime_context,
+        runtime_context_provenance=runtime_context_provenance,
+    )
 
 
 __all__ = [

@@ -54,6 +54,11 @@ exclusions and report analytical-only exclusions explicitly.
 
 ## Development
 
+- Runtime adapter/observer choices must preserve the producer's action kind.
+  Final-answer text is evidence only for model-output outcomes, not internal
+  messages or state events. Unresolved comparison placeholders remain semantic
+  binding requirements; schemas establish types, not business rules.
+
 - Track durable work in GitHub Issues and PRs.
 - Run `./scripts/quality.sh` before pushing; CI enforces `ruff` + `pytest`.
 - Update `README.md` and this file when an interface or workflow changes.

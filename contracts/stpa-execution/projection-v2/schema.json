@@ -1157,6 +1157,16 @@
             "control_structure": {
               "$ref": "#/$defs/digest"
             },
+            "execution_target_profile": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "ica_enumeration": {
               "$ref": "#/$defs/digest"
             },
@@ -1165,6 +1175,16 @@
             },
             "scenario_context": {
               "$ref": "#/$defs/digest"
+            },
+            "target_realization": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -1173,6 +1193,14 @@
             "ica_enumeration",
             "scenario_context"
           ],
+          "dependentRequired": {
+            "execution_target_profile": [
+              "target_realization"
+            ],
+            "target_realization": [
+              "execution_target_profile"
+            ]
+          },
           "type": "object"
         },
         "technique_ids": {

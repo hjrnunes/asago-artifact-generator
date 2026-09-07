@@ -42,10 +42,12 @@ def complete_garak_runtime_bindings(
     _require_inputs(execution_case, explicit, target_profile)
     if explicit is not None and not _explicit_is_usable(execution_case, explicit):
         return explicit
+    if explicit is not None:
+        explicit = _fill_observed_action_metadata(execution_case, explicit, target_profile)
     review = _review(execution_case, explicit)
     surfaces = _merge_by(
         _explicit_values(explicit, "surface_bindings"),
-        _default_surfaces(execution_case),
+        _default_surfaces(execution_case, target_profile),
         lambda item: item.source_ref,
     )
     actions = _merge_by(
@@ -55,7 +57,7 @@ def complete_garak_runtime_bindings(
     )
     observations = _merge_by(
         _explicit_values(explicit, "observation_bindings"),
-        _default_observations(execution_case),
+        _default_observations(execution_case, target_profile),
         lambda item: item.condition_ref,
     )
     stimuli = _merge_by(
@@ -114,6 +116,7 @@ def _require_inputs(
     _require_optional_type(target_profile, ExecutionTargetProfile, "target_profile")
     _verify_profile(target_profile)
     _verify_profile_matches_case(execution_case, target_profile)
+    _verify_explicit_target_operation(execution_case, explicit, target_profile)
 
 
 def _require_optional_type(value: object | None, expected: type, label: str) -> None:
@@ -134,6 +137,78 @@ def _verify_profile_matches_case(
     if target_profile is not None and expected is not None:
         if target_profile.semantic_digest != expected:
             raise ValueError("target profile does not match the bound execution case")
+        if target_profile.inventory_authority != execution_case.inventory_authority:
+            raise ValueError("target profile inventory authority does not match the bound case")
+        if target_profile.semantic_authority != execution_case.semantic_authority:
+            raise ValueError("target profile semantic authority does not match the bound case")
+
+
+def _verify_explicit_target_operation(
+    execution_case: BoundExecutionCase,
+    explicit: RuntimeBindingSet | None,
+    target_profile: ExecutionTargetProfile | None,
+) -> None:
+    """Reject an explicit action that substitutes the producer-selected MCP tool."""
+
+    if explicit is None or target_profile is None:
+        return
+    expected = _resolved_target_operation(execution_case, target_profile)
+    if expected is None:
+        return
+    resource, operation = expected
+    action = next(
+        (
+            item
+            for item in explicit.control_action_bindings
+            if item.control_action_id == execution_case.intent.control_action_id
+        ),
+        None,
+    )
+    if action is None:
+        return
+    if action.adapter_operation != "tool_call":
+        raise ValueError("explicit target action changes the selected tool operation")
+    if action.tool_name != operation.operation_id:
+        raise ValueError("explicit target action substitutes the selected tool name")
+    if action.tool_schema != resource.input_schema:
+        raise ValueError("explicit target action changes the selected tool schema")
+    if action.tool_description is not None and action.tool_description != resource.description:
+        raise ValueError("explicit target action changes the selected tool description")
+
+
+def _fill_observed_action_metadata(
+    execution_case: BoundExecutionCase,
+    explicit: RuntimeBindingSet,
+    target_profile: ExecutionTargetProfile | None,
+) -> RuntimeBindingSet:
+    """Copy an observed target description into an otherwise valid binding.
+
+    A legacy binding may identify the exact tool and schema without carrying
+    the optional MCP description.  The profile is the only authority allowed
+    to fill that omission; no description is inferred from scenario prose.
+    """
+
+    target = _resolved_target_operation(execution_case, target_profile)
+    if target is None:
+        return explicit
+    resource, _ = target
+    if resource.description is None:
+        return explicit
+    updated = False
+    actions = []
+    for action in explicit.control_action_bindings:
+        if (
+            action.control_action_id == execution_case.intent.control_action_id
+            and action.tool_description is None
+        ):
+            action = action.model_copy(update={"tool_description": resource.description})
+            updated = True
+        actions.append(action)
+    if not updated:
+        return explicit
+    return explicit.model_copy(
+        update={"control_action_bindings": tuple(actions), "semantic_digest": None}
+    ).with_computed_digest()
 
 
 def _adapter_evidence(execution_case: BoundExecutionCase) -> ReviewEvidence:
@@ -188,7 +263,10 @@ def _selected_stimulus_steps(
     }
 
 
-def _default_surfaces(execution_case: BoundExecutionCase) -> tuple[SurfaceBinding, ...]:
+def _default_surfaces(
+    execution_case: BoundExecutionCase,
+    target_profile: ExecutionTargetProfile | None,
+) -> tuple[SurfaceBinding, ...]:
     intent = execution_case.intent
     stimulus_steps = _selected_stimulus_steps(execution_case)
     values = tuple(
@@ -202,7 +280,11 @@ def _default_surfaces(execution_case: BoundExecutionCase) -> tuple[SurfaceBindin
         )
         is not None
     )
-    target = _target_surface(intent)
+    target = _target_surface(
+        intent,
+        has_target_operation=_resolved_target_operation(execution_case, target_profile)
+        is not None,
+    )
     return _unique_surfaces((*values, *((target,) if target is not None else ())))
 
 
@@ -220,14 +302,24 @@ def _stimulus_surface(
     )
 
 
-def _target_surface(intent: ExecutionIntent) -> SurfaceBinding | None:
+def _target_surface(
+    intent: ExecutionIntent,
+    *,
+    has_target_operation: bool,
+) -> SurfaceBinding | None:
     surface = {
         "model_output": "assistant_turn",
         "tool_call": "tool_call",
     }.get(intent.execution_contract.action_kind.value)
+    if intent.execution_contract.action_kind == "environment_action" and has_target_operation:
+        surface = "environment_event"
     if surface is None:
         return None
-    locators = {"assistant_turn": "target.response", "tool_call": "target.tool_calls"}
+    locators = {
+        "assistant_turn": "target.response",
+        "tool_call": "target.tool_calls",
+        "environment_event": "trace.tool_calls",
+    }
     return SurfaceBinding(
         source_ref=intent.control_action_id,
         surface=surface,
@@ -297,7 +389,7 @@ def _default_actions(
                 adapter_operation="chat_completion",
             ),
         )
-    if action_kind != "tool_call":
+    if action_kind not in {"tool_call", "environment_action"}:
         return ()
     target = _resolved_target_operation(execution_case, target_profile)
     if target is None:
@@ -308,7 +400,8 @@ def _default_actions(
             control_action_id=intent.control_action_id,
             adapter_operation="tool_call",
             tool_name=operation.operation_id,
-            tool_schema=resource.interface_schema,
+            tool_description=resource.description,
+            tool_schema=resource.input_schema,
         ),
     )
 
@@ -375,11 +468,23 @@ def _profile_operation(
 
 def _default_observations(
     execution_case: BoundExecutionCase,
+    target_profile: ExecutionTargetProfile | None,
 ) -> tuple[ObservationBinding, ...]:
     intent = execution_case.intent
-    condition = intent.unsafe_outcome.condition
-    if intent.execution_contract.action_kind != "model_output":
+    action_kind = intent.execution_contract.action_kind
+    if action_kind == "model_output":
+        return _model_output_observation(intent)
+    if action_kind not in {"tool_call", "environment_action"}:
         return ()
+    target = _resolved_target_operation(execution_case, target_profile)
+    if target is None:
+        return ()
+    resource, _ = target
+    return _tool_observation(intent, resource)
+
+
+def _model_output_observation(intent: ExecutionIntent) -> tuple[ObservationBinding, ...]:
+    condition = intent.unsafe_outcome.condition
     if condition.type not in {"action_value", "action_presence"}:
         return ()
     placeholders = condition.placeholders()
@@ -396,6 +501,41 @@ def _default_observations(
             expected_from=expected_from,
         ),
     )
+
+
+def _tool_observation(
+    intent: ExecutionIntent,
+    resource: TargetProfileResource,
+) -> tuple[ObservationBinding, ...]:
+    condition = intent.unsafe_outcome.condition
+    if condition.type == "action_presence":
+        observer_kind = "tool_call"
+        field_path = ""
+    elif condition.type == "action_value" and _condition_is_tool_argument(condition, resource):
+        observer_kind = "tool_argument"
+        field_path = f"arguments.{condition.property}"
+    else:
+        return ()
+    placeholders = condition.placeholders()
+    expected_from = (
+        f"semantic_binding:{placeholders[0].binding_ref}" if placeholders else "projection"
+    )
+    return (
+        ObservationBinding(
+            condition_ref=intent.unsafe_outcome.outcome_id,
+            observer_kind=observer_kind,
+            event_source="trace.tool_calls",
+            semantic_property=getattr(condition, "property", "action_presence"),
+            field_path=field_path,
+            comparison=getattr(condition, "operator", "equals"),
+            expected_from=expected_from,
+        ),
+    )
+
+
+def _condition_is_tool_argument(condition: object, resource: TargetProfileResource) -> bool:
+    properties = resource.input_schema.get("properties", {})
+    return isinstance(properties, dict) and getattr(condition, "property", None) in properties
 
 
 __all__ = ["complete_garak_runtime_bindings"]

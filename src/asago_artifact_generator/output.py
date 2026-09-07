@@ -9,7 +9,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .garak.plan import GarakPlan
 from .models.execution_case import BoundExecutionCase, ExecutionCaseExclusion
 from .models.readiness import ExecutionPlanResult, ReadyExecutionPlan
 from .platforms.base import CompiledArtifact
@@ -48,12 +47,12 @@ def readiness_document(result: ExecutionPlanResult) -> dict[str, Any]:
     return result.model_dump(mode="json")
 
 
-def plan_document(plan: GarakPlan | ReadyExecutionPlan) -> dict[str, Any]:
-    """Serialize one deterministic Garak plan for human inspection."""
+def plan_document(plan: ReadyExecutionPlan) -> dict[str, Any]:
+    """Serialize the one compiler-facing ready plan for human inspection."""
 
-    if isinstance(plan, ReadyExecutionPlan):
-        return plan.model_dump(mode="json")
-    return plan.to_dict()
+    if not isinstance(plan, ReadyExecutionPlan):
+        raise TypeError("execution-plan output requires a ReadyExecutionPlan")
+    return plan.model_dump(mode="json")
 
 
 def compiled_documents(
@@ -70,7 +69,7 @@ def write_entry_outputs(
     readiness: ExecutionPlanResult,
     *,
     execution_case: BoundExecutionCase | None = None,
-    plan: GarakPlan | None = None,
+    plan: ReadyExecutionPlan | None = None,
     compiled: CompiledArtifact | None = None,
 ) -> dict[str, str]:
     """Write one entry's sidecars in the contract-prescribed order."""

@@ -31,6 +31,7 @@ from .semantic_conditions import (
     CONDITION_TYPES,
     OPERATORS,
     ActionValueCondition,
+    OrderingCondition,
     SemanticBindingPlaceholder,
     SemanticCondition,
     SemanticValue,
@@ -313,14 +314,24 @@ class TraceReferences(ImmutableModel):
         if not isinstance(value, Mapping):
             raise TypeError("source_pins must be an object")
         frozen = freeze_value(value)
-        expected = {
+        required = {
             "control_structure",
             "loss_analysis",
             "ica_enumeration",
             "scenario_context",
         }
-        if set(frozen) != expected:
-            raise ValueError("source_pins must contain exactly the four producer digests")
+        optional = {"execution_target_profile", "target_realization"}
+        keys = set(frozen)
+        if not required <= keys or not keys <= required | optional:
+            raise ValueError(
+                "source_pins must contain the four producer digests and only the "
+                "optional execution_target_profile/target_realization pair"
+            )
+        if bool(keys & optional) and not optional <= keys:
+            raise ValueError(
+                "source_pins execution_target_profile and target_realization must be "
+                "supplied together"
+            )
         return frozen
 
     @model_validator(mode="after")
@@ -492,7 +503,9 @@ def _validate_target_action_requirements(value: ExecutionIntent) -> None:
     for requirement in value.execution_contract.resource_requirements:
         if requirement.purpose.value != "target_action":
             continue
-        if requirement.owner_ref != action_id or requirement.operation != action_id:
+        if requirement.owner_ref != action_id or (
+            requirement.exact_resource_id is None and requirement.operation != action_id
+        ):
             raise ValueError(
                 "target_action requirement must name the unsafe outcome control action"
             )
@@ -506,6 +519,12 @@ def _validate_intent_sequences(value: ExecutionIntent) -> None:
     _validate_factor_sequence(value.causal_factors)
     _validate_step_sequence(value.steps)
     _validate_final_uca_step(value.steps, value.control_action_id)
+    condition = value.unsafe_outcome.condition
+    if (
+        isinstance(condition, OrderingCondition)
+        and condition.reference_step_id == value.steps[-1].step_id
+    ):
+        raise ValueError("unsafe outcome ordering cannot compare the action with itself")
     _validate_causal_step_sequence(value.causal_factors, value.steps)
 
 

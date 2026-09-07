@@ -114,6 +114,9 @@ def _validate_optional_case_fields(source: Mapping[str, Any]) -> None:
         "source_profile_fit",
         "source_claim_scope",
         "selected_simulation_resources",
+        "inventory_authority",
+        "semantic_authority",
+        "target_realization_digest",
     )
     if "case_id" not in source:
         if any(field in source for field in case_fields[1:]):
@@ -188,6 +191,9 @@ def _validate_optional_case_fields(source: Mapping[str, Any]) -> None:
         "selected_profile_basis",
         "target_environment_id",
         "target_profile_digest",
+        "inventory_authority",
+        "semantic_authority",
+        "target_realization_digest",
     )
     has_profile = any(field in source for field in profile_fields)
     if not has_profile:
@@ -198,33 +204,79 @@ def _validate_optional_case_fields(source: Mapping[str, Any]) -> None:
         "artifact trace source",
     )
     _validate_digest_fields(source, ("target_profile_digest",), "artifact trace source")
+    if source.get("target_realization_digest") is not None:
+        _validate_digest_fields(source, ("target_realization_digest",), "artifact trace source")
     if source.get("selected_profile_basis") not in {"target", "simulation"}:
+        raise ValueError("artifact trace source has an invalid selected_profile_basis")
+    _validate_profile_authority_fields(source)
+
+
+def _validate_target_profile_authority(source: Mapping[str, Any]) -> None:
+    if source.get("inventory_authority") != "observed":
+        raise ValueError("target artifact trace requires observed inventory_authority")
+    if source.get("semantic_authority") not in {"inferred", "reviewed"}:
+        raise ValueError("target artifact trace requires semantic_authority")
+    if source.get("target_realization_digest") is not None:
+        _require_digest(
+            source["target_realization_digest"],
+            "artifact trace target_realization_digest",
+        )
+
+
+def _validate_simulation_profile_authority(source: Mapping[str, Any]) -> None:
+    if source.get("inventory_authority") is not None:
+        raise ValueError("simulation artifact trace cannot carry inventory_authority")
+    if source.get("semantic_authority") != "reviewed":
+        raise ValueError("simulation artifact trace requires reviewed semantic_authority")
+    if source.get("target_realization_digest") is not None:
+        raise ValueError("simulation artifact trace cannot carry target_realization_digest")
+
+
+def _validate_profile_authority_fields(source: Mapping[str, Any]) -> None:
+    """Close the two independent authority axes on a bound trace source."""
+
+    basis = source.get("selected_profile_basis")
+    if basis == "target":
+        _validate_target_profile_authority(source)
+    elif basis == "simulation":
+        _validate_simulation_profile_authority(source)
+    else:
         raise ValueError("artifact trace source has an invalid selected_profile_basis")
 
 
-def _validate_simulation_resource_evidence(source: Mapping[str, Any]) -> None:
-    """Validate serialized simulation behavior evidence when it is present."""
-
+def _simulation_resources_for_trace(source: Mapping[str, Any]) -> list[Any] | None:
     values = source.get("selected_simulation_resources")
     if values is None:
-        return
+        return None
     if not isinstance(values, list):
         raise ValueError("artifact trace simulation resources must be an array")
     if source.get("environment_basis") == "simulation_profile" and not values:
         raise ValueError("simulation artifact trace requires selected resources")
     if source.get("environment_basis") != "simulation_profile" and values:
         raise ValueError("non-simulation artifact trace cannot carry simulation resources")
-    resource_ids: list[str] = []
+    return values
+
+
+def _simulation_resource_id(item: Mapping[str, Any]) -> str:
+    resource_id = item.get("resource_id")
+    if not isinstance(resource_id, str) or not resource_id.strip():
+        raise ValueError("artifact trace simulation resource_id is required")
+    if not isinstance(item.get("simulation_behavior"), Mapping):
+        raise ValueError("artifact trace simulation_behavior is required")
+    return resource_id
+
+
+def _validate_simulation_resource_evidence(source: Mapping[str, Any]) -> None:
+    """Validate serialized simulation behavior evidence when it is present."""
+
+    values = _simulation_resources_for_trace(source)
+    if values is None:
+        return
+    resource_ids = []
     for item in values:
         if not isinstance(item, Mapping):
             raise ValueError("artifact trace simulation resources must be objects")
-        resource_id = item.get("resource_id")
-        behavior = item.get("simulation_behavior")
-        if not isinstance(resource_id, str) or not resource_id.strip():
-            raise ValueError("artifact trace simulation resource_id is required")
-        if not isinstance(behavior, Mapping):
-            raise ValueError("artifact trace simulation_behavior is required")
-        resource_ids.append(resource_id)
+        resource_ids.append(_simulation_resource_id(item))
     if len(resource_ids) != len(set(resource_ids)):
         raise ValueError("artifact trace simulation resources must be unique")
 
@@ -387,6 +439,69 @@ def _set_receipt_digest(receipt: ObservationReceipt) -> None:
         raise ValueError("receipt_digest must be a SHA-256 digest")
 
 
+def _receipt_profile_fields(receipt: ObservationReceipt) -> tuple[Any, ...]:
+    return (
+        receipt.selected_profile_id,
+        receipt.selected_profile_basis,
+        receipt.target_environment_id,
+        receipt.target_profile_digest,
+        receipt.inventory_authority,
+        receipt.semantic_authority,
+    )
+
+
+def _receipt_has_profile_metadata(receipt: ObservationReceipt) -> bool:
+    return any(value is not None for value in _receipt_profile_fields(receipt)) or (
+        receipt.target_realization_digest is not None
+    )
+
+
+def _validate_receipt_profile_values(receipt: ObservationReceipt) -> None:
+    fields = _receipt_profile_fields(receipt)
+    if any(value is None for value in fields):
+        raise ValueError("observation receipt profile metadata is incomplete")
+    _require_text(receipt.selected_profile_id or "", "observation receipt selected_profile_id")
+    _require_text(
+        receipt.selected_profile_basis or "", "observation receipt selected_profile_basis"
+    )
+    _require_text(receipt.target_environment_id or "", "observation receipt target_environment_id")
+    _require_digest(receipt.target_profile_digest, "observation receipt target_profile_digest")
+    if receipt.target_realization_digest is not None:
+        _require_digest(
+            receipt.target_realization_digest,
+            "observation receipt target_realization_digest",
+        )
+
+
+def _validate_receipt_profile_basis(receipt: ObservationReceipt) -> None:
+    if receipt.selected_profile_basis == "target":
+        if receipt.inventory_authority != "observed":
+            raise ValueError("target observation receipt requires observed inventory_authority")
+        if receipt.semantic_authority not in {"inferred", "reviewed"}:
+            raise ValueError("target observation receipt requires semantic_authority")
+        return
+    if receipt.selected_profile_basis == "simulation":
+        if receipt.inventory_authority is not None:
+            raise ValueError("simulation observation receipt cannot carry inventory_authority")
+        if receipt.semantic_authority != "reviewed":
+            raise ValueError("simulation observation receipt requires reviewed semantic_authority")
+        if receipt.target_realization_digest is not None:
+            raise ValueError(
+                "simulation observation receipt cannot carry target_realization_digest"
+            )
+        return
+    raise ValueError("observation receipt selected_profile_basis is invalid")
+
+
+def _validate_receipt_profile_metadata(receipt: ObservationReceipt) -> None:
+    """Require complete bound-case provenance when a receipt carries it."""
+
+    if not _receipt_has_profile_metadata(receipt):
+        return
+    _validate_receipt_profile_values(receipt)
+    _validate_receipt_profile_basis(receipt)
+
+
 @dataclass(frozen=True, slots=True)
 class ObservationReceipt:
     """Append-only runtime output; never a mutation of source artifacts."""
@@ -399,12 +514,20 @@ class ObservationReceipt:
     oracle_result: str = "inconclusive"
     started_at: str = ""
     completed_at: str = ""
+    selected_profile_id: str | None = None
+    selected_profile_basis: Literal["target", "simulation"] | None = None
+    target_environment_id: str | None = None
+    target_profile_digest: str | None = None
+    target_realization_digest: str | None = None
+    inventory_authority: str | None = None
+    semantic_authority: str | None = None
     schema_version: Literal["execution-observation-receipt-v1"] = RECEIPT_SCHEMA_VERSION
     receipt_digest: str = ""
 
     def __post_init__(self) -> None:
         _validate_receipt_identity(self)
         _validate_receipt_result(self.oracle_result)
+        _validate_receipt_profile_metadata(self)
         if not isinstance(self.observations, (list, tuple)):
             raise TypeError("observation receipt observations must be an array")
         object.__setattr__(self, "observations", _freeze_observations(self.observations))
@@ -413,7 +536,7 @@ class ObservationReceipt:
         _set_receipt_digest(self)
 
     def payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": self.schema_version,
             "artifact_digest": self.artifact_digest,
             "projection_semantic_digest": self.projection_semantic_digest,
@@ -424,6 +547,19 @@ class ObservationReceipt:
             "observations": [dict(observation) for observation in self.observations],
             "oracle_result": self.oracle_result,
         }
+        if self.selected_profile_id is not None:
+            payload.update(
+                {
+                    "selected_profile_id": self.selected_profile_id,
+                    "selected_profile_basis": self.selected_profile_basis,
+                    "target_environment_id": self.target_environment_id,
+                    "target_profile_digest": self.target_profile_digest,
+                    "target_realization_digest": self.target_realization_digest,
+                    "inventory_authority": self.inventory_authority,
+                    "semantic_authority": self.semantic_authority,
+                }
+            )
+        return payload
 
     def to_dict(self) -> dict[str, Any]:
         return {**self.payload(), "receipt_digest": self.receipt_digest}

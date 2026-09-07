@@ -32,11 +32,12 @@ from asago_artifact_generator.models.execution_classification import (
     ExecutionResourcePurpose,
     ExecutionResourceRequirement,
     ExecutionTargetProfile,
+    InventoryAuthority,
     InventoryCompleteness,
-    ProfileAuthority,
     ProfileBasis,
     RequestedEnvironmentBasis,
     ResolvedExecutionBinding,
+    SemanticAuthority,
     SemanticExecutionContract,
     SemanticExecutionDelivery,
     TargetProfileOperation,
@@ -66,7 +67,12 @@ def _direct_contract() -> SemanticExecutionContract:
     )
 
 
-def _tool_contract(*, exact_resource_id: str | None = None) -> SemanticExecutionContract:
+def _tool_contract(
+    *,
+    exact_resource_id: str | None = None,
+    exact_retrieval: bool = False,
+    exact_action: bool = True,
+) -> SemanticExecutionContract:
     return SemanticExecutionContract(
         requested_environment_basis=RequestedEnvironmentBasis.target_profile,
         delivery=SemanticExecutionDelivery(
@@ -84,11 +90,15 @@ def _tool_contract(*, exact_resource_id: str | None = None) -> SemanticExecution
                 owner_ref="PM-1-1",
                 acceptable_resource_kinds=(ExecutionResourceKind.tool,),
                 role_id="attacker_influenced_content_source",
-                operation="retrieve_content",
+                operation="retrieve-1",
                 required_surfaces=("tool_result",),
-                required_properties=("content_reaches_model_context",),
-                exact_resource_id=exact_resource_id,
-                late_bindable=exact_resource_id is None,
+                required_properties=(),
+                exact_resource_id=(
+                    exact_resource_id
+                    if exact_resource_id is not None
+                    else ("mcp:target-1:retrieve-1" if exact_retrieval else None)
+                ),
+                late_bindable=exact_resource_id is None and not exact_retrieval,
                 evidence_refs=("CF-1",),
                 required_attacker_influence="direct",
             ),
@@ -98,11 +108,11 @@ def _tool_contract(*, exact_resource_id: str | None = None) -> SemanticExecution
                 owner_ref="CM-1",
                 acceptable_resource_kinds=(ExecutionResourceKind.tool,),
                 role_id="target_control_action",
-                operation="CM-1",
+                operation="action-1" if exact_action else "CM-1",
                 required_surfaces=("tool_call",),
                 required_properties=(),
-                exact_resource_id="TOOL-action",
-                late_bindable=False,
+                exact_resource_id=("mcp:target-1:action-1" if exact_action else None),
+                late_bindable=not exact_action,
                 evidence_refs=("CM-1",),
                 required_attacker_influence="none",
             ),
@@ -112,82 +122,187 @@ def _tool_contract(*, exact_resource_id: str | None = None) -> SemanticExecution
 
 def _profile(
     *,
-    inventory: InventoryCompleteness = InventoryCompleteness.reviewed_complete,
+    inventory: InventoryCompleteness = InventoryCompleteness.observed_complete,
     resources: tuple[TargetProfileResource, ...] | None = None,
 ) -> ExecutionTargetProfile:
-    resources = resources or (
+    from asago_artifact_generator.models.execution_classification import (
+        DiscoveryProvenance,
+        InventoryAuthority,
+        McpInventoryObservation,
+        McpToolObservation,
+        SemanticAuthority,
+        SourceProtocol,
+        TargetInterpretationDisposition,
+        TargetOperationEffect,
+        TargetSemanticInterpretation,
+        TargetStateEffect,
+        mcp_resource_id,
+    )
+
+    retrieval_schema = {
+        "type": "object",
+        "properties": {"content": {"type": "string"}},
+        "required": ["content"],
+        "additionalProperties": False,
+    }
+    action_schema = {
+        "type": "object",
+        "properties": {"request": {"type": "string"}},
+        "required": ["request"],
+        "additionalProperties": False,
+    }
+    default_resources = (
         TargetProfileResource(
-            resource_id="TOOL-retrieval",
+            resource_id=mcp_resource_id("target-1", "retrieve-1"),
+            target_id="target-1",
+            tool_name="retrieve-1",
             resource_kind=ExecutionResourceKind.tool,
+            description="Retrieve attacker-influenced content.",
+            input_schema=retrieval_schema,
+            output_schema="opaque",
             role_ids=("attacker_influenced_content_source",),
             structural_refs=("PM-1-1",),
             attacker_influence="direct",
-            surfaces=("tool_result",),
+            surfaces=("tool_call", "tool_result"),
             operations=(
                 TargetProfileOperation(
                     operation_id="retrieve-1",
-                    semantic_operation="retrieve_content",
-                    observable_properties=("content_reaches_model_context",),
+                    semantic_operation="retrieve-1",
+                    argument_names=("content",),
                 ),
             ),
-            evidence_refs=("review:tool",),
+            evidence_refs=("inventory:tool:retrieve-1",),
         ),
         TargetProfileResource(
-            resource_id="TOOL-action",
+            resource_id=mcp_resource_id("target-1", "action-1"),
+            target_id="target-1",
+            tool_name="action-1",
             resource_kind=ExecutionResourceKind.tool,
+            description="Perform the selected control action.",
+            input_schema=action_schema,
+            output_schema="opaque",
             role_ids=("target_control_action",),
             structural_refs=("CM-1",),
             attacker_influence="none",
-            surfaces=("tool_call",),
+            surfaces=("tool_call", "tool_result"),
             operations=(
                 TargetProfileOperation(
                     operation_id="action-1",
-                    semantic_operation="CM-1",
-                    observable_properties=("tool_call",),
+                    semantic_operation="action-1",
+                    argument_names=("request",),
                 ),
             ),
-            evidence_refs=("review:action",),
+            evidence_refs=("inventory:tool:action-1",),
         ),
     )
+    resources = tuple(resources or default_resources)
+    tools = tuple(
+        McpToolObservation(
+            name=resource.tool_name or resource.operations[0].operation_id,
+            source_observation_sha256=("0" if index == 0 else "1") * 64,
+            title=resource.title,
+            description=resource.description,
+            input_schema=resource.input_schema,
+            output_schema=resource.output_schema,
+            annotations=resource.annotations,
+        )
+        for index, resource in enumerate(resources)
+    )
+    inventory_value = McpInventoryObservation(
+        target_id="target-1",
+        authorization_scope_id="test-scope",
+        tools=tools,
+        pagination_complete=inventory is not InventoryCompleteness.observed_partial,
+    )
+    interpretations = tuple(
+        TargetSemanticInterpretation(
+            resource_id=resource.resource_id,
+            tool_name=resource.tool_name or resource.operations[0].operation_id,
+            disposition=TargetInterpretationDisposition.supported,
+            likely_effect=TargetOperationEffect.execute,
+            likely_state_effect=TargetStateEffect.may_change,
+            semantic_roles=("observed_operation",),
+            evidence_refs=(
+                f"inventory:tool:{resource.tool_name or resource.operations[0].operation_id}",
+            ),
+            rationale="The observed tool is retained as exact interface evidence.",
+        )
+        for resource in resources
+    )
     return ExecutionTargetProfile(
-        profile_id="target-1",
-        environment_id="target-1",
+        target_id="target-1",
+        authorization_scope_id="test-scope",
         basis=ProfileBasis.target,
-        authority=ProfileAuthority.reviewed,
+        inventory_authority=InventoryAuthority.observed,
+        semantic_authority=SemanticAuthority.inferred,
         inventory_completeness=inventory,
-        evidence_refs=("review:target",),
+        source_protocol=SourceProtocol.mcp,
+        source_inventory_digest=inventory_value.semantic_digest,
+        discovery_provenance=DiscoveryProvenance(
+            scanner_id="test-scanner",
+            interpreter_id="test-interpreter",
+            verifier_id="test-verifier",
+        ),
+        inventory=inventory_value,
         resources=resources,
+        interpretations=interpretations,
     )
 
 
 def _simulation_contract() -> SemanticExecutionContract:
-    payload = _tool_contract().model_dump(mode="json")
+    payload = _tool_contract(exact_action=False).model_dump(mode="json")
     payload.pop("semantic_digest", None)
     payload["requested_environment_basis"] = "simulation_profile"
     return SemanticExecutionContract.model_validate(payload)
 
 
 def _simulation_profile() -> ExecutionTargetProfile:
-    payload = _profile().model_dump(mode="json")
-    payload["resources"] = [
-        {
-            **item,
-            "simulation_behavior": {
-                "inputs": {"request": "safe"},
-                "outputs": {"response": "safe"},
-                "observation_points": ("response",),
-            },
-        }
-        for item in payload["resources"]
-    ]
-    payload.pop("semantic_digest", None)
-    payload["basis"] = "simulation"
-    return ExecutionTargetProfile.model_validate(payload)
+    from asago_artifact_generator.models.execution_classification import (
+        SemanticAuthority,
+        SimulationBehavior,
+        SourceProtocol,
+    )
+
+    resources = []
+    for item in _profile().resources:
+        operation = item.operations[0]
+        if (
+            item.resource_kind is ExecutionResourceKind.tool
+            and "target_control_action" in item.role_ids
+        ):
+            operation = operation.model_copy(update={"semantic_operation": "CM-1"})
+        resources.append(
+            item.model_copy(
+                update={
+                    "target_id": None,
+                    "tool_name": None,
+                    "operations": (operation,),
+                    "simulation_behavior": SimulationBehavior(
+                        inputs={"request": "safe"},
+                        outputs={"response": "safe"},
+                        observation_points=("response",),
+                    ),
+                }
+            )
+        )
+    return ExecutionTargetProfile(
+        target_id="simulation-target",
+        authorization_scope_id="test-scope",
+        basis=ProfileBasis.simulation,
+        semantic_authority=SemanticAuthority.reviewed,
+        inventory_completeness=InventoryCompleteness.unknown,
+        source_protocol=SourceProtocol.simulation,
+        resources=tuple(resources),
+    )
 
 
 def _intent_with_contract(
     contract: SemanticExecutionContract,
     classification: ExecutionClassification,
+    *,
+    profile: ExecutionTargetProfile | None = None,
+    include_profile_pin: bool = True,
+    include_realization_pin: bool = True,
 ) -> ExecutionIntent:
     delivery = contract.delivery
     stimuli = (
@@ -205,13 +320,45 @@ def _intent_with_contract(
             ),
         )
     )
-    return _intent().model_copy(
+    if profile is not None:
+        classification_data = classification.model_dump(mode="json")
+        classification_data["target_profile_digest"] = profile.semantic_digest
+        classification_data.pop("classification_digest", None)
+        classification = ExecutionClassification.model_validate(classification_data)
+    intent = _intent().model_copy(
         update={
             "execution_contract": contract,
             "execution_classification": classification,
             "stimulus_requirements": stimuli,
         }
     )
+    if contract.action_kind is ExecutionActionKind.tool_call:
+        outcome = intent.unsafe_outcome
+        intent = intent.model_copy(
+            update={
+                "unsafe_outcome": outcome.model_copy(
+                    update={
+                        "condition": outcome.condition.model_copy(
+                            update={"property": "request", "expected": "TEST-REQUEST"}
+                        ),
+                        "semantic_proposition": (
+                            "The operation carries the request designated "
+                            "by this synthetic test rule."
+                        ),
+                    }
+                )
+            }
+        )
+    if profile is not None and profile.basis is ProfileBasis.target:
+        pins = dict(intent.trace_refs.source_pins)
+        if include_profile_pin:
+            pins["execution_target_profile"] = profile.semantic_digest
+        if include_profile_pin and include_realization_pin:
+            pins["target_realization"] = "e" * 64
+        intent = intent.model_copy(
+            update={"trace_refs": intent.trace_refs.model_copy(update={"source_pins": pins})}
+        )
+    return intent
 
 
 def _classification(
@@ -223,11 +370,23 @@ def _classification(
     target_profile_digest: str | None = None,
     resolved_bindings: tuple[ResolvedExecutionBinding, ...] = (),
 ) -> ExecutionClassification:
+    inventory_authority = (
+        InventoryAuthority.observed if environment is EnvironmentBasis.target_profile else None
+    )
+    semantic_authority = (
+        SemanticAuthority.reviewed
+        if environment is EnvironmentBasis.simulation_profile
+        else SemanticAuthority.inferred
+        if environment is EnvironmentBasis.target_profile
+        else None
+    )
     return ExecutionClassification(
         binding_completeness=completeness,
         environment_basis=environment,
         profile_fit=fit,
         claim_scope=claim,
+        inventory_authority=inventory_authority,
+        semantic_authority=semantic_authority,
         target_profile_digest=target_profile_digest,
         resolved_bindings=resolved_bindings,
     )
@@ -327,7 +486,7 @@ def test_missing_source_classification_is_rejected_without_fallback() -> None:
 
 def test_parameterized_case_without_profile_is_excluded() -> None:
     intent = _intent_with_contract(
-        _tool_contract(),
+        _tool_contract(exact_action=False),
         _classification(
             completeness=BindingCompleteness.parameterized,
             environment=EnvironmentBasis.none,
@@ -355,7 +514,7 @@ def test_parameterized_contract_preserves_an_unspecified_environment_choice() ->
 
 
 def test_unspecified_parameterized_case_without_profile_needs_environment_binding() -> None:
-    payload = _tool_contract().model_dump(mode="json")
+    payload = _tool_contract(exact_action=False).model_dump(mode="json")
     payload["requested_environment_basis"] = None
     payload.pop("semantic_digest", None)
     intent = _intent_with_contract(
@@ -395,7 +554,8 @@ def test_explicit_simulation_request_without_profile_needs_simulation_binding() 
 
 
 def test_unspecified_parameterized_case_uses_supplied_target_profile_as_basis() -> None:
-    payload = _tool_contract().model_dump(mode="json")
+    profile = _profile()
+    payload = _tool_contract(exact_retrieval=True).model_dump(mode="json")
     payload["requested_environment_basis"] = None
     payload.pop("semantic_digest", None)
     intent = _intent_with_contract(
@@ -406,9 +566,10 @@ def test_unspecified_parameterized_case_uses_supplied_target_profile_as_basis() 
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=profile,
     )
 
-    result = resolve_execution_case(intent, _profile())
+    result = resolve_execution_case(intent, profile)
 
     assert isinstance(result, BoundExecutionCase)
     assert result.environment_basis is EnvironmentBasis.target_profile
@@ -416,7 +577,8 @@ def test_unspecified_parameterized_case_uses_supplied_target_profile_as_basis() 
 
 
 def test_unspecified_parameterized_case_uses_supplied_simulation_profile_as_basis() -> None:
-    payload = _tool_contract().model_dump(mode="json")
+    profile = _simulation_profile()
+    payload = _tool_contract(exact_action=False).model_dump(mode="json")
     payload["requested_environment_basis"] = None
     payload.pop("semantic_digest", None)
     intent = _intent_with_contract(
@@ -427,9 +589,10 @@ def test_unspecified_parameterized_case_uses_supplied_simulation_profile_as_basi
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=profile,
     )
 
-    result = resolve_execution_case(intent, _simulation_profile())
+    result = resolve_execution_case(intent, profile)
 
     assert isinstance(result, BoundExecutionCase)
     assert result.environment_basis is EnvironmentBasis.simulation_profile
@@ -437,13 +600,16 @@ def test_unspecified_parameterized_case_uses_supplied_simulation_profile_as_basi
 
 
 def test_explicit_environment_basis_must_match_supplied_profile() -> None:
+    simulation_profile = _simulation_profile()
+    target_profile = _profile()
     target_intent = _intent_with_contract(
-        _tool_contract(),
+        _tool_contract(exact_action=False),
         _classification(
             completeness=BindingCompleteness.parameterized,
             environment=EnvironmentBasis.none,
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
+            target_profile_digest=simulation_profile.semantic_digest,
         ),
     )
     simulation_intent = _intent_with_contract(
@@ -453,11 +619,12 @@ def test_explicit_environment_basis_must_match_supplied_profile() -> None:
             environment=EnvironmentBasis.none,
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
+            target_profile_digest=target_profile.semantic_digest,
         ),
     )
 
-    target_result = resolve_execution_case(target_intent, _simulation_profile())
-    simulation_result = resolve_execution_case(simulation_intent, _profile())
+    target_result = resolve_execution_case(target_intent, simulation_profile)
+    simulation_result = resolve_execution_case(simulation_intent, target_profile)
 
     assert isinstance(target_result, ExecutionCaseExclusion)
     assert target_result.code == "invalid_profile"
@@ -466,12 +633,33 @@ def test_explicit_environment_basis_must_match_supplied_profile() -> None:
 
 
 def test_mixed_bundle_keeps_each_environment_basis_independent() -> None:
-    pending_payload = _tool_contract().model_dump(mode="json")
+    pending_payload = _tool_contract(exact_action=False).model_dump(mode="json")
     pending_payload["requested_environment_basis"] = None
     pending_payload.pop("semantic_digest", None)
     pending = _parameterized_intent(SemanticExecutionContract.model_validate(pending_payload))
-    target = _parameterized_intent(_tool_contract())
-    simulation = _parameterized_intent(_simulation_contract())
+    target_profile = _profile()
+    target_contract = _tool_contract(exact_retrieval=True)
+    target = _intent_with_contract(
+        target_contract,
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+        profile=target_profile,
+    )
+    simulation_profile = _simulation_profile()
+    simulation = _intent_with_contract(
+        _simulation_contract(),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+        profile=simulation_profile,
+    )
     target_agnostic = _intent_with_contract(
         _direct_contract(),
         _classification(
@@ -484,8 +672,8 @@ def test_mixed_bundle_keeps_each_environment_basis_independent() -> None:
     results = (
         resolve_execution_case(target_agnostic, _profile()),
         resolve_execution_case(pending, None),
-        resolve_execution_case(target, _profile()),
-        resolve_execution_case(simulation, _simulation_profile()),
+        resolve_execution_case(target, target_profile),
+        resolve_execution_case(simulation, simulation_profile),
     )
 
     assert isinstance(results[0], BoundExecutionCase)
@@ -504,13 +692,14 @@ def test_mixed_bundle_keeps_each_environment_basis_independent() -> None:
 def test_reviewed_profile_binds_exact_semantic_operation() -> None:
     profile = _profile()
     intent = _intent_with_contract(
-        _tool_contract(),
+        _tool_contract(exact_retrieval=True),
         _classification(
             completeness=BindingCompleteness.parameterized,
             environment=EnvironmentBasis.none,
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=profile,
     )
 
     result = resolve_execution_case(intent, profile)
@@ -526,7 +715,8 @@ def test_reviewed_profile_binds_exact_semantic_operation() -> None:
 
 
 def test_required_surfaces_are_part_of_exact_profile_matching() -> None:
-    payload = _tool_contract().model_dump(mode="json")
+    profile = _profile()
+    payload = _tool_contract(exact_retrieval=True).model_dump(mode="json")
     payload["resource_requirements"][0]["required_surfaces"] = ["tool_definition"]
     payload.pop("semantic_digest", None)
     intent = _intent_with_contract(
@@ -537,19 +727,21 @@ def test_required_surfaces_are_part_of_exact_profile_matching() -> None:
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=profile,
     )
 
-    result = resolve_execution_case(intent, _profile())
+    result = resolve_execution_case(intent, profile)
 
     assert isinstance(result, ExecutionCaseExclusion)
-    assert result.code == "unsupported"
+    assert result.code == "invalid_source_binding"
     assert result.requirement_ids == ("REQ-1",)
+    assert result.diagnostics[0].code == "explicit_target_ref_dangling"
 
 
 def test_concrete_producer_binding_must_match_the_pinned_profile() -> None:
     profile = _profile()
     intent = _intent_with_contract(
-        _tool_contract(),
+        _tool_contract(exact_retrieval=True),
         _classification(
             completeness=BindingCompleteness.concrete,
             environment=EnvironmentBasis.target_profile,
@@ -559,16 +751,17 @@ def test_concrete_producer_binding_must_match_the_pinned_profile() -> None:
             resolved_bindings=(
                 ResolvedExecutionBinding(
                     requirement_id="REQ-1",
-                    resource_id="TOOL-retrieval",
+                    resource_id="mcp:target-1:retrieve-1",
                     operation_id="forged-operation",
                 ),
                 ResolvedExecutionBinding(
                     requirement_id="REQ-2",
-                    resource_id="TOOL-action",
+                    resource_id="mcp:target-1:action-1",
                     operation_id="action-1",
                 ),
             ),
         ),
+        profile=profile,
     )
 
     result = resolve_execution_case(intent, profile)
@@ -581,42 +774,46 @@ def test_concrete_producer_binding_must_match_the_pinned_profile() -> None:
 def test_exact_resource_must_exist_and_be_reviewed() -> None:
     base_profile = _profile()
     retrieval = next(
-        resource for resource in base_profile.resources if resource.resource_id == "TOOL-retrieval"
+        resource
+        for resource in base_profile.resources
+        if resource.resource_id == "mcp:target-1:retrieve-1"
     )
     partial_resources = (retrieval,)
     profile = _profile(resources=partial_resources)
     intent = _intent_with_contract(
-        _tool_contract(),
+        _tool_contract(exact_retrieval=True),
         _classification(
             completeness=BindingCompleteness.parameterized,
             environment=EnvironmentBasis.none,
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=profile,
     )
     result = resolve_execution_case(intent, profile)
     assert isinstance(result, ExecutionCaseExclusion)
     assert result.code == "invalid_source_binding"
     assert result.diagnostics[0].code == "explicit_target_ref_dangling"
 
-    unreviewed_resource = retrieval.model_copy(update={"authority": ProfileAuthority.inferred})
     action = next(
-        resource for resource in base_profile.resources if resource.resource_id == "TOOL-action"
+        resource
+        for resource in base_profile.resources
+        if resource.resource_id == "mcp:target-1:action-1"
     )
-    unreviewed = _profile(resources=(unreviewed_resource, action))
+    exact_profile = _profile(resources=(retrieval, action))
     exact_intent = _intent_with_contract(
-        _tool_contract(exact_resource_id="TOOL-retrieval"),
+        _tool_contract(exact_retrieval=True),
         _classification(
             completeness=BindingCompleteness.parameterized,
             environment=EnvironmentBasis.none,
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=exact_profile,
     )
-    result = resolve_execution_case(exact_intent, unreviewed)
-    assert isinstance(result, ExecutionCaseExclusion)
-    assert result.code == "needs_target_binding"
-    assert result.diagnostics[0].code == "profile_inferred_only"
+    result = resolve_execution_case(exact_intent, exact_profile)
+    assert isinstance(result, BoundExecutionCase)
+    assert result.resolved_bindings[0].resource_id == "mcp:target-1:retrieve-1"
 
 
 def test_profile_digest_mismatch_is_rejected_before_resolution() -> None:
@@ -635,7 +832,7 @@ def test_profile_digest_mismatch_is_rejected_before_resolution() -> None:
     result = resolve_execution_case(intent, profile)
 
     assert isinstance(result, ExecutionCaseExclusion)
-    assert result.code == "invalid_profile"
+    assert result.code == "invalid_source_binding"
     assert result.diagnostics[0].code == "target_profile_digest_mismatch"
 
 
@@ -666,7 +863,7 @@ def test_concrete_producer_claim_must_match_profile(
 ) -> None:
     profile = _profile()
     intent = _intent_with_contract(
-        _tool_contract(),
+        _tool_contract(exact_retrieval=True),
         _classification(
             completeness=BindingCompleteness.concrete,
             environment=environment,
@@ -676,16 +873,17 @@ def test_concrete_producer_claim_must_match_profile(
             resolved_bindings=(
                 ResolvedExecutionBinding(
                     requirement_id="REQ-1",
-                    resource_id="TOOL-retrieval",
+                    resource_id="mcp:target-1:retrieve-1",
                     operation_id="retrieve-1",
                 ),
                 ResolvedExecutionBinding(
                     requirement_id="REQ-2",
-                    resource_id="TOOL-action",
+                    resource_id="mcp:target-1:action-1",
                     operation_id="action-1",
                 ),
             ),
         ),
+        profile=profile,
     )
 
     result = resolve_execution_case(intent, profile)
@@ -698,13 +896,14 @@ def test_concrete_producer_claim_must_match_profile(
 def test_partial_inventory_does_not_make_role_match_concrete() -> None:
     profile = _profile(inventory=InventoryCompleteness.inferred_partial)
     intent = _intent_with_contract(
-        _tool_contract(),
+        _tool_contract(exact_action=False),
         _classification(
             completeness=BindingCompleteness.parameterized,
             environment=EnvironmentBasis.none,
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=profile,
     )
 
     result = resolve_execution_case(intent, profile)
@@ -714,17 +913,27 @@ def test_partial_inventory_does_not_make_role_match_concrete() -> None:
 
 
 def test_two_exact_matches_are_ambiguous() -> None:
-    first = next(item for item in _profile().resources if item.resource_id == "TOOL-retrieval")
-    second = first.model_copy(update={"resource_id": "TOOL-retrieval-2"})
-    profile = _profile(resources=(first, second))
+    simulation = _simulation_profile()
+    first = next(
+        item for item in simulation.resources if item.resource_id == "mcp:target-1:retrieve-1"
+    )
+    second = first.model_copy(update={"resource_id": "mcp:target-1:retrieve-1-2"})
+    action = next(
+        item for item in simulation.resources if item.resource_id == "mcp:target-1:action-1"
+    )
+    profile = simulation.model_copy(
+        update={"resources": (first, second, action), "semantic_digest": None}
+    )
+    profile = profile.model_copy(update={"semantic_digest": profile.compute_semantic_digest()})
     intent = _intent_with_contract(
-        _tool_contract(),
+        _simulation_contract(),
         _classification(
             completeness=BindingCompleteness.parameterized,
             environment=EnvironmentBasis.none,
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=profile,
     )
 
     result = resolve_execution_case(intent, profile)
@@ -732,15 +941,15 @@ def test_two_exact_matches_are_ambiguous() -> None:
     assert isinstance(result, ExecutionCaseExclusion)
     assert result.code == "ambiguous"
     assert result.diagnostics[0].candidate_resource_ids == (
-        "TOOL-retrieval",
-        "TOOL-retrieval-2",
+        "mcp:target-1:retrieve-1",
+        "mcp:target-1:retrieve-1-2",
     )
 
 
 def test_exact_resource_can_bind_in_partial_inventory() -> None:
     profile = _profile(inventory=InventoryCompleteness.inferred_partial)
     intent = _intent_with_contract(
-        _tool_contract(exact_resource_id="TOOL-retrieval"),
+        _tool_contract(exact_resource_id="mcp:target-1:retrieve-1"),
         _classification(
             completeness=BindingCompleteness.concrete,
             environment=EnvironmentBasis.target_profile,
@@ -750,22 +959,23 @@ def test_exact_resource_can_bind_in_partial_inventory() -> None:
             resolved_bindings=(
                 ResolvedExecutionBinding(
                     requirement_id="REQ-1",
-                    resource_id="TOOL-retrieval",
+                    resource_id="mcp:target-1:retrieve-1",
                     operation_id="retrieve-1",
                 ),
                 ResolvedExecutionBinding(
                     requirement_id="REQ-2",
-                    resource_id="TOOL-action",
+                    resource_id="mcp:target-1:action-1",
                     operation_id="action-1",
                 ),
             ),
         ),
+        profile=profile,
     )
 
     result = resolve_execution_case(intent, profile)
 
     assert isinstance(result, BoundExecutionCase)
-    assert result.resolved_bindings[0].resource_id == "TOOL-retrieval"
+    assert result.resolved_bindings[0].resource_id == "mcp:target-1:retrieve-1"
 
 
 def test_profile_digest_tampering_is_rejected() -> None:
@@ -961,20 +1171,24 @@ def test_profile_interface_rejects_nonfinite_json(bad_value: float) -> None:
             resource_id="RESOURCE-1",
             resource_kind=ExecutionResourceKind.tool,
             attacker_influence="none",
-            interface_schema={"invalid": bad_value},
-            authority=ProfileAuthority.inferred,
+            input_schema={"type": "object", "properties": {"invalid": bad_value}},
+            evidence_refs=("inventory:tool:test",),
         )
 
 
 def test_profile_validation_rejects_missing_and_forbidden_simulation_behavior() -> None:
-    missing_behavior = _profile().model_dump(mode="json")
-    missing_behavior["basis"] = "simulation"
+    missing_behavior = _simulation_profile().model_dump(mode="json")
+    missing_behavior["resources"][0]["simulation_behavior"] = None
     missing_behavior.pop("semantic_digest", None)
     with pytest.raises(ValueError, match="simulation_behavior"):
         ExecutionTargetProfile.model_validate(missing_behavior)
 
-    forbidden_behavior = _simulation_profile().model_dump(mode="json")
-    forbidden_behavior["basis"] = "target"
+    forbidden_behavior = _profile().model_dump(mode="json")
+    forbidden_behavior["resources"][0]["simulation_behavior"] = {
+        "inputs": {"request": "safe"},
+        "outputs": {"response": "safe"},
+        "observation_points": ["response"],
+    }
     forbidden_behavior.pop("semantic_digest", None)
     with pytest.raises(ValueError, match="cannot contain simulation_behavior"):
         ExecutionTargetProfile.model_validate(forbidden_behavior)
@@ -991,6 +1205,8 @@ def test_profile_validation_rejects_missing_and_forbidden_simulation_behavior() 
                 "selected_profile_basis": "target",
                 "target_environment_id": "env",
                 "target_profile_digest": "0" * 64,
+                "inventory_authority": "observed",
+                "semantic_authority": "inferred",
             },
             "cannot retain a profile",
         ),
@@ -1028,16 +1244,18 @@ def test_target_agnostic_bound_case_rejects_domain_resources() -> None:
 
 
 def test_bound_case_profile_identity_is_required() -> None:
+    profile = _profile()
     intent = _intent_with_contract(
-        _tool_contract(),
+        _tool_contract(exact_retrieval=True),
         _classification(
             completeness=BindingCompleteness.parameterized,
             environment=EnvironmentBasis.none,
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=profile,
     )
-    case = resolve_execution_case(intent, _profile())
+    case = resolve_execution_case(intent, profile)
     assert isinstance(case, BoundExecutionCase)
     payload = case.model_dump(mode="json")
     payload.pop("target_environment_id")
@@ -1175,7 +1393,7 @@ def test_inconsistent_analytical_classification_is_not_repaired() -> None:
 
 def test_exact_resource_without_profile_remains_unresolved() -> None:
     intent = _intent_with_contract(
-        _tool_contract(exact_resource_id="TOOL-retrieval"),
+        _tool_contract(exact_resource_id="mcp:target-1:retrieve-1"),
         _classification(
             completeness=BindingCompleteness.concrete,
             environment=EnvironmentBasis.target_profile,
@@ -1187,13 +1405,14 @@ def test_exact_resource_without_profile_remains_unresolved() -> None:
     result = resolve_execution_case(intent, None)
 
     assert isinstance(result, ExecutionCaseExclusion)
-    assert result.code == "needs_target_binding"
+    assert result.code == "invalid_source_binding"
 
 
 def test_complete_inventory_without_matching_resource_is_unsupported() -> None:
-    action = next(item for item in _profile().resources if item.resource_id == "TOOL-action")
+    profile = _simulation_profile()
+    action = next(item for item in profile.resources if "target_control_action" in item.role_ids)
     intent = _intent_with_contract(
-        _tool_contract(),
+        _simulation_contract(),
         _classification(
             completeness=BindingCompleteness.parameterized,
             environment=EnvironmentBasis.none,
@@ -1202,25 +1421,35 @@ def test_complete_inventory_without_matching_resource_is_unsupported() -> None:
         ),
     )
 
-    result = resolve_execution_case(intent, _profile(resources=(action,)))
-
-    assert isinstance(result, ExecutionCaseExclusion)
-    assert result.code == "unsupported"
-
-
-def test_inferred_profile_cannot_establish_target_claim() -> None:
-    profile_data = _profile().model_dump(mode="json")
-    profile_data.pop("semantic_digest", None)
-    profile_data["authority"] = "inferred"
-    profile = ExecutionTargetProfile.model_validate(profile_data)
+    reduced = profile.model_copy(update={"resources": (action,), "semantic_digest": None})
+    reduced = reduced.model_copy(update={"semantic_digest": reduced.compute_semantic_digest()})
     intent = _intent_with_contract(
-        _tool_contract(),
+        _simulation_contract(),
         _classification(
             completeness=BindingCompleteness.parameterized,
             environment=EnvironmentBasis.none,
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=reduced,
+    )
+    result = resolve_execution_case(intent, reduced)
+
+    assert isinstance(result, ExecutionCaseExclusion)
+    assert result.code == "unsupported"
+
+
+def test_inferred_profile_cannot_establish_target_claim() -> None:
+    profile = _profile()
+    intent = _intent_with_contract(
+        _tool_contract(exact_action=False),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+        profile=profile,
     )
 
     result = resolve_execution_case(intent, profile)
@@ -1230,6 +1459,7 @@ def test_inferred_profile_cannot_establish_target_claim() -> None:
 
 
 def test_explicit_simulation_profile_produces_simulated_claim() -> None:
+    profile = _simulation_profile()
     intent = _intent_with_contract(
         _simulation_contract(),
         _classification(
@@ -1238,16 +1468,17 @@ def test_explicit_simulation_profile_produces_simulated_claim() -> None:
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=profile,
     )
 
-    result = resolve_execution_case(intent, _simulation_profile())
+    result = resolve_execution_case(intent, profile)
 
     assert isinstance(result, BoundExecutionCase)
     assert result.selected_profile_basis == "simulation"
     assert result.claim_scope is ExecutionClaimScope.agent_behavior_with_simulated_tools
     assert tuple(item.resource_id for item in result.selected_simulation_resources) == (
-        "TOOL-action",
-        "TOOL-retrieval",
+        "mcp:target-1:action-1",
+        "mcp:target-1:retrieve-1",
     )
     assert all(
         item.simulation_behavior.observation_points == ("response",)
@@ -1256,10 +1487,7 @@ def test_explicit_simulation_profile_produces_simulated_claim() -> None:
 
 
 def test_complete_inferred_simulation_profile_can_resolve_concretely() -> None:
-    profile_data = _simulation_profile().model_dump(mode="json")
-    profile_data["authority"] = "inferred"
-    profile_data.pop("semantic_digest", None)
-    profile = ExecutionTargetProfile.model_validate(profile_data)
+    profile = _simulation_profile()
     intent = _intent_with_contract(
         _simulation_contract(),
         _classification(
@@ -1268,6 +1496,7 @@ def test_complete_inferred_simulation_profile_can_resolve_concretely() -> None:
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=profile,
     )
 
     result = resolve_execution_case(intent, profile)
@@ -1280,11 +1509,7 @@ def test_complete_inferred_simulation_profile_can_resolve_concretely() -> None:
 
 
 def test_simulation_evidence_reaches_ready_plan_and_garak_metadata() -> None:
-    profile_data = _simulation_profile().model_dump(mode="json")
-    profile_data["authority"] = "inferred"
-    profile_data["environment_id"] = "test"
-    profile_data.pop("semantic_digest", None)
-    profile = ExecutionTargetProfile.model_validate(profile_data)
+    profile = _simulation_profile()
     intent = _intent_with_contract(
         _simulation_contract(),
         _classification(
@@ -1293,10 +1518,11 @@ def test_simulation_evidence_reaches_ready_plan_and_garak_metadata() -> None:
             fit=ExecutionProfileFit.needs_binding,
             claim=ExecutionClaimScope.no_execution_claim,
         ),
+        profile=profile,
     )
     case = resolve_execution_case(intent, profile)
     assert isinstance(case, BoundExecutionCase)
-    base = _bindings(intent)
+    base = _bindings(intent, adapter_operation="tool_call", target_surface="tool_call")
     stimulus = base.stimulus_bindings[0].model_copy(
         update={
             "delivery_class": "indirect_content",
@@ -1314,7 +1540,7 @@ def test_simulation_evidence_reaches_ready_plan_and_garak_metadata() -> None:
     bindings = RuntimeBindingSet.create(
         binding_set_id=base.binding_set_id,
         projection_semantic_digest=base.projection_semantic_digest,
-        target_environment_id=base.target_environment_id,
+        target_environment_id=case.target_environment_id,
         review=base.review,
         semantic_bindings=base.semantic_bindings,
         surface_bindings=(causal_surface, base.surface_bindings[1]),

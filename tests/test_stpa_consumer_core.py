@@ -15,6 +15,7 @@ from asago_artifact_generator.authoring import DeterministicPresentationAuthor
 from asago_artifact_generator.bundle.loader import (
     BundleValidationError,
     ValidationViolation,
+    _classification_has_bindings,
     _validate_categories,
     _validate_condition,
     _validate_entry_order,
@@ -87,9 +88,25 @@ from asago_artifact_generator.planning.bind import (
     _replace_placeholder,
     bind_and_plan,
 )
-from asago_artifact_generator.planning.resolve_case import resolve_execution_case
+from asago_artifact_generator.planning.resolve_case import (
+    _classification_has_no_bindings,
+    resolve_execution_case,
+)
 
 CONTRACT_ROOT = Path(__file__).parents[1] / "contracts" / "stpa-execution"
+
+
+def test_target_profile_pin_is_provenance_not_an_execution_binding() -> None:
+    classification = ExecutionClassification(
+        binding_completeness=BindingCompleteness.analytical_only,
+        environment_basis=EnvironmentBasis.none,
+        profile_fit=ExecutionProfileFit.invalid,
+        claim_scope=ExecutionClaimScope.no_execution_claim,
+        target_profile_digest="a" * 64,
+    )
+
+    assert _classification_has_bindings(classification) is False
+    assert _classification_has_no_bindings(classification) is True
 
 
 def _projection(*, temporal: dict | None = None) -> dict:
@@ -364,7 +381,7 @@ def _intent(*, placeholder: bool = False, temporal: bool = False) -> ExecutionIn
             ),
         ),
         execution_requirements=ExecutionRequirements(
-            requires_tool_execution=True,
+            requires_tool_execution=False,
             requires_real_clock=temporal,
             required_surface_categories=("external_input",),
         ),
@@ -409,9 +426,9 @@ def _capabilities(*, clock: bool = False) -> PlatformCapabilities:
     return PlatformCapabilities(
         platform="garak",
         adapter_version="garak-stpa-v1",
-        writable_surfaces=("user_turn", "tool_call"),
-        invocable_operations=("tool_call",),
-        observer_kinds=("tool_argument", "elapsed_time"),
+        writable_surfaces=("user_turn", "tool_call", "assistant_turn"),
+        invocable_operations=("tool_call", "chat_completion"),
+        observer_kinds=("tool_argument", "elapsed_time", "output_text"),
         supports_multi_turn=True,
         supports_real_clock=clock,
     )
@@ -421,8 +438,8 @@ def _bindings(
     intent: ExecutionIntent,
     *,
     temporal: bool = False,
-    adapter_operation: str = "tool_call",
-    target_surface: str = "tool_call",
+    adapter_operation: str = "chat_completion",
+    target_surface: str = "assistant_turn",
 ) -> RuntimeBindingSet:
     review = ReviewEvidence(
         reviewed_by="operator@example",
@@ -445,10 +462,12 @@ def _bindings(
     observations = [
         ObservationBinding(
             condition_ref="OUTCOME-1",
-            observer_kind="tool_argument",
+            observer_kind="output_text"
+            if adapter_operation == "chat_completion"
+            else "tool_argument",
             event_source="trace.tool_calls",
-            semantic_property="semantic_proposition",
-            field_path="arguments.account_id",
+            semantic_property=intent.unsafe_outcome.condition.property,
+            field_path=f"arguments.{intent.unsafe_outcome.condition.property}",
             comparison="equals",
             expected_from="projection",
         )
@@ -531,7 +550,15 @@ def _vendored_intent(fixture_name: str) -> ExecutionIntent:
     )
 
 
+def test_consumer_rejects_outcome_ordered_before_itself() -> None:
+    payload = _vendored_intent("ordering.json").model_dump(mode="json")
+    payload["unsafe_outcome"]["condition"]["reference_step_id"] = payload["steps"][-1]["step_id"]
+    with pytest.raises(ValueError, match="ordering cannot compare.*itself"):
+        ExecutionIntent.model_validate(payload)
+
+
 def _vendored_runtime_bindings(intent: ExecutionIntent) -> RuntimeBindingSet:
+    answer = intent.execution_contract.action_kind.value == "model_output"
     review = ReviewEvidence(
         reviewed_by="matrix@example",
         reviewed_at="2026-09-02T12:00:00Z",
@@ -540,7 +567,11 @@ def _vendored_runtime_bindings(intent: ExecutionIntent) -> RuntimeBindingSet:
     )
     surfaces_by_ref: dict[str, SurfaceBinding] = {}
     for step in intent.steps:
-        surface = "tool_call" if step.kind == "UNSAFE_CONTROL_ACTION" else "user_turn"
+        surface = (
+            ("assistant_turn" if answer else "tool_call")
+            if step.kind == "UNSAFE_CONTROL_ACTION"
+            else "user_turn"
+        )
         surfaces_by_ref[step.structural_source_id] = SurfaceBinding(
             source_ref=step.structural_source_id,
             surface=surface,
@@ -593,7 +624,11 @@ def _vendored_runtime_bindings(intent: ExecutionIntent) -> RuntimeBindingSet:
                     evidence_refs=("matrix-case-1",),
                 )
             )
-        observer_kind = observer_kinds[condition.type]
+        observer_kind = (
+            "output_text"
+            if answer and condition.type in {"action_value", "action_presence"}
+            else observer_kinds[condition.type]
+        )
         observations.append(
             ObservationBinding(
                 condition_ref=condition_ref,
@@ -618,7 +653,7 @@ def _vendored_runtime_bindings(intent: ExecutionIntent) -> RuntimeBindingSet:
         outcome_expected = "UNSAFE-VALUE"
     action = ControlActionBinding(
         control_action_id=intent.control_action_id,
-        adapter_operation="tool_call",
+        adapter_operation="chat_completion" if answer else "tool_call",
         tool_name="bound_action",
         tool_schema={"type": "object", "properties": {"value": {"type": "string"}}},
         safe_defaults={"value": str(outcome_expected)},
@@ -688,8 +723,10 @@ def test_vendored_contract_lock_and_minimal_bundle_are_authoritative() -> None:
 
     upstream = json.loads((CONTRACT_ROOT / "UPSTREAM.lock").read_text())
     assert upstream["repository"] == "asago-scenario-generator"
-    assert upstream["revision"] == "80c81f6f95eb2f23899ddc6b380a4a74bff0ddca"
+    assert upstream["revision"] == "81790aad83a929dd2274bae6e3ddd481c8af6467"
     assert upstream["source"] == "data/contracts/stpa-execution/CONTRACT.lock"
+    assert upstream["source_state"] == "committed"
+    assert upstream["content_lock_status"] == "pinned"
     assert (
         upstream["contract_lock_sha256"]
         == hashlib.sha256((CONTRACT_ROOT / "CONTRACT.lock").read_bytes()).hexdigest()
@@ -776,6 +813,15 @@ def test_coordinated_cross_repo_eight_case_acceptance_matrix(
 
     # 3. A valid temporal projection without runtime bindings is runtime gated.
     runtime_intent = _vendored_intent("delay.json")
+    # Isolate temporal readiness from the old fixture's unrelated tool flag.
+    # The selected action is model_output; no tool step is declared here.
+    runtime_intent = runtime_intent.model_copy(
+        update={
+            "execution_requirements": runtime_intent.execution_requirements.model_copy(
+                update={"requires_tool_execution": False}
+            )
+        }
+    )
     runtime_result = bind_and_plan(_execution_case(runtime_intent), None, garak_capabilities())
     assert runtime_result.overall == "needs_runtime_binding"
     _assert_unready_cannot_compile(runtime_result)
@@ -1306,6 +1352,13 @@ def test_missing_semantic_value_wins_readiness_precedence() -> None:
 
 def test_reviewed_semantic_binding_and_runtime_bindings_make_ready_plan() -> None:
     intent = _vendored_intent("delay-placeholder.json")
+    intent = intent.model_copy(
+        update={
+            "execution_requirements": intent.execution_requirements.model_copy(
+                update={"requires_tool_execution": False}
+            )
+        }
+    )
     result = bind_and_plan(
         _execution_case(intent), _vendored_runtime_bindings(intent), _capabilities(clock=True)
     )
@@ -1366,6 +1419,13 @@ def test_inward_models_reject_non_hex_digest_values() -> None:
 
 def test_tool_execution_requirement_checks_target_operation() -> None:
     intent = _intent()
+    intent = intent.model_copy(
+        update={
+            "execution_requirements": intent.execution_requirements.model_copy(
+                update={"requires_tool_execution": True}
+            )
+        }
+    )
     bindings = _bindings(intent, adapter_operation="emit_text")
     capabilities = PlatformCapabilities(
         platform="test",
@@ -1385,7 +1445,9 @@ def test_tool_execution_requirement_checks_target_operation() -> None:
 def test_tool_action_requires_a_compatible_target_surface() -> None:
     intent = _intent()
     result = bind_and_plan(
-        _execution_case(intent), _bindings(intent, target_surface="user_turn"), _capabilities()
+        _execution_case(intent),
+        _bindings(intent, adapter_operation="tool_call", target_surface="user_turn"),
+        _capabilities(),
     )
 
     assert result.overall == "needs_runtime_binding"

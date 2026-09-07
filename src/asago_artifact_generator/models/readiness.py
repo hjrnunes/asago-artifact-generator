@@ -17,6 +17,7 @@ from pydantic import (
 
 from ._base import ImmutableModel, SHA256Digest, freeze_value
 from .execution_case import SelectedSimulationResource
+from .execution_classification import InventoryAuthority, SemanticAuthority
 from .execution_intent import UCAType
 from .runtime_binding import ClockBinding
 from .semantic_conditions import normalize_semantic_proposition
@@ -135,8 +136,11 @@ class PlanStep(ImmutableModel):
     control_action_id: StrictStr | None = None
     adapter_operation: StrictStr | None = None
     tool_name: StrictStr = ""
+    tool_description: StrictStr | None = None
     tool_schema: Mapping[str, Any] = Field(default_factory=dict)
     safe_arguments: Mapping[str, Any] = Field(default_factory=dict)
+    tool_choice: Literal["auto", "required"] = "auto"
+    tool_choice_reason: StrictStr | None = None
     content_slot_id: StrictStr | None = None
 
     @field_validator("tool_schema", "safe_arguments", mode="before")
@@ -147,6 +151,19 @@ class PlanStep(ImmutableModel):
         if not isinstance(value, Mapping):
             raise TypeError("plan mappings must be objects")
         return freeze_value(value)
+
+    @model_validator(mode="after")
+    def _validate_tool_choice(self) -> PlanStep:
+        if self.tool_description is not None and not self.tool_name:
+            raise ValueError("tool_description requires a bound tool name")
+        if self.tool_choice == "required":
+            if self.adapter_operation != "tool_call" or not self.tool_name:
+                raise ValueError("required tool choice needs a target tool call")
+            if not self.tool_choice_reason:
+                raise ValueError("required tool choice needs an explicit reason")
+        elif self.tool_choice_reason is not None:
+            raise ValueError("tool_choice_reason is only valid for required tool choice")
+        return self
 
 
 class ObserverPlan(ImmutableModel):
@@ -223,6 +240,7 @@ class StimulusPlan(ImmutableModel):
         "user_authored", "tool_output", "retrieved_document", "conversation_history"
     ]
     carrier_tool_name: StrictStr = ""
+    carrier_tool_description: StrictStr | None = None
     carrier_tool_schema: Mapping[str, Any] = Field(default_factory=dict)
     carrier_tool_arguments: Mapping[str, Any] = Field(default_factory=dict)
     intent: StrictStr = Field(min_length=1)
@@ -297,6 +315,9 @@ class ReadyExecutionPlan(ImmutableModel):
     selected_profile_basis: Literal["target", "simulation"] | None = None
     target_environment_id: StrictStr | None = None
     target_profile_digest: SHA256Digest | None = None
+    target_realization_digest: SHA256Digest | None = None
+    inventory_authority: InventoryAuthority | None = None
+    semantic_authority: SemanticAuthority | None = None
     selected_simulation_resources: tuple[SelectedSimulationResource, ...] = ()
 
     @field_validator(
@@ -397,18 +418,39 @@ def _validate_case_metadata(plan: ReadyExecutionPlan) -> None:
             plan.selected_profile_basis,
             plan.target_environment_id,
             plan.target_profile_digest,
+            plan.target_realization_digest,
+            plan.inventory_authority,
+            plan.semantic_authority,
         )
     )
-    if has_profile and any(
-        value is None
-        for value in (
-            plan.selected_profile_id,
-            plan.selected_profile_basis,
-            plan.target_environment_id,
-            plan.target_profile_digest,
-        )
-    ):
+    required_profile_metadata = (
+        plan.selected_profile_id,
+        plan.selected_profile_basis,
+        plan.target_environment_id,
+        plan.target_profile_digest,
+        plan.semantic_authority,
+    )
+    if plan.environment_basis == "target_profile":
+        required_profile_metadata += (plan.inventory_authority,)
+    if has_profile and any(value is None for value in required_profile_metadata):
         raise ValueError("bound-case profile metadata is incomplete")
+    if plan.environment_basis == "target_agnostic":
+        if has_profile:
+            raise ValueError("target-agnostic ready plan cannot retain profile metadata")
+    elif not has_profile:
+        raise ValueError("profile-backed ready plan requires profile metadata")
+    elif plan.environment_basis == "target_profile":
+        if plan.inventory_authority != InventoryAuthority.observed:
+            raise ValueError("target ready plan requires observed inventory_authority")
+        if plan.semantic_authority is None:
+            raise ValueError("target ready plan requires semantic_authority")
+    elif plan.environment_basis == "simulation_profile":
+        if plan.inventory_authority is not None:
+            raise ValueError("simulation ready plan cannot carry inventory_authority")
+        if plan.semantic_authority is not SemanticAuthority.reviewed:
+            raise ValueError("simulation ready plan requires reviewed semantic_authority")
+    if plan.target_realization_digest is not None and plan.environment_basis != "target_profile":
+        raise ValueError("target_realization_digest is only valid for target ready plans")
     _validate_simulation_resources(plan)
 
 

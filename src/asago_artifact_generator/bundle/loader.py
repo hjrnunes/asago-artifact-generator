@@ -123,9 +123,11 @@ _TRACE_FIELDS = frozenset(
         "source_pins",
     }
 )
-_SOURCE_PIN_FIELDS = frozenset(
+_SOURCE_PIN_REQUIRED_FIELDS = frozenset(
     {"control_structure", "loss_analysis", "ica_enumeration", "scenario_context"}
 )
+_SOURCE_PIN_OPTIONAL_FIELDS = frozenset({"execution_target_profile", "target_realization"})
+_SOURCE_PIN_FIELDS = _SOURCE_PIN_REQUIRED_FIELDS | _SOURCE_PIN_OPTIONAL_FIELDS
 _PLACEHOLDER_FIELDS = frozenset({"binding_ref", "value_type", "description", "minimum", "maximum"})
 _PLACEHOLDER_REQUIRED_FIELDS = frozenset({"binding_ref", "value_type", "description"})
 _CONDITION_FIELDS = {
@@ -1676,7 +1678,9 @@ def _validate_target_action_requirements(
     for index, requirement in enumerate(contract.resource_requirements):
         if requirement.purpose.value != "target_action":
             continue
-        if requirement.owner_ref == action_id and requirement.operation == action_id:
+        if requirement.owner_ref == action_id and (
+            requirement.exact_resource_id is not None or requirement.operation == action_id
+        ):
             continue
         violations.append(
             _violation(
@@ -1742,7 +1746,6 @@ def _classification_has_bindings(classification: ExecutionClassification) -> boo
         or classification.unresolved_requirement_ids
         or classification.ambiguous_matches
         or classification.unsupported_requirement_ids
-        or classification.target_profile_digest is not None
     )
 
 
@@ -1761,17 +1764,50 @@ def _validate_projection_trace(
             _violation("container_type_mismatch", f"{path}.source_pins", "expected an object")
         )
         return
-    if set(pins) != _SOURCE_PIN_FIELDS:
+    pin_keys = set(pins)
+    if not _SOURCE_PIN_REQUIRED_FIELDS <= pin_keys or not pin_keys <= _SOURCE_PIN_FIELDS:
         violations.append(
             _violation(
                 "source_pin_mismatch",
                 f"{path}.source_pins",
-                "source pins must contain exactly the four producer digests",
+                "source pins must contain the four producer digests and only the "
+                "optional execution_target_profile/target_realization pair",
+            )
+        )
+    optional_keys = pin_keys & _SOURCE_PIN_OPTIONAL_FIELDS
+    if optional_keys and optional_keys != _SOURCE_PIN_OPTIONAL_FIELDS:
+        violations.append(
+            _violation(
+                "source_pin_mismatch",
+                f"{path}.source_pins",
+                "execution_target_profile and target_realization source pins must be "
+                "supplied together",
+            )
+        )
+    if (
+        _projection_has_exact_resource_requirement(value)
+        and optional_keys != _SOURCE_PIN_OPTIONAL_FIELDS
+    ):
+        violations.append(
+            _violation(
+                "source_pin_mismatch",
+                f"{path}.source_pins",
+                "exact resource requirements require execution_target_profile and "
+                "target_realization source pins",
             )
         )
     for key, item in pins.items():
         _string(key, f"{path}.source_pins.{key}", violations)
         _digest(item, f"{path}.source_pins.{key}", violations)
+
+
+def _projection_has_exact_resource_requirement(value: Mapping[str, Any]) -> bool:
+    contract = value.get("execution_contract")
+    requirements = contract.get("resource_requirements") if isinstance(contract, Mapping) else None
+    return isinstance(requirements, list) and any(
+        isinstance(requirement, Mapping) and requirement.get("exact_resource_id") is not None
+        for requirement in requirements
+    )
 
 
 def _validate_projection_lineage(
@@ -2013,7 +2049,7 @@ def _set_scenario_candidate(values: dict[str, Any]) -> None:
 
 
 def _presentation_context(document: dict[str, Any]) -> dict[str, Any]:
-    """Copy only optional context fields for a post-readiness author."""
+    """Copy optional, non-authoritative context for a post-readiness author."""
 
     keys = (
         "narrative",
@@ -2025,7 +2061,148 @@ def _presentation_context(document: dict[str, Any]) -> dict[str, Any]:
         "title",
         "summary",
     )
-    return {key: document[key] for key in keys if key in document}
+    context = {key: document[key] for key in keys if key in document}
+    author_context = _compact_author_context(document)
+    if author_context:
+        context["author_context"] = author_context
+    return context
+
+
+def _compact_author_context(document: Mapping[str, Any]) -> dict[str, Any]:
+    """Extract semantic prose for authoring without copying the scenario ledger."""
+
+    spec = document.get("scenario_spec")
+    if not isinstance(spec, Mapping):
+        return {}
+    scenario_context = _author_mapping_field(spec, "scenario_context")
+    result = _author_scalar_context(spec, scenario_context)
+    causal_hypothesis, unresolved_facts = _author_causal_hypotheses(spec)
+    constraint_refs = tuple(
+        item for item in spec.get("unsafe_outcome_constraint_refs", ()) if isinstance(item, str)
+    )
+    source_constraints, constraint_gaps = _author_source_constraints(
+        scenario_context, constraint_refs
+    )
+    unresolved_facts.extend(constraint_gaps)
+    sections = {
+        "causal_hypothesis": causal_hypothesis,
+        "unresolved_facts": unresolved_facts,
+        "source_constraints": source_constraints,
+        "provenance": _author_source_provenance(spec, scenario_context, constraint_refs),
+    }
+    result.update({key: value for key, value in sections.items() if value})
+    return result
+
+
+def _author_mapping_field(parent: Mapping[str, Any], name: str) -> Mapping[str, Any]:
+    """Read optional presentation data, without constructing semantic authority."""
+    value = parent.get(name)
+    return value if isinstance(value, Mapping) else {}
+
+
+def _author_text(value: Any) -> str:
+    """Retain supplied nonblank prose; never fill it with an inferred value."""
+    return value if isinstance(value, str) and value.strip() else ""
+
+
+def _author_scalar_context(
+    spec: Mapping[str, Any], scenario_context: Mapping[str, Any]
+) -> dict[str, Any]:
+    ica = _author_mapping_field(scenario_context, "ica")
+    path = _author_mapping_field(scenario_context, "target_control_path")
+    action = _author_mapping_field(path, "control_action")
+    fields = {
+        "action": action.get("description") or ica.get("unsafe_action"),
+        "deviation": ica.get("uca_type_definition"),
+        "observable_criterion": spec.get("unsafe_outcome_semantic_proposition"),
+        "loss_context": spec.get("loss_scenario") or ica.get("loss_consequence"),
+    }
+    return {key: value for key, value in fields.items() if _author_text(value)}
+
+
+def _author_causal_hypotheses(spec: Mapping[str, Any]) -> tuple[list[str], list[str]]:
+    causal_hypothesis: list[str] = []
+    unresolved_facts: list[str] = []
+    for factor in spec.get("causal_factors", ()):
+        description, unresolved = _author_factor_hypothesis(spec, factor)
+        if description:
+            causal_hypothesis.append(description)
+        if unresolved:
+            unresolved_facts.append(
+                "One causal factor is only classified as structural_failure; "
+                "its mechanism is unresolved."
+            )
+    return causal_hypothesis, unresolved_facts
+
+
+def _author_factor_hypothesis(spec: Mapping[str, Any], factor: Any) -> tuple[str, bool]:
+    if not isinstance(factor, Mapping):
+        return "", False
+    description = _author_text(factor.get("description")).strip()
+    if description.casefold() != "structural_failure":
+        return description, False
+    hypothesis = _exact_belief_hypothesis(spec, factor)
+    return hypothesis, not bool(hypothesis)
+
+
+def _author_source_constraints(
+    scenario_context: Mapping[str, Any], constraint_refs: tuple[str, ...]
+) -> tuple[list[str], list[str]]:
+    source_constraints: list[str] = []
+    found_constraint_refs: set[str] = set()
+    for constraint in scenario_context.get("constraints", ()):
+        if not isinstance(constraint, Mapping):
+            continue
+        constraint_id = constraint.get("constraint_id")
+        description = _author_text(constraint.get("description"))
+        if constraint_id in constraint_refs and description:
+            source_constraints.append(description.strip())
+            found_constraint_refs.add(constraint_id)
+    missing = set(constraint_refs) - found_constraint_refs
+    gaps = (
+        ["One referenced source constraint has no supplied description and remains unresolved."]
+        if missing
+        else []
+    )
+    return source_constraints, gaps
+
+
+def _author_source_provenance(
+    spec: Mapping[str, Any], scenario_context: Mapping[str, Any], constraint_refs: tuple[str, ...]
+) -> dict[str, Any]:
+    provenance = _author_provenance_fields(
+        spec, ("scenario_id", "target_controller", "target_control_action", "ica_type")
+    )
+    provenance.update(
+        _author_provenance_fields(scenario_context, ("context_digest", "source_pins"))
+    )
+    unsafe_condition = _author_mapping_field(spec, "unsafe_outcome_condition")
+    if unsafe_condition:
+        provenance["unsafe_outcome_condition"] = dict(unsafe_condition)
+    if constraint_refs:
+        provenance["constraint_refs"] = list(constraint_refs)
+    return provenance
+
+
+def _author_provenance_fields(source: Mapping[str, Any], names: tuple[str, ...]) -> dict[str, Any]:
+    return {key: source[key] for key in names if key in source}
+
+
+def _exact_belief_hypothesis(spec: Mapping[str, Any], factor: Mapping[str, Any]) -> str:
+    """Recover already-authored PM meaning only from its exact declared source."""
+    if factor.get("kind") != "PROCESS_MODEL_FLAW" or not factor.get("source_id"):
+        return ""
+    defender = _author_mapping_field(spec, "defender_bdi")
+    matches = _belief_vulnerabilities_for_source(defender, factor["source_id"])
+    return _author_text(matches[0]).strip() if len(matches) == 1 else ""
+
+
+def _belief_vulnerabilities_for_source(defender: Mapping[str, Any], source_id: str) -> list[Any]:
+    return [
+        item.get("vulnerability")
+        for item in defender.get("beliefs", ())
+        if isinstance(item, Mapping) and item.get("pm_id") == source_id
+    ]
 
 
 def _check_pair_identity(

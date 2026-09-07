@@ -1,47 +1,132 @@
 {
-  "authority": "reviewed",
+  "authorization_scope_id": "fixture-scope",
   "basis": "target",
-  "environment_id": "fixture-target",
-  "evidence_refs": [
-    "fixture-review"
+  "diagnostics": [],
+  "discovery_provenance": {
+    "interpreter_id": "fixture-interpreter",
+    "interpreter_prompt_hash": null,
+    "model_name": null,
+    "model_profile": null,
+    "scanner_contract_version": "execution-target-profile-v1",
+    "scanner_id": "fixture-scanner",
+    "verifier_id": "fixture-verifier",
+    "verifier_prompt_hash": null
+  },
+  "interpretations": [
+    {
+      "disposition": "supported",
+      "evidence_refs": [
+        "inventory:tool:process_refund:description"
+      ],
+      "interpreter_verifier_agreement": "unverified",
+      "likely_effect": "update",
+      "likely_state_effect": "changes",
+      "observer_resource_ids": [],
+      "rationale": "The observed description names a refund operation.",
+      "resource_id": "mcp:fixture-target:process_refund",
+      "semantic_roles": [
+        "payment_operation"
+      ],
+      "tool_name": "process_refund"
+    }
   ],
-  "inventory_completeness": "reviewed_complete",
-  "profile_id": "fixture-target",
+  "inventory": {
+    "authorization_scope_id": "fixture-scope",
+    "page_count": 1,
+    "pagination_complete": true,
+    "schema_version": "mcp-inventory-v1",
+    "semantic_digest": "a41dd739dd162a4b0c5233b6ce7b40333dd2b38ce6f0d01bef40a440501d2712",
+    "source_protocol": "mcp",
+    "target_id": "fixture-target",
+    "tools": [
+      {
+        "annotations": null,
+        "argument_names": [
+          "amount",
+          "order_id"
+        ],
+        "description": "Process a refund for an order.",
+        "input_schema": {
+          "properties": {
+            "amount": {
+              "type": "number"
+            },
+            "order_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "order_id",
+            "amount"
+          ],
+          "type": "object"
+        },
+        "name": "process_refund",
+        "output_schema": "opaque",
+        "title": "Process refund"
+      }
+    ]
+  },
+  "inventory_authority": "observed",
+  "inventory_completeness": "observed_complete",
   "resources": [
     {
-      "attacker_influence": "indirect",
-      "authority": "reviewed",
-      "evidence_refs": [
-        "fixture-tool"
+      "annotations": null,
+      "argument_names": [
+        "amount",
+        "order_id"
       ],
-      "interface_schema": {
+      "attacker_influence": "unknown",
+      "description": "Process a refund for an order.",
+      "evidence_refs": [
+        "inventory:tool:process_refund"
+      ],
+      "input_schema": {
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "order_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id",
+          "amount"
+        ],
         "type": "object"
       },
       "operations": [
         {
-          "argument_names": [],
-          "observable_properties": [
-            "content_reaches_model_context"
+          "argument_names": [
+            "amount",
+            "order_id"
           ],
-          "operation_id": "retrieve-1",
-          "semantic_operation": "retrieve_content"
+          "observable_properties": [],
+          "operation_id": "process_refund",
+          "semantic_operation": "process_refund"
         }
       ],
-      "resource_id": "TOOL-retrieval",
+      "output_schema": "opaque",
+      "resource_id": "mcp:fixture-target:process_refund",
       "resource_kind": "tool",
-      "role_ids": [
-        "attacker_influenced_content_source"
-      ],
+      "role_ids": [],
       "simulation_behavior": null,
-      "structural_refs": [
-        "PM-1-1"
-      ],
+      "structural_refs": [],
       "surfaces": [
+        "tool_call",
         "tool_result"
-      ]
+      ],
+      "target_id": "fixture-target",
+      "title": "Process refund",
+      "tool_name": "process_refund"
     }
   ],
   "schema_version": "execution-target-profile-v1",
-  "semantic_digest": "f862ad29bfc0bf3b81c04c7445beef37806d197873955d89ba14623bdd2a5b16",
+  "semantic_authority": "inferred",
+  "semantic_digest": "403c69d3ab661d00582d7a468483372b249e8cc1468f7648d0b98565adca897e",
+  "source_inventory_digest": "a41dd739dd162a4b0c5233b6ce7b40333dd2b38ce6f0d01bef40a440501d2712",
+  "source_protocol": "mcp",
+  "target_id": "fixture-target",
   "unexpected_field": true
 }

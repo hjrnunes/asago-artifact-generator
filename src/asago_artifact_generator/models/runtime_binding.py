@@ -135,6 +135,7 @@ class AdversarialStimulusBinding(ImmutableModel):
         "user_authored", "tool_output", "retrieved_document", "conversation_history"
     ]
     carrier_tool_name: StrictStr = ""
+    carrier_tool_description: StrictStr | None = None
     carrier_tool_schema: Mapping[str, Any] = Field(default_factory=dict)
     carrier_tool_arguments: Mapping[str, Any] = Field(default_factory=dict)
     review: ReviewEvidence
@@ -179,9 +180,12 @@ class ControlActionBinding(ImmutableModel):
     control_action_id: StrictStr = Field(min_length=1)
     adapter_operation: StrictStr = Field(min_length=1)
     tool_name: StrictStr = ""
+    tool_description: StrictStr | None = None
     tool_schema: Mapping[str, Any] = Field(default_factory=dict)
     safe_defaults: Mapping[str, Any] = Field(default_factory=dict)
     secret_handles: tuple[StrictStr, ...] = ()
+    tool_choice: Literal["auto", "required"] = "auto"
+    tool_choice_reason: StrictStr | None = None
 
     @field_validator("tool_schema", "safe_defaults", mode="before")
     @classmethod
@@ -207,6 +211,13 @@ class ControlActionBinding(ImmutableModel):
         for key in self.safe_defaults:
             if any(name in str(key).lower() for name in secret_names):
                 raise ValueError("safe_defaults must not contain credentials or secret values")
+        if self.tool_choice == "required":
+            if not self.tool_name:
+                raise ValueError("required tool choice needs a bound tool name")
+            if not self.tool_choice_reason:
+                raise ValueError("required tool choice needs an explicit reason")
+        elif self.tool_choice_reason is not None:
+            raise ValueError("tool_choice_reason is only valid for required tool choice")
         return self
 
 
@@ -282,7 +293,22 @@ class RuntimeBindingSet(ImmutableModel):
     def digest_payload(self) -> dict[str, Any]:
         """Return the complete canonical document excluding its digest."""
 
-        return self.model_dump(mode="json", exclude={"semantic_digest"})
+        payload = self.model_dump(mode="json", exclude={"semantic_digest"})
+        # The v1 binding wire format predates observed descriptions and the
+        # explicit tool-choice label.  Omit their unset/default values when
+        # attesting an old document so existing bindings remain readable;
+        # non-default observations are included in the new digest.
+        for action in payload.get("control_action_bindings", []):
+            if action.get("tool_description") is None:
+                action.pop("tool_description", None)
+            if action.get("tool_choice") == "auto":
+                action.pop("tool_choice", None)
+            if action.get("tool_choice_reason") is None:
+                action.pop("tool_choice_reason", None)
+        for stimulus in payload.get("stimulus_bindings", []):
+            if stimulus.get("carrier_tool_description") is None:
+                stimulus.pop("carrier_tool_description", None)
+        return payload
 
     def compute_semantic_digest(self) -> str:
         """Compute the v1 binding-set framed digest."""

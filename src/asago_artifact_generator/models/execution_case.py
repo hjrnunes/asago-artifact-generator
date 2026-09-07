@@ -13,7 +13,9 @@ from .execution_classification import (
     ExecutionClaimScope,
     ExecutionClassification,
     ExecutionProfileFit,
+    InventoryAuthority,
     ResolvedExecutionBinding,
+    SemanticAuthority,
     SimulationBehavior,
 )
 from .execution_intent import ExecutionIntent
@@ -77,6 +79,9 @@ class BoundExecutionCase(ImmutableModel):
     selected_profile_basis: Literal["target", "simulation"] | None = None
     target_environment_id: StrictStr | None = Field(default=None, min_length=1)
     target_profile_digest: SHA256Digest | None = None
+    target_realization_digest: SHA256Digest | None = None
+    inventory_authority: InventoryAuthority | None = None
+    semantic_authority: SemanticAuthority | None = None
     resolved_bindings: tuple[ResolvedExecutionBinding, ...] = ()
     selected_simulation_resources: tuple[SelectedSimulationResource, ...] = ()
     binding_completeness: BindingCompleteness
@@ -179,6 +184,7 @@ def _validate_profile_identity(value: BoundExecutionCase) -> None:
         return
     _require_profile_identity(value)
     _require_profile_pin(value)
+    _require_profile_authority(value)
 
 
 def _has_profile_identity(value: BoundExecutionCase) -> bool:
@@ -189,6 +195,9 @@ def _has_profile_identity(value: BoundExecutionCase) -> bool:
             value.selected_profile_basis,
             value.target_environment_id,
             value.target_profile_digest,
+            value.target_realization_digest,
+            value.inventory_authority,
+            value.semantic_authority,
         )
     )
 
@@ -201,6 +210,22 @@ def _require_profile_identity(value: BoundExecutionCase) -> None:
 def _require_profile_pin(value: BoundExecutionCase) -> None:
     if value.target_environment_id is None or value.target_profile_digest is None:
         raise ValueError("bound case profile pin is incomplete")
+
+
+def _require_profile_authority(value: BoundExecutionCase) -> None:
+    if value.selected_profile_basis == "target":
+        if value.inventory_authority is not InventoryAuthority.observed:
+            raise ValueError("target bound case requires observed inventory_authority")
+        if value.semantic_authority is None:
+            raise ValueError("target bound case requires semantic_authority")
+        return
+    if value.selected_profile_basis == "simulation":
+        if value.inventory_authority is not None:
+            raise ValueError("simulation bound case cannot carry inventory_authority")
+        if value.semantic_authority is not SemanticAuthority.reviewed:
+            raise ValueError("simulation bound case requires reviewed semantic_authority")
+        return
+    raise ValueError("bound case profile basis is required for profile authority")
 
 
 def _validate_binding_identity(value: BoundExecutionCase) -> None:
@@ -256,7 +281,18 @@ def _validate_target_agnostic_result(value: BoundExecutionCase) -> None:
         raise ValueError("target-agnostic bound case must have profile_fit not_required")
     if value.claim_scope is not ExecutionClaimScope.model_behavior_only:
         raise ValueError("target-agnostic bound case must have model_behavior_only claim")
-    if value.selected_profile_id is not None or value.target_profile_digest is not None:
+    if any(
+        item is not None
+        for item in (
+            value.selected_profile_id,
+            value.selected_profile_basis,
+            value.target_environment_id,
+            value.target_profile_digest,
+            value.target_realization_digest,
+            value.inventory_authority,
+            value.semantic_authority,
+        )
+    ):
         raise ValueError("target-agnostic bound case cannot retain a profile")
 
 
@@ -268,6 +304,44 @@ def _validate_profile_backed_result(value: BoundExecutionCase) -> None:
         raise ValueError("bound case profile basis does not match environment basis")
     if value.claim_scope is not _profile_claim_scope(value):
         raise ValueError("bound case claim scope does not match environment basis")
+    _require_profile_authority(value)
+    _validate_source_profile_lineage(value)
+    classification = value.execution_classification
+    if classification.target_profile_digest != value.target_profile_digest:
+        raise ValueError("bound case target_profile_digest disagrees with classification")
+    if classification.inventory_authority is not None and (
+        classification.inventory_authority is not value.inventory_authority
+    ):
+        raise ValueError("bound case inventory authority disagrees with classification")
+    if classification.semantic_authority is not None and (
+        classification.semantic_authority is not value.semantic_authority
+    ):
+        raise ValueError("bound case semantic authority disagrees with classification")
+
+
+def _validate_source_profile_lineage(value: BoundExecutionCase) -> None:
+    """Keep copied target source pins closed over the bound case."""
+
+    pins = value.intent.trace_refs.source_pins
+    profile_pin = pins.get("execution_target_profile")
+    realization_pin = pins.get("target_realization")
+    exact_resource_required = any(
+        requirement.exact_resource_id is not None
+        for requirement in value.intent.execution_contract.resource_requirements
+    )
+    if exact_resource_required and (profile_pin is None or realization_pin is None):
+        raise ValueError(
+            "exact resource bound cases require execution_target_profile and "
+            "target_realization source pins"
+        )
+    if profile_pin is not None and profile_pin != value.target_profile_digest:
+        raise ValueError("bound case target_profile_digest disagrees with source pin")
+    if realization_pin != value.target_realization_digest:
+        raise ValueError("bound case target_realization_digest disagrees with source pin")
+    if value.selected_profile_basis != "target" and (
+        profile_pin is not None or realization_pin is not None
+    ):
+        raise ValueError("only target bound cases may carry target source pins")
 
 
 def _profile_basis_name(value: BoundExecutionCase) -> str:

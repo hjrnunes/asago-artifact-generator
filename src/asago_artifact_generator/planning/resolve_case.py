@@ -19,7 +19,6 @@ from ..models.execution_classification import (
     ExecutionProfileFit,
     ExecutionResourceRequirement,
     ExecutionTargetProfile,
-    ProfileAuthority,
     ProfileBasis,
     RequestedEnvironmentBasis,
     ResolvedExecutionBinding,
@@ -46,6 +45,9 @@ def resolve_execution_case(
     source_error = _source_integrity_error(contract, classification)
     if source_error is not None:
         return _source_integrity_exclusion(intent, classification, source_error)
+    source_lineage_error = _source_profile_lineage_error(intent, contract, classification, profile)
+    if source_lineage_error is not None:
+        return _source_integrity_exclusion(intent, classification, source_lineage_error)
     return _resolve_verified_case(intent, contract, classification, profile)
 
 
@@ -133,6 +135,71 @@ def _source_integrity_error(
     return None
 
 
+def _source_profile_lineage_error(
+    intent: ExecutionIntent,
+    contract: SemanticExecutionContract,
+    classification: ExecutionClassification,
+    profile: ExecutionTargetProfile | None,
+) -> str | None:
+    """Verify target-profile pins without reconstructing producer authority.
+
+    The producer owns target-realization contents and row semantics.  The
+    consumer only checks that an explicitly supplied profile is the one named
+    by the projection and retains the two source pins for downstream output.
+    """
+
+    pins = intent.trace_refs.source_pins
+    profile_pin = pins.get("execution_target_profile")
+    realization_pin = pins.get("target_realization")
+    exact_resource_required = any(
+        requirement.exact_resource_id is not None for requirement in contract.resource_requirements
+    )
+    profile_consumed = (
+        profile is not None
+        and contract.disposition != "analytical_only"
+        and contract.requested_environment_basis is not RequestedEnvironmentBasis.target_agnostic
+    )
+    if exact_resource_required and (profile_pin is None or realization_pin is None):
+        return (
+            "exact resource requirements require execution_target_profile and "
+            "target_realization source pins"
+        )
+    if profile_pin is not None:
+        if profile is None:
+            return (
+                "execution_target_profile source pin cannot be verified without a supplied profile"
+            )
+        if profile.basis is not ProfileBasis.target:
+            return "target source pins cannot be attached to a simulation profile"
+        if profile_pin != profile.semantic_digest:
+            return (
+                "execution_target_profile source pin does not match the supplied "
+                "profile semantic_digest"
+            )
+        if classification.target_profile_digest is None:
+            return (
+                "classification target_profile_digest is required with an "
+                "execution_target_profile source pin"
+            )
+        if classification.target_profile_digest != profile.semantic_digest:
+            return (
+                "classification target_profile_digest does not match the supplied "
+                "profile semantic_digest"
+            )
+    if realization_pin is not None and profile is None:
+        return "target_realization source pin cannot be retained without a supplied profile"
+    if profile_consumed and classification.target_profile_digest is None:
+        return (
+            "classification target_profile_digest is required when a supplied profile is consumed"
+        )
+    if profile_consumed and classification.target_profile_digest != profile.semantic_digest:
+        return (
+            "classification target_profile_digest does not match the supplied "
+            "profile semantic_digest"
+        )
+    return None
+
+
 def _target_action_requirement_error(
     intent: ExecutionIntent,
 ) -> tuple[str, tuple[str, ...]] | None:
@@ -143,7 +210,10 @@ def _target_action_requirement_error(
         requirement.requirement_id
         for requirement in intent.execution_contract.resource_requirements
         if requirement.purpose.value == "target_action"
-        and (requirement.owner_ref != action_id or requirement.operation != action_id)
+        and (
+            requirement.owner_ref != action_id
+            or (requirement.exact_resource_id is None and requirement.operation != action_id)
+        )
     )
     if not mismatches:
         return None
@@ -355,7 +425,6 @@ def _classification_has_no_bindings(classification: ExecutionClassification) -> 
             classification.unresolved_requirement_ids,
             classification.ambiguous_matches,
             classification.unsupported_requirement_ids,
-            classification.target_profile_digest,
         )
     )
 
@@ -430,14 +499,6 @@ def _resolve_target_profile(
     classification: ExecutionClassification,
     profile: ExecutionTargetProfile,
 ) -> ExecutionCaseResolution:
-    if profile.authority is not ProfileAuthority.reviewed:
-        return _exclusion(
-            intent,
-            classification,
-            "needs_target_binding",
-            tuple(item.requirement_id for item in contract.resource_requirements),
-            _diagnostic("profile_inferred_only", "target profile authority is not reviewed"),
-        )
     return _resolve_profile_bindings(
         intent,
         contract,
@@ -501,6 +562,7 @@ def _resolve_profile_bindings(
         classification,
         bindings,
         exclusion,
+        profile=profile,
         expected_environment=expected_environment,
         expected_claim=claim_scope,
     )
@@ -528,7 +590,11 @@ def _resolve_requirements(
 ]:
     resolved: list[ResolvedExecutionBinding] = []
     for requirement in requirements:
-        candidates = _matching_resources(requirement, profile.resources)
+        candidates = (
+            _matching_exact_resource(requirement, profile.resources)
+            if requirement.exact_resource_id is not None
+            else _matching_resources(requirement, profile.resources)
+        )
         binding, exclusion = _resolve_one_requirement(requirement, candidates, profile)
         if exclusion is not None:
             return (), exclusion
@@ -574,22 +640,6 @@ def _resolve_exact_requirement(
             ),
         )
     resource, operation = exact[0]
-    if resource.authority is not ProfileAuthority.reviewed:
-        return (
-            None,
-            (
-                "needs_target_binding",
-                (requirement.requirement_id,),
-                (
-                    _diagnostic(
-                        "profile_inferred_only",
-                        "exact resource evidence is not reviewed",
-                        requirement.requirement_id,
-                        (resource.resource_id,),
-                    ),
-                ),
-            ),
-        )
     return (
         ResolvedExecutionBinding(
             requirement_id=requirement.requirement_id,
@@ -597,6 +647,42 @@ def _resolve_exact_requirement(
             operation_id=operation.operation_id,
         ),
         None,
+    )
+
+
+def _matching_exact_resource(
+    requirement: ExecutionResourceRequirement,
+    resources: Iterable[TargetProfileResource],
+) -> tuple[tuple[TargetProfileResource, object], ...]:
+    """Match a producer-selected resource and operation without role inference."""
+
+    matches: list[tuple[TargetProfileResource, object]] = []
+    for resource in resources:
+        if resource.resource_id != requirement.exact_resource_id:
+            continue
+        if resource.resource_kind not in requirement.acceptable_resource_kinds:
+            continue
+        if not set(requirement.required_surfaces).issubset(resource.surfaces):
+            continue
+        for operation in resource.operations:
+            if operation.operation_id != requirement.operation:
+                continue
+            if not set(requirement.required_properties).issubset(operation.observable_properties):
+                continue
+            matches.append((resource, operation))
+    return tuple(matches)
+
+
+def _profile_supports_role_resolution(profile: ExecutionTargetProfile) -> bool:
+    """Return whether profile evidence closes role-based resource matching."""
+
+    # A target inventory proves the observed interface, but it does not select
+    # the operation that a producer target-realization row chose for this
+    # control action.  Only an explicit exact_resource_id/operation pair may
+    # close a target binding.  Simulation remains role-bindable because its
+    # reviewed mock contract is the execution authority.
+    return (
+        profile.basis is ProfileBasis.simulation and profile.semantic_authority.value == "reviewed"
     )
 
 
@@ -625,10 +711,16 @@ def _resolve_role_requirement(
     if not candidates:
         return None, _missing_role_exclusion(requirement, profile)
     resource, operation = candidates[0]
-    if (
-        profile.inventory_completeness.value != "reviewed_complete"
-        or resource.authority is not ProfileAuthority.reviewed
-    ):
+    if not _profile_supports_role_resolution(profile):
+        if profile.basis is ProfileBasis.target:
+            diagnostic_code = "profile_inferred_only"
+            detail = (
+                "target profiles require an exact resource and operation selected "
+                "by target realization"
+            )
+        else:
+            diagnostic_code = "profile_inventory_unknown"
+            detail = "a role match is not authoritative in an unreviewed simulation profile"
         return (
             None,
             (
@@ -636,8 +728,8 @@ def _resolve_role_requirement(
                 (requirement.requirement_id,),
                 (
                     _diagnostic(
-                        "profile_inventory_unknown",
-                        "a role match is not unique in a partial or unreviewed inventory",
+                        diagnostic_code,
+                        detail,
                         requirement.requirement_id,
                         candidate_ids,
                     ),
@@ -658,9 +750,16 @@ def _missing_role_exclusion(
     requirement: ExecutionResourceRequirement,
     profile: ExecutionTargetProfile,
 ) -> _RequirementExclusion:
-    complete = profile.inventory_completeness.value == "reviewed_complete"
-    code = "unsupported" if complete else "needs_target_binding"
-    diagnostic_code = "operation_unsupported" if complete else "target_resource_unresolved"
+    complete = _profile_supports_role_resolution(profile)
+    if complete:
+        code = "unsupported"
+        diagnostic_code = "operation_unsupported"
+    elif profile.basis is ProfileBasis.target:
+        code = "needs_target_binding"
+        diagnostic_code = "profile_inferred_only"
+    else:
+        code = "needs_target_binding"
+        diagnostic_code = "target_resource_unresolved"
     return (
         code,
         (requirement.requirement_id,),
@@ -679,6 +778,7 @@ def _verify_producer_binding(
     bindings: tuple[ResolvedExecutionBinding, ...],
     exclusion: tuple[str, tuple[str, ...], tuple[ExecutionCaseDiagnostic, ...]] | None,
     *,
+    profile: ExecutionTargetProfile,
     expected_environment: EnvironmentBasis,
     expected_claim: ExecutionClaimScope,
 ) -> tuple[str, tuple[str, ...], tuple[ExecutionCaseDiagnostic, ...]] | None:
@@ -695,6 +795,9 @@ def _verify_producer_binding(
     claim_error = _producer_claim_error(classification, expected_environment, expected_claim)
     if claim_error is not None:
         return _binding_mismatch(claim_error)
+    authority_error = _producer_authority_error(classification, profile)
+    if authority_error is not None:
+        return _binding_mismatch(authority_error)
     if exclusion is not None:
         _, requirement_ids, _ = exclusion
         return _binding_mismatch(
@@ -730,6 +833,17 @@ def _producer_claim_error(
         return "producer concrete classification does not report a matched profile"
     if classification.claim_scope is not expected_claim:
         return "producer concrete classification has an incompatible claim scope"
+    return None
+
+
+def _producer_authority_error(
+    classification: ExecutionClassification,
+    profile: ExecutionTargetProfile,
+) -> str | None:
+    if classification.inventory_authority is not profile.inventory_authority:
+        return "producer inventory authority does not match the selected profile"
+    if classification.semantic_authority is not profile.semantic_authority:
+        return "producer semantic authority does not match the selected profile"
     return None
 
 
@@ -796,7 +910,10 @@ def _operation_matches_requirement(
     requirement: ExecutionResourceRequirement,
     operation: object,
 ) -> bool:
-    if operation.semantic_operation != requirement.operation:
+    if (
+        operation.operation_id != requirement.operation
+        and operation.semantic_operation != requirement.operation
+    ):
         return False
     return set(requirement.required_properties) <= set(operation.observable_properties)
 
@@ -809,7 +926,7 @@ def _bound(
     profile: ExecutionTargetProfile | None = None,
     resolved_bindings: tuple[ResolvedExecutionBinding, ...] = (),
 ) -> BoundExecutionCase:
-    profile_fields = _bound_profile_fields(profile)
+    profile_fields = _bound_profile_fields(profile, intent)
     return BoundExecutionCase(
         case_id=f"{intent.scenario_id}:{profile_fields['profile_suffix']}",
         intent=intent,
@@ -818,6 +935,9 @@ def _bound(
         selected_profile_basis=profile_fields["selected_profile_basis"],
         target_environment_id=profile_fields["target_environment_id"],
         target_profile_digest=profile_fields["target_profile_digest"],
+        target_realization_digest=profile_fields["target_realization_digest"],
+        inventory_authority=profile_fields["inventory_authority"],
+        semantic_authority=profile_fields["semantic_authority"],
         resolved_bindings=resolved_bindings,
         selected_simulation_resources=_selected_simulation_resources(profile, resolved_bindings),
         binding_completeness=BindingCompleteness.concrete,
@@ -827,7 +947,13 @@ def _bound(
     )
 
 
-def _bound_profile_fields(profile: ExecutionTargetProfile | None) -> dict[str, str | None]:
+def _bound_profile_fields(
+    profile: ExecutionTargetProfile | None,
+    intent: ExecutionIntent,
+) -> dict[str, object]:
+    target_realization_digest = (
+        intent.trace_refs.source_pins.get("target_realization") if profile is not None else None
+    )
     if profile is None:
         return {
             "profile_suffix": "target-agnostic",
@@ -835,6 +961,9 @@ def _bound_profile_fields(profile: ExecutionTargetProfile | None) -> dict[str, s
             "selected_profile_basis": None,
             "target_environment_id": None,
             "target_profile_digest": None,
+            "target_realization_digest": None,
+            "inventory_authority": None,
+            "semantic_authority": None,
         }
     return {
         "profile_suffix": profile.profile_id,
@@ -842,6 +971,9 @@ def _bound_profile_fields(profile: ExecutionTargetProfile | None) -> dict[str, s
         "selected_profile_basis": profile.basis.value,
         "target_environment_id": profile.environment_id,
         "target_profile_digest": profile.semantic_digest,
+        "target_realization_digest": target_realization_digest,
+        "inventory_authority": profile.inventory_authority,
+        "semantic_authority": profile.semantic_authority,
     }
 
 

@@ -22,6 +22,7 @@ _ROLE_BY_SURFACE = {
     "user_turn": "user",
     "assistant_turn": "assistant",
     "tool_call": "assistant",
+    "environment_event": "assistant",
     "tool_result": "tool",
 }
 
@@ -53,8 +54,11 @@ class GarakPlanStep:
     control_action_id: str | None = None
     adapter_operation: str | None = None
     tool_name: str = ""
+    tool_description: str | None = None
     tool_schema: Mapping[str, Any] | None = None
     arguments: Mapping[str, Any] | None = None
+    tool_choice: str = "auto"
+    tool_choice_reason: str | None = None
     content_slot_id: str | None = None
 
     def __post_init__(self) -> None:
@@ -138,6 +142,17 @@ class GarakPlan:
             "selected_profile_basis": self.ready.selected_profile_basis,
             "target_environment_id": self.ready.target_environment_id,
             "target_profile_digest": self.ready.target_profile_digest,
+            "target_realization_digest": self.ready.target_realization_digest,
+            "inventory_authority": (
+                self.ready.inventory_authority.value
+                if self.ready.inventory_authority is not None
+                else None
+            ),
+            "semantic_authority": (
+                self.ready.semantic_authority.value
+                if self.ready.semantic_authority is not None
+                else None
+            ),
             "bundle_digest": self.bundle_digest,
             "projection_semantic_digest": self.projection_semantic_digest,
             "binding_set_id": self.binding_set_id,
@@ -155,8 +170,11 @@ class GarakPlan:
                     "control_action_id": step.control_action_id,
                     "adapter_operation": step.adapter_operation,
                     "tool_name": step.tool_name,
+                    "tool_description": step.tool_description,
                     "tool_schema": dict(step.tool_schema or {}),
                     "arguments": dict(step.arguments or {}),
+                    "tool_choice": step.tool_choice,
+                    "tool_choice_reason": step.tool_choice_reason,
                     "content_slot_id": step.content_slot_id,
                 }
                 for step in self.steps
@@ -202,13 +220,15 @@ def _tool_definition(step: Any) -> Mapping[str, Any] | None:
     if not isinstance(step.tool_schema, Mapping):
         raise PlatformPlanError(f"{step.plan_step_id} tool schema must be an object")
     schema = dict(step.tool_schema or {})
+    function: dict[str, Any] = {
+        "name": step.tool_name,
+        "parameters": schema,
+    }
+    if step.tool_description is not None:
+        function["description"] = step.tool_description
     return {
         "type": "function",
-        "function": {
-            "name": step.tool_name,
-            "description": "Deployment-bound control-action tool.",
-            "parameters": schema,
-        },
+        "function": function,
     }
 
 
@@ -235,8 +255,11 @@ def _build_plan_step(source: Any) -> GarakPlanStep:
         control_action_id=source.control_action_id,
         adapter_operation=source.adapter_operation,
         tool_name=source.tool_name,
+        tool_description=source.tool_description,
         tool_schema=source.tool_schema,
         arguments=source.safe_arguments,
+        tool_choice=source.tool_choice,
+        tool_choice_reason=source.tool_choice_reason,
         content_slot_id=source.content_slot_id,
     )
 

@@ -415,8 +415,54 @@ def _diagnose_surface_action_pair(
 
 def _surface_action_pair_is_compatible(surface: str, operation: str) -> bool:
     if operation == "tool_call":
-        return surface == "tool_call"
+        return surface in {"tool_call", "environment_event"}
     return surface != "tool_call"
+
+
+def _diagnose_action_semantics(
+    intent: ExecutionIntent,
+    action: ControlActionBinding | None,
+    bindings: RuntimeBindingSet | None,
+    diagnostics: list[ReadinessDiagnostic],
+) -> None:
+    """A convenient adapter cannot substitute a different observation boundary."""
+    kind = intent.execution_contract.action_kind.value
+    operation = action.adapter_operation if action else None
+    if _action_operation_mismatch(kind, operation):
+        diagnostics.append(
+            _diagnostic(
+                "runtime_binding",
+                "action_semantics_mismatch",
+                f"producer action {kind} cannot be rebound as {operation}; "
+                "retain its actual event boundary",
+                intent.control_action_id,
+            )
+        )
+    for observer in bindings.observation_bindings if bindings else ():
+        if observer.condition_ref == intent.unsafe_outcome.outcome_id:
+            _diagnose_output_observation(kind, observer, diagnostics)
+
+
+def _action_operation_mismatch(kind: str, operation: str | None) -> bool:
+    if operation is None:
+        return False
+    required = {"model_output": "chat_completion", "tool_call": "tool_call"}.get(kind)
+    if required is not None:
+        return operation != required
+    return operation == "chat_completion"
+
+
+def _diagnose_output_observation(kind, observer, diagnostics) -> None:
+    if observer.observer_kind == "output_text" and kind != "model_output":
+        diagnostics.append(
+            _diagnostic(
+                "runtime_binding",
+                "observation_boundary_mismatch",
+                "final-response text cannot establish an internal message, "
+                "operation or state event",
+                observer.condition_ref,
+            )
+        )
 
 
 def _expected_observer_kind(
@@ -627,11 +673,54 @@ def _validate_observer(
 ) -> bool:
     checks = (
         _validate_observer_kind(condition_ref, condition, observer, action, diagnostics),
+        _validate_lifecycle_observation(condition_ref, condition, observer, diagnostics),
         _validate_observer_property(condition_ref, condition, observer, diagnostics),
         _validate_observer_field_path(condition_ref, condition, observer, diagnostics),
         _validate_observer_sources(condition_ref, condition, observer, diagnostics),
+        _validate_observer_comparison(condition_ref, condition, observer, diagnostics),
     )
     return all(checks)
+
+
+def _validate_lifecycle_observation(
+    condition_ref: str,
+    condition: SemanticCondition,
+    observer: Any,
+    diagnostics: list[ReadinessDiagnostic],
+) -> bool:
+    """Keep output text from masquerading as typed response absence evidence."""
+
+    if not (
+        condition.type == "action_presence"
+        and getattr(condition, "expected", None) == "not_provided"
+        and observer.observer_kind == "output_text"
+    ):
+        return True
+    diagnostics.append(
+        _diagnostic(
+            "runtime_binding",
+            "lifecycle_observation_missing",
+            "output_text cannot establish action absence; typed "
+            "completion/timeout/error lifecycle observation is required",
+            condition_ref,
+        )
+    )
+    return False
+
+
+def _validate_observer_comparison(condition_ref, condition, observer, diagnostics) -> bool:
+    operator = getattr(condition, "operator", None)
+    if operator is None or observer.comparison == operator:
+        return True
+    diagnostics.append(
+        _diagnostic(
+            "runtime_binding",
+            "observer_comparison_mismatch",
+            "observer comparison must preserve the producer condition operator",
+            condition_ref,
+        )
+    )
+    return False
 
 
 def _validate_observer_kind(
@@ -684,13 +773,30 @@ def _validate_observer_field_path(
     needs_path = (
         getattr(condition, "control_action_id", None) and observer.observer_kind == "tool_argument"
     )
-    if not needs_path or observer.field_path:
+    if not needs_path:
         return True
+    if observer.field_path:
+        return _validate_argument_field_path(condition_ref, condition, observer, diagnostics)
     diagnostics.append(
         _diagnostic(
             "runtime_binding",
             "observer_field_path_missing",
             "tool_argument observers require an explicit field path",
+            condition_ref,
+        )
+    )
+    return False
+
+
+def _validate_argument_field_path(condition_ref, condition, observer, diagnostics) -> bool:
+    expected = f"arguments.{condition.property}"
+    if observer.field_path == expected:
+        return True
+    diagnostics.append(
+        _diagnostic(
+            "runtime_binding",
+            "observer_field_path_mismatch",
+            f"tool observer must read the producer property at {expected}",
             condition_ref,
         )
     )
@@ -783,12 +889,31 @@ def _check_requirements(
     _check_capability_requirements(requirements, capabilities, diagnostics)
     bound_surfaces = {item.surface for item in surfaces.values()}
     _check_surface_categories(
-        requirements.required_surface_categories, bound_surfaces, diagnostics
+        requirements.required_surface_categories,
+        _available_surface_categories(bound_surfaces, action),
+        diagnostics,
     )
     _check_persistent_state_requirement(
         requirements.requires_persistent_state, bound_surfaces, diagnostics
     )
     _check_clock_requirement(requirements.requires_real_clock, bindings, diagnostics)
+
+
+def _available_surface_categories(
+    bound_surfaces: set[str], action: ControlActionBinding | None
+) -> set[str]:
+    """A fixed target declaration satisfies availability, not writable access.
+
+    The compiler emits this exact bound schema in its tools list. Requiring a
+    separate writable definition would turn ordinary tool invocation into an
+    unsupported ability to modify that tool. Stimulus placement still validates
+    its own surface binding independently.
+    """
+    available = set(bound_surfaces)
+    if action is not None and action.adapter_operation == "tool_call":
+        if action.tool_name and action.tool_schema:
+            available.add("tool_definition")
+    return available
 
 
 def _resolve_stimuli(
@@ -898,6 +1023,7 @@ def _stimulus_plan(requirement: Any, binding: AdversarialStimulusBinding) -> Sti
         surface=binding.surface,
         source_kind=binding.source_kind,
         carrier_tool_name=binding.carrier_tool_name,
+        carrier_tool_description=binding.carrier_tool_description,
         carrier_tool_schema=binding.carrier_tool_schema,
         carrier_tool_arguments=binding.carrier_tool_arguments,
         intent=requirement.intent,
@@ -1177,6 +1303,7 @@ def bind_and_plan(
         source_intent, bindings, capabilities, diagnostics
     )
     action = _resolve_action(source_intent, bindings, capabilities, diagnostics)
+    _diagnose_action_semantics(source_intent, action, bindings, diagnostics)
     _diagnose_surface_action_pair(source_intent, surfaces, action, diagnostics)
     observer_status, observers = _resolve_observer(
         source_intent, bindings, capabilities, values, action, diagnostics
@@ -1364,6 +1491,9 @@ def _ready_plan(
         selected_profile_basis=execution_case.selected_profile_basis,
         target_environment_id=execution_case.target_environment_id,
         target_profile_digest=execution_case.target_profile_digest,
+        target_realization_digest=execution_case.target_realization_digest,
+        inventory_authority=execution_case.inventory_authority,
+        semantic_authority=execution_case.semantic_authority,
         selected_simulation_resources=execution_case.selected_simulation_resources,
     )
 
@@ -1502,16 +1632,22 @@ def _plan_step_action_fields(
             "control_action_id": control_action_id,
             "adapter_operation": action.adapter_operation,
             "tool_name": action.tool_name,
+            "tool_description": action.tool_description,
             "tool_schema": action.tool_schema,
             "safe_arguments": action.safe_defaults,
+            "tool_choice": action.tool_choice,
+            "tool_choice_reason": action.tool_choice_reason,
             "content_slot_id": None,
         }
     return {
         "control_action_id": None,
         "adapter_operation": None,
         "tool_name": "",
+        "tool_description": None,
         "tool_schema": {},
         "safe_arguments": {},
+        "tool_choice": "auto",
+        "tool_choice_reason": None,
         "content_slot_id": content_slot_id or f"content:{projection_step_id}",
     }
 

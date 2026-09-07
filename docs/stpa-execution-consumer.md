@@ -40,8 +40,10 @@ platform-support axes. Overall precedence is `invalid`,
 Only a ready result carries `ReadyExecutionPlan`. That plan includes all
 source identities, lowercase SHA-256 bundle/projection/source-byte/binding
 digests, fixed ordered steps, reviewed semantic values, required observers,
-typed clock facts, and frozen presentation context. Platform compilers consume
-the plan only after this seam succeeds.
+typed clock facts, frozen presentation context, and (for a profile-backed
+target) the independent `inventory_authority` and `semantic_authority` axes.
+Target-realized source pins are retained as `target_realization_digest` when
+present. Platform compilers consume the plan only after this seam succeeds.
 
 Before readiness, `garak.default_bindings.complete_garak_runtime_bindings`
 merges optional explicit bindings with deterministic adapter facts. Direct
@@ -69,9 +71,15 @@ no environment has been selected yet. Explicit target and simulation requests
 produce the distinct `needs_target_binding` and `needs_simulation_binding`
 exclusions when their profile is absent. Supplying a profile for an omitted
 request explicitly selects that profile's basis and resolves the exact
-requirement/resource/operation tuples. A complete simulation profile may
-provide deterministic behavior while preserving a simulation-only claim.
-Explicit profile requests cannot consume the opposite profile basis.
+requirement/resource/operation tuples. MCP target profiles must carry observed
+inventory and inferred or reviewed semantic authority; their selected
+`resource_id` and `operation_id` are matched exactly, without semantic
+operation remapping. A complete simulation profile remains an explicit mock
+contract with reviewed semantic authority and a simulation-only claim.
+Target-realized projections carry paired `execution_target_profile` and
+`target_realization` source pins; exact-resource contracts are rejected when
+either pin is absent. Explicit profile requests cannot consume the opposite
+profile basis.
 
 The requested basis is therefore a four-state contract value, not a nullable
 spelling of `target_profile`:
