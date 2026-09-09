@@ -1010,6 +1010,23 @@ def test_turn_revision_valid_fixtures_normalize_to_inward_intents(fixture_name: 
     assert intent.projection_semantic_digest == document["semantic_digest"]
 
 
+def test_vendored_ordering_reference_fixture_stays_pending_without_profile() -> None:
+    """An unbound producer route names the semantic operation, never the action id."""
+
+    intent = _vendored_intent("ordering-reference-tool.json")
+    requirement = intent.execution_contract.resource_requirements[0]
+
+    assert requirement.purpose.value == "target_action"
+    assert requirement.owner_ref == intent.unsafe_outcome.control_action_id == "CM-1"
+    assert requirement.operation == "lookup_order"
+    assert requirement.exact_resource_id is None
+
+    result = resolve_execution_case(intent, None)
+
+    assert result.code == "needs_environment_binding"
+    assert result.requirement_ids == ("REQ-target-action",)
+
+
 def test_turn_revision_fixtures_keep_legacy_fixture_digests_unchanged() -> None:
     """The additive fields are absent from legacy fixtures, so digests hold."""
 

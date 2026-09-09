@@ -1090,6 +1090,152 @@ def test_target_action_requirement_must_match_unsafe_outcome() -> None:
         resolve_execution_case(intent, _profile())
 
 
+def _producer_shaped_contract(
+    *,
+    operation: str = "action-1",
+    exact_resource_id: str | None = None,
+    exact_retrieval: bool = False,
+    requested_environment_basis: str | None = None,
+) -> SemanticExecutionContract:
+    """Build the target_action requirement as the producer emits it.
+
+    ``operation`` is the semantic operation name and ``owner_ref`` is the
+    control action; producer output never makes the two coincide.
+    """
+
+    payload = _tool_contract(exact_retrieval=exact_retrieval, exact_action=False).model_dump(
+        mode="json"
+    )
+    payload["requested_environment_basis"] = requested_environment_basis
+    payload.pop("semantic_digest", None)
+    action = payload["resource_requirements"][1]
+    action["operation"] = operation
+    action["exact_resource_id"] = exact_resource_id
+    action["late_bindable"] = exact_resource_id is None
+    return SemanticExecutionContract.model_validate(payload)
+
+
+def _semantic_operation_simulation_profile() -> ExecutionTargetProfile:
+    """Reviewed simulation profile whose CM-1 resource exposes ``action-1`` only."""
+
+    payload = _simulation_profile().model_dump(mode="json")
+    payload.pop("semantic_digest", None)
+    for resource in payload["resources"]:
+        for operation in resource["operations"]:
+            operation["semantic_operation"] = operation["operation_id"]
+    return ExecutionTargetProfile.model_validate(payload)
+
+
+def test_producer_shaped_unbound_target_action_stays_pending_without_profile() -> None:
+    intent = _parameterized_intent(_producer_shaped_contract())
+    requirement = intent.execution_contract.resource_requirements[1]
+    assert requirement.owner_ref == intent.unsafe_outcome.control_action_id == "CM-1"
+    assert requirement.operation == "action-1"
+    assert requirement.exact_resource_id is None
+
+    ExecutionIntent.model_validate(intent.model_dump(mode="json"))
+    result = resolve_execution_case(intent, None)
+
+    assert isinstance(result, ExecutionCaseExclusion)
+    assert result.code == "needs_environment_binding"
+    assert result.requirement_ids == ("REQ-1", "REQ-2")
+    assert result.diagnostics[0].code == "environment_profile_not_supplied"
+
+
+def test_reviewed_simulation_binds_producer_operation_through_owner_ref() -> None:
+    profile = _semantic_operation_simulation_profile()
+    intent = _intent_with_contract(
+        _producer_shaped_contract(),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+        profile=profile,
+    )
+
+    result = resolve_execution_case(intent, profile)
+
+    assert isinstance(result, BoundExecutionCase)
+    binding = next(item for item in result.resolved_bindings if item.requirement_id == "REQ-2")
+    assert binding.resource_id == "mcp:target-1:action-1"
+    assert binding.operation_id == "action-1"
+
+
+def test_reviewed_simulation_rejects_owned_resource_with_wrong_operation() -> None:
+    profile = _semantic_operation_simulation_profile()
+    intent = _intent_with_contract(
+        _producer_shaped_contract(operation="action-2"),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+        profile=profile,
+    )
+
+    result = resolve_execution_case(intent, profile)
+
+    assert isinstance(result, ExecutionCaseExclusion)
+    assert result.code == "unsupported"
+    assert result.requirement_ids == ("REQ-2",)
+    assert result.diagnostics[0].code == "operation_unsupported"
+
+
+def test_reviewed_simulation_rejects_operation_owned_by_another_action() -> None:
+    payload = _semantic_operation_simulation_profile().model_dump(mode="json")
+    payload.pop("semantic_digest", None)
+    for resource in payload["resources"]:
+        if "target_control_action" in resource["role_ids"]:
+            resource["structural_refs"] = ["CM-9"]
+    profile = ExecutionTargetProfile.model_validate(payload)
+    intent = _intent_with_contract(
+        _producer_shaped_contract(),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+        profile=profile,
+    )
+
+    result = resolve_execution_case(intent, profile)
+
+    assert isinstance(result, ExecutionCaseExclusion)
+    assert result.code == "unsupported"
+    assert result.requirement_ids == ("REQ-2",)
+    assert result.diagnostics[0].code == "operation_unsupported"
+
+
+def test_target_profile_rejects_exact_resource_with_wrong_operation() -> None:
+    profile = _profile()
+    intent = _intent_with_contract(
+        _producer_shaped_contract(
+            operation="action-2",
+            exact_resource_id="mcp:target-1:action-1",
+            exact_retrieval=True,
+            requested_environment_basis="target_profile",
+        ),
+        _classification(
+            completeness=BindingCompleteness.parameterized,
+            environment=EnvironmentBasis.none,
+            fit=ExecutionProfileFit.needs_binding,
+            claim=ExecutionClaimScope.no_execution_claim,
+        ),
+        profile=profile,
+    )
+
+    result = resolve_execution_case(intent, profile)
+
+    assert isinstance(result, ExecutionCaseExclusion)
+    assert result.code == "invalid_source_binding"
+    assert result.requirement_ids == ("REQ-2",)
+    assert result.diagnostics[0].code == "explicit_target_ref_dangling"
+
+
 def test_resource_requirement_late_binding_flags_are_consistent() -> None:
     requirement = _tool_contract().resource_requirements[0]
     exact_payload = requirement.model_dump(mode="json")
