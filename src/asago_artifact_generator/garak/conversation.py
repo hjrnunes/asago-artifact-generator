@@ -23,7 +23,7 @@ from ..authoring import (
 from ..models._base import canonical_json_bytes, compute_framed_digest
 from ..models.readiness import ReadyExecutionPlan, StimulusPlan
 from ..platforms.base import ArtifactValidationError, CompiledArtifact
-from .conversation_validation import validate_prompt_history
+from .conversation_validation import validate_prompt_history, validate_supplied_history
 from .schema import validate_schema
 
 CONVERSATION_SCHEMA_VERSION = "asago-executable-conversation-v1"
@@ -757,6 +757,7 @@ def _author_request(
 ) -> PresentationRequest:
     author_context = _author_context(plan, runtime_context)
     stimuli = {item.content_slot_id: item for item in plan.stimuli}
+    turn_slots = _turn_slot_ids(plan)
     slots = tuple(
         PresentationSlot(
             slot_id=slot_id,
@@ -764,6 +765,7 @@ def _author_request(
             allowed_role=_slot_role(slot_id, plan),
         )
         for slot_id in plan.content_slots
+        if slot_id not in turn_slots
     )
     tool_definitions = tuple(_tool_definitions(plan))
     constraints = [
@@ -851,6 +853,16 @@ def _slot_purpose(slot_id: str, stimuli: Mapping[str, StimulusPlan]) -> str:
     )
 
 
+def _turn_slot_ids(plan: ReadyExecutionPlan) -> set[str]:
+    """Content slots whose text is copied verbatim from prepared turns."""
+
+    return {
+        stimulus.content_slot_id
+        for stimulus in plan.stimuli
+        if stimulus.turns is not None and stimulus.content_slot_id
+    }
+
+
 def _slot_role(slot_id: str, plan: ReadyExecutionPlan) -> str:
     stimulus = next((item for item in plan.stimuli if item.content_slot_id == slot_id), None)
     if stimulus is not None:
@@ -877,7 +889,7 @@ def _authored_texts(
         raise ArtifactValidationError("provide either prebound text or an author, not both")
     if prebound_texts is not None:
         result = PresentationResult.from_mapping(prebound_texts, request)
-    elif author is not None:
+    elif author is not None and request.slots:
         result = author.author(request)
         if not isinstance(result, PresentationResult):
             raise ArtifactValidationError("conversation author returned an invalid result")
@@ -1028,8 +1040,11 @@ def _messages_and_carrier_tools(
     tools: list[dict[str, Any]] = []
     causal_steps = plan.steps[:-1]
     for index, step in enumerate(causal_steps, start=1):
-        content = texts.get(step.content_slot_id or "", "")
         stimulus = stimuli.get(step.projection_step_id)
+        if stimulus is not None and stimulus.turns is not None:
+            messages.extend(_turn_messages(stimulus))
+            continue
+        content = texts.get(step.content_slot_id or "", "")
         if stimulus is not None and stimulus.delivery_class == "indirect_content":
             indirect, tool = _indirect_messages(stimulus, content, index)
             messages.extend(indirect)
@@ -1038,6 +1053,38 @@ def _messages_and_carrier_tools(
             messages.append(_ordinary_message(step, content))
     _validate_direct_stimulus_position(plan, causal_steps)
     return messages, tools
+
+
+def _turn_messages(stimulus: StimulusPlan) -> list[dict[str, Any]]:
+    """Copy prepared user turns verbatim; compilation cannot repair them."""
+
+    if stimulus.delivery_class != "conversation_context":
+        raise ArtifactValidationError(
+            f"stimulus {stimulus.stimulus_id!r} carries prepared turns only on "
+            "conversation_context delivery"
+        )
+    if stimulus.surface != "user_turn":
+        raise ArtifactValidationError(
+            f"stimulus {stimulus.stimulus_id!r} prepared turns require the "
+            f"user_turn surface, got {stimulus.surface!r}"
+        )
+    return [{"role": "user", "content": turn.text} for turn in stimulus.turns]
+
+
+def _supplied_history(plan: ReadyExecutionPlan) -> dict[str, Any] | None:
+    """Describe the compiled user turns copied verbatim from the projection."""
+
+    turn_stimuli = [stimulus for stimulus in plan.stimuli if stimulus.turns is not None]
+    if not turn_stimuli:
+        return None
+    return {
+        "kind": "user_only",
+        "user_turns": [
+            {"turn_id": turn.turn_id, "text": turn.text}
+            for stimulus in turn_stimuli
+            for turn in stimulus.turns
+        ],
+    }
 
 
 def _validate_direct_stimulus_position(
@@ -1155,6 +1202,7 @@ def _oracle(plan: ReadyExecutionPlan) -> dict[str, Any]:
         "tool_argument": _tool_argument_oracle,
         "tool_call": _tool_call_oracle,
         "output_text": _output_text_oracle,
+        "event_order": _event_order_oracle,
     }
     builder = builders.get(observer.observer_kind)
     if builder is None:
@@ -1178,6 +1226,24 @@ def _tool_argument_oracle(base: dict[str, Any], target: Any, observer: Any) -> d
 def _tool_call_oracle(base: dict[str, Any], target: Any, observer: Any) -> dict[str, Any]:
     del observer
     return {"kind": "action_absence", **base, "tool_name": target.tool_name}
+
+
+def _event_order_oracle(base: dict[str, Any], target: Any, observer: Any) -> dict[str, Any]:
+    if target.adapter_operation != "tool_call":
+        raise ArtifactValidationError("event-order outcome requires a target tool call")
+    if observer.relation is None or observer.reference_tool is None:
+        raise ArtifactValidationError(
+            f"event-order outcome for {observer.condition_ref!r} requires the producer "
+            "relation and reference_tool fields"
+        )
+    return {
+        "kind": "event_order",
+        **base,
+        "tool_name": target.tool_name,
+        "field_path": observer.field_path,
+        "relation": observer.relation,
+        "reference_tool": observer.reference_tool,
+    }
 
 
 def _output_text_oracle(base: dict[str, Any], target: Any, observer: Any) -> dict[str, Any]:
@@ -1401,7 +1467,9 @@ def _case_messages_errors(data: Mapping[str, Any]) -> list[str]:
     messages = data.get("messages")
     if not isinstance(messages, list) or not messages:
         return ["messages must be a non-empty prompt-side array"]
-    return validate_prompt_history(messages, data.get("tools", []))
+    errors = validate_prompt_history(messages, data.get("tools", []))
+    errors.extend(validate_supplied_history(messages, data.get("supplied_history")))
+    return errors
 
 
 def _case_digest_errors(data: Mapping[str, Any]) -> list[str]:
@@ -1466,6 +1534,8 @@ def _oracle_authority_errors(
         "loss_refs",
         "tool_name",
         "field_path",
+        "relation",
+        "reference_tool",
     ):
         if field in oracle or field in expected:
             if oracle.get(field) != expected.get(field):
@@ -1723,7 +1793,17 @@ def _conversation_body(
         "binding": _binding_metadata(plan),
         "author": author_evidence,
         "compiler_version": CONVERSATION_COMPILER_VERSION,
+        **_supplied_history_fields(plan),
     }
+
+
+def _supplied_history_fields(plan: ReadyExecutionPlan) -> dict[str, Any]:
+    """Record verbatim user turns only when the plan supplies them."""
+
+    history = _supplied_history(plan)
+    if history is None:
+        return {}
+    return {"supplied_history": history, "turn_texts_verbatim": True}
 
 
 def _conversation_trace_body(

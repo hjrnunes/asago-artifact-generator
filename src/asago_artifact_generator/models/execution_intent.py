@@ -35,6 +35,7 @@ from .semantic_conditions import (
     SemanticBindingPlaceholder,
     SemanticCondition,
     SemanticValue,
+    StimulusTurn,
     normalize_semantic_proposition,
 )
 
@@ -267,6 +268,10 @@ class AdversarialStimulusRequirement(ImmutableModel):
     carrier_requirement_id: StrictStr | None = Field(
         default=None, pattern=r"^REQ-[A-Za-z0-9._-]+$"
     )
+    turns: tuple[StimulusTurn, ...] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def _validate_delivery(self) -> AdversarialStimulusRequirement:
@@ -275,7 +280,19 @@ class AdversarialStimulusRequirement(ImmutableModel):
                 raise ValueError("indirect_content stimuli require carrier_requirement_id")
         elif self.carrier_requirement_id is not None:
             raise ValueError("only indirect_content stimuli may name a carrier requirement")
+        self._validate_turns()
         return self
+
+    def _validate_turns(self) -> None:
+        if self.turns is None:
+            return
+        if self.delivery_class is not ExecutionDeliveryClass.conversation_context:
+            raise ValueError("only conversation_context stimuli may carry turns")
+        if not 2 <= len(self.turns) <= 3:
+            raise ValueError("stimulus turns require two to three entries")
+        turn_ids = [turn.turn_id for turn in self.turns]
+        if len(turn_ids) != len(set(turn_ids)):
+            raise ValueError("stimulus turns must carry unique turn_id values")
 
 
 class TraceReferences(ImmutableModel):
@@ -497,15 +514,17 @@ def _is_fixed_model_output_condition(
 
 
 def _validate_target_action_requirements(value: ExecutionIntent) -> None:
-    """Keep every external-action requirement tied to the selected UCA."""
+    """Keep every external-action requirement tied to the selected UCA.
+
+    ``operation`` is the producer's semantic operation name, resolved against
+    a supplied target profile; ``owner_ref`` carries the UCA identity.
+    """
 
     action_id = value.unsafe_outcome.control_action_id
     for requirement in value.execution_contract.resource_requirements:
         if requirement.purpose.value != "target_action":
             continue
-        if requirement.owner_ref != action_id or (
-            requirement.exact_resource_id is None and requirement.operation != action_id
-        ):
+        if requirement.owner_ref != action_id:
             raise ValueError(
                 "target_action requirement must name the unsafe outcome control action"
             )
@@ -665,6 +684,7 @@ __all__ = [
     "SemanticBindingPlaceholder",
     "SemanticCondition",
     "SemanticValue",
+    "StimulusTurn",
     "TraceReferences",
     "UnsafeOutcome",
 ]

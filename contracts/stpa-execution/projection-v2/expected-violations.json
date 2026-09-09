@@ -4,5 +4,8 @@
   "reversed-window.json": ["condition_value_invalid"],
   "unknown-field.json": ["unexpected_field"],
   "binding-state-mismatch.json": ["semantic_binding_state_mismatch"],
-  "runtime-observation.json": ["runtime_observation_forbidden", "unexpected_field"]
+  "runtime-observation.json": ["runtime_observation_forbidden", "unexpected_field"],
+  "turns-on-direct-prompt.json": ["stimulus_field_mismatch"],
+  "turns-duplicate-ids.json": ["stimulus_field_mismatch"],
+  "ordering-reference-without-argument.json": ["condition_reference_mismatch"]
 }

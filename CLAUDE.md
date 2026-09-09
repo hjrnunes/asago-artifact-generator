@@ -46,7 +46,13 @@ The Garak adapter deterministically supplies routine chat surfaces, stimulus
 placement, chat completion, and semantic output observation. Runtime bindings
 then supply only unresolved deployment locators, values, credentials, tools,
 clocks, and external observers. Provenance-only structural factors do not
-require writable surfaces or prompt messages. Compilation must end before the
+require writable surfaces or prompt messages. A `conversation_context`
+stimulus that carries producer `turns` compiles to consecutive user messages
+copied verbatim and in order; the author receives no slot for them, and the
+case records `supplied_history` (`user_only`) with `turn_texts_verbatim`.
+An `ordering` condition with `reference_tool` and `reference_argument`
+compiles to an `event_order` oracle; legacy ordering stays unbound.
+Compilation must end before the
 target response. Probe selection and Garak execution belong to a separate
 campaign orchestrator.
 Manifest summaries keep readiness outcomes separate from semantic case

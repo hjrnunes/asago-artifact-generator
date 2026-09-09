@@ -631,6 +631,16 @@ def _resolve_one_observer(
             comparison=observer.comparison,
             expected_from=observer.expected_from,
             expected=_condition_expected(condition, values, condition_ref),
+            relation=(
+                condition.relation
+                if condition.type == "ordering" and condition.reference_argument is not None
+                else None
+            ),
+            reference_tool=(
+                condition.reference_tool
+                if condition.type == "ordering" and condition.reference_argument is not None
+                else None
+            ),
             semantic_proposition=semantic_proposition,
             hazard_refs=hazard_refs,
             constraint_refs=constraint_refs,
@@ -675,11 +685,40 @@ def _validate_observer(
         _validate_observer_kind(condition_ref, condition, observer, action, diagnostics),
         _validate_lifecycle_observation(condition_ref, condition, observer, diagnostics),
         _validate_observer_property(condition_ref, condition, observer, diagnostics),
+        _validate_observer_reference(condition_ref, condition, observer, diagnostics),
         _validate_observer_field_path(condition_ref, condition, observer, diagnostics),
         _validate_observer_sources(condition_ref, condition, observer, diagnostics),
         _validate_observer_comparison(condition_ref, condition, observer, diagnostics),
     )
     return all(checks)
+
+
+def _validate_observer_reference(
+    condition_ref: str,
+    condition: SemanticCondition,
+    observer: Any,
+    diagnostics: list[ReadinessDiagnostic],
+) -> bool:
+    """Keep an event_order observer on the producer's exact reference predicate."""
+
+    if condition.type != "ordering" or condition.reference_argument is None:
+        return True
+    argument = condition.reference_argument
+    if (
+        observer.semantic_property == argument.property
+        and observer.comparison == argument.operator
+    ):
+        return True
+    diagnostics.append(
+        _diagnostic(
+            "runtime_binding",
+            "observer_reference_mismatch",
+            "event_order observer must preserve the producer reference argument "
+            "property and operator",
+            condition_ref,
+        )
+    )
+    return False
 
 
 def _validate_lifecycle_observation(
@@ -852,6 +891,8 @@ def _condition_expected(
         raw = getattr(condition, field)
     elif condition.type == "window":
         raw = {"from_ms": condition.window_from_ms, "to_ms": condition.window_to_ms}
+    elif condition.type == "ordering" and condition.reference_argument is not None:
+        raw = condition.reference_argument.expected
     else:
         raw = getattr(condition, "expected", None)
     return _replace_placeholder(raw, values, condition_ref)
@@ -1028,6 +1069,7 @@ def _stimulus_plan(requirement: Any, binding: AdversarialStimulusBinding) -> Sti
         carrier_tool_arguments=binding.carrier_tool_arguments,
         intent=requirement.intent,
         desired_effect=requirement.desired_effect,
+        turns=requirement.turns,
     )
 
 

@@ -131,7 +131,13 @@ _SOURCE_PIN_FIELDS = _SOURCE_PIN_REQUIRED_FIELDS | _SOURCE_PIN_OPTIONAL_FIELDS
 _PLACEHOLDER_FIELDS = frozenset({"binding_ref", "value_type", "description", "minimum", "maximum"})
 _PLACEHOLDER_REQUIRED_FIELDS = frozenset({"binding_ref", "value_type", "description"})
 _CONDITION_FIELDS = {
-    "ordering": {"type", "reference_step_id", "relation"},
+    "ordering": {
+        "type",
+        "reference_step_id",
+        "relation",
+        "reference_tool",
+        "reference_argument",
+    },
     "delay": {"type", "reference_ref", "delay_ms"},
     "duration": {"type", "reference_ref", "duration_ms"},
     "window": {"type", "reference_ref", "window_from_ms", "window_to_ms"},
@@ -140,8 +146,12 @@ _CONDITION_FIELDS = {
     "action_value": {"type", "control_action_id", "property", "operator", "expected"},
     "state_value": {"type", "subject_ref", "property", "operator", "expected"},
 }
+_CONDITION_OPTIONAL_FIELDS: dict[str, frozenset[str]] = {
+    "ordering": frozenset({"reference_tool", "reference_argument"}),
+}
 _CONDITION_REQUIRED_FIELDS = {
-    condition_type: fields - {"type"} for condition_type, fields in _CONDITION_FIELDS.items()
+    condition_type: fields - {"type"} - _CONDITION_OPTIONAL_FIELDS.get(condition_type, frozenset())
+    for condition_type, fields in _CONDITION_FIELDS.items()
 }
 _CONDITION_STRING_FIELDS = frozenset(
     {
@@ -891,6 +901,7 @@ def _validate_condition_values(
 ) -> set[str]:
     placeholders = _validate_condition_quantities(value, path, violations)
     placeholders.update(_validate_condition_expected(value, path, violations))
+    placeholders.update(_validate_ordering_reference_argument(value, path, violations))
     _validate_condition_order(value, path, violations)
     return placeholders
 
@@ -920,6 +931,55 @@ def _validate_condition_expected(
 def _add_placeholder_ref(refs: set[str], value: Any) -> None:
     if isinstance(value, dict) and isinstance(value.get("binding_ref"), str):
         refs.add(value["binding_ref"])
+
+
+_ORDERING_REFERENCE_ARGUMENT_FIELDS = frozenset({"property", "operator", "expected"})
+
+_STIMULUS_TURN_FIELDS = frozenset({"turn_id", "text", "intent"})
+_STIMULUS_TURN_REQUIRED_FIELDS = frozenset({"turn_id", "text"})
+_STIMULUS_TURN_ID = re.compile(r"^T-\d+$")
+
+
+def _validate_ordering_reference_argument(
+    value: dict[str, Any], path: str, violations: list[ValidationViolation]
+) -> set[str]:
+    """Validate the optional ordering reference pair and its argument value."""
+
+    if value.get("type") != "ordering":
+        return set()
+    has_tool = value.get("reference_tool") is not None
+    has_argument = value.get("reference_argument") is not None
+    if has_tool != has_argument:
+        violations.append(
+            _violation(
+                "condition_reference_mismatch",
+                f"{path}.reference_tool",
+                "ordering reference_tool and reference_argument must be supplied together",
+            )
+        )
+        return set()
+    if not has_tool:
+        return set()
+    _string(value["reference_tool"], f"{path}.reference_tool", violations)
+    return _validate_reference_argument(
+        value["reference_argument"], f"{path}.reference_argument", violations
+    )
+
+
+def _validate_reference_argument(
+    value: Any, path: str, violations: list[ValidationViolation]
+) -> set[str]:
+    if not _has_exact_fields(value, _ORDERING_REFERENCE_ARGUMENT_FIELDS, path, violations):
+        return set()
+    _string(value.get("property"), f"{path}.property", violations)
+    if value.get("operator") not in OPERATORS:
+        violations.append(
+            _violation("condition_field_mismatch", f"{path}.operator", "operator is not supported")
+        )
+    _scalar_or_placeholder(value.get("expected"), f"{path}.expected", violations)
+    refs: set[str] = set()
+    _add_placeholder_ref(refs, value.get("expected"))
+    return refs
 
 
 def _validate_condition_order(
@@ -1669,7 +1729,11 @@ def _validate_target_action_requirements(
     value: dict[str, Any],
     violations: list[ValidationViolation],
 ) -> None:
-    """Require external-action requirements to name the selected UCA."""
+    """Require external-action requirements to name the selected UCA.
+
+    ``operation`` is the producer's semantic operation name, resolved against
+    a supplied target profile; ``owner_ref`` carries the UCA identity.
+    """
 
     outcome = value.get("unsafe_outcome")
     action_id = outcome.get("control_action_id") if isinstance(outcome, dict) else None
@@ -1678,9 +1742,7 @@ def _validate_target_action_requirements(
     for index, requirement in enumerate(contract.resource_requirements):
         if requirement.purpose.value != "target_action":
             continue
-        if requirement.owner_ref == action_id and (
-            requirement.exact_resource_id is not None or requirement.operation == action_id
-        ):
+        if requirement.owner_ref == action_id:
             continue
         violations.append(
             _violation(
@@ -1972,11 +2034,96 @@ def _validate_projection(value: Any) -> list[ValidationViolation]:
     _validate_projection_steps(value, sources, factors, violations)
     refs.update(_validate_projection_outcome(value, refs, violations))
     _validate_projection_requirements(value, violations)
+    _validate_projection_stimuli(value, violations)
     _validate_projection_execution_models(value, violations)
     _validate_projection_trace(value, violations)
     _validate_projection_lineage(value, violations)
     _validate_projection_digest(value, violations)
     return violations
+
+
+def _validate_projection_stimuli(
+    value: dict[str, Any], violations: list[ValidationViolation]
+) -> None:
+    """Validate prepared user turns; the producer owns the remaining stimulus fields."""
+
+    stimuli = value.get("stimulus_requirements")
+    if not isinstance(stimuli, list):
+        return
+    for index, stimulus in enumerate(stimuli):
+        if not isinstance(stimulus, dict) or stimulus.get("turns") is None:
+            continue
+        _validate_stimulus_turns(stimulus, index, violations)
+
+
+def _validate_stimulus_turns(
+    stimulus: dict[str, Any], index: int, violations: list[ValidationViolation]
+) -> None:
+    path = f"$.projection.stimulus_requirements[{index}]"
+    turns = stimulus["turns"]
+    if stimulus.get("delivery_class") != "conversation_context":
+        violations.append(
+            _violation(
+                "stimulus_field_mismatch",
+                f"{path}.turns",
+                "only conversation_context stimuli may carry turns",
+            )
+        )
+        return
+    if not isinstance(turns, list) or not 2 <= len(turns) <= 3:
+        violations.append(
+            _violation(
+                "stimulus_field_mismatch",
+                f"{path}.turns",
+                "stimulus turns require two to three entries",
+            )
+        )
+        return
+    seen: set[str] = set()
+    for turn_index, turn in enumerate(turns):
+        _validate_stimulus_turn(turn, f"{path}.turns[{turn_index}]", seen, violations)
+
+
+def _validate_stimulus_turn(
+    turn: Any, path: str, seen: set[str], violations: list[ValidationViolation]
+) -> None:
+    if not isinstance(turn, dict):
+        violations.append(
+            _violation("container_type_mismatch", path, "stimulus turn must be an object")
+        )
+        return
+    missing = sorted(_STIMULUS_TURN_REQUIRED_FIELDS - turn.keys())
+    unknown = sorted(turn.keys() - _STIMULUS_TURN_FIELDS)
+    for key in missing:
+        violations.append(
+            _violation(
+                "stimulus_field_mismatch", f"{path}.{key}", "required turn field is missing"
+            )
+        )
+    for key in unknown:
+        violations.append(
+            _violation(
+                "stimulus_field_mismatch",
+                f"{path}.{key}",
+                "field is not in the closed turn contract",
+            )
+        )
+    turn_id = turn.get("turn_id")
+    if not isinstance(turn_id, str) or _STIMULUS_TURN_ID.fullmatch(turn_id) is None:
+        violations.append(
+            _violation("stimulus_field_mismatch", f"{path}.turn_id", "turn_id must match ^T-\\d+$")
+        )
+    elif turn_id in seen:
+        violations.append(
+            _violation(
+                "stimulus_field_mismatch", f"{path}.turn_id", "stimulus turns must be unique"
+            )
+        )
+    else:
+        seen.add(turn_id)
+    _string(turn.get("text"), f"{path}.text", violations)
+    if turn.get("intent") is not None:
+        _string(turn.get("intent"), f"{path}.intent", violations)
 
 
 def _scan_forbidden(value: Any, path: str, violations: list[ValidationViolation]) -> None:

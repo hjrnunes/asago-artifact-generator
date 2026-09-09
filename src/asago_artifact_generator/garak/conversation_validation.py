@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
 from pydantic import (
@@ -115,6 +116,64 @@ def validate_prompt_history(messages: list[object], tools: object) -> list[str]:
     if history and isinstance(history[-1], _Assistant):
         errors.append("conversation must end before the target assistant response")
     return errors
+
+
+def validate_supplied_history(messages: list[object], supplied_history: object) -> list[str]:
+    """Reject histories that do not carry prepared user turns verbatim.
+
+    A ``user_only`` supplied history is the producer's prepared turns followed
+    by at most non-assistant context.  Any assistant message before the final
+    user turn would interleave target behavior into the prepared history, and
+    rewritten turn text would not be the producer's verbatim evidence.
+    """
+
+    if not isinstance(supplied_history, Mapping) or supplied_history.get("kind") != "user_only":
+        return []
+    turns = supplied_history.get("user_turns")
+    if not isinstance(turns, list) or not turns:
+        return ["supplied_history user_only requires a non-empty user_turns array"]
+    try:
+        history = _HISTORY.validate_python(messages)
+    except ValidationError as exc:
+        return [
+            f"messages {error['loc']}: {error['msg']}"
+            for error in exc.errors(include_input=False, include_url=False)
+        ]
+    user_messages = [item for item in history if isinstance(item, _Text) and item.role == "user"]
+    errors = _supplied_history_assistant_errors(history)
+    errors.extend(_supplied_history_turn_errors(user_messages, turns))
+    return errors
+
+
+def _supplied_history_assistant_errors(history: list[Any]) -> list[str]:
+    user_indices = [index for index, item in enumerate(history) if _is_user_text(item)]
+    if not user_indices:
+        return ["supplied_history user_only requires at least one user message"]
+    final_user = user_indices[-1]
+    return [
+        f"messages {index}: supplied_history user_only rejects an assistant message "
+        "before the final user turn"
+        for index, item in enumerate(history)
+        if isinstance(item, _Assistant) and index < final_user
+    ]
+
+
+def _supplied_history_turn_errors(user_messages: list[Any], turns: list[Any]) -> list[str]:
+    if len(user_messages) != len(turns):
+        return [
+            f"supplied_history user_only requires exactly {len(turns)} user messages, "
+            f"got {len(user_messages)}"
+        ]
+    errors: list[str] = []
+    for position, (message, turn) in enumerate(zip(user_messages, turns, strict=True)):
+        expected = turn.get("text") if isinstance(turn, Mapping) else None
+        if message.content != expected:
+            errors.append(f"supplied user turn {position} differs from the prepared turn text")
+    return errors
+
+
+def _is_user_text(message: Any) -> bool:
+    return isinstance(message, _Text) and message.role == "user"
 
 
 def _tool_registry(tools: object) -> tuple[dict[str, dict[str, Any]], list[str]]:

@@ -20,7 +20,7 @@ from .execution_case import SelectedSimulationResource
 from .execution_classification import InventoryAuthority, SemanticAuthority
 from .execution_intent import UCAType
 from .runtime_binding import ClockBinding
-from .semantic_conditions import normalize_semantic_proposition
+from .semantic_conditions import StimulusTurn, normalize_semantic_proposition
 
 SourceStatus = Literal["valid", "invalid"]
 SemanticBindingStatus = Literal["complete", "incomplete", "not_required"]
@@ -178,6 +178,10 @@ class ObserverPlan(ImmutableModel):
     comparison: StrictStr = Field(min_length=1)
     expected_from: StrictStr = Field(min_length=1)
     expected: Any = None
+    # Ordering reference fields copied from the producer condition; the
+    # compiler cannot observe an event order without both.
+    relation: Literal["before", "after"] | None = None
+    reference_tool: StrictStr | None = None
     # These are producer-owned outcome authorities.  They are optional on
     # non-outcome observers, but an output-text outcome must carry the exact
     # proposition and source lineage copied from the inward intent.
@@ -245,6 +249,7 @@ class StimulusPlan(ImmutableModel):
     carrier_tool_arguments: Mapping[str, Any] = Field(default_factory=dict)
     intent: StrictStr = Field(min_length=1)
     desired_effect: StrictStr = Field(min_length=1)
+    turns: tuple[StimulusTurn, ...] | None = None
 
     @field_validator("carrier_tool_schema", "carrier_tool_arguments", mode="before")
     @classmethod

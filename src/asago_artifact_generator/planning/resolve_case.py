@@ -203,17 +203,17 @@ def _source_profile_lineage_error(
 def _target_action_requirement_error(
     intent: ExecutionIntent,
 ) -> tuple[str, tuple[str, ...]] | None:
-    """Recheck the UCA identity at the consumer boundary."""
+    """Recheck the UCA identity at the consumer boundary.
+
+    ``operation`` is the producer's semantic operation name, resolved against
+    a supplied target profile; ``owner_ref`` carries the UCA identity.
+    """
 
     action_id = intent.unsafe_outcome.control_action_id
     mismatches = tuple(
         requirement.requirement_id
         for requirement in intent.execution_contract.resource_requirements
-        if requirement.purpose.value == "target_action"
-        and (
-            requirement.owner_ref != action_id
-            or (requirement.exact_resource_id is None and requirement.operation != action_id)
-        )
+        if requirement.purpose.value == "target_action" and requirement.owner_ref != action_id
     )
     if not mismatches:
         return None

@@ -27,7 +27,7 @@ def garak_capabilities() -> PlatformCapabilities:
             "tool_definition",
         ),
         invocable_operations=("chat_completion", "tool_call"),
-        observer_kinds=("tool_call", "tool_argument", "output_text"),
+        observer_kinds=("tool_call", "tool_argument", "output_text", "event_order"),
         supports_multi_turn=True,
         supports_persistent_state=False,
         supports_multi_agent=False,

@@ -723,7 +723,7 @@ def test_vendored_contract_lock_and_minimal_bundle_are_authoritative() -> None:
 
     upstream = json.loads((CONTRACT_ROOT / "UPSTREAM.lock").read_text())
     assert upstream["repository"] == "asago-scenario-generator"
-    assert upstream["revision"] == "81790aad83a929dd2274bae6e3ddd481c8af6467"
+    assert upstream["revision"] == "a68897dca57af31eade17be0e5672f5ca41e1569"
     assert upstream["source"] == "data/contracts/stpa-execution/CONTRACT.lock"
     assert upstream["source_state"] == "committed"
     assert upstream["content_lock_status"] == "pinned"
@@ -956,6 +956,150 @@ def test_vendored_valid_projections_normalize_to_inward_intents(fixture_path: Pa
 
     assert intent.projection_semantic_digest == document["semantic_digest"]
     assert intent.source_file_digests["projection"] == hashlib.sha256(projection_bytes).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Vendored turns/ordering kit revision (producer a68897d)
+
+
+def test_turn_revision_invalid_fixtures_carry_exactly_the_published_codes() -> None:
+    expected = json.loads(
+        (CONTRACT_ROOT / "projection-v2" / "expected-violations.json").read_text()
+    )
+    for name in (
+        "turns-on-direct-prompt.json",
+        "turns-duplicate-ids.json",
+        "ordering-reference-without-argument.json",
+    ):
+        document = json.loads((CONTRACT_ROOT / "projection-v2" / "invalid" / name).read_text())
+        actual = {violation.code for violation in _validate_projection(document)}
+        assert actual == set(expected[name]), name
+
+
+def test_vendored_projection_semantic_digests_recompute_from_documents() -> None:
+    """Every vendored valid fixture keeps its embedded semantic digest."""
+
+    recorded = json.loads(
+        (CONTRACT_ROOT / "projection-v2" / "canonical-digests.json").read_text()
+    )["semantic_digests"]
+    computed_at_test_start = dict(recorded)
+
+    for fixture_path in sorted((CONTRACT_ROOT / "projection-v2" / "valid").glob("*.json")):
+        document = json.loads(fixture_path.read_text())
+        body = {key: value for key, value in document.items() if key != "semantic_digest"}
+        computed = compute_framed_digest("stpa-execution-projection-v2", body)
+        assert computed == document["semantic_digest"], fixture_path.name
+        assert computed == computed_at_test_start[f"valid/{fixture_path.name}"], fixture_path.name
+
+
+@pytest.mark.parametrize(
+    "fixture_name",
+    ("conversation-user-turns.json", "ordering-reference-tool.json"),
+)
+def test_turn_revision_valid_fixtures_normalize_to_inward_intents(fixture_name: str) -> None:
+    fixture_path = CONTRACT_ROOT / "projection-v2" / "valid" / fixture_name
+    document = json.loads(fixture_path.read_text())
+
+    intent = ExecutionIntent.from_projection(
+        document,
+        bundle_digest="0" * 64,
+        scenario_content_sha256="1" * 64,
+        projection_content_sha256=hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
+    )
+
+    assert intent.projection_semantic_digest == document["semantic_digest"]
+
+
+def test_turn_revision_fixtures_keep_legacy_fixture_digests_unchanged() -> None:
+    """The additive fields are absent from legacy fixtures, so digests hold."""
+
+    legacy = ("absence.json", "delay.json", "duration.json", "ordering.json", "window.json")
+    for name in legacy:
+        document = json.loads((CONTRACT_ROOT / "projection-v2" / "valid" / name).read_text())
+        stimulus = document["stimulus_requirements"][0]
+        assert "turns" not in stimulus, name
+        condition = document["unsafe_outcome"]["condition"]
+        assert "reference_tool" not in condition and "reference_argument" not in condition, name
+
+
+def test_ordering_reference_argument_placeholders_reach_the_condition_view() -> None:
+    from asago_artifact_generator.models.semantic_conditions import ReferenceArgument
+
+    placeholder = SemanticBindingPlaceholder(
+        binding_ref="SEM-REF-ORDER",
+        value_type="string",
+        description="The order id whose verification was skipped.",
+    )
+    condition = OrderingCondition(
+        reference_step_id="S-1",
+        relation="before",
+        reference_tool="lookup_order",
+        reference_argument=ReferenceArgument(
+            property="order_id",
+            operator="equals",
+            expected=placeholder,
+        ),
+    )
+
+    assert condition.placeholders() == (placeholder,)
+    assert condition.model_dump(mode="json")["reference_tool"] == "lookup_order"
+    bare = OrderingCondition(reference_step_id="S-1", relation="before")
+    assert "reference_tool" not in bare.model_dump(mode="json")
+    assert "reference_argument" not in bare.model_dump(mode="json")
+    assert bare.placeholders() == ()
+    with pytest.raises(ValueError, match="reference_tool and reference_argument together"):
+        OrderingCondition(
+            reference_step_id="S-1",
+            relation="before",
+            reference_tool="lookup_order",
+        )
+
+
+def test_stimulus_turns_round_trip_and_reject_broken_shapes() -> None:
+    from asago_artifact_generator.models.semantic_conditions import StimulusTurn
+
+    turns = (
+        StimulusTurn(turn_id="T-1", text="First turn.", intent="context"),
+        StimulusTurn(turn_id="T-2", text="Second turn."),
+    )
+    stimulus = AdversarialStimulusRequirement(
+        stimulus_id="STIM-1",
+        intent="Influence the control decision.",
+        desired_effect="Cause the unsafe target action.",
+        delivery_class="conversation_context",
+        factor_id="CF-1",
+        source_role="conversation_history",
+        carrier_requirement_id=None,
+        turns=turns,
+    )
+    dumped = stimulus.model_dump(mode="json")
+    assert [turn["turn_id"] for turn in dumped["turns"]] == ["T-1", "T-2"]
+    assert "intent" not in dumped["turns"][1]
+    without_turns = stimulus.model_copy(update={"turns": None})
+    assert "turns" not in without_turns.model_dump(mode="json")
+
+    # model_copy bypasses validators; revalidate dumped payloads instead.
+    direct_payload = dict(dumped)
+    direct_payload["delivery_class"] = "direct_prompt"
+    direct_payload["source_role"] = "direct_user_input"
+    with pytest.raises(ValueError, match="only conversation_context stimuli may carry turns"):
+        AdversarialStimulusRequirement.model_validate(direct_payload)
+
+    single_payload = dict(dumped)
+    single_payload["turns"] = [dumped["turns"][0]]
+    with pytest.raises(ValueError, match="two to three entries"):
+        AdversarialStimulusRequirement.model_validate(single_payload)
+
+    duplicate_payload = dict(dumped)
+    duplicate_payload["turns"] = [
+        {"turn_id": "T-1", "text": "First turn."},
+        {"turn_id": "T-1", "text": "Second turn."},
+    ]
+    with pytest.raises(ValueError, match="unique turn_id"):
+        AdversarialStimulusRequirement.model_validate(duplicate_payload)
+
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        StimulusTurn(turn_id="T-1", text="text", role="assistant")
 
 
 @pytest.mark.parametrize(

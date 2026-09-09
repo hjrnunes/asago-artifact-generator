@@ -138,7 +138,13 @@ class SemanticConditionModel(ImmutableModel):
             getattr(self, name, None)
             for name in ("delay_ms", "duration_ms", "window_from_ms", "window_to_ms", "expected")
         )
-        return tuple(item for item in values if isinstance(item, SemanticBindingPlaceholder))
+        placeholders = tuple(
+            item for item in values if isinstance(item, SemanticBindingPlaceholder)
+        )
+        argument = getattr(self, "reference_argument", None)
+        if argument is not None and isinstance(argument.expected, SemanticBindingPlaceholder):
+            placeholders += (argument.expected,)
+        return placeholders
 
     def references(self) -> tuple[str, ...]:
         """Return structural/step references used by this condition."""
@@ -156,12 +162,69 @@ class SemanticConditionModel(ImmutableModel):
         return tuple(item for item in values if item)
 
 
+class StimulusTurn(ImmutableModel):
+    """One prepared user turn delivered as conversation history.
+
+    Every entry is a user turn by definition: the wire carries no role field
+    and no mode field.  There is no assistant text between turns.
+    """
+
+    turn_id: StrictStr = Field(pattern=r"^T-\d+$")
+    text: StrictStr = Field(min_length=1)
+    intent: StrictStr | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+    )
+
+
+class ReferenceArgument(ImmutableModel):
+    """The argument match that identifies a reference tool call."""
+
+    property: StrictStr = Field(min_length=1)
+    operator: SemanticOperator
+    expected: SemanticValue
+
+    @model_validator(mode="after")
+    def _validate_argument(self) -> ReferenceArgument:
+        _validate_scalar(self.expected, "expected")
+        return self
+
+
 class OrderingCondition(SemanticConditionModel):
-    """A relation between an action and an exported projected step."""
+    """A relation between an action and an exported projected step.
+
+    The condition is the unsafe observation, not the safe order.  ``relation:
+    before`` means the target action occurs and no matching reference event
+    precedes it in the same turn; a reference event that never occurs counts
+    as not preceding.  ``relation: after`` means the target action occurs and
+    a matching reference event follows it.  A matching event is a call to
+    ``reference_tool`` whose ``reference_argument.property`` satisfies
+    ``operator`` against ``expected``.  The same
+    ``{property, operator, expected}`` applies to both the target action call
+    and the reference call.
+    """
 
     type: Literal["ordering"] = "ordering"
     reference_step_id: StrictStr = Field(min_length=1, pattern=r"^S-\d+$")
     relation: Literal["before", "after"]
+    reference_tool: StrictStr | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+    )
+    reference_argument: ReferenceArgument | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def _validate_reference_pair(self) -> OrderingCondition:
+        if (self.reference_tool is None) is not (self.reference_argument is None):
+            raise ValueError(
+                "ordering condition requires reference_tool and reference_argument together"
+            )
+        return self
 
 
 class DelayCondition(SemanticConditionModel):
@@ -401,6 +464,7 @@ __all__ = [
     "DurationCondition",
     "OrderingCondition",
     "OPERATORS",
+    "ReferenceArgument",
     "SemanticBindingPlaceholder",
     "SemanticCondition",
     "SemanticConditionModel",
@@ -408,6 +472,7 @@ __all__ = [
     "SemanticOperator",
     "SemanticValue",
     "StateValueCondition",
+    "StimulusTurn",
     "WindowCondition",
     "normalize_semantic_proposition",
 ]

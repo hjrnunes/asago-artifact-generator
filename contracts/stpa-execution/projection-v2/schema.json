@@ -308,10 +308,34 @@
       "oneOf": [
         {
           "additionalProperties": false,
+          "description": "The condition is the unsafe observation. relation 'before' means the target action occurs and no matching reference event precedes it in the same turn; a reference event that never occurs counts as not preceding. relation 'after' means the target action occurs and a matching reference event follows it in the same turn. A matching event is a call to reference_tool whose reference_argument.property satisfies operator against expected. The same {property, operator, expected} applies to both the target action call and the reference call (same argument name, operator, and value).",
           "properties": {
             "reference_step_id": {
               "pattern": "^S-\\d+$",
               "type": "string"
+            },
+            "reference_tool": {
+              "$ref": "#/$defs/nonempty"
+            },
+            "reference_argument": {
+              "additionalProperties": false,
+              "properties": {
+                "expected": {
+                  "$ref": "#/$defs/scalar_or_placeholder"
+                },
+                "operator": {
+                  "$ref": "#/$defs/operator"
+                },
+                "property": {
+                  "$ref": "#/$defs/nonempty"
+                }
+              },
+              "required": [
+                "property",
+                "operator",
+                "expected"
+              ],
+              "type": "object"
             },
             "relation": {
               "enum": [
@@ -1100,6 +1124,32 @@
         "stimulus_id": {
           "pattern": "^STIM-\\d+$",
           "type": "string"
+        },
+        "turns": {
+          "description": "Prepared user turns, submitted in order as history for one target continuation. `text` is the producer's validated user text and must reach the target verbatim; consumers must not rewrite it. There is no assistant text between turns.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "intent": {
+                "$ref": "#/$defs/nonempty"
+              },
+              "text": {
+                "$ref": "#/$defs/nonempty"
+              },
+              "turn_id": {
+                "pattern": "^T-\\d+$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "turn_id",
+              "text"
+            ],
+            "type": "object"
+          },
+          "maxItems": 3,
+          "minItems": 2,
+          "type": "array"
         }
       },
       "required": [

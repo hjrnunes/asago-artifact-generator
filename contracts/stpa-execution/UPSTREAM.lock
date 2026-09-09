@@ -1,7 +1,7 @@
 {
   "repository": "asago-scenario-generator",
-  "revision": "81790aad83a929dd2274bae6e3ddd481c8af6467",
-  "contract_lock_sha256": "85fdbbc25773e145d1253a99df63baf671479c999b4c8d061133a8aa9f20bb7c",
+  "revision": "a68897dca57af31eade17be0e5672f5ca41e1569",
+  "contract_lock_sha256": "ad2666bbf6fd2dbfefc0d311bcb94b4a878fea64f3b57865b1d2a85f2a304613",
   "source": "data/contracts/stpa-execution/CONTRACT.lock",
   "source_state": "committed",
   "content_lock_status": "pinned"

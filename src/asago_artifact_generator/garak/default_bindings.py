@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from ..models.execution_case import BoundExecutionCase
 from ..models.execution_classification import (
@@ -514,6 +515,8 @@ def _tool_observation(
     elif condition.type == "action_value" and _condition_is_tool_argument(condition, resource):
         observer_kind = "tool_argument"
         field_path = f"arguments.{condition.property}"
+    elif condition.type == "ordering" and _condition_has_reference_tool(condition):
+        return _event_order_observation(intent, condition, resource)
     else:
         return ()
     placeholders = condition.placeholders()
@@ -528,6 +531,41 @@ def _tool_observation(
             semantic_property=getattr(condition, "property", "action_presence"),
             field_path=field_path,
             comparison=getattr(condition, "operator", "equals"),
+            expected_from=expected_from,
+        ),
+    )
+
+
+def _condition_has_reference_tool(condition: Any) -> bool:
+    return (
+        getattr(condition, "reference_tool", None) is not None
+        and getattr(condition, "reference_argument", None) is not None
+    )
+
+
+def _event_order_observation(
+    intent: ExecutionIntent,
+    condition: Any,
+    resource: TargetProfileResource,
+) -> tuple[ObservationBinding, ...]:
+    """Bind the ordering reference predicate only when the target declares it."""
+
+    argument = condition.reference_argument
+    properties = resource.input_schema.get("properties", {})
+    if not isinstance(properties, dict) or argument.property not in properties:
+        return ()
+    placeholders = condition.placeholders()
+    expected_from = (
+        f"semantic_binding:{placeholders[0].binding_ref}" if placeholders else "projection"
+    )
+    return (
+        ObservationBinding(
+            condition_ref=intent.unsafe_outcome.outcome_id,
+            observer_kind="event_order",
+            event_source="trace.tool_calls",
+            semantic_property=argument.property,
+            field_path=f"arguments.{argument.property}",
+            comparison=argument.operator,
             expected_from=expected_from,
         ),
     )
