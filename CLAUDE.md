@@ -36,7 +36,15 @@ legacy YAML/narrative inference. Model-backed presentation authoring runs only
 after deterministic readiness and receives fixed text slots, never execution
 choices. `--force` is rejected for authoritative STPA inputs.
 The current pre-alpha execution contracts change in place. The producer fixes
-the route, causal factor, operation, action, and oracle semantics. The consumer
+the route, causal factor, operation, action, and oracle semantics. The producer
+also owns the control-action-to-operation mapping: a `target_action`
+requirement names the control action in `owner_ref` and the semantic operation
+in `operation`, never the action id. The consumer validates ownership
+(`owner_ref` equals the unsafe outcome's control action), resource
+availability, operation support on the selected resource, and binding
+consistency; it does not independently verify the producer's mapping, so a
+resource that exposes several operations is bound to whichever the projection
+names. An unbound route compiles nothing. The consumer
 resolves target-agnostic model conversations without a profile. Resource-backed
 actions with no selected environment remain pending until an explicit target or
 simulation profile is supplied; an explicit complete simulation profile may
