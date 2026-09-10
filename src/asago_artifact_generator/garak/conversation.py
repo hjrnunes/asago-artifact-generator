@@ -1827,8 +1827,14 @@ def _conversation_trace_body(
         "loss_refs": list(oracle["loss_refs"]),
         "author_result_digest": author_digest,
     }
-    if author_digest and author_request.runtime_context_digest is not None:
-        trace["author_runtime_context"] = body["author"]["runtime_context"]
+    # Mirror the artifact evidence exactly: the body records runtime_context
+    # whenever author evidence exists and a runtime context was supplied, even
+    # when every stimulus text was prebound as verbatim turns (no authored
+    # slots, so author_digest is empty).  The trace must copy the field under
+    # the same condition or the consistency check rejects intact output.
+    artifact_author = body.get("author")
+    if isinstance(artifact_author, Mapping) and "runtime_context" in artifact_author:
+        trace["author_runtime_context"] = artifact_author["runtime_context"]
     if author_request.author_context_digest is not None:
         trace["author_context"] = body["author"]["author_context"]
     return trace

@@ -25,10 +25,12 @@ from asago_artifact_generator.garak.capabilities import garak_capabilities
 from asago_artifact_generator.garak.compile import compile_execution_artifact
 from asago_artifact_generator.garak.conversation import (
     CONVERSATION_SCHEMA_VERSION,
+    CONVERSATION_TRACE_SCHEMA_VERSION,
     _author_context,
     _author_request,
     _state_record_observations,
     validate_conversation_case,
+    validate_conversation_trace,
 )
 from asago_artifact_generator.garak.default_bindings import complete_garak_runtime_bindings
 from asago_artifact_generator.models._base import canonical_json_bytes, compute_framed_digest
@@ -1254,6 +1256,77 @@ def test_two_turn_plan_excludes_turn_slots_from_the_author_request() -> None:
 
     assert author.request is None
     assert "result_digest" not in compiled.artifact["author"]
+
+
+def test_all_turns_plan_with_runtime_context_keeps_trace_and_artifact_consistent() -> None:
+    """v16 SCN-005 regression: a fully prebound turns plan still records the
+    runtime-context evidence on both the artifact and the trace.
+
+    The author writes no slots (all turns are verbatim), so author_digest is
+    empty; the artifact still carries ``author.runtime_context`` through the
+    author-context branch, and the trace must mirror it under the same
+    condition.
+    """
+    plan = _two_turn_plan()
+    runtime_context = {"observed_state": {"authenticated_customer_id": "CUST001"}}
+
+    compiled = compile_execution_artifact(
+        plan,
+        _CapturingAuthor(),
+        runtime_context=runtime_context,
+        runtime_context_provenance={"source": "test", "path": "runtime-context.json"},
+    )
+
+    author = compiled.artifact["author"]
+    assert "runtime_context" in author
+    assert compiled.trace["author_runtime_context"] == author["runtime_context"]
+    assert validate_conversation_case(compiled.artifact, plan, compiled.trace) == []
+    assert validate_conversation_trace(compiled.trace, plan, compiled.artifact) == []
+
+
+def test_tampered_trace_runtime_context_is_still_rejected() -> None:
+    """The consistency check still rejects genuinely inconsistent evidence."""
+    plan = _two_turn_plan()
+    runtime_context = {"observed_state": {"authenticated_customer_id": "CUST001"}}
+    compiled = compile_execution_artifact(
+        plan,
+        _CapturingAuthor(),
+        runtime_context=runtime_context,
+        runtime_context_provenance={"source": "test", "path": "runtime-context.json"},
+    )
+    trace = json.loads(json.dumps(compiled.trace))
+    trace["author_runtime_context"] = {
+        "schema_version": RUNTIME_CONTEXT_SCHEMA_VERSION,
+        "digest": "0" * 64,
+        "provenance": {"source": "test", "path": "elsewhere.json"},
+    }
+    # Rehash so only the consistency check, not the digest check, can fire.
+    trace_body = {key: value for key, value in trace.items() if key != "trace_digest"}
+    trace["trace_digest"] = compute_framed_digest(CONVERSATION_TRACE_SCHEMA_VERSION, trace_body)
+
+    errors = validate_conversation_trace(trace, plan, compiled.artifact)
+
+    assert errors == ["conversation trace runtime context differs from artifact evidence"]
+
+
+def test_dropped_trace_runtime_context_is_still_rejected() -> None:
+    """Removing the field from the trace is inconsistent evidence, not a pass."""
+    plan = _two_turn_plan()
+    runtime_context = {"observed_state": {"authenticated_customer_id": "CUST001"}}
+    compiled = compile_execution_artifact(
+        plan,
+        _CapturingAuthor(),
+        runtime_context=runtime_context,
+        runtime_context_provenance={"source": "test", "path": "runtime-context.json"},
+    )
+    trace = json.loads(json.dumps(compiled.trace))
+    del trace["author_runtime_context"]
+    trace_body = {key: value for key, value in trace.items() if key != "trace_digest"}
+    trace["trace_digest"] = compute_framed_digest(CONVERSATION_TRACE_SCHEMA_VERSION, trace_body)
+
+    errors = validate_conversation_trace(trace, plan, compiled.artifact)
+
+    assert errors == ["conversation trace runtime context differs from artifact evidence"]
 
 
 def test_turn_stimulus_on_other_deliveries_and_surfaces_fail_closed() -> None:
