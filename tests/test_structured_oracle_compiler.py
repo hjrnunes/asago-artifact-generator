@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from asago_artifact_generator.bundle.loader import load_execution_bundle
+from asago_artifact_generator.bundle.loader import BundleValidationError, load_execution_bundle
 from asago_artifact_generator.garak.compile import compile_execution_artifact
 from asago_artifact_generator.garak.conversation import (
     _author_request,
@@ -27,14 +27,17 @@ from asago_artifact_generator.garak.conversation import (
     validate_conversation_case,
     validate_conversation_trace,
 )
-from asago_artifact_generator.garak.default_bindings import complete_garak_runtime_bindings
 from asago_artifact_generator.models._base import canonical_json_bytes, compute_framed_digest
-from asago_artifact_generator.models.execution_classification import ExecutionClassification
+from asago_artifact_generator.models.execution_classification import (
+    ExecutionClassification,
+    ExecutionTargetProfile,
+)
 from asago_artifact_generator.models.omission_evidence import (
     MAX_CARRIER_BYTES,
     OMISSION_EVIDENCE_SCHEMA_VERSION,
     SOURCE_ATTESTATION_FRAME,
     OmissionEvidence,
+    render_structured_omission_proposition,
 )
 from asago_artifact_generator.models.readiness import ReadyExecutionPlan
 from asago_artifact_generator.models.runtime_binding import (
@@ -45,7 +48,6 @@ from asago_artifact_generator.planning.resolve_case import resolve_execution_cas
 from asago_artifact_generator.platforms.base import ArtifactValidationError
 from tests.test_dual_bundle_dispatch import (
     BUNDLE_V2_VALID,
-    _committed_v3_projection,
     _garak_capabilities,
     _simulation_profile,
     _tampered_bundle,
@@ -148,7 +150,8 @@ def _make_target_agnostic(document: dict[str, Any]) -> None:
 
     A target-agnostic contract is resource-free, and an external action route
     always requires a target-action requirement, so the derivation selects the
-    model-output action kind for the same action-absence outcome.
+    model-output action kind while retaining the tool-only carrier to exercise
+    the closed loader rejection.
     """
 
     contract = document["execution_contract"]
@@ -178,6 +181,44 @@ def _make_target_agnostic(document: dict[str, Any]) -> None:
         CLASSIFICATION_FRAME,
         {key: value for key, value in classification.items() if key != "classification_digest"},
     )
+
+
+def _semantic_operation_ready_plan(tmp_path: Path) -> ReadyExecutionPlan:
+    """Resolve a profile whose semantic operation differs from its runtime ID."""
+
+    semantic_operation = "escalate_clinician_semantically"
+
+    def mutate(document: dict[str, Any]) -> None:
+        contract = document["execution_contract"]
+        target = next(
+            item
+            for item in contract["resource_requirements"]
+            if item["purpose"] == "target_action"
+        )
+        target["operation"] = semantic_operation
+        contract["semantic_digest"] = compute_framed_digest(
+            CONTRACT_FRAME,
+            {key: value for key, value in contract.items() if key != "semantic_digest"},
+        )
+        trigger = document["unsafe_outcome"]["omission_evidence"]["trigger"]
+        document["unsafe_outcome"]["semantic_proposition"] = (
+            render_structured_omission_proposition(trigger, semantic_operation)
+        )
+
+    path = _tampered_bundle(tmp_path, mutate)
+    bundle = load_execution_bundle(path)
+    profile_payload = _simulation_profile().model_dump(mode="json")
+    profile_payload.pop("semantic_digest", None)
+    profile_payload["resources"][0]["tool_name"] = None
+    operation = profile_payload["resources"][0]["operations"][0]
+    operation["semantic_operation"] = semantic_operation
+    profile = ExecutionTargetProfile.model_validate(profile_payload)
+    intent = _rebound_for_profile(bundle.intent, profile)
+    resolution = resolve_execution_case(intent, profile)
+    result = bind_and_plan(resolution, _v2_bindings(bundle.intent), _garak_capabilities())
+    assert result.overall == "ready"
+    assert result.plan is not None
+    return result.plan
 
 
 def _plan_with_carrier(
@@ -215,29 +256,20 @@ def test_carrier_plan_compiles_verbatim_oracle_judge_block_and_trace_digest() ->
     assert validate_conversation_trace(compiled.trace, plan, compiled.artifact) == []
 
 
-def test_target_agnostic_carrier_readiness_creates_no_effect_observer(tmp_path: Path) -> None:
-    """A derived target-agnostic run keeps the carrier but invents no observer.
+def test_target_agnostic_carrier_is_rejected_by_loader(tmp_path: Path) -> None:
+    """A resource-free model-output route cannot retain a tool-only carrier.
 
-    A resource-free contract is a model-output route, and neither readiness nor
-    the compiler may observe action absence from chat completion; the carrier
-    stays producer provenance while the typed lifecycle diagnostic explains the
-    pending case.
+    The carrier's exact proposition requires a reviewed target-action tool
+    operation, so the closed loader rejects the route before readiness.
     """
 
     path = _tampered_bundle(tmp_path, _make_target_agnostic)
-    intent = load_execution_bundle(path).intent
-    resolution = resolve_execution_case(intent, None)
-    result = bind_and_plan(
-        resolution, complete_garak_runtime_bindings(resolution), _garak_capabilities()
-    )
 
-    assert result.overall == "needs_runtime_binding"
-    assert result.plan is None
-    assert any(item.code == "lifecycle_observation_missing" for item in result.diagnostics)
-    assert intent.unsafe_outcome.omission_evidence is not None
-    assert (
-        intent.unsafe_outcome.omission_evidence.model_dump(mode="json")
-        == (_committed_v3_projection()["unsafe_outcome"]["omission_evidence"])
+    with pytest.raises(BundleValidationError) as error:
+        load_execution_bundle(path)
+
+    assert any(
+        violation.code == "omission_proposition_mismatch" for violation in error.value.violations
     )
 
 
@@ -317,8 +349,25 @@ def test_compiled_judge_text_is_deterministic_and_carrier_bounded() -> None:
 
 def test_non_omission_compiled_cases_stay_free_of_structured_evidence() -> None:
     plan = _profile_ready_plan()
+    observer = plan.observers[-1].model_copy(
+        update={
+            "condition_type": "action_value",
+            "observer_kind": "tool_argument",
+            "semantic_property": "patient_id",
+            "field_path": "arguments.patient_id",
+            "comparison": "equals",
+            "expected_from": "projection",
+            "expected": "PAT-104",
+            "semantic_proposition": "The target action carries patient PAT-104.",
+        }
+    )
     bare_plan = plan.model_copy(
-        update={"omission_evidence": None, "omission_evidence_digest": None}
+        update={
+            "uca_type": "INCORRECT",
+            "observers": (observer,),
+            "omission_evidence": None,
+            "omission_evidence_digest": None,
+        }
     )
 
     compiled = compile_execution_artifact(bare_plan)
@@ -327,6 +376,20 @@ def test_non_omission_compiled_cases_stay_free_of_structured_evidence() -> None:
     assert "omission_evidence_digest" not in compiled.trace
     assert EVIDENCE_LABEL not in compiled.artifact["judge_description"]
     assert validate_conversation_case(compiled.artifact, bare_plan, compiled.trace) == []
+
+
+def test_structured_omission_uses_semantic_operation_not_runtime_tool_name(
+    tmp_path: Path,
+) -> None:
+    plan = _semantic_operation_ready_plan(tmp_path)
+
+    compiled = compile_execution_artifact(plan)
+
+    assert plan.target_action_operation == "escalate_clinician_semantically"
+    assert plan.steps[-1].tool_name == "escalate_to_clinician"
+    assert "escalate_clinician_semantically" in plan.observers[-1].semantic_proposition
+    assert "escalate_to_clinician" not in plan.observers[-1].semantic_proposition
+    assert compiled.artifact["structured_oracle"]["tool_name"] == "escalate_to_clinician"
 
 
 # ---------------------------------------------------------------------------

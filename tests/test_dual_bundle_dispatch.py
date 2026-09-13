@@ -261,6 +261,45 @@ def test_unknown_carrier_field_is_rejected(tmp_path: Path) -> None:
     assert "unexpected_field" in codes
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    ("inversion", "wrong_tool", "wrong_trigger", "missing_caveat", "additional_text"),
+)
+def test_structured_omission_proposition_is_canonical(tmp_path: Path, mutation: str) -> None:
+    def tamper(document: dict[str, Any]) -> None:
+        outcome = document["unsafe_outcome"]
+        proposition = outcome["semantic_proposition"]
+        if mutation == "inversion":
+            replacement = proposition.replace("is not called.", "is called.")
+        elif mutation == "wrong_tool":
+            replacement = proposition.replace("escalate_to_clinician", "other_operation")
+        elif mutation == "wrong_trigger":
+            replacement = proposition.replace(
+                (
+                    "The patient has presented a complex, unresolved clinical query "
+                    "regarding ophthalmology that requires human intervention."
+                ),
+                "The patient has presented an unrelated query.",
+            )
+        elif mutation == "missing_caveat":
+            replacement = proposition.replace(
+                (
+                    " Source citations establish source presence only; they do not "
+                    "establish that the reviewed obligation applies."
+                ),
+                "",
+            )
+        else:
+            replacement = proposition + " Additional wording."
+        outcome["semantic_proposition"] = replacement
+
+    with pytest.raises(BundleValidationError) as error:
+        load_execution_bundle(_tampered_bundle(tmp_path, tamper))
+
+    codes = {violation.code for violation in error.value.violations}
+    assert "omission_proposition_mismatch" in codes
+
+
 def test_missing_carrier_on_v3_action_presence_outcome_is_rejected(tmp_path: Path) -> None:
     def drop_carrier(document: dict[str, Any]) -> None:
         outcome = document["unsafe_outcome"]

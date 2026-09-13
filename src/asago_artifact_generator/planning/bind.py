@@ -1540,6 +1540,7 @@ def _ready_plan(
         inventory_authority=execution_case.inventory_authority,
         semantic_authority=execution_case.semantic_authority,
         selected_simulation_resources=execution_case.selected_simulation_resources,
+        target_action_operation=_target_action_operation(intent),
         omission_evidence=intent.unsafe_outcome.omission_evidence,
         omission_evidence_digest=intent.unsafe_outcome.omission_evidence_digest,
     )
@@ -1547,6 +1548,22 @@ def _ready_plan(
 
 def _surface_refs(surfaces: Mapping[str, SurfaceBinding], allowed: set[str]) -> tuple[str, ...]:
     return tuple(source_ref for source_ref, item in surfaces.items() if item.surface in allowed)
+
+
+def _target_action_operation(intent: ExecutionIntent) -> str | None:
+    """Carry the producer's semantic operation into a ready target plan."""
+
+    if intent.projection_schema_version != "stpa-execution-projection-v3":
+        return None
+    requirement = next(
+        (
+            item
+            for item in intent.execution_contract.resource_requirements
+            if item.purpose.value == "target_action" and item.owner_ref == intent.control_action_id
+        ),
+        None,
+    )
+    return requirement.operation if requirement is not None else None
 
 
 def _content_slots(steps: tuple[PlanStep, ...]) -> tuple[str, ...]:

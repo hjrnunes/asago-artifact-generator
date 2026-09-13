@@ -24,19 +24,41 @@ from ..models._base import canonical_json_bytes, compute_framed_digest
 from ..models.omission_evidence import (
     OMISSION_EVIDENCE_SCHEMA_VERSION,
     StimulusOmissionEvidence,
+    render_structured_omission_proposition,
 )
 from ..models.readiness import ReadyExecutionPlan, StimulusPlan
 from ..platforms.base import ArtifactValidationError, CompiledArtifact
 from .conversation_validation import validate_prompt_history, validate_supplied_history
 from .schema import validate_schema
 
-# v2 carries the structured omission-evidence carrier in the compiled
-# structured oracle, its deterministic judge evidence block, and the trace's
-# carrier-digest authority.  The bump is coordinated across the three
-# constants: they are one compiled authority generation.
+# v1 is the historical projection-v2 compiled authority.  v2 carries the
+# structured omission-evidence carrier in the structured oracle, its
+# deterministic judge evidence block, and the trace's carrier-digest
+# authority.  The bump is coordinated across the three v2 constants.
+LEGACY_CONVERSATION_SCHEMA_VERSION = "asago-executable-conversation-v1"
+LEGACY_CONVERSATION_COMPILER_VERSION = "garak-conversation-compiler-v1"
+LEGACY_CONVERSATION_TRACE_SCHEMA_VERSION = "asago-executable-conversation-trace-v1"
 CONVERSATION_SCHEMA_VERSION = "asago-executable-conversation-v2"
 CONVERSATION_COMPILER_VERSION = "garak-conversation-compiler-v2"
 CONVERSATION_TRACE_SCHEMA_VERSION = "asago-executable-conversation-trace-v2"
+_CONVERSATION_VERSIONS_BY_PROJECTION = {
+    "stpa-execution-projection-v2": (
+        LEGACY_CONVERSATION_SCHEMA_VERSION,
+        LEGACY_CONVERSATION_COMPILER_VERSION,
+        LEGACY_CONVERSATION_TRACE_SCHEMA_VERSION,
+    ),
+    "stpa-execution-projection-v3": (
+        CONVERSATION_SCHEMA_VERSION,
+        CONVERSATION_COMPILER_VERSION,
+        CONVERSATION_TRACE_SCHEMA_VERSION,
+    ),
+}
+_CONVERSATION_VERSIONS_BY_SCHEMA = {
+    versions[0]: versions for versions in _CONVERSATION_VERSIONS_BY_PROJECTION.values()
+}
+_CONVERSATION_VERSIONS_BY_TRACE_SCHEMA = {
+    versions[2]: versions for versions in _CONVERSATION_VERSIONS_BY_PROJECTION.values()
+}
 _STATE_CANDIDATE_MAX_BYTES = 4_096
 _STATE_CANDIDATE_SCOPE_BYTES = 1_024
 _STATE_CANDIDATE_RECORD_BYTES = _STATE_CANDIDATE_MAX_BYTES - _STATE_CANDIDATE_SCOPE_BYTES
@@ -1198,6 +1220,56 @@ def _validate_conversation_omission_quotes(
             )
 
 
+def _validate_omission_proposition(plan: ReadyExecutionPlan) -> None:
+    """Require the canonical v3 action-absence proposition at compilation."""
+
+    if plan.projection_schema_version == "stpa-execution-projection-v2":
+        if plan.omission_evidence is not None:
+            raise ArtifactValidationError(
+                "legacy projection-v2 plans cannot carry omission evidence"
+            )
+        return
+    if plan.projection_schema_version != "stpa-execution-projection-v3":
+        raise ArtifactValidationError(
+            f"unsupported projection schema version {plan.projection_schema_version!r}"
+        )
+
+    observer = _outcome_observer(plan)
+    is_action_absence = (
+        plan.uca_type == "NOT_PROVIDED"
+        and observer.condition_type == "action_presence"
+        and observer.expected == "not_provided"
+    )
+    if not is_action_absence:
+        if plan.omission_evidence is not None:
+            raise ArtifactValidationError(
+                "omission evidence requires the NOT_PROVIDED action-absence direction"
+            )
+        return
+    carrier = plan.omission_evidence
+    if carrier is None:
+        raise ArtifactValidationError(
+            "projection-v3 action-absence plans require omission evidence"
+        )
+    target = _target_step(plan)
+    if (
+        target.adapter_operation != "tool_call"
+        or not target.tool_name
+        or not plan.target_action_operation
+    ):
+        raise ArtifactValidationError(
+            "structured omission requires the owned target_action tool operation"
+        )
+    expected = render_structured_omission_proposition(
+        carrier.trigger, plan.target_action_operation
+    )
+    if observer.semantic_proposition != expected:
+        raise ArtifactValidationError(
+            "structured omission semantic proposition does not match the canonical "
+            "trigger, absence direction, target operation, and caveat render"
+        )
+
+
 def _target_tools(plan: ReadyExecutionPlan) -> tuple[list[dict[str, Any]], Any]:
     target = _target_step(plan)
     if target.adapter_operation != "tool_call":
@@ -1369,6 +1441,7 @@ def _contains_placeholder(value: Any) -> bool:
 def _preflight(plan: ReadyExecutionPlan) -> None:
     _reject_unsupported_lifecycle_observation(plan)
     _validate_omission_carrier_delivery(plan)
+    _validate_omission_proposition(plan)
     stimuli = _stimulus_by_step(plan)
     causal_step_ids = {
         item.projection_step_id for item in plan.steps if item.kind == "CAUSAL_FACTOR"
@@ -1568,12 +1641,38 @@ def _target_response_mode(plan: ReadyExecutionPlan) -> str:
     return "tool_call" if _target_step(plan).adapter_operation == "tool_call" else "assistant_text"
 
 
+def _conversation_versions_for_projection(projection_schema_version: str) -> tuple[str, str, str]:
+    versions = _CONVERSATION_VERSIONS_BY_PROJECTION.get(projection_schema_version)
+    if versions is None:
+        raise ArtifactValidationError(
+            f"unsupported projection schema version {projection_schema_version!r}"
+        )
+    return versions
+
+
+def _conversation_versions_for_schema(schema_version: Any) -> tuple[str, str, str] | None:
+    if not isinstance(schema_version, str):
+        return None
+    return _CONVERSATION_VERSIONS_BY_SCHEMA.get(schema_version)
+
+
+def _conversation_versions_for_trace_schema(
+    schema_version: Any,
+) -> tuple[str, str, str] | None:
+    if not isinstance(schema_version, str):
+        return None
+    return _CONVERSATION_VERSIONS_BY_TRACE_SCHEMA.get(schema_version)
+
+
 def validate_conversation_case(
     data: Mapping[str, Any],
     ready: ReadyExecutionPlan | None = None,
     trace: Mapping[str, Any] | None = None,
 ) -> list[str]:
-    errors = _case_shape_errors(data)
+    expected_schema = None
+    if ready is not None:
+        expected_schema = _conversation_versions_for_projection(ready.projection_schema_version)[0]
+    errors = _case_shape_errors(data, expected_schema)
     oracle = data.get("structured_oracle")
     if not isinstance(oracle, Mapping):
         errors.append("structured_oracle must be an object")
@@ -1583,14 +1682,25 @@ def validate_conversation_case(
     return errors
 
 
-def _case_shape_errors(data: Mapping[str, Any]) -> list[str]:
-    return _case_schema_errors(data) + _case_messages_errors(data)
+def _case_shape_errors(data: Mapping[str, Any], expected_schema: str | None = None) -> list[str]:
+    return _case_schema_errors(data, expected_schema) + _case_messages_errors(data)
 
 
-def _case_schema_errors(data: Mapping[str, Any]) -> list[str]:
-    if data.get("schema_version") != CONVERSATION_SCHEMA_VERSION:
-        return [f"schema_version must be {CONVERSATION_SCHEMA_VERSION}"]
-    return []
+def _case_schema_errors(data: Mapping[str, Any], expected_schema: str | None = None) -> list[str]:
+    versions = _conversation_versions_for_schema(data.get("schema_version"))
+    if versions is None:
+        return ["schema_version is unsupported"]
+    errors: list[str] = []
+    if expected_schema is not None and data.get("schema_version") != expected_schema:
+        errors.append(f"schema_version must be {expected_schema}")
+    compiler_version = data.get("compiler_version")
+    if compiler_version is not None and compiler_version != versions[1]:
+        errors.append(f"compiler_version must be {versions[1]}")
+    oracle = data.get("structured_oracle")
+    if versions[0] == LEGACY_CONVERSATION_SCHEMA_VERSION and isinstance(oracle, Mapping):
+        if "omission_evidence" in oracle:
+            errors.append("legacy conversation artifacts cannot carry omission evidence")
+    return errors
 
 
 def _case_messages_errors(data: Mapping[str, Any]) -> list[str]:
@@ -1603,10 +1713,13 @@ def _case_messages_errors(data: Mapping[str, Any]) -> list[str]:
 
 
 def _case_digest_errors(data: Mapping[str, Any]) -> list[str]:
+    versions = _conversation_versions_for_schema(data.get("schema_version"))
+    if versions is None:
+        return []
     digest = data.get("semantic_digest")
     body = dict(data)
     body.pop("semantic_digest", None)
-    if digest != compute_framed_digest(CONVERSATION_SCHEMA_VERSION, body):
+    if digest != compute_framed_digest(versions[0], body):
         return ["semantic_digest does not match conversation content"]
     return []
 
@@ -1639,6 +1752,10 @@ def _ready_authority_errors(
     errors = _plan_metadata_errors(data, ready)
     if data.get("case_id") != ready.case_id:
         errors.append("case_id differs from ReadyExecutionPlan authority")
+    try:
+        _validate_omission_proposition(ready)
+    except ArtifactValidationError as exc:
+        errors.append(f"ready-plan omission proposition is invalid: {exc}")
     errors.extend(_oracle_authority_errors(oracle, expected))
     errors.extend(_execution_authority_errors(data, ready))
     errors.extend(_prepared_delivery_errors(data, ready))
@@ -1764,7 +1881,10 @@ def validate_conversation_trace(
     if not isinstance(trace, Mapping):
         return ["conversation trace must be an object"]
     expected_oracle = _oracle(ready)
-    errors = _trace_shape_errors(trace)
+    expected_trace_schema = _conversation_versions_for_projection(ready.projection_schema_version)[
+        2
+    ]
+    errors = _trace_shape_errors(trace, expected_trace_schema)
     errors.extend(_trace_digest_errors(trace))
     expected = _trace_authority(expected_oracle)
     errors.extend(_trace_authority_errors(trace, expected))
@@ -1773,16 +1893,25 @@ def validate_conversation_trace(
     return errors
 
 
-def _trace_shape_errors(trace: Mapping[str, Any]) -> list[str]:
-    if trace.get("schema_version") != CONVERSATION_TRACE_SCHEMA_VERSION:
+def _trace_shape_errors(trace: Mapping[str, Any], expected_schema: str | None = None) -> list[str]:
+    versions = _conversation_versions_for_trace_schema(trace.get("schema_version"))
+    if versions is None:
         return ["conversation trace schema_version is unsupported"]
+    if expected_schema is not None and trace.get("schema_version") != expected_schema:
+        return [f"conversation trace schema_version must be {expected_schema}"]
+    if versions[2] == LEGACY_CONVERSATION_TRACE_SCHEMA_VERSION:
+        if "omission_evidence_digest" in trace:
+            return ["legacy conversation traces cannot carry omission evidence"]
     return []
 
 
 def _trace_digest_errors(trace: Mapping[str, Any]) -> list[str]:
+    versions = _conversation_versions_for_trace_schema(trace.get("schema_version"))
+    if versions is None:
+        return []
     trace_digest = trace.get("trace_digest")
     trace_body = {key: value for key, value in trace.items() if key != "trace_digest"}
-    if trace_digest != compute_framed_digest(CONVERSATION_TRACE_SCHEMA_VERSION, trace_body):
+    if trace_digest != compute_framed_digest(versions[2], trace_body):
         return ["conversation trace digest does not match its content"]
     return []
 
@@ -1947,6 +2076,7 @@ def _conversation_body(
     oracle: Mapping[str, Any],
     author_digest: str | None,
     author_request: PresentationRequest,
+    versions: tuple[str, str, str],
 ) -> dict[str, Any]:
     tools: list[dict[str, Any]] = []
     for definition in (*carrier_tools, *target_tools):
@@ -1970,7 +2100,7 @@ def _conversation_body(
             "provenance": dict(author_request.runtime_context_provenance),
         }
     return {
-        "schema_version": CONVERSATION_SCHEMA_VERSION,
+        "schema_version": versions[0],
         "case_id": plan.case_id,
         "profile": _delivery_profile(plan, messages),
         "messages": messages,
@@ -1983,7 +2113,7 @@ def _conversation_body(
         "source": _source_metadata(plan),
         "binding": _binding_metadata(plan),
         "author": author_evidence,
-        "compiler_version": CONVERSATION_COMPILER_VERSION,
+        "compiler_version": versions[1],
         **_supplied_history_fields(plan),
     }
 
@@ -2003,9 +2133,10 @@ def _conversation_trace_body(
     oracle: Mapping[str, Any],
     author_digest: str | None,
     author_request: PresentationRequest,
+    trace_schema_version: str,
 ) -> dict[str, Any]:
     trace = {
-        "schema_version": CONVERSATION_TRACE_SCHEMA_VERSION,
+        "schema_version": trace_schema_version,
         "source": body["source"],
         "binding": body["binding"],
         "stimulus_ids": [item.stimulus_id for item in plan.stimuli],
@@ -2047,6 +2178,7 @@ def compile_conversation_case(
 
     if not isinstance(plan, ReadyExecutionPlan):
         raise TypeError("conversation compilation requires a ReadyExecutionPlan")
+    versions = _conversation_versions_for_projection(plan.projection_schema_version)
     _preflight(plan)
     texts, author_digest, author_request = _authored_texts(
         plan,
@@ -2067,8 +2199,9 @@ def compile_conversation_case(
         oracle,
         author_digest,
         author_request,
+        versions,
     )
-    digest = compute_framed_digest(CONVERSATION_SCHEMA_VERSION, body)
+    digest = compute_framed_digest(versions[0], body)
     artifact = {**body, "semantic_digest": digest}
     errors = validate_conversation_case(artifact, plan)
     if errors:
@@ -2079,10 +2212,11 @@ def compile_conversation_case(
         oracle,
         author_digest,
         author_request,
+        versions[2],
     )
     trace = {
         **trace_body,
-        "trace_digest": compute_framed_digest(CONVERSATION_TRACE_SCHEMA_VERSION, trace_body),
+        "trace_digest": compute_framed_digest(versions[2], trace_body),
     }
     trace_errors = validate_conversation_trace(trace, plan, artifact)
     if trace_errors:

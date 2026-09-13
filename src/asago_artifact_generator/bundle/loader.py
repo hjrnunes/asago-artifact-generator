@@ -37,6 +37,7 @@ from ..models.omission_evidence import (
     SOURCE_ATTESTATION_FRAME,
     OmissionEvidence,
     StimulusOmissionEvidence,
+    render_structured_omission_proposition,
 )
 from ..models.semantic_conditions import normalize_semantic_proposition
 
@@ -1768,6 +1769,89 @@ def _validate_v3_omission_evidence(
         )
     _validate_carrier_source_pins(value, carrier_raw, path, violations)
     _validate_carrier_delivery(value, carrier, path, violations)
+    _validate_v3_omission_proposition(value, outcome, carrier, path, violations)
+
+
+def _validate_v3_omission_proposition(
+    projection: dict[str, Any],
+    outcome: dict[str, Any],
+    carrier: OmissionEvidence,
+    path: str,
+    violations: list[ValidationViolation],
+) -> None:
+    """Require the exact code-owned proposition for a structured omission."""
+
+    condition = outcome.get("condition")
+    if (
+        outcome.get("uca_type") != "NOT_PROVIDED"
+        or not isinstance(condition, dict)
+        or condition.get("type") != "action_presence"
+        or condition.get("expected") != "not_provided"
+    ):
+        violations.append(
+            _violation(
+                "omission_proposition_mismatch",
+                f"{path}.semantic_proposition",
+                "structured omission requires the NOT_PROVIDED action-absence direction",
+            )
+        )
+        return
+
+    target_requirements: list[Any] = []
+    try:
+        contract = SemanticExecutionContract.model_validate(projection.get("execution_contract"))
+        target_requirements = [
+            item
+            for item in contract.resource_requirements
+            if item.purpose.value == "target_action"
+        ]
+    except (ValidationError, TypeError, ValueError) as exc:
+        violations.append(
+            _violation(
+                "omission_proposition_mismatch",
+                f"{path}.semantic_proposition",
+                f"structured omission target_action contract is invalid: {exc}",
+            )
+        )
+        return
+    if (
+        contract.action_kind is None
+        or contract.action_kind.value != "tool_call"
+        or len(target_requirements) != 1
+        or target_requirements[0].owner_ref != outcome.get("control_action_id")
+    ):
+        violations.append(
+            _violation(
+                "omission_proposition_mismatch",
+                f"{path}.semantic_proposition",
+                "structured omission requires one target_action operation owned by "
+                "the unsafe outcome control action",
+            )
+        )
+        return
+    try:
+        expected = render_structured_omission_proposition(
+            carrier.trigger,
+            target_requirements[0].operation,
+        )
+    except (TypeError, ValueError) as exc:
+        violations.append(
+            _violation(
+                "omission_proposition_mismatch",
+                f"{path}.semantic_proposition",
+                f"structured omission proposition cannot be rendered: {exc}",
+            )
+        )
+        return
+    if outcome.get("semantic_proposition") != expected:
+        violations.append(
+            _violation(
+                "omission_proposition_mismatch",
+                f"{path}.semantic_proposition",
+                "structured omission semantic_proposition must equal the canonical "
+                "trigger, absence direction, target_action operation, and caveat render",
+            )
+        )
 
 
 def _validate_carrier_shape(

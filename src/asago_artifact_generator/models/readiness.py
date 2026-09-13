@@ -339,6 +339,14 @@ class ReadyExecutionPlan(ImmutableModel):
     inventory_authority: InventoryAuthority | None = None
     semantic_authority: SemanticAuthority | None = None
     selected_simulation_resources: tuple[SelectedSimulationResource, ...] = ()
+    # Producer semantic operation for the owned target action.  It is omitted
+    # for legacy or action-free plans so historical plan bytes remain stable;
+    # the compiler must never substitute the runtime tool identifier here.
+    target_action_operation: StrictStr | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+    )
     # The structured omission-evidence carrier survives binding and readiness
     # untouched; readiness carries the closed values and never re-verifies them.
     omission_evidence: OmissionEvidence | None = Field(

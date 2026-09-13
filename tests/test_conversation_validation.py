@@ -78,6 +78,16 @@ def test_malformed_message_returns_errors_instead_of_passing_or_crashing(message
     assert validate_conversation_case(_case([message]))
 
 
+@pytest.mark.parametrize("schema_version", ({}, []))
+def test_malformed_conversation_schema_version_is_typed_and_non_crashing(schema_version):
+    case = _case([{"role": "user", "content": "Hello."}])
+    case["schema_version"] = schema_version
+
+    errors = validate_conversation_case(case)
+
+    assert errors[0] == "schema_version is unsupported"
+
+
 @pytest.mark.parametrize(
     "calls", [None, [], {}, [None], [{}], [{"id": "x", "type": "function", "function": None}]]
 )

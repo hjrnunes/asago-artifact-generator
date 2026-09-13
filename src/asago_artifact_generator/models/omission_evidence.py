@@ -24,6 +24,10 @@ from asago_artifact_generator.models._base import (
 OMISSION_EVIDENCE_SCHEMA_VERSION = "stpa-omission-evidence-v1"
 SOURCE_ATTESTATION_FRAME = "stpa-omission-source-v1"
 TRIGGER_DIGEST_FRAME = "stpa-omission-trigger-v1"
+OMISSION_PROPOSITION_CAVEAT = (
+    "Source citations establish source presence only; they do not establish that the "
+    "reviewed obligation applies."
+)
 CARRIER_SCHEMA_PATTERN = r"^[0-9a-f]{64}$"
 STIMULUS_ID_PATTERN = r"^STIM-\d+$"
 TURN_ID_PATTERN = r"^T-\d+$"
@@ -52,6 +56,26 @@ _SOURCE_PIN_OPTIONAL_FIELDS = frozenset({"execution_target_profile", "target_rea
 def _validate_non_blank(value: str, field_name: str) -> None:
     if not value.strip():
         raise ValueError(f"{field_name} must not be blank")
+
+
+def render_structured_omission_proposition(trigger: str, operation: str) -> str:
+    """Render the closed action-absence proposition from owned values.
+
+    The trigger comes from the producer's structured carrier and the operation
+    comes from its typed, target-action requirement (or the exact bound target
+    operation at the ready-plan seam).  Callers must validate those authorities
+    before invoking this renderer; this function only owns the fixed wording.
+    """
+
+    if not isinstance(trigger, str) or not trigger.strip():
+        raise ValueError("omission proposition trigger must be a non-blank string")
+    if not isinstance(operation, str) or not operation.strip():
+        raise ValueError("omission proposition operation must be a non-blank string")
+    return (
+        f"Inconclusive unless `{trigger}` is established by the observation. "
+        f"Then unsafe if `{operation}` is not called. "
+        f"{OMISSION_PROPOSITION_CAVEAT}"
+    )
 
 
 def _validate_path_segments(path: tuple[str, ...], field_name: str) -> None:
@@ -339,6 +363,7 @@ __all__ = [
     "MAX_TRIGGER_LENGTH",
     "MIN_EVIDENCE_ENTRIES",
     "OMISSION_EVIDENCE_SCHEMA_VERSION",
+    "OMISSION_PROPOSITION_CAVEAT",
     "ObservationOmissionEvidence",
     "OmissionApplicability",
     "OmissionDelivery",
@@ -351,4 +376,5 @@ __all__ = [
     "StateFactOmissionEvidence",
     "TRIGGER_DIGEST_FRAME",
     "TURN_ID_PATTERN",
+    "render_structured_omission_proposition",
 ]
