@@ -1,12 +1,24 @@
 # STPA execution-bundle consumer
 
 The consumer accepts only the canonical JSON index for
-`stpa-execution-bundle-v1`. `bundle.loader.load_execution_bundle` reads the
+`stpa-execution-bundle-v1` or `stpa-execution-bundle-v2`. The bundle version
+pins the projection generation: a bundle-v1 index requires
+`stpa-execution-projection-v2` entries and a bundle-v2 index requires
+`stpa-execution-projection-v3` entries; mixing generations in one index is a
+validation error. `bundle.loader.load_execution_bundle` reads the
 index and its run-relative scenario/projection files under conservative size
 limits. It rejects duplicate keys, non-canonical JSON bytes, unknown fields,
 unsafe paths, symlink escapes, digest or identity mismatches, runtime data in a
 projection, and an index validation tuple other than
-`{status: valid, validator_version: stpa-execution-projection-v2}`.
+`{status: valid, validator_version: <paired projection schema version>}`.
+
+A projection-v3 unsafe outcome may carry the closed
+`stpa-omission-evidence-v1` carrier beside its derived digest. The loader
+requires the carrier on action-presence (`not_provided`) outcomes, rejects it
+elsewhere, recomputes the carrier and trigger digests, and binds the carrier's
+delivery to one published stimulus requirement (exact stimulus identity,
+delivery class, turn identity, prepared-text digest, and quotation substrings)
+and its source pins to the projection's own `trace_refs` pins.
 
 The return value is an immutable `VerifiedExecutionBundle`. Each entry carries
 an `ExecutionIntent`, exact persisted byte digests, the projection semantic
@@ -59,6 +71,46 @@ Readiness copies the exact proposition and hazard/constraint/loss references
 onto each outcome observer. An `output_text` observer without the producer
 proposition is `needs_runtime_binding`, even when all runtime bindings are
 otherwise complete; a runtime binding cannot supply or replace that meaning.
+The ready plan also records the actual `bundle_schema_version` and
+`projection_schema_version` and carries the structured omission-evidence
+carrier and its digest unchanged from the intent; readiness adds no carrier
+verification of its own.
+
+## Structured omission compilation
+
+When a ready plan carries the omission carrier, the Garak compiler publishes
+it verbatim as `structured_oracle.omission_evidence`; it is never re-rendered,
+and compiled cases without a carrier keep their exact previous field set. The
+action-absence `judge_description` keeps its conditional frame and inconclusive
+rule and appends exactly one additional block: a labeled
+`Structured omission evidence:` rendering of the carrier's canonical JSON. The
+block is a pure function of the carrier bytes, is bounded by the carrier's
+8,192-byte canonical limit, and is never model-authored or truncated. A
+citation proves source presence only, so the judge still returns inconclusive
+when the trigger is not established, even when every citation is present.
+
+The conversation trace records `omission_evidence_digest` beside
+`semantic_proposition_digest` whenever the compiled oracle carries the
+carrier, recomputed from the carrier and covered by the trace digest.
+Validation closes the compiled artifact, the trace, and the ready plan to one
+another: a tampered carrier, carrier digest, or judge evidence block fails
+with a typed authority error instead of being trusted.
+
+A v3 direct prompt delivers the producer's `prepared_user_text` verbatim as
+the user message; the author receives no slot for it and the consumer never
+generatively rewrites it. At compilation the carrier's stimulus quotations are
+verified against the delivered bytes — the prepared text for a direct prompt
+and the referenced published turn (ordinal plus `T-*` identity) for a
+conversation — and any mismatch is a typed `ArtifactValidationError`, so the
+case neither compiles nor runs. State-fact and observation quotations stay
+producer attestations: the consumer never receives those source records and
+does not re-verify them.
+
+The compiled conversation, compiler, and trace schema versions are bumped
+together for this authority: `asago-executable-conversation-v2`,
+`garak-conversation-compiler-v2`, and
+`asago-executable-conversation-trace-v2`. Legacy bundle-v1/projection-v2
+compiled cases remain valid with schema-bumped bytes and identical behavior.
 
 ## Case resolution
 
@@ -101,5 +153,6 @@ turns an omitted environment choice into real-target authority.
 The producer-owned schemas and deterministic conformance metadata live under
 `contracts/stpa-execution/`. `CONTRACT.lock` identifies the vendored schema
 versions and files; `UPSTREAM.lock` records the producer revision. Refresh both
-locks and the fixture tree together when the producer publishes the
-authoritative v2 conformance kit.
+locks and the fixture tree together when the producer publishes a new
+conformance kit, and keep every vendored file byte-identical to the producer's
+committed kit.

@@ -264,8 +264,7 @@ class _LLMPresentationAuthor:
             "tool call, tool arguments, execution result, or claim that any target action "
             "happened. Keep the stimulus faithful to the supplied reference context and "
             "constraints. Unknown facts must remain unresolved; do not copy unrelated "
-            "ledger data.\n\n"
-            + prompt,
+            "ledger data.\n\n" + prompt,
             "You author source causal triggers for an already fixed execution plan. "
             "Respond with JSON only. Treat the action, deviation, observable criterion, "
             "and author context as reference-only context; construct the natural "
@@ -660,7 +659,10 @@ def _stpa_manifest(verified: Any, platform: str, entries: list[dict[str, Any]]) 
 def generate_stpa(
     bundle: Annotated[
         Path | None,
-        typer.Option("--bundle", help="Canonical stpa-execution-bundle-v1 JSON index."),
+        typer.Option(
+            "--bundle",
+            help="Canonical stpa-execution-bundle-v1 or -v2 JSON index.",
+        ),
     ] = None,
     bindings: Annotated[
         Path | None,

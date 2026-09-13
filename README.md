@@ -87,7 +87,7 @@ asago-artifact-generator generate \
 
 | Flag | Effect |
 |------|--------|
-| `--bundle PATH` | Required canonical `stpa-execution-bundle-v1` JSON index |
+| `--bundle PATH` | Required canonical `stpa-execution-bundle-v1` or `-v2` JSON index |
 | `--bindings PATH` | Optional deployment-specific `runtime-binding-set-v1` YAML/JSON; Garak fills routine chat mechanics |
 | `--runtime-context PATH` | Optional caller-captured read-only runtime observations JSON for presentation authoring; never changes the ready plan |
 | `--target-profile PATH` | Selects the reviewed target or complete simulation profile when the contract names domain resources |
@@ -178,6 +178,21 @@ the situation in which the action is required. A missing call alone is not a
 successful attack: the external evaluator needs evidence of the prerequisite
 and a complete execution observation, otherwise the result is inconclusive.
 The attacker's assertion that a prerequisite holds is not independent evidence.
+When the producer projection carries the structured `stpa-omission-evidence-v1`
+carrier (bundle-v2/projection-v3), the compiled `structured_oracle` copies that
+carrier verbatim as `omission_evidence`, and the judge text appends one
+deterministic, labeled canonical evidence block derived from it. The block is a
+pure function of the carrier bytes and is bounded by the carrier's 8 KiB limit;
+a citation proves source presence only, so the judge still returns inconclusive
+when the trigger is not established, even when every citation is present. The
+conversation trace records the recomputed `omission_evidence_digest` beside the
+proposition digest, and tampering with the carrier, its digest, or the judge
+block fails closed. A v3 direct prompt delivers the producer's
+`prepared_user_text` verbatim — the author receives no slot for it — and each
+carrier stimulus quotation is verified against the delivered prepared text or
+the referenced published turn at compilation; a mismatch is a typed validation
+error and the case does not run. State-fact and observation quotations stay
+producer attestations because the consumer never receives those source records.
 Response-judge instructions preserve the same distinction: test-input assertions
 do not establish ownership, permissions, private-data access or completed backend
 effects. Legitimate authorized use of sensitive information is not itself a
@@ -224,6 +239,11 @@ end before the target response; the oracle describes the unsafe behavior the
 runner must observe and retains the exact producer proposition plus selected
 hazard/constraint lineage. `artifact-trace.json` records a digest of that
 proposition and closes the outcome references back to the verified ready plan.
+When the producer carries the structured omission carrier, the oracle also
+carries it verbatim and the trace adds its digest. Compiled artifacts and
+traces are pinned to `asago-executable-conversation-v2` and
+`asago-executable-conversation-trace-v2`; legacy bundle-v1/projection-v2 cases
+keep identical behavior with schema-bumped bytes.
 No artifact is written for invalid, unbound, or unsupported entries.
 
 When author context is available, `author.author_context.prompt` retains the

@@ -277,12 +277,15 @@ def test_tampered_conversation_oracle_fails_ready_plan_authority_check() -> None
     )
     tampered = json.loads(json.dumps(compiled.artifact))
     tampered["structured_oracle"]["semantic_proposition"] = "A different proposition."
-    tampered["semantic_digest"] = compute_framed_digest(
-        "asago-executable-conversation-v1",
-        {key: item for key, item in tampered.items() if key != "semantic_digest"},
+    from asago_artifact_generator.garak.conversation import (
+        CONVERSATION_SCHEMA_VERSION,
+        validate_conversation_case,
     )
 
-    from asago_artifact_generator.garak.conversation import validate_conversation_case
+    tampered["semantic_digest"] = compute_framed_digest(
+        CONVERSATION_SCHEMA_VERSION,
+        {key: item for key, item in tampered.items() if key != "semantic_digest"},
+    )
 
     errors = validate_conversation_case(tampered, readiness.plan)
 

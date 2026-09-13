@@ -1,0 +1,152 @@
+{
+  "$defs": {
+    "digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "entry": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "ica_id": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "ica_slot_id": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "projection": {
+          "$ref": "#/$defs/projection_ref"
+        },
+        "scenario": {
+          "$ref": "#/$defs/file_ref"
+        },
+        "scenario_id": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "validation": {
+          "$ref": "#/$defs/validation"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "candidate_id",
+        "ica_slot_id",
+        "ica_id",
+        "scenario",
+        "projection",
+        "validation"
+      ],
+      "type": "object"
+    },
+    "file_ref": {
+      "additionalProperties": false,
+      "properties": {
+        "content_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "path": {
+          "$ref": "#/$defs/nonempty"
+        }
+      },
+      "required": [
+        "path",
+        "content_sha256"
+      ],
+      "type": "object"
+    },
+    "nonempty": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "producer": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "version": {
+          "$ref": "#/$defs/nonempty"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    "projection_ref": {
+      "additionalProperties": false,
+      "properties": {
+        "content_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "path": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "schema_version": {
+          "const": "stpa-execution-projection-v3"
+        },
+        "semantic_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "required": [
+        "path",
+        "schema_version",
+        "content_sha256",
+        "semantic_digest"
+      ],
+      "type": "object"
+    },
+    "validation": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "valid"
+        },
+        "validator_version": {
+          "const": "stpa-execution-projection-v3"
+        }
+      },
+      "required": [
+        "status",
+        "validator_version"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "stpa-execution-bundle-v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "bundle_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/entry"
+      },
+      "type": "array"
+    },
+    "producer": {
+      "$ref": "#/$defs/producer"
+    },
+    "run_id": {
+      "$ref": "#/$defs/nonempty"
+    },
+    "schema_version": {
+      "const": "stpa-execution-bundle-v2"
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "producer",
+    "entries",
+    "bundle_digest"
+  ],
+  "title": "STPA execution bundle v2",
+  "type": "object"
+}

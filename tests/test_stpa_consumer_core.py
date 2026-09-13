@@ -723,7 +723,7 @@ def test_vendored_contract_lock_and_minimal_bundle_are_authoritative() -> None:
 
     upstream = json.loads((CONTRACT_ROOT / "UPSTREAM.lock").read_text())
     assert upstream["repository"] == "asago-scenario-generator"
-    assert upstream["revision"] == "a68897dca57af31eade17be0e5672f5ca41e1569"
+    assert upstream["revision"] == "c9111a52af01fa356aafc5dd235f177c68f49cb0"
     assert upstream["source"] == "data/contracts/stpa-execution/CONTRACT.lock"
     assert upstream["source_state"] == "committed"
     assert upstream["content_lock_status"] == "pinned"

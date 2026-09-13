@@ -27,11 +27,25 @@ from ..models.execution_classification import (
     ExecutionProfileFit,
     SemanticExecutionContract,
 )
-from ..models.execution_intent import CONDITION_TYPES, OPERATORS, ExecutionIntent
+from ..models.execution_intent import (
+    CONDITION_TYPES,
+    OPERATORS,
+    PROJECTION_VERSION_BY_BUNDLE,
+    ExecutionIntent,
+)
+from ..models.omission_evidence import (
+    SOURCE_ATTESTATION_FRAME,
+    OmissionEvidence,
+    StimulusOmissionEvidence,
+)
 from ..models.semantic_conditions import normalize_semantic_proposition
 
 BUNDLE_SCHEMA_VERSION = "stpa-execution-bundle-v1"
+BUNDLE_SCHEMA_VERSION_V2 = "stpa-execution-bundle-v2"
 PROJECTION_SCHEMA_VERSION = "stpa-execution-projection-v2"
+PROJECTION_SCHEMA_VERSION_V3 = "stpa-execution-projection-v3"
+SUPPORTED_BUNDLE_VERSIONS = (BUNDLE_SCHEMA_VERSION, BUNDLE_SCHEMA_VERSION_V2)
+SUPPORTED_PROJECTION_VERSIONS = (PROJECTION_SCHEMA_VERSION, PROJECTION_SCHEMA_VERSION_V3)
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _FACTOR_REFERENCE = re.compile(r"^(?:PM|FB|CA)-\d+(?:-\d+)?$")
 _OUTCOME_ID_RE = re.compile(r"^OUTCOME-[A-Za-z0-9._-]+$")
@@ -100,6 +114,50 @@ _OUTCOME_FIELDS = frozenset(
         "constraint_refs",
     }
 )
+# The v3 projection adds exactly the structured omission-evidence carrier and
+# its derived digest to the closed v2 outcome field set.
+_OUTCOME_FIELDS_V3 = _OUTCOME_FIELDS | {"omission_evidence", "omission_evidence_digest"}
+_CARRIER_FIELDS = frozenset(
+    {
+        "schema_version",
+        "observation_snapshot_digest",
+        "source_pins",
+        "delivery",
+        "obligation_ref",
+        "direction_authority",
+        "trigger",
+        "trigger_digest",
+        "applicability",
+        "evidence",
+    }
+)
+_CARRIER_DELIVERY_FIELDS = frozenset(
+    {"stimulus_id", "delivery_class", "status", "prepared_user_text_digest"}
+)
+_CARRIER_APPLICABILITY_FIELDS = frozenset({"status", "evidence_role"})
+_CARRIER_ATTESTATION_FIELDS = frozenset({"frame", "digest"})
+_CARRIER_STIMULUS_ENTRY_FIELDS = frozenset(
+    {"source", "delivery_turn_ordinal", "turn_id", "quote", "meaning"}
+)
+_CARRIER_STATE_FACT_ENTRY_FIELDS = frozenset(
+    {"source", "state_path", "quote", "source_attestation", "meaning"}
+)
+_CARRIER_OBSERVATION_ENTRY_FIELDS = frozenset(
+    {"source", "observation_ref", "observation_path", "quote", "source_attestation", "meaning"}
+)
+_STIMULUS_FIELDS = frozenset(
+    {
+        "stimulus_id",
+        "intent",
+        "desired_effect",
+        "delivery_class",
+        "factor_id",
+        "source_role",
+        "carrier_requirement_id",
+        "turns",
+    }
+)
+_STIMULUS_FIELDS_V3 = _STIMULUS_FIELDS | {"prepared_user_text"}
 _REQUIREMENT_FIELDS = frozenset(
     {
         "requires_multi_turn",
@@ -540,6 +598,7 @@ def _validate_file_ref(
     violations: list[ValidationViolation],
     *,
     projection: bool,
+    projection_version: str | None = None,
 ) -> bool:
     expected = _PROJECTION_REF_FIELDS if projection else _FILE_REF_FIELDS
     if not _has_exact_fields(value, expected, path, violations):
@@ -547,22 +606,23 @@ def _validate_file_ref(
     _string(value.get("path"), f"{path}.path", violations)
     _digest(value.get("content_sha256"), f"{path}.content_sha256", violations)
     if projection:
-        if value.get("schema_version") != PROJECTION_SCHEMA_VERSION:
+        if value.get("schema_version") != projection_version:
             violations.append(
                 _violation(
                     "schema_version_mismatch",
                     f"{path}.schema_version",
-                    "projection version is not supported",
+                    "projection version is not supported by this bundle version",
                 )
             )
         _digest(value.get("semantic_digest"), f"{path}.semantic_digest", violations)
     return True
 
 
-def _validate_bundle_header(value: Any, violations: list[ValidationViolation]) -> bool:
+def _validate_bundle_header(value: Any, violations: list[ValidationViolation]) -> str | None:
     if not _has_exact_fields(value, _BUNDLE_FIELDS, "$", violations):
-        return False
-    if value.get("schema_version") != BUNDLE_SCHEMA_VERSION:
+        return None
+    bundle_version = value.get("schema_version")
+    if bundle_version not in SUPPORTED_BUNDLE_VERSIONS:
         violations.append(
             _violation(
                 "schema_version_mismatch", "$.schema_version", "bundle version is not supported"
@@ -573,11 +633,11 @@ def _validate_bundle_header(value: Any, violations: list[ValidationViolation]) -
     if _has_exact_fields(producer, _PRODUCER_FIELDS, "$.producer", violations):
         _string(producer.get("name"), "$.producer.name", violations)
         _string(producer.get("version"), "$.producer.version", violations)
-    return True
+    return bundle_version if bundle_version in SUPPORTED_BUNDLE_VERSIONS else None
 
 
 def _validate_entry_validation(
-    value: Any, path: str, violations: list[ValidationViolation]
+    value: Any, path: str, violations: list[ValidationViolation], projection_version: str
 ) -> None:
     if not isinstance(value, dict) or set(value) != {"status", "validator_version"}:
         violations.append(
@@ -591,7 +651,7 @@ def _validate_entry_validation(
         violations.append(
             _violation("schema_field_invalid", f"{path}.status", "status must be valid")
         )
-    elif value.get("validator_version") != PROJECTION_SCHEMA_VERSION:
+    elif value.get("validator_version") != projection_version:
         violations.append(
             _violation(
                 "schema_version_mismatch",
@@ -601,7 +661,12 @@ def _validate_entry_validation(
         )
 
 
-def _validate_bundle_entry(entry: Any, index: int, violations: list[ValidationViolation]) -> None:
+def _validate_bundle_entry(
+    entry: Any,
+    index: int,
+    violations: list[ValidationViolation],
+    projection_version: str,
+) -> None:
     entry_path = f"$.entries[{index}]"
     if not _has_exact_fields(entry, _ENTRY_FIELDS, entry_path, violations):
         return
@@ -611,9 +676,15 @@ def _validate_bundle_entry(entry: Any, index: int, violations: list[ValidationVi
         entry.get("scenario"), f"{entry_path}.scenario", violations, projection=False
     )
     _validate_file_ref(
-        entry.get("projection"), f"{entry_path}.projection", violations, projection=True
+        entry.get("projection"),
+        f"{entry_path}.projection",
+        violations,
+        projection=True,
+        projection_version=projection_version,
     )
-    _validate_entry_validation(entry.get("validation"), f"{entry_path}.validation", violations)
+    _validate_entry_validation(
+        entry.get("validation"), f"{entry_path}.validation", violations, projection_version
+    )
 
 
 def _entry_identity(entry: Any) -> tuple[Any, ...]:
@@ -639,10 +710,12 @@ def _validate_entry_order(entries: list[Any], violations: list[ValidationViolati
         )
 
 
-def _validate_bundle_digest(value: dict[str, Any], violations: list[ValidationViolation]) -> None:
+def _validate_bundle_digest(
+    value: dict[str, Any], bundle_version: str, violations: list[ValidationViolation]
+) -> None:
     if not _digest(value.get("bundle_digest"), "$.bundle_digest", violations) or violations:
         return
-    expected = _compute_digest(value, BUNDLE_SCHEMA_VERSION, "$.bundle_digest", violations)
+    expected = _compute_digest(value, bundle_version, "$.bundle_digest", violations)
     if expected is None:
         return
     if value.get("bundle_digest") != expected:
@@ -674,16 +747,20 @@ def _compute_digest(
 
 def _validate_bundle_index(value: Any) -> list[ValidationViolation]:
     violations: list[ValidationViolation] = []
-    if not _validate_bundle_header(value, violations):
+    bundle_version = _validate_bundle_header(value, violations)
+    projection_version = PROJECTION_VERSION_BY_BUNDLE.get(bundle_version or "")
+    if projection_version is None:
+        # The header already reported the unsupported version; remaining
+        # checks cannot know which projection contract applies.
         return violations
     entries = value.get("entries")
     if not isinstance(entries, list):
         violations.append(_violation("container_type_mismatch", "$.entries", "expected an array"))
         return violations
     for index, entry in enumerate(entries):
-        _validate_bundle_entry(entry, index, violations)
+        _validate_bundle_entry(entry, index, violations, projection_version)
     _validate_entry_order(entries, violations)
-    _validate_bundle_digest(value, violations)
+    _validate_bundle_digest(value, bundle_version, violations)
     return violations
 
 
@@ -1045,7 +1122,7 @@ def _validate_condition(value: Any, path: str, violations: list[ValidationViolat
 def _validate_projection_header(value: Any, violations: list[ValidationViolation]) -> bool:
     if not _has_exact_fields(value, _PROJECTION_FIELDS, "$projection", violations):
         return False
-    if value.get("schema_version") != PROJECTION_SCHEMA_VERSION:
+    if value.get("schema_version") not in SUPPORTED_PROJECTION_VERSIONS:
         violations.append(
             _violation(
                 "schema_version_mismatch",
@@ -1574,10 +1651,328 @@ def _validate_projection_outcome(
 ) -> set[str]:
     path = "$.projection.unsafe_outcome"
     outcome = value.get("unsafe_outcome")
-    if not _has_exact_fields(outcome, _OUTCOME_FIELDS, path, violations):
+    if _projection_version(value) == PROJECTION_SCHEMA_VERSION_V3:
+        fields_ok = _has_exact_fields_with_optional(
+            outcome, _OUTCOME_FIELDS, _OUTCOME_FIELDS_V3 - _OUTCOME_FIELDS, path, violations
+        )
+    else:
+        fields_ok = _has_exact_fields(outcome, _OUTCOME_FIELDS, path, violations)
+    if not fields_ok:
         return set()
     _validate_outcome_fields(outcome, value, path, violations)
+    if _projection_version(value) == PROJECTION_SCHEMA_VERSION_V3:
+        _validate_v3_omission_evidence(value, outcome, path, violations)
     return _validate_outcome_semantics(outcome, value, path, existing_refs, violations)
+
+
+def _projection_version(value: Mapping[str, Any]) -> str | None:
+    """Return the document's schema version when it is a supported generation."""
+
+    version = value.get("schema_version")
+    return version if version in SUPPORTED_PROJECTION_VERSIONS else None
+
+
+def _has_exact_fields_with_optional(
+    value: Any,
+    required: frozenset[str],
+    optional: frozenset[str],
+    path: str,
+    violations: list[ValidationViolation],
+) -> bool:
+    """Closed-field check whose optional group carries presence rules of its own."""
+
+    if not isinstance(value, dict):
+        violations.append(_violation("container_type_mismatch", path, "expected a JSON object"))
+        return False
+    missing = sorted(required - value.keys())
+    unknown = sorted(value.keys() - required - optional)
+    for key in missing:
+        violations.append(
+            _violation("required_field_missing", f"{path}.{key}", "required field is missing")
+        )
+    for key in unknown:
+        violations.append(
+            _violation("unexpected_field", f"{path}.{key}", "field is not in the closed contract")
+        )
+    return not missing and not unknown
+
+
+def _validate_v3_omission_evidence(
+    value: dict[str, Any],
+    outcome: dict[str, Any],
+    path: str,
+    violations: list[ValidationViolation],
+) -> None:
+    """Validate the structured omission carrier on a v3 unsafe outcome.
+
+    Presence coupling is checked before the closed carrier shape so a missing
+    carrier is reported as exactly ``omission_evidence_missing`` and a carrier
+    outside the action-absence route as ``omission_evidence_unexpected``.
+    """
+
+    condition = outcome.get("condition")
+    is_action_absence = (
+        isinstance(condition, dict)
+        and condition.get("type") == "action_presence"
+        and condition.get("expected") == "not_provided"
+    )
+    carrier_raw = outcome.get("omission_evidence")
+    digest_raw = outcome.get("omission_evidence_digest")
+    if carrier_raw is None:
+        if is_action_absence:
+            violations.append(
+                _violation(
+                    "omission_evidence_missing",
+                    f"{path}.omission_evidence",
+                    "action-presence outcomes require omission_evidence",
+                )
+            )
+        if digest_raw is not None:
+            violations.append(
+                _violation(
+                    "omission_evidence_unexpected",
+                    f"{path}.omission_evidence_digest",
+                    "omission_evidence_digest requires omission_evidence",
+                )
+            )
+        return
+    if not is_action_absence:
+        violations.append(
+            _violation(
+                "omission_evidence_unexpected",
+                f"{path}.omission_evidence",
+                "omission_evidence is allowed only on action-presence outcomes",
+            )
+        )
+        return
+    if not _validate_carrier_shape(carrier_raw, f"{path}.omission_evidence", violations):
+        return
+    try:
+        carrier = OmissionEvidence.model_validate(carrier_raw)
+    except (ValidationError, TypeError, ValueError) as exc:
+        violations.append(
+            _violation(
+                "omission_evidence_invalid",
+                f"{path}.omission_evidence",
+                f"structured omission evidence is invalid: {exc}",
+            )
+        )
+        return
+    if not isinstance(digest_raw, str) or digest_raw != carrier.compute_carrier_digest():
+        violations.append(
+            _violation(
+                "omission_evidence_digest_mismatch",
+                f"{path}.omission_evidence_digest",
+                "omission_evidence_digest does not match the carrier content",
+            )
+        )
+    _validate_carrier_source_pins(value, carrier_raw, path, violations)
+    _validate_carrier_delivery(value, carrier, path, violations)
+
+
+def _validate_carrier_shape(
+    carrier: Any, path: str, violations: list[ValidationViolation]
+) -> bool:
+    """Check the carrier's closed field sets before model parsing."""
+
+    if not isinstance(carrier, dict):
+        violations.append(_violation("container_type_mismatch", path, "expected a JSON object"))
+        return False
+    reported_before = len(violations)
+    _carrier_unknown_fields(carrier, _CARRIER_FIELDS, path, violations)
+    delivery = carrier.get("delivery")
+    if isinstance(delivery, dict):
+        _carrier_unknown_fields(delivery, _CARRIER_DELIVERY_FIELDS, f"{path}.delivery", violations)
+    applicability = carrier.get("applicability")
+    if isinstance(applicability, dict):
+        _carrier_unknown_fields(
+            applicability, _CARRIER_APPLICABILITY_FIELDS, f"{path}.applicability", violations
+        )
+    evidence = carrier.get("evidence")
+    for index, entry in enumerate(evidence if isinstance(evidence, list) else ()):
+        _validate_carrier_entry_shape(entry, f"{path}.evidence[{index}]", violations)
+    return len(violations) == reported_before
+
+
+def _validate_carrier_entry_shape(
+    entry: Any, path: str, violations: list[ValidationViolation]
+) -> None:
+    if not isinstance(entry, dict):
+        return
+    source = entry.get("source")
+    expected = {
+        "stimulus": _CARRIER_STIMULUS_ENTRY_FIELDS,
+        "state_fact": _CARRIER_STATE_FACT_ENTRY_FIELDS,
+        "observation": _CARRIER_OBSERVATION_ENTRY_FIELDS,
+    }.get(source)
+    if expected is None:
+        return
+    _carrier_unknown_fields(entry, expected, path, violations)
+    if isinstance(entry.get("source_attestation"), dict):
+        _carrier_unknown_fields(
+            entry["source_attestation"],
+            _CARRIER_ATTESTATION_FIELDS,
+            f"{path}.source_attestation",
+            violations,
+        )
+
+
+def _validate_carrier_source_pins(
+    value: dict[str, Any],
+    carrier: dict[str, Any],
+    path: str,
+    violations: list[ValidationViolation],
+) -> None:
+    """The carrier copies the projection's own trace_refs source pins."""
+
+    trace_refs = value.get("trace_refs")
+    pins = trace_refs.get("source_pins") if isinstance(trace_refs, dict) else None
+    if pins is not None and carrier.get("source_pins") != pins:
+        violations.append(
+            _violation(
+                "source_pin_mismatch",
+                f"{path}.omission_evidence.source_pins",
+                "carrier source_pins must equal the projection trace_refs source pins",
+            )
+        )
+
+
+def _validate_carrier_delivery(
+    value: dict[str, Any],
+    carrier: OmissionEvidence,
+    path: str,
+    violations: list[ValidationViolation],
+) -> None:
+    """Bind the carrier delivery to one published stimulus requirement."""
+
+    stimuli = value.get("stimulus_requirements")
+    parsed = (
+        [item for item in stimuli if isinstance(item, dict)] if isinstance(stimuli, list) else []
+    )
+    if len(parsed) != 1:
+        violations.append(
+            _violation(
+                "stimulus_delivery_mismatch",
+                f"{path}.omission_evidence.delivery",
+                "the omission carrier delivery requires exactly one published "
+                "stimulus requirement",
+            )
+        )
+        return
+    stimulus = parsed[0]
+    delivery = carrier.delivery
+    if delivery.stimulus_id != stimulus.get("stimulus_id") or (
+        delivery.delivery_class != stimulus.get("delivery_class")
+    ):
+        violations.append(
+            _violation(
+                "stimulus_delivery_mismatch",
+                f"{path}.omission_evidence.delivery",
+                "carrier stimulus identity does not match the published stimulus requirement",
+            )
+        )
+        return
+    entries = [entry for entry in carrier.evidence if isinstance(entry, StimulusOmissionEvidence)]
+    if delivery.delivery_class == "direct_prompt":
+        _validate_carrier_direct_delivery(stimulus, delivery, entries, path, violations)
+        return
+    _validate_carrier_conversation_delivery(stimulus, entries, path, violations)
+
+
+def _validate_carrier_direct_delivery(
+    stimulus: dict[str, Any],
+    delivery: Any,
+    entries: list[Any],
+    path: str,
+    violations: list[ValidationViolation],
+) -> None:
+    prepared = stimulus.get("prepared_user_text")
+    if not isinstance(prepared, str) or not prepared:
+        violations.append(
+            _violation(
+                "prepared_text_mismatch",
+                f"{path}.omission_evidence.delivery",
+                "a direct_prompt carrier requires the exact prepared user text",
+            )
+        )
+        return
+    if (
+        compute_framed_digest(SOURCE_ATTESTATION_FRAME, prepared)
+        != delivery.prepared_user_text_digest
+    ):
+        violations.append(
+            _violation(
+                "prepared_text_mismatch",
+                f"{path}.omission_evidence.delivery.prepared_user_text_digest",
+                "prepared_user_text_digest does not match the published prepared text",
+            )
+        )
+    for entry in entries:
+        if entry.quote not in prepared:
+            violations.append(
+                _violation(
+                    "prepared_text_mismatch",
+                    f"{path}.omission_evidence.evidence",
+                    "stimulus evidence quote is not a substring of the published prepared text",
+                )
+            )
+
+
+def _validate_carrier_conversation_delivery(
+    stimulus: dict[str, Any],
+    entries: list[Any],
+    path: str,
+    violations: list[ValidationViolation],
+) -> None:
+    turns = stimulus.get("turns")
+    turns = turns if isinstance(turns, list) else []
+    for entry in entries:
+        if entry.delivery_turn_ordinal > len(turns):
+            violations.append(
+                _violation(
+                    "prepared_text_mismatch",
+                    f"{path}.omission_evidence.evidence",
+                    "stimulus evidence cites a turn beyond the published conversation turns",
+                )
+            )
+            continue
+        turn = turns[entry.delivery_turn_ordinal - 1]
+        if not isinstance(turn, dict):
+            continue
+        if entry.turn_id != turn.get("turn_id"):
+            violations.append(
+                _violation(
+                    "stimulus_delivery_mismatch",
+                    f"{path}.omission_evidence.evidence",
+                    "stimulus evidence turn identity does not match the published "
+                    "conversation turn",
+                )
+            )
+        if isinstance(turn.get("text"), str) and entry.quote not in turn["text"]:
+            violations.append(
+                _violation(
+                    "prepared_text_mismatch",
+                    f"{path}.omission_evidence.evidence",
+                    "stimulus evidence quote is not a substring of the referenced "
+                    "conversation turn",
+                )
+            )
+
+
+def _carrier_unknown_fields(
+    value: dict[str, Any],
+    expected: frozenset[str],
+    path: str,
+    violations: list[ValidationViolation],
+) -> None:
+    for key in sorted(value.keys() - expected):
+        violations.append(
+            _violation(
+                "unexpected_field",
+                f"{path}.{key}",
+                "field is not in the closed carrier contract",
+            )
+        )
 
 
 def _validate_categories(
@@ -2011,7 +2406,9 @@ def _validate_projection_digest(
         return
     if violations:
         return
-    expected = _compute_digest(value, PROJECTION_SCHEMA_VERSION, "$.projection", violations)
+    # The digest frame is the projection's own schema version, so each
+    # generation verifies against its producer digest domain.
+    expected = _compute_digest(value, str(value.get("schema_version")), "$.projection", violations)
     if expected is not None and value.get("semantic_digest") != expected:
         violations.append(
             _violation(
@@ -2050,10 +2447,53 @@ def _validate_projection_stimuli(
     stimuli = value.get("stimulus_requirements")
     if not isinstance(stimuli, list):
         return
+    version = _projection_version(value)
     for index, stimulus in enumerate(stimuli):
-        if not isinstance(stimulus, dict) or stimulus.get("turns") is None:
+        path = f"$.projection.stimulus_requirements[{index}]"
+        if not isinstance(stimulus, dict):
+            continue
+        if version == PROJECTION_SCHEMA_VERSION_V3:
+            _validate_v3_stimulus_fields(stimulus, path, violations)
+        if stimulus.get("turns") is None:
             continue
         _validate_stimulus_turns(stimulus, index, violations)
+
+
+def _validate_v3_stimulus_fields(
+    stimulus: dict[str, Any], path: str, violations: list[ValidationViolation]
+) -> None:
+    """Apply the closed v3 stimulus field set and the prepared-text rule."""
+
+    _carrier_unknown_fields(stimulus, _STIMULUS_FIELDS_V3, path, violations)
+    if stimulus.get("delivery_class") != "direct_prompt":
+        # Only a direct prompt may carry the prepared text; the producer
+        # settles this exclusivity as prepared_text_mismatch.
+        if stimulus.get("prepared_user_text") is not None:
+            violations.append(
+                _violation(
+                    "prepared_text_mismatch",
+                    f"{path}.prepared_user_text",
+                    "only direct_prompt stimuli may carry prepared_user_text",
+                )
+            )
+        return
+    prepared = stimulus.get("prepared_user_text")
+    if prepared is None:
+        violations.append(
+            _violation(
+                "required_field_missing",
+                f"{path}.prepared_user_text",
+                "direct_prompt stimuli require prepared_user_text",
+            )
+        )
+    elif not isinstance(prepared, str) or not prepared.strip():
+        violations.append(
+            _violation(
+                "condition_value_invalid",
+                f"{path}.prepared_user_text",
+                "prepared_user_text must be a non-blank string",
+            )
+        )
 
 
 def _validate_stimulus_turns(
@@ -2654,9 +3094,36 @@ def _entry_pair_violations(
         violations.append(reference_violation)
     if isinstance(projection_document, dict):
         violations.extend(
+            _projection_generation_violations(entry_path, index, projection_document)
+        )
+        violations.extend(
             _check_pair_identity(entry, projection_document, scenario_document, index["run_id"])
         )
     return violations
+
+
+def _projection_generation_violations(
+    entry_path: str,
+    index: dict[str, Any],
+    projection_document: dict[str, Any],
+) -> list[ValidationViolation]:
+    """A bundle never mixes projection generations.
+
+    The index pins exactly one projection version per bundle version, and
+    the referenced document must carry that version; the entry reference's
+    own claim is already checked against the same pin during index
+    validation.
+    """
+    expected = PROJECTION_VERSION_BY_BUNDLE.get(index.get("schema_version"))
+    if expected is None or projection_document.get("schema_version") == expected:
+        return []
+    return [
+        _violation(
+            "schema_version_mismatch",
+            f"{entry_path}.projection.schema_version",
+            "projection version does not match the version pinned by the bundle index",
+        )
+    ]
 
 
 def _build_entry_intent(
@@ -2673,6 +3140,7 @@ def _build_entry_intent(
             scenario_content_sha256=entry["scenario"]["content_sha256"],
             projection_content_sha256=entry["projection"]["content_sha256"],
             presentation_context=_presentation_context(scenario_document),
+            bundle_schema_version=index["schema_version"],
         )
     except (ValidationError, TypeError, ValueError) as exc:
         raise BundleValidationError(
@@ -2724,9 +3192,13 @@ def load_execution_bundle_with_limits(
 
 __all__ = [
     "BUNDLE_SCHEMA_VERSION",
+    "BUNDLE_SCHEMA_VERSION_V2",
     "BundleValidationError",
     "LoaderLimits",
     "PROJECTION_SCHEMA_VERSION",
+    "PROJECTION_SCHEMA_VERSION_V3",
+    "SUPPORTED_BUNDLE_VERSIONS",
+    "SUPPORTED_PROJECTION_VERSIONS",
     "ValidationViolation",
     "VerifiedExecutionBundle",
     "VerifiedExecutionBundleEntry",

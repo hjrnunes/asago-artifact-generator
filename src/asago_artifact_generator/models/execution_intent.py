@@ -27,9 +27,14 @@ from .execution_classification import (
     ExecutionDeliveryClass,
     SemanticExecutionContract,
 )
+from .omission_evidence import (
+    MAX_PREPARED_USER_TEXT_LENGTH,
+    OmissionEvidence,
+)
 from .semantic_conditions import (
     CONDITION_TYPES,
     OPERATORS,
+    ActionPresenceCondition,
     ActionValueCondition,
     OrderingCondition,
     SemanticBindingPlaceholder,
@@ -38,6 +43,20 @@ from .semantic_conditions import (
     StimulusTurn,
     normalize_semantic_proposition,
 )
+
+BUNDLE_SCHEMA_VERSIONS = ("stpa-execution-bundle-v1", "stpa-execution-bundle-v2")
+PROJECTION_SCHEMA_VERSIONS = ("stpa-execution-projection-v2", "stpa-execution-projection-v3")
+BundleSchemaVersion = Literal["stpa-execution-bundle-v1", "stpa-execution-bundle-v2"]
+ProjectionSchemaVersion = Literal["stpa-execution-projection-v2", "stpa-execution-projection-v3"]
+# A bundle-v1 index pairs only with projection-v2 documents and a bundle-v2
+# index only with projection-v3 documents; the union is closed.
+PROJECTION_VERSION_BY_BUNDLE = {
+    "stpa-execution-bundle-v1": "stpa-execution-projection-v2",
+    "stpa-execution-bundle-v2": "stpa-execution-projection-v3",
+}
+_BUNDLE_VERSION_BY_PROJECTION = {
+    projection: bundle for bundle, projection in PROJECTION_VERSION_BY_BUNDLE.items()
+}
 
 UCAType = Literal["NOT_PROVIDED", "INCORRECT", "WRONG_TIMING", "WRONG_DURATION"]
 CausalFactorKind = Literal[
@@ -114,6 +133,17 @@ class UnsafeOutcome(ImmutableModel):
     semantic_binding_required: StrictBool
     hazard_refs: tuple[StrictStr, ...] = ()
     constraint_refs: tuple[StrictStr, ...] = ()
+    # The structured omission-evidence carrier rides only on the authored
+    # action-absence route of a v3 projection.  The digest is recomputed and
+    # never trusted from the wire.
+    omission_evidence: OmissionEvidence | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    omission_evidence_digest: SHA256Digest | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     @field_validator("hazard_refs", "constraint_refs", mode="before")
     @classmethod
@@ -132,7 +162,24 @@ class UnsafeOutcome(ImmutableModel):
         _validate_unique_refs(self.constraint_refs, "constraint_refs")
         _validate_outcome_binding_state(self.semantic_binding_required, self.condition)
         _validate_outcome_action(self.control_action_id, self.condition)
+        self._validate_omission_carrier()
         return self
+
+    def _validate_omission_carrier(self) -> None:
+        """Bind the carrier to the authored action-absence route only."""
+        is_action_absence = (
+            isinstance(self.condition, ActionPresenceCondition)
+            and self.condition.expected == "not_provided"
+        )
+        if not is_action_absence and self.omission_evidence is not None:
+            raise ValueError("omission_evidence is allowed only on action-presence outcomes")
+        if self.omission_evidence is None:
+            if self.omission_evidence_digest is not None:
+                raise ValueError("omission_evidence_digest requires omission_evidence")
+            return
+        expected = self.omission_evidence.compute_carrier_digest()
+        if self.omission_evidence_digest != expected:
+            raise ValueError("omission_evidence_digest does not match the carrier content")
 
 
 _UCA_CONDITION_TYPES = {
@@ -272,6 +319,14 @@ class AdversarialStimulusRequirement(ImmutableModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    # v3 copies the exact prepared direct-prompt text before projection; it is
+    # delivered verbatim and never generatively rewritten.
+    prepared_user_text: StrictStr | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_PREPARED_USER_TEXT_LENGTH,
+        exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def _validate_delivery(self) -> AdversarialStimulusRequirement:
@@ -281,6 +336,7 @@ class AdversarialStimulusRequirement(ImmutableModel):
         elif self.carrier_requirement_id is not None:
             raise ValueError("only indirect_content stimuli may name a carrier requirement")
         self._validate_turns()
+        self._validate_prepared_text()
         return self
 
     def _validate_turns(self) -> None:
@@ -293,6 +349,12 @@ class AdversarialStimulusRequirement(ImmutableModel):
         turn_ids = [turn.turn_id for turn in self.turns]
         if len(turn_ids) != len(set(turn_ids)):
             raise ValueError("stimulus turns must carry unique turn_id values")
+
+    def _validate_prepared_text(self) -> None:
+        if self.prepared_user_text is None:
+            return
+        if self.delivery_class is not ExecutionDeliveryClass.direct_prompt:
+            raise ValueError("only direct_prompt stimuli may carry prepared_user_text")
 
 
 class TraceReferences(ImmutableModel):
@@ -374,10 +436,8 @@ class ExecutionIntent(ImmutableModel):
     seam after readiness succeeds.
     """
 
-    bundle_schema_version: Literal["stpa-execution-bundle-v1"] = "stpa-execution-bundle-v1"
-    projection_schema_version: Literal["stpa-execution-projection-v2"] = (
-        "stpa-execution-projection-v2"
-    )
+    bundle_schema_version: BundleSchemaVersion = "stpa-execution-bundle-v1"
+    projection_schema_version: ProjectionSchemaVersion = "stpa-execution-projection-v2"
     bundle_digest: SHA256Digest
     projection_semantic_digest: SHA256Digest
     run_id: StrictStr = Field(min_length=1)
@@ -427,6 +487,8 @@ class ExecutionIntent(ImmutableModel):
 
     @model_validator(mode="after")
     def _validate_identity_and_sequences(self) -> ExecutionIntent:
+        _validate_version_pairing(self)
+        _validate_version_specific_omission(self)
         _validate_intent_identity(self)
         _validate_intent_outcome(self)
         _validate_model_output_condition(self)
@@ -445,11 +507,28 @@ class ExecutionIntent(ImmutableModel):
         scenario_content_sha256: str,
         projection_content_sha256: str,
         presentation_context: Mapping[str, Any] | None = None,
+        bundle_schema_version: BundleSchemaVersion | None = None,
     ) -> ExecutionIntent:
-        """Create an inward intent from a validated projection document."""
+        """Create an inward intent from a validated projection document.
+
+        The bundle schema version records the index the projection was loaded
+        from.  When omitted it is derived from the projection version's closed
+        pairing; an explicit value that disagrees with the projection version
+        fails closed.
+        """
 
         data = dict(projection)
-        data["bundle_schema_version"] = "stpa-execution-bundle-v1"
+        projection_version = data.get("schema_version")
+        expected_bundle_version = _BUNDLE_VERSION_BY_PROJECTION.get(projection_version)
+        if expected_bundle_version is None:
+            raise ValueError(f"unsupported projection schema version {projection_version!r}")
+        recorded_bundle_version = bundle_schema_version or expected_bundle_version
+        if recorded_bundle_version != expected_bundle_version:
+            raise ValueError(
+                f"bundle schema version {recorded_bundle_version!r} cannot pair "
+                f"with {projection_version!r}"
+            )
+        data["bundle_schema_version"] = recorded_bundle_version
         data["projection_schema_version"] = data.pop("schema_version")
         data["bundle_digest"] = bundle_digest
         data["projection_semantic_digest"] = data.pop("semantic_digest")
@@ -459,6 +538,26 @@ class ExecutionIntent(ImmutableModel):
             "projection": projection_content_sha256,
         }
         return cls.model_validate(data)
+
+
+def _validate_version_pairing(value: ExecutionIntent) -> None:
+    expected = PROJECTION_VERSION_BY_BUNDLE.get(value.bundle_schema_version)
+    if expected is None or value.projection_schema_version != expected:
+        raise ValueError(
+            f"bundle schema version {value.bundle_schema_version!r} cannot pair "
+            f"with projection schema version {value.projection_schema_version!r}"
+        )
+
+
+def _validate_version_specific_omission(value: ExecutionIntent) -> None:
+    """The structured carrier and prepared text belong to the v3 wire only."""
+
+    if value.projection_schema_version != "stpa-execution-projection-v2":
+        return
+    if value.unsafe_outcome.omission_evidence is not None:
+        raise ValueError("omission_evidence requires the projection-v3 contract")
+    if any(item.prepared_user_text is not None for item in value.stimulus_requirements):
+        raise ValueError("prepared_user_text requires the projection-v3 contract")
 
 
 def _validate_intent_identity(value: ExecutionIntent) -> None:
@@ -671,8 +770,13 @@ def _intent_placeholder_refs(value: ExecutionIntent) -> tuple[str, ...]:
 
 __all__ = [
     "AdversarialStimulusRequirement",
+    "BUNDLE_SCHEMA_VERSIONS",
+    "BundleSchemaVersion",
     "CONDITION_TYPES",
     "OPERATORS",
+    "PROJECTION_SCHEMA_VERSIONS",
+    "PROJECTION_VERSION_BY_BUNDLE",
+    "ProjectionSchemaVersion",
     "SURFACE_CATEGORIES",
     "UCAType",
     "CausalFactor",

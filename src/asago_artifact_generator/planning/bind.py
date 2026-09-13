@@ -1070,6 +1070,7 @@ def _stimulus_plan(requirement: Any, binding: AdversarialStimulusBinding) -> Sti
         intent=requirement.intent,
         desired_effect=requirement.desired_effect,
         turns=requirement.turns,
+        prepared_user_text=requirement.prepared_user_text,
     )
 
 
@@ -1490,6 +1491,8 @@ def _ready_plan(
 ) -> ReadyExecutionPlan:
     steps, trace_map = _plan_steps(intent, surfaces, bindings, capabilities, stimuli)
     return ReadyExecutionPlan(
+        bundle_schema_version=intent.bundle_schema_version,
+        projection_schema_version=intent.projection_schema_version,
         bundle_digest=intent.bundle_digest,
         projection_semantic_digest=intent.projection_semantic_digest,
         scenario_content_sha256=intent.source_file_digests["scenario"],
@@ -1537,6 +1540,8 @@ def _ready_plan(
         inventory_authority=execution_case.inventory_authority,
         semantic_authority=execution_case.semantic_authority,
         selected_simulation_resources=execution_case.selected_simulation_resources,
+        omission_evidence=intent.unsafe_outcome.omission_evidence,
+        omission_evidence_digest=intent.unsafe_outcome.omission_evidence_digest,
     )
 
 

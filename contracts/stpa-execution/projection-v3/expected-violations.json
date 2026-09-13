@@ -1,0 +1,20 @@
+{
+  "carrier-digest-mismatch.json": [
+    "omission_evidence_digest_mismatch"
+  ],
+  "carrier-field-invalid.json": [
+    "omission_evidence_invalid"
+  ],
+  "carrier-on-non-omission.json": [
+    "omission_evidence_unexpected"
+  ],
+  "omission-evidence-missing.json": [
+    "omission_evidence_missing"
+  ],
+  "prepared-text-missing.json": [
+    "required_field_missing"
+  ],
+  "unknown-carrier-field.json": [
+    "unexpected_field"
+  ]
+}

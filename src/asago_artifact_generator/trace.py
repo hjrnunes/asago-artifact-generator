@@ -76,9 +76,15 @@ class OracleTrace:
         }
 
 
+SUPPORTED_TRACE_PROJECTION_VERSIONS = (
+    "stpa-execution-projection-v2",
+    "stpa-execution-projection-v3",
+)
+
+
 def _validate_trace_source(source: Any) -> None:
     source = _require_mapping(source, "artifact trace source")
-    if source.get("projection_schema_version") != "stpa-execution-projection-v2":
+    if source.get("projection_schema_version") not in SUPPORTED_TRACE_PROJECTION_VERSIONS:
         raise ValueError("artifact trace source has an unsupported projection schema")
     _validate_digest_fields(
         source,

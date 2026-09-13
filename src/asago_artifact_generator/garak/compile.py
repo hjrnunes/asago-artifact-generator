@@ -145,7 +145,7 @@ def _system_content(plan: GarakPlan) -> str:
 def _source_metadata(ready: ReadyExecutionPlan) -> dict[str, Any]:
     data: dict[str, Any] = {
         "bundle_digest": ready.bundle_digest,
-        "projection_schema_version": "stpa-execution-projection-v2",
+        "projection_schema_version": ready.projection_schema_version,
         "projection_semantic_digest": ready.projection_semantic_digest,
         "scenario_content_sha256": ready.scenario_content_sha256,
         "projection_content_sha256": ready.projection_content_sha256,
@@ -1215,7 +1215,7 @@ def _ready_source_authority_errors(source: Any, ready: ReadyExecutionPlan) -> li
         return []
     expected = {
         "bundle_digest": ready.bundle_digest,
-        "projection_schema_version": "stpa-execution-projection-v2",
+        "projection_schema_version": ready.projection_schema_version,
         "projection_semantic_digest": ready.projection_semantic_digest,
         "scenario_content_sha256": ready.scenario_content_sha256,
         "projection_content_sha256": ready.projection_content_sha256,

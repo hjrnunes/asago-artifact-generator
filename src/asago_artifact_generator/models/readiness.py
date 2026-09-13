@@ -18,7 +18,12 @@ from pydantic import (
 from ._base import ImmutableModel, SHA256Digest, freeze_value
 from .execution_case import SelectedSimulationResource
 from .execution_classification import InventoryAuthority, SemanticAuthority
-from .execution_intent import UCAType
+from .execution_intent import (
+    BundleSchemaVersion,
+    ProjectionSchemaVersion,
+    UCAType,
+)
+from .omission_evidence import MAX_PREPARED_USER_TEXT_LENGTH, OmissionEvidence
 from .runtime_binding import ClockBinding
 from .semantic_conditions import StimulusTurn, normalize_semantic_proposition
 
@@ -250,6 +255,14 @@ class StimulusPlan(ImmutableModel):
     intent: StrictStr = Field(min_length=1)
     desired_effect: StrictStr = Field(min_length=1)
     turns: tuple[StimulusTurn, ...] | None = None
+    # v3 copies the producer's exact prepared direct-prompt text.  The compiler
+    # delivers it verbatim and never asks an author to reproduce it.
+    prepared_user_text: StrictStr | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_PREPARED_USER_TEXT_LENGTH,
+        exclude_if=lambda value: value is None,
+    )
 
     @field_validator("carrier_tool_schema", "carrier_tool_arguments", mode="before")
     @classmethod
@@ -263,6 +276,8 @@ class ReadyExecutionPlan(ImmutableModel):
     """Complete platform plan; the only accepted input to a compiler."""
 
     schema_version: Literal["execution-plan-v1"] = "execution-plan-v1"
+    bundle_schema_version: BundleSchemaVersion = "stpa-execution-bundle-v1"
+    projection_schema_version: ProjectionSchemaVersion = "stpa-execution-projection-v2"
     bundle_digest: SHA256Digest
     projection_semantic_digest: SHA256Digest
     scenario_content_sha256: SHA256Digest
@@ -324,6 +339,16 @@ class ReadyExecutionPlan(ImmutableModel):
     inventory_authority: InventoryAuthority | None = None
     semantic_authority: SemanticAuthority | None = None
     selected_simulation_resources: tuple[SelectedSimulationResource, ...] = ()
+    # The structured omission-evidence carrier survives binding and readiness
+    # untouched; readiness carries the closed values and never re-verifies them.
+    omission_evidence: OmissionEvidence | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    omission_evidence_digest: SHA256Digest | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     @field_validator(
         "resolved_semantic_bindings",

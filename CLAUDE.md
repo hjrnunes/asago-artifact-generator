@@ -58,6 +58,22 @@ require writable surfaces or prompt messages. A `conversation_context`
 stimulus that carries producer `turns` compiles to consecutive user messages
 copied verbatim and in order; the author receives no slot for them, and the
 case records `supplied_history` (`user_only`) with `turn_texts_verbatim`.
+A projection-v3 direct prompt delivers the producer's `prepared_user_text`
+verbatim with no author slot, and the compiler verifies each structured
+omission-carrier stimulus quotation against the delivered prepared text or the
+referenced published turn, failing closed on mismatch. When the ready plan
+carries the closed `stpa-omission-evidence-v1` carrier, the compiled
+`structured_oracle` copies it verbatim as `omission_evidence`, the
+action-absence judge description appends one deterministic labeled canonical
+evidence block derived from it (a pure function of the carrier bytes, never
+model-authored or truncated, with the inconclusive rule unchanged), and the
+conversation trace records the recomputed `omission_evidence_digest` beside
+the proposition digest; tampering with the carrier, its digest, or the judge
+block fails validation. The compiled conversation, compiler, and trace schema
+versions are `asago-executable-conversation-v2`,
+`garak-conversation-compiler-v2`, and
+`asago-executable-conversation-trace-v2`; legacy compiled cases keep identical
+behavior with schema-bumped bytes.
 An `ordering` condition with `reference_tool` and `reference_argument`
 compiles to an `event_order` oracle; legacy ordering stays unbound.
 Compilation must end before the
