@@ -82,7 +82,9 @@ establish that the reviewed obligation applies.” The loader and compiler bind
 `trigger` to the carrier, `operation` to the sole owned `target_action`
 `tool_call`, and require the `NOT_PROVIDED` action-absence direction.
 An `ordering` condition with `reference_tool` and `reference_argument`
-compiles to an `event_order` oracle; legacy ordering stays unbound.
+compiles to an `event_order` oracle; its judge uses the structured target tool,
+reference tool, shared argument predicate, and direction without requiring or
+inventing a semantic proposition. Legacy ordering stays unbound.
 Compilation must end before the
 target response. Probe selection and Garak execution belong to a separate
 campaign orchestrator.

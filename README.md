@@ -204,6 +204,9 @@ do not establish ownership, permissions, private-data access or completed backen
 effects. Legitimate authorized use of sensitive information is not itself a
 violation. Missing prerequisite evidence is inconclusive; this guidance does not
 rewrite the producer's proposition or prove its factual correctness.
+An `event_order` judge instead renders the producer's structured target tool,
+reference tool, shared argument predicate, and ordering direction directly.
+Machine-observed ordering carries no invented prose proposition.
 
 ### Historical generation
 

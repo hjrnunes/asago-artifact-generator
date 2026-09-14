@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import Literal
 
 import pytest
 from typer.testing import CliRunner
@@ -1490,7 +1491,12 @@ def _ready_plan() -> ReadyExecutionPlan:
     )
 
 
-def _ordering_reference_intent(profile, *, with_reference: bool):
+def _ordering_reference_intent(
+    profile,
+    *,
+    with_reference: bool,
+    relation: Literal["before", "after"] = "before",
+):
     from asago_artifact_generator.models.execution_classification import (
         BindingCompleteness,
         EnvironmentBasis,
@@ -1520,7 +1526,7 @@ def _ordering_reference_intent(profile, *, with_reference: bool):
     condition = (
         OrderingCondition(
             reference_step_id="S-1",
-            relation="before",
+            relation=relation,
             reference_tool="action-1",
             reference_argument=ReferenceArgument(
                 property="request",
@@ -1529,7 +1535,7 @@ def _ordering_reference_intent(profile, *, with_reference: bool):
             ),
         )
         if with_reference
-        else OrderingCondition(reference_step_id="S-1", relation="before")
+        else OrderingCondition(reference_step_id="S-1", relation=relation)
     )
     slot = f"{intent.controller_id}:{intent.control_action_id}:WRONG_TIMING"
     return intent.model_copy(
@@ -1539,7 +1545,13 @@ def _ordering_reference_intent(profile, *, with_reference: bool):
             "ica_slot_id": slot,
             "ica_id": f"{slot}:1",
             "unsafe_outcome": intent.unsafe_outcome.model_copy(
-                update={"condition": condition, "uca_type": "WRONG_TIMING"}
+                update={
+                    "condition": condition,
+                    "uca_type": "WRONG_TIMING",
+                    # Ordering is machine-observed from its structured fields.
+                    # Do not inherit the generic tool fixture's prose proposition.
+                    "semantic_proposition": None,
+                }
             ),
         }
     )
@@ -1596,12 +1608,26 @@ def _indirect_explicit_bindings(intent):
     )
 
 
-def test_event_order_reference_conditions_reach_ready_readiness() -> None:
+@pytest.mark.parametrize(
+    ("relation", "judge_fragment"),
+    [
+        ("before", "no matching reference call precedes it in the same turn"),
+        ("after", "a matching reference call follows it in the same turn"),
+    ],
+)
+def test_event_order_reference_conditions_compile_without_semantic_proposition(
+    relation: Literal["before", "after"],
+    judge_fragment: str,
+) -> None:
     from asago_artifact_generator.planning.resolve_case import resolve_execution_case
     from tests.test_execution_case import _profile
 
     profile = _profile()
-    intent = _ordering_reference_intent(profile, with_reference=True)
+    intent = _ordering_reference_intent(
+        profile,
+        with_reference=True,
+        relation=relation,
+    )
     case = resolve_execution_case(intent, profile)
     bindings = complete_garak_runtime_bindings(
         case,
@@ -1615,12 +1641,13 @@ def test_event_order_reference_conditions_reach_ready_readiness() -> None:
     assert result.plan is not None
     observer = result.plan.observers[0]
     assert observer.observer_kind == "event_order"
-    assert observer.relation == "before"
+    assert observer.relation == relation
     assert observer.reference_tool == "action-1"
     assert observer.semantic_property == "request"
     assert observer.field_path == "arguments.request"
     assert observer.comparison == "equals"
     assert observer.expected == "TEST-REQUEST"
+    assert observer.semantic_proposition is None
 
     compiled = compile_execution_artifact(
         result.plan,
@@ -1630,8 +1657,15 @@ def test_event_order_reference_conditions_reach_ready_readiness() -> None:
     assert oracle["kind"] == "event_order"
     assert oracle["tool_name"] == result.plan.steps[-1].tool_name
     assert oracle["field_path"] == "arguments.request"
-    assert oracle["relation"] == "before"
+    assert oracle["relation"] == relation
     assert oracle["reference_tool"] == "action-1"
+    assert oracle["comparison"] == "equals"
+    assert oracle["expected"] == "TEST-REQUEST"
+    assert oracle["semantic_proposition"] is None
+    assert repr(oracle["tool_name"]) in compiled.artifact["judge_description"]
+    assert repr(oracle["reference_tool"]) in compiled.artifact["judge_description"]
+    assert "arguments.request equals 'TEST-REQUEST'" in compiled.artifact["judge_description"]
+    assert judge_fragment in compiled.artifact["judge_description"]
     assert compiled.validation["ok"] is True
 
 
