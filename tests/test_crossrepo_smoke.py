@@ -69,7 +69,15 @@ def _no_network(monkeypatch: pytest.MonkeyPatch):
         raise AssertionError("cross-repo smoke must not open a network connection")
 
     monkeypatch.setattr(socket.socket, "connect", _deny)
+    monkeypatch.setattr(socket.socket, "connect_ex", _deny)
     monkeypatch.setattr(socket, "create_connection", _deny)
+
+
+@pytest.mark.parametrize("method", ["connect", "connect_ex"])
+def test_socket_connection_guard(method: str):
+    with socket.socket() as connection:
+        with pytest.raises(AssertionError, match="must not open"):
+            getattr(connection, method)(("127.0.0.1", 9))
 
 
 @dataclass

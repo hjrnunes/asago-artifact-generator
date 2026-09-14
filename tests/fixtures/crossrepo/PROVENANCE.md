@@ -15,8 +15,9 @@ Two fixture classes live here:
    repository's vendored, producer-owned contract kits in
    `contracts/stpa-execution/`.
 
-The loader validates every framed digest at test time, so the digests below
-are checked on every run.
+The loader validates bundle-internal framed digests at test time. The raw
+source-file SHA-256 values below record the independently checked provenance;
+the suite does not re-verify these documentary hashes against the source runs.
 
 ## `klarna-ordering/` — sealed run bytes
 
@@ -93,6 +94,7 @@ and the same kit scenario file as `occiai-omission/`. Projection SHA-256
   omission-carrier chain coverage here therefore rides on the OcciAI-shaped
   contract-kit fixtures, not on saved bundle bytes.
 - The MiniAirbnb run (`20260914-miniairbnb-first-baseline`) has no execution
-  bundle: every candidate resolved as a functional test.
+  bundle. This fixture suite records that absence without inferring the
+  disposition of every candidate.
 - Neither saved bundle carries a `conversation_context` stimulus; that
   coverage comes from the kit-derived `occiai-conversation/` fixture.
