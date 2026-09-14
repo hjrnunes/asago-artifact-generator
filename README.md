@@ -208,8 +208,52 @@ An `event_order` judge instead renders the producer's structured target tool,
 reference tool, shared argument predicate, and ordering direction directly.
 Machine-observed ordering carries no invented prose proposition.
 
-### Historical generation
+### Design artifacts from scenario handoffs
 
+The `design` command is the M2 artifact-design path. The producer's verified
+scenario handoff plus an explicit environment are the only inputs; no execution
+bundle or projection is read.
+
+```bash
+# Deterministic design run with a prebound author result (no model contact)
+asago-artifact-generator design \
+  --handoff <run>/scenario-handoff.json \
+  --target-profile <profile>.yaml \
+  --runtime-context <state>.json \
+  --author-result author-result.json \
+  --no-llm \
+  --output-dir runs
+
+# Live design run: the configured model authors only the stimulus wording
+asago-artifact-generator design \
+  --handoff <run>/scenario-handoff.json \
+  --target-profile <profile>.yaml \
+  --runtime-context <state>.json \
+  --output-dir runs
+```
+
+The consumer designs the test: it resolves the scenario against the explicit
+environment, selects the test record and establishes its prerequisites, authors
+the concrete stimulus wording (never producer text), derives the executable
+detector from the handoff's semantic failure criterion with the
+environment-observed limit, and records the fidelity assessment and honest
+observation limits (command-level, never money movement). The designed history
+is user-only for exactly one continuation. Before compilation the consumer
+freezes artifact-owned text and evidence behind a content digest; receipts
+reference the frozen digest and tampering fails verification. Supported designs
+compile to the Garak-runner-consumable executable conversation plus an
+`artifact-design-plan-v1` execution plan. Blocked designs are preserved with
+typed exclusion reasons (`needs-environment-binding`, `unsupported-observation`,
+`missing-setup`, `unresolved-prerequisite`, `invalid-design`, and others) and
+are never compiled or dropped.
+
+The producer's handoff contract kit is vendored byte-for-byte under
+`contracts/scenario-handoff/` with an `UPSTREAM.lock` pinning the producer
+revision; the reader verifies the kit before every load and fails closed on kit
+tampering, and rejects corrupted, unknown-version, or unresolvable handoffs
+with typed reasons.
+
+### Historical generation
 The retired taxonomy-era workflow remains available only when explicitly named:
 
 ```bash

@@ -184,6 +184,30 @@ class GarakPlan:
         }
 
 
+def load_execution_plan(path):
+    """Load one execution-plan document, dispatching on its schema version.
+
+    ``execution-plan-v1`` documents remain legacy ``ReadyExecutionPlan``
+    values; ``artifact-design-plan-v1`` documents are the handoff design
+    path's plans. Unknown versions fail closed. Runners should load plans
+    through this dispatcher so both paths replay without case changes.
+    """
+
+    import json
+    from pathlib import Path
+
+    from ..design.records import DESIGN_PLAN_SCHEMA_VERSION, ArtifactDesignPlan
+    from ..platforms.base import PlatformPlanError
+
+    document = json.loads(Path(path).read_text(encoding="utf-8"))
+    version = document.get("schema_version") if isinstance(document, dict) else None
+    if version == DESIGN_PLAN_SCHEMA_VERSION:
+        return ArtifactDesignPlan.model_validate(document)
+    if version == "execution-plan-v1":
+        return ReadyExecutionPlan.model_validate(document)
+    raise PlatformPlanError(f"unsupported execution plan schema version: {version!r}")
+
+
 def _validate_plan_ready(ready: ReadyExecutionPlan) -> None:
     if not isinstance(ready, ReadyExecutionPlan):
         raise TypeError("Garak plan requires a ReadyExecutionPlan")
@@ -352,4 +376,5 @@ __all__ = [
     "GarakPlan",
     "GarakPlanStep",
     "build_garak_plan",
+    "load_execution_plan",
 ]

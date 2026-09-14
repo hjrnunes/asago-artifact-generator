@@ -772,5 +772,162 @@ def generate_stpa(
         raise typer.Exit(1)
 
 
+def _load_author_result(
+    path: Path | None,
+) -> dict[str, Any] | None:
+    """Load one closed prebound author result for deterministic design runs."""
+
+    if path is None:
+        return None
+    if not path.is_file():
+        raise ValueError(f"author result file not found: {path}")
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("author result root must be an object")
+    return raw
+
+
+def _design_manifest(
+    outcome: Any,
+    paths: dict[str, str],
+    freeze_verification: dict[str, Any] | None,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "schema_version": "design-manifest-v1",
+        "scenario_id": outcome.scenario_id,
+        "design_id": outcome.design_id,
+        "compiled": outcome.compiled,
+        "paths": paths,
+    }
+    if outcome.exclusion is not None:
+        entry["exclusion_code"] = outcome.exclusion.code
+        entry["exclusion_detail"] = outcome.exclusion.detail
+    if freeze_verification is not None:
+        entry["freeze_verification"] = freeze_verification
+    return entry
+
+
+@app.command("design")
+def design_command(
+    handoff: Annotated[
+        Path,
+        typer.Option("--handoff", help="Scenario handoff envelope JSON/YAML."),
+    ],
+    target_profile: Annotated[
+        Path,
+        typer.Option(
+            "--target-profile",
+            help="Explicit digest-attested execution-target-profile-v1 YAML/JSON.",
+        ),
+    ],
+    runtime_context: Annotated[
+        Path,
+        typer.Option(
+            "--runtime-context",
+            help="Caller-captured read-only runtime state observations (JSON).",
+        ),
+    ],
+    platform: Annotated[
+        str,
+        typer.Option("--platform", help="Target platform adapter (currently: garak)."),
+    ] = "garak",
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Output root (default: runs/)."),
+    ] = Path("runs"),
+    author_result: Annotated[
+        Path | None,
+        typer.Option(
+            "--author-result",
+            help=(
+                "Closed prebound author result (JSON) for a deterministic design "
+                "run; omit to author the stimulus with the configured model."
+            ),
+        ),
+    ] = None,
+    no_llm: Annotated[
+        bool,
+        typer.Option("--no-llm", help="Never contact a model; requires --author-result."),
+    ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option("-v", "--verbose", help="Verbose logging."),
+    ] = False,
+) -> None:
+    """Design one artifact from a verified scenario handoff plus explicit environment.
+
+    The handoff and the environment are the only producer inputs; no execution
+    bundle or projection is read. Blocked designs are preserved as typed
+    exclusions and are never compiled.
+    """
+
+    from .design.authoring import (
+        DesignBrief,
+        LLMArtifactAuthor,
+        PreboundAuthor,
+        design_artifact,
+    )
+    from .design.compile import (
+        compile_design,
+        verify_frozen_artifact,
+        write_design_outputs,
+    )
+    from .garak.capabilities import garak_capabilities
+    from .handoff.reader import HandoffValidationError, load_scenario_handoff
+
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(levelname)-5s %(name)s: %(message)s",
+    )
+    if platform != "garak":
+        raise typer.BadParameter(f"unsupported platform: {platform}")
+    if no_llm and author_result is None:
+        raise typer.BadParameter("--no-llm requires --author-result")
+
+    try:
+        verified = load_scenario_handoff(handoff)
+    except HandoffValidationError as exc:
+        typer.echo(
+            json.dumps(
+                {
+                    "error": "handoff_rejected",
+                    "reason": exc.reason,
+                    "detail": str(exc),
+                },
+                indent=2,
+            ),
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+    profile = _load_target_profile(target_profile)
+    runtime_context_data, _ = _load_runtime_context(runtime_context)
+    prebound = _load_author_result(author_result)
+    author: Any = (
+        PreboundAuthor({verified.handoff.scenario_id: prebound})
+        if prebound is not None
+        else LLMArtifactAuthor()
+    )
+    outcome = design_artifact(
+        verified,
+        profile=profile,
+        runtime_context=runtime_context_data,
+        capabilities=garak_capabilities(),
+        brief=DesignBrief(),
+        author=author,
+    )
+    compiled = compile_design(outcome.plan) if outcome.compiled else None
+    paths = write_design_outputs(output_dir, outcome, compiled=compiled)
+    freeze_verification = None
+    if compiled is not None:
+        freeze_verification = verify_frozen_artifact(output_dir)
+    manifest = _design_manifest(outcome, paths, freeze_verification)
+    manifest_path = output_dir / "design-manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    typer.echo(json.dumps(manifest, indent=2))
+    if outcome.exclusion is not None:
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()

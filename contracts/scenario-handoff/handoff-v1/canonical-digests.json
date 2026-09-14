@@ -1,0 +1,16 @@
+{
+  "content_sha256": {
+    "expected-violations.json": "068251ba93f8a668341d8b7ef59308237c90dd0e87605b29dc19584aee970347",
+    "invalid/prepared-message-field.json": "23043a550b6ebf5d16e51ffc2fdb0c17996c23efa0f371d0adfe377f76159101",
+    "invalid/role-turn-array.json": "abbe9e4c75fa12fe5e594773f6ec034152f6cb3cffc40ecd22c4001f83394efe",
+    "invalid/smuggled-prose.json": "7dbf7e18d7a8c5132304456284cb5be9db0d4f53bf776772d458389c4673f954",
+    "invalid/stimulus-turn-field.json": "3b0835f9c66c4f508ffa63ace5c8bbdde9fac06a5058fcf6a5cd4dd743f884a3",
+    "schema.json": "d547a225d44963ebaff220a5876a40e9e3fca57cbd5a1dfb4d195b8deeed77cb",
+    "valid/adversarial-refund.json": "43814d1e54466247fafa3d0a1a2364247922fb92dca53c660c4219538a0aa914",
+    "valid/functional-no-attacker.json": "214091e2cdba952a065e89007364483427af1ad02ca263893af1d8d6b819782f"
+  },
+  "handoff_digests": {
+    "valid/adversarial-refund.json": "c29adc3c131717c6aa4fae2946e269c9a02662e1c6b014f3f302141034df229a",
+    "valid/functional-no-attacker.json": "b9e7313a4d9d265042fa7a4ecd211ec7679314b7de761c1d3546ede16cb4e127"
+  }
+}

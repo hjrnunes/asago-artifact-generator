@@ -1,0 +1,16 @@
+{
+  "invalid/prepared-message-field.json": [
+    "prose_hiding:prepared_message_field"
+  ],
+  "invalid/role-turn-array.json": [
+    "prose_hiding:role_serialization"
+  ],
+  "invalid/smuggled-prose.json": [
+    "prose_hiding:detector_expression",
+    "prose_hiding:ready_to_send_instruction"
+  ],
+  "invalid/stimulus-turn-field.json": [
+    "artifact_design_field:stimulus_turns",
+    "artifact_design_field:role"
+  ]
+}

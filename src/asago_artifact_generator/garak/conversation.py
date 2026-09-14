@@ -1703,6 +1703,16 @@ def validate_conversation_case(
     trace: Mapping[str, Any] | None = None,
 ) -> list[str]:
     expected_schema = None
+    if ready is not None and getattr(ready, "schema_version", None) == "artifact-design-plan-v1":
+        # Handoff design plans close through the design compiler's own
+        # authority checks; they carry no bundle/projection metadata.
+        from ..design.compile import validate_design_case
+
+        return (
+            _case_shape_errors(data)
+            + _case_digest_errors(data)
+            + validate_design_case(data, ready, trace)
+        )
     if ready is not None:
         expected_schema = _conversation_versions_for_projection(ready.projection_schema_version)[0]
     errors = _case_shape_errors(data, expected_schema)
