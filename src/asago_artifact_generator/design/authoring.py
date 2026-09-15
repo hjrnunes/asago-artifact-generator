@@ -826,6 +826,7 @@ def _select_test_record(
                 "value": False,
                 "source": f"runtime_context.state[{selected}].refund_eligible",
                 "authority": "observed",
+                "design_dependency": True,
                 "note": (
                     "The scenario's criterion concerns a refund-ineligible record, "
                     "so the observed-ineligible record is the correct test setup."
@@ -845,6 +846,7 @@ def _select_test_record(
                 "value": True,
                 "source": f"runtime_context.state[{selected}].refund_eligible",
                 "authority": "observed",
+                "design_dependency": True,
             }
         )
     if balance_ok and not requires_foreign:
@@ -854,6 +856,7 @@ def _select_test_record(
                 "value": balance,
                 "source": f"runtime_context.state[{selected}].remaining_to_pay",
                 "authority": "observed",
+                "design_dependency": not requires_ineligible,
             }
         )
     owner = record.get("customer_id")
@@ -884,6 +887,7 @@ def _select_test_record(
                     f"and runtime_context.state[{selected}] party identities"
                 ),
                 "authority": "observed",
+                "design_dependency": True,
                 "note": (
                     "The scenario's criterion concerns a record the authenticated "
                     "session does not own, so the observed foreign ownership of "
@@ -906,7 +910,28 @@ def _select_test_record(
                 "authority": (
                     "observed" if owner is not None and session is not None else "unresolved"
                 ),
+                "design_dependency": False,
             }
+        )
+    # Dependency-scoped blocking (finding B3): a prerequisite the design
+    # DEPENDS on blocks when unresolved; an unresolved prerequisite the design
+    # does not depend on stays an honest finding and never blocks a supported
+    # unrelated test under the same environment.
+    unresolved_dependency = next(
+        (
+            prerequisite
+            for prerequisite in prerequisites
+            if prerequisite.get("design_dependency") and prerequisite["authority"] != "observed"
+        ),
+        None,
+    )
+    if unresolved_dependency is not None:
+        raise _Blocked(
+            "unresolved-prerequisite",
+            f"the design depends on the {unresolved_dependency['name']!r} prerequisite, "
+            "but the observed environment does not establish it; the test that depends "
+            "on this relationship is blocked while supported unrelated tests remain "
+            "designable under the same environment",
         )
     establishment: list[str] = []
     if brief.record_hint is not None:
@@ -1044,6 +1069,7 @@ def _select_precondition_record(
             "value": observed_status,
             "source": f"runtime_context.state[{selected}].status",
             "authority": "observed",
+            "design_dependency": True,
             "note": (
                 "The scenario's criterion concerns a record not set to "
                 f"{required_status}; the observed status {observed_status!r} of "
@@ -1071,6 +1097,7 @@ def _select_precondition_record(
                 "value": owner if owner is not None else "unresolved",
                 "source": f"runtime_context.state.{session_keys[0]}",
                 "authority": "observed" if owner is not None else "unresolved",
+                "design_dependency": False,
             }
         )
     else:
@@ -1080,6 +1107,7 @@ def _select_precondition_record(
                 "value": "unresolved",
                 "source": "runtime_context.state",
                 "authority": "unresolved",
+                "design_dependency": False,
             }
         )
     establishment: list[str] = []
@@ -1793,17 +1821,104 @@ def _derive_detector(
     )
 
 
+def _prerequisite_finding(prerequisite: Mapping[str, Any]) -> str:
+    """One per-prerequisite finding rendered for the aggregate evidence."""
+
+    authority = prerequisite.get("authority")
+    if authority == "observed":
+        return f"{prerequisite['name']}: observed ({prerequisite.get('value')!r})"
+    return f"{prerequisite['name']}: {authority}"
+
+
+def _aggregate_prerequisite_fidelity(setup: SetupDesign) -> FidelityAnswer:
+    """Derive the aggregate ``prerequisites_hold`` answer from the actual
+    per-prerequisite findings (finding B3).
+
+    The aggregate never overrides a per-prerequisite outcome: an unresolved
+    finding yields ``answer=False`` with authority ``unresolved`` (unknown
+    stays unknown — never a True/observed positive claim), and only
+    observed-established prerequisites aggregate to True/observed. The
+    derivation itself is carried in the evidence so the record shows which
+    per-prerequisite outcomes the aggregate follows.
+    """
+
+    findings = "; ".join(
+        _prerequisite_finding(prerequisite) for prerequisite in setup.established_prerequisites
+    )
+    unresolved = sorted(
+        str(prerequisite["name"])
+        for prerequisite in setup.established_prerequisites
+        if prerequisite.get("authority") != "observed"
+    )
+    if unresolved:
+        return FidelityAnswer(
+            answer=False,
+            evidence=(
+                f"Derived from the per-prerequisite findings: {findings}. The observed "
+                f"environment does not establish: {', '.join(unresolved)}; the aggregate "
+                "follows the per-prerequisite outcomes — unknown stays unknown and no "
+                "fidelity answer claims it was established."
+            ),
+            authority="unresolved",
+        )
+    return FidelityAnswer(
+        answer=True,
+        evidence=(
+            f"Derived from the per-prerequisite findings: {findings}. Every established "
+            "prerequisite is observed in the environment."
+        ),
+        authority="observed",
+    )
+
+
+def _dependency_field(name: str) -> str:
+    """The live record field an execution-critical prerequisite is verified against."""
+
+    return "status" if name == "record_status" else name
+
+
+def _prerequisite_dependencies(setup: SetupDesign) -> tuple[dict[str, Any], ...]:
+    """The plan's execution-critical prerequisite dependencies (finding B3).
+
+    Only observed-established prerequisites the design actually depends on
+    become dispatch-time dependencies; the pre-dispatch path verifies each
+    against the CURRENT live runtime state before dispatch.
+    """
+
+    dependencies: list[dict[str, Any]] = []
+    for prerequisite in setup.established_prerequisites:
+        if not prerequisite.get("design_dependency") or prerequisite["authority"] != "observed":
+            continue
+        dependencies.append(
+            {
+                "name": prerequisite["name"],
+                "record_id": setup.selected_record_id,
+                "field": _dependency_field(str(prerequisite["name"])),
+                "expected": prerequisite["value"],
+                "check": (
+                    "session_not_owner"
+                    if prerequisite["name"] == "session_ownership"
+                    else "record_field"
+                ),
+                "source": prerequisite.get("source", ""),
+            }
+        )
+    return tuple(dependencies)
+
+
 def _assess_fidelity(
     handoff: ScenarioHandoff,
     setup: SetupDesign,
     stimulus: StimulusDesign,
     detector: DetectorDesign,
-    prerequisites_hold: bool,
-    prerequisite_evidence: str,
     criterion_shape: str = "excessive_refund",
     precondition: tuple[str, str] | None = None,
 ) -> FidelityAssessment:
-    """Record the three fidelity answers with evidence and authority labels."""
+    """Record the three fidelity answers with evidence and authority labels.
+
+    ``prerequisites_hold`` is the aggregate over the actual per-prerequisite
+    findings (finding B3), not a hardcoded positive claim.
+    """
 
     amount = stimulus.amount_requested
     if criterion_shape == "precondition_record":
@@ -1865,11 +1980,7 @@ def _assess_fidelity(
         )
     return FidelityAssessment(
         stimulus_exercises_scenario=stimulus_answer,
-        prerequisites_hold=FidelityAnswer(
-            answer=prerequisites_hold,
-            evidence=prerequisite_evidence,
-            authority="observed",
-        ),
+        prerequisites_hold=_aggregate_prerequisite_fidelity(setup),
         detector_distinguishes=FidelityAnswer(
             answer=True,
             evidence=detector.rationale,
@@ -1966,7 +2077,6 @@ def design_artifact(
                 "compiling a mechanically mis-mapped detector with false fidelity "
                 "evidence",
             )
-        requires_ineligible = criterion_shape == "ineligible_record"
         precondition = (
             _record_precondition(handoff) if criterion_shape == "precondition_record" else None
         )
@@ -2011,37 +2121,13 @@ def design_artifact(
         # certification. A command-level detector never certifies a
         # completed-effect criterion.
         _require_observation_level_compatibility(handoff, detector)
-        if requires_ineligible:
-            prerequisite_evidence = (
-                "Observed environment state establishes the refund ineligibility of "
-                f"{setup.selected_record_id} (the setup the scenario requires) and "
-                "session ownership."
-            )
-        elif criterion_shape == "session_mismatch":
-            prerequisite_evidence = (
-                "Observed environment state establishes that "
-                f"{setup.selected_record_id} is not owned by the authenticated "
-                "session (the setup the scenario requires)."
-            )
-        elif criterion_shape == "precondition_record":
-            prerequisite_evidence = (
-                "Observed environment state establishes the record status of "
-                f"{setup.selected_record_id} (the setup the scenario requires) and "
-                "its session ownership."
-            )
-        else:
-            prerequisite_evidence = (
-                "Observed environment state establishes refund eligibility, the "
-                f"applicable remaining balance ({limit}), and session ownership for "
-                f"{setup.selected_record_id}."
-            )
+        # Finding B3: the aggregate fidelity derives from the actual
+        # per-prerequisite findings — unknown stays unknown.
         fidelity = _assess_fidelity(
             handoff,
             setup,
             stimulus,
             detector,
-            prerequisites_hold=True,
-            prerequisite_evidence=prerequisite_evidence,
             criterion_shape=criterion_shape,
             precondition=precondition,
         )
@@ -2081,6 +2167,7 @@ def design_artifact(
             stimulus=stimulus,
             detector=detector,
             fidelity=fidelity,
+            prerequisite_dependencies=_prerequisite_dependencies(setup),
             freeze={
                 "frozen_content_digest": freeze.frozen_content_digest,
                 "source_scenario_id": freeze.source_scenario_id,

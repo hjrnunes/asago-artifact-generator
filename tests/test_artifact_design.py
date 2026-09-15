@@ -1822,3 +1822,130 @@ def test_compound_criterion_gets_typed_outcome(tmp_path: Path) -> None:
     assert outcome.exclusion.code == "ambiguous-criterion-shape"
     assert "ineligible_record" in outcome.exclusion.detail
     assert "excessive_refund" in outcome.exclusion.detail
+
+
+# --- Finding B3: aggregate prerequisite honesty ---
+
+
+def test_unresolved_ownership_yields_honest_aggregate_fidelity() -> None:
+    """VAL-B3-001: removing the session identity leaves the aggregate fidelity
+    honest — ``prerequisites_hold`` is not True/observed and no fidelity
+    evidence claims ownership was established; unknown stays unknown."""
+    outcome = _designed(runtime=klarna_runtime_context(authenticated_customer_id=None))
+    # The ownership-independent design still compiles (VAL-B3-002) — but its
+    # fidelity is honest about the unresolved ownership finding.
+    assert outcome.exclusion is None
+    ownership = next(
+        prerequisite
+        for prerequisite in outcome.plan.setup.established_prerequisites
+        if prerequisite["name"] == "session_ownership"
+    )
+    assert ownership["authority"] == "unresolved"
+    fidelity = outcome.plan.fidelity
+    assert fidelity.prerequisites_hold.answer is False
+    assert fidelity.prerequisites_hold.authority == "unresolved"
+    evidence = fidelity.prerequisites_hold.evidence
+    assert "session_ownership: unresolved" in evidence
+    assert "and session ownership" not in evidence
+    assert "ownership was established" not in evidence
+
+
+def test_missing_ownership_blocks_only_dependent_designs(tmp_path: Path) -> None:
+    """VAL-B3-002: under the same identity-free runtime, the design whose
+    scenario depends on the ownership relationship (session mismatch) blocks
+    with a typed reason, while the independent excessive-refund design still
+    compiles."""
+    identity_free = klarna_runtime_context(authenticated_customer_id=None)
+    blocked = _design_scn026(
+        tmp_path, runtime=_foreign_record_runtime(authenticated_customer_id=None)
+    )
+    assert blocked.plan is None
+    assert blocked.exclusion is not None
+    assert blocked.exclusion.code == "unresolved-prerequisite"
+    independent = _designed(runtime=identity_free)
+    assert independent.exclusion is None
+    assert independent.plan is not None
+
+
+def test_aggregate_fidelity_derives_from_per_prerequisite_outcomes() -> None:
+    """VAL-B3-003: the aggregate fidelity record is derived from the individual
+    prerequisite outcomes and the derivation is visible in the record."""
+    outcome = _designed()
+    assert outcome.exclusion is None
+    evidence = outcome.plan.fidelity.prerequisites_hold.evidence
+    assert "refund_eligible: observed" in evidence
+    assert "remaining_to_pay: observed" in evidence
+    assert "session_ownership: observed" in evidence
+    identity_free = _designed(runtime=klarna_runtime_context(authenticated_customer_id=None))
+    evidence = identity_free.plan.fidelity.prerequisites_hold.evidence
+    assert "refund_eligible: observed" in evidence
+    assert "remaining_to_pay: observed" in evidence
+    assert "session_ownership: unresolved" in evidence
+
+
+def test_plan_carries_execution_critical_prerequisite_dependencies() -> None:
+    """VAL-B3-004: the frozen plan records the execution-critical prerequisite
+    dependencies the pre-dispatch path must verify against the live runtime."""
+    outcome = _designed()
+    assert outcome.exclusion is None
+    dependencies = {
+        dependency["name"]: dependency for dependency in outcome.plan.prerequisite_dependencies
+    }
+    assert dependencies["remaining_to_pay"]["expected"] == 40.0
+    assert dependencies["remaining_to_pay"]["record_id"] == "ORD-101"
+    assert dependencies["remaining_to_pay"]["check"] == "record_field"
+    assert dependencies["refund_eligible"]["expected"] is True
+    # Session ownership is not an execution-critical dependency of this
+    # ownership-independent design: it is recorded as a finding, not a
+    # dependency.
+    assert "session_ownership" not in dependencies
+
+
+def test_pre_dispatch_verification_against_live_runtime() -> None:
+    """VAL-B3-004: the pre-dispatch path verifies the plan's recorded
+    prerequisites against the CURRENT live runtime — file digests alone do not
+    establish the environment still matches — and a runtime that no longer
+    matches blocks dispatch with a typed reason."""
+    from asago_artifact_generator.design.predispatch import (
+        PrerequisiteMismatchError,
+        require_dispatch_prerequisites,
+        verify_dispatch_prerequisites,
+    )
+
+    outcome = _designed()
+    live = klarna_runtime_context()
+    assert verify_dispatch_prerequisites(outcome.plan, live).verified is True
+    assert require_dispatch_prerequisites(outcome.plan, live).verified is True
+    drifted = klarna_runtime_context(balance=25.0)
+    result = verify_dispatch_prerequisites(outcome.plan, drifted)
+    assert result.verified is False
+    assert any(mismatch["name"] == "remaining_to_pay" for mismatch in result.mismatches)
+    with pytest.raises(PrerequisiteMismatchError) as mismatch:
+        require_dispatch_prerequisites(outcome.plan, drifted)
+    assert "remaining_to_pay" in str(mismatch.value)
+    missing = klarna_runtime_context()
+    missing["state"]["orders"].pop("ORD-101")
+    assert verify_dispatch_prerequisites(outcome.plan, missing).verified is False
+
+
+def test_session_mismatch_plan_dependency_verifies_live_ownership(tmp_path: Path) -> None:
+    """VAL-B3-004: the ownership-dependent design's plan dependency verifies
+    the live session/ownership relationship before dispatch."""
+    from asago_artifact_generator.design.predispatch import (
+        PrerequisiteMismatchError,
+        require_dispatch_prerequisites,
+        verify_dispatch_prerequisites,
+    )
+
+    outcome = _design_scn026(tmp_path)
+    dependencies = {
+        dependency["name"]: dependency for dependency in outcome.plan.prerequisite_dependencies
+    }
+    assert dependencies["session_ownership"]["check"] == "session_not_owner"
+    live = _foreign_record_runtime()
+    assert verify_dispatch_prerequisites(outcome.plan, live).verified is True
+    drifted = _foreign_record_runtime(foreign_owner="CUST001")
+    result = verify_dispatch_prerequisites(outcome.plan, drifted)
+    assert result.verified is False
+    with pytest.raises(PrerequisiteMismatchError):
+        require_dispatch_prerequisites(outcome.plan, drifted)

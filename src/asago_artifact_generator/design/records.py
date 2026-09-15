@@ -194,6 +194,14 @@ class ArtifactDesignPlan(ImmutableModel):
     #: downstream execution receipts can cite and verify it directly. Plans
     #: persisted before this field existed load with the empty default.
     frozen_content_digest: StrictStr = ""
+    #: The plan's execution-critical prerequisite dependencies (finding B3):
+    #: each entry records the prerequisite name, the record and observed field
+    #: it was established from, the expected observed value, and the live
+    #: check kind. The pre-dispatch path verifies these against the CURRENT
+    #: runtime state before dispatch — file digests alone do not establish
+    #: that the environment still matches. Plans persisted before this field
+    #: existed load with the empty default.
+    prerequisite_dependencies: tuple[Mapping[str, Any], ...] = ()
 
     @field_validator("tool_declarations", mode="before")
     @classmethod
@@ -213,9 +221,12 @@ class ArtifactDesignPlan(ImmutableModel):
         }
         # Legacy plans persisted before `frozen_content_digest` existed carry
         # the empty default; their recorded case digest covers the payload
-        # without the field, so the field is excluded while absent.
+        # without the field, so the field is excluded while absent. The same
+        # applies to `prerequisite_dependencies`.
         if not self.frozen_content_digest:
             payload.pop("frozen_content_digest", None)
+        if not self.prerequisite_dependencies:
+            payload.pop("prerequisite_dependencies", None)
         expected = compute_framed_digest(DESIGN_PLAN_DIGEST_FRAME, payload)
         if self.case_digest and self.case_digest != expected:
             raise ValueError("case_digest does not match plan content")
