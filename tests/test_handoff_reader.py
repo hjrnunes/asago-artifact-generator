@@ -163,6 +163,35 @@ def test_handoff_carrying_prepared_message_rejected(tmp_path: Path) -> None:
     assert excinfo.value.reason.startswith("ownership_violation")
 
 
+def test_handoff_missing_semantic_failure_criterion_rejected(tmp_path: Path) -> None:
+    """A handoff without the semantic failure criterion is rejected with a
+    typed schema reason before any design or compilation runs."""
+
+    def mutate(payload: dict) -> dict:
+        del payload["semantic_failure_criterion"]
+        return payload
+
+    path = mutated_handoff_json(tmp_path, mutate)
+    with pytest.raises(HandoffValidationError) as excinfo:
+        load_scenario_handoff(path)
+    assert excinfo.value.reason == "handoff_schema_invalid"
+    assert "semantic_failure_criterion" in excinfo.value.detail
+
+
+def test_handoff_missing_safe_alternative_rejected(tmp_path: Path) -> None:
+    """A handoff without the safe alternative is rejected the same way."""
+
+    def mutate(payload: dict) -> dict:
+        del payload["safe_alternative"]
+        return payload
+
+    path = mutated_handoff_json(tmp_path, mutate)
+    with pytest.raises(HandoffValidationError) as excinfo:
+        load_scenario_handoff(path)
+    assert excinfo.value.reason == "handoff_schema_invalid"
+    assert "safe_alternative" in excinfo.value.detail
+
+
 def test_valid_handoff_has_no_ownership_violations() -> None:
     assert ownership_violations(load_refund_payload()) == []
 
