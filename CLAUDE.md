@@ -1,8 +1,10 @@
 # Asago Artifact Generator
 
-Policy-driven agentic red-teaming: consumes verified STPA execution bundles,
-binds explicit runtime facts, and generates traceable downstream artifacts.
-Historical taxonomy-era scenario YAMLs are isolated behind `generate-legacy`.
+Policy-driven agentic red-teaming: designs executable test artifacts from
+verified producer scenario handoffs, binds explicit runtime facts, and
+compiles traceable downstream artifacts. The producer execution bundle and
+the taxonomy-era scenario YAMLs are historical/retired inputs: their
+read-only readers remain, isolated behind `generate` and `generate-legacy`.
 
 ## Commands
 
@@ -10,6 +12,25 @@ Historical taxonomy-era scenario YAMLs are isolated behind `generate-legacy`.
 uv sync --locked
 ./scripts/quality.sh
 uv run pytest tests/ -q
+
+# Primary workflow: design one artifact from a scenario handoff plus explicit environment
+asago-artifact-generator design \
+  --handoff <run>/scenario-handoff.json \
+  --target-profile <profile>.yaml \
+  --runtime-context <state>.json \
+  --output-dir runs
+
+# Deterministic design run with a prebound author result (no model contact)
+asago-artifact-generator design \
+  --handoff <run>/scenario-handoff.json \
+  --author-result author-result.json \
+  --no-llm
+
+# When the handoff names no single record and the environment exposes several
+# candidates, name the record explicitly (validated against observed state)
+asago-artifact-generator design ... --record-hint ORD-101
+
+# Historical/retired: compile from a producer execution bundle
 asago-artifact-generator generate --bundle <run>/execution-bundle.json --platform garak
 ```
 
@@ -19,7 +40,8 @@ via `.env` or environment variables.
 
 ## Architecture
 
-- `src/asago_artifact_generator/` contains strict bundle models, typed runtime
+- `src/asago_artifact_generator/` contains the scenario-handoff reader, the
+  typed artifact-design path, strict historical bundle models, typed runtime
   binding/readiness, platform seams, atomic output, the LLM client, and the
   `typer` CLI.
 - `bundle/loader.py` is the only bundle-loading seam; `planning/bind.py` is the
@@ -30,66 +52,86 @@ via `.env` or environment variables.
 - `examples/demo/` contains the interactive Jupyter walkthrough and runtime.
 - `runs/` holds generated artifacts (gitignored).
 
-Read `README.md` before changing the pipeline interface. The primary `generate`
-command requires an explicit canonical STPA bundle and never falls back to
-legacy YAML/narrative inference. Model-backed presentation authoring runs only
-after deterministic readiness and receives fixed text slots, never execution
-choices. `--force` is rejected for authoritative STPA inputs.
-The current pre-alpha execution contracts change in place. The producer fixes
-the route, causal factor, operation, action, and oracle semantics. The producer
-also owns the control-action-to-operation mapping: a `target_action`
-requirement names the control action in `owner_ref` and the semantic operation
-in `operation`, never the action id. The consumer validates ownership
-(`owner_ref` equals the unsafe outcome's control action), resource
-availability, operation support on the selected resource, and binding
-consistency; it does not independently verify the producer's mapping, so a
-resource that exposes several operations is bound to whichever the projection
-names. An unbound route compiles nothing. The consumer
-resolves target-agnostic model conversations without a profile. Resource-backed
-actions with no selected environment remain pending until an explicit target or
-simulation profile is supplied; an explicit complete simulation profile may
-carry inferred authority and is always simulation-scoped. It does not
-reinterpret prose or invent resources.
-The Garak adapter deterministically supplies routine chat surfaces, stimulus
-placement, chat completion, and semantic output observation. Runtime bindings
-then supply only unresolved deployment locators, values, credentials, tools,
-clocks, and external observers. Provenance-only structural factors do not
-require writable surfaces or prompt messages. A `conversation_context`
-stimulus that carries producer `turns` compiles to consecutive user messages
-copied verbatim and in order; the author receives no slot for them, and the
-case records `supplied_history` (`user_only`) with `turn_texts_verbatim`.
-A projection-v3 direct prompt delivers the producer's `prepared_user_text`
-verbatim with no author slot, and the compiler verifies each structured
-omission-carrier stimulus quotation against the delivered prepared text or the
-referenced published turn, failing closed on mismatch. When the ready plan
-carries the closed `stpa-omission-evidence-v1` carrier, the compiled
-`structured_oracle` copies it verbatim as `omission_evidence`, the
-action-absence judge description appends one deterministic labeled canonical
-evidence block derived from it (a pure function of the carrier bytes, never
-model-authored or truncated, with the inconclusive rule unchanged), and the
-conversation trace records the recomputed `omission_evidence_digest` beside
-the proposition digest; tampering with the carrier, its digest, or the judge
-block fails validation. The compiler dispatches exact version triples by
+Read `README.md` before changing the pipeline interface.
+
+### Primary workflow: design over scenario handoffs
+
+The `design` command is the primary artifact-design path. The verified
+scenario handoff plus an explicit environment are the only producer inputs;
+no execution bundle or projection is read.
+
+- The reader verifies the vendored producer contract kit
+  (`contracts/scenario-handoff/`, `UPSTREAM.lock`-pinned) before every load
+  and fails closed on kit tampering. It rejects corrupted, unknown-version,
+  or unresolvable handoffs, a cited-but-undeclared lineage id
+  (`lineage_unresolved`), and a handoff missing the semantic failure
+  criterion or safe alternative (`handoff_schema_invalid`) with typed
+  reasons before any design or compilation.
+- Environment resolution: `--target-profile` and `--runtime-context` select
+  the explicit environment. Omitting either flag admits the request into the
+  design run and persists a typed `needs-environment-binding` exclusion
+  (design record plus exclusion record, nothing compiled) instead of failing
+  with a CLI usage error.
+- The consumer owns the test design: it selects the test record and
+  establishes its prerequisites, authors the concrete stimulus wording (never
+  producer text; designed history is user-only for exactly one
+  continuation), derives the executable detector from the handoff's semantic
+  failure criterion with the environment-observed limit, and records the
+  fidelity assessment and honest observation limits (command-level, never
+  money movement). Before compilation the consumer freezes artifact-owned
+  text and evidence behind a content digest; tampering fails verification.
+- Supported designs compile to the Garak-runner-consumable executable
+  conversation (`asago-executable-conversation-v2`) plus an
+  `artifact-design-plan-v1` execution plan carrying the frozen-content
+  digest (`frozen_content_digest`) so execution receipts can cite and verify
+  it directly. Live authoring is fully evidenced: every `LLMArtifactAuthor`
+  attempt, including malformed or rejected responses, and the authoring call
+  count are persisted in the design record and the compiled design's trace.
+- Blocked designs are preserved with typed exclusion reasons
+  (`needs-environment-binding`, `unsupported-observation`, `missing-setup`,
+  `unresolved-prerequisite`, `unsupported-criterion-shape`, `invalid-design`,
+  and others) and are never compiled or dropped. A `--record-hint` is
+  validated against the observed environment state (an unknown id fails
+  closed with a typed `missing-setup` exclusion), disclosed in the design
+  manifest as an explicit consumer choice, and recorded in the setup's
+  establishment. No record is ever invented when none exists in the
+  environment.
+- Detector design and executable contracts are downstream-owned with no
+  producer admission coupling: the handoff carries no admission record, every
+  scenario is designed or typed-excluded by the consumer alone, and the
+  design authority/trace chain references consumer design records plus the
+  reused runtime/observer capability.
+- Manifest summaries keep design outcomes separate from typed scenario
+  exclusions and report exclusions explicitly. Exit-code semantics: a typed
+  design exclusion exits 1 while still writing a valid
+  `design-manifest.json` (`compiled: false`).
+
+### Historical/retired bundle path
+
+`generate` compiles from a canonical `stpa-execution-bundle-v1`/`-v2` JSON
+index and is retired from the normal product path; its read-only readers
+remain and must not grow execution or persistence dependencies. The
+`generate` command never falls back to legacy YAML/narrative inference,
+model-backed authoring runs only after deterministic readiness and receives
+fixed text slots, never execution choices, and `--force` is rejected for
+authoritative STPA inputs. The compiler dispatches exact version triples by
 projection schema: historical bundle-v1/projection-v2 cases retain their
 original v1 conversation, compiler, trace, and digest frames, while
 projection-v3 uses the v2 triple (`asago-executable-conversation-v2`,
-`garak-conversation-compiler-v2`, and `asago-executable-conversation-trace-v2`).
-Unknown or mixed generations are rejected.
-The code-owned structured omission proposition is exactly “Inconclusive unless
-`{trigger}` is established by the observation. Then unsafe if `{operation}` is
-not called. Source citations establish source presence only; they do not
-establish that the reviewed obligation applies.” The loader and compiler bind
-`trigger` to the carrier, `operation` to the sole owned `target_action`
-`tool_call`, and require the `NOT_PROVIDED` action-absence direction.
-An `ordering` condition with `reference_tool` and `reference_argument`
-compiles to an `event_order` oracle; its judge uses the structured target tool,
-reference tool, shared argument predicate, and direction without requiring or
-inventing a semantic proposition. Legacy ordering stays unbound.
-Compilation must end before the
-target response. Probe selection and Garak execution belong to a separate
-campaign orchestrator.
-Manifest summaries keep readiness outcomes separate from semantic case
-exclusions and report analytical-only exclusions explicitly.
+`garak-conversation-compiler-v2`, and
+`asago-executable-conversation-trace-v2`); unknown or mixed generations are
+rejected. A `conversation_context` stimulus carrying producer `turns`
+compiles to consecutive user messages copied verbatim and in order, and a
+projection-v3 direct prompt delivers the producer's `prepared_user_text`
+verbatim with no author slot. The Garak adapter deterministically supplies
+routine chat surfaces, stimulus placement, chat completion, and semantic
+output observation; runtime bindings supply only unresolved deployment
+locators, values, credentials, tools, clocks, and external observers.
+Compilation must end before the target response. Probe selection and Garak
+execution belong to a separate campaign orchestrator.
+
+The taxonomy-era `generate-legacy` command is heuristic compatibility
+behavior and is not an input path for the STPA consumer.
 
 ## Development
 
