@@ -282,10 +282,24 @@ that record is the safe alternative). Eligibility is not gated: the criterion
 concerns ownership, not eligibility. An environment with no foreign-owned
 record produces the typed exclusion; none is invented.
 
-The detector shape is derived from the actual criterion wording. Three shapes
+The detector shape is derived from the actual criterion wording. Four shapes
 are supported: record-equality on a refund-ineligible record, record-equality
-on a record the authenticated session does not own, and an amount threshold
-against the applicable balance (the excessive-refund shape).
+on a record the authenticated session does not own, an amount threshold
+against the applicable balance (the excessive-refund shape), and a
+record-state precondition: the governing rule permits the operation only when
+a named record argument's status equals a required value (e.g. `commit_to_ehr`
+only for a draft with status REVIEWED), and the criterion concerns executing
+it for a record that has not been set to that status. The precondition shape
+corroborates the status between the criterion's own wording and a governing
+rule statement naming the record argument, keys the observed records by that
+argument (MiniOcciAI's `ehr_drafts` ledger is a list of records, not an
+id-keyed mapping), records the observed status as the prerequisite, and
+compiles a record-equality detector on the rule-named argument. The
+stimulus carries no amount: the criterion concerns the record's state, not a
+refund size. When the target's seed does not contain the record the scenario
+needs (the seeded MiniOcciAI state has no drafts), the consumer establishes
+the prerequisite with the target's own documented operation, captures the
+runtime context with that record present, and records the setup provenance.
 When the observed tool schema exposes several string arguments, the
 record-identifying argument is the one whose name matches the identifier role
 of the observed record collection that holds the selected record (for example

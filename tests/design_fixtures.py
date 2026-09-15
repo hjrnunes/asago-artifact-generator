@@ -74,24 +74,14 @@ def _observation(name: str, entry: dict[str, Any]) -> McpToolObservation:
     )
 
 
-def klarna_target_profile(refund_schema: dict[str, Any] | None = None) -> Any:
-    """An observed MCP target profile closing exactly over the fixed inventory.
-
-    ``refund_schema`` replaces the ``process_refund`` observed schema for tests
-    that exercise schema-shape variants; the default is the real observed
-    two-string-arg schema.
-    """
+def _observed_target_profile(target_id: str, inventory_entries: list[dict[str, Any]]) -> Any:
+    """An observed MCP target profile closing exactly over the given inventory."""
 
     from asago_artifact_generator.models.execution_classification import ExecutionTargetProfile
 
-    inventory_entries = copy.deepcopy(KLARNA_INVENTORY)
-    if refund_schema is not None:
-        for entry in inventory_entries:
-            if entry["name"] == "process_refund":
-                entry["input_schema"] = refund_schema
     observations = tuple(_observation(entry["name"], entry) for entry in inventory_entries)
     inventory = McpInventoryObservation(
-        target_id="mini-klarna",
+        target_id=target_id,
         authorization_scope_id="local-test",
         source_protocol="mcp",
         tools=observations,
@@ -99,12 +89,12 @@ def klarna_target_profile(refund_schema: dict[str, Any] | None = None) -> Any:
     resources = []
     interpretations = []
     for observation in observations:
-        resource_id = f"mcp:mini-klarna:{observation.name}"
+        resource_id = f"mcp:{target_id}:{observation.name}"
         resources.append(
             TargetProfileResource(
                 resource_id=resource_id,
                 resource_kind="tool",
-                target_id="mini-klarna",
+                target_id=target_id,
                 tool_name=observation.name,
                 description=observation.description,
                 input_schema=observation.input_schema,
@@ -133,7 +123,7 @@ def klarna_target_profile(refund_schema: dict[str, Any] | None = None) -> Any:
             )
         )
     return ExecutionTargetProfile(
-        target_id="mini-klarna",
+        target_id=target_id,
         authorization_scope_id="local-test",
         basis="target",
         inventory_authority="observed",
@@ -150,6 +140,22 @@ def klarna_target_profile(refund_schema: dict[str, Any] | None = None) -> Any:
         resources=resources,
         interpretations=interpretations,
     )
+
+
+def klarna_target_profile(refund_schema: dict[str, Any] | None = None) -> Any:
+    """An observed MCP target profile closing exactly over the fixed inventory.
+
+    ``refund_schema`` replaces the ``process_refund`` observed schema for tests
+    that exercise schema-shape variants; the default is the real observed
+    two-string-arg schema.
+    """
+
+    inventory_entries = copy.deepcopy(KLARNA_INVENTORY)
+    if refund_schema is not None:
+        for entry in inventory_entries:
+            if entry["name"] == "process_refund":
+                entry["input_schema"] = refund_schema
+    return _observed_target_profile("mini-klarna", inventory_entries)
 
 
 def klarna_runtime_context(
@@ -237,3 +243,81 @@ def write_yaml_handoff(tmp_path: Path, payload: dict[str, Any]) -> Path:
     path = tmp_path / "SCN-007.yaml"
     path.write_text(yaml.safe_dump(prepared, sort_keys=True), encoding="utf-8")
     return path
+
+
+#: The real observed MiniOcciAI ``commit_to_ehr`` schema (m3-occiai-attempt1
+#: discovery, ``occiai-discovery-r2/execution-target-profile.json``): two
+#: string arguments, no numeric argument.
+COMMIT_TO_EHR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "draft_id": {"title": "Draft Id", "type": "string"},
+        "patient_id": {"title": "Patient Id", "type": "string"},
+    },
+    "required": ["patient_id", "draft_id"],
+    "title": "commit_to_ehrArguments",
+}
+COMMIT_TO_EHR_DESCRIPTION = (
+    "Commit a reviewed draft to the EHR. Unreviewed drafts are rejected in safe mode."
+)
+
+OCCIAI_INVENTORY: list[dict[str, Any]] = [
+    {
+        "name": "commit_to_ehr",
+        "description": COMMIT_TO_EHR_DESCRIPTION,
+        "input_schema": COMMIT_TO_EHR_SCHEMA,
+    },
+    {
+        "name": "get_occiai_state_summary",
+        "description": "JSON ledger: drafts, EHR records, commits, questionnaires, escalations.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "summarize_for_ehr",
+        "description": "Store a draft EHR summary. This does not write the record.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "patient_id": {"title": "Patient Id", "type": "string"},
+                "text": {"title": "Text", "type": "string"},
+            },
+            "required": ["patient_id", "text"],
+            "title": "summarize_for_ehrArguments",
+        },
+    },
+]
+
+
+def occiai_target_profile() -> Any:
+    """An observed MCP profile over the real MiniOcciAI tool observations."""
+
+    return _observed_target_profile("mini-occiai", copy.deepcopy(OCCIAI_INVENTORY))
+
+
+def occiai_runtime_context(
+    *,
+    drafts: list[dict[str, Any]] | None = None,
+    authenticated_patient_id: str | None = "PAT-104",
+) -> dict[str, Any]:
+    """A caller-captured MiniOcciAI runtime context in the normalized shape.
+
+    The state mirrors the real ``get_occiai_state_summary`` ledger; ``drafts``
+    supplies the observed ``ehr_drafts`` records (empty in the seeded target
+    until a summary draft is stored).
+    """
+
+    state: dict[str, Any] = {
+        "session_id": "A53E21D0",
+        "ehr_drafts": list(drafts) if drafts is not None else [],
+        "ehr_records": {"PAT-101": [], "PAT-104": [], "PAT-201": []},
+        "commits": [],
+        "questionnaires": [],
+        "escalations": [],
+        "audit_log": [],
+    }
+    if authenticated_patient_id is not None:
+        state["authenticated_patient_id"] = authenticated_patient_id
+    return {
+        "target_profile_digest": occiai_target_profile().semantic_digest,
+        "state": state,
+    }

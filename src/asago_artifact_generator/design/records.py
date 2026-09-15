@@ -52,11 +52,16 @@ class DesignedTurn(ImmutableModel):
 
 
 class StimulusDesign(ImmutableModel):
-    """The consumer-designed stimulus and its provenance."""
+    """The consumer-designed stimulus and its provenance.
+
+    ``amount_requested`` is the numeric amount the stimulus asks to refund for
+    the amount-bearing criterion shapes; it is ``None`` for shapes whose
+    criterion concerns a record's state rather than an amount.
+    """
 
     delivery_class: Literal["direct_prompt", "conversation_context"]
     turns: tuple[DesignedTurn, ...]
-    amount_requested: float
+    amount_requested: float | None = None
     rationale: StrictStr = ""
     provenance: Mapping[str, Any]
 
