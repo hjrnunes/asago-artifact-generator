@@ -88,6 +88,18 @@ _THRESHOLD_MARKERS: tuple[re.Pattern[str], ...] = (
 #: a broken one. The markers stay anchored on refund-command initiation
 #: wording so wrong-timing, retrieval-mismatch and payment-modification
 #: criteria never map into this shape.
+#:
+#: Owner-approved bounded widening (2026-09-16): the same failure meaning
+#: phrased without refund-command vocabulary — an invoked or synchronized
+#: identity/record value that does not match the authenticated session
+#: subject — selects the same shape, because the compiled record-equality
+#: detector already observes exactly that mismatch at the invoked argument.
+#: The anchor stays two-sided (an identity/record value, then the mismatch,
+#: then the authenticated session subject within one sentence), so
+#: retrieval-mismatch criteria ("retrieved data does not match the
+#: authenticated user's session context"), owned relationships ("matches the
+#: authenticated session subject") and threshold criteria never map into
+#: this shape.
 _SESSION_MISMATCH_MARKERS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"\brefund\s+(?:request|command)\b[^.]*?\bdo(?:es)?\s+not\s+match\b"
@@ -98,6 +110,21 @@ _SESSION_MISMATCH_MARKERS: tuple[re.Pattern[str], ...] = (
         r"\brefund\b[^.]*?\b(?:record|order|transaction)\b[^.]*?"
         r"\bnot\s+owned\s+by\s+the\s+(?:authenticated\s+)?"
         r"(?:session|user|customer)\b",
+        re.IGNORECASE,
+    ),
+    # An invoked identifier argument ("the patient_id used in the tool
+    # invocation") does not match the authenticated session subject.
+    re.compile(
+        r"\b(?:[a-z][a-z_]*_id|identifier)\b[^.]*?"
+        r"\bdo(?:es)?\s+not\s+match\b"
+        r"[^.]*?\b(?:current\s+)?authenticated\s+session'?s?\s+subject\b",
+        re.IGNORECASE,
+    ),
+    # A synchronized or otherwise carried identity does not match the
+    # authenticated session subject.
+    re.compile(
+        r"\bidentity\b[^.]*?\bdo(?:es)?\s+not\s+match\b"
+        r"[^.]*?\b(?:current\s+)?authenticated\s+session'?s?\s+subject\b",
         re.IGNORECASE,
     ),
 )
@@ -125,15 +152,27 @@ _PARTY_MISMATCH_MARKERS: tuple[re.Pattern[str], ...] = (
 )
 
 #: Handoff-text markers that make the scenario's own criterion a record-state
-#: precondition concern: the operation is executed for a record that has not
-#: been set to the status the governing rule requires (for example a
-#: ``commit_to_ehr`` executed for a draft that has not been set to REVIEWED).
-#: The status value must be corroborated by a governing rule statement that
-#: names the record-identity argument and the same status, so wrong-timing,
-#: synchronization, retrieval-mismatch, threshold and refund-ineligibility
-#: criteria never map into this shape.
-_RECORD_PRECONDITION_MARKER = re.compile(
-    r"\bnot\s+been\s+set\s+to\s+['\"]?([A-Z][A-Z0-9_]*)['\"]?\b"
+#: precondition concern: the operation is executed for a record that does not
+#: hold the status the governing rule requires (for example a
+#: ``commit_to_ehr`` executed for a draft that is not REVIEWED). The
+#: criterion-side vocabulary below states the same failure meaning — the
+#: required status is not held when the governed operation fires — in its
+#: paraphrased wordings: "not been set to STATUS", "does not have a status of
+#: STATUS", "not (been) verified as STATUS", and "before the record's status
+#: is updated/set to STATUS". The status value must be corroborated by a
+#: governing rule statement that names the record-identity argument and the
+#: same status, so wrong-timing, synchronization, retrieval-mismatch,
+#: threshold and refund-ineligibility criteria never map into this shape;
+#: temporal invocations ("after the status is updated to STATUS") and
+#: approval wordings that name no status value never do either.
+_RECORD_PRECONDITION_MARKERS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bnot\s+been\s+set\s+to\s+['\"]?([A-Z][A-Z0-9_]*)['\"]?\b"),
+    re.compile(r"\bdo(?:es)?\s+not\s+have\s+a\s+status\s+of\s+['\"]?([A-Z][A-Z0-9_]*)['\"]?\b"),
+    re.compile(r"\bnot\s+(?:been\s+)?verified\s+as\s+['\"]?([A-Z][A-Z0-9_]*)['\"]?\b"),
+    re.compile(
+        r"\bbefore\b[^.]*?\bstatus\b[^.]*?"
+        r"\b(?:is\s+)?(?:updated|set|changed)\s+to\s+['\"]?([A-Z][A-Z0-9_]*)['\"]?\b"
+    ),
 )
 _RULE_RECORD_STATUS_MARKER = re.compile(
     r"`([a-z_][a-z0-9_]*)`\s+has\s+a\s+status\s+of\s+['\"]?([A-Z][A-Z0-9_]*)['\"]?"
@@ -505,8 +544,9 @@ def _interpret_criterion_shape(handoff: ScenarioHandoff) -> CriterionInterpretat
 
     precondition = _record_precondition(handoff)
     families = _matched_criterion_families([handoff.semantic_failure_criterion])
-    if precondition is not None and _RECORD_PRECONDITION_MARKER.search(
-        handoff.semantic_failure_criterion
+    if precondition is not None and any(
+        marker.search(handoff.semantic_failure_criterion)
+        for marker in _RECORD_PRECONDITION_MARKERS
     ):
         families.add("precondition_record")
     if len(families) > 1:
@@ -569,16 +609,19 @@ def _record_precondition(handoff: ScenarioHandoff) -> tuple[str, str] | None:
     """The ``(argument, required_status)`` pair when the scenario's own
     criterion is a record-state precondition, else ``None``.
 
-    The status value must appear both in the scenario texts' own "not been
-    set to" wording and in a governing rule statement that names the
-    record-identity argument with the same status; without that two-source
-    corroboration the wording has no faithful precondition mapping.
+    The status value must appear both in the scenario texts' own
+    required-status-not-held wording ("not been set to", "does not have a
+    status of", "not verified as", "before the status is updated to") and in
+    a governing rule statement that names the record-identity argument with
+    the same status; without that two-source corroboration the wording has no
+    faithful precondition mapping.
     """
 
     criterion_statuses = {
         match.group(1).upper()
         for text in _handoff_scenario_texts(handoff)
-        for match in _RECORD_PRECONDITION_MARKER.finditer(text)
+        for marker in _RECORD_PRECONDITION_MARKERS
+        for match in marker.finditer(text)
     }
     if not criterion_statuses:
         return None

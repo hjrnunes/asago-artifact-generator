@@ -439,9 +439,12 @@ def test_live_prebound_author_receives_no_amount_contract(tmp_path: Path) -> Non
 
 def test_classifier_audit_over_preserved_occiai_handoffs() -> None:
     """Audit the classifier against every preserved m3-occiai-attempt1
-    handoff: SCN-017 classifies to precondition_record, every other handoff
-    stays unclassified (typed exclusion downstream). Skipped when the
-    preserved run is absent from the producer worktree."""
+    handoff: SCN-017 classifies to precondition_record, SCN-001's
+    synchronized-identity wording ("the synchronized identity does not match
+    the authenticated session subject") selects the session-mismatch shape
+    through the owner-approved semantic widening (2026-09-16), and every
+    other handoff stays unclassified (typed exclusion downstream). Skipped
+    when the preserved run is absent from the producer worktree."""
 
     runs_root = (
         Path(__file__).resolve().parent.parent.parent
@@ -457,5 +460,8 @@ def test_classifier_audit_over_preserved_occiai_handoffs() -> None:
         handoff = load_scenario_handoff(path).handoff
         classifications[handoff.scenario_id] = _criterion_shape(handoff)
     assert classifications["SCN-017"] == "precondition_record"
-    others = {key: shape for key, shape in classifications.items() if key != "SCN-017"}
+    assert classifications["SCN-001"] == "session_mismatch"
+    others = {
+        key: shape for key, shape in classifications.items() if key not in ("SCN-017", "SCN-001")
+    }
     assert all(shape is None for shape in others.values()), others
