@@ -39,6 +39,7 @@ DESIGN_EXCLUSION_CODES = (
     "invalid-design",
     "unsupported-scenario-kind",
     "environment-mismatch",
+    "effect-criterion-unsupported-by-command-observation",
 )
 
 AUTHORITIES = ("declared", "observed", "interpreted", "reviewed", "unresolved")
@@ -235,6 +236,12 @@ class DesignExclusion(ImmutableModel):
     #: (including malformed or rejected responses) and the authoring call
     #: count. ``None`` when the design blocked before any authoring call.
     authoring: Mapping[str, Any] | None = None
+    #: A separately accepted attempt-proxy claim retained for a blocked design
+    #: (finding B1): what the command-level detector could observe at attempt
+    #: level, explicitly marked as never fulfilling or replacing the blocked
+    #: scenario's own (stronger) failure criterion. ``None`` when no proxy is
+    #: retained.
+    proxy_claim: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
