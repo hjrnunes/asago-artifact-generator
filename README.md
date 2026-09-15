@@ -260,6 +260,14 @@ typed exclusion reasons (`needs-environment-binding`, `unsupported-observation`,
 `missing-setup`, `unresolved-prerequisite`, `invalid-design`, and others) and
 are never compiled or dropped.
 
+Detector design and executable contracts are downstream-owned with no producer
+admission coupling: the handoff carries no admission record, every scenario is
+designed or typed-excluded by the consumer alone, and the design authority/trace
+chain references consumer design records plus the reused runtime/observer
+capability (captured runtime context, deterministic predicates). The cutover
+reconciliation of the result-observation work is recorded in
+`docs/development/result-observation-reconciliation.md`.
+
 Record selection follows the scenario, not a fixed eligibility assertion. When
 the handoff's own criterion concerns a refund-ineligible record (the scenario
 context IS the observed ineligibility, e.g. "ORD-104 is marked
