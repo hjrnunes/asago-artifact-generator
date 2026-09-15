@@ -272,17 +272,29 @@ the setup. A criterion without such markers presupposes an eligible record and
 still requires one, so the check follows the scenario rather than being
 globally flipped.
 
-The detector shape is derived from the actual criterion wording. Exactly two
-shapes are supported: record-equality on a refund-ineligible record and an
-amount threshold against the applicable balance (the excessive-refund shape).
+The same discipline covers the session/ownership-mismatch shape: when the
+criterion concerns a refund for a record the authenticated session does not
+own (e.g. the refund request's parameters "do not match the authenticated
+user's session"), the observed foreign-owned record is the setup, the design
+records `session_ownership=false` as an observed prerequisite, and the
+detector is record equality on the foreign record id (refusing the refund on
+that record is the safe alternative). Eligibility is not gated: the criterion
+concerns ownership, not eligibility. An environment with no foreign-owned
+record produces the typed exclusion; none is invented.
+
+The detector shape is derived from the actual criterion wording. Three shapes
+are supported: record-equality on a refund-ineligible record, record-equality
+on a record the authenticated session does not own, and an amount threshold
+against the applicable balance (the excessive-refund shape).
 When the observed tool schema exposes several string arguments, the
 record-identifying argument is the one whose name matches the identifier role
 of the observed record collection that holds the selected record (for example
 `order_id` against the observed `orders` records); a schema with exactly one
 string argument keeps the direct fast path, and a schema where no argument
 matches the role fails closed with a typed `unsupported-observation`
-exclusion. A criterion with no faithful shape — wrong timing, ownership,
-authorization — is excluded with a typed `unsupported-criterion-shape` reason
+exclusion. A criterion with no faithful shape — wrong timing, intent or
+retrieval mismatch without an ownership target, authorization — is excluded
+with a typed `unsupported-criterion-shape` reason
 preserving the scenario; it is never compiled into a mechanically mis-mapped
 amount test, and no fidelity evidence ever asserts criterion wording the
 handoff does not contain.
