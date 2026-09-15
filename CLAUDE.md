@@ -96,6 +96,16 @@ no execution bundle or projection is read.
   manifest as an explicit consumer choice, and recorded in the setup's
   establishment. No record is ever invented when none exists in the
   environment.
+- Scenario kinds follow the recorded functional-feasibility decision
+  (`docs/development/functional-feasibility-decision.md`): adversarial and
+  functional handoffs both enter the criterion-shape interpretation, so the
+  supported functional case class (a command-level criterion, e.g. the
+  vendored functional refund-limit handoff) designs and compiles through the
+  existing command-level observation capability with no invented attacker,
+  while functional criteria no existing capability faithfully measures (the
+  omission-shaped criteria the saved generations persist) stay typed-blocked
+  with `unsupported-criterion-shape`. Any other kind stays fail-closed
+  blocked with `unsupported-scenario-kind`.
 - Detector design and executable contracts are downstream-owned with no
   producer admission coupling: the handoff carries no admission record, every
   scenario is designed or typed-excluded by the consumer alone, and the

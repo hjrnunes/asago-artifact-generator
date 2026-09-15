@@ -2048,11 +2048,25 @@ def design_artifact(
     fidelity: FidelityAssessment | None = None
     attempts: list[dict[str, Any]] = []
     try:
-        if handoff.kind != "adversarial":
+        # Finding F: the blanket kind block is replaced by the recorded
+        # functional-feasibility decision
+        # (docs/development/functional-feasibility-decision.md): functional
+        # handoffs are admitted to the existing criterion-shape
+        # interpretation, so the one supported functional case class (a
+        # command-level criterion, e.g. the vendored functional
+        # refund-limit handoff) designs and compiles through the existing
+        # command-level observation capability, while every unsupported
+        # functional criterion — the omission-shaped criteria the saved
+        # generations actually persist — stays typed-blocked below
+        # (``unsupported-criterion-shape`` / ``ambiguous-criterion-shape``).
+        # No attacker is invented and no observer is added. Any other kind
+        # stays fail-closed blocked.
+        if handoff.kind not in ("adversarial", "functional"):
             raise _Blocked(
                 "unsupported-scenario-kind",
-                "the M2 design slice compiles adversarial designs; functional "
-                "scenarios are preserved with this typed reason",
+                "the recorded design decision admits adversarial designs and "
+                "the supported functional case class; this scenario kind is "
+                "preserved with this typed reason",
             )
         interpretation = _interpret_criterion_shape(handoff)
         if interpretation.compound_families:

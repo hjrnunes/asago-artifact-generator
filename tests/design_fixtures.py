@@ -26,6 +26,10 @@ from asago_artifact_generator.models.execution_classification import (
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KIT_DIR = REPO_ROOT / "contracts" / "scenario-handoff"
 REFUND_HANDOFF_PATH = KIT_DIR / "handoff-v1" / "valid" / "adversarial-refund.json"
+#: The vendored functional handoff (finding F): the concrete functional
+#: acceptance case whose command-level criterion the existing observation
+#: capability faithfully measures.
+FUNCTIONAL_HANDOFF_PATH = KIT_DIR / "handoff-v1" / "valid" / "functional-no-attacker.json"
 
 #: The real observed MiniKlarna ``process_refund`` schema (attempt-9 run
 #: evidence, ``execution-target-profile.json``): two string arguments plus the
