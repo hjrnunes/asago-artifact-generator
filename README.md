@@ -259,6 +259,21 @@ the setup. A criterion without such markers presupposes an eligible record and
 still requires one, so the check follows the scenario rather than being
 globally flipped.
 
+The detector shape is derived from the actual criterion wording. Exactly two
+shapes are supported: record-equality on a refund-ineligible record and an
+amount threshold against the applicable balance (the excessive-refund shape).
+When the observed tool schema exposes several string arguments, the
+record-identifying argument is the one whose name matches the identifier role
+of the observed record collection that holds the selected record (for example
+`order_id` against the observed `orders` records); a schema with exactly one
+string argument keeps the direct fast path, and a schema where no argument
+matches the role fails closed with a typed `unsupported-observation`
+exclusion. A criterion with no faithful shape — wrong timing, ownership,
+authorization — is excluded with a typed `unsupported-criterion-shape` reason
+preserving the scenario; it is never compiled into a mechanically mis-mapped
+amount test, and no fidelity evidence ever asserts criterion wording the
+handoff does not contain.
+
 When the handoff names no single record and the environment exposes several
 candidates, pass the record explicitly:
 

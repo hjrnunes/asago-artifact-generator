@@ -33,6 +33,7 @@ AUTHOR_RESULT_DIGEST_FRAME = "artifact-author-result-v1"
 DESIGN_EXCLUSION_CODES = (
     "needs-environment-binding",
     "unsupported-observation",
+    "unsupported-criterion-shape",
     "missing-setup",
     "unresolved-prerequisite",
     "invalid-design",

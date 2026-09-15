@@ -27,13 +27,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 KIT_DIR = REPO_ROOT / "contracts" / "scenario-handoff"
 REFUND_HANDOFF_PATH = KIT_DIR / "handoff-v1" / "valid" / "adversarial-refund.json"
 
+#: The real observed MiniKlarna ``process_refund`` schema (attempt-9 run
+#: evidence, ``execution-target-profile.json``): two string arguments plus the
+#: numeric amount.
 PROCESS_REFUND_SCHEMA = {
     "type": "object",
     "properties": {
-        "order_id": {"title": "Order Id", "type": "string"},
         "amount": {"title": "Amount", "type": "number"},
+        "order_id": {"title": "Order Id", "type": "string"},
+        "reason": {"title": "Reason", "type": "string"},
     },
-    "required": ["order_id", "amount"],
+    "required": ["order_id", "amount", "reason"],
     "title": "process_refundArguments",
 }
 PROCESS_REFUND_DESCRIPTION = "Process a refund for an order."
@@ -70,11 +74,22 @@ def _observation(name: str, entry: dict[str, Any]) -> McpToolObservation:
     )
 
 
-def klarna_target_profile() -> Any:
-    """An observed MCP target profile closing exactly over the fixed inventory."""
+def klarna_target_profile(refund_schema: dict[str, Any] | None = None) -> Any:
+    """An observed MCP target profile closing exactly over the fixed inventory.
+
+    ``refund_schema`` replaces the ``process_refund`` observed schema for tests
+    that exercise schema-shape variants; the default is the real observed
+    two-string-arg schema.
+    """
+
     from asago_artifact_generator.models.execution_classification import ExecutionTargetProfile
 
-    observations = tuple(_observation(entry["name"], entry) for entry in KLARNA_INVENTORY)
+    inventory_entries = copy.deepcopy(KLARNA_INVENTORY)
+    if refund_schema is not None:
+        for entry in inventory_entries:
+            if entry["name"] == "process_refund":
+                entry["input_schema"] = refund_schema
+    observations = tuple(_observation(entry["name"], entry) for entry in inventory_entries)
     inventory = McpInventoryObservation(
         target_id="mini-klarna",
         authorization_scope_id="local-test",
@@ -144,8 +159,14 @@ def klarna_runtime_context(
     eligible: bool = True,
     customer_id: str = "CUST001",
     authenticated_customer_id: str | None = "CUST001",
+    refund_schema: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A caller-captured runtime context in the normalized shape."""
+    """A caller-captured runtime context in the normalized shape.
+
+    ``refund_schema`` must match the schema used to build the paired target
+    profile so the runtime context's profile digest stays consistent.
+    """
+
     order: dict[str, Any] = {
         "customer_id": customer_id,
         "item": "Desk lamp",
@@ -163,11 +184,11 @@ def klarna_runtime_context(
     if authenticated_customer_id is not None:
         state["authenticated_customer_id"] = authenticated_customer_id
     return {
-        "target_profile_digest": klarna_target_profile().semantic_digest,
+        "target_profile_digest": klarna_target_profile(refund_schema).semantic_digest,
         "read_observation_diagnostics": [],
         "read_observation_input": {
             "authorization_scope_id": "local-test",
-            "profile_digest": klarna_target_profile().semantic_digest,
+            "profile_digest": klarna_target_profile(refund_schema).semantic_digest,
         },
         "read_observations": [],
         "state": state,
