@@ -40,6 +40,8 @@ DESIGN_EXCLUSION_CODES = (
     "unsupported-scenario-kind",
     "environment-mismatch",
     "effect-criterion-unsupported-by-command-observation",
+    "amount-attribution-unresolved",
+    "ambiguous-criterion-shape",
 )
 
 AUTHORITIES = ("declared", "observed", "interpreted", "reviewed", "unresolved")

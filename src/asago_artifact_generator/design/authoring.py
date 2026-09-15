@@ -17,7 +17,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any, NoReturn, Protocol
 
 from ..handoff.reader import (
     ScenarioHandoff,
@@ -404,8 +404,18 @@ def _handoff_record_references(handoff: ScenarioHandoff) -> list[str]:
     return found
 
 
-def _handoff_scenario_texts(handoff: ScenarioHandoff) -> list[str]:
-    """Every handoff-owned scenario text, including the attack-tree account."""
+def _handoff_scenario_texts(
+    handoff: ScenarioHandoff,
+    *,
+    include_safe_alternative: bool = True,
+) -> list[str]:
+    """Every handoff-owned scenario text, including the attack-tree account.
+
+    ``include_safe_alternative=False`` builds the scoped corroboration pool of
+    finding B4: the texts describing the selected unsafe behavior, without the
+    safe alternative. The safe alternative is auxiliary wording — an unrelated
+    safe-alternative sentence can never select or switch the criterion shape.
+    """
 
     tree_texts: list[str] = []
 
@@ -420,10 +430,9 @@ def _handoff_scenario_texts(handoff: ScenarioHandoff) -> list[str]:
             tree_texts.append(value)
 
     _walk(handoff.attack_tree)
-    return [
+    texts: list[str] = [
         handoff.narrative,
         handoff.semantic_failure_criterion,
-        handoff.safe_alternative,
         *[rule.statement for rule in handoff.governing_rules],
         *[fact.statement for fact in handoff.sourced_facts],
         *[
@@ -438,23 +447,121 @@ def _handoff_scenario_texts(handoff: ScenarioHandoff) -> list[str]:
         ],
         *tree_texts,
     ]
+    if include_safe_alternative:
+        texts.insert(2, handoff.safe_alternative)
+    return texts
 
 
-def _requires_ineligible_record(handoff: ScenarioHandoff) -> bool:
-    """Whether the scenario's own criterion concerns a refund-ineligible record.
+#: The supported criterion-shape families and the markers that make the
+#: scenario's own criterion concern each one. A small typed shape policy
+#: (finding B4): the selected unsafe behavior's wording — the semantic failure
+#: criterion, with scoped corroboration — selects the shape, never first-match
+#: keyword precedence over the full prose concatenation.
+_CRITERION_FAMILY_MARKERS: tuple[tuple[str, tuple[re.Pattern[str], ...]], ...] = (
+    ("ineligible_record", _INELIGIBILITY_MARKERS),
+    ("session_mismatch", _SESSION_MISMATCH_MARKERS + _PARTY_MISMATCH_MARKERS),
+    ("excessive_refund", _THRESHOLD_MARKERS),
+)
 
-    The prerequisite follows the scenario, not a fixed eligibility assertion:
-    when the handoff's context IS the observed ineligibility (for example
-    "ORD-104 is marked refund_eligible: false"), selecting that ineligible
-    record is the correct setup and refusing the refund is the safe
-    alternative. A criterion without such markers presupposes an eligible
-    record, as in the excessive-refund slice.
+
+@dataclass(frozen=True, slots=True)
+class CriterionInterpretation:
+    """The typed outcome of interpreting the handoff's criterion shape.
+
+    ``shape`` names the one supported detector shape the SELECTED unsafe
+    behavior (the semantic failure criterion) interprets to. When the
+    criterion — or its scoped corroboration — supports more than one family,
+    ``compound_families`` lists them all and ``shape`` is ``None``: the design
+    receives the explicit typed ambiguous outcome instead of a first-match
+    keyword decision.
     """
+
+    shape: str | None = None
+    compound_families: tuple[str, ...] = ()
+
+
+def _matched_criterion_families(texts: list[str]) -> set[str]:
+    """The criterion-shape families any of ``texts`` carries markers for."""
+
+    return {
+        name
+        for name, patterns in _CRITERION_FAMILY_MARKERS
+        if any(pattern.search(text) for text in texts for pattern in patterns)
+    }
+
+
+def _interpret_criterion_shape(handoff: ScenarioHandoff) -> CriterionInterpretation:
+    """Interpret the SELECTED unsafe behavior's detector shape (finding B4).
+
+    The semantic failure criterion is authoritative: when its own wording
+    matches exactly one supported family, that shape is selected and no
+    auxiliary text can switch it. When the criterion is silent, the shape may
+    be corroborated — but only by the scoped pool of texts describing the
+    selected unsafe behavior (narrative, governing rules, sourced facts,
+    Gherkin, attack tree), never by the safe alternative. A criterion that
+    compounds several families — or a silent criterion whose corroboration is
+    split between families — gets the explicit typed compound outcome.
+    """
+
+    precondition = _record_precondition(handoff)
+    families = _matched_criterion_families([handoff.semantic_failure_criterion])
+    if precondition is not None and _RECORD_PRECONDITION_MARKER.search(
+        handoff.semantic_failure_criterion
+    ):
+        families.add("precondition_record")
+    if len(families) > 1:
+        return CriterionInterpretation(compound_families=tuple(sorted(families)))
+    if families:
+        return CriterionInterpretation(shape=next(iter(families)))
+    corroborated = _matched_criterion_families(
+        _handoff_scenario_texts(handoff, include_safe_alternative=False)
+    )
+    if precondition is not None:
+        corroborated.add("precondition_record")
+    if len(corroborated) > 1:
+        return CriterionInterpretation(compound_families=tuple(sorted(corroborated)))
+    if corroborated:
+        return CriterionInterpretation(shape=next(iter(corroborated)))
+    return CriterionInterpretation()
+
+
+def _criterion_shape(handoff: ScenarioHandoff) -> str | None:
+    """Derive the supported detector shape from the actual criterion wording.
+
+    Four shapes are supported in this slice: ``ineligible_record``
+    (record-equality on a refund-ineligible record), ``session_mismatch``
+    (record-equality on a record the authenticated session does not own),
+    ``excessive_refund`` (an amount threshold against the applicable balance)
+    and ``precondition_record`` (record-equality on a record whose observed
+    status does not satisfy the governing rule's precondition). The
+    interpretation is scoped to the SELECTED unsafe behavior — the semantic
+    failure criterion — with corroboration only from that behavior's own
+    texts; the safe alternative is auxiliary and can neither supply nor switch
+    the shape (finding B4). A criterion compounding several supported shapes
+    interprets to ``None`` here while ``design_artifact`` holds the design
+    with the explicit ``ambiguous-criterion-shape`` typed outcome. Any other
+    criterion — wrong timing, intent mismatch without an ownership target,
+    authorization — has no faithful shape and returns ``None``: the design is
+    excluded with a typed reason instead of compiling a mechanically
+    mis-mapped amount test whose fidelity evidence would falsely claim the
+    criterion is exercised.
+    """
+
+    return _interpret_criterion_shape(handoff).shape
+
+
+def _party_membership(handoff: ScenarioHandoff) -> bool:
+    """True when the scenario's own criterion wording concerns a
+    booking-modification party-membership mismatch (the MiniAirbnb wording of
+    the session-mismatch shape). Such a criterion carries no refund-amount
+    contract: the stimulus requests a modification, not a refund amount. The
+    scan is scoped to the selected unsafe behavior's texts — the criterion
+    plus its corroboration pool, never the safe alternative (finding B4)."""
 
     return any(
         pattern.search(text)
-        for text in _handoff_scenario_texts(handoff)
-        for pattern in _INELIGIBILITY_MARKERS
+        for text in _handoff_scenario_texts(handoff, include_safe_alternative=False)
+        for pattern in _PARTY_MISMATCH_MARKERS
     )
 
 
@@ -484,56 +591,6 @@ def _record_precondition(handoff: ScenarioHandoff) -> tuple[str, str] | None:
     if len(corroborated) == 1:
         return next(iter(corroborated))
     return None
-
-
-def _criterion_shape(handoff: ScenarioHandoff) -> str | None:
-    """Derive the supported detector shape from the actual criterion wording.
-
-    Four shapes are supported in this slice: ``ineligible_record``
-    (record-equality on a refund-ineligible record), ``session_mismatch``
-    (record-equality on a record the authenticated session does not own),
-    ``excessive_refund`` (an amount threshold against the applicable balance)
-    and ``precondition_record`` (record-equality on a record whose observed
-    status does not satisfy the governing rule's precondition). Any other
-    criterion — wrong timing, intent mismatch without an ownership target,
-    authorization — has no faithful shape and returns ``None``: the design is
-    excluded with a typed reason instead of compiling a mechanically
-    mis-mapped amount test whose fidelity evidence would falsely claim the
-    criterion is exercised.
-    """
-
-    if _requires_ineligible_record(handoff):
-        return "ineligible_record"
-    if any(
-        pattern.search(text)
-        for text in _handoff_scenario_texts(handoff)
-        for pattern in _SESSION_MISMATCH_MARKERS
-    ):
-        return "session_mismatch"
-    if _party_membership(handoff):
-        return "session_mismatch"
-    if any(
-        pattern.search(text)
-        for text in _handoff_scenario_texts(handoff)
-        for pattern in _THRESHOLD_MARKERS
-    ):
-        return "excessive_refund"
-    if _record_precondition(handoff) is not None:
-        return "precondition_record"
-    return None
-
-
-def _party_membership(handoff: ScenarioHandoff) -> bool:
-    """True when the scenario's own criterion wording concerns a
-    booking-modification party-membership mismatch (the MiniAirbnb wording of
-    the session-mismatch shape). Such a criterion carries no refund-amount
-    contract: the stimulus requests a modification, not a refund amount."""
-
-    return any(
-        pattern.search(text)
-        for text in _handoff_scenario_texts(handoff)
-        for pattern in _PARTY_MISMATCH_MARKERS
-    )
 
 
 def _criterion_requires_completed_effect(handoff: ScenarioHandoff) -> bool:
@@ -1133,6 +1190,98 @@ def _producer_texts(handoff: ScenarioHandoff) -> list[str]:
     ]
 
 
+#: The refund-request wording that marks the stimulus sentence carrying the
+#: amount-bearing request (finding B2: attribution reads the actual text).
+_REQUEST_SENTENCE_MARKER = re.compile(r"\brefund", re.IGNORECASE)
+
+#: Negated-request wordings anchored on the refund verb: a sentence that
+#: explicitly negates the refund request is not a request (finding B2).
+_NEGATED_REQUEST_MARKERS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bdo\s+not\s+refund\b", re.IGNORECASE),
+    re.compile(r"\bdoes\s+not\s+refund\b", re.IGNORECASE),
+    re.compile(r"\bdon'?t\s+refund\b", re.IGNORECASE),
+    re.compile(r"\bnever\s+refund\b", re.IGNORECASE),
+)
+
+#: Identifier tokens (ORD-101, RES-201): record references, never amounts.
+_RECORD_ID_TOKEN = re.compile(r"\b[A-Z]{2,}-\d+\b")
+
+#: Whole numeric tokens with word boundaries on both sides, so a substring
+#: inside a larger number ("100" inside "1000", "001" inside "CUST001") is
+#: never read as a separate amount (finding B2).
+_NUMERIC_TOKEN = re.compile(r"(?<!\w)\d+(?:\.\d+)?(?!\w)")
+
+#: Sentence boundary after terminal punctuation followed by whitespace; a
+#: decimal point between digits never splits ("100.0" stays one token).
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.;!?])\s+")
+
+
+def _bind_requested_amount(stimulus_text: str, amount: float) -> float:
+    """Attribute the requested amount from the ACTUAL stimulus text (finding B2).
+
+    The author's separate ``requested_amount`` field never overrides
+    contradictory text: the attributed amount must be stated, as a whole
+    numeric token, in the sentence that carries the refund request. An
+    incidental numeric substring ("100" inside "ticket 1000"), a reference
+    number in another sentence, or a negated request ("Please do not refund
+    ...") never establishes the amount, and a request sentence stating several
+    distinct numbers is ambiguous. Every failure holds as the typed
+    ``amount-attribution-unresolved`` block: the attribution is never
+    positively asserted when the text does not unambiguously state it.
+    """
+
+    def _block(reason: str) -> NoReturn:
+        raise _Blocked(
+            "amount-attribution-unresolved",
+            f"{reason} The requested_amount field never overrides the actual "
+            "stimulus text, and an unresolved attribution is never reported as "
+            "observed.",
+        )
+
+    request_sentences = [
+        sentence
+        for sentence in _SENTENCE_BOUNDARY.split(stimulus_text.strip())
+        if _REQUEST_SENTENCE_MARKER.search(sentence)
+    ]
+    if not request_sentences:
+        _block(
+            "the designed stimulus states no refund request, so no requested "
+            "amount can be attributed from the text"
+        )
+    negated = [
+        sentence
+        for sentence in request_sentences
+        if any(pattern.search(sentence) for pattern in _NEGATED_REQUEST_MARKERS)
+    ]
+    if negated:
+        _block(
+            f"the designed stimulus negates the refund request "
+            f"({negated[0].strip()!r}); a negated request is not a request"
+        )
+    stated: set[float] = set()
+    for sentence in request_sentences:
+        cleaned = _RECORD_ID_TOKEN.sub(" ", sentence)
+        stated.update(float(token) for token in _NUMERIC_TOKEN.findall(cleaned))
+    if not stated:
+        _block(
+            "the refund request states no numeric amount, so the requested "
+            "amount cannot be attributed from the text"
+        )
+    if len(stated) > 1:
+        _block(
+            f"the refund request states several distinct numeric values "
+            f"({', '.join(str(value) for value in sorted(stated))}); which one "
+            "is the requested amount is ambiguous"
+        )
+    stated_amount = next(iter(stated))
+    if stated_amount != amount:
+        _block(
+            f"the stimulus text requests {stated_amount}, not the recorded "
+            f"requested_amount {amount}"
+        )
+    return stated_amount
+
+
 def _validate_stimulus_text(
     text: str,
     handoff: ScenarioHandoff,
@@ -1300,12 +1449,11 @@ def _author_stimulus(
                         f"the requested amount {amount} does not exceed the applicable limit "
                         f"{limit}; the stimulus would not exercise the scenario",
                     )
-            if str(amount) not in stimulus_text and str(int(amount)) not in stimulus_text:
-                raise _Blocked(
-                    "invalid-design",
-                    "the designed stimulus does not state the requested amount; the test "
-                    "would not demonstrably request the excessive refund",
-                )
+            # Finding B2: the recorded amount binds only when the actual
+            # stimulus text unambiguously states it — never through a
+            # substring occurrence, a reference number, a negated request, or
+            # the field alone.
+            _bind_requested_amount(stimulus_text, float(amount))
         else:
             amount = None
         turns: list[DesignedTurn] = []
@@ -1795,7 +1943,17 @@ def design_artifact(
                 "the M2 design slice compiles adversarial designs; functional "
                 "scenarios are preserved with this typed reason",
             )
-        criterion_shape = _criterion_shape(handoff)
+        interpretation = _interpret_criterion_shape(handoff)
+        if interpretation.compound_families:
+            raise _Blocked(
+                "ambiguous-criterion-shape",
+                "the semantic failure criterion compounds the supported shapes "
+                f"{', '.join(interpretation.compound_families)}; which one is the "
+                "selected unsafe behavior's detector shape is ambiguous, so the "
+                "design holds with this typed reason instead of a first-match "
+                "keyword decision",
+            )
+        criterion_shape = interpretation.shape
         if criterion_shape is None:
             raise _Blocked(
                 "unsupported-criterion-shape",
