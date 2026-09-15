@@ -87,6 +87,51 @@ def test_unreferenced_governing_rule_rejected(tmp_path: Path) -> None:
     assert excinfo.value.reason == "lineage_unresolved"
 
 
+def test_scenario_cited_unresolvable_hazard_rejected(tmp_path: Path) -> None:
+    """An identity id cited by the scenario's own records must resolve within
+    the handoff's lineage: a cited hazard absent from the lineage fails closed
+    with a typed reason naming the id, before any design or compilation."""
+
+    def mutate(payload: dict) -> dict:
+        payload["narrative"] = (
+            payload["narrative"] + " The unsafe behavior relates to hazard H-999."
+        )
+        return payload
+
+    path = mutated_handoff_json(tmp_path, mutate)
+    with pytest.raises(HandoffValidationError) as excinfo:
+        load_scenario_handoff(path)
+    assert excinfo.value.reason == "lineage_unresolved"
+    assert "H-999" in excinfo.value.detail
+
+
+def test_scenario_cited_unresolvable_loss_rejected(tmp_path: Path) -> None:
+    def mutate(payload: dict) -> dict:
+        payload["narrative"] = payload["narrative"] + " Potential loss L-999 results."
+        return payload
+
+    path = mutated_handoff_json(tmp_path, mutate)
+    with pytest.raises(HandoffValidationError) as excinfo:
+        load_scenario_handoff(path)
+    assert excinfo.value.reason == "lineage_unresolved"
+    assert "L-999" in excinfo.value.detail
+
+
+def test_scenario_citing_declared_lineage_accepted(tmp_path: Path) -> None:
+    """No false reject: a scenario citing exactly its declared lineage ids loads."""
+
+    def mutate(payload: dict) -> dict:
+        payload["narrative"] = (
+            payload["narrative"]
+            + " The unsafe behavior relates to hazard H-1, loss L-1 and constraint SC-1."
+        )
+        return payload
+
+    path = mutated_handoff_json(tmp_path, mutate)
+    verified = load_scenario_handoff(path)
+    assert verified.verification.lineage_resolved is True
+
+
 def test_broken_ica_identity_spine_rejected(tmp_path: Path) -> None:
     def mutate(payload: dict) -> dict:
         payload["lineage"]["ica_id"] = "RESP-9:CA-9-9:MADE_UP:1"

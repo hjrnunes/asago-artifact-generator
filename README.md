@@ -240,7 +240,20 @@ environment-observed limit, and records the fidelity assessment and honest
 observation limits (command-level, never money movement). The designed history
 is user-only for exactly one continuation. Before compilation the consumer
 freezes artifact-owned text and evidence behind a content digest; receipts
-reference the frozen digest and tampering fails verification. Supported designs
+reference the frozen digest and tampering fails verification. The compiled
+`artifact-design-plan-v1` plan carries that frozen-content digest at the top
+level (`frozen_content_digest`) so downstream execution receipts can cite and
+verify it directly. Live authoring is fully evidenced: every `LLMArtifactAuthor`
+attempt — including malformed or rejected responses — and the authoring call
+count are persisted in the design record and in the compiled design's trace.
+Handoff lineage closes internally: hazard, loss and constraint identities cited
+by the scenario's own records must resolve within the handoff's lineage
+collections, and the reader rejects a cited-but-undeclared id with
+`lineage_unresolved` before any design or compilation. Omitting
+`--target-profile` or `--runtime-context` admits the request into the design
+run and persists a typed `needs-environment-binding` exclusion for the scenario
+(design record plus exclusion record, nothing compiled) instead of failing with
+a CLI usage error. Supported designs
 compile to the Garak-runner-consumable executable conversation plus an
 `artifact-design-plan-v1` execution plan. Blocked designs are preserved with
 typed exclusion reasons (`needs-environment-binding`, `unsupported-observation`,

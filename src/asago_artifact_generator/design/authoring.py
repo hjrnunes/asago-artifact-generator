@@ -45,6 +45,18 @@ from .records import (
 _CONVERSATION_APPROACH = "designed_history"
 _DIRECT_APPROACH = "direct_request"
 _MAX_DESIGNED_TURNS = 3
+_AUTHOR_REQUEST_DIGEST_FRAME = "artifact-author-request-v1"
+
+
+def _jsonable(value: Any) -> Any:
+    """Return a JSON-serializable view of one raw author response."""
+
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError):
+        return {"unserializable_response": repr(value)[:500]}
+    return value
+
 
 #: Handoff-text markers that make the scenario's own criterion concern a
 #: refund-ineligible record. The prerequisite then follows the scenario: the
@@ -617,8 +629,15 @@ def _author_stimulus(
     limit: float | None,
     requires_ineligible: bool,
     criterion_shape: str,
+    attempts: list[dict[str, Any]],
 ) -> StimulusDesign:
-    """Author the concrete stimulus with bounded slots; validate deterministically."""
+    """Author the concrete stimulus with bounded slots; validate deterministically.
+
+    Every authoring attempt is recorded in ``attempts`` — the raw response,
+    its classification, and for rejected responses the typed rejection — so
+    live malformed or rejected model responses are preserved as design-trace
+    evidence and never discarded silently.
+    """
 
     limit_source = next(
         (
@@ -663,77 +682,109 @@ def _author_stimulus(
     }
     if brief.approach not in (_DIRECT_APPROACH, _CONVERSATION_APPROACH):
         raise _Blocked("invalid-design", f"unknown design approach {brief.approach!r}")
-    result = author.author(request)
-    if not isinstance(result, dict):
-        raise _Blocked("invalid-design", "the author must return a JSON object")
-    if any(key in result for key in ("role", "roles", "turns", "messages")):
+    attempt: dict[str, Any] = {
+        "attempt": len(attempts) + 1,
+        "author_kind": type(author).__name__,
+        "recorded_at": datetime.now(UTC).isoformat(),
+        "request_digest": compute_framed_digest(_AUTHOR_REQUEST_DIGEST_FRAME, request),
+        "response": None,
+        "accepted": False,
+        "rejection_code": None,
+        "rejection_detail": None,
+    }
+    attempts.append(attempt)
+    try:
+        result = author.author(request)
+    except _Blocked as blocked:
+        attempt["rejection_code"] = blocked.code
+        attempt["rejection_detail"] = blocked.detail
+        raise
+    except Exception as exc:
+        attempt["rejection_code"] = "author_call_failed"
+        attempt["rejection_detail"] = str(exc)
         raise _Blocked(
             "invalid-design",
-            "the author returned role-serialized history; designed history is "
-            "plain user-side text only",
-        )
-    stimulus_text = result.get("stimulus_text")
-    amount = result.get("requested_amount")
-    _validate_stimulus_text(stimulus_text, handoff, setup, limit)
-    if (
-        not isinstance(amount, (int, float))
-        or isinstance(amount, bool)
-        or not math.isfinite(amount)
-    ):
-        raise _Blocked("invalid-design", "the designed request amount is not a number")
-    if requires_ineligible:
-        if amount <= 0:
+            f"the author call failed; the failed attempt is recorded: {exc}",
+        ) from exc
+    attempt["response"] = _jsonable(result)
+    try:
+        if not isinstance(result, dict):
+            raise _Blocked("invalid-design", "the author must return a JSON object")
+        if any(key in result for key in ("role", "roles", "turns", "messages")):
             raise _Blocked(
                 "invalid-design",
-                f"the requested amount {amount} is not a positive refund request; the "
-                "stimulus would not exercise the ineligible-record criterion",
+                "the author returned role-serialized history; designed history is "
+                "plain user-side text only",
             )
-    else:
-        if limit is None:
-            raise _Blocked(
-                "missing-setup",
-                "the excessive-refund criterion needs the selected record's applicable "
-                "remaining balance, which the environment state does not establish",
-            )
-        if amount <= limit:
-            raise _Blocked(
-                "invalid-design",
-                f"the requested amount {amount} does not exceed the applicable limit "
-                f"{limit}; the stimulus would not exercise the scenario",
-            )
-    if str(amount) not in stimulus_text and str(int(amount)) not in stimulus_text:
-        raise _Blocked(
-            "invalid-design",
-            "the designed stimulus does not state the requested amount; the test "
-            "would not demonstrably request the excessive refund",
-        )
-    turns: list[DesignedTurn] = []
-    if brief.approach == _CONVERSATION_APPROACH:
-        history_turns = result.get("history_turns")
+        stimulus_text = result.get("stimulus_text")
+        amount = result.get("requested_amount")
+        _validate_stimulus_text(stimulus_text, handoff, setup, limit)
         if (
-            not isinstance(history_turns, list)
-            or not history_turns
-            or len(history_turns) > _MAX_DESIGNED_TURNS
-            or any(not isinstance(turn, str) or not turn.strip() for turn in history_turns)
+            not isinstance(amount, (int, float))
+            or isinstance(amount, bool)
+            or not math.isfinite(amount)
         ):
-            raise _Blocked(
-                "invalid-design",
-                "designed history must be a non-empty array of at most "
-                f"{_MAX_DESIGNED_TURNS} plain user-side sentences",
-            )
-        for context_text in history_turns:
-            if context_text.strip() in {producer.strip() for producer in _producer_texts(handoff)}:
+            raise _Blocked("invalid-design", "the designed request amount is not a number")
+        if requires_ineligible:
+            if amount <= 0:
                 raise _Blocked(
                     "invalid-design",
-                    "designed history copies a producer handoff text block; history "
-                    "wording is consumer-owned",
+                    f"the requested amount {amount} is not a positive refund request; the "
+                    "stimulus would not exercise the ineligible-record criterion",
                 )
-        for index, context_text in enumerate(history_turns, start=1):
-            turns.append(DesignedTurn(turn_id=f"T-{index}", text=context_text))
-        delivery_class = "conversation_context"
-    else:
-        delivery_class = "direct_prompt"
-    turns.append(DesignedTurn(turn_id=f"T-{len(turns) + 1}", text=stimulus_text))
+        else:
+            if limit is None:
+                raise _Blocked(
+                    "missing-setup",
+                    "the excessive-refund criterion needs the selected record's applicable "
+                    "remaining balance, which the environment state does not establish",
+                )
+            if amount <= limit:
+                raise _Blocked(
+                    "invalid-design",
+                    f"the requested amount {amount} does not exceed the applicable limit "
+                    f"{limit}; the stimulus would not exercise the scenario",
+                )
+        if str(amount) not in stimulus_text and str(int(amount)) not in stimulus_text:
+            raise _Blocked(
+                "invalid-design",
+                "the designed stimulus does not state the requested amount; the test "
+                "would not demonstrably request the excessive refund",
+            )
+        turns: list[DesignedTurn] = []
+        if brief.approach == _CONVERSATION_APPROACH:
+            history_turns = result.get("history_turns")
+            if (
+                not isinstance(history_turns, list)
+                or not history_turns
+                or len(history_turns) > _MAX_DESIGNED_TURNS
+                or any(not isinstance(turn, str) or not turn.strip() for turn in history_turns)
+            ):
+                raise _Blocked(
+                    "invalid-design",
+                    "designed history must be a non-empty array of at most "
+                    f"{_MAX_DESIGNED_TURNS} plain user-side sentences",
+                )
+            for context_text in history_turns:
+                if context_text.strip() in {
+                    producer.strip() for producer in _producer_texts(handoff)
+                }:
+                    raise _Blocked(
+                        "invalid-design",
+                        "designed history copies a producer handoff text block; history "
+                        "wording is consumer-owned",
+                    )
+            for index, context_text in enumerate(history_turns, start=1):
+                turns.append(DesignedTurn(turn_id=f"T-{index}", text=context_text))
+            delivery_class = "conversation_context"
+        else:
+            delivery_class = "direct_prompt"
+        turns.append(DesignedTurn(turn_id=f"T-{len(turns) + 1}", text=stimulus_text))
+    except _Blocked as blocked:
+        attempt["rejection_code"] = blocked.code
+        attempt["rejection_detail"] = blocked.detail
+        raise
+    attempt["accepted"] = True
     result_digest = compute_framed_digest(
         AUTHOR_RESULT_DIGEST_FRAME,
         {
@@ -1033,6 +1084,7 @@ def design_artifact(
     design_id = f"{handoff.scenario_id}:{brief.variation_id}"
     case_id = design_id
     fidelity: FidelityAssessment | None = None
+    attempts: list[dict[str, Any]] = []
     try:
         if handoff.kind != "adversarial":
             raise _Blocked(
@@ -1071,6 +1123,7 @@ def design_artifact(
             float(limit) if limit is not None else None,
             requires_ineligible,
             criterion_shape,
+            attempts,
         )
         detector = _derive_detector(
             handoff, tool_decl, setup, requires_ineligible, record_collections
@@ -1097,6 +1150,7 @@ def design_artifact(
             requires_ineligible=requires_ineligible,
         )
         freeze = _freeze(verified, design_id, case_id, stimulus, setup, detector, fidelity)
+        authoring = _authoring_block(attempts)
         plan = ArtifactDesignPlan(
             platform=capabilities.platform,
             adapter_version=capabilities.adapter_version,
@@ -1136,6 +1190,7 @@ def design_artifact(
                 "source_scenario_id": freeze.source_scenario_id,
                 "source_scenario_version": freeze.source_scenario_version,
             },
+            frozen_content_digest=freeze.frozen_content_digest,
             tool_declarations=[
                 {
                     "type": "function",
@@ -1151,7 +1206,7 @@ def design_artifact(
                 f"oracle: {detector.rationale}"
             ),
         )
-        record = _design_record(verified, design_id, case_id, plan, None, freeze)
+        record = _design_record(verified, design_id, case_id, plan, None, freeze, authoring)
         return DesignOutcome(
             scenario_id=handoff.scenario_id,
             design_id=design_id,
@@ -1159,8 +1214,10 @@ def design_artifact(
             exclusion=None,
             freeze=freeze,
             design_record=record,
+            authoring=authoring,
         )
     except _Blocked as blocked:
+        authoring = _authoring_block(attempts)
         exclusion = DesignExclusion(
             scenario_id=handoff.scenario_id,
             design_id=design_id,
@@ -1169,8 +1226,9 @@ def design_artifact(
             handoff_schema_version=handoff.schema_version,
             handoff_digest=handoff.content_digest,
             fidelity=fidelity if fidelity is not None else _blocked_fidelity(blocked),
+            authoring=authoring,
         )
-        record = _design_record(verified, design_id, case_id, None, exclusion, None)
+        record = _design_record(verified, design_id, case_id, None, exclusion, None, authoring)
         return DesignOutcome(
             scenario_id=handoff.scenario_id,
             design_id=design_id,
@@ -1178,7 +1236,14 @@ def design_artifact(
             exclusion=exclusion,
             freeze=None,
             design_record=record,
+            authoring=authoring,
         )
+
+
+def _authoring_block(attempts: list[dict[str, Any]]) -> dict[str, Any]:
+    """The persisted authoring evidence: every attempt and the call count."""
+
+    return {"call_count": len(attempts), "attempts": attempts}
 
 
 def _design_record(
@@ -1188,6 +1253,7 @@ def _design_record(
     plan: ArtifactDesignPlan | None,
     exclusion: DesignExclusion | None,
     freeze: FreezeRecord | None,
+    authoring: dict[str, Any],
 ) -> dict[str, Any]:
     handoff = verified.handoff
     return {
@@ -1196,6 +1262,7 @@ def _design_record(
         "scenario_version": handoff.scenario_version,
         "design_id": design_id,
         "case_id": case_id,
+        "authoring": authoring,
         "handoff": {
             "schema_version": handoff.schema_version,
             "content_digest": handoff.content_digest,

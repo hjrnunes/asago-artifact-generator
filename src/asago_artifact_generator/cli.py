@@ -820,19 +820,24 @@ def design_command(
         typer.Option("--handoff", help="Scenario handoff envelope JSON/YAML."),
     ],
     target_profile: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--target-profile",
-            help="Explicit digest-attested execution-target-profile-v1 YAML/JSON.",
+            help=(
+                "Explicit digest-attested execution-target-profile-v1 YAML/JSON. "
+                "Omitting it (or --runtime-context) persists a typed "
+                "needs-environment-binding exclusion for the scenario instead of "
+                "designing."
+            ),
         ),
-    ],
+    ] = None,
     runtime_context: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--runtime-context",
             help="Caller-captured read-only runtime state observations (JSON).",
         ),
-    ],
+    ] = None,
     platform: Annotated[
         str,
         typer.Option("--platform", help="Target platform adapter (currently: garak)."),
@@ -932,7 +937,11 @@ def design_command(
         brief=DesignBrief(record_hint=record_hint),
         author=author,
     )
-    compiled = compile_design(outcome.plan) if outcome.compiled else None
+    compiled = (
+        compile_design(outcome.plan, authoring=dict(outcome.authoring) or None)
+        if outcome.compiled
+        else None
+    )
     paths = write_design_outputs(output_dir, outcome, compiled=compiled)
     freeze_verification = None
     if compiled is not None:

@@ -10,7 +10,7 @@ projection or bundle anywhere.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic import StrictStr, field_validator, model_validator
@@ -182,6 +182,10 @@ class ArtifactDesignPlan(ImmutableModel):
     tool_declarations: tuple[Mapping[str, Any], ...] = ()
     judge_description: StrictStr | None = None
     case_digest: StrictStr = ""
+    #: The freeze record's frozen-content digest, carried at the top level so
+    #: downstream execution receipts can cite and verify it directly. Plans
+    #: persisted before this field existed load with the empty default.
+    frozen_content_digest: StrictStr = ""
 
     @field_validator("tool_declarations", mode="before")
     @classmethod
@@ -194,14 +198,17 @@ class ArtifactDesignPlan(ImmutableModel):
 
     @model_validator(mode="after")
     def _attest_case_digest(self) -> ArtifactDesignPlan:
-        expected = compute_framed_digest(
-            DESIGN_PLAN_DIGEST_FRAME,
-            {
-                key: value
-                for key, value in self.model_dump(mode="json").items()
-                if key != "case_digest"
-            },
-        )
+        payload = {
+            key: value
+            for key, value in self.model_dump(mode="json").items()
+            if key != "case_digest"
+        }
+        # Legacy plans persisted before `frozen_content_digest` existed carry
+        # the empty default; their recorded case digest covers the payload
+        # without the field, so the field is excluded while absent.
+        if not self.frozen_content_digest:
+            payload.pop("frozen_content_digest", None)
+        expected = compute_framed_digest(DESIGN_PLAN_DIGEST_FRAME, payload)
         if self.case_digest and self.case_digest != expected:
             raise ValueError("case_digest does not match plan content")
         object.__setattr__(self, "case_digest", expected)
@@ -219,6 +226,10 @@ class DesignExclusion(ImmutableModel):
     handoff_schema_version: StrictStr
     handoff_digest: StrictStr
     fidelity: FidelityAssessment | None = None
+    #: Live authoring attempt evidence for the blocked design: every attempt
+    #: (including malformed or rejected responses) and the authoring call
+    #: count. ``None`` when the design blocked before any authoring call.
+    authoring: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,6 +242,9 @@ class DesignOutcome:
     exclusion: DesignExclusion | None
     freeze: FreezeRecord | None
     design_record: Mapping[str, Any]
+    #: Live authoring attempt evidence: every attempt with its raw response
+    #: and classification, plus the authoring call count.
+    authoring: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def compiled(self) -> bool:

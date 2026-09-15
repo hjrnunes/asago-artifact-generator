@@ -213,8 +213,17 @@ def _design_trace_errors(
     return errors
 
 
-def compile_design(plan: ArtifactDesignPlan) -> CompiledArtifact:
-    """Compile one supported design to the runner-consumable pair."""
+def compile_design(
+    plan: ArtifactDesignPlan,
+    *,
+    authoring: Mapping[str, Any] | None = None,
+) -> CompiledArtifact:
+    """Compile one supported design to the runner-consumable pair.
+
+    ``authoring`` is the live authoring attempt evidence (every attempt with
+    its raw response plus the authoring call count); when supplied it is
+    persisted in the design trace beside the digest chain.
+    """
 
     if not isinstance(plan, ArtifactDesignPlan):
         raise TypeError("design compilation requires an ArtifactDesignPlan")
@@ -224,7 +233,7 @@ def compile_design(plan: ArtifactDesignPlan) -> CompiledArtifact:
     errors = validate_design_case(artifact, plan)
     if errors:
         raise ArtifactValidationError("; ".join(errors))
-    trace_body = {
+    trace_body: dict[str, Any] = {
         "schema_version": DESIGN_TRACE_SCHEMA_VERSION,
         "source": body["source"],
         "binding": body["binding"],
@@ -237,6 +246,8 @@ def compile_design(plan: ArtifactDesignPlan) -> CompiledArtifact:
         "frozen_content_digest": plan.freeze.get("frozen_content_digest"),
         "conversation_scope": dict(plan.conversation_scope),
     }
+    if authoring:
+        trace_body["authoring"] = dict(authoring)
     trace = {
         **trace_body,
         "trace_digest": compute_framed_digest(DESIGN_TRACE_SCHEMA_VERSION, trace_body),
@@ -390,6 +401,12 @@ def verify_frozen_artifact(root: Path) -> dict[str, Any]:
             raise FreezeVerificationError(
                 "frozen_content_mismatch",
                 f"{plan_path}: plan freeze authority differs from the frozen record",
+            )
+        if plan.frozen_content_digest and plan.frozen_content_digest != digest:
+            raise FreezeVerificationError(
+                "frozen_content_mismatch",
+                f"{plan_path}: plan frozen_content_digest {plan.frozen_content_digest!r} "
+                f"differs from the frozen record digest {digest!r}",
             )
     return {"ok": True}
 

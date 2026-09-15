@@ -294,6 +294,93 @@ def test_plan_round_trips_through_dispatch_loader(tmp_path: Path) -> None:
     assert loaded == outcome.plan
 
 
+def test_plan_carries_frozen_content_digest_matching_freeze() -> None:
+    """VAL-CONS-010 consumer half: the compiled execution plan carries the
+    frozen-content digest from the freeze record so downstream execution
+    receipts can cite and verify it."""
+
+    outcome = _designed()
+    assert outcome.plan.frozen_content_digest == outcome.freeze.frozen_content_digest
+    compiled = compile_design(outcome.plan)
+    assert compiled.artifact["frozen"]["frozen_content_digest"] == (
+        outcome.plan.frozen_content_digest
+    )
+
+
+def test_legacy_plan_without_new_fields_loads(tmp_path: Path) -> None:
+    """Plans persisted before the frozen-digest plan field keep loading: the
+    case-digest attestation excludes absent optional fields."""
+
+    outcome = _designed()
+    payload = outcome.plan.model_dump(mode="json")
+    legacy = {
+        key: value
+        for key, value in payload.items()
+        if key not in ("frozen_content_digest", "case_digest")
+    }
+    from asago_artifact_generator.design.records import DESIGN_PLAN_DIGEST_FRAME
+    from asago_artifact_generator.models._base import compute_framed_digest
+
+    legacy["case_digest"] = compute_framed_digest(DESIGN_PLAN_DIGEST_FRAME, legacy)
+    plan_path = tmp_path / "legacy-plan.json"
+    plan_path.write_text(json.dumps(legacy), encoding="utf-8")
+    loaded = load_execution_plan(plan_path)
+    assert loaded.schema_version == "artifact-design-plan-v1"
+    assert loaded.frozen_content_digest == ""
+
+
+def test_trace_records_authoring_attempts_and_call_count() -> None:
+    """Every authoring attempt and the authoring call count are persisted in
+    the design trace of a compiled design."""
+
+    outcome = _designed()
+    compiled = compile_design(outcome.plan, authoring=outcome.authoring)
+    block = compiled.trace["authoring"]
+    assert block["call_count"] == 1
+    attempt = block["attempts"][0]
+    assert attempt["accepted"] is True
+    assert attempt["author_kind"] == "PreboundAuthor"
+    assert attempt["response"]["stimulus_text"] == STIMULUS
+    assert attempt["request_digest"]
+
+
+def test_malformed_author_response_persisted_with_rejection_reason() -> None:
+    """A malformed author response is never discarded silently: the raw
+    response, its rejection, and the call count persist in the design record,
+    the exclusion record, and the outcome."""
+
+    outcome = _designed(author=PreboundAuthor({"SCN-007": {"stimulus_text": STIMULUS}}))
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "invalid-design"
+    block = outcome.authoring
+    assert block["call_count"] == 1
+    attempt = block["attempts"][0]
+    assert attempt["accepted"] is False
+    assert attempt["response"] == {"stimulus_text": STIMULUS}
+    assert attempt["rejection_code"] == "invalid-design"
+    assert attempt["rejection_detail"]
+    record = outcome.design_record
+    assert record["authoring"]["call_count"] == 1
+    assert record["authoring"]["attempts"][0]["accepted"] is False
+
+
+def test_author_error_response_persisted(tmp_path: Path) -> None:
+    """An author seam that raises still records the failed attempt."""
+
+    class ExplodingAuthor:
+        def author(self, request: Any) -> dict[str, Any]:
+            raise RuntimeError("provider unreachable")
+
+    outcome = _designed(author=ExplodingAuthor())
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "invalid-design"
+    assert outcome.authoring["call_count"] == 1
+    attempt = outcome.authoring["attempts"][0]
+    assert attempt["accepted"] is False
+    assert attempt["response"] is None
+    assert "provider unreachable" in attempt["rejection_detail"]
+
+
 def test_multiple_materially_different_artifacts_same_source_identity() -> None:
     direct = _designed()
     history = _designed(

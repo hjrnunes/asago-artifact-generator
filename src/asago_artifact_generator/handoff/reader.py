@@ -15,10 +15,14 @@ fails closed with a typed reason for every defect class:
 
 The design path admits the handoff plus an explicit environment as its only
 producer inputs, so lineage resolution is defined within the envelope:
-constraint references must resolve to governing rules, and the controller /
-control-action / ICA identity spine must be self-consistent. Hazard and loss
-identifiers are recorded with ``producer_declared`` authority; the envelope is
-their registry because no other producer input is admitted.
+constraint references must resolve to governing rules, the controller /
+control-action / ICA identity spine must be self-consistent, and every
+hazard / loss / constraint identity the scenario's own records cite
+(narrative, attack tree, Gherkin, facts, rules, assumptions) must resolve
+within the handoff's lineage collections. Hazard and loss identifiers
+declared only in the lineage block are recorded with ``producer_declared``
+authority; the envelope is their registry because no other producer input is
+admitted.
 """
 
 from __future__ import annotations
@@ -411,6 +415,87 @@ def _resolve_lineage(handoff: ScenarioHandoff) -> None:
         if not lineage.loss_ids:
             raise HandoffValidationError("lineage_unresolved", "adversarial handoff names no loss")
     _resolve_identity_spine(lineage)
+    _resolve_cited_lineage_ids(handoff)
+
+
+#: Lineage identity classes with a declared in-envelope registry. A token of
+#: one of these shapes cited by the scenario's own records must be a member of
+#: the corresponding lineage collection, or the citation is unresolved.
+_LINEAGE_ID_CLASSES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("hazard", re.compile(r"^H-\d+$")),
+    ("loss", re.compile(r"^L-\d+$")),
+    ("constraint", re.compile(r"^SC-\d+$")),
+)
+_CITED_ID_TOKEN = re.compile(r"\b[A-Z]{1,8}-\d+\b")
+
+
+def _scenario_corpus_texts(handoff: ScenarioHandoff) -> list[str]:
+    """Every scenario-owned text the handoff publishes, tree included."""
+
+    def _walk(value: Any) -> list[str]:
+        if isinstance(value, Mapping):
+            texts: list[str] = []
+            for item in value.values():
+                texts.extend(_walk(item))
+            return texts
+        if isinstance(value, (list, tuple)):
+            texts = []
+            for item in value:
+                texts.extend(_walk(item))
+            return texts
+        if isinstance(value, str):
+            return [value]
+        return []
+
+    gherkin = handoff.gherkin
+    return [
+        handoff.narrative,
+        handoff.semantic_failure_criterion,
+        handoff.safe_alternative,
+        handoff.hypothesis_framing,
+        *[rule.statement for rule in handoff.governing_rules],
+        *[fact.statement for fact in handoff.sourced_facts],
+        *[fact.source for fact in handoff.sourced_facts],
+        gherkin.feature,
+        gherkin.scenario,
+        *gherkin.given,
+        *gherkin.when,
+        *gherkin.then_expected,
+        *gherkin.then_unsafe_alternative,
+        *_walk(handoff.attack_tree),
+        *[unknown for unknown in handoff.assumptions_and_unknowns],
+    ]
+
+
+def _resolve_cited_lineage_ids(handoff: ScenarioHandoff) -> None:
+    """Every lineage-class identity the scenario cites must resolve internally.
+
+    The handoff is the only producer input, so a hazard / loss / constraint
+    identity cited by the scenario's own records resolves only against the
+    handoff's own lineage collections. A cited id the lineage does not declare
+    is an unresolved internal reference and fails closed before any design or
+    compilation, with a typed reason naming the id.
+    """
+
+    declared: dict[str, frozenset[str]] = {
+        "hazard": frozenset(handoff.lineage.hazard_ids),
+        "loss": frozenset(handoff.lineage.loss_ids),
+        "constraint": frozenset(handoff.lineage.constraint_ids),
+    }
+    unresolved: list[str] = []
+    for text in _scenario_corpus_texts(handoff):
+        for token in _CITED_ID_TOKEN.findall(text):
+            for class_name, pattern in _LINEAGE_ID_CLASSES:
+                if pattern.match(token) and token not in declared[class_name]:
+                    if token not in unresolved:
+                        unresolved.append(token)
+    if unresolved:
+        raise HandoffValidationError(
+            "lineage_unresolved",
+            "the scenario cites "
+            + ", ".join(unresolved)
+            + " which the handoff lineage does not declare",
+        )
 
 
 def _resolve_identity_spine(lineage: HandoffLineage) -> None:

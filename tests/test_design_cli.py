@@ -110,3 +110,56 @@ def test_design_cli_unknown_record_hint_fails_closed_typed(tmp_path: Path) -> No
     assert "ORD-999" in manifest["exclusion_detail"]
     assert manifest["record_hint"]["record_id"] == "ORD-999"
     assert not (output_dir / "SCN-007:design-1" / "executable-conversation.json").exists()
+
+
+def _invoke_design_without(tmp_path: Path, output_dir: Path, omit: str) -> Any:
+    """Run the design command with one environment input flag omitted."""
+    inputs = _write_inputs(tmp_path)
+    args = ["design", "--handoff", str(REFUND_HANDOFF_PATH)]
+    if omit != "profile":
+        args += ["--target-profile", str(inputs["profile"])]
+    if omit != "runtime":
+        args += ["--runtime-context", str(inputs["runtime"])]
+    args += [
+        "--author-result",
+        str(inputs["author"]),
+        "--no-llm",
+        "--output-dir",
+        str(output_dir),
+    ]
+    return CliRunner().invoke(app, args)
+
+
+def test_design_cli_without_profile_persists_typed_exclusion(tmp_path: Path) -> None:
+    """VAL-CONS-009: omitting --target-profile admits the request into the
+    design run and persists a typed needs-environment-binding outcome for the
+    scenario — never a bare usage error, never a compiled artifact."""
+    output_dir = tmp_path / "out"
+    result = _invoke_design_without(tmp_path, output_dir, "profile")
+    assert result.exit_code == 1, result.output
+    manifest = json.loads((output_dir / "design-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["scenario_id"] == "SCN-007"
+    assert manifest["compiled"] is False
+    assert manifest["exclusion_code"] == "needs-environment-binding"
+    assert manifest["exclusion_detail"]
+    entry = output_dir / "SCN-007:design-1"
+    assert (entry / "design-record.json").exists()
+    assert (entry / "design-exclusion.json").exists()
+    assert not (entry / "execution-plan.json").exists()
+    assert not (entry / "executable-conversation.json").exists()
+    exclusion = json.loads((entry / "design-exclusion.json").read_text(encoding="utf-8"))
+    assert exclusion["code"] == "needs-environment-binding"
+
+
+def test_design_cli_without_runtime_context_persists_typed_exclusion(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "out"
+    result = _invoke_design_without(tmp_path, output_dir, "runtime")
+    assert result.exit_code == 1, result.output
+    manifest = json.loads((output_dir / "design-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["compiled"] is False
+    assert manifest["exclusion_code"] == "needs-environment-binding"
+    entry = output_dir / "SCN-007:design-1"
+    assert (entry / "design-exclusion.json").exists()
+    assert not (entry / "executable-conversation.json").exists()
