@@ -86,12 +86,17 @@ class SetupDesign(ImmutableModel):
 
 
 class DetectorDesign(ImmutableModel):
-    """The executable detector derived from the semantic failure criterion."""
+    """The executable detector derived from the semantic failure criterion.
+
+    ``expected`` is the numeric limit for a threshold detector
+    (``greater_than``) or the record identifier for an equality detector
+    (``equals``) when the criterion concerns a specific record.
+    """
 
     tool_name: StrictStr
     field_path: StrictStr
     comparison: StrictStr
-    expected: float
+    expected: float | str
     limit_source: Mapping[str, Any]
     rationale: StrictStr
     derived_from: Literal["handoff.semantic_failure_criterion"] = (

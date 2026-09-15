@@ -791,6 +791,7 @@ def _design_manifest(
     outcome: Any,
     paths: dict[str, str],
     freeze_verification: dict[str, Any] | None,
+    record_hint: str | None = None,
 ) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "schema_version": "design-manifest-v1",
@@ -799,6 +800,11 @@ def _design_manifest(
         "compiled": outcome.compiled,
         "paths": paths,
     }
+    if record_hint is not None:
+        entry["record_hint"] = {
+            "record_id": record_hint,
+            "disclosed_as": "explicit_consumer_choice",
+        }
     if outcome.exclusion is not None:
         entry["exclusion_code"] = outcome.exclusion.code
         entry["exclusion_detail"] = outcome.exclusion.detail
@@ -849,6 +855,17 @@ def design_command(
         bool,
         typer.Option("--no-llm", help="Never contact a model; requires --author-result."),
     ] = False,
+    record_hint: Annotated[
+        str | None,
+        typer.Option(
+            "--record-hint",
+            help=(
+                "Explicit record identifier the design must use; validated against "
+                "the observed environment state and disclosed in the manifest as a "
+                "consumer choice."
+            ),
+        ),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option("-v", "--verbose", help="Verbose logging."),
@@ -912,7 +929,7 @@ def design_command(
         profile=profile,
         runtime_context=runtime_context_data,
         capabilities=garak_capabilities(),
-        brief=DesignBrief(),
+        brief=DesignBrief(record_hint=record_hint),
         author=author,
     )
     compiled = compile_design(outcome.plan) if outcome.compiled else None
@@ -920,7 +937,7 @@ def design_command(
     freeze_verification = None
     if compiled is not None:
         freeze_verification = verify_frozen_artifact(output_dir)
-    manifest = _design_manifest(outcome, paths, freeze_verification)
+    manifest = _design_manifest(outcome, paths, freeze_verification, record_hint=record_hint)
     manifest_path = output_dir / "design-manifest.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")

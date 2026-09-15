@@ -247,6 +247,30 @@ typed exclusion reasons (`needs-environment-binding`, `unsupported-observation`,
 `missing-setup`, `unresolved-prerequisite`, `invalid-design`, and others) and
 are never compiled or dropped.
 
+Record selection follows the scenario, not a fixed eligibility assertion. When
+the handoff's own criterion concerns a refund-ineligible record (the scenario
+context IS the observed ineligibility, e.g. "ORD-104 is marked
+refund_eligible: false"), the observed-ineligible record is the correct test
+setup: the design records `refund_eligible=false` as an observed prerequisite,
+derives an equality detector on the record-identifying argument (any
+`process_refund` command on that record is the unsafe behavior; refusing the
+refund is the safe alternative), and records the prerequisite establishment in
+the setup. A criterion without such markers presupposes an eligible record and
+still requires one, so the check follows the scenario rather than being
+globally flipped.
+
+When the handoff names no single record and the environment exposes several
+candidates, pass the record explicitly:
+
+```bash
+asago-artifact-generator design ... --record-hint ORD-101
+```
+
+The hint is validated against the observed environment state (an unknown id
+fails closed with a typed `missing-setup` exclusion), disclosed in the design
+manifest as an explicit consumer choice, and recorded in the setup's
+establishment. No record is ever invented when none exists in the environment.
+
 The producer's handoff contract kit is vendored byte-for-byte under
 `contracts/scenario-handoff/` with an `UPSTREAM.lock` pinning the producer
 revision; the reader verifies the kit before every load and fails closed on kit
