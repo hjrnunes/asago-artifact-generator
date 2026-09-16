@@ -20,7 +20,9 @@ asago-artifact-generator design \
   --runtime-context <state>.json \
   --output-dir runs
 
-# Deterministic design run with a prebound author result (no model contact)
+# Deterministic design run with a prebound author result (no model contact).
+# --author-result takes the FLAT prebound result (an object with top-level
+# stimulus_text and requested_amount), not an object keyed by scenario id.
 asago-artifact-generator design \
   --handoff <run>/scenario-handoff.json \
   --author-result author-result.json \
@@ -78,7 +80,15 @@ no execution bundle or projection is read.
   continuation), derives the executable detector from the handoff's semantic
   failure criterion with the environment-observed limit, and records the
   fidelity assessment and honest observation limits (command-level, never
-  money movement). Before compilation the consumer freezes artifact-owned
+  money movement). Amount attribution binds the recorded `requested_amount`
+  only when the actual stimulus text states it: an incidental numeric
+  substring, a separate field contradicting the text, and negated or
+  ambiguous requests stay typed-unresolved
+  (`amount-attribution-unresolved`). Criterion-shape interpretation is scoped
+  to the selected unsafe behavior: the criterion authoritatively selects the
+  shape, auxiliary text (such as a safe-alternative sentence) cannot switch
+  it, and compound criteria stay typed `ambiguous-criterion-shape`. Before
+  compilation the consumer freezes artifact-owned
   text and evidence behind a content digest; tampering fails verification.
 - Supported designs compile to the Garak-runner-consumable executable
   conversation (`asago-executable-conversation-v2`) plus an
@@ -90,7 +100,11 @@ no execution bundle or projection is read.
 - Blocked designs are preserved with typed exclusion reasons
   (`needs-environment-binding`, `unsupported-observation`, `missing-setup`,
   `unresolved-prerequisite`, `unsupported-criterion-shape`, `invalid-design`,
-  and others) and are never compiled or dropped. A `--record-hint` is
+  `effect-criterion-unsupported-by-command-observation`,
+  `amount-attribution-unresolved`, `ambiguous-criterion-shape`, and others;
+  the closed set is `DESIGN_EXCLUSION_CODES` in
+  `src/asago_artifact_generator/design/records.py`) and are never compiled or
+  dropped. A `--record-hint` is
   validated against the observed environment state (an unknown id fails
   closed with a typed `missing-setup` exclusion), disclosed in the design
   manifest as an explicit consumer choice, and recorded in the setup's
@@ -104,7 +118,9 @@ no execution bundle or projection is read.
   existing command-level observation capability with no invented attacker,
   while functional criteria no existing capability faithfully measures (the
   omission-shaped criteria the saved generations persist) stay typed-blocked
-  with `unsupported-criterion-shape`. Any other kind stays fail-closed
+  (`unsupported-criterion-shape`; a persisted criterion that interprets to a
+  shape only through corroboration-pool wording instead blocks
+  `unsupported-observation`). Any other kind stays fail-closed
   blocked with `unsupported-scenario-kind`.
 - Detector design and executable contracts are downstream-owned with no
   producer admission coupling: the handoff carries no admission record, every
