@@ -303,6 +303,18 @@ class PreboundAuthor:
         result = self._results.get(scenario_id)
         if result is None:
             raise _Blocked("invalid-design", f"no prebound author result for {scenario_id!r}")
+        if (
+            isinstance(result, Mapping)
+            and len(result) == 1
+            and next(iter(result)) == scenario_id
+            and isinstance(result[scenario_id], Mapping)
+        ):
+            raise _Blocked(
+                "invalid-design",
+                f"the prebound author result for {scenario_id!r} is keyed by scenario "
+                "id; the CLI expects the flat prebound result (an object with top-level "
+                "stimulus_text and requested_amount), not an object keyed by scenario id",
+            )
         return dict(result)
 
 

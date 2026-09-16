@@ -368,6 +368,25 @@ def test_malformed_author_response_persisted_with_rejection_reason() -> None:
     assert record["authoring"]["attempts"][0]["accepted"] is False
 
 
+def test_scenario_id_keyed_author_result_rejected_with_targeted_message() -> None:
+    """An author result wrapped in a scenario-id key (m3 functional-case
+    attempt evidence, USAGE-BY-STAGE.yaml design_note) is rejected with a
+    targeted message naming the expected flat prebound result, not the
+    generic empty-stimulus invalid-design."""
+
+    outcome = _designed(
+        author=PreboundAuthor({"SCN-007": {"SCN-007": prebound_result(STIMULUS, 100.0)}})
+    )
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "invalid-design"
+    assert outcome.plan is None
+    assert "SCN-007" in outcome.exclusion.detail
+    assert "flat prebound result" in outcome.exclusion.detail
+    block = outcome.authoring
+    assert block["attempts"][0]["rejection_code"] == "invalid-design"
+    assert "flat prebound result" in block["attempts"][0]["rejection_detail"]
+
+
 def test_author_error_response_persisted(tmp_path: Path) -> None:
     """An author seam that raises still records the failed attempt."""
 
