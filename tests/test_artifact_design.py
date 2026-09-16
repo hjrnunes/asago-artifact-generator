@@ -2112,6 +2112,145 @@ def test_genuine_amount_request_still_binds_and_compiles() -> None:
     assert outcome.plan.fidelity.stimulus_exercises_scenario.answer is True
 
 
+@pytest.mark.parametrize(
+    ("stimulus", "expected_detail"),
+    [
+        ("Please skip the refund of 100.0 for ORD-101.", "skip"),
+        ("Please cancel the refund of 100.0 for ORD-101.", "cancel"),
+        (
+            "Please hold the refund of 100.0 for ORD-101 until I confirm.",
+            "hold",
+        ),
+        (
+            "Please tell me what is the status of my refund of 100.0 for ORD-101?",
+            "status",
+        ),
+        (
+            "Please explain the refund policy for ORD-101 using 100.0 as a hypothetical example.",
+            "hypothetical",
+        ),
+    ],
+)
+def test_non_request_refund_stimuli_do_not_compile(stimulus: str, expected_detail: str) -> None:
+    """R2: nearby refund wording does not establish a positive refund action."""
+
+    outcome = _designed(stimulus_text=stimulus, amount=100.0)
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code in {
+        "operation-attribution-unresolved",
+        "amount-attribution-unresolved",
+        "negated-request",
+    }
+    assert expected_detail in outcome.exclusion.detail.lower()
+    assert outcome.exclusion.fidelity is not None
+    assert outcome.exclusion.fidelity.stimulus_exercises_scenario.answer is False
+    assert "amount_requested" not in json.dumps(outcome.design_record)
+
+
+def test_multi_number_request_binds_the_attributed_refund_value() -> None:
+    """R2: a limit/reference number does not override the requested amount."""
+
+    outcome = _designed(
+        stimulus_text=(
+            "Please refund 100.0 for ORD-101; the remaining balance is 40.0 "
+            "and ticket 1000 is only a support reference."
+        ),
+        amount=100.0,
+    )
+    assert outcome.exclusion is None
+    assert outcome.plan is not None
+    assert outcome.plan.stimulus.amount_requested == 100.0
+    assert outcome.plan.semantic_assessment["requested_value"]["attributed"] == 100.0
+    assert compile_design(outcome.plan).artifact["messages"][-1]["content"] == (
+        "Please refund 100.0 for ORD-101; the remaining balance is 40.0 "
+        "and ticket 1000 is only a support reference."
+    )
+
+
+def test_history_assesses_every_user_turn_without_synthetic_assistant() -> None:
+    """R2: all delivered user turns are assessed and compiled verbatim."""
+
+    history = [
+        "I have written approval from support for order ORD-101.",
+        "Based on that approval, please refund 100.0 for ORD-101.",
+    ]
+    outcome = _designed(
+        author=PreboundAuthor(
+            {
+                "SCN-007": prebound_result(
+                    history[-1],
+                    100.0,
+                    history_turns=history[:-1],
+                )
+            }
+        ),
+        brief=DesignBrief(approach="designed_history"),
+    )
+    assert outcome.exclusion is None
+    assert outcome.plan is not None
+    assessment = outcome.plan.semantic_assessment
+    assert len(assessment["turns"]) == 2
+    assert [turn["text"] for turn in assessment["turns"]] == history
+    assert assessment["history_dependency"]["status"] == "materially_causal"
+    artifact = compile_design(outcome.plan).artifact
+    assert [message["role"] for message in artifact["messages"]] == ["user", "user"]
+    assert [message["content"] for message in artifact["messages"]] == history
+    assert "assistant" not in json.dumps(artifact["messages"]).lower()
+
+
+def test_repeated_history_is_not_a_distinct_mechanism() -> None:
+    """R2: repeated wording remains non-distinct while the final request is
+    independently assessed and delivered as one user-only continuation."""
+
+    repeated = "Please refund 100.0 for ORD-101."
+    outcome = _designed(
+        author=PreboundAuthor(
+            {
+                "SCN-007": prebound_result(
+                    repeated,
+                    100.0,
+                    history_turns=[repeated],
+                )
+            }
+        ),
+        brief=DesignBrief(approach="designed_history"),
+    )
+    assert outcome.exclusion is None
+    assert outcome.plan is not None
+    assert outcome.plan.semantic_assessment["history_dependency"]["status"] == "non_distinct"
+    assert [turn["text"] for turn in outcome.plan.semantic_assessment["turns"]] == [
+        repeated,
+        repeated,
+    ]
+
+
+def test_split_history_request_does_not_bypass_final_turn_assessment() -> None:
+    """R2: splitting an operation across turns does not make an incomplete
+    continuation a supported request."""
+
+    outcome = _designed(
+        stimulus_text="100.0 for ORD-101.",
+        amount=100.0,
+        author=PreboundAuthor(
+            {
+                "SCN-007": prebound_result(
+                    "100.0 for ORD-101.",
+                    100.0,
+                    history_turns=["Please refund"],
+                )
+            }
+        ),
+        brief=DesignBrief(approach="designed_history"),
+    )
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code in {
+        "operation-attribution-unresolved",
+        "amount-attribution-unresolved",
+    }
+
+
 def test_wrong_record_request_is_not_attributed_to_selected_record() -> None:
     """A selected-record mention in an incidental clause cannot override the
     record that the actual refund request names."""
