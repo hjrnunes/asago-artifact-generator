@@ -1,11 +1,21 @@
 # Policy-Driven Agentic Red Teaming
 
-Consumes verified STPA execution bundles, binds their explicit runtime facts,
-and compiles ready plans into traceable Garak artifacts. Historical taxonomy-era
-scenario YAML generation is retained only behind the explicit
-`generate-legacy` command.
+Designs executable test artifacts from verified producer scenario handoffs,
+binds explicit runtime facts, and compiles traceable downstream artifacts.
+The producer execution bundle and the taxonomy-era scenario YAMLs are
+historical/retired inputs: their read-only readers remain, isolated behind
+the explicit `generate` and `generate-legacy` commands.
 
 ```
+Primary (design):
+scenario-handoff.json + explicit environment
+  → handoff and contract-kit verification, environment resolution
+  → consumer-owned test design: record setup, stimulus, detector, fidelity
+  → frozen content digest
+  → executable conversation plus artifact-design-plan-v1
+  → runs/<run-id>/<scenario-id>/
+
+Historical (generate):
 execution-bundle.json + optional target/runtime bindings
   → strict load and identity/digest verification
   → typed binding and platform readiness
@@ -442,22 +452,6 @@ reported explicitly instead of appearing to contain zero results. The
 (`needs_environment_binding`), explicit target requests, explicit simulation
 requests, analytical-only findings, and profile-resolution failures.
 
-## Interactive demo
-
-End-to-end Jupyter walkthrough (API key → scenario YAML → artifact → Garak `toolchat.ToolChat` attack).
-
-From the **repository root**:
-
-```bash
-uv sync --locked
-uv pip install ipywidgets jupyter ipykernel
-uv run python -m ipykernel install --user --name asago-artifact-generator --display-name "asago-artifact-generator"
-cp .env.example .env   # set GEMINI_API_KEY or GOOGLE_API_KEY
-uv run jupyter notebook examples/demo/garak-artifact-demo.ipynb
-```
-
-In Cursor / VS Code, pick this repo’s `.venv` as the notebook kernel. Gemini is a first-class provider (`GEMINI_API_KEY` or `GOOGLE_API_KEY`).
-
 ## Development
 
 ```bash
@@ -475,14 +469,15 @@ documented in [docs/stpa-execution-consumer.md](docs/stpa-execution-consumer.md)
 ```
 ├── src/asago_artifact_generator/    # strict consumer models, planning, CLI
 │   ├── bundle/                       # verified bundle loader
+│   ├── design/                       # scenario-handoff artifact-design path
+│   ├── handoff/                      # verified scenario-handoff reader
 │   ├── models/                       # immutable intent/binding/readiness values
 │   ├── planning/                     # pure binding and readiness
 │   ├── platforms/                    # typed adapter seams
 │   └── garak/                        # capabilities, plan, compiler, legacy code
 ├── tests/                            # unit tests
 ├── examples/
-│   ├── scenarios/                    # input scenario YAMLs
-│   └── demo/                         # Jupyter walkthrough
+│   └── scenarios/                    # input scenario YAMLs
 └── runs/                             # generated artifacts (gitignored)
 ```
 
@@ -490,7 +485,7 @@ documented in [docs/stpa-execution-consumer.md](docs/stpa-execution-consumer.md)
 
 | Module | Role |
 |--------|------|
-| `cli.py` | Explicit STPA `generate` CLI and isolated `generate-legacy` command |
+| `cli.py` | `design` artifact-design CLI plus the historical `generate` and isolated `generate-legacy` commands |
 | `bundle/loader.py` | Strict bundle, pair, path, schema, and digest verification |
 | `models/` | Immutable `ExecutionIntent`, `RuntimeBindingSet`, and readiness models |
 | `planning/bind.py` | Pure typed runtime binding and platform readiness |
