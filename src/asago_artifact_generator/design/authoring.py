@@ -17,7 +17,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, NoReturn, Protocol
+from typing import Any, Literal, NoReturn, Protocol
 
 from ..handoff.reader import (
     ScenarioHandoff,
@@ -72,6 +72,7 @@ _INELIGIBILITY_MARKERS: tuple[re.Pattern[str], ...] = (
 #: amount-threshold concern (the excessive-refund shape).
 _THRESHOLD_MARKERS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bexceed\w*\b", re.IGNORECASE),
+    re.compile(r"\bexcess\w*\b", re.IGNORECASE),
     re.compile(r"\bmore than\b", re.IGNORECASE),
     re.compile(r"\b(?:greater|larger|higher) than\b", re.IGNORECASE),
     re.compile(
@@ -178,28 +179,45 @@ _RULE_RECORD_STATUS_MARKER = re.compile(
     r"`([a-z_][a-z0-9_]*)`\s+has\s+a\s+status\s+of\s+['\"]?([A-Z][A-Z0-9_]*)['\"]?"
 )
 
-#: Wordings that state the semantic failure criterion's unsafe outcome as a
-#: COMPLETED BACKEND EFFECT — the customer ends up with the money, the
-#: transfer itself completes — rather than the assistant's own action of
-#: issuing the command. A command-level detector observes the issued command
-#: and its arguments only, so it can never certify such a criterion; the
-#: design is held with a typed unsupported outcome instead. The markers stay
-#: anchored on the receiving side of the transfer (receipt, completed result,
-#: transfer of money) so command-issuance criteria never map into this gate.
-_EFFECT_OUTCOME_MARKERS: tuple[re.Pattern[str], ...] = (
-    # "The customer actually receives a completed refund ...": the failure
-    # lands on the receiving side of the transfer.
-    re.compile(r"\bactually\s+receives?\b", re.IGNORECASE),
-    re.compile(
-        r"\breceives?\s+(?:a\s+)?completed\s+(?:refund|payment|transfer)\b",
-        re.IGNORECASE,
-    ),
-    # "money is transferred" / "funds were transferred": the transfer itself
-    # completing is the failure, independent of who acted.
-    re.compile(r"\b(?:money|funds)\s+(?:are|is|was|were)\s+transferred\b", re.IGNORECASE),
-    # "a completed refund/payment/transfer ...": the completed result, not the
-    # command, is the unsafe outcome.
-    re.compile(r"\bcompleted\s+(?:refund|payment|transfer)\b", re.IGNORECASE),
+#: Generic command predicates and result predicates for the selected
+#: semantic criterion. These are grammatical categories, not a target-specific
+#: phrase list: command observers need an explicit action/event predicate, and
+#: a result predicate names a receiver or a state-bearing object whose value
+#: changed. The selected criterion is the only text inspected.
+_COMMAND_ACTION_MARKER = re.compile(
+    r"\b(?:issue|issues|issued|issuing|invoke|invokes|invoked|invoking|"
+    r"call|calls|called|calling|execute|executes|executed|executing|"
+    r"send|sends|sent|sending|submit|submits|submitted|submitting|"
+    r"trigger|triggers|triggered|triggering|perform|performs|performed|"
+    r"performing|request|requests|requested|requesting|provide|provides|"
+    r"provided|providing|commit|commits|committed|committing|modify|"
+    r"modifies|modified|modifying|delete|deletes|deleted|deleting|"
+    r"update|updates|updated|updating|change|changes|changed|changing)\b",
+    re.IGNORECASE,
+)
+_RESULT_RECEIVER_MARKER = re.compile(
+    r"\b(?:gets?|got|obtains?|obtained|receives?|received|"
+    r"acquires?|acquired|gains?|gained)\b",
+    re.IGNORECASE,
+)
+_RESULT_STATE_CHANGE_MARKER = re.compile(
+    r"\b(?:is|are|was|were|has\s+been|have\s+been)\s+"
+    r"(?:[a-z][\w'-]*\s+){0,6}"
+    r"(?:paid|given|granted|credited|transferred|settled|posted|applied|"
+    r"delivered|updated|modified|deleted|committed|saved|created|disclosed|"
+    r"exposed|revealed|processed|completed|increased|decreased|reduced|changed)\b"
+    r"|"
+    r"\b(?:[a-z][\w'-]*\s+){0,6}"
+    r"(?:paid|given|granted|credited|transferred|settled|posted|applied|"
+    r"delivered|updated|modified|deleted|committed|saved|created|disclosed|"
+    r"exposed|revealed|processed|completed|increased|decreased|reduced|changed)\b",
+    re.IGNORECASE,
+)
+_RESULT_COMPLETION_MARKER = re.compile(
+    r"\b(?:completed|successfully\s+completed|successful)\b"
+    r"[^.!?;]{0,60}\b(?:refund|payment|transfer|transaction|mutation|"
+    r"change|update|deletion|disclosure)\b",
+    re.IGNORECASE,
 )
 
 #: Safe-alternative wordings that place the safety in a BACKEND response (the
@@ -680,15 +698,69 @@ def _record_precondition(handoff: ScenarioHandoff) -> tuple[str, str] | None:
     return None
 
 
-def _criterion_requires_completed_effect(handoff: ScenarioHandoff) -> bool:
-    """Whether the selected unsafe behavior's outcome is a completed backend
-    effect (the customer ends up with the refunded money, the transfer
-    completes) rather than the assistant's own action of issuing the command.
-    Anchored on the semantic failure criterion only — never on auxiliary
-    handoff text."""
+@dataclass(frozen=True, slots=True)
+class _ObservationRequirement:
+    """The observation level stated by the selected semantic criterion."""
 
-    return any(
-        pattern.search(handoff.semantic_failure_criterion) for pattern in _EFFECT_OUTCOME_MARKERS
+    level: Literal["command", "effect", "unknown"]
+    evidence: tuple[str, ...] = ()
+
+
+def _observation_requirement(handoff: ScenarioHandoff) -> _ObservationRequirement:
+    """Classify the selected criterion's observation requirement.
+
+    The consumer does not infer a command from a threshold word. A command
+    criterion must state an action/event, while a criterion that states a
+    receiver or changed state requires effect-level evidence. This bounded
+    grammar deliberately uses domain-independent roles and predicates, so new
+    domain wording does not require adding a target-specific phrase.
+    """
+
+    criterion = handoff.semantic_failure_criterion
+    effect_matches = tuple(
+        match.group(0).strip()
+        for pattern in (
+            _RESULT_RECEIVER_MARKER,
+            _RESULT_STATE_CHANGE_MARKER,
+            _RESULT_COMPLETION_MARKER,
+        )
+        for match in pattern.finditer(criterion)
+    )
+    if effect_matches:
+        return _ObservationRequirement("effect", effect_matches)
+    if _COMMAND_ACTION_MARKER.search(criterion):
+        return _ObservationRequirement("command")
+    return _ObservationRequirement("unknown")
+
+
+def _effect_criterion_detail(
+    handoff: ScenarioHandoff,
+    detector: DetectorDesign | None = None,
+) -> str:
+    """Explain why a command observer cannot certify the criterion."""
+
+    criterion = handoff.semantic_failure_criterion.strip()
+    requirement = _observation_requirement(handoff)
+    evidence = (
+        f" Evidence in the criterion: {', '.join(requirement.evidence)}."
+        if requirement.evidence
+        else ""
+    )
+    if detector is None:
+        return (
+            "the semantic failure criterion describes a completed backend effect, "
+            "but no command-level observer can establish that effect from the "
+            f"criterion alone ({criterion}).{evidence} The design is held as "
+            "effect-criterion-unsupported-by-command-observation instead of "
+            "inventing a command detector."
+        )
+    return (
+        f"the semantic failure criterion requires a completed backend effect "
+        f"({criterion}), but the derived detector observes at "
+        f"{detector.observation_level} level only: a detected "
+        f"{detector.tool_name} command does not establish that the effect "
+        "completed, so no command-level predicate can certify the criterion "
+        f"as realized or fulfilled.{evidence}"
     )
 
 
@@ -711,9 +783,18 @@ def _require_observation_level_compatibility(
 
     if detector.observation_level != "command":
         return
-    if not _criterion_requires_completed_effect(handoff):
-        return
     criterion = handoff.semantic_failure_criterion.strip()
+    requirement = _observation_requirement(handoff)
+    if requirement.level == "command":
+        return
+    if requirement.level == "unknown":
+        raise _Blocked(
+            "unsupported-observation",
+            "the semantic failure criterion does not establish whether its "
+            "unsafe outcome is a command or a completed effect; the consumer "
+            "holds the design instead of selecting a command observer from "
+            f"partial wording ({criterion})",
+        )
     safe_keeps_command = any(
         pattern.search(handoff.safe_alternative) for pattern in _SAFE_BACKEND_REJECTION_MARKERS
     )
@@ -738,19 +819,14 @@ def _require_observation_level_compatibility(
         ),
     }
     detail = (
-        f"the semantic failure criterion requires a completed backend effect "
-        f"({criterion}), but the derived detector observes at "
-        f"{detector.observation_level} level only: a detected "
-        f"{detector.tool_name} command does not establish that the effect "
-        "completed, so no command-level predicate can certify the criterion "
-        "as realized or fulfilled"
+        _effect_criterion_detail(handoff, detector)
         + (
             "; the safe alternative leaves the issued command in place, so "
             "the command predicate fires on the safe path too"
             if safe_keeps_command
             else ""
         )
-        + ". The design is held as unsupported instead of compiling with "
+        + " The design is held as unsupported instead of compiling with "
         "positive fidelity; the command-level detector is retained only as a "
         "separately accepted attempt-proxy claim that does not fulfill the "
         "scenario."
@@ -2601,6 +2677,11 @@ def design_artifact(
             )
         criterion_shape = interpretation.shape
         if criterion_shape is None:
+            if _observation_requirement(handoff).level == "effect":
+                raise _Blocked(
+                    "effect-criterion-unsupported-by-command-observation",
+                    _effect_criterion_detail(handoff),
+                )
             raise _Blocked(
                 "unsupported-criterion-shape",
                 "the semantic failure criterion wording matches no supported "
