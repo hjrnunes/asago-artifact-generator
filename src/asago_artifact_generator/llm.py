@@ -16,8 +16,11 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 from openai import OpenAI
+
+from .models._base import compute_framed_digest
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +48,19 @@ OLLAMA_BASE_URL = DEFAULT_OLLAMA_BASE_URL
 BASE_URL = DEFAULT_OLLAMA_BASE_URL
 MODEL = DEFAULT_OLLAMA_MODEL
 _client: OpenAI | None = None
+AUTHOR_CALL_EVIDENCE_SCHEMA_VERSION = "artifact-author-call-evidence-v1"
+
+
+class LLMJsonParseError(ValueError):
+    """A provider response could not be decoded as JSON.
+
+    The exception carries the credential-free call evidence so the design
+    boundary can preserve the raw response even when parsing fails.
+    """
+
+    def __init__(self, message: str, *, evidence: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.evidence = evidence
 
 
 def _load_dotenv() -> None:
@@ -213,7 +229,50 @@ def fix_json(text: str) -> str:
         return text
 
 
-def llm_json(prompt: str, system: str, *, temperature: float = 0.2) -> dict:
+def _author_call_evidence(
+    *,
+    prompt: str,
+    system: str,
+    raw_response: str | None,
+    temperature: float,
+) -> dict[str, Any]:
+    """Build inspectable author-call evidence without connection secrets."""
+
+    rendered_prompt = {"system": system, "user": prompt}
+    controls = {
+        "provider": PROVIDER,
+        "model": MODEL,
+        "temperature": temperature,
+        "response_parser": "json",
+        "credentials_recorded": False,
+    }
+    return {
+        "schema_version": AUTHOR_CALL_EVIDENCE_SCHEMA_VERSION,
+        "rendered_prompt": rendered_prompt,
+        "raw_response": raw_response,
+        "model_controls": controls,
+        "content_pins": {
+            "rendered_prompt": compute_framed_digest(
+                "artifact-author-rendered-prompt-v1", rendered_prompt
+            ),
+            "raw_response": compute_framed_digest("artifact-author-raw-response-v1", raw_response),
+        },
+    }
+
+
+def llm_json_with_evidence(
+    prompt: str,
+    system: str,
+    *,
+    temperature: float = 0.2,
+) -> tuple[dict, dict[str, Any]]:
+    """Call the provider and return parsed JSON plus inspectable evidence.
+
+    Evidence contains the exact rendered system/user prompts and raw provider
+    text before parsing. Controls intentionally exclude base URLs, API keys,
+    tokens, and other connection material.
+    """
+
     response = get_client().chat.completions.create(
         model=MODEL,
         temperature=temperature,
@@ -222,5 +281,36 @@ def llm_json(prompt: str, system: str, *, temperature: float = 0.2) -> dict:
             {"role": "user", "content": prompt},
         ],
     )
-    raw = response.choices[0].message.content.strip()
-    return json.loads(fix_json(raw))
+    raw_content = response.choices[0].message.content
+    raw = raw_content if isinstance(raw_content, str) else None
+    evidence = _author_call_evidence(
+        prompt=prompt,
+        system=system,
+        raw_response=raw,
+        temperature=temperature,
+    )
+    try:
+        parsed = json.loads(fix_json(raw or ""))
+    except (TypeError, json.JSONDecodeError) as exc:
+        evidence["parse_error"] = str(exc)
+        raise LLMJsonParseError(
+            "the model response was not valid JSON",
+            evidence=evidence,
+        ) from exc
+    if not isinstance(parsed, dict):
+        evidence["parse_error"] = "the model response JSON was not an object"
+        raise LLMJsonParseError(
+            "the model response JSON was not an object",
+            evidence=evidence,
+        )
+    evidence["content_pins"]["parsed_response"] = compute_framed_digest(
+        "artifact-author-parsed-response-v1", parsed
+    )
+    return parsed, evidence
+
+
+def llm_json(prompt: str, system: str, *, temperature: float = 0.2) -> dict:
+    """Call the provider and return only parsed JSON for legacy callers."""
+
+    parsed, _ = llm_json_with_evidence(prompt, system, temperature=temperature)
+    return parsed

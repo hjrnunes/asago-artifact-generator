@@ -256,6 +256,11 @@ level (`frozen_content_digest`) so downstream execution receipts can cite and
 verify it directly. Live authoring is fully evidenced: every `LLMArtifactAuthor`
 attempt — including malformed or rejected responses — and the authoring call
 count are persisted in the design record and in the compiled design's trace.
+Each live attempt also retains the exact rendered system and user prompts,
+the raw provider response before JSON parsing, non-secret model controls, and
+deterministic parse/validation/materialization transformations. Each retained
+content value has a framed content pin. Connection URLs, API keys, tokens, and
+other credentials are never included in authoring evidence.
 Handoff lineage closes internally: hazard, loss and constraint identities cited
 by the scenario's own records must resolve within the handoff's lineage
 collections, and the reader rejects a cited-but-undeclared id with

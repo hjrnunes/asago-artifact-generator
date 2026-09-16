@@ -58,6 +58,67 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+def _content_pin(value: Any, *, frame: str = "artifact-author-content-v1") -> str:
+    """Return a stable content pin for a JSON-compatible evidence value."""
+
+    return compute_framed_digest(frame, _jsonable(value))
+
+
+def _safe_error_detail(value: Any) -> str:
+    """Retain useful error context while removing connection material."""
+
+    detail = str(value)
+    detail = re.sub(r"https?://[^\s\"')]+", "[redacted-url]", detail)
+    detail = re.sub(
+        r"(?i)\b(api[-_ ]?key|token|password|authorization)\s*[:=]\s*[^\s,;]+",
+        r"\1=[redacted]",
+        detail,
+    )
+    detail = re.sub(r"(?i)\bbearer\s+\S+", "Bearer [redacted]", detail)
+    detail = re.sub(r"(?i)\bsk-[A-Za-z0-9_-]+\b", "[redacted-key]", detail)
+    return detail[:500]
+
+
+def _attach_author_evidence(attempt: dict[str, Any], author: ArtifactAuthor) -> None:
+    """Copy optional provider evidence from an author implementation."""
+
+    evidence = getattr(author, "last_evidence", None)
+    if not isinstance(evidence, Mapping):
+        return
+    for key in ("schema_version", "rendered_prompt", "raw_response", "model_controls"):
+        if key in evidence:
+            attempt[key] = _jsonable(evidence[key])
+    pins = evidence.get("content_pins")
+    if isinstance(pins, Mapping):
+        attempt["content_pins"].update(_jsonable(dict(pins)))
+    if "parse_error" in evidence:
+        attempt["parse_error"] = _safe_error_detail(evidence["parse_error"])
+    if "call_error" in evidence:
+        attempt["call_error"] = str(evidence["call_error"])
+
+
+def _record_transformation(
+    attempt: dict[str, Any],
+    *,
+    name: str,
+    status: str,
+    input_value: Any,
+    output_value: Any | None,
+    detail: str | None = None,
+) -> None:
+    """Append one deterministic author-result transformation with content pins."""
+
+    transformation: dict[str, Any] = {
+        "name": name,
+        "status": status,
+        "input_pin": _content_pin(input_value),
+        "output_pin": (_content_pin(output_value) if output_value is not None else None),
+    }
+    if detail:
+        transformation["detail"] = detail
+    attempt["deterministic_transformations"].append(transformation)
+
+
 #: Handoff-text markers that make the scenario's own criterion concern a
 #: refund-ineligible record. The prerequisite then follows the scenario: the
 #: observed-ineligible record is the correct test setup, not a broken one.
@@ -339,15 +400,35 @@ class PreboundAuthor:
 class LLMArtifactAuthor:
     """Model-backed author for the concrete stimulus wording."""
 
+    def __init__(self) -> None:
+        self.last_evidence: Mapping[str, Any] | None = None
+
     def author(self, request: Mapping[str, Any]) -> dict[str, Any]:
-        from ..llm import llm_json
+        from .. import llm as llm_client
+        from ..llm import LLMJsonParseError
 
         prompt = json.dumps(request, ensure_ascii=False, sort_keys=True)
         system_prompt = _author_system_prompt(
             "amount_requirement" in request,
             request.get("target_context"),
         )
-        return llm_json(prompt, system_prompt)
+        self.last_evidence = None
+        try:
+            result, evidence = llm_client.llm_json_with_evidence(prompt, system_prompt)
+        except LLMJsonParseError as exc:
+            self.last_evidence = exc.evidence
+            raise
+        except Exception as exc:
+            self.last_evidence = llm_client._author_call_evidence(
+                prompt=prompt,
+                system=system_prompt,
+                raw_response=None,
+                temperature=0.2,
+            )
+            self.last_evidence["call_error"] = type(exc).__name__
+            raise
+        self.last_evidence = evidence
+        return result
 
 
 def _author_system_prompt(
@@ -1988,6 +2069,11 @@ def _author_stimulus(
         "author_kind": type(author).__name__,
         "recorded_at": datetime.now(UTC).isoformat(),
         "request_digest": compute_framed_digest(_AUTHOR_REQUEST_DIGEST_FRAME, request),
+        "rendered_prompt": None,
+        "raw_response": None,
+        "model_controls": None,
+        "content_pins": {"request": compute_framed_digest(_AUTHOR_REQUEST_DIGEST_FRAME, request)},
+        "deterministic_transformations": [],
         "response": None,
         "accepted": False,
         "rejection_code": None,
@@ -1996,18 +2082,39 @@ def _author_stimulus(
     attempts.append(attempt)
     try:
         result = author.author(request)
+        _attach_author_evidence(attempt, author)
     except _Blocked as blocked:
+        _attach_author_evidence(attempt, author)
         attempt["rejection_code"] = blocked.code
-        attempt["rejection_detail"] = blocked.detail
+        attempt["rejection_detail"] = _safe_error_detail(blocked.detail)
         raise
     except Exception as exc:
+        _attach_author_evidence(attempt, author)
+        if attempt["raw_response"] is not None and attempt["response"] is None:
+            _record_transformation(
+                attempt,
+                name="parse_provider_response",
+                status="rejected",
+                input_value=attempt["raw_response"],
+                output_value=None,
+                detail="provider response could not be parsed as an author result",
+            )
         attempt["rejection_code"] = "author_call_failed"
-        attempt["rejection_detail"] = str(exc)
+        safe_detail = _safe_error_detail(exc)
+        attempt["rejection_detail"] = safe_detail
         raise _Blocked(
             "invalid-design",
-            f"the author call failed; the failed attempt is recorded: {exc}",
+            f"the author call failed; the failed attempt is recorded: {safe_detail}",
         ) from exc
     attempt["response"] = _jsonable(result)
+    _record_transformation(
+        attempt,
+        name="parse_provider_response",
+        status="applied",
+        input_value=attempt["raw_response"] if attempt["raw_response"] is not None else result,
+        output_value=result,
+        detail="provider JSON was decoded before deterministic validation",
+    )
     try:
         if not isinstance(result, dict):
             raise _Blocked("invalid-design", "the author must return a JSON object")
@@ -2096,8 +2203,16 @@ def _author_stimulus(
             delivery_class = "direct_prompt"
         turns.append(DesignedTurn(turn_id=f"T-{len(turns) + 1}", text=stimulus_text))
     except _Blocked as blocked:
+        _record_transformation(
+            attempt,
+            name="validate_and_materialize_stimulus",
+            status="rejected",
+            input_value=result,
+            output_value=None,
+            detail=blocked.detail,
+        )
         attempt["rejection_code"] = blocked.code
-        attempt["rejection_detail"] = blocked.detail
+        attempt["rejection_detail"] = _safe_error_detail(blocked.detail)
         raise
     attempt["accepted"] = True
     result_digest = compute_framed_digest(
@@ -2120,13 +2235,22 @@ def _author_stimulus(
             "handoff supplies scenario meaning only."
         ),
     }
-    return StimulusDesign(
+    stimulus = StimulusDesign(
         delivery_class=delivery_class,
         turns=turns,
         amount_requested=float(amount) if amount is not None else None,
         rationale=str(result.get("rationale", "")),
         provenance=provenance,
     )
+    _record_transformation(
+        attempt,
+        name="validate_and_materialize_stimulus",
+        status="applied",
+        input_value=result,
+        output_value=stimulus.model_dump(mode="json"),
+        detail="deterministic checks accepted the consumer-owned stimulus",
+    )
+    return stimulus
 
 
 def _collection_identifier_names(collection_name: str) -> set[str]:

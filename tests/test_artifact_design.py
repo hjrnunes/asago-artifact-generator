@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from asago_artifact_generator.design.authoring import (
     DesignBrief,
+    LLMArtifactAuthor,
     PreboundAuthor,
     _Blocked,
     _criterion_shape,
@@ -29,6 +31,11 @@ from asago_artifact_generator.handoff.reader import (
     VerifiedHandoff,
     load_scenario_handoff,
 )
+from asago_artifact_generator.llm import (
+    LLMJsonParseError,
+    llm_json_with_evidence,
+)
+from asago_artifact_generator.models._base import compute_framed_digest
 from tests.design_fixtures import (
     FUNCTIONAL_HANDOFF_PATH,
     PROCESS_REFUND_DESCRIPTION,
@@ -348,6 +355,124 @@ def test_trace_records_authoring_attempts_and_call_count() -> None:
     assert attempt["request_digest"]
 
 
+def test_live_authoring_records_rendered_prompt_raw_response_controls_and_pins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live author evidence remains inspectable without connection secrets."""
+
+    raw_response = json.dumps(prebound_result(STIMULUS, 100.0), ensure_ascii=False)
+
+    def fake_llm_json_with_evidence(
+        prompt: str,
+        system: str,
+        *,
+        temperature: float = 0.2,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        return (
+            prebound_result(STIMULUS, 100.0),
+            {
+                "schema_version": "artifact-author-call-evidence-v1",
+                "rendered_prompt": {"system": system, "user": prompt},
+                "raw_response": raw_response,
+                "model_controls": {
+                    "provider": "test",
+                    "model": "test-model",
+                    "temperature": temperature,
+                    "response_parser": "json",
+                    "credentials_recorded": False,
+                },
+                "content_pins": {
+                    "rendered_prompt": compute_framed_digest(
+                        "artifact-author-rendered-prompt-v1",
+                        {"system": system, "user": prompt},
+                    ),
+                    "raw_response": compute_framed_digest(
+                        "artifact-author-raw-response-v1",
+                        raw_response,
+                    ),
+                },
+            },
+        )
+
+    monkeypatch.setattr(
+        "asago_artifact_generator.llm.llm_json_with_evidence",
+        fake_llm_json_with_evidence,
+    )
+    outcome = _designed(author=LLMArtifactAuthor())
+    assert outcome.exclusion is None
+    attempt = outcome.authoring["attempts"][0]
+    assert attempt["rendered_prompt"]["system"]
+    assert json.loads(attempt["rendered_prompt"]["user"])["scenario_id"] == "SCN-007"
+    assert attempt["raw_response"] == raw_response
+    assert attempt["model_controls"]["temperature"] == 0.2
+    assert attempt["model_controls"]["credentials_recorded"] is False
+    assert "api_key" not in json.dumps(attempt).lower()
+    assert "authorization" not in json.dumps(attempt).lower()
+    assert attempt["content_pins"]["rendered_prompt"]
+    assert attempt["content_pins"]["raw_response"]
+    assert [item["status"] for item in attempt["deterministic_transformations"]] == [
+        "applied",
+        "applied",
+    ]
+    assert all(
+        item["input_pin"] and item["output_pin"]
+        for item in attempt["deterministic_transformations"]
+    )
+
+
+def test_llm_evidence_captures_raw_provider_response_before_json_parsing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_response = '{"stimulus_text": "Ask about ORD-101"}'
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=raw_response))]
+    )
+    calls: list[dict[str, Any]] = []
+
+    def create(**kwargs: Any) -> Any:
+        calls.append(kwargs)
+        return response
+
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr("asago_artifact_generator.llm.get_client", lambda: fake_client)
+
+    parsed, evidence = llm_json_with_evidence("user prompt", "system prompt")
+
+    assert parsed == {"stimulus_text": "Ask about ORD-101"}
+    assert evidence["rendered_prompt"] == {
+        "system": "system prompt",
+        "user": "user prompt",
+    }
+    assert evidence["raw_response"] == raw_response
+    assert evidence["content_pins"]["raw_response"]
+    assert calls[0]["messages"] == [
+        {"role": "system", "content": "system prompt"},
+        {"role": "user", "content": "user prompt"},
+    ]
+    assert "base_url" not in json.dumps(evidence)
+    assert "api_key" not in json.dumps(evidence)
+
+
+def test_llm_evidence_preserves_raw_response_when_json_parsing_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_response = "not-json"
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=raw_response))]
+    )
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: response))
+    )
+    monkeypatch.setattr("asago_artifact_generator.llm.get_client", lambda: fake_client)
+
+    with pytest.raises(LLMJsonParseError) as raised:
+        llm_json_with_evidence("user prompt", "system prompt")
+
+    assert raised.value.evidence["raw_response"] == raw_response
+    assert raised.value.evidence["parse_error"]
+    assert raised.value.evidence["content_pins"]["raw_response"]
+
+
 def test_malformed_author_response_persisted_with_rejection_reason() -> None:
     """A malformed author response is never discarded silently: the raw
     response, its rejection, and the call count persist in the design record,
@@ -392,7 +517,9 @@ def test_author_error_response_persisted(tmp_path: Path) -> None:
 
     class ExplodingAuthor:
         def author(self, request: Any) -> dict[str, Any]:
-            raise RuntimeError("provider unreachable")
+            raise RuntimeError(
+                "provider unreachable at https://example.test/v1?api_key=secret-value"
+            )
 
     outcome = _designed(author=ExplodingAuthor())
     assert outcome.exclusion is not None
@@ -402,6 +529,8 @@ def test_author_error_response_persisted(tmp_path: Path) -> None:
     assert attempt["accepted"] is False
     assert attempt["response"] is None
     assert "provider unreachable" in attempt["rejection_detail"]
+    assert "secret-value" not in json.dumps(attempt)
+    assert "https://" not in json.dumps(attempt)
 
 
 def test_multiple_materially_different_artifacts_same_source_identity() -> None:
