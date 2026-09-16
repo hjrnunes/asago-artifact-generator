@@ -87,7 +87,13 @@ no execution bundle or projection is read.
   (`amount-attribution-unresolved`). Criterion-shape interpretation is scoped
   to the selected unsafe behavior: the criterion authoritatively selects the
   shape, auxiliary text (such as a safe-alternative sentence) cannot switch
-  it, and compound criteria stay typed `ambiguous-criterion-shape`. Before
+  it, and compound criteria stay typed `ambiguous-criterion-shape`. That
+  switch prohibition is exact only for criterion-selected shapes: when the
+  criterion is silent about status, the precondition-record fallback
+  (`_record_precondition`) computes its required-status set over the
+  unscoped corroboration pool (`include_safe_alternative=True`), so
+  safe-alternative wording can help supply (corroborate, not switch) the
+  `precondition_record` shape. Before
   compilation the consumer freezes artifact-owned
   text and evidence behind a content digest; tampering fails verification.
 - Supported designs compile to the Garak-runner-consumable executable
