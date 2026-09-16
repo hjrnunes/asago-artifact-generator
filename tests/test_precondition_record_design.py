@@ -483,6 +483,89 @@ def test_precondition_record_missing_live_draft_blocks(tmp_path: Path) -> None:
     assert any("no longer present" in item["reason"] for item in result.mismatches)
 
 
+def test_precondition_record_tracks_patient_association_dependency(tmp_path: Path) -> None:
+    """The design carries the patient/draft relationship into the frozen
+    execution prerequisites, not only the draft status."""
+
+    outcome = _designed(tmp_path)
+    assert outcome.exclusion is None
+    association = next(
+        prerequisite
+        for prerequisite in outcome.plan.setup.established_prerequisites
+        if prerequisite["name"] == "session_ownership"
+    )
+    assert association["value"] == "PAT-104"
+    assert association["design_dependency"] is True
+    assert association["dependency_field"] == "patient_id"
+
+    dependencies = {
+        dependency["name"]: dependency for dependency in outcome.plan.prerequisite_dependencies
+    }
+    dependency = dependencies["session_ownership"]
+    assert dependency["check"] == "record_field"
+    assert dependency["field"] == "patient_id"
+    assert dependency["identity_field"] == "draft_id"
+    assert dependency["expected"] == "PAT-104"
+
+
+def test_precondition_record_patient_association_drift_blocks_dispatch(
+    tmp_path: Path,
+) -> None:
+    """A draft reassigned after design remains blocked immediately before
+    dispatch even when its identifier and status are unchanged."""
+
+    from asago_artifact_generator.design.predispatch import (
+        PrerequisiteMismatchError,
+        require_dispatch_prerequisites,
+        verify_dispatch_prerequisites,
+    )
+
+    outcome = _designed(tmp_path)
+    drifted = occiai_runtime_context(drafts=[_draft(patient_id="PAT-201")])
+    result = verify_dispatch_prerequisites(outcome.plan, drifted)
+    assert result.verified is False
+    mismatch = next(item for item in result.mismatches if item["name"] == "session_ownership")
+    assert mismatch["field"] == "patient_id"
+    assert mismatch["expected"] == "PAT-104"
+    assert mismatch["observed"] == "PAT-201"
+    with pytest.raises(PrerequisiteMismatchError) as raised:
+        require_dispatch_prerequisites(outcome.plan, drifted)
+    assert "prerequisite-runtime-mismatch" in str(raised.value)
+    assert "PAT-201" in str(raised.value)
+
+
+def test_precondition_record_session_patient_drift_blocks_dispatch(tmp_path: Path) -> None:
+    """The relationship check also rejects a changed authenticated patient,
+    even when the draft record itself still names the original patient."""
+
+    from asago_artifact_generator.design.predispatch import verify_dispatch_prerequisites
+
+    outcome = _designed(tmp_path)
+    drifted = occiai_runtime_context(drafts=[_draft()])
+    drifted["state"]["authenticated_patient_id"] = "PAT-201"
+    result = verify_dispatch_prerequisites(outcome.plan, drifted)
+    assert result.verified is False
+    mismatch = next(item for item in result.mismatches if item["name"] == "session_ownership")
+    assert mismatch["field"] == "authenticated_patient_id"
+    assert mismatch["expected"] == "PAT-104"
+    assert mismatch["observed"] == "PAT-201"
+
+
+def test_precondition_record_missing_session_patient_blocks_design(tmp_path: Path) -> None:
+    """The design does not compile a draft association it cannot establish."""
+
+    outcome = _designed(
+        tmp_path,
+        runtime=occiai_runtime_context(
+            drafts=[_draft()],
+            authenticated_patient_id=None,
+        ),
+    )
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "unresolved-prerequisite"
+
+
 def test_live_prebound_author_receives_no_amount_contract(tmp_path: Path) -> None:
     """The author request for the precondition shape asks for no amount slot:
     the response contract omits requested_amount and the author result needs

@@ -318,6 +318,13 @@ refund size. When the target's seed does not contain the record the scenario
 needs (the seeded MiniOcciAI state has no drafts), the consumer establishes
 the prerequisite with the target's own documented operation, captures the
 runtime context with that record present, and records the setup provenance.
+For a patient-scoped record such as an OcciAI draft, the authenticated
+patient association is also an execution-critical prerequisite. The design
+rejects a draft that is not associated with the observed session patient, and
+the frozen plan checks both the draft's current status and its current
+`patient_id` immediately before dispatch. If either the draft disappears, its
+status changes, or its patient association changes, dispatch stops with the
+typed prerequisite-runtime-mismatch reason.
 When the observed tool schema exposes several string arguments, the
 record-identifying argument is the one whose name matches the identifier role
 of the observed record collection that holds the selected record (for example

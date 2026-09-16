@@ -196,6 +196,25 @@ def verify_dispatch_prerequisites(
                     ),
                 }
             )
+            continue
+        session_field = dependency.get("session_field")
+        if isinstance(session_field, str) and session_field:
+            live_session = state.get(session_field)
+            if not _values_match(live_session, expected_value):
+                mismatches.append(
+                    {
+                        "name": name,
+                        "record_id": record_id,
+                        "field": session_field,
+                        "expected": expected_value,
+                        "observed": live_session,
+                        "reason": (
+                            f"the live runtime session has {session_field} = "
+                            f"{live_session!r}, but the plan's recorded patient "
+                            f"association expects {expected_value!r}"
+                        ),
+                    }
+                )
     return DispatchPrerequisiteResult(
         verified=not mismatches,
         checked=tuple(checked),

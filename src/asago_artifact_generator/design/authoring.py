@@ -1154,20 +1154,27 @@ def _select_precondition_record(
         subject_field = session_keys[0].removeprefix("authenticated_")
         owner = record.get(subject_field)
         session_value = state[session_keys[0]]
-        if owner is not None and owner != session_value:
+        if owner is None or owner != session_value:
             raise _Blocked(
                 "unresolved-prerequisite",
-                f"record {selected} belongs to {owner!r}, not to the authenticated "
-                f"session {session_value!r}; the operation would fail for a different "
-                "reason than the scenario's criterion",
+                f"record {selected} is associated with patient {owner!r}, not the "
+                f"authenticated session patient {session_value!r}; the operation "
+                "would fail for a different reason than the scenario's criterion",
             )
         prerequisites.append(
             {
                 "name": "session_ownership",
                 "value": owner if owner is not None else "unresolved",
                 "source": f"runtime_context.state.{session_keys[0]}",
-                "authority": "observed" if owner is not None else "unresolved",
-                "design_dependency": False,
+                "authority": "observed",
+                "design_dependency": True,
+                # The draft is indexed by draft_id but its execution-critical
+                # association is the patient_id field. Persist both facts so
+                # dispatch resolves the same draft and checks the association
+                # against the current authenticated patient.
+                "dependency_field": subject_field,
+                "identity_field": argument_name,
+                "session_field": session_keys[0],
             }
         )
     else:
@@ -1177,8 +1184,25 @@ def _select_precondition_record(
                 "value": "unresolved",
                 "source": "runtime_context.state",
                 "authority": "unresolved",
-                "design_dependency": False,
+                "design_dependency": True,
+                "dependency_field": "patient_id",
+                "identity_field": argument_name,
             }
+        )
+    unresolved_dependency = next(
+        (
+            prerequisite
+            for prerequisite in prerequisites
+            if prerequisite.get("design_dependency") and prerequisite["authority"] != "observed"
+        ),
+        None,
+    )
+    if unresolved_dependency is not None:
+        raise _Blocked(
+            "unresolved-prerequisite",
+            f"the design depends on the {unresolved_dependency['name']!r} prerequisite, "
+            "but the observed environment does not establish it; the test that "
+            "depends on this relationship is blocked",
         )
     establishment: list[str] = []
     if brief.record_hint is not None:
@@ -2124,9 +2148,12 @@ def _aggregate_prerequisite_fidelity(setup: SetupDesign) -> FidelityAnswer:
     )
 
 
-def _dependency_field(name: str) -> str:
+def _dependency_field(name: str, prerequisite: Mapping[str, Any]) -> str:
     """The live record field an execution-critical prerequisite is verified against."""
 
+    explicit = prerequisite.get("dependency_field")
+    if isinstance(explicit, str) and explicit:
+        return explicit
     return "status" if name == "record_status" else name
 
 
@@ -2142,26 +2169,29 @@ def _prerequisite_dependencies(setup: SetupDesign) -> tuple[dict[str, Any], ...]
     for prerequisite in setup.established_prerequisites:
         if not prerequisite.get("design_dependency") or prerequisite["authority"] != "observed":
             continue
-        dependencies.append(
-            {
-                "name": prerequisite["name"],
-                "record_id": setup.selected_record_id,
-                "field": _dependency_field(str(prerequisite["name"])),
-                "expected": prerequisite["value"],
-                "check": (
-                    "session_not_owner"
-                    if prerequisite["name"] == "session_ownership"
-                    else "record_field"
-                ),
-                "source": prerequisite.get("source", ""),
-                # When the record was indexed from a list-valued state
-                # collection by an identity field, the dependency carries that
-                # field so the dispatch gate resolves the record through the
-                # same indexing (mapping-valued lookups need no identity field;
-                # their ids are the collection keys).
-                "identity_field": prerequisite.get("identity_field", ""),
-            }
-        )
+        dependency = {
+            "name": prerequisite["name"],
+            "record_id": setup.selected_record_id,
+            "field": _dependency_field(str(prerequisite["name"]), prerequisite),
+            "expected": prerequisite["value"],
+            "check": (
+                "session_not_owner"
+                if prerequisite["name"] == "session_ownership"
+                and not prerequisite.get("dependency_field")
+                else "record_field"
+            ),
+            "source": prerequisite.get("source", ""),
+            # When the record was indexed from a list-valued state
+            # collection by an identity field, the dependency carries that
+            # field so the dispatch gate resolves the record through the
+            # same indexing (mapping-valued lookups need no identity field;
+            # their ids are the collection keys).
+            "identity_field": prerequisite.get("identity_field", ""),
+        }
+        session_field = prerequisite.get("session_field")
+        if isinstance(session_field, str) and session_field:
+            dependency["session_field"] = session_field
+        dependencies.append(dependency)
     return tuple(dependencies)
 
 
