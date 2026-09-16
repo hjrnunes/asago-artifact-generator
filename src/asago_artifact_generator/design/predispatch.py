@@ -14,7 +14,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .authoring import _record_collections, _record_party_values, _session_identity
+from .authoring import (
+    _Blocked,
+    _precondition_records,
+    _record_collections,
+    _record_party_values,
+    _session_identity,
+)
 from .records import ArtifactDesignPlan
 
 
@@ -49,6 +55,50 @@ def _values_match(live: Any, expected: Any) -> bool:
     return live == expected
 
 
+def _live_record(
+    state: Mapping[str, Any],
+    records: Mapping[str, Mapping[str, Any]],
+    dependency: Mapping[str, Any],
+) -> tuple[Mapping[str, Any] | None, Mapping[str, Any] | None]:
+    """Resolve one dependency's record against the live state.
+
+    The lookup unifies the design path's two indexings (second consumer
+    correction, 2026-09-16): mapping-valued collections through
+    ``_record_collections`` (the record id is the collection key), and — when
+    the dependency carries the identity field its record was indexed by —
+    list-valued collections through ``_precondition_records``. Strictly
+    fail-closed: an ambiguous identity (conflicting state across collections)
+    returns the typed mismatch instead of guessing a reading.
+    """
+
+    record_id = dependency.get("record_id")
+    identity_field = dependency.get("identity_field")
+    record = records.get(str(record_id)) if record_id is not None else None
+    if not (isinstance(identity_field, str) and identity_field):
+        return record, None
+    try:
+        list_records = _precondition_records(state, identity_field)
+    except _Blocked as blocked:
+        return None, {
+            "name": str(dependency.get("name")),
+            "record_id": record_id,
+            "reason": str(blocked),
+        }
+    list_record = list_records.get(str(record_id)) if record_id is not None else None
+    if list_record is None:
+        return record, None
+    if record is not None and record != list_record:
+        return None, {
+            "name": str(dependency.get("name")),
+            "record_id": record_id,
+            "reason": (
+                f"record {record_id!r} is observed with conflicting state across the "
+                "live runtime collections; the record identity is ambiguous"
+            ),
+        }
+    return list_record, None
+
+
 def verify_dispatch_prerequisites(
     plan: ArtifactDesignPlan,
     runtime_context: Mapping[str, Any],
@@ -74,7 +124,10 @@ def verify_dispatch_prerequisites(
         checked.append(dict(dependency))
         name = str(dependency.get("name"))
         record_id = dependency.get("record_id")
-        record = records.get(str(record_id)) if record_id is not None else None
+        record, ambiguity = _live_record(state, records, dependency)
+        if ambiguity is not None:
+            mismatches.append(ambiguity)
+            continue
         if dependency.get("check") == "session_not_owner":
             session, _session_key = _session_identity(state)
             if session is None:

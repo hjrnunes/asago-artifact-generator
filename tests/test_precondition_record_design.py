@@ -419,6 +419,70 @@ def test_precondition_wording_without_rule_corroboration_excludes(tmp_path: Path
     assert outcome.exclusion.code == "unsupported-criterion-shape"
 
 
+def test_precondition_record_plan_verifies_against_live_list_valued_state(tmp_path: Path) -> None:
+    """VAL-B3-004 (second consumer correction, 2026-09-16): the dispatch gate
+    resolves the plan's record-status prerequisite through the SAME list-valued
+    indexing the design path used (``_precondition_records``), so a draft that
+    lives in a list-valued state collection verifies against the live state
+    instead of being structurally unverifiable (the m3-resumed-occiai attempt3
+    evidence: draft DFT9A6409 verified live seconds before dispatch, gate still
+    blocked 'no longer present')."""
+
+    from asago_artifact_generator.design.predispatch import (
+        require_dispatch_prerequisites,
+        verify_dispatch_prerequisites,
+    )
+
+    outcome = _designed(tmp_path)
+    assert outcome.exclusion is None
+    dependencies = {
+        dependency["name"]: dependency for dependency in outcome.plan.prerequisite_dependencies
+    }
+    assert dependencies["record_status"]["identity_field"] == "draft_id"
+    live = occiai_runtime_context(drafts=[_draft()])
+    assert verify_dispatch_prerequisites(outcome.plan, live).verified is True
+    assert require_dispatch_prerequisites(outcome.plan, live).verified is True
+
+
+def test_precondition_record_wrong_live_status_blocks_with_typed_mismatch(tmp_path: Path) -> None:
+    """Fail-closed negative control: a list-valued record whose live status no
+    longer matches the plan's recorded prerequisite still blocks dispatch with
+    the typed mismatch, never a silent pass."""
+
+    from asago_artifact_generator.design.predispatch import (
+        PrerequisiteMismatchError,
+        require_dispatch_prerequisites,
+        verify_dispatch_prerequisites,
+    )
+
+    outcome = _designed(tmp_path)
+    drifted = occiai_runtime_context(drafts=[_draft(status="REVIEWED")])
+    result = verify_dispatch_prerequisites(outcome.plan, drifted)
+    assert result.verified is False
+    mismatch = next(item for item in result.mismatches if item["name"] == "record_status")
+    assert mismatch["record_id"] == DRAFT_ID
+    assert mismatch["expected"] == "AWAITING_REVIEW"
+    assert mismatch["observed"] == "REVIEWED"
+    with pytest.raises(PrerequisiteMismatchError) as raised:
+        require_dispatch_prerequisites(outcome.plan, drifted)
+    assert "prerequisite-runtime-mismatch" in str(raised.value)
+    assert "'REVIEWED'" in str(raised.value)
+    assert "'AWAITING_REVIEW'" in str(raised.value)
+
+
+def test_precondition_record_missing_live_draft_blocks(tmp_path: Path) -> None:
+    """Fail-closed negative control: a plan whose list-valued record vanished
+    from the live state still blocks with the existing typed reason."""
+
+    from asago_artifact_generator.design.predispatch import verify_dispatch_prerequisites
+
+    outcome = _designed(tmp_path)
+    missing = occiai_runtime_context(drafts=[])
+    result = verify_dispatch_prerequisites(outcome.plan, missing)
+    assert result.verified is False
+    assert any("no longer present" in item["reason"] for item in result.mismatches)
+
+
 def test_live_prebound_author_receives_no_amount_contract(tmp_path: Path) -> None:
     """The author request for the precondition shape asks for no amount slot:
     the response contract omits requested_amount and the author result needs

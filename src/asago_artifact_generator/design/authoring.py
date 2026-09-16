@@ -1113,6 +1113,11 @@ def _select_precondition_record(
             "source": f"runtime_context.state[{selected}].status",
             "authority": "observed",
             "design_dependency": True,
+            # The identity field the record was indexed by (the design path's
+            # list-valued indexing): the dispatch gate resolves the same record
+            # through the same indexing instead of a mapping-only lookup that
+            # can never see list-valued state collections.
+            "identity_field": argument_name,
             "note": (
                 "The scenario's criterion concerns a record not set to "
                 f"{required_status}; the observed status {observed_status!r} of "
@@ -1944,6 +1949,12 @@ def _prerequisite_dependencies(setup: SetupDesign) -> tuple[dict[str, Any], ...]
                     else "record_field"
                 ),
                 "source": prerequisite.get("source", ""),
+                # When the record was indexed from a list-valued state
+                # collection by an identity field, the dependency carries that
+                # field so the dispatch gate resolves the record through the
+                # same indexing (mapping-valued lookups need no identity field;
+                # their ids are the collection keys).
+                "identity_field": prerequisite.get("identity_field", ""),
             }
         )
     return tuple(dependencies)
