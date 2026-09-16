@@ -547,11 +547,16 @@ def _interpret_criterion_shape(handoff: ScenarioHandoff) -> CriterionInterpretat
     The semantic failure criterion is authoritative: when its own wording
     matches exactly one supported family, that shape is selected and no
     auxiliary text can switch it. When the criterion is silent, the shape may
-    be corroborated — but only by the scoped pool of texts describing the
-    selected unsafe behavior (narrative, governing rules, sourced facts,
-    Gherkin, attack tree), never by the safe alternative. A criterion that
-    compounds several families — or a silent criterion whose corroboration is
-    split between families — gets the explicit typed compound outcome.
+    be corroborated by the scoped pool of texts describing the selected
+    unsafe behavior (narrative, governing rules, sourced facts, Gherkin,
+    attack tree), never by the safe alternative. The switch prohibition is
+    exact only for criterion-selected shapes: the silent-criterion
+    ``precondition_record`` fallback computes its required-status set over
+    the unscoped pool (``_record_precondition`` reads the safe alternative
+    too), so safe-alternative wording can corroborate — never switch — that
+    shape. A criterion that compounds several families — or a silent
+    criterion whose corroboration is split between families — gets the
+    explicit typed compound outcome.
     """
 
     precondition = _record_precondition(handoff)
@@ -587,9 +592,14 @@ def _criterion_shape(handoff: ScenarioHandoff) -> str | None:
     and ``precondition_record`` (record-equality on a record whose observed
     status does not satisfy the governing rule's precondition). The
     interpretation is scoped to the SELECTED unsafe behavior — the semantic
-    failure criterion — with corroboration only from that behavior's own
-    texts; the safe alternative is auxiliary and can neither supply nor switch
-    the shape (finding B4). A criterion compounding several supported shapes
+    failure criterion — whose own wording selects the shape: a
+    criterion-selected shape can be neither switched nor supplied by
+    auxiliary safe-alternative text. The prohibition is exact only for
+    criterion-selected shapes: when the criterion is silent, the
+    ``precondition_record`` fallback computes its required-status set over
+    the unscoped pool (``_record_precondition`` reads the safe alternative
+    too), so safe-alternative wording can corroborate — never switch — that
+    shape (finding B4). A criterion compounding several supported shapes
     interprets to ``None`` here while ``design_artifact`` holds the design
     with the explicit ``ambiguous-criterion-shape`` typed outcome. Any other
     criterion — wrong timing, intent mismatch without an ownership target,
