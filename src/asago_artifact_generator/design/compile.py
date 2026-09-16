@@ -93,6 +93,8 @@ def _conversation_body(plan: ArtifactDesignPlan) -> dict[str, Any]:
             "lineage": dict(plan.lineage),
             "semantic_failure_criterion": plan.semantic_failure_criterion,
             "safe_alternative": plan.safe_alternative,
+            "criterion_shape": dict(plan.criterion_shape),
+            "semantic_assessment": dict(plan.semantic_assessment),
             "environment": plan.environment.model_dump(mode="json"),
         },
         # Keep the target-facing context contract beside the frozen source
@@ -168,6 +170,10 @@ def validate_design_case(
             errors.append("source handoff digest differs from the design plan")
         if source.get("handoff_schema_version") != plan.handoff_schema_version:
             errors.append("source handoff schema version differs from the design plan")
+        if source.get("criterion_shape") != dict(plan.criterion_shape):
+            errors.append("source criterion shape differs from the design plan")
+        if source.get("semantic_assessment") != dict(plan.semantic_assessment):
+            errors.append("source semantic assessment differs from the design plan")
     scope = plan.conversation_scope
     if scope.get("history_kind") != "user_only" or scope.get("continuation_count") != 1:
         errors.append("the design plan must record user-only history with one continuation")

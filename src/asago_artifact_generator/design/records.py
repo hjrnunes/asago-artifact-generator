@@ -209,6 +209,11 @@ class ArtifactDesignPlan(ImmutableModel):
     #: that the environment still matches. Plans persisted before this field
     #: existed load with the empty default.
     prerequisite_dependencies: tuple[Mapping[str, Any], ...] = ()
+    #: Complete consumer interpretation of the selected criterion. These
+    #: records are evidence for the detector decision, not a replacement for
+    #: the handoff's semantic criterion.
+    criterion_shape: Mapping[str, Any] = {}
+    semantic_assessment: Mapping[str, Any] = {}
 
     @field_validator("tool_declarations", mode="before")
     @classmethod
@@ -239,6 +244,12 @@ class ArtifactDesignPlan(ImmutableModel):
             # loadable.  New plans carry the non-empty contract in their
             # content digest.
             payload.pop("target_context", None)
+        if not self.criterion_shape:
+            # Plans written before whole-criterion assessment existed remain
+            # loadable without changing their historical digest.
+            payload.pop("criterion_shape", None)
+        if not self.semantic_assessment:
+            payload.pop("semantic_assessment", None)
         expected = compute_framed_digest(DESIGN_PLAN_DIGEST_FRAME, payload)
         if self.case_digest and self.case_digest != expected:
             raise ValueError("case_digest does not match plan content")
@@ -267,6 +278,9 @@ class DesignExclusion(ImmutableModel):
     #: scenario's own (stronger) failure criterion. ``None`` when no proxy is
     #: retained.
     proxy_claim: Mapping[str, Any] | None = None
+    #: Complete consumer interpretation retained for blocked designs.
+    criterion_shape: Mapping[str, Any] = {}
+    semantic_assessment: Mapping[str, Any] = {}
 
 
 @dataclass(frozen=True, slots=True)

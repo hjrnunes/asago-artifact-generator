@@ -247,6 +247,7 @@ _RULE_RECORD_STATUS_MARKER = re.compile(
 #: changed. The selected criterion is the only text inspected.
 _COMMAND_ACTION_MARKER = re.compile(
     r"\b(?:issue|issues|issued|issuing|invoke|invokes|invoked|invoking|"
+    r"invocation|initiate|initiates|initiated|initiating|"
     r"call|calls|called|calling|execute|executes|executed|executing|"
     r"send|sends|sent|sending|submit|submits|submitted|submitting|"
     r"trigger|triggers|triggered|triggering|perform|performs|performed|"
@@ -266,12 +267,30 @@ _RESULT_STATE_CHANGE_MARKER = re.compile(
     r"(?:[a-z][\w'-]*\s+){0,6}"
     r"(?:paid|given|granted|credited|transferred|settled|posted|applied|"
     r"delivered|updated|modified|deleted|committed|saved|created|disclosed|"
-    r"exposed|revealed|processed|completed|increased|decreased|reduced|changed)\b"
+    r"exposed|revealed|processed|completed|increased|decreased|reduced|changed|"
+    r"charged|debited|deducted|withdrawn|lost|loses|forfeited|consumed|"
+    r"altered|overwritten|removed|reassigned|cancelled|canceled|leaked|shared|"
+    r"invalidated|"
+    r"changes)\b"
     r"|"
-    r"\b(?:[a-z][\w'-]*\s+){0,6}"
+    r"\b(?:the\s+)?(?:account|card|balance|record|booking|reservation|"
+    r"transaction|refund|payment|amount|funds|money|draft|order|"
+    r"patient|customer|operation|request|command|action|response|result)\b"
+    r"\s+(?:[a-z][\w'-]*\s+){0,4}"
     r"(?:paid|given|granted|credited|transferred|settled|posted|applied|"
     r"delivered|updated|modified|deleted|committed|saved|created|disclosed|"
-    r"exposed|revealed|processed|completed|increased|decreased|reduced|changed)\b",
+    r"exposed|revealed|processed|completed|increased|decreased|reduced|changed|"
+    r"charged|debited|deducted|withdrawn|lost|loses|forfeited|consumed|"
+    r"altered|overwritten|removed|reassigned|cancelled|canceled|leaked|shared|"
+    r"invalidated|"
+    r"changes|moves?|left|leaves|disappears?|depleted|drained|"
+    r"flips?|switches?|completes?|settles?|clears?|succeeds?)\b|"
+    r"\b(?:account|card|balance|record|booking|reservation|transaction|refund|"
+    r"payment|amount|funds|money|draft|order|patient|customer|operation|"
+    r"request|command|action|response|result)\b"
+    r"\s+(?:[a-z][\w'-]*\s+){0,4}"
+    r"(?:suffers?|incurs?|experiences?|becomes?|ends?\s+up|winds?\s+up|"
+    r"goes?\s+through|is\s+left)\b",
     re.IGNORECASE,
 )
 _RESULT_COMPLETION_MARKER = re.compile(
@@ -787,6 +806,161 @@ class _ObservationRequirement:
     evidence: tuple[str, ...] = ()
 
 
+_CRITERION_FAILURE_SUFFIX = re.compile(
+    r"\b(?:failure|the\s+failure)\s+is\s+defined\b.*$",
+    re.IGNORECASE | re.DOTALL,
+)
+_CRITERION_CLAUSE_SPLIT = re.compile(
+    r"\b(?:and|while|but|then)\s+"
+    r"(?=(?:the|a|an|another|other|account|card|customer|assistant|system|"
+    r"it|this|that|patient|record|order|draft|tool|operation|refund|identity|"
+    r"issue|issues|invoke|invokes|call|calls|execute|executes|send|sends|"
+    r"submit|submits|trigger|triggers|perform|performs|update|updates|"
+    r"modify|modifies|delete|deletes|change|changes)"
+    r"\b(?!-))"
+    r"|(?<!\d)\.(?!\d)|;",
+    re.IGNORECASE,
+)
+_CRITERION_NEGATION = re.compile(
+    r"\b(?:does|do|did|will|would|should|must|can)\s+not\s+"
+    r"(?:[a-z][\w'-]*\s+){0,3}"
+    r"(?:issue|invoke|call|execute|send|submit|trigger|perform|request|"
+    r"provide|commit|modify|delete|update|change|charge|debit|deduct|"
+    r"transfer|pay|refund)\w*\b|"
+    r"\b(?:is|are|was|were|has|have|had)\s+not\s+"
+    r"(?:[a-z][\w'-]*\s+){0,4}"
+    r"(?:charged|debited|deducted|transferred|paid|credited|received|"
+    r"completed|processed|disclosed|exposed|lost|loses)\b|"
+    r"\bnever\s+(?:[a-z][\w'-]*\s+){0,3}"
+    r"(?:issue|invoke|call|execute|send|submit|trigger|perform|"
+    r"charge|debit|deduct|transfer|pay|refund)\w*\b|"
+    r"\bfails?\s+to\s+(?:[a-z][\w'-]*\s+){0,2}"
+    r"(?:issue|invoke|call|execute|send|submit|trigger|perform|"
+    r"charge|debit|deduct|transfer|pay|refund)\w*\b",
+    re.IGNORECASE,
+)
+_CRITERION_CONDITION = re.compile(
+    r"\b(?:if|unless|when|whenever|provided\s+that|only\s+if|"
+    r"only\s+when|on\s+the\s+condition\s+that)\b",
+    re.IGNORECASE,
+)
+_CRITERION_AMBIGUITY = re.compile(
+    r"\b(?:either|maybe|unclear|ambiguous|could\s+be|or\s+else|"
+    r"one\s+of|some|possibly|perhaps|might)\b",
+    re.IGNORECASE,
+)
+_CRITERION_UNACCOUNTED_CONJUNCTION = re.compile(
+    r"\band\s+(?:follows?|uses?|relies?|depends?|contains?|maintains?|"
+    r"preserves?|assumes?|interprets?|applies?)\b",
+    re.IGNORECASE,
+)
+
+
+def _criterion_material_text(criterion: str) -> str:
+    """Remove only the handoff's non-material explanation suffix."""
+
+    return _CRITERION_FAILURE_SUFFIX.split(criterion, maxsplit=1)[0].strip()
+
+
+def _criterion_material_clauses(criterion: str) -> tuple[str, ...]:
+    """Split the selected criterion into independently accountable clauses."""
+
+    return tuple(
+        clause.strip()
+        for clause in _CRITERION_CLAUSE_SPLIT.split(_criterion_material_text(criterion))
+        if clause.strip()
+    )
+
+
+def _criterion_assessment(handoff: ScenarioHandoff) -> dict[str, Any]:
+    """Assess all material criterion clauses before selecting a detector.
+
+    The assessment is deliberately conservative.  A command observation is
+    compatible only when every material clause is a supported command claim.
+    Effects, conditions, negation, ambiguity, and unexplained clauses remain
+    explicit.  This is a bounded semantic grammar, not a phrase admission
+    list.
+    """
+
+    criterion = handoff.semantic_failure_criterion.strip()
+    clauses = _criterion_material_clauses(criterion)
+    clause_records: list[dict[str, Any]] = []
+    effect_evidence: list[str] = []
+    reasons: list[str] = []
+    for clause in clauses:
+        effect_matches = tuple(
+            match.group(0).strip()
+            for pattern in (
+                _RESULT_RECEIVER_MARKER,
+                _RESULT_STATE_CHANGE_MARKER,
+                _RESULT_COMPLETION_MARKER,
+            )
+            for match in pattern.finditer(clause)
+        )
+        command_match = _COMMAND_ACTION_MARKER.search(clause)
+        if effect_matches:
+            role = "effect"
+            effect_evidence.extend(effect_matches)
+        elif command_match:
+            role = "command"
+        else:
+            role = "unknown"
+        clause_records.append(
+            {
+                "text": clause,
+                "role": role,
+                "command_evidence": command_match.group(0).strip() if command_match else None,
+                "effect_evidence": list(effect_matches),
+            }
+        )
+    material = _criterion_material_text(criterion)
+    if _CRITERION_NEGATION.search(material):
+        reasons.append("negation")
+    if _CRITERION_CONDITION.search(material):
+        reasons.append("condition")
+    if _CRITERION_AMBIGUITY.search(material):
+        reasons.append("ambiguity")
+    if _CRITERION_UNACCOUNTED_CONJUNCTION.search(material):
+        reasons.append("unknown")
+    if any(record["role"] == "unknown" for record in clause_records):
+        reasons.append("unknown")
+    command_clauses = [
+        record
+        for record in clause_records
+        if record["role"] == "command"
+        and record["command_evidence"].lower() not in {"provide", "provides", "provided"}
+    ]
+    if len(command_clauses) > 1:
+        reasons.append("compound")
+    if effect_evidence:
+        level = "effect"
+    elif clause_records and all(record["role"] == "command" for record in clause_records):
+        level = "command"
+    else:
+        level = "unknown"
+    reasons = list(dict.fromkeys(reasons))
+    return {
+        "criterion": criterion,
+        "material_clauses": clause_records,
+        "observation_requirement": {
+            "level": level,
+            "compatible": level == "command" and not reasons,
+            "evidence": list(effect_evidence),
+        },
+        "negated": "negation" in reasons,
+        "conditional": "condition" in reasons,
+        "ambiguous": "ambiguity" in reasons,
+        "uncertainty": {
+            "reasons": reasons,
+            "status": "resolved" if not reasons else "unresolved",
+        },
+        "supported_boundary": (
+            "command-level observation establishes an issued command and its "
+            "arguments only; it does not establish a completed backend effect"
+        ),
+    }
+
+
 def _observation_requirement(handoff: ScenarioHandoff) -> _ObservationRequirement:
     """Classify the selected criterion's observation requirement.
 
@@ -797,21 +971,12 @@ def _observation_requirement(handoff: ScenarioHandoff) -> _ObservationRequiremen
     domain wording does not require adding a target-specific phrase.
     """
 
-    criterion = handoff.semantic_failure_criterion
-    effect_matches = tuple(
-        match.group(0).strip()
-        for pattern in (
-            _RESULT_RECEIVER_MARKER,
-            _RESULT_STATE_CHANGE_MARKER,
-            _RESULT_COMPLETION_MARKER,
-        )
-        for match in pattern.finditer(criterion)
+    assessment = _criterion_assessment(handoff)
+    requirement = assessment["observation_requirement"]
+    return _ObservationRequirement(
+        requirement["level"],
+        tuple(requirement["evidence"]),
     )
-    if effect_matches:
-        return _ObservationRequirement("effect", effect_matches)
-    if _COMMAND_ACTION_MARKER.search(criterion):
-        return _ObservationRequirement("command")
-    return _ObservationRequirement("unknown")
 
 
 def _effect_criterion_detail(
@@ -865,6 +1030,16 @@ def _require_observation_level_compatibility(
     if detector.observation_level != "command":
         return
     criterion = handoff.semantic_failure_criterion.strip()
+    assessment = _criterion_assessment(handoff)
+    reasons = assessment["uncertainty"]["reasons"]
+    if reasons:
+        raise _Blocked(
+            "unsupported-observation",
+            "the complete semantic failure criterion contains material meaning "
+            f"that the command-level observer cannot resolve ({', '.join(reasons)}): "
+            f"{criterion}. The consumer holds the design instead of admitting "
+            "a positive command claim from a partial phrase.",
+        )
     requirement = _observation_requirement(handoff)
     if requirement.level == "command":
         return
@@ -2717,6 +2892,8 @@ def _freeze(
     detector: DetectorDesign,
     fidelity: FidelityAssessment,
     target_context: Mapping[str, Any],
+    criterion_shape: Mapping[str, Any],
+    semantic_assessment: Mapping[str, Any],
 ) -> FreezeRecord:
     """Freeze artifact-owned text and evidence together before execution."""
 
@@ -2730,6 +2907,8 @@ def _freeze(
         "detector": detector.model_dump(mode="json"),
         "fidelity": fidelity.model_dump(mode="json"),
         "target_context": dict(target_context),
+        "criterion_shape": dict(criterion_shape),
+        "semantic_assessment": dict(semantic_assessment),
     }
     handoff_model = handoff.handoff
     return FreezeRecord(
@@ -2768,6 +2947,13 @@ def design_artifact(
     case_id = design_id
     fidelity: FidelityAssessment | None = None
     attempts: list[dict[str, Any]] = []
+    initial_interpretation = _interpret_criterion_shape(handoff)
+    criterion_shape_record: Mapping[str, Any] = {
+        "selected": initial_interpretation.shape,
+        "compound_families": list(initial_interpretation.compound_families),
+        "authority": "handoff.semantic_failure_criterion",
+    }
+    semantic_assessment: Mapping[str, Any] = _criterion_assessment(handoff)
     try:
         # Finding F: the blanket kind block is replaced by the recorded
         # functional-feasibility decision
@@ -2894,6 +3080,8 @@ def design_artifact(
             detector,
             fidelity,
             target_context,
+            criterion_shape_record,
+            semantic_assessment,
         )
         authoring = _authoring_block(attempts)
         plan = ArtifactDesignPlan(
@@ -2930,6 +3118,8 @@ def design_artifact(
             stimulus=stimulus,
             detector=detector,
             fidelity=fidelity,
+            criterion_shape=criterion_shape_record,
+            semantic_assessment=semantic_assessment,
             prerequisite_dependencies=_prerequisite_dependencies(setup),
             freeze={
                 "frozen_content_digest": freeze.frozen_content_digest,
@@ -2956,7 +3146,17 @@ def design_artifact(
                 f"oracle: {detector.rationale}"
             ),
         )
-        record = _design_record(verified, design_id, case_id, plan, None, freeze, authoring)
+        record = _design_record(
+            verified,
+            design_id,
+            case_id,
+            plan,
+            None,
+            freeze,
+            authoring,
+            criterion_shape_record,
+            semantic_assessment,
+        )
         return DesignOutcome(
             scenario_id=handoff.scenario_id,
             design_id=design_id,
@@ -2978,8 +3178,20 @@ def design_artifact(
             fidelity=fidelity if fidelity is not None else _blocked_fidelity(blocked),
             authoring=authoring,
             proxy_claim=blocked.proxy_claim,
+            criterion_shape=criterion_shape_record,
+            semantic_assessment=semantic_assessment,
         )
-        record = _design_record(verified, design_id, case_id, None, exclusion, None, authoring)
+        record = _design_record(
+            verified,
+            design_id,
+            case_id,
+            None,
+            exclusion,
+            None,
+            authoring,
+            criterion_shape_record,
+            semantic_assessment,
+        )
         return DesignOutcome(
             scenario_id=handoff.scenario_id,
             design_id=design_id,
@@ -3005,6 +3217,8 @@ def _design_record(
     exclusion: DesignExclusion | None,
     freeze: FreezeRecord | None,
     authoring: dict[str, Any],
+    criterion_shape: Mapping[str, Any],
+    semantic_assessment: Mapping[str, Any],
 ) -> dict[str, Any]:
     handoff = verified.handoff
     return {
@@ -3021,6 +3235,8 @@ def _design_record(
             "source_sha256": verified.source_sha256,
             "verification": verified.verification.model_dump(mode="json"),
         },
+        "criterion_shape": dict(criterion_shape),
+        "semantic_assessment": dict(semantic_assessment),
         "environment": (
             plan.environment.model_dump(mode="json") if plan is not None else {"basis": "none"}
         ),
