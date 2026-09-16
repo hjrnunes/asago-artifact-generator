@@ -233,3 +233,17 @@ def test_functional_handoff_accepted(tmp_path: Path) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
     verified = load_scenario_handoff(path)
     assert verified.handoff.kind == "functional"
+
+
+def test_functional_successor_handoff_is_accepted(tmp_path: Path) -> None:
+    payload = json.loads(
+        (KIT_DIR / "handoff-v1" / "valid" / "functional-no-attacker-v2.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    path = tmp_path / "functional-successor.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    verified = load_scenario_handoff(path)
+    assert verified.handoff.kind == "functional"
+    assert verified.handoff.scenario_id == "SCN-009"
+    assert verified.handoff.scenario_version == 2

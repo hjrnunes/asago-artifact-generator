@@ -3,7 +3,7 @@
   "contract": "scenario-handoff",
   "digest_domain": "scenario-handoff-v1",
   "files": {
-    "handoff-v1/canonical-digests.json": "de77f600664a55fedfe40736bcd287b8aa19ed84d689d383ab1c0242c97e8848",
+    "handoff-v1/canonical-digests.json": "b1c4419876214ac94e06ccecd27f8f5f292000da3fe97cd8b243c53afdcd424c",
     "handoff-v1/expected-violations.json": "068251ba93f8a668341d8b7ef59308237c90dd0e87605b29dc19584aee970347",
     "handoff-v1/invalid/prepared-message-field.json": "23043a550b6ebf5d16e51ffc2fdb0c17996c23efa0f371d0adfe377f76159101",
     "handoff-v1/invalid/role-turn-array.json": "abbe9e4c75fa12fe5e594773f6ec034152f6cb3cffc40ecd22c4001f83394efe",
@@ -11,7 +11,8 @@
     "handoff-v1/invalid/stimulus-turn-field.json": "3b0835f9c66c4f508ffa63ace5c8bbdde9fac06a5058fcf6a5cd4dd743f884a3",
     "handoff-v1/schema.json": "d547a225d44963ebaff220a5876a40e9e3fca57cbd5a1dfb4d195b8deeed77cb",
     "handoff-v1/valid/adversarial-refund.json": "43814d1e54466247fafa3d0a1a2364247922fb92dca53c660c4219538a0aa914",
-    "handoff-v1/valid/functional-no-attacker.json": "214091e2cdba952a065e89007364483427af1ad02ca263893af1d8d6b819782f"
+    "handoff-v1/valid/functional-no-attacker.json": "214091e2cdba952a065e89007364483427af1ad02ca263893af1d8d6b819782f",
+    "handoff-v1/valid/functional-no-attacker-v2.json": "0d8600c4143fd012a7b8f54f044190d4e1de9e8775dd6279b27df52aa4a839f7"
   },
   "handoff_schema_version": "scenario-handoff-v1",
   "handoff_schema_versions": [
