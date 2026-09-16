@@ -1754,9 +1754,43 @@ def test_genuine_amount_request_still_binds_and_compiles() -> None:
     assert outcome.exclusion is None
     assert outcome.plan is not None
     assert outcome.plan.stimulus.amount_requested == 100.0
+    assessment = outcome.plan.stimulus.provenance["semantic_assessment"]
+    assert assessment["verdict"] == "supports"
+    assert assessment["operation"]["status"] == "supported"
+    assert assessment["target_record"] == {
+        "status": "matches",
+        "evidence_spans": ["ORD-101"],
+    }
     compiled = compile_design(outcome.plan)
     assert validate_conversation_case(compiled.artifact, outcome.plan) == []
     assert outcome.plan.fidelity.stimulus_exercises_scenario.answer is True
+
+
+def test_wrong_record_request_is_not_attributed_to_selected_record() -> None:
+    """A selected-record mention in an incidental clause cannot override the
+    record that the actual refund request names."""
+    outcome = _designed(
+        stimulus_text=("Please refund 100.0 for ORD-102; ORD-101 is an unrelated reference."),
+        amount=100.0,
+    )
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "record-attribution-unresolved"
+    assert outcome.exclusion.fidelity is not None
+    assert outcome.exclusion.fidelity.stimulus_exercises_scenario.answer is False
+
+
+def test_incidental_refund_reference_is_not_a_request() -> None:
+    """A reference to a refund in prose does not establish a refund request."""
+    outcome = _designed(
+        stimulus_text=("Regarding refund ORD-101, ticket 100 is my support reference."),
+        amount=100.0,
+    )
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "operation-attribution-unresolved"
+    assert outcome.exclusion.fidelity is not None
+    assert outcome.exclusion.fidelity.stimulus_exercises_scenario.answer is False
 
 
 # --- B4: the selected criterion governs interpretation ---

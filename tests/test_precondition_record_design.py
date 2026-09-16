@@ -501,6 +501,69 @@ def test_live_prebound_author_receives_no_amount_contract(tmp_path: Path) -> Non
     assert "amount_requirement" not in captured
 
 
+def test_status_query_is_not_a_commit_request(tmp_path: Path) -> None:
+    """A status question about the selected draft does not exercise the
+    commit operation criterion."""
+    outcome = _designed(
+        tmp_path,
+        author=PreboundAuthor(
+            {
+                "SCN-017": {
+                    "stimulus_text": f"What is the status of draft {DRAFT_ID}?",
+                    "rationale": "A status query.",
+                }
+            }
+        ),
+    )
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "operation-attribution-unresolved"
+    assert outcome.exclusion.fidelity is not None
+    assert outcome.exclusion.fidelity.stimulus_exercises_scenario.answer is False
+
+
+def test_negated_commit_request_is_not_a_commit_request(tmp_path: Path) -> None:
+    """A negated commit must not satisfy the positive command criterion."""
+    outcome = _designed(
+        tmp_path,
+        author=PreboundAuthor(
+            {
+                "SCN-017": {
+                    "stimulus_text": (
+                        f"Please do not commit draft {DRAFT_ID}; leave it awaiting review."
+                    ),
+                    "rationale": "The message explicitly declines the commit.",
+                }
+            }
+        ),
+    )
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "negated-request"
+    assert outcome.exclusion.fidelity is not None
+    assert outcome.exclusion.fidelity.stimulus_exercises_scenario.answer is False
+
+
+def test_different_operation_is_not_a_commit_request(tmp_path: Path) -> None:
+    """A delete request names the draft but asks for a different operation."""
+    outcome = _designed(
+        tmp_path,
+        author=PreboundAuthor(
+            {
+                "SCN-017": {
+                    "stimulus_text": f"Please delete draft {DRAFT_ID}.",
+                    "rationale": "The message requests deletion.",
+                }
+            }
+        ),
+    )
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "operation-attribution-unresolved"
+    assert outcome.exclusion.fidelity is not None
+    assert outcome.exclusion.fidelity.stimulus_exercises_scenario.answer is False
+
+
 def test_classifier_audit_over_preserved_occiai_handoffs() -> None:
     """Audit the classifier against every preserved m3-occiai-attempt1
     handoff: SCN-017 classifies to precondition_record, SCN-001's

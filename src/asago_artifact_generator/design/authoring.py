@@ -1313,6 +1313,182 @@ _NUMERIC_TOKEN = re.compile(r"(?<!\w)\d+(?:\.\d+)?(?!\w)")
 #: decimal point between digits never splits ("100.0" stays one token).
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.;!?])\s+")
 
+#: A small structural vocabulary used only to identify explicit action or
+#: query clauses in the rendered stimulus. It is not a scenario-specific
+#: acceptance list: selected-operation evidence comes from the observed tool
+#: name and description, while these words establish that a clause is asking
+#: for a state-changing operation rather than merely mentioning one.
+_STIMULUS_ACTION_WORDS = frozenset(
+    {
+        "add",
+        "approve",
+        "archive",
+        "cancel",
+        "change",
+        "commit",
+        "delete",
+        "issue",
+        "modify",
+        "process",
+        "refund",
+        "remove",
+        "save",
+        "send",
+        "submit",
+        "update",
+    }
+)
+_STIMULUS_REQUEST_INTENT = re.compile(
+    r"\b(?:please|i\s+(?:want|need|request|require|would\s+like)|"
+    r"(?:can|could|would)\s+you|i'?d\s+like)\b",
+    re.IGNORECASE,
+)
+_STIMULUS_QUERY = re.compile(
+    r"\b(?:what(?:'s|\s+is)?|which|where|when|how)\b[^.;!?]*"
+    r"\b(?:status|state|information|details?)\b|\bstatus\s+of\b",
+    re.IGNORECASE,
+)
+_STIMULUS_NEGATION = re.compile(
+    r"\b(?:do\s+not|does\s+not|don'?t|never|avoid\w*|without)\b"
+    r"[^.;!?]{0,48}",
+    re.IGNORECASE,
+)
+
+
+def _word_present(word: str, text: str) -> bool:
+    """Match a word or its ordinary inflection in one stimulus clause."""
+
+    return re.search(rf"\b{re.escape(word)}\w*\b", text, re.IGNORECASE) is not None
+
+
+def _operation_terms(tool: Mapping[str, Any]) -> tuple[str, ...]:
+    """Derive action terms from the observed operation name and description.
+
+    The selected target operation supplies the semantic vocabulary. The
+    bounded structural vocabulary only filters ordinary action words from that
+    observed text; it does not decide meaning from a global phrase blacklist.
+    """
+
+    source = f"{tool.get('name', '')} {tool.get('description', '')}".lower()
+    terms = {
+        token for token in re.findall(r"[a-z][a-z0-9]*", source) if token in _STIMULUS_ACTION_WORDS
+    }
+    return tuple(sorted(terms))
+
+
+def _stimulus_clauses(text: str) -> tuple[str, ...]:
+    """Split stimulus text at boundaries that separate independent requests."""
+
+    # Keep decimal points inside numeric values. A request such as ``100.0``
+    # must stay in one clause so its record and amount evidence remain joined.
+    clauses = re.split(
+        r"(?:;|(?<!\d)[.!?](?!\d)|\bbut\b)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return tuple(clause.strip() for clause in clauses if clause.strip())
+
+
+def _validate_stimulus_meaning(
+    text: str,
+    tool: Mapping[str, Any],
+    selected_record_id: str,
+) -> dict[str, Any]:
+    """Validate operation and record attribution in the actual stimulus.
+
+    The result is a compact, inspectable semantic assessment. It records only
+    evidence found in the rendered text; a separate author field or a mere
+    identifier mention cannot establish the request.
+    """
+
+    clauses = _stimulus_clauses(text)
+    operation_terms = _operation_terms(tool)
+    operation_clauses = tuple(
+        clause
+        for clause in clauses
+        if any(_word_present(term, clause) for term in operation_terms)
+    )
+    action_clauses = tuple(
+        clause
+        for clause in clauses
+        if any(_word_present(term, clause) for term in _STIMULUS_ACTION_WORDS)
+    )
+    if _STIMULUS_QUERY.search(text) and not _STIMULUS_REQUEST_INTENT.search(text):
+        raise _Blocked(
+            "operation-attribution-unresolved",
+            "the rendered stimulus is a status/information query, not an explicit "
+            f"request for the observed {tool['name']} operation; the selected record "
+            "mention cannot establish a command request",
+        )
+    if not operation_clauses:
+        if action_clauses:
+            action = action_clauses[0].strip()
+            raise _Blocked(
+                "operation-attribution-unresolved",
+                f"the rendered stimulus contains an explicit action ({action!r}) "
+                f"but does not attribute that action to the observed {tool['name']} "
+                "operation",
+            )
+        raise _Blocked(
+            "operation-attribution-unresolved",
+            f"the rendered stimulus does not contain evidence of a request for the "
+            f"observed {tool['name']} operation",
+        )
+    if not _STIMULUS_REQUEST_INTENT.search(text) and not any(
+        clause.lstrip().lower().startswith(operation_terms) for clause in operation_clauses
+    ):
+        raise _Blocked(
+            "operation-attribution-unresolved",
+            f"the rendered stimulus mentions {tool['name']} without a request or "
+            "command-intent structure",
+        )
+    negated_clause = next(
+        (clause for clause in operation_clauses if _STIMULUS_NEGATION.search(clause)),
+        None,
+    )
+    if negated_clause is not None:
+        raise _Blocked(
+            "negated-request",
+            f"the rendered stimulus explicitly negates the {tool['name']} request "
+            f"({negated_clause!r}); a negated operation is not a positive request",
+        )
+    operation_records: list[str] = []
+    for clause in operation_clauses:
+        operation_records.extend(_RECORD_ID_TOKEN.findall(clause))
+        # Domain identifiers are not required to have a hyphen (for example,
+        # ``DFTA1B2C3`` in the observed EHR draft collection). The selected
+        # environment identity is therefore also matched literally, but only
+        # inside the operation-bearing clause.
+        if selected_record_id in clause:
+            operation_records.append(selected_record_id)
+    records = tuple(dict.fromkeys(operation_records))
+    if len(records) != 1 or records[0] != selected_record_id:
+        rendered = ", ".join(records) if records else "none"
+        raise _Blocked(
+            "record-attribution-unresolved",
+            f"the rendered {tool['name']} request targets record(s) {rendered}, "
+            f"not exactly the selected record {selected_record_id}; an incidental "
+            "record mention cannot establish attribution",
+        )
+    return {
+        "verdict": "supports",
+        "operation": {
+            "status": "supported",
+            "evidence_spans": list(operation_clauses),
+        },
+        "target_record": {
+            "status": "matches",
+            "evidence_spans": [selected_record_id],
+        },
+        "requested_value": {
+            "status": "present" if _NUMERIC_TOKEN.search(text) else "absent",
+            "evidence_spans": list(_NUMERIC_TOKEN.findall(text)),
+        },
+        "negated": False,
+        "basis": "deterministic",
+        "evidence_spans": list(operation_clauses),
+    }
+
 
 def _bind_requested_amount(stimulus_text: str, amount: float) -> float:
     """Attribute the requested amount from the ACTUAL stimulus text (finding B2).
@@ -1409,6 +1585,7 @@ def _author_stimulus(
     author: ArtifactAuthor,
     limit: float | None,
     criterion_shape: str,
+    tool: Mapping[str, Any],
     attempts: list[dict[str, Any]],
 ) -> StimulusDesign:
     """Author the concrete stimulus with bounded slots; validate deterministically.
@@ -1554,6 +1731,11 @@ def _author_stimulus(
             _bind_requested_amount(stimulus_text, float(amount))
         else:
             amount = None
+        semantic_assessment = _validate_stimulus_meaning(
+            stimulus_text,
+            tool,
+            setup.selected_record_id,
+        )
         turns: list[DesignedTurn] = []
         if brief.approach == _CONVERSATION_APPROACH:
             history_turns = result.get("history_turns")
@@ -1602,6 +1784,7 @@ def _author_stimulus(
         "author_kind": type(author).__name__,
         "result_digest": result_digest,
         "handoff_digest": handoff.content_digest,
+        "semantic_assessment": semantic_assessment,
         "note": (
             "Stimulus wording and history turns are consumer design decisions; the "
             "handoff supplies scenario meaning only."
@@ -2196,6 +2379,7 @@ def design_artifact(
             author,
             float(limit) if limit is not None else None,
             criterion_shape,
+            tool_decl,
             attempts,
         )
         detector = _derive_detector(

@@ -41,6 +41,9 @@ DESIGN_EXCLUSION_CODES = (
     "environment-mismatch",
     "effect-criterion-unsupported-by-command-observation",
     "amount-attribution-unresolved",
+    "operation-attribution-unresolved",
+    "record-attribution-unresolved",
+    "negated-request",
     "ambiguous-criterion-shape",
 )
 
