@@ -103,6 +103,11 @@ no execution bundle or projection is read.
   it directly. Live authoring is fully evidenced: every `LLMArtifactAuthor`
   attempt, including malformed or rejected responses, and the authoring call
   count are persisted in the design record and the compiled design's trace.
+  Authoring also receives the selected operation's exact description and
+  argument schema, plus a target-context contract for required non-attacked
+  identities. Compiled artifacts preserve the selected operation and observed
+  read-only lookup tools, while direct context delivery uses observed values
+  and never substitutes `UNKNOWN`.
 - Blocked designs are preserved with typed exclusion reasons
   (`needs-environment-binding`, `unsupported-observation`, `missing-setup`,
   `unresolved-prerequisite`, `unsupported-criterion-shape`, `invalid-design`,

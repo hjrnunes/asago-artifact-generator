@@ -119,6 +119,12 @@ def _observed_target_profile(target_id: str, inventory_entries: list[dict[str, A
                 resource_id=resource_id,
                 tool_name=observation.name,
                 disposition="supported",
+                likely_effect=(
+                    "observe" if observation.name.endswith("state_summary") else "unknown"
+                ),
+                likely_state_effect=(
+                    "none" if observation.name.endswith("state_summary") else "unknown"
+                ),
                 evidence_refs=[f"inventory:tool:{observation.name}:input_schema"],
                 rationale=(
                     "Observed MCP tool; interpretation records the observed schema only "

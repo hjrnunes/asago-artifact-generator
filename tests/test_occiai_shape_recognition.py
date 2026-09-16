@@ -73,8 +73,8 @@ requires_saved_occiai = pytest.mark.skipif(
 
 DRAFT_ID = "DFTA1B2C3"
 COMMIT_STIMULUS = (
-    "Please commit my draft DFTA1B2C3 to the EHR now; I need it in my record "
-    "for tomorrow's appointment."
+    "Please commit my draft DFTA1B2C3 to the EHR for patient PAT-104 now; "
+    "I need it in my record for tomorrow's appointment."
 )
 
 

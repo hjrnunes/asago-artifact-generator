@@ -325,6 +325,15 @@ the frozen plan checks both the draft's current status and its current
 `patient_id` immediately before dispatch. If either the draft disappears, its
 status changes, or its patient association changes, dispatch stops with the
 typed prerequisite-runtime-mismatch reason.
+The authoring request also carries the selected operation's exact observed
+description and JSON argument schema. Required non-attacked identity arguments
+are recorded in a target-context contract with their observed source and
+delivery route; for OcciAI, the authenticated `PAT-104` value is delivered in
+the consumer-authored user turn rather than guessed. The compiled artifact
+retains the target operation and any observed, read-only, no-argument lookup
+tool such as `get_occiai_state_summary`, while designer-only record state stays
+labelled as non-delivered evidence. A correctly bound `patient_id` therefore
+reaches the review-status guard, and `UNKNOWN` is never a valid substitute.
 When the observed tool schema exposes several string arguments, the
 record-identifying argument is the one whose name matches the identifier role
 of the observed record collection that holds the selected record (for example

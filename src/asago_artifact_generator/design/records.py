@@ -191,6 +191,10 @@ class ArtifactDesignPlan(ImmutableModel):
     fidelity: FidelityAssessment
     freeze: Mapping[str, Any]
     tool_declarations: tuple[Mapping[str, Any], ...] = ()
+    #: Target-facing context contract.  This contains the selected operation,
+    #: required argument delivery routes, and only the safe lookup tools that
+    #: the target may use to resolve non-attacked context.
+    target_context: Mapping[str, Any] = {}
     judge_description: StrictStr | None = None
     case_digest: StrictStr = ""
     #: The freeze record's frozen-content digest, carried at the top level so
@@ -230,6 +234,11 @@ class ArtifactDesignPlan(ImmutableModel):
             payload.pop("frozen_content_digest", None)
         if not self.prerequisite_dependencies:
             payload.pop("prerequisite_dependencies", None)
+        if not self.target_context:
+            # Plans written before the target-context contract existed remain
+            # loadable.  New plans carry the non-empty contract in their
+            # content digest.
+            payload.pop("target_context", None)
         expected = compute_framed_digest(DESIGN_PLAN_DIGEST_FRAME, payload)
         if self.case_digest and self.case_digest != expected:
             raise ValueError("case_digest does not match plan content")

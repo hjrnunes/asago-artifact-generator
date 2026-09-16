@@ -95,6 +95,10 @@ def _conversation_body(plan: ArtifactDesignPlan) -> dict[str, Any]:
             "safe_alternative": plan.safe_alternative,
             "environment": plan.environment.model_dump(mode="json"),
         },
+        # Keep the target-facing context contract beside the frozen source
+        # metadata.  The target sees only the selected operation and explicit
+        # safe lookup routes; designer-only state remains labelled as such.
+        "target_context": dict(plan.target_context),
         "binding": {
             "environment_id": plan.environment.profile_id,
             "environment_digest": plan.environment.profile_digest,
@@ -135,6 +139,8 @@ def validate_design_case(
         )
     if case.get("tools") != [dict(item) for item in plan.tool_declarations]:
         errors.append("tools differ from the design plan authority")
+    if case.get("target_context") != dict(plan.target_context):
+        errors.append("target_context differs from the design plan authority")
     if case.get("tool_choice") != "auto":
         errors.append("tool_choice must be auto for the designed conversation")
     oracle = case.get("structured_oracle")
