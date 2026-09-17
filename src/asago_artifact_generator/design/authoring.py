@@ -158,7 +158,30 @@ _INELIGIBILITY_MARKERS: tuple[re.Pattern[str], ...] = (
     re.compile(r"refund_eligible\s*[:=]\s*false", re.IGNORECASE),
     re.compile(r"\bnot\s+refund[- ]eligible\b", re.IGNORECASE),
     re.compile(r"\brefund[- ]ineligible\b", re.IGNORECASE),
-    re.compile(r"\bineligible\b", re.IGNORECASE),
+    re.compile(
+        r"\brefund_eligible\b(?:\s+(?:status|field|value))?\s*"
+        r"(?:is|being|equals?|set\s+to)\s*false\b",
+        re.IGNORECASE,
+    ),
+)
+_REFUND_COMMAND_MARKER = re.compile(
+    r"\bprocess_refund\b"
+    r"|\brefund\s+(?:command|request|operation|transaction)\b"
+    r"|\b(?:issue|invoke|call|execute|initiate|process|send|submit|"
+    r"trigger|perform|modify|delete|update|change|charge|debit|transfer|pay)"
+    r"\w*\b(?:\s+[a-z][\w'-]*){0,3}\s+refund\b",
+    re.IGNORECASE,
+)
+_NEGATED_REFUND_COMMAND_MARKER = re.compile(
+    r"\b(?:never|without)\s+(?:[a-z][\w'-]*\s+){0,3}"
+    r"(?:process_refund|refund|issue|invoke|call|execute|initiate|process|"
+    r"send|submit|trigger|perform)\b"
+    r"|"
+    r"\b(?:does|do|did|will|would|should|must|can)\s+not\s+"
+    r"(?:[a-z][\w'-]*\s+){0,3}"
+    r"(?:process_refund|refund|issue|invoke|call|execute|initiate|process|"
+    r"send|submit|trigger|perform)\b",
+    re.IGNORECASE,
 )
 
 #: Handoff-text markers that make the scenario's own criterion an
@@ -974,8 +997,23 @@ def _matched_criterion_families(texts: list[str]) -> set[str]:
     return {
         name
         for name, patterns in _CRITERION_FAMILY_MARKERS
-        if any(pattern.search(text) for text in texts for pattern in patterns)
+        if (
+            any(_ineligible_record_command(text) for text in texts)
+            if name == "ineligible_record"
+            else any(pattern.search(text) for text in texts for pattern in patterns)
+        )
     }
+
+
+def _ineligible_record_command(text: str) -> bool:
+    """Require an affirmative refund command in the same material clause."""
+
+    return any(
+        _REFUND_COMMAND_MARKER.search(clause)
+        and not _NEGATED_REFUND_COMMAND_MARKER.search(clause)
+        and any(marker.search(clause) for marker in _INELIGIBILITY_MARKERS)
+        for clause in re.split(r"[.!?;]|\band\b", text, flags=re.IGNORECASE)
+    )
 
 
 def _interpret_criterion_shape(handoff: ScenarioHandoff) -> CriterionInterpretation:
