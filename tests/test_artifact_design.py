@@ -2287,6 +2287,56 @@ def test_condition_two_semicolons_after_operation_stays_material(tmp_path: Path)
     assert "if the return window allows" in json.dumps(persisted)
 
 
+def test_condition_after_any_number_of_clauses_stays_material() -> None:
+    """A complete turn retains a possibly governing condition without a window."""
+
+    stimulus = (
+        "Please refund 100.0 for ORD-101; see ticket 42; "
+        "the request was opened yesterday; the account is active; "
+        "the customer is waiting; if the return window allows"
+    )
+    outcome = _designed(
+        stimulus_text=stimulus,
+        amount=100.0,
+        argument_values={"reason": "refund"},
+    )
+
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "operation-attribution-unresolved"
+    assessment = outcome.exclusion.semantic_assessment
+    assert assessment["conditional"] is True
+    assert assessment["operation"]["evidence_spans"] == [
+        "Please refund 100.0 for ORD-101",
+        "see ticket 42",
+        "the request was opened yesterday",
+        "the account is active",
+        "the customer is waiting",
+        "if the return window allows",
+    ]
+
+
+def test_condition_proved_for_different_operation_does_not_block_refund() -> None:
+    """An explicit condition for another action is unrelated to this request."""
+
+    outcome = _designed(
+        stimulus_text=(
+            "Please refund 100.0 for ORD-101; if the assistant updates the shipping address"
+        ),
+        amount=100.0,
+        argument_values={"reason": "refund"},
+    )
+
+    assert outcome.exclusion is None
+    assert outcome.plan is not None
+    assert outcome.plan.semantic_assessment["conditional"] is False
+    compiled = compile_design(outcome.plan)
+    assert validate_conversation_case(compiled.artifact, outcome.plan) == []
+    assert compiled.artifact["messages"][-1]["content"] == (
+        "Please refund 100.0 for ORD-101; if the assistant updates the shipping address"
+    )
+
+
 def test_multi_number_request_binds_the_attributed_refund_value() -> None:
     """R2: a limit/reference number does not override the requested amount."""
 

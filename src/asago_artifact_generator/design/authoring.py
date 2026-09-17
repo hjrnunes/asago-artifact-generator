@@ -2864,14 +2864,14 @@ def _stimulus_operation_clauses(
     clauses: tuple[str, ...],
     operation_terms: tuple[str, ...],
 ) -> tuple[str, ...]:
-    """Select operation clauses and nearby semicolon conditions.
+    """Select operation clauses and conditions from the complete turn.
 
     A semicolon can separate incidental reference text, but it can also join a
-    condition that changes whether the request is unconditional. Preserve a
-    condition across one intervening clause in the operation evidence so
-    modality analysis cannot admit the positive request after dropping that
-    meaning. The intervening text stays in the evidence because attribution is
-    uncertain rather than silently treating the condition as unrelated.
+    condition that changes whether the request is unconditional. Assess every
+    condition in the delivered turn instead of using a positional window.
+    Retain the complete clause span when a condition may govern the selected
+    operation, because intervening text cannot prove that attribution is
+    unrelated.
     """
 
     selected_indexes = {
@@ -2885,7 +2885,14 @@ def _stimulus_operation_clauses(
     }
     for operation_index in selected_indexes:
         for condition_index in condition_indexes:
-            if abs(condition_index - operation_index) <= 2:
+            condition = clauses[condition_index]
+            condition_actions = {
+                action for action in _STIMULUS_ACTION_WORDS if _word_present(action, condition)
+            }
+            may_govern_operation = not condition_actions or any(
+                _word_present(term, condition) for term in operation_terms
+            )
+            if may_govern_operation:
                 connected_indexes.update(
                     range(
                         min(operation_index, condition_index),
