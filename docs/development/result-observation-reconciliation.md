@@ -5,6 +5,16 @@ Recorded: 2026-09-15T10:23:29Z (programmatic `date -u`). Feature:
 ownership: consumer only; producer-repo items are recorded here and handed to
 the orchestrator.
 
+## Current workflow reminder
+
+The producer's current `run` path publishes only the semantics-only
+`scenario-handoff-v1`. This consumer's current `design` path owns concrete
+messages or user-only history, target binding, setup, detector and fidelity
+decisions, freezing, and compilation. Runtime delivery and command, reply,
+backend, and state receipts remain separate concerns. The bundle `generate`
+and taxonomy-era `generate-legacy` paths below are historical compatibility
+seams, not current ownership.
+
 The M4 cutover retires the producer's artifact-authoring and detector-admission
 responsibilities. This record reconciles the existing result-observation work
 with that cutover: what is reused, what moves downstream, and what happens to

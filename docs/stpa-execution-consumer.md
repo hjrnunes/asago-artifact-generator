@@ -1,5 +1,21 @@
 # STPA execution-bundle consumer
 
+## Current ownership and historical status
+
+The current consumer interface is `design`: it reads the producer's
+semantics-only `scenario-handoff-v1` plus an explicit target or simulation
+environment, then owns concrete user text or user-only history, required
+argument delivery, setup, detector and fidelity decisions, freezing, and
+compilation. The producer owns STPA lineage and semantic meaning; it does not
+publish executable messages, setup, detectors, or harness instructions. The
+runtime owns frozen delivery, pre-dispatch dependency checks, command/reply
+receipts, and separate backend/state observations.
+
+The execution-bundle interface documented below is historical and read-only.
+`generate` and `generate-legacy` preserve archived compatibility behavior but
+are not the current artifact-design path. A command-level result does not
+establish a completed backend effect.
+
 The consumer accepts only the canonical JSON index for
 `stpa-execution-bundle-v1` or `stpa-execution-bundle-v2`. The bundle version
 pins the projection generation: a bundle-v1 index requires

@@ -6,6 +6,29 @@ The producer execution bundle and the taxonomy-era scenario YAMLs are
 historical/retired inputs: their read-only readers remain, isolated behind
 the explicit `generate` and `generate-legacy` commands.
 
+## Ownership and current workflow
+
+The producer's current `run` command publishes a semantics-only
+`scenario-handoff-v1`. It owns STPA lineage, the selected semantic failure
+criterion, safe alternatives, supported causal hypotheses, and semantic
+renderings. It does not publish concrete messages, setup, detector
+expressions, or harness instructions.
+
+This repository's current `design` command owns concrete user text or
+user-only history, explicit target-context binding, required-argument
+delivery, setup, detector and fidelity decisions, freezing, and compilation.
+The runtime owns frozen delivery, pre-dispatch dependency checks, command and
+reply receipts, and separate backend/state observations. A command-level
+observation is not a completed-effect claim.
+
+The `generate` and `generate-legacy` commands shown below are historical,
+read-only compatibility paths for archived execution bundles and
+taxonomy-era YAMLs. They are not the current producer-to-consumer workflow.
+Use `design` for current artifact design. The cross-repository R9 evidence
+and accounting reconciliation is recorded in
+[`docs/development/result-observation-reconciliation.md`](docs/development/result-observation-reconciliation.md)
+and in the producer's dated reconciliation report.
+
 ```
 Primary (design):
 scenario-handoff.json + explicit environment
@@ -80,7 +103,7 @@ Supported LLM backends: **Gemini** (default when `GEMINI_API_KEY` is set), **Ope
 Each platform generator lives in its own subpackage under
 `src/asago_artifact_generator/` and writes artifacts under `runs/`.
 
-## Generate STPA artifacts
+## Historical generate path
 
 ```bash
 # Verify, bind and compile all bundle entries for Garak
