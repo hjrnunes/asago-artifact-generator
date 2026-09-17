@@ -85,16 +85,29 @@ def _attach_author_evidence(attempt: dict[str, Any], author: ArtifactAuthor) -> 
     evidence = getattr(author, "last_evidence", None)
     if not isinstance(evidence, Mapping):
         return
-    for key in ("schema_version", "rendered_prompt", "raw_response", "model_controls"):
+    for key in (
+        "schema_version",
+        "rendered_prompt",
+        "raw_response",
+        "cleaned_response",
+        "model_controls",
+        "usage",
+        "failure_class",
+    ):
         if key in evidence:
             attempt[key] = _jsonable(evidence[key])
     pins = evidence.get("content_pins")
     if isinstance(pins, Mapping):
         attempt["content_pins"].update(_jsonable(dict(pins)))
+    transformations = evidence.get("deterministic_transformations")
+    if isinstance(transformations, list):
+        attempt["deterministic_transformations"].extend(
+            _jsonable(item) for item in transformations
+        )
     if "parse_error" in evidence:
         attempt["parse_error"] = _safe_error_detail(evidence["parse_error"])
     if "call_error" in evidence:
-        attempt["call_error"] = str(evidence["call_error"])
+        attempt["call_error"] = _safe_error_detail(evidence["call_error"])
 
 
 def _record_transformation(
@@ -455,6 +468,7 @@ class LLMArtifactAuthor:
                 temperature=0.2,
             )
             self.last_evidence["call_error"] = type(exc).__name__
+            self.last_evidence["failure_class"] = "provider_failure"
             raise
         self.last_evidence = evidence
         return result
@@ -3393,12 +3407,22 @@ def _author_stimulus(
         raise _Blocked("invalid-design", f"unknown design approach {brief.approach!r}")
     attempt: dict[str, Any] = {
         "attempt": len(attempts) + 1,
+        "attempt_id": (f"{handoff.scenario_id}:consumer_authoring:{len(attempts) + 1}"),
+        "call_category": "consumer_authoring",
         "author_kind": type(author).__name__,
+        "provider_request": isinstance(author, LLMArtifactAuthor),
+        "live_call": isinstance(author, LLMArtifactAuthor),
         "recorded_at": datetime.now(UTC).isoformat(),
         "request_digest": compute_framed_digest(_AUTHOR_REQUEST_DIGEST_FRAME, request),
         "rendered_prompt": None,
         "raw_response": None,
         "model_controls": None,
+        "cleaned_response": None,
+        "usage": {
+            "status": "unavailable",
+            "prompt_tokens": None,
+            "completion_tokens": None,
+        },
         "content_pins": {"request": compute_framed_digest(_AUTHOR_REQUEST_DIGEST_FRAME, request)},
         "deterministic_transformations": [],
         "response": None,
@@ -3412,6 +3436,12 @@ def _author_stimulus(
         _attach_author_evidence(attempt, author)
     except _Blocked as blocked:
         _attach_author_evidence(attempt, author)
+        if (
+            "failure_class" not in attempt
+            and isinstance(author, LLMArtifactAuthor)
+            and (attempt["raw_response"] is not None or attempt["cleaned_response"] is not None)
+        ):
+            attempt["failure_class"] = "answered_semantic_failure"
         attempt["rejection_code"] = blocked.code
         attempt["rejection_detail"] = _safe_error_detail(blocked.detail)
         raise
@@ -3434,14 +3464,22 @@ def _author_stimulus(
             f"the author call failed; the failed attempt is recorded: {safe_detail}",
         ) from exc
     attempt["response"] = _jsonable(result)
-    _record_transformation(
-        attempt,
-        name="parse_provider_response",
-        status="applied",
-        input_value=attempt["raw_response"] if attempt["raw_response"] is not None else result,
-        output_value=result,
-        detail="provider JSON was decoded before deterministic validation",
-    )
+    if attempt["cleaned_response"] is None:
+        attempt["cleaned_response"] = _jsonable(result)
+        attempt["content_pins"]["cleaned_response"] = _content_pin(
+            result, frame="artifact-author-cleaned-response-v1"
+        )
+    if not attempt["deterministic_transformations"]:
+        _record_transformation(
+            attempt,
+            name="parse_provider_response",
+            status="applied",
+            input_value=(
+                attempt["raw_response"] if attempt["raw_response"] is not None else result
+            ),
+            output_value=result,
+            detail="provider JSON was decoded before deterministic validation",
+        )
     try:
         if not isinstance(result, dict):
             raise _Blocked("invalid-design", "the author must return a JSON object")
@@ -4532,7 +4570,14 @@ def design_artifact(
 def _authoring_block(attempts: list[dict[str, Any]]) -> dict[str, Any]:
     """The persisted authoring evidence: every attempt and the call count."""
 
-    return {"call_count": len(attempts), "attempts": attempts}
+    provider_requests = sum(1 for attempt in attempts if attempt.get("provider_request") is True)
+    return {
+        "call_count": len(attempts),
+        "design_attempt_count": len(attempts),
+        "provider_request_count": provider_requests,
+        "live_call_count": provider_requests,
+        "attempts": attempts,
+    }
 
 
 def _design_record(

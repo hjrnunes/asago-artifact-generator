@@ -204,37 +204,107 @@ def get_client() -> OpenAI:
     return _client
 
 
+def _content_pin(value: Any, frame: str) -> str:
+    """Pin one evidence value without exposing connection metadata."""
+    return compute_framed_digest(frame, value)
+
+
+def _transformation(
+    name: str,
+    input_value: Any,
+    output_value: Any,
+    *,
+    detail: str,
+) -> dict[str, Any]:
+    """Build one ordered cleanup record with before/after pins."""
+    return {
+        "name": name,
+        "status": "applied",
+        "input_pin": _content_pin(input_value, "artifact-author-cleanup-input-v1"),
+        "output_pin": _content_pin(output_value, "artifact-author-cleanup-output-v1"),
+        "detail": detail,
+    }
+
+
+def _decode_json_with_evidence(
+    raw_text: str,
+) -> tuple[Any, list[dict[str, Any]]]:
+    """Decode provider JSON and retain only cleanups that actually applied."""
+    current = raw_text.strip()
+    transformations: list[dict[str, Any]] = []
+    try:
+        parsed = json.loads(current)
+    except json.JSONDecodeError as initial_error:
+        lines = current.splitlines()
+        if (
+            len(lines) >= 3
+            and lines[0].strip().lower() in {"```json", "```"}
+            and lines[-1].strip() == "```"
+        ):
+            fenced = "\n".join(lines[1:-1])
+            transformations.append(
+                _transformation(
+                    "markdown_fence_removal",
+                    current,
+                    fenced,
+                    detail="removed one exact outer Markdown fence",
+                )
+            )
+            current = fenced
+        try:
+            parsed = json.loads(current)
+        except json.JSONDecodeError:
+            repaired = re.sub(r",\s*([}\]])", r"\1", current)
+            if repaired != current:
+                transformations.append(
+                    _transformation(
+                        "trailing_comma_repair",
+                        current,
+                        repaired,
+                        detail="removed commas immediately before object/array closure",
+                    )
+                )
+            current = repaired
+            try:
+                parsed = json.loads(current)
+            except json.JSONDecodeError:
+                escaped = re.sub(r"\\(?![\"\\\/bfnrtu])", r"\\\\", current)
+                if escaped == current:
+                    raise initial_error from None
+                transformations.append(
+                    _transformation(
+                        "invalid_escape_repair",
+                        current,
+                        escaped,
+                        detail="escaped invalid JSON backslashes",
+                    )
+                )
+                current = escaped
+                parsed = json.loads(current)
+    transformations.append(
+        _transformation(
+            "plain_json_decode",
+            current,
+            parsed,
+            detail="decoded the cleaned JSON text",
+        )
+    )
+    return parsed, transformations
+
+
 def fix_json(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    try:
-        json.loads(text)
-        return text
-    except json.JSONDecodeError:
-        pass
-    fixed = re.sub(r"\\(?![\"\\\/bfnrtu])", r"\\\\", text)
-    fixed = re.sub(r",\s*([}\]])", r"\1", fixed)
-    try:
-        json.loads(fixed)
-        return fixed
-    except json.JSONDecodeError:
-        pass
-    fixed2 = re.sub(r",\s*([}\]])", r"\1", text.replace("'", '"'))
-    try:
-        json.loads(fixed2)
-        return fixed2
-    except json.JSONDecodeError:
-        return text
+    """Return cleaned JSON text using the evidence-producing decoder."""
+    parsed, _transformations = _decode_json_with_evidence(text)
+    return json.dumps(parsed, ensure_ascii=False)
 
 
 def _author_call_evidence(
     *,
     prompt: str,
     system: str,
-    raw_response: str | None,
+    raw_response: Any | None,
     temperature: float,
+    usage: Any | None = None,
 ) -> dict[str, Any]:
     """Build inspectable author-call evidence without connection secrets."""
 
@@ -246,11 +316,23 @@ def _author_call_evidence(
         "response_parser": "json",
         "credentials_recorded": False,
     }
+    prompt_tokens = getattr(usage, "prompt_tokens", None) if usage is not None else None
+    completion_tokens = getattr(usage, "completion_tokens", None) if usage is not None else None
+    usage_record = {
+        "status": (
+            "reported"
+            if prompt_tokens is not None and completion_tokens is not None
+            else "unavailable"
+        ),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+    }
     return {
         "schema_version": AUTHOR_CALL_EVIDENCE_SCHEMA_VERSION,
         "rendered_prompt": rendered_prompt,
         "raw_response": raw_response,
         "model_controls": controls,
+        "usage": usage_record,
         "content_pins": {
             "rendered_prompt": compute_framed_digest(
                 "artifact-author-rendered-prompt-v1", rendered_prompt
@@ -281,24 +363,31 @@ def llm_json_with_evidence(
             {"role": "user", "content": prompt},
         ],
     )
-    raw_content = response.choices[0].message.content
-    raw = raw_content if isinstance(raw_content, str) else None
+    raw = response.choices[0].message.content
     evidence = _author_call_evidence(
         prompt=prompt,
         system=system,
         raw_response=raw,
         temperature=temperature,
+        usage=getattr(response, "usage", None),
     )
     try:
-        parsed = json.loads(fix_json(raw or ""))
+        parsed, transformations = _decode_json_with_evidence(raw if isinstance(raw, str) else "")
+        evidence["deterministic_transformations"] = transformations
+        evidence["cleaned_response"] = parsed
+        evidence["content_pins"]["cleaned_response"] = _content_pin(
+            parsed, "artifact-author-cleaned-response-v1"
+        )
     except (TypeError, json.JSONDecodeError) as exc:
         evidence["parse_error"] = str(exc)
+        evidence["failure_class"] = "answered_malformed"
         raise LLMJsonParseError(
             "the model response was not valid JSON",
             evidence=evidence,
         ) from exc
     if not isinstance(parsed, dict):
         evidence["parse_error"] = "the model response JSON was not an object"
+        evidence["failure_class"] = "answered_schema_failure"
         raise LLMJsonParseError(
             "the model response JSON was not an object",
             evidence=evidence,

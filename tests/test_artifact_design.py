@@ -372,6 +372,11 @@ def test_trace_records_authoring_attempts_and_call_count() -> None:
     assert attempt["author_kind"] == "PreboundAuthor"
     assert attempt["response"]["stimulus_text"] == STIMULUS
     assert attempt["request_digest"]
+    assert block["design_attempt_count"] == 1
+    assert block["provider_request_count"] == 0
+    assert block["live_call_count"] == 0
+    assert attempt["live_call"] is False
+    assert attempt["attempt_id"]
 
 
 def test_live_authoring_records_rendered_prompt_raw_response_controls_and_pins(
