@@ -108,6 +108,30 @@ no execution bundle or projection is read.
   identities. Compiled artifacts preserve the selected operation and observed
   read-only lookup tools, while direct context delivery uses observed values
   and never substitutes `UNKNOWN`.
+- Every required operation argument carries a typed source/delivery
+  classification in the target-context contract; none disappears silently.
+  The attacked record argument delivers the selected record id; an identity
+  argument (`*_id`) binds only to the exactly-named top-level
+  `authenticated_<argument>` key (a similar key such as
+  `authenticated_user_id` never satisfies a required `session_user_id`); a
+  benign consumer-authored argument (amount, reason, dates) binds from the
+  author result's `argument_values` only when the delivered user content
+  states the declared value. An identity argument without its exact observed
+  key or an authored argument without evidenced value blocks with the typed
+  `unresolved-prerequisite` exclusion after the criterion and
+  observation-level decisions (which keep exclusion precedence). The plan's
+  `prerequisite_dependencies` carry the record identity, the observed
+  session/subject relation and session identity, the relied-on status and
+  bound, the exact delivered context identities, and the authored benign
+  arguments; the freeze covers the complete target context and dependency
+  set, and the pre-dispatch gate revalidates each against the current live
+  runtime — deletion, duplication, reassignment, and session/status/bound
+  drift block with typed mismatches while unrelated state churn does not.
+  Mapping-valued and identity-indexed list collections resolve through one
+  shared resolver at design and pre-dispatch: duplicate identities within a
+  list, mapping keys contradicted by an embedded identity field, and
+  conflicting readings across collections are ambiguous and block; equivalent
+  readings verify.
 - Blocked designs are preserved with typed exclusion reasons
   (`needs-environment-binding`, `unsupported-observation`, `missing-setup`,
   `unresolved-prerequisite`, `unsupported-criterion-shape`, `invalid-design`,

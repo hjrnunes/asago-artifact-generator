@@ -82,7 +82,15 @@ def test_control_scenario_still_compiles(tmp_path: Path) -> None:
         runtime_context=klarna_runtime_context(),
         capabilities=garak_capabilities(),
         brief=DesignBrief(),
-        author=PreboundAuthor({"SCN-007": prebound_result(STIMULUS, 100.0)}),
+        author=PreboundAuthor(
+            {
+                "SCN-007": prebound_result(
+                    STIMULUS,
+                    100.0,
+                    argument_values={"reason": "The lamp arrived broken"},
+                )
+            }
+        ),
     )
     assert outcome.exclusion is None
     compiled = compile_design(outcome.plan)
@@ -113,7 +121,15 @@ def test_design_outputs_reference_no_producer_admission(tmp_path: Path) -> None:
         runtime_context=klarna_runtime_context(),
         capabilities=garak_capabilities(),
         brief=DesignBrief(),
-        author=PreboundAuthor({"SCN-007": prebound_result(STIMULUS, 100.0)}),
+        author=PreboundAuthor(
+            {
+                "SCN-007": prebound_result(
+                    STIMULUS,
+                    100.0,
+                    argument_values={"reason": "The lamp arrived broken"},
+                )
+            }
+        ),
     )
     compiled = compile_design(compiled_outcome.plan)
     compiled_paths = write_design_outputs(tmp_path, compiled_outcome, compiled=compiled)

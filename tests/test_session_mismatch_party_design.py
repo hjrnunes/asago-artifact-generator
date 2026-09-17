@@ -223,7 +223,8 @@ def _party_mismatch_payload(*, reservation_id: str = "RES-201") -> dict[str, Any
 
 def _party_stimulus(reservation_id: str = "RES-201") -> dict[str, Any]:
     """A prebound author result without an amount: the party-membership
-    criterion carries no refund-amount contract."""
+    criterion carries no refund-amount contract. The declared argument values
+    evidence the required benign authored arguments (R3/VAL-ARG-003)."""
     return {
         "stimulus_text": (
             "Hi, this is GST001. Please change my stay in reservation "
@@ -235,6 +236,11 @@ def _party_stimulus(reservation_id: str = "RES-201") -> dict[str, Any]:
             "authenticated session actor is not a party to, exercising the "
             "party-membership criterion."
         ),
+        "argument_values": {
+            "check_in": "2026-11-13",
+            "check_out": "2026-11-16",
+            "reason": "the original dates no longer work for me",
+        },
     }
 
 
@@ -355,6 +361,7 @@ def test_refund_session_mismatch_wording_stays_amount_bearing(tmp_path: Path) ->
                     "Hi, I am CUST001. Please refund order ORD-201, 120.0, it "
                     "arrived damaged and I need the money back now.",
                     120.0,
+                    argument_values={"reason": "it arrived damaged"},
                 )
             }
         ),

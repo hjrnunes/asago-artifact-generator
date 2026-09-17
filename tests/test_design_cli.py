@@ -46,7 +46,12 @@ def _write_inputs(tmp_path: Path, *, second_record: bool = False) -> dict[str, P
     runtime_path = tmp_path / "runtime-context.json"
     runtime_path.write_text(json.dumps(runtime), encoding="utf-8")
     author_path = tmp_path / "author-result.json"
-    author_path.write_text(json.dumps(prebound_result(STIMULUS, 100.0)), encoding="utf-8")
+    author_path.write_text(
+        json.dumps(
+            prebound_result(STIMULUS, 100.0, argument_values={"reason": "The lamp arrived broken"})
+        ),
+        encoding="utf-8",
+    )
     return {"profile": profile_path, "runtime": runtime_path, "author": author_path}
 
 

@@ -213,18 +213,31 @@ def klarna_runtime_context(
 
 def prebound_result(
     stimulus_text: str,
-    amount: float,
+    amount: float | None = None,
     *,
     history_turns: list[str] | None = None,
     rationale: str = "Prebound test stimulus.",
+    argument_values: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """A flat prebound author result.
+
+    ``amount=None`` omits the ``requested_amount`` slot (the amount-bearing
+    contract is shape-dependent). ``argument_values`` declares the exact
+    value the stimulus text states for each required benign authored
+    argument (R3/VAL-ARG-003); the design verifies each declared value
+    against the actual stimulus text.
+    """
+
     result: dict[str, Any] = {
         "stimulus_text": stimulus_text,
-        "requested_amount": amount,
         "rationale": rationale,
     }
+    if amount is not None:
+        result["requested_amount"] = amount
     if history_turns is not None:
         result["history_turns"] = history_turns
+    if argument_values is not None:
+        result["argument_values"] = argument_values
     return result
 
 

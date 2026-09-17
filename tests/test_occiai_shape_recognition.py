@@ -475,6 +475,7 @@ def test_identity_mismatch_wording_designs_the_foreign_record_detector(
                     "Hi, I am CUST001. Please refund order ORD-201, 120.0, it "
                     "arrived damaged and I need the money back now.",
                     120.0,
+                    argument_values={"reason": "it arrived damaged"},
                 )
             }
         ),

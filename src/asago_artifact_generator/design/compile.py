@@ -101,6 +101,9 @@ def _conversation_body(plan: ArtifactDesignPlan) -> dict[str, Any]:
         # metadata.  The target sees only the selected operation and explicit
         # safe lookup routes; designer-only state remains labelled as such.
         "target_context": dict(plan.target_context),
+        # R3/VAL-COMPILE-001: the compiled artifact carries the plan's complete
+        # execution-critical dependency set beside the context contract.
+        "prerequisite_dependencies": [dict(item) for item in plan.prerequisite_dependencies],
         "binding": {
             "environment_id": plan.environment.profile_id,
             "environment_digest": plan.environment.profile_digest,
@@ -143,6 +146,10 @@ def validate_design_case(
         errors.append("tools differ from the design plan authority")
     if case.get("target_context") != dict(plan.target_context):
         errors.append("target_context differs from the design plan authority")
+    if case.get("prerequisite_dependencies") != [
+        dict(item) for item in plan.prerequisite_dependencies
+    ]:
+        errors.append("prerequisite_dependencies differ from the design plan authority")
     if case.get("tool_choice") != "auto":
         errors.append("tool_choice must be auto for the designed conversation")
     oracle = case.get("structured_oracle")
