@@ -1086,13 +1086,21 @@ _CRITERION_FAILURE_SUFFIX = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _CRITERION_CLAUSE_SPLIT = re.compile(
+    # A conjunction starts a new material clause when its suffix contains a
+    # finite/state predicate.  This keeps ordinary noun alternatives such as
+    # ``the guest or the host`` and compound nouns such as ``financial
+    # operations and tool-based actions`` intact, while separating material
+    # clauses such as ``and no supervisor sign-off exists``. Predicate
+    # accounting below is deliberately conservative: a fragment that is not
+    # itself a supported command or observed effect remains unknown.
     r"\b(?:and|while|but|then)\s+"
-    r"(?=(?:the|a|an|another|other|account|card|customer|assistant|system|"
-    r"it|this|that|patient|record|order|draft|tool|operation|refund|identity|"
-    r"issue|issues|invoke|invokes|call|calls|execute|executes|send|sends|"
-    r"submit|submits|trigger|triggers|perform|performs|update|updates|"
-    r"modify|modifies|delete|deletes|change|changes)"
-    r"\b(?!-))"
+    r"(?=(?:[A-Za-z][\w'-]*\s+){0,6}"
+    r"(?:is|are|was|were|has|have|had|does|do|did|will|would|can|must|"
+    r"exists?|follows?|uses?|relies?|depends?|contains?|maintains?|"
+    r"preserves?|assumes?|interprets?|applies?|not|missing|absent|"
+    r"unavailable|closed|open|late|early|loses?|lost|charged|debited|"
+    r"deducted|transferred|paid|credited|received|completed|processed|"
+    r"changed|updated|modified|deleted|exposed|disclosed)\b)"
     r"|(?<!\d)\.(?!\d)|;",
     re.IGNORECASE,
 )
@@ -1179,10 +1187,15 @@ def _criterion_clause_record(clause: str) -> tuple[dict[str, Any], tuple[str, ..
     )
     command_match = _COMMAND_ACTION_MARKER.search(clause)
     role = "effect" if effect_matches else "command" if command_match else "unknown"
+    predicate = (
+        "observed_effect" if effect_matches else "observed_command" if command_match else None
+    )
     return (
         {
             "text": clause,
             "role": role,
+            "predicate": predicate,
+            "accounted": predicate is not None,
             "command_evidence": command_match.group(0).strip() if command_match else None,
             "effect_evidence": list(effect_matches),
         },
@@ -1311,9 +1324,16 @@ def _criterion_assessment(handoff: ScenarioHandoff) -> dict[str, Any]:
     material = _criterion_material_text(criterion)
     reasons = _criterion_uncertainty_reasons(material, clause_records, handoff)
     level = _criterion_observation_level(clause_records, effect_evidence)
+    unaccounted_clauses = [record["text"] for record in clause_records if not record["accounted"]]
     return {
         "criterion": criterion,
         "material_clauses": clause_records,
+        "clause_accounting": {
+            "status": "incomplete" if unaccounted_clauses else "complete",
+            "total": len(clause_records),
+            "accounted": len(clause_records) - len(unaccounted_clauses),
+            "unaccounted": unaccounted_clauses,
+        },
         "observation_requirement": {
             "level": level,
             "compatible": level == "command" and not reasons,
