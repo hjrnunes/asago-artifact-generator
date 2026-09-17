@@ -72,20 +72,23 @@ def _value_stated(value: Any, text: str) -> bool:
     return False
 
 
-def _mapping_embedded_identity(
+def _observed_record(
     state: Mapping[str, Any],
-    record_id: Any,
+    record_id: str,
     identity_field: str,
-) -> Any:
-    """Recover mapping-only identity evidence for a structured resolver failure."""
+) -> tuple[Mapping[str, Any] | None, Mapping[str, Any] | None]:
+    """Resolve one identity-indexed record and preserve blocked evidence."""
 
-    for collection in state.values():
-        if not isinstance(collection, Mapping):
-            continue
-        record = collection.get(record_id)
-        if isinstance(record, Mapping) and identity_field in record:
-            return record[identity_field]
-    return None
+    try:
+        readings = _observed_record_readings(state, record_id, identity_field)
+    except _Blocked as blocked:
+        return None, {
+            "record_id": record_id,
+            "expected": record_id,
+            "observed": blocked.observed_identity,
+            "reason": str(blocked),
+        }
+    return (readings[0] if readings else None), None
 
 
 def _live_record(
@@ -104,20 +107,21 @@ def _live_record(
     """
 
     record_id = dependency.get("record_id")
+    if not isinstance(record_id, str) or not record_id:
+        return None, {
+            "name": str(dependency.get("name")),
+            "record_id": record_id,
+            "expected": record_id,
+            "observed": record_id,
+            "reason": "malformed dependency record identity; expected a non-empty string",
+        }
     identity_field = dependency.get("identity_field")
     if isinstance(identity_field, str) and identity_field:
-        try:
-            readings = _observed_record_readings(state, str(record_id), identity_field)
-        except _Blocked as blocked:
-            return None, {
-                "name": str(dependency.get("name")),
-                "record_id": record_id,
-                "expected": record_id,
-                "observed": _mapping_embedded_identity(state, record_id, identity_field),
-                "reason": str(blocked),
-            }
-        return (readings[0] if readings else None), None
-    return (records.get(str(record_id)) if record_id is not None else None), None
+        record, mismatch = _observed_record(state, record_id, identity_field)
+        if mismatch is not None:
+            mismatch["name"] = str(dependency.get("name"))
+        return record, mismatch
+    return records.get(record_id), None
 
 
 def verify_dispatch_prerequisites(

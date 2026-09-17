@@ -321,11 +321,19 @@ class _Blocked(Exception):
     scenario's own criterion.
     """
 
-    def __init__(self, code: str, detail: str, proxy_claim: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        detail: str,
+        proxy_claim: dict[str, Any] | None = None,
+        *,
+        observed_identity: Any = None,
+    ) -> None:
         super().__init__(f"{code}: {detail}")
         self.code = code
         self.detail = detail
         self.proxy_claim = proxy_claim
+        self.observed_identity = observed_identity
 
 
 def _blocked_fidelity(blocked: _Blocked) -> FidelityAssessment:
@@ -1534,6 +1542,7 @@ def _precondition_list_entries(
                 f"record identity {record_id!r} appears more than once in the same "
                 "observed collection; the record identity is duplicated and the "
                 "design never chooses between duplicate entries",
+                observed_identity=record_id,
             )
         seen.add(record_id)
         entries.append((record_id, dict(entry)))
@@ -1573,6 +1582,7 @@ def _precondition_mapping_entry(
             f"record identity {key!r} is indexed under a mapping key "
             f"whose embedded {argument_name!r} identity {embedded!r} "
             "contradicts it; the record identity is ambiguous",
+            observed_identity=embedded,
         )
     normalized = dict(entry)
     normalized.setdefault(argument_name, str(key))
@@ -1592,6 +1602,7 @@ def _merge_precondition_entry(
             "missing-setup",
             f"record identity {record_id!r} is observed with conflicting state "
             "across collections; the record identity is ambiguous",
+            observed_identity=record_id,
         )
     records[record_id] = dict(entry)
 
@@ -1649,6 +1660,7 @@ def _observed_record_readings(
                         f"record identity {record_id!r} is indexed under a collection "
                         f"key that its embedded {identity_field!r} identity "
                         f"{embedded!r} contradicts; the record identity is ambiguous",
+                        observed_identity=embedded,
                     )
                 record[identity_field] = record_id
             readings.append(record)
@@ -1666,6 +1678,7 @@ def _observed_record_readings(
                         f"record identity {record_id!r} appears more than once in the "
                         "same observed collection; the record identity is duplicated "
                         "and the design never chooses between duplicate entries",
+                        observed_identity=record_id,
                     )
                 seen.add(entry_id)
                 readings.append(dict(entry))
@@ -1678,6 +1691,7 @@ def _observed_record_readings(
             "missing-setup",
             f"record identity {record_id!r} is observed with conflicting state across "
             "collections; the record identity is ambiguous",
+            observed_identity=record_id,
         )
     return unique
 

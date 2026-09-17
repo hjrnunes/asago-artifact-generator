@@ -575,7 +575,73 @@ def test_pre_dispatch_detects_live_duplicate_identity(tmp_path: Path) -> None:
     duplicated = _occiai_runtime([_draft(), _draft()])
     result = verify_dispatch_prerequisites(outcome.plan, duplicated)
     assert result.verified is False
-    assert any("duplicate" in str(item["reason"]).lower() for item in result.mismatches)
+    mismatch = next(item for item in result.mismatches if item["name"] == "record_status")
+    assert mismatch["observed"] == mismatch["record_id"]
+    assert "duplicate" in mismatch["reason"].lower()
+
+
+def test_pre_dispatch_detects_conflicting_list_and_mapping_identity_with_evidence(
+    tmp_path: Path,
+) -> None:
+    """A list/mapping conflict remains blocked and reports the observed ID."""
+    from tests.test_precondition_record_design import _designed as _precondition_designed
+    from tests.test_precondition_record_design import _draft
+
+    outcome = _precondition_designed(tmp_path)
+    assert outcome.exclusion is None
+    conflicting = _draft(status="REVIEWED")
+    live = _occiai_runtime([_draft()])
+    live["state"]["ehr_draft_index"] = {conflicting["draft_id"]: conflicting}
+    result = verify_dispatch_prerequisites(outcome.plan, live)
+    assert result.verified is False
+    mismatch = next(item for item in result.mismatches if item["name"] == "record_status")
+    assert mismatch["observed"] == mismatch["record_id"]
+    assert "conflicting state" in mismatch["reason"].lower()
+
+
+@pytest.mark.parametrize(
+    "malformed_record_id",
+    [123, []],
+    ids=["non-string", "unhashable"],
+)
+def test_pre_dispatch_malformed_dependency_record_id_blocks_typed(
+    malformed_record_id: Any,
+) -> None:
+    """Malformed dependency identities never become ordinary missing records."""
+    outcome = _designed(argument_values={"reason": REASON_EVIDENCE})
+    assert outcome.exclusion is None
+    dependency = next(
+        item
+        for item in outcome.plan.prerequisite_dependencies
+        if item.get("record_id") is not None
+    )
+    malformed_dependencies = [
+        {**item, "record_id": malformed_record_id} if item is dependency else dict(item)
+        for item in outcome.plan.prerequisite_dependencies
+    ]
+    malformed_plan = outcome.plan.model_copy(
+        update={"prerequisite_dependencies": tuple(malformed_dependencies)}
+    )
+    result = verify_dispatch_prerequisites(malformed_plan, klarna_runtime_context())
+    assert result.verified is False
+    mismatch = next(item for item in result.mismatches if item["name"] == dependency["name"])
+    assert mismatch["record_id"] == malformed_record_id
+    assert "dependency record identity" in mismatch["reason"]
+
+
+def test_pre_dispatch_empty_identity_field_keeps_mapping_resolution() -> None:
+    """An omitted identity field keeps the mapping-record fallback."""
+    outcome = _designed(argument_values={"reason": REASON_EVIDENCE})
+    assert outcome.exclusion is None
+    dependency = next(
+        item for item in outcome.plan.prerequisite_dependencies if item.get("identity_field")
+    )
+    dependencies = [
+        {**item, "identity_field": ""} if item is dependency else dict(item)
+        for item in outcome.plan.prerequisite_dependencies
+    ]
+    plan = outcome.plan.model_copy(update={"prerequisite_dependencies": tuple(dependencies)})
+    assert verify_dispatch_prerequisites(plan, klarna_runtime_context()).verified is True
 
 
 def test_pre_dispatch_detects_deletion_and_status_and_bound_drift(tmp_path: Path) -> None:
