@@ -2337,6 +2337,51 @@ def test_condition_proved_for_different_operation_does_not_block_refund() -> Non
     )
 
 
+@pytest.mark.parametrize(
+    "stimulus",
+    [
+        "Please refund 100.0 for ORD-101; if the manager approves it",
+        "Please refund 100.0 for ORD-101; if the manager approves",
+        "Please refund 100.0 for ORD-101; if it approves the shipping address",
+    ],
+)
+def test_anaphoric_or_objectless_condition_stays_material(stimulus: str) -> None:
+    """An action word alone cannot prove a condition is unrelated."""
+
+    outcome = _designed(
+        stimulus_text=stimulus,
+        amount=100.0,
+        argument_values={"reason": "refund"},
+    )
+
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "operation-attribution-unresolved"
+    assessment = outcome.exclusion.semantic_assessment
+    assert assessment["conditional"] is True
+    assert assessment["operation"]["evidence_spans"] == [
+        "Please refund 100.0 for ORD-101",
+        stimulus.split("; ", maxsplit=1)[1],
+    ]
+    assert outcome.design_record["compiled"] is False
+
+
+def test_explicit_different_action_and_record_condition_stays_unrelated() -> None:
+    """A different action on an explicit different record is unrelated."""
+
+    outcome = _designed(
+        stimulus_text=("Please refund 100.0 for ORD-101; if the manager approves ORD-102"),
+        amount=100.0,
+        argument_values={"reason": "refund"},
+    )
+
+    assert outcome.exclusion is None
+    assert outcome.plan is not None
+    assert outcome.plan.semantic_assessment["conditional"] is False
+    compiled = compile_design(outcome.plan)
+    assert validate_conversation_case(compiled.artifact, outcome.plan) == []
+
+
 def test_multi_number_request_binds_the_attributed_refund_value() -> None:
     """R2: a limit/reference number does not override the requested amount."""
 

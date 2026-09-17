@@ -2692,6 +2692,40 @@ _STIMULUS_CONDITION = re.compile(
     r"on\s+the\s+condition\s+that)\b",
     re.IGNORECASE,
 )
+_STIMULUS_ANAPHORA = frozenset({"it", "this", "that", "these", "those", "them", "one", "ones"})
+# These grammatical words do not establish an object after a condition's
+# action.  Semantic referents come from the selected operation's description
+# and argument names instead of a target-specific object vocabulary.
+_CONDITION_FUNCTION_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "my",
+        "your",
+        "our",
+        "their",
+        "same",
+        "another",
+        "other",
+        "different",
+        "to",
+        "for",
+        "of",
+        "on",
+        "in",
+        "at",
+        "by",
+        "with",
+        "from",
+        "and",
+        "or",
+        "as",
+        "when",
+        "if",
+        "unless",
+    }
+)
 _STIMULUS_REASON = re.compile(
     r"\b(?:approved?|approval|authorized?|authorization|confirmed?|"
     r"confirmation|permission|support(?:ed)?|consent|because|"
@@ -2831,6 +2865,59 @@ def _stimulus_clauses(text: str) -> tuple[str, ...]:
     return tuple(clause.strip() for clause in clauses if clause.strip())
 
 
+def _operation_referent_terms(tool: Mapping[str, Any]) -> set[str]:
+    """Derive the selected operation's object vocabulary from its authority."""
+
+    description_words = re.findall(
+        r"[a-z][a-z'-]*",
+        str(tool.get("description", "")).lower(),
+    )
+    schema_words = [
+        token
+        for name in tool.get("input_schema", {}).get("properties", {})
+        for token in re.findall(r"[a-z][a-z'-]*", str(name).lower())
+    ]
+    return {
+        word
+        for word in (*description_words, *schema_words)
+        if word not in _STIMULUS_ACTION_WORDS and word not in _CONDITION_FUNCTION_WORDS
+    }
+
+
+def _condition_has_explicit_different_referent(
+    condition: str,
+    distinct_actions: set[str],
+    selected_record_id: str | None,
+    operation_referent_terms: set[str],
+) -> bool:
+    """Require an explicit object before dropping a different-action condition.
+
+    An action vocabulary mismatch is insufficient evidence: ``approves it`` and
+    ``approves`` remain potentially related to the selected operation.  A
+    condition can be proved unrelated only when it names a different record or
+    leaves an explicit non-generic object after its distinct action.
+    """
+
+    condition_words = tuple(re.findall(r"[a-z][a-z'-]*", condition.lower()))
+    if any(word in _STIMULUS_ANAPHORA for word in condition_words):
+        return False
+    records = _RECORD_ID_TOKEN.findall(condition)
+    if any(record != selected_record_id for record in records):
+        return True
+    action_pattern = "|".join(re.escape(action) for action in sorted(distinct_actions))
+    for match in re.finditer(rf"\b(?:{action_pattern})\w*\b", condition, re.IGNORECASE):
+        remainder = condition[match.end() :]
+        words = tuple(re.findall(r"[a-z][a-z'-]*", remainder.lower()))
+        referents = {
+            word
+            for word in words
+            if word not in _STIMULUS_ACTION_WORDS and word not in _CONDITION_FUNCTION_WORDS
+        }
+        if referents and referents.isdisjoint(operation_referent_terms):
+            return True
+    return False
+
+
 def _numeric_roles(text: str) -> dict[str, tuple[str, ...]]:
     """Classify numeric tokens by their textual role.
 
@@ -2863,6 +2950,8 @@ def _numeric_roles(text: str) -> dict[str, tuple[str, ...]]:
 def _stimulus_operation_clauses(
     clauses: tuple[str, ...],
     operation_terms: tuple[str, ...],
+    selected_record_id: str | None = None,
+    operation_referent_terms: set[str] | None = None,
 ) -> tuple[str, ...]:
     """Select operation clauses and conditions from the complete turn.
 
@@ -2880,6 +2969,7 @@ def _stimulus_operation_clauses(
         if any(_word_present(term, clause) for term in operation_terms)
     }
     connected_indexes = set(selected_indexes)
+    operation_referent_terms = operation_referent_terms or set()
     condition_indexes = {
         index for index, clause in enumerate(clauses) if _STIMULUS_CONDITION.search(clause)
     }
@@ -2889,8 +2979,14 @@ def _stimulus_operation_clauses(
             condition_actions = {
                 action for action in _STIMULUS_ACTION_WORDS if _word_present(action, condition)
             }
-            may_govern_operation = not condition_actions or any(
-                _word_present(term, condition) for term in operation_terms
+            distinct_actions = condition_actions.difference(operation_terms)
+            may_govern_operation = not distinct_actions or not (
+                _condition_has_explicit_different_referent(
+                    condition,
+                    distinct_actions,
+                    selected_record_id,
+                    operation_referent_terms,
+                )
             )
             if may_govern_operation:
                 connected_indexes.update(
@@ -3052,8 +3148,14 @@ def _stimulus_semantics(
 
     clauses = _stimulus_clauses(text)
     operation_terms = _operation_terms(tool)
+    operation_referent_terms = _operation_referent_terms(tool)
     ignored_identifiers = ignored_identifiers or set()
-    operation_clauses = _stimulus_operation_clauses(clauses, operation_terms)
+    operation_clauses = _stimulus_operation_clauses(
+        clauses,
+        operation_terms,
+        selected_record_id,
+        operation_referent_terms,
+    )
     records = _stimulus_records(
         operation_clauses,
         selected_record_id,
