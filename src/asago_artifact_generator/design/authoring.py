@@ -1502,67 +1502,120 @@ def _select_test_record(
     )
 
 
+def _precondition_mapping_collection_matches(
+    collection_name: str,
+    argument_name: str,
+) -> bool:
+    """Whether a mapping collection can establish the named record identity."""
+
+    stem = argument_name.removesuffix("_id")
+    return argument_name in _collection_identifier_names(collection_name) or (
+        bool(stem) and stem in collection_name
+    )
+
+
+def _precondition_list_entries(
+    collection: list[Any],
+    argument_name: str,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Extract exact identity readings from one list-valued collection."""
+
+    entries: list[tuple[str, dict[str, Any]]] = []
+    seen: set[str] = set()
+    for entry in collection:
+        if not isinstance(entry, Mapping):
+            continue
+        record_id = entry.get(argument_name)
+        if not isinstance(record_id, str) or not record_id:
+            continue
+        if record_id in seen:
+            raise _Blocked(
+                "missing-setup",
+                f"record identity {record_id!r} appears more than once in the same "
+                "observed collection; the record identity is duplicated and the "
+                "design never chooses between duplicate entries",
+            )
+        seen.add(record_id)
+        entries.append((record_id, dict(entry)))
+    return entries
+
+
+def _precondition_mapping_entries(
+    collection_name: str,
+    collection: Mapping[str, Any],
+    argument_name: str,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Extract qualified mapping readings and normalize their identity field."""
+
+    if not _precondition_mapping_collection_matches(collection_name, argument_name):
+        return []
+    entries: list[tuple[str, dict[str, Any]]] = []
+    for key, entry in collection.items():
+        normalized = _precondition_mapping_entry(key, entry, argument_name)
+        if normalized is not None:
+            entries.append(normalized)
+    return entries
+
+
+def _precondition_mapping_entry(
+    key: Any,
+    entry: Any,
+    argument_name: str,
+) -> tuple[str, dict[str, Any]] | None:
+    """Normalize one mapping record or ignore a non-record value."""
+
+    if not isinstance(entry, Mapping):
+        return None
+    embedded = entry.get(argument_name)
+    if isinstance(embedded, str) and embedded and embedded != str(key):
+        raise _Blocked(
+            "missing-setup",
+            f"record identity {key!r} is indexed under a mapping key "
+            f"whose embedded {argument_name!r} identity {embedded!r} "
+            "contradicts it; the record identity is ambiguous",
+        )
+    normalized = dict(entry)
+    normalized.setdefault(argument_name, str(key))
+    return str(embedded or key), normalized
+
+
+def _merge_precondition_entry(
+    records: dict[str, dict[str, Any]],
+    record_id: str,
+    entry: Mapping[str, Any],
+) -> None:
+    """Merge one collection reading while rejecting conflicting state."""
+
+    existing = records.get(record_id)
+    if existing is not None and existing != dict(entry):
+        raise _Blocked(
+            "missing-setup",
+            f"record identity {record_id!r} is observed with conflicting state "
+            "across collections; the record identity is ambiguous",
+        )
+    records[record_id] = dict(entry)
+
+
 def _precondition_records(
     state: Mapping[str, Any],
     argument_name: str,
 ) -> dict[str, dict[str, Any]]:
-    """Observed records keyed by the named identity field.
-
-    Both identity-indexed lists and mapping-valued collections are accepted.
-    Mapping collections qualify by collection/argument role or by an embedded
-    exact identity field; a key and embedded identity must agree. Duplicate or
-    conflicting readings fail closed instead of selecting one.
-    """
+    """Collect qualified list and mapping readings for one identity argument."""
 
     records: dict[str, dict[str, Any]] = {}
-
-    def _collection_matches(collection_name: str) -> bool:
-        stem = argument_name.removesuffix("_id")
-        return argument_name in _collection_identifier_names(collection_name) or (
-            bool(stem) and stem in collection_name
-        )
-
     for collection_name, collection in state.items():
-        entries: list[tuple[str, Mapping[str, Any]]] = []
         if isinstance(collection, list):
-            for entry in collection:
-                if isinstance(entry, Mapping):
-                    record_id = entry.get(argument_name)
-                    if isinstance(record_id, str) and record_id:
-                        entries.append((record_id, entry))
-        elif isinstance(collection, Mapping) and _collection_matches(str(collection_name)):
-            for key, entry in collection.items():
-                if not isinstance(entry, Mapping):
-                    continue
-                embedded = entry.get(argument_name)
-                if isinstance(embedded, str) and embedded and embedded != str(key):
-                    raise _Blocked(
-                        "missing-setup",
-                        f"record identity {key!r} is indexed under a mapping key "
-                        f"whose embedded {argument_name!r} identity {embedded!r} "
-                        "contradicts it; the record identity is ambiguous",
-                    )
-                normalized = dict(entry)
-                normalized.setdefault(argument_name, str(key))
-                entries.append((str(embedded or key), normalized))
-        seen: set[str] = set()
+            entries = _precondition_list_entries(collection, argument_name)
+        elif isinstance(collection, Mapping):
+            entries = _precondition_mapping_entries(
+                str(collection_name),
+                collection,
+                argument_name,
+            )
+        else:
+            continue
         for record_id, entry in entries:
-            if record_id in seen:
-                raise _Blocked(
-                    "missing-setup",
-                    f"record identity {record_id!r} appears more than once in the same "
-                    "observed collection; the record identity is duplicated and the "
-                    "design never chooses between duplicate entries",
-                )
-            seen.add(record_id)
-            existing = records.get(record_id)
-            if existing is not None and existing != dict(entry):
-                raise _Blocked(
-                    "missing-setup",
-                    f"record identity {record_id!r} is observed with conflicting state "
-                    "across collections; the record identity is ambiguous",
-                )
-            records[record_id] = dict(entry)
+            _merge_precondition_entry(records, record_id, entry)
     return records
 
 

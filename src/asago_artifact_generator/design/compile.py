@@ -356,6 +356,22 @@ def _read_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def _verify_frozen_compiled_field(
+    entry_dir: Path,
+    content: Mapping[str, Any],
+    artifact: Mapping[str, Any],
+    field_name: str,
+) -> None:
+    """Ensure one frozen R3 contract is copied unchanged into the artifact."""
+
+    if artifact.get(field_name) != content[field_name]:
+        label = field_name.replace("_", " ")
+        raise FreezeVerificationError(
+            "frozen_content_mismatch",
+            f"{entry_dir}: compiled {label} differs from the frozen contract",
+        )
+
+
 def verify_frozen_artifact(root: Path) -> dict[str, Any]:
     """Verify every frozen record under one design run root.
 
@@ -405,22 +421,9 @@ def verify_frozen_artifact(root: Path) -> dict[str, Any]:
                 "frozen_content_mismatch",
                 f"{entry_dir}: compiled messages differ from the frozen stimulus text",
             )
-        if (
-            "target_context" in content
-            and artifact.get("target_context") != content["target_context"]
-        ):
-            raise FreezeVerificationError(
-                "frozen_content_mismatch",
-                f"{entry_dir}: compiled target context differs from the frozen contract",
-            )
-        if (
-            "prerequisite_dependencies" in content
-            and artifact.get("prerequisite_dependencies") != content["prerequisite_dependencies"]
-        ):
-            raise FreezeVerificationError(
-                "frozen_content_mismatch",
-                f"{entry_dir}: compiled prerequisite dependencies differ from the frozen set",
-            )
+        for field_name in ("target_context", "prerequisite_dependencies"):
+            if field_name in content:
+                _verify_frozen_compiled_field(entry_dir, content, artifact, field_name)
         plan_path = entry_dir / "execution-plan.json"
         plan = load_execution_plan(plan_path)
         if plan.schema_version != DESIGN_PLAN_SCHEMA_VERSION:

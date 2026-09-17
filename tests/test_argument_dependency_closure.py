@@ -430,10 +430,77 @@ def test_precondition_design_resolves_mapping_only_record(tmp_path: Path) -> Non
 
     draft = _draft()
     runtime = occiai_runtime_context(drafts=[])
-    runtime["state"]["ehr_draft_index"] = {draft["draft_id"]: dict(draft)}
+    runtime["state"]["ehr_drafts"] = ["not a record", {"other": "value"}]
+    mapping_record = dict(draft)
+    mapping_record.pop("draft_id")
+    unrelated = dict(draft)
+    unrelated["draft_id"] = "DFT-OTHER"
+    runtime["state"]["ehr_draft_index"] = {
+        draft["draft_id"]: mapping_record,
+        "metadata": "ignored",
+    }
+    runtime["state"]["other_index"] = {"DFT-OTHER": unrelated}
     outcome = _precondition_designed(tmp_path, runtime=runtime)
     assert outcome.exclusion is None, outcome.exclusion.detail if outcome.exclusion else None
     assert outcome.plan.setup.selected_record_id == draft["draft_id"]
+
+
+def test_precondition_conflicting_mapping_records_block_design(tmp_path: Path) -> None:
+    """Qualified mapping collections cannot disagree about one record."""
+    from tests.design_fixtures import occiai_runtime_context
+    from tests.test_precondition_record_design import _designed as _precondition_designed
+    from tests.test_precondition_record_design import _draft
+
+    draft = _draft()
+    runtime = occiai_runtime_context(drafts=[draft])
+    conflicting = dict(draft)
+    conflicting["status"] = "REVIEWED"
+    runtime["state"]["ehr_draft_archive"] = {draft["draft_id"]: conflicting}
+    outcome = _precondition_designed(tmp_path, runtime=runtime)
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "missing-setup"
+    assert "ambiguous" in outcome.exclusion.detail.lower()
+
+
+def test_precondition_non_string_identity_is_not_a_record(tmp_path: Path) -> None:
+    """Precondition selection ignores entries without a string identity."""
+    from tests.design_fixtures import occiai_runtime_context
+    from tests.test_precondition_record_design import _designed as _precondition_designed
+
+    runtime = occiai_runtime_context(
+        drafts=[
+            {
+                "draft_id": 123,
+                "patient_id": "PAT-104",
+                "text": "draft",
+                "status": "AWAITING_REVIEW",
+                "reviewed_by": None,
+            }
+        ]
+    )
+    outcome = _precondition_designed(tmp_path, runtime=runtime)
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "missing-setup"
+
+
+def test_precondition_non_string_embedded_identity_preserves_existing_mapping_behavior(
+    tmp_path: Path,
+) -> None:
+    """Non-string embedded values stay outside the exact-identity conflict rule."""
+    from tests.design_fixtures import occiai_runtime_context
+    from tests.test_precondition_record_design import _designed as _precondition_designed
+    from tests.test_precondition_record_design import _draft
+
+    draft = _draft()
+    runtime = occiai_runtime_context(drafts=[])
+    malformed = dict(draft)
+    malformed["draft_id"] = 123
+    runtime["state"]["ehr_draft_index"] = {draft["draft_id"]: malformed}
+    outcome = _precondition_designed(tmp_path, runtime=runtime)
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "invalid-design"
 
 
 def test_precondition_mapping_key_identity_conflict_blocks_design(tmp_path: Path) -> None:
