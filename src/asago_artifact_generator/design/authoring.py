@@ -2864,12 +2864,14 @@ def _stimulus_operation_clauses(
     clauses: tuple[str, ...],
     operation_terms: tuple[str, ...],
 ) -> tuple[str, ...]:
-    """Select operation clauses and adjacent semicolon conditions.
+    """Select operation clauses and nearby semicolon conditions.
 
     A semicolon can separate incidental reference text, but it can also join a
-    condition that changes whether the request is unconditional. Preserve an
-    adjacent condition clause in the operation evidence so modality analysis
-    cannot admit the positive request after dropping that meaning.
+    condition that changes whether the request is unconditional. Preserve a
+    condition across one intervening clause in the operation evidence so
+    modality analysis cannot admit the positive request after dropping that
+    meaning. The intervening text stays in the evidence because attribution is
+    uncertain rather than silently treating the condition as unrelated.
     """
 
     selected_indexes = {
@@ -2878,10 +2880,18 @@ def _stimulus_operation_clauses(
         if any(_word_present(term, clause) for term in operation_terms)
     }
     connected_indexes = set(selected_indexes)
-    for index in selected_indexes:
-        for neighbor in (index - 1, index + 1):
-            if 0 <= neighbor < len(clauses) and _STIMULUS_CONDITION.search(clauses[neighbor]):
-                connected_indexes.add(neighbor)
+    condition_indexes = {
+        index for index, clause in enumerate(clauses) if _STIMULUS_CONDITION.search(clause)
+    }
+    for operation_index in selected_indexes:
+        for condition_index in condition_indexes:
+            if abs(condition_index - operation_index) <= 2:
+                connected_indexes.update(
+                    range(
+                        min(operation_index, condition_index),
+                        max(operation_index, condition_index) + 1,
+                    )
+                )
     return tuple(clauses[index] for index in sorted(connected_indexes))
 
 

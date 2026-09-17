@@ -2263,6 +2263,30 @@ def test_condition_after_semicolon_does_not_compile_as_unconditional_request() -
     assert outcome.design_record["compiled"] is False
 
 
+def test_condition_two_semicolons_after_operation_stays_material(tmp_path: Path) -> None:
+    """A later condition cannot turn a conditional request into an unconditional one."""
+
+    stimulus = "Please refund 100.0 for ORD-101; see ticket 42; if the return window allows"
+    outcome = _designed(
+        stimulus_text=stimulus,
+        amount=100.0,
+        argument_values={"reason": "refund"},
+    )
+
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "operation-attribution-unresolved"
+    assessment = outcome.exclusion.semantic_assessment
+    assert assessment["conditional"] is True
+    assert "if the return window allows" in assessment["operation"]["evidence_spans"]
+    assert outcome.design_record["compiled"] is False
+    paths = write_design_outputs(tmp_path, outcome)
+    assert set(paths) == {"design_record", "exclusion"}
+    persisted = json.loads(Path(paths["exclusion"]).read_text(encoding="utf-8"))
+    assert persisted["semantic_assessment"]["conditional"] is True
+    assert "if the return window allows" in json.dumps(persisted)
+
+
 def test_multi_number_request_binds_the_attributed_refund_value() -> None:
     """R2: a limit/reference number does not override the requested amount."""
 
