@@ -2901,9 +2901,16 @@ def _condition_has_explicit_different_referent(
     condition_words = tuple(re.findall(r"[a-z][a-z'-]*", condition.lower()))
     if any(word in _STIMULUS_ANAPHORA for word in condition_words):
         return False
-    records = _RECORD_ID_TOKEN.findall(condition)
-    if any(record != selected_record_id for record in records):
-        return True
+    # Resolve explicit record identities before falling back to generic
+    # referent words.  The token grammar is case-sensitive by default because
+    # it also preserves authored text, but identity attribution is not:
+    # ``ORD-101`` and ``ord-101`` name the same selected record.  Once a
+    # condition names a record, only a genuinely distinct record can prove
+    # that a different action is unrelated.
+    records = tuple(token.upper() for token in _RECORD_ID_TOKEN.findall(condition.upper()))
+    if records:
+        selected_record = selected_record_id.upper() if selected_record_id is not None else None
+        return any(record != selected_record for record in records)
     action_pattern = "|".join(re.escape(action) for action in sorted(distinct_actions))
     for match in re.finditer(rf"\b(?:{action_pattern})\w*\b", condition, re.IGNORECASE):
         remainder = condition[match.end() :]

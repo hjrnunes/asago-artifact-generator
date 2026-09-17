@@ -2366,6 +2366,33 @@ def test_anaphoric_or_objectless_condition_stays_material(stimulus: str) -> None
     assert outcome.design_record["compiled"] is False
 
 
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "if the manager approves ORD-101",
+        "if the manager approves ord-101",
+    ],
+)
+def test_same_record_condition_stays_material_after_identity_normalization(
+    condition: str,
+) -> None:
+    """A differently cased selected record still governs the same request."""
+
+    outcome = _designed(
+        stimulus_text=f"Please refund 100.0 for ORD-101; {condition}",
+        amount=100.0,
+        argument_values={"reason": "refund"},
+    )
+
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "operation-attribution-unresolved"
+    assessment = outcome.exclusion.semantic_assessment
+    assert assessment["conditional"] is True
+    assert condition in assessment["operation"]["evidence_spans"]
+    assert outcome.design_record["compiled"] is False
+
+
 def test_explicit_different_action_and_record_condition_stays_unrelated() -> None:
     """A different action on an explicit different record is unrelated."""
 
