@@ -522,6 +522,33 @@ def test_malformed_author_response_persisted_with_rejection_reason() -> None:
     assert record["authoring"]["attempts"][0]["accepted"] is False
 
 
+def test_answered_live_authoring_blocked_by_validation_is_semantic_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A live attempt the provider answered and deterministic validation then
+    blocked records the answered semantic failure class, not a provider
+    failure."""
+
+    raw_response = '{"turns": ["copied producer wording"]}'
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=raw_response))],
+        usage=None,
+    )
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **_: response))
+    )
+    monkeypatch.setattr("asago_artifact_generator.llm.get_client", lambda: fake_client)
+
+    outcome = _designed(author=LLMArtifactAuthor())
+
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "invalid-design"
+    attempt = outcome.authoring["attempts"][0]
+    assert attempt["raw_response"] == raw_response
+    assert attempt["failure_class"] == "answered_semantic_failure"
+    assert attempt["rejection_code"] == "invalid-design"
+
+
 def test_scenario_id_keyed_author_result_rejected_with_targeted_message() -> None:
     """An author result wrapped in a scenario-id key (m3 functional-case
     attempt evidence, USAGE-BY-STAGE.yaml design_note) is rejected with a

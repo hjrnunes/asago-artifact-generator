@@ -79,23 +79,32 @@ def _safe_error_detail(value: Any) -> str:
     return detail[:500]
 
 
-def _attach_author_evidence(attempt: dict[str, Any], author: ArtifactAuthor) -> None:
-    """Copy optional provider evidence from an author implementation."""
+_EVIDENCE_KEYS = (
+    "schema_version",
+    "rendered_prompt",
+    "raw_response",
+    "cleaned_response",
+    "model_controls",
+    "usage",
+    "failure_class",
+)
 
-    evidence = getattr(author, "last_evidence", None)
-    if not isinstance(evidence, Mapping):
-        return
-    for key in (
-        "schema_version",
-        "rendered_prompt",
-        "raw_response",
-        "cleaned_response",
-        "model_controls",
-        "usage",
-        "failure_class",
-    ):
+
+def _copy_scalar_evidence(
+    attempt: dict[str, Any],
+    evidence: Mapping[str, Any],
+) -> None:
+    """Copy the fixed scalar evidence keys that are present."""
+    for key in _EVIDENCE_KEYS:
         if key in evidence:
             attempt[key] = _jsonable(evidence[key])
+
+
+def _copy_evidence_collections(
+    attempt: dict[str, Any],
+    evidence: Mapping[str, Any],
+) -> None:
+    """Copy pinned content and ordered transformations from the evidence."""
     pins = evidence.get("content_pins")
     if isinstance(pins, Mapping):
         attempt["content_pins"].update(_jsonable(dict(pins)))
@@ -104,6 +113,16 @@ def _attach_author_evidence(attempt: dict[str, Any], author: ArtifactAuthor) -> 
         attempt["deterministic_transformations"].extend(
             _jsonable(item) for item in transformations
         )
+
+
+def _attach_author_evidence(attempt: dict[str, Any], author: ArtifactAuthor) -> None:
+    """Copy optional provider evidence from an author implementation."""
+
+    evidence = getattr(author, "last_evidence", None)
+    if not isinstance(evidence, Mapping):
+        return
+    _copy_scalar_evidence(attempt, evidence)
+    _copy_evidence_collections(attempt, evidence)
     if "parse_error" in evidence:
         attempt["parse_error"] = _safe_error_detail(evidence["parse_error"])
     if "call_error" in evidence:
@@ -3275,6 +3294,47 @@ def _validate_stimulus_text(
         )
 
 
+def _classify_blocked_author_failure(
+    attempt: dict[str, Any],
+    author: ArtifactAuthor,
+) -> None:
+    """Classify a blocked attempt that the provider already answered.
+
+    A semantic rejection after a successful, evidenced provider answer is an
+    answered failure, not a provider failure, so the attempt records the
+    ``answered_semantic_failure`` class unless the evidence already carries a
+    more specific classification.
+    """
+
+    if (
+        "failure_class" not in attempt
+        and isinstance(author, LLMArtifactAuthor)
+        and (attempt["raw_response"] is not None or attempt["cleaned_response"] is not None)
+    ):
+        attempt["failure_class"] = "answered_semantic_failure"
+
+
+def _normalize_parsed_result(attempt: dict[str, Any], result: Any) -> None:
+    """Record the cleaned response and its parse transformation exactly once."""
+
+    if attempt["cleaned_response"] is None:
+        attempt["cleaned_response"] = _jsonable(result)
+        attempt["content_pins"]["cleaned_response"] = _content_pin(
+            result, frame="artifact-author-cleaned-response-v1"
+        )
+    if not attempt["deterministic_transformations"]:
+        _record_transformation(
+            attempt,
+            name="parse_provider_response",
+            status="applied",
+            input_value=(
+                attempt["raw_response"] if attempt["raw_response"] is not None else result
+            ),
+            output_value=result,
+            detail="provider JSON was decoded before deterministic validation",
+        )
+
+
 def _author_stimulus(
     handoff: ScenarioHandoff,
     setup: SetupDesign,
@@ -3436,12 +3496,7 @@ def _author_stimulus(
         _attach_author_evidence(attempt, author)
     except _Blocked as blocked:
         _attach_author_evidence(attempt, author)
-        if (
-            "failure_class" not in attempt
-            and isinstance(author, LLMArtifactAuthor)
-            and (attempt["raw_response"] is not None or attempt["cleaned_response"] is not None)
-        ):
-            attempt["failure_class"] = "answered_semantic_failure"
+        _classify_blocked_author_failure(attempt, author)
         attempt["rejection_code"] = blocked.code
         attempt["rejection_detail"] = _safe_error_detail(blocked.detail)
         raise
@@ -3464,22 +3519,7 @@ def _author_stimulus(
             f"the author call failed; the failed attempt is recorded: {safe_detail}",
         ) from exc
     attempt["response"] = _jsonable(result)
-    if attempt["cleaned_response"] is None:
-        attempt["cleaned_response"] = _jsonable(result)
-        attempt["content_pins"]["cleaned_response"] = _content_pin(
-            result, frame="artifact-author-cleaned-response-v1"
-        )
-    if not attempt["deterministic_transformations"]:
-        _record_transformation(
-            attempt,
-            name="parse_provider_response",
-            status="applied",
-            input_value=(
-                attempt["raw_response"] if attempt["raw_response"] is not None else result
-            ),
-            output_value=result,
-            detail="provider JSON was decoded before deterministic validation",
-        )
+    _normalize_parsed_result(attempt, result)
     try:
         if not isinstance(result, dict):
             raise _Blocked("invalid-design", "the author must return a JSON object")
@@ -3617,6 +3657,7 @@ def _author_stimulus(
             output_value=None,
             detail=blocked.detail,
         )
+        _classify_blocked_author_failure(attempt, author)
         attempt["rejection_code"] = blocked.code
         attempt["rejection_detail"] = _safe_error_detail(blocked.detail)
         raise

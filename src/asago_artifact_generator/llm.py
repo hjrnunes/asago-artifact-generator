@@ -226,6 +226,68 @@ def _transformation(
     }
 
 
+def _apply_fence_removal(
+    current: str,
+    transformations: list[dict[str, Any]],
+) -> str:
+    """Remove one exact outer Markdown fence when the text is fenced."""
+    lines = current.splitlines()
+    if (
+        len(lines) >= 3
+        and lines[0].strip().lower() in {"```json", "```"}
+        and lines[-1].strip() == "```"
+    ):
+        fenced = "\n".join(lines[1:-1])
+        transformations.append(
+            _transformation(
+                "markdown_fence_removal",
+                current,
+                fenced,
+                detail="removed one exact outer Markdown fence",
+            )
+        )
+        return fenced
+    return current
+
+
+def _apply_trailing_comma_repair(
+    current: str,
+    transformations: list[dict[str, Any]],
+) -> str:
+    """Remove commas immediately before object/array closure."""
+    repaired = re.sub(r",\s*([}\]])", r"\1", current)
+    if repaired != current:
+        transformations.append(
+            _transformation(
+                "trailing_comma_repair",
+                current,
+                repaired,
+                detail="removed commas immediately before object/array closure",
+            )
+        )
+    return repaired
+
+
+def _apply_invalid_escape_repair(
+    current: str,
+    transformations: list[dict[str, Any]],
+    initial_error: json.JSONDecodeError,
+) -> str:
+    """Escape invalid JSON backslashes; unrecoverable text re-raises."""
+    escaped = re.sub(r"\\(?![\"\\\/bfnrtu])", r"\\\\", current)
+    if escaped == current:
+        raise initial_error from None
+    transformations.append(
+        _transformation(
+            "invalid_escape_repair",
+            current,
+            escaped,
+            detail="escaped invalid JSON backslashes",
+        )
+    )
+    return escaped
+
+
 def _decode_json_with_evidence(
     raw_text: str,
 ) -> tuple[Any, list[dict[str, Any]]]:
@@ -235,51 +297,15 @@ def _decode_json_with_evidence(
     try:
         parsed = json.loads(current)
     except json.JSONDecodeError as initial_error:
-        lines = current.splitlines()
-        if (
-            len(lines) >= 3
-            and lines[0].strip().lower() in {"```json", "```"}
-            and lines[-1].strip() == "```"
-        ):
-            fenced = "\n".join(lines[1:-1])
-            transformations.append(
-                _transformation(
-                    "markdown_fence_removal",
-                    current,
-                    fenced,
-                    detail="removed one exact outer Markdown fence",
-                )
-            )
-            current = fenced
+        current = _apply_fence_removal(current, transformations)
         try:
             parsed = json.loads(current)
         except json.JSONDecodeError:
-            repaired = re.sub(r",\s*([}\]])", r"\1", current)
-            if repaired != current:
-                transformations.append(
-                    _transformation(
-                        "trailing_comma_repair",
-                        current,
-                        repaired,
-                        detail="removed commas immediately before object/array closure",
-                    )
-                )
-            current = repaired
+            current = _apply_trailing_comma_repair(current, transformations)
             try:
                 parsed = json.loads(current)
             except json.JSONDecodeError:
-                escaped = re.sub(r"\\(?![\"\\\/bfnrtu])", r"\\\\", current)
-                if escaped == current:
-                    raise initial_error from None
-                transformations.append(
-                    _transformation(
-                        "invalid_escape_repair",
-                        current,
-                        escaped,
-                        detail="escaped invalid JSON backslashes",
-                    )
-                )
-                current = escaped
+                current = _apply_invalid_escape_repair(current, transformations, initial_error)
                 parsed = json.loads(current)
     transformations.append(
         _transformation(
