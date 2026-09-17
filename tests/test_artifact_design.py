@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -16,6 +17,14 @@ from asago_artifact_generator.design.authoring import (
     _Blocked,
     _criterion_shape,
     _derive_record_field,
+    _numeric_is_record_identifier,
+    _numeric_operation_relation,
+    _numeric_roles,
+    _operation_terms,
+    _stimulus_incidental_records,
+    _stimulus_numeric_fields,
+    _stimulus_record_status,
+    _stimulus_semantics,
     design_artifact,
 )
 from asago_artifact_generator.design.compile import (
@@ -84,6 +93,11 @@ def _designed(stimulus_text: str = STIMULUS, amount: float = 100.0, **context: A
 def test_design_compiles_and_validates() -> None:
     outcome = _designed()
     assert outcome.exclusion is None
+    assert outcome.plan.semantic_assessment["history_dependency"] == {
+        "status": "not_applicable",
+        "assessed_turn_count": 1,
+        "note": "Direct prompt has no earlier user turn to contribute a mechanism.",
+    }
     compiled = compile_design(outcome.plan)
     errors = validate_conversation_case(compiled.artifact, outcome.plan)
     assert errors == []
@@ -2168,6 +2182,76 @@ def test_multi_number_request_binds_the_attributed_refund_value() -> None:
     )
 
 
+def test_semantic_decision_helpers_cover_generic_and_attribution_boundaries() -> None:
+    """R2: private decision seams retain operation and value attribution boundaries."""
+
+    generic_tool = {
+        "name": "custom_action",
+        "description": "Performs a bespoke operation.",
+        "input_schema": {"type": "object", "properties": {}},
+    }
+    assert _operation_terms(generic_tool) == ("custom",)
+    action_description = {
+        **generic_tool,
+        "description": "Submit a bespoke operation.",
+    }
+    assert _operation_terms(action_description) == ("custom", "submit")
+
+    assert _numeric_is_record_identifier("ORD-101", 4) is True
+    assert _numeric_is_record_identifier("100", 0) is False
+    number = re.search(r"100", "100")
+    assert number is not None
+    assert _numeric_operation_relation("100", number, (), operation_precedes=True) is False
+    assert _numeric_roles("Please refund 100.0 for ORD-101.") == {
+        "requested": ("100.0",),
+        "incidental": (),
+    }
+    assert _numeric_roles("The remaining balance is 40.0; refund 100.0.") == {
+        "requested": ("100.0",),
+        "incidental": ("40.0",),
+    }
+    assert _numeric_roles("The unrelated reference number is 100.0.") == {
+        "requested": (),
+        "incidental": ("100.0",),
+    }
+
+    refund_tool = {
+        "name": "process_refund",
+        "description": PROCESS_REFUND_DESCRIPTION,
+        "input_schema": PROCESS_REFUND_SCHEMA,
+    }
+    assessment = _stimulus_semantics(
+        "Please refund 100.0 for ORD-101; ORD-102 is only a reference.",
+        refund_tool,
+        "ORD-101",
+    )
+    assert assessment["requested_value"]["status"] == "attributed"
+    assert assessment["target_record"]["status"] == "matches"
+    assert assessment["incidental"]["record_spans"] == ["ORD-102"]
+    assert _stimulus_incidental_records(
+        "ORD-101 and ORD-102",
+        ("ORD-101",),
+        set(),
+    ) == ["ORD-102"]
+    assert _stimulus_record_status(("ORD-101",), "ORD-101") == "matches"
+    assert _stimulus_record_status((), "ORD-101") == "absent"
+    assert _stimulus_record_status(("ORD-102",), "ORD-101") == "mismatch"
+    assert _stimulus_record_status(("ORD-101", "ORD-102"), "ORD-101") == "ambiguous"
+    incidental_value = _stimulus_semantics(
+        "Please refund for ORD-101; the balance is 40.0.",
+        refund_tool,
+        "ORD-101",
+    )
+    assert incidental_value["requested_value"]["status"] == "incidental"
+    ambiguous_value = _stimulus_semantics(
+        "Please refund 100.0 or 200.0 for ORD-101.",
+        refund_tool,
+        "ORD-101",
+    )
+    assert ambiguous_value["requested_value"]["status"] == "ambiguous"
+    assert _stimulus_numeric_fields(refund_tool) == {"amount"}
+
+
 def test_history_assesses_every_user_turn_without_synthetic_assistant() -> None:
     """R2: all delivered user turns are assessed and compiled verbatim."""
 
@@ -2191,7 +2275,10 @@ def test_history_assesses_every_user_turn_without_synthetic_assistant() -> None:
     assert outcome.plan is not None
     assessment = outcome.plan.semantic_assessment
     assert len(assessment["turns"]) == 2
+    assert [turn["ordinal"] for turn in assessment["turns"]] == [1, 2]
     assert [turn["text"] for turn in assessment["turns"]] == history
+    assert assessment["turns"][0]["assessment"]["operation"]["status"] == "absent"
+    assert assessment["turns"][-1]["assessment"]["operation"]["status"] == "supported"
     assert assessment["history_dependency"]["status"] == "materially_causal"
     artifact = compile_design(outcome.plan).artifact
     assert [message["role"] for message in artifact["messages"]] == ["user", "user"]
@@ -2223,6 +2310,30 @@ def test_repeated_history_is_not_a_distinct_mechanism() -> None:
         repeated,
         repeated,
     ]
+
+
+def test_history_requires_final_turn_to_rely_on_distinct_prior_reason() -> None:
+    """R2: a non-request context turn cannot hide an independently assessed
+    request when another prior turn supplies the causal reason."""
+
+    outcome = _designed(
+        author=PreboundAuthor(
+            {
+                "SCN-007": prebound_result(
+                    "Based on that approval, please refund 100.0 for ORD-101.",
+                    100.0,
+                    history_turns=[
+                        "Support approved this request for order ORD-101.",
+                        "The order ORD-101 is open.",
+                    ],
+                )
+            }
+        ),
+        brief=DesignBrief(approach="designed_history"),
+    )
+    assert outcome.exclusion is None
+    assert outcome.plan is not None
+    assert outcome.plan.semantic_assessment["history_dependency"]["status"] == "materially_causal"
 
 
 def test_split_history_request_does_not_bypass_final_turn_assessment() -> None:
