@@ -405,6 +405,22 @@ def verify_frozen_artifact(root: Path) -> dict[str, Any]:
                 "frozen_content_mismatch",
                 f"{entry_dir}: compiled messages differ from the frozen stimulus text",
             )
+        if (
+            "target_context" in content
+            and artifact.get("target_context") != content["target_context"]
+        ):
+            raise FreezeVerificationError(
+                "frozen_content_mismatch",
+                f"{entry_dir}: compiled target context differs from the frozen contract",
+            )
+        if (
+            "prerequisite_dependencies" in content
+            and artifact.get("prerequisite_dependencies") != content["prerequisite_dependencies"]
+        ):
+            raise FreezeVerificationError(
+                "frozen_content_mismatch",
+                f"{entry_dir}: compiled prerequisite dependencies differ from the frozen set",
+            )
         plan_path = entry_dir / "execution-plan.json"
         plan = load_execution_plan(plan_path)
         if plan.schema_version != DESIGN_PLAN_SCHEMA_VERSION:

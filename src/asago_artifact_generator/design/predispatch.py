@@ -72,6 +72,31 @@ def _value_stated(value: Any, text: str) -> bool:
     return False
 
 
+def _embedded_identity(
+    state: Mapping[str, Any],
+    record_id: Any,
+    identity_field: Any,
+) -> Any:
+    """Find a conflicting embedded identity for one indexed record."""
+
+    if not isinstance(record_id, str) or not isinstance(identity_field, str):
+        return None
+    for collection in state.values():
+        if isinstance(collection, Mapping):
+            record = collection.get(record_id)
+            if isinstance(record, Mapping) and identity_field in record:
+                return record.get(identity_field)
+        elif isinstance(collection, list):
+            for record in collection:
+                if (
+                    isinstance(record, Mapping)
+                    and record.get(identity_field) == record_id
+                    and identity_field in record
+                ):
+                    return record.get(identity_field)
+    return None
+
+
 def _live_record(
     state: Mapping[str, Any],
     records: Mapping[str, Mapping[str, Any]],
@@ -96,6 +121,8 @@ def _live_record(
             return None, {
                 "name": str(dependency.get("name")),
                 "record_id": record_id,
+                "expected": record_id,
+                "observed": _embedded_identity(state, record_id, identity_field),
                 "reason": str(blocked),
             }
         return (readings[0] if readings else None), None
