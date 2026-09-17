@@ -163,6 +163,9 @@ class HandoffOperation(HandoffModel):
 
     name: StrictStr
     relevance: StrictStr
+    authority: (
+        Literal["criterion_observed_operation", "verified_control_action_specialization"] | None
+    ) = None
 
 
 class HandoffFact(HandoffModel):

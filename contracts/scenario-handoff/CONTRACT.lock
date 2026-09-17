@@ -9,7 +9,7 @@
     "handoff-v1/invalid/role-turn-array.json": "abbe9e4c75fa12fe5e594773f6ec034152f6cb3cffc40ecd22c4001f83394efe",
     "handoff-v1/invalid/smuggled-prose.json": "7dbf7e18d7a8c5132304456284cb5be9db0d4f53bf776772d458389c4673f954",
     "handoff-v1/invalid/stimulus-turn-field.json": "3b0835f9c66c4f508ffa63ace5c8bbdde9fac06a5058fcf6a5cd4dd743f884a3",
-    "handoff-v1/schema.json": "d547a225d44963ebaff220a5876a40e9e3fca57cbd5a1dfb4d195b8deeed77cb",
+    "handoff-v1/schema.json": "0c85d9db8d461acf08a485b6b8a56c4b566a249b20ead5bc4fa722bb94f52a2b",
     "handoff-v1/valid/adversarial-refund.json": "43814d1e54466247fafa3d0a1a2364247922fb92dca53c660c4219538a0aa914",
     "handoff-v1/valid/functional-no-attacker.json": "214091e2cdba952a065e89007364483427af1ad02ca263893af1d8d6b819782f",
     "handoff-v1/valid/functional-no-attacker-v2.json": "0d8600c4143fd012a7b8f54f044190d4e1de9e8775dd6279b27df52aa4a839f7"

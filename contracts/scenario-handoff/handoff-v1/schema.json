@@ -134,6 +134,22 @@
       "additionalProperties": false,
       "description": "A documented operation named only when it is supported and relevant.",
       "properties": {
+        "authority": {
+          "anyOf": [
+            {
+              "enum": [
+                "criterion_observed_operation",
+                "verified_control_action_specialization"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority"
+        },
         "name": {
           "title": "Name",
           "type": "string"

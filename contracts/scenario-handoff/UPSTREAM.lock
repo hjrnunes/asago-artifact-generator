@@ -1,7 +1,7 @@
 {
   "repository": "asago-scenario-generator",
-  "revision": "5523a09b49584b1074e5748a66b7ef85cd528e10",
-  "contract_lock_sha256": "c009fcf267d19297d4e8727fee907100195cfae8d90aaeb3e9f4433cbe91e8d4",
+  "revision": "1d78337b388aaed835a6d489f23b9246ac90f24a",
+  "contract_lock_sha256": "df8550c030a6a49c3e2aff4f8d10167011d2b396c0ab565938d12fe8c903b1e9",
   "source": "data/contracts/scenario-handoff/CONTRACT.lock",
   "source_state": "committed",
   "content_lock_status": "pinned"
