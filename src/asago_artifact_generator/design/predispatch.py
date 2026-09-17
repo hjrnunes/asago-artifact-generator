@@ -143,7 +143,10 @@ def verify_dispatch_prerequisites(
         }
         return DispatchPrerequisiteResult(verified=False, checked=(), mismatches=(mismatch,))
     try:
-        records = _record_collections(state)
+        # Keep per-dependency resolver evidence intact. The shared resolver
+        # reports the exact conflicting identity for the dependency instead of
+        # collapsing it into an aggregate runtime-state failure.
+        records = _record_collections(state, validate_embedded_identities=False)
     except _Blocked as blocked:
         # R3/VAL-DEP-002: conflicting readings of one record identity in the
         # live mapping-valued collections are ambiguous and block dispatch.

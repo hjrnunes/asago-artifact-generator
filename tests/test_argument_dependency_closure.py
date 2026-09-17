@@ -404,6 +404,35 @@ def test_mapping_key_and_embedded_identity_conflict_blocks_design() -> None:
     assert outcome.exclusion.code == "missing-setup"
 
 
+def test_mapping_entries_with_duplicate_normalized_identity_block_design() -> None:
+    """Mapping keys that normalize to one identity never merge silently."""
+
+    runtime = klarna_runtime_context()
+    record = dict(runtime["state"]["orders"]["ORD-101"])
+    runtime["state"]["orders"] = {"ORD-101": record, " ORD-101 ": dict(record)}
+    outcome = _designed(runtime=runtime, argument_values={"reason": REASON_EVIDENCE})
+
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "missing-setup"
+    assert "duplicate" in outcome.exclusion.detail.lower()
+    assert "101" in outcome.exclusion.detail
+
+
+def test_mapping_non_string_embedded_identity_blocks_at_resolver_boundary() -> None:
+    """Malformed embedded identities are typed setup failures, not readings."""
+
+    runtime = klarna_runtime_context()
+    runtime["state"]["orders"]["ORD-101"]["order_id"] = 101
+    outcome = _designed(runtime=runtime, argument_values={"reason": REASON_EVIDENCE})
+
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "missing-setup"
+    assert "embedded" in outcome.exclusion.detail.lower()
+    assert "non-string" in outcome.exclusion.detail.lower()
+
+
 def test_mapping_and_list_equivalent_records_verify(tmp_path: Path) -> None:
     """VAL-DEP-002: the same record observed equivalently in a mapping-valued
     and an identity-indexed list collection verifies at design and
@@ -484,10 +513,10 @@ def test_precondition_non_string_identity_is_not_a_record(tmp_path: Path) -> Non
     assert outcome.exclusion.code == "missing-setup"
 
 
-def test_precondition_non_string_embedded_identity_preserves_existing_mapping_behavior(
+def test_precondition_non_string_embedded_identity_fails_closed_at_resolver_boundary(
     tmp_path: Path,
 ) -> None:
-    """Non-string embedded values stay outside the exact-identity conflict rule."""
+    """Non-string embedded values fail closed at the resolver boundary."""
     from tests.design_fixtures import occiai_runtime_context
     from tests.test_precondition_record_design import _designed as _precondition_designed
     from tests.test_precondition_record_design import _draft
@@ -500,7 +529,8 @@ def test_precondition_non_string_embedded_identity_preserves_existing_mapping_be
     outcome = _precondition_designed(tmp_path, runtime=runtime)
     assert outcome.plan is None
     assert outcome.exclusion is not None
-    assert outcome.exclusion.code == "invalid-design"
+    assert outcome.exclusion.code == "missing-setup"
+    assert "non-string" in outcome.exclusion.detail.lower()
 
 
 def test_precondition_mapping_key_identity_conflict_blocks_design(tmp_path: Path) -> None:

@@ -2246,6 +2246,23 @@ def test_non_request_refund_stimuli_do_not_compile(stimulus: str, expected_detai
     assert "amount_requested" not in json.dumps(outcome.design_record)
 
 
+def test_condition_after_semicolon_does_not_compile_as_unconditional_request() -> None:
+    """A condition separated by a semicolon remains part of the request meaning."""
+
+    outcome = _designed(
+        stimulus_text="Please refund 100.0 for ORD-101; only if the account confirms it.",
+        amount=100.0,
+        argument_values={"reason": "refund"},
+    )
+
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "operation-attribution-unresolved"
+    assert "conditional" in outcome.exclusion.detail
+    assert outcome.exclusion.semantic_assessment["conditional"] is True
+    assert outcome.design_record["compiled"] is False
+
+
 def test_multi_number_request_binds_the_attributed_refund_value() -> None:
     """R2: a limit/reference number does not override the requested amount."""
 

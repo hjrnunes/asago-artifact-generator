@@ -24,6 +24,49 @@ def test_functional_author_prompt_is_kind_aware() -> None:
     assert "malicious objective" in prompt
 
 
+def test_functional_amount_prompt_lists_contract_keys() -> None:
+    prompt = _author_system_prompt(
+        amount_bearing=True,
+        scenario_kind="functional",
+    )
+
+    assert "Include the required keys 'requested_amount', 'stimulus_text', and 'rationale'." in (
+        prompt
+    )
+
+
+def test_functional_non_amount_prompt_does_not_invent_amount_key() -> None:
+    prompt = _author_system_prompt(
+        amount_bearing=False,
+        scenario_kind="functional",
+    )
+
+    assert "requested_amount" not in prompt
+
+
+def test_author_prompt_uses_required_keys_from_response_contract() -> None:
+    prompt = _author_system_prompt(
+        amount_bearing=False,
+        scenario_kind="functional",
+        response_contract={
+            "argument_values": "authored argument values",
+            "requested_amount": "numeric request amount",
+            "stimulus_text": "request wording",
+            "rationale": "criterion rationale",
+            "history_turns": "optional history",
+        },
+    )
+
+    assert (
+        "Include the required keys 'argument_values', 'requested_amount', "
+        "'stimulus_text', and 'rationale'."
+    ) in prompt
+    assert (
+        "Include the required keys 'argument_values', 'requested_amount', "
+        "'stimulus_text', 'rationale', and 'history_turns'." not in prompt
+    )
+
+
 def test_adversarial_prompt_requires_supported_objective_not_benefit() -> None:
     prompt = _author_system_prompt(
         amount_bearing=False,
