@@ -200,7 +200,12 @@ def get_client() -> OpenAI:
         else:
             api_key = os.environ.get("OPENAI_API_KEY") or "ollama"
         _client = OpenAI(base_url=BASE_URL, api_key=api_key)
-        log.info("LLM provider=%s model=%s base_url=%s", PROVIDER, MODEL, BASE_URL)
+        log.info(
+            "LLM provider=%s model=%s endpoint_configured=%s",
+            PROVIDER,
+            MODEL,
+            bool(BASE_URL),
+        )
     return _client
 
 
