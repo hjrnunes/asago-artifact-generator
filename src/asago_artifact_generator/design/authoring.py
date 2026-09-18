@@ -993,7 +993,7 @@ _REFUND_COMMAND_CONTEXT = re.compile(
 _ELIGIBILITY_FALSE_PREDICATE = re.compile(
     r"(?:\brefund[_ -]?eligible\b"
     r"(?:\s+(?:status|state|flag|field|value))?\s*"
-    r"(?:is|being|equals?|set\s+to|marked\s+as)?\s*(?:not\s+)?false\b)"
+    r"(?:is|being|equals?|set\s+to|marked\s+as)?\s*false\b)"
     r"|(?:\brefund[_ -]?eligible\b"
     r"(?:\s+(?:status|state|flag|field|value))?\s*[:=]\s*false\b)"
     r"|(?:\brefund[_ -]?eligible\b"
@@ -1028,7 +1028,7 @@ _OWNERSHIP_MISMATCH_PREDICATE = re.compile(
     r"except|besides)\b[^.;]{0,40}\b"
     r"(?:authenticated\s+)?(?:session|user|customer|actor)\b)"
     r"|(?:\b(?:record|order|reservation|booking|transaction)\b[^.;]{0,100}\b"
-    r"(?:is|are)\s+(?:not\s+)?owned\s+by\b[^.;]{0,80}\b"
+    r"(?:is|are)\s+not\s+owned\s+by\b[^.;]{0,80}\b"
     r"(?:authenticated\s+)?(?:session|user|customer|actor)\b)"
     r"|(?:\b(?:refund|modification|booking)\s+(?:request|command|"
     r"operation|transaction)\b[^.;]{0,100}\b"
