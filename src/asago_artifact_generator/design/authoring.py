@@ -810,8 +810,10 @@ def _handoff_record_references(
     Handoffs also contain causal lineage such as ``RESP-3`` and ``CA-3-2``.
     Those identifiers are uppercase tokens, but they are not records and must
     not make an otherwise environment-derived design fail as missing setup.
-    A reference therefore needs both a domain identity shape and a nearby
-    record role (for example ``order ORD-104`` or ``draft DFTA1B2C3``).
+    A reference either has a nearby record role (for example ``order ORD-104``
+    or ``draft DFTA1B2C3``) or belongs to the observed record-family namespace.
+    The latter admits bare identities such as ``ORD-104`` while keeping causal
+    lineage namespaces out of record selection.
     """
 
     texts = [
@@ -844,6 +846,19 @@ def _handoff_record_references(
         for record_id in (observed_record_ids or ())
         if re.match(r"[A-Za-z]+", record_id)
     }
+    lineage_tokens = {
+        token
+        for token in (
+            *lineage_ids(handoff, "hazard"),
+            *lineage_ids(handoff, "constraint"),
+            *lineage_ids(handoff, "loss"),
+            handoff.lineage.ica_slot_id,
+            handoff.lineage.ica_id,
+            handoff.lineage.controller_id,
+            handoff.lineage.control_action_id,
+        )
+        if token
+    }
     found: list[str] = []
     for text in texts:
         for match in record_role.finditer(text):
@@ -860,6 +875,8 @@ def _handoff_record_references(
             ):
                 continue
             identity = identity_match.group()
+            if identity in lineage_tokens:
+                continue
             if observed_families:
                 family_match = re.match(r"[A-Za-z]+", identity)
                 if (
@@ -868,6 +885,15 @@ def _handoff_record_references(
                     and identity not in (observed_record_ids or ())
                 ):
                     continue
+            if identity not in found:
+                found.append(identity)
+        for identity_match in identity_token.finditer(text):
+            identity = identity_match.group()
+            if identity in lineage_tokens:
+                continue
+            family_match = re.match(r"[A-Za-z]+", identity)
+            if family_match is None or family_match.group().upper() not in observed_families:
+                continue
             if identity not in found:
                 found.append(identity)
     return found
@@ -1006,6 +1032,20 @@ _OWNERSHIP_MISMATCH_PREDICATE = re.compile(
     r"(?:authenticated\s+)?(?:session|user|customer|actor)\b)",
     re.IGNORECASE,
 )
+_NEGATION_SCOPED_COMPARATIVE_OWNERSHIP = re.compile(
+    r"(?:\b(?:no\s+(?:one|person|party|body)|nobody|none|not\s+"
+    r"(?:someone|somebody|anyone|anybody|a\s+person|a\s+party|an?\s+owner))\s+"
+    r"(?:other\s+than|except|besides)\b"
+    r"|"
+    r"\b(?:does|do|did|is|are|was|were|has|have|had)(?:\s+not|n['’]t)\b"
+    r"[^.;]{0,40}\b(?:anyone|anybody|any\s+(?:person|party|owner))\s+"
+    r"(?:other\s+than|except|besides)\b"
+    r"|"
+    r"\bnot\s+(?:someone|somebody|anyone|anybody|a\s+person|a\s+party|an?\s+owner)\s+"
+    r"(?:other\s+than|except|besides)\b"
+    r")",
+    re.IGNORECASE,
+)
 _PARAMETER_SESSION_MISMATCH = re.compile(
     r"\b(?:parameters?|arguments?|values?)\b[^.;]{0,80}\b"
     r"(?:does\s+not|do\s+not|is\s+not|isn't|isnt|not)\b[^.;]{0,70}\b"
@@ -1097,9 +1137,11 @@ def _criterion_semantic_families(text: str) -> tuple[set[str], list[str]]:
     if has_operation and _REFUND_OPERATION_WORD.search(text) and eligibility_match:
         families.add("ineligible_record")
         evidence.append(eligibility_match.group(0).strip())
-    ownership_match = _OWNERSHIP_MISMATCH_PREDICATE.search(
-        text
-    ) or _OPERATION_OWNERSHIP_MISMATCH.search(text)
+    ownership_match = None
+    if _NEGATION_SCOPED_COMPARATIVE_OWNERSHIP.search(text) is None:
+        ownership_match = _OWNERSHIP_MISMATCH_PREDICATE.search(
+            text
+        ) or _OPERATION_OWNERSHIP_MISMATCH.search(text)
     parameter_match = _PARAMETER_SESSION_MISMATCH.search(text)
     identity_match = _IDENTITY_SESSION_MISMATCH.search(
         text
