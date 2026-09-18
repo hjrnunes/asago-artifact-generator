@@ -26,6 +26,7 @@ from asago_artifact_generator.authoring import (
     collect_plan_findings,
     load_failure_evidence,
 )
+from asago_artifact_generator.bindings import validate_bindings
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
 HANDOFF = (
@@ -227,6 +228,81 @@ def test_rendered_binding_contract_explains_direction_grammar_and_example() -> N
         }
 
 
+def test_rendered_binding_contract_explains_applicability_and_both_source_examples() -> None:
+    view = _view()
+    packets = (
+        build_call1_packet(view, _inventory(), _contract()),
+        build_call2_packet(view, _plan(), _inventory(), _contract()),
+    )
+
+    for packet in packets:
+        binding = packet.payload["response_contract"]["binding_declaration"]
+        assert binding["source_scope"] == (
+            "Only environment inventory facts are bindable supplied sources; "
+            "input payloads and source handles remain context and are not bindable sources."
+        )
+        assert binding["applicability"] == (
+            "When the stimulus is already concrete and no setup-derived value is needed, "
+            "runtime_bindings must be [] (an empty list); do not wire a concrete stimulus "
+            "back to itself."
+        )
+        assert (
+            packet.payload["response_contract"]["empty_shapes"][
+                "runtime_bindings_for_static_concrete_stimulus"
+            ]
+            == []
+        )
+        assert binding["valid_examples"]["supplied_input"] == {
+            "name": "order_id",
+            "expected_type": "string",
+            "source_kind": "supplied_input",
+            "source_ref": "facts:order",
+            "selector": "value.order_id",
+            "consumers": ["stimulus.user_text"],
+            "on_missing": "stop",
+        }
+        assert binding["valid_examples"]["setup_output"] == binding["valid_example"]
+
+
+def test_rendered_binding_examples_are_accepted_by_closed_validator() -> None:
+    packet = build_call1_packet(_view(), _inventory(), _contract())
+    examples = packet.payload["response_contract"]["binding_declaration"]["valid_examples"]
+    inventory = {
+        "facts": [
+            {
+                "ref": "order",
+                "schema": {
+                    "type": "object",
+                    "properties": {"order_id": {"type": "string"}},
+                },
+            }
+        ],
+        "operations": [
+            {
+                "name": "summarize_for_ehr",
+                "result_schema": {
+                    "type": "object",
+                    "properties": {
+                        "draft": {
+                            "type": "object",
+                            "properties": {"id": {"type": "string"}},
+                        }
+                    },
+                },
+            }
+        ],
+    }
+    runtime_contract = {"setup_permissions": ["summarize_for_ehr"]}
+
+    validated = validate_bindings(
+        [examples["supplied_input"], examples["setup_output"]],
+        inventory=inventory,
+        runtime_contract=runtime_contract,
+    )
+
+    assert [binding.name for binding in validated] == ["order_id", "draft_id"]
+
+
 def test_plan_binding_findings_accumulate_nested_faults_without_coercion() -> None:
     malformed = {
         "name": "draft_id",
@@ -315,7 +391,27 @@ def test_final_g07_binding_replay_preserves_bytes_and_surfaces_all_nested_findin
     assert (
         "facts:<ref>" in correction["response_contract"]["binding_declaration"]["source_ref_rule"]
     )
+    correction_binding = correction["response_contract"]["binding_declaration"]
+    assert correction_binding["source_scope"].startswith(
+        "Only environment inventory facts are bindable supplied sources"
+    )
+    assert "input payloads and source handles remain context" in correction_binding["source_scope"]
+    assert "runtime_bindings must be []" in correction_binding["applicability"]
+    assert (
+        correction["response_contract"]["empty_shapes"][
+            "runtime_bindings_for_static_concrete_stimulus"
+        ]
+        == []
+    )
+    assert correction_binding["valid_examples"]["supplied_input"]["source_ref"].startswith(
+        "facts:"
+    )
+    assert correction_binding["valid_examples"]["setup_output"]["source_ref"].startswith("setup:")
     assert "stimulus.turns[0].text" in correction["failed_response"]
+    assert decoded[0]["runtime_bindings"][0]["source_ref"] == "stimulus.turns[0].text"
+    assert decoded[0]["runtime_bindings"][0]["selector"] == "stimulus.turns[0].text"
+    assert decoded[1]["runtime_bindings"][0]["source_ref"] == "stimulus.turns[0].text"
+    assert decoded[1]["runtime_bindings"][0]["selector"] == "stimulus.turns[0].text"
 
 
 def test_plan_validation_accumulates_all_structural_findings() -> None:

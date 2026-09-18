@@ -2366,6 +2366,7 @@ def _call1_contract() -> dict[str, Any]:
         "empty_shapes": {
             "setup_recipe_when_setup_is_unavailable": [],
             "runtime_bindings_when_no_runtime_values_are_needed": [],
+            "runtime_bindings_for_static_concrete_stimulus": [],
             "prerequisites_when_none_are_required": [],
             "unresolved_requirements_when_complete": [],
         },
@@ -2464,6 +2465,7 @@ def _call2_contract() -> dict[str, Any]:
         "empty_shapes": {
             "setup_recipe_when_setup_is_unavailable": [],
             "runtime_bindings_when_no_runtime_values_are_needed": [],
+            "runtime_bindings_for_static_concrete_stimulus": [],
             "prerequisites_when_none_are_required": [],
             "stimulus_history_when_no_prior_user_context_is_needed": [],
             "stimulus_slots_when_no_runtime_substitution_is_needed": [],
@@ -2486,6 +2488,24 @@ def _call2_contract() -> dict[str, Any]:
 
 
 def _binding_contract() -> dict[str, Any]:
+    setup_output_example = {
+        "name": "draft_id",
+        "expected_type": "string",
+        "source_kind": "setup_output",
+        "source_ref": "setup:summarize_for_ehr",
+        "selector": "result.draft.id",
+        "consumers": ["stimulus.user_text"],
+        "on_missing": "stop",
+    }
+    supplied_input_example = {
+        "name": "order_id",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:order",
+        "selector": "value.order_id",
+        "consumers": ["stimulus.user_text"],
+        "on_missing": "stop",
+    }
     return {
         "required": [
             "name",
@@ -2511,6 +2531,10 @@ def _binding_contract() -> dict[str, Any]:
             "for supplied_input or setup:<operation> for setup_output; it is not "
             "a stimulus path or a guessed field name"
         ),
+        "source_scope": (
+            "Only environment inventory facts are bindable supplied sources; "
+            "input payloads and source handles remain context and are not bindable sources."
+        ),
         "selector_rule": (
             "selector performs value extraction: it extracts one value through an exact "
             "documented dot path rooted at value for supplied_input or result for "
@@ -2521,14 +2545,15 @@ def _binding_contract() -> dict[str, Any]:
             "stimulus.user_text, stimulus.history, prerequisites.*, detector.*, or "
             "setup.arguments.*; a consumer does not identify the source"
         ),
-        "valid_example": {
-            "name": "draft_id",
-            "expected_type": "string",
-            "source_kind": "setup_output",
-            "source_ref": "setup:summarize_for_ehr",
-            "selector": "result.draft.id",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
+        "applicability": (
+            "When the stimulus is already concrete and no setup-derived value is needed, "
+            "runtime_bindings must be [] (an empty list); do not wire a concrete stimulus "
+            "back to itself."
+        ),
+        "valid_example": setup_output_example,
+        "valid_examples": {
+            "supplied_input": supplied_input_example,
+            "setup_output": setup_output_example,
         },
     }
 
