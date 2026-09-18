@@ -40,6 +40,10 @@ class InputSourceError(ValueError):
     """Raised when an input or its vendored contract is not trustworthy."""
 
 
+class ReferenceClassificationConflictError(InputSourceError):
+    """Raised when supplied reference-task classifications contradict."""
+
+
 @dataclass(frozen=True)
 class SourceSnapshot:
     """A hash-verified source and optional immutable working snapshot."""
@@ -263,10 +267,11 @@ def build_reference_task_view(view: InputView) -> dict[str, Any]:
             if key in {"benchmark_version", "record_conditions"}
         }
     )
+    classification = _reference_classification_view(source)
     return {
         "kind": view.kind.value,
         "scenario_id": view.scenario_id,
-        "functional_or_adversarial": source.get("kind", source.get("family", "")),
+        **classification,
         "title": source.get("title", ""),
         "semantic_failure_condition": failure,
         "safe_alternative": deepcopy(safe),
@@ -280,6 +285,57 @@ def build_reference_task_view(view: InputView) -> dict[str, Any]:
         },
         "source_references": dict(view.source_digests),
         "reference_label": view.reference_label,
+    }
+
+
+def _reference_classification_view(source: dict[str, Any]) -> dict[str, Any]:
+    """Preserve supplied classification declarations without inference.
+
+    ``family`` names a scenario family, while ``test_class`` and
+    ``adversary.kind`` describe independent supplied declarations.  The
+    optional ``kind`` field is accepted only as a legacy classification
+    declaration so a contradictory pair is rejected instead of silently
+    preferred.
+    """
+
+    family = source.get("family")
+    test_class = source.get("test_class")
+    legacy_kind = source.get("kind")
+    adversary_value = source.get("adversary")
+    adversary = deepcopy(adversary_value) if isinstance(adversary_value, dict) else None
+    declarations: list[tuple[str, str]] = []
+    if isinstance(test_class, str) and test_class in {"functional", "adversarial"}:
+        declarations.append(("test_class", test_class))
+    if isinstance(legacy_kind, str) and legacy_kind in {"functional", "adversarial"}:
+        declarations.append(("kind", legacy_kind))
+    adversary_kind = adversary.get("kind") if adversary else None
+    if isinstance(adversary_kind, str) and isinstance(test_class, str):
+        adversary_class = "functional" if adversary_kind == "none" else "adversarial"
+        if test_class in {"functional", "adversarial"} and test_class != adversary_class:
+            raise ReferenceClassificationConflictError(
+                "classification_conflict: test_class contradicts adversary.kind "
+                f"(test_class={test_class}, adversary.kind={adversary_kind})"
+            )
+    if isinstance(adversary_kind, str) and isinstance(legacy_kind, str):
+        adversary_class = "functional" if adversary_kind == "none" else "adversarial"
+        if legacy_kind in {"functional", "adversarial"} and legacy_kind != adversary_class:
+            raise ReferenceClassificationConflictError(
+                "classification_conflict: kind contradicts adversary.kind "
+                f"(kind={legacy_kind}, adversary.kind={adversary_kind})"
+            )
+    declared_classes = {value for _, value in declarations}
+    if len(declared_classes) > 1:
+        details = ", ".join(f"{name}={value}" for name, value in declarations)
+        raise ReferenceClassificationConflictError(
+            f"classification_conflict: contradictory supplied declarations ({details})"
+        )
+    return {
+        "family": deepcopy(family) if family is not None else None,
+        "family_availability": "supplied" if family is not None else "missing",
+        "test_class": deepcopy(test_class) if test_class is not None else None,
+        "test_class_availability": "supplied" if test_class is not None else "missing",
+        "adversary": adversary,
+        "adversary_availability": "supplied" if adversary is not None else "missing",
     }
 
 
@@ -728,6 +784,7 @@ __all__ = [
     "InputKind",
     "InputSourceError",
     "InputView",
+    "ReferenceClassificationConflictError",
     "SourceSnapshot",
     "load_input",
     "snapshot_input",

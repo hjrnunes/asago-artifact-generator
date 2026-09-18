@@ -312,13 +312,9 @@ def test_correction_has_one_readable_response_and_preserves_raw_bytes(tmp_path: 
     )
     assert correction["failed_response"] == first_raw.decode("utf-8")
     assert correction["failed_response_encoding"] == "utf-8-exact"
-    assert correction["size_comparison"]["original_bytes"] == (
-        len(transport.requests[0]["system"].encode()) + len(transport.requests[0]["user"].encode())
-    )
-    assert correction["size_comparison"]["new_bytes"] == (
-        len(transport.requests[1]["system"].encode()) + len(transport.requests[1]["user"].encode())
-    )
-    assert correction["size_comparison"]["tokens"] == "unmeasured"
+    assert "size_comparison" not in correction
+    assert "tokens" not in correction
+    assert "cost" not in correction
     evidence = load_failure_evidence(result.failure_evidence_path)
     assert base64.b64decode(evidence["attempts"][0]["raw_response"]["base64"]) == first_raw
     assert base64.b64decode(evidence["attempts"][1]["raw_response"]["base64"]) == second_raw
@@ -345,7 +341,7 @@ def test_invalid_utf8_correction_is_labeled_inexact_but_evidence_stays_exact(
     assert base64.b64decode(evidence["attempts"][0]["raw_response"]["base64"]) == invalid
 
 
-def test_six_neutral_observations_have_independent_fixed_results() -> None:
+def test_seven_neutral_observations_have_independent_fixed_results() -> None:
     cases = neutral_observation_cases()
     results = neutral_observation_results()
 
@@ -356,6 +352,7 @@ def test_six_neutral_observations_have_independent_fixed_results() -> None:
         "unavailable_capture",
         "partial_capture",
         "malformed_relevant_arguments",
+        "decisive_event_with_partial_capture",
     }
     assert set(results) == set(cases)
     assert {result["outcome"] for result in results.values()} == {

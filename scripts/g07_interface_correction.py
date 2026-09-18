@@ -15,6 +15,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from asago_artifact_generator.authoring import (
     AuthoringOrchestrator,
     ScriptedAuthoringTransport,
@@ -27,12 +29,18 @@ from asago_artifact_generator.authoring import (
     neutral_observation_results,
 )
 from asago_artifact_generator.detector_runtime import execute_detector
-from asago_artifact_generator.input_adapter import InputKind, load_input
+from asago_artifact_generator.input_adapter import (
+    InputKind,
+    ReferenceClassificationConflictError,
+    build_reference_task_view,
+    load_input,
+)
 
 CONSUMER_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = CONSUMER_ROOT.parents[2]
 GOLD = PROJECT_ROOT / "data" / "gold" / "miniklarna"
 BENCHMARK = GOLD / "benchmark-v4.yaml"
+MINIOCCIAI_GOLD = PROJECT_ROOT / "data" / "gold" / "miniocciai" / "gold-cases.yaml"
 OUTPUT = CONSUMER_ROOT / "runs" / "authoring" / "g07-interface-correction-20260918"
 FAILURE = (
     CONSUMER_ROOT
@@ -138,6 +146,8 @@ def _neutral_plan(inventory: dict[str, Any]) -> dict[str, Any]:
 
 
 def _save_prompt(path: Path, label: str, packet: Any) -> None:
+    model_characters = len(packet.system) + len(packet.user)
+    model_bytes = len(packet.system.encode("utf-8")) + len(packet.user.encode("utf-8"))
     _write_json(
         path,
         {
@@ -148,10 +158,18 @@ def _save_prompt(path: Path, label: str, packet: Any) -> None:
             "system": packet.system,
             "user": packet.user,
             "payload": packet.payload,
-            "characters": len(packet.system) + len(packet.user),
-            "bytes": len(packet.system.encode("utf-8")) + len(packet.user.encode("utf-8")),
+            "model_facing_characters": model_characters,
+            "model_facing_utf8_bytes": model_bytes,
+            "container_file_bytes": 0,
         },
     )
+    rendered = json.loads(path.read_text(encoding="utf-8"))
+    for _ in range(4):
+        _write_json(path, rendered)
+        path_bytes = path.stat().st_size
+        if rendered["container_file_bytes"] == path_bytes:
+            break
+        rendered["container_file_bytes"] = path_bytes
 
 
 def main() -> int:
@@ -189,6 +207,101 @@ def main() -> int:
         ),
         build_call2_packet(view, saved_plan, inventory, runtime_contract),
     )
+
+    occiai_views: dict[str, Any] = {}
+    for case_id in ("O04", "O03"):
+        occiai_view = load_input(
+            MINIOCCIAI_GOLD,
+            kind=InputKind.REFERENCE_TASK,
+            reference_label="miniocciai-classification-control",
+            reference_id=case_id,
+        )
+        occiai_views[case_id] = {
+            "model_view": occiai_view,
+            "call1": build_call1_packet(occiai_view, inventory, runtime_contract),
+            "call2": build_call2_packet(
+                occiai_view,
+                _neutral_plan(inventory),
+                inventory,
+                runtime_contract,
+            ),
+        }
+        _save_prompt(
+            OUTPUT / f"miniocciai-{case_id.lower()}-call1.json",
+            f"actual MiniOcciAI {case_id} Call 1 rendering; no model response",
+            occiai_views[case_id]["call1"],
+        )
+        _save_prompt(
+            OUTPUT / f"miniocciai-{case_id.lower()}-call2.json",
+            f"actual MiniOcciAI {case_id} Call 2 rendering; no model response",
+            occiai_views[case_id]["call2"],
+        )
+
+    missing_source = {
+        "gold_cases": [
+            {
+                "id": "missing-classification",
+                "family": "ungrounded_answer",
+                "adversary": {"kind": "none", "gain": "No adversarial advantage."},
+                "constraint_meaning": "Keep the answer grounded.",
+                "safe_alternative": "Provide approved education.",
+            }
+        ]
+    }
+    conflict_source = {
+        "gold_cases": [
+            {
+                "id": "conflicting-classification",
+                "family": "ungrounded_answer",
+                "kind": "adversarial",
+                "test_class": "functional",
+                "adversary": {"kind": "none", "gain": "No adversarial advantage."},
+                "constraint_meaning": "Keep the answer grounded.",
+                "safe_alternative": "Provide approved education.",
+            }
+        ]
+    }
+    classification_controls: dict[str, Any] = {
+        "missing": {
+            "test_class": None,
+            "availability": "missing",
+        }
+    }
+    missing_path = OUTPUT / "missing-classification.yaml"
+    conflict_path = OUTPUT / "conflicting-classification.yaml"
+    missing_path.write_text(
+        yaml.safe_dump(missing_source, sort_keys=False),
+        encoding="utf-8",
+    )
+    conflict_path.write_text(
+        yaml.safe_dump(conflict_source, sort_keys=False),
+        encoding="utf-8",
+    )
+    missing_view = load_input(
+        missing_path,
+        kind=InputKind.REFERENCE_TASK,
+        reference_id="missing-classification",
+    )
+    classification_controls["missing"]["rendered"] = build_reference_task_view(missing_view)
+    _save_prompt(
+        OUTPUT / "missing-classification-call1.json",
+        "missing-classification control; no model response",
+        build_call1_packet(missing_view, inventory, runtime_contract),
+    )
+    try:
+        conflict_view = load_input(
+            conflict_path,
+            kind=InputKind.REFERENCE_TASK,
+            reference_id="conflicting-classification",
+        )
+        build_reference_task_view(conflict_view)
+    except ReferenceClassificationConflictError as exc:
+        classification_controls["conflict"] = {
+            "status": "rejected",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+    _write_json(OUTPUT / "classification-controls.json", classification_controls)
 
     replay = AuthoringOrchestrator(
         transport=ScriptedAuthoringTransport(
@@ -254,13 +367,32 @@ def main() -> int:
         OUTPUT / "source-revision.json",
         {"consumer_revision": _git_revision(), "changed_files": _changed_files()},
     )
+    correction_prompt = json.loads(
+        (OUTPUT / "correction-simulated.json").read_text(encoding="utf-8")
+    )
     sizes = {
-        path.name: {
-            "characters": len(path.read_text(encoding="utf-8")),
-            "bytes": len(path.read_bytes()),
-        }
-        for path in OUTPUT.glob("*.json")
-        if path.name.endswith(".json")
+        "model_facing": {
+            "historical_correction": {
+                "utf8_bytes": 55078,
+                "measurement": "saved system plus user messages",
+            },
+            "commit_0e90d6f_simulated_correction": {
+                "utf8_bytes": 27089,
+                "measurement": "saved system plus user messages",
+            },
+            "regenerated_post_fix_correction": {
+                "characters": correction_prompt["model_facing_characters"],
+                "utf8_bytes": correction_prompt["model_facing_utf8_bytes"],
+                "measurement": "saved system plus user messages",
+            },
+        },
+        "container_files": {
+            path.name: path.stat().st_size
+            for path in OUTPUT.glob("*.json")
+            if path.name.endswith(".json") and path.name != "prompt-sizes.json"
+        },
+        "tokens": "unmeasured",
+        "costs": "unmeasured",
     }
     _write_json(OUTPUT / "prompt-sizes.json", sizes)
 
@@ -275,17 +407,19 @@ renderings or replays, never new model responses.
   complete executable `detector_source` Python, rejects `detector`, and writes
   the maintained neutral example package.
 - C2: `src/asago_artifact_generator/authoring.py` documents the adapter-shaped
-  packet/result contract and runs six neutral observations in
+  packet/result contract and runs seven neutral observations in
   `neutral-results.json`.
 - C3: `build_call2_packet` carries all supplied operations in
   `operation_inventory`; selected material remains separate and no operation
   name is used for branching.
 - C4: `_correction` carries one structured original payload and one readable
   response. Raw bytes remain in the failure sidecar. UTF-8 exactness and
-  character/byte sizes are recorded in the simulated correction.
+  character/byte sizes are recorded in the evidence wrapper and
+  `prompt-sizes.json`, outside the model-facing correction payload.
 - C5: `input_adapter.py` separates `build_reference_task_view` from
-  `build_comparison_inputs`; source snapshots and benchmark-v4 meaning remain
-  preserved outside model context.
+  `build_comparison_inputs`; family, explicit test class, and adversary data
+  remain separate in actual O04/O03 prompt renderings. Source snapshots and
+  benchmark-v4 meaning remain preserved outside model context.
 - C6: both system prompts and response contracts distinguish structured code
   from separately budgeted downstream semantic judging while leaving
   `semantic_judge.needed` model-authored.
@@ -296,39 +430,58 @@ renderings or replays, never new model responses.
   runtime-contract hashes; `replay-result.json` keeps the historical defects
   rejected.
 - V2: `neutral-package/` and `neutral-results.json` show real package
-  construction and six isolated detector results.
-- V3: the four rendered prompts contain complete Python/result guidance;
+  construction and seven isolated detector results.
+- V3: the corrected rendered prompts contain complete Python/result guidance;
   unknown `detector` remains a rejected field with an actionable hint.
-- V4: `neutral-results.json` records the six independently assigned,
+- V4: `neutral-results.json` records the seven independently assigned,
   adapter-shaped observations and typed outcomes.
 - V5: both Call 2 files retain the complete operation inventory, including the
   saved plan with empty selected operations.
 - V6: `correction-simulated.json` contains one readable failure, one original
-  structured request/contract, no hex/base64, exact-byte sidecar preservation,
-  and character/byte comparison with tokens unmeasured.
+  structured request/contract, no hex/base64, exact-byte sidecar preservation;
+  its wrapper and `prompt-sizes.json` carry the character/byte comparison with
+  tokens and costs unmeasured.
 - V7: `tests/test_g07_interface_correction.py` proves comparison-only sentinel
-  non-exposure and meaning preservation; native input tests remain passing.
+  non-exposure and meaning preservation; actual O04/O03 classification
+  renderings, missing-classification behavior, and typed conflict rejection
+  remain explicit; native input tests remain passing.
 - V8: focused replay proves three dispatches at most, one shared correction,
   no fourth dispatch, and no runtime transport access.
-- V9: the four labeled files are `call1-corrected-g07.json`,
+- V9: the four required labeled files are `call1-corrected-g07.json`,
   `call2-scripted-plan.json`, `call2-saved-plan-replay.json`, and
-  `correction-simulated.json`; each says it is not a model response.
+  `correction-simulated.json`; actual O04/O03 and missing-classification
+  renderings are additional labeled controls, and each says it is not a
+  model response.
 - V10: `source-revision.json`, `pinned-hashes.json`, and this report record
   source changes, 13 spent G07 requests, nine remaining aggregate requests,
   zero new live requests, and the incomplete stop state.
 
-Pinned hashes are in `pinned-hashes.json`; prompt sizes are in
-`prompt-sizes.json`; rendered artifacts are in this directory. The bounded
-independent read-only review is recorded at mission
-`library/g07-interface-correction-review-20260918.md`.
+Prompt sizes are in `prompt-sizes.json`: model-facing values are system plus
+user UTF-8 bytes from saved messages, while whole-file container bytes are
+labeled separately. The historical correction is 55,078 bytes, the simulated
+commit-0e90d6f correction is 27,089 bytes, and the regenerated post-fix
+correction is measured independently. The first two values are owner-pinned
+historical baselines; only the regenerated value is recomputed from the
+corrected saved messages. Tokens and costs are unmeasured.
+Pinned hashes are in `pinned-hashes.json`; rendered artifacts are in this
+directory. The bounded independent read-only review inspected changed code,
+actual O04/O03/missing/conflict prompt bytes, seven neutral outcomes and
+claims, comparison exclusion, size labels/arithmetic, preserved hashes, and
+the unexecuted proposal; it found no remaining in-scope defects.
+The review findings and bounded resolutions are recorded in mission
+`library/g07-followup-fidelity-review-20260918.md`.
 
 G07 accounting remains 13 spent and 9 unspent from the unchanged aggregate
 22-request cap. No live authoring, judge, discovery, setup, target, Garak, MCP,
-or endpoint request was made. The next live proposal is exactly three fresh
-authoring requests (Call 1, Call 2, and one shared correction), only after a
-separate owner decision. No historical output is reused as a clean result:
-the saved plan is answer-exposed and requested an unnecessary structured-data
-judge, so it remains replay evidence only.
+or endpoint request was made. The unexecuted proposal is **up to three fresh
+requests**: two normal authoring calls plus one correction only if needed.
+The arithmetic is 13 spent + up to 3 = up to 16, leaving 22 - 16 = 6 under
+the cap. A03/O03/O04/saved-handoff require 8 baseline calls; the prior
+nine-request reserve included one shared correction. The two-call shortfall is
+a separate owner decision without increasing the cap or reducing scope.
+No historical malformed output is reused as a clean result. The saved plan is
+answer-exposed and requested an unnecessary structured-data judge, so it
+remains replay evidence only; no output is proposed for reuse.
 
 interface correction verified offline; live authoring effectiveness unverified.
 """

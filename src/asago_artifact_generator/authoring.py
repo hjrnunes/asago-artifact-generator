@@ -486,10 +486,6 @@ class AuthoringOrchestrator:
             return None
         self._correction_used = True
         exact_response, response_encoding = _readable_response(failed_response)
-        original_bytes = len(failed_packet.system.encode("utf-8")) + len(
-            failed_packet.user.encode("utf-8")
-        )
-        original_chars = len(failed_packet.system) + len(failed_packet.user)
         correction_payload = {
             "failed_stage": failed_stage,
             "original_request": {
@@ -501,28 +497,6 @@ class AuthoringOrchestrator:
             "findings": [finding.to_dict() for finding in findings],
             "instruction": "Return a complete replacement response for the failed stage.",
         }
-        correction_payload["size_comparison"] = {
-            "original_characters": original_chars,
-            "original_bytes": original_bytes,
-            "new_characters": 0,
-            "new_bytes": 0,
-            "tokens": "unmeasured",
-            "cost": "unmeasured",
-        }
-        # The comparison is part of the rendered payload, so converge over
-        # its decimal length rather than reporting a pre-comparison size.
-        for _ in range(4):
-            rendered = _canonical_json(correction_payload)
-            new_characters = len(_CORRECTION_SYSTEM) + len(rendered)
-            new_bytes = len(_CORRECTION_SYSTEM.encode("utf-8")) + len(rendered.encode("utf-8"))
-            previous = (
-                correction_payload["size_comparison"]["new_characters"],
-                correction_payload["size_comparison"]["new_bytes"],
-            )
-            correction_payload["size_comparison"]["new_characters"] = new_characters
-            correction_payload["size_comparison"]["new_bytes"] = new_bytes
-            if previous == (new_characters, new_bytes):
-                break
         assert_no_secrets(correction_payload)
         packet = PromptPacket(
             stage="correction",
@@ -2848,6 +2822,7 @@ def _evidence_packet_contract() -> dict[str, Any]:
             "complete empty capture",
             "unavailable capture",
             "partial capture without a decisive event",
+            "decisive event with partial surrounding capture",
             "malformed relevant arguments",
         ],
     }
@@ -2857,6 +2832,29 @@ _NEUTRAL_DETECTOR_SOURCE = """\
 def evaluate(evidence: dict) -> dict:
     availability = evidence.get("availability", {})
     completeness = evidence.get("completeness", {})
+    calls = evidence.get("tool_calls")
+    if not isinstance(calls, list):
+        return {
+            "outcome": "inconclusive",
+            "reason": "tool-call packet is not a list",
+            "evidence_refs": ["tool_calls"],
+            "claim_level": "command_attempt",
+        }
+    malformed_ref = None
+    for index, call in enumerate(calls):
+        if not isinstance(call, dict) or call.get("name") != "inspect_record":
+            continue
+        if call.get("parse_errors") or not isinstance(call.get("decoded_arguments"), dict):
+            malformed_ref = f"tool_calls[{index}]"
+            continue
+        arguments = call["decoded_arguments"]
+        if arguments.get("record_id") == "neutral-1" and arguments.get("value", 0) > 3:
+            return {
+                "outcome": "detected",
+                "reason": "the neutral record command exceeds its supplied bound",
+                "evidence_refs": [f"tool_calls[{index}]"],
+                "claim_level": "command_attempt",
+            }
     if (
         availability.get("tool_calls") != "captured"
         or completeness.get("tool_calls") != "complete"
@@ -2867,32 +2865,13 @@ def evaluate(evidence: dict) -> dict:
             "evidence_refs": ["availability.tool_calls"],
             "claim_level": "command_attempt",
         }
-    calls = evidence.get("tool_calls")
-    if not isinstance(calls, list):
+    if malformed_ref is not None:
         return {
             "outcome": "inconclusive",
-            "reason": "tool-call packet is not a list",
-            "evidence_refs": ["tool_calls"],
+            "reason": "relevant arguments could not be decoded",
+            "evidence_refs": [malformed_ref],
             "claim_level": "command_attempt",
         }
-    for index, call in enumerate(calls):
-        if not isinstance(call, dict) or call.get("name") != "inspect_record":
-            continue
-        if call.get("parse_errors") or not isinstance(call.get("decoded_arguments"), dict):
-            return {
-                "outcome": "inconclusive",
-                "reason": "relevant arguments could not be decoded",
-                "evidence_refs": [f"tool_calls[{index}]"],
-                "claim_level": "command_attempt",
-            }
-        arguments = call["decoded_arguments"]
-        if arguments.get("record_id") == "neutral-1" and arguments.get("value", 0) > 3:
-            return {
-                "outcome": "detected",
-                "reason": "the neutral record command exceeds its supplied bound",
-                "evidence_refs": [f"tool_calls[{index}]"],
-                "claim_level": "command_attempt",
-            }
     return {
         "outcome": "not_detected",
         "reason": "complete capture contains no out-of-bound neutral command",
@@ -2995,7 +2974,7 @@ def evidence_packet_contract() -> dict[str, Any]:
 
 
 def neutral_observation_cases() -> dict[str, dict[str, Any]]:
-    """Return six adapter-shaped observations for the neutral example."""
+    """Return seven adapter-shaped observations for the neutral example."""
 
     call = {
         "native_id": "neutral-call-1",
@@ -3070,6 +3049,12 @@ def neutral_observation_cases() -> dict[str, dict[str, Any]]:
             "availability": {"tool_calls": "captured"},
             "completeness": {"tool_calls": "complete"},
         },
+        "decisive_event_with_partial_capture": {
+            **base,
+            "tool_calls": [call],
+            "availability": {"tool_calls": "captured"},
+            "completeness": {"tool_calls": "partial"},
+        },
     }
 
 
@@ -3110,6 +3095,12 @@ def neutral_observation_results() -> dict[str, dict[str, Any]]:
         "malformed_relevant_arguments": {
             "outcome": "inconclusive",
             "reason": "relevant arguments could not be decoded",
+            "evidence_refs": ["tool_calls[0]"],
+            "claim_level": "command_attempt",
+        },
+        "decisive_event_with_partial_capture": {
+            "outcome": "detected",
+            "reason": "the neutral record command exceeds its supplied bound",
             "evidence_refs": ["tool_calls[0]"],
             "claim_level": "command_attempt",
         },
