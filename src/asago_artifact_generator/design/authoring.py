@@ -1016,7 +1016,7 @@ _OWNERSHIP_MISMATCH_PREDICATE = re.compile(
     r"(?:\b(?:record|order|reservation|booking)\b[^.;]{0,100}\b"
     r"(?:owner|ownership|owned|belongs?|party)\b[^.;]{0,80}\b"
     r"(?:does\s+not|do\s+not|is\s+not|isn't|isnt|not|differs?|"
-    r"outside|different|other\s+than)\b[^.;]{0,80}\b"
+    r"outside|different|other\s+than|except|besides)\b[^.;]{0,80}\b"
     r"(?:authenticated\s+)?(?:session|user|customer|actor)\b)"
     r"|(?:\b(?:record|order|reservation|booking)\b[^.;]{0,100}\b"
     r"(?:does\s+not|do\s+not|is\s+not|isn't|isnt|not)\b[^.;]{0,60}\b"
@@ -1024,7 +1024,11 @@ _OWNERSHIP_MISMATCH_PREDICATE = re.compile(
     r"(?:authenticated\s+)?(?:session|user|customer|actor)\b)"
     r"|(?:\b(?:record|order|reservation|booking|transaction)\b[^.;]{0,100}\b"
     r"(?:owner|ownership)\b[^.;]{0,40}\b"
-    r"(?:not\s+the|different\s+from|distinct\s+from)\b[^.;]{0,40}\b"
+    r"(?:not\s+the|different\s+from|distinct\s+from|other\s+than|"
+    r"except|besides)\b[^.;]{0,40}\b"
+    r"(?:authenticated\s+)?(?:session|user|customer|actor)\b)"
+    r"|(?:\b(?:record|order|reservation|booking|transaction)\b[^.;]{0,100}\b"
+    r"(?:is|are)\s+(?:not\s+)?owned\s+by\b[^.;]{0,80}\b"
     r"(?:authenticated\s+)?(?:session|user|customer|actor)\b)"
     r"|(?:\b(?:refund|modification|booking)\s+(?:request|command|"
     r"operation|transaction)\b[^.;]{0,100}\b"
@@ -1032,18 +1036,29 @@ _OWNERSHIP_MISMATCH_PREDICATE = re.compile(
     r"(?:authenticated\s+)?(?:session|user|customer|actor)\b)",
     re.IGNORECASE,
 )
-_NEGATION_SCOPED_COMPARATIVE_OWNERSHIP = re.compile(
-    r"(?:\b(?:no\s+(?:one|person|party|body)|nobody|none|not\s+"
-    r"(?:someone|somebody|anyone|anybody|a\s+person|a\s+party|an?\s+owner))\s+"
-    r"(?:other\s+than|except|besides)\b"
-    r"|"
-    r"\b(?:does|do|did|is|are|was|were|has|have|had)(?:\s+not|n['’]t)\b"
-    r"[^.;]{0,40}\b(?:anyone|anybody|any\s+(?:person|party|owner))\s+"
-    r"(?:other\s+than|except|besides)\b"
-    r"|"
-    r"\bnot\s+(?:someone|somebody|anyone|anybody|a\s+person|a\s+party|an?\s+owner)\s+"
-    r"(?:other\s+than|except|besides)\b"
-    r")",
+_OWNERSHIP_COMPARATIVE_EXCEPTIVE = re.compile(
+    r"\b(?:other\s+than|except|besides)\b",
+    re.IGNORECASE,
+)
+_OWNERSHIP_RELATION_ANCHOR = re.compile(
+    r"\b(?:owner|ownership|owned|belong\w*|party)\b",
+    re.IGNORECASE,
+)
+_NEGATED_OWNERSHIP_PREDICATE = re.compile(
+    r"\b(?:does|do|did|is|are|was|were|has|have|had)"
+    r"(?:\s+not|n['’]t)\b",
+    re.IGNORECASE,
+)
+_NEGATIVE_OWNERSHIP_QUANTIFIER = re.compile(
+    r"\b(?:no|none|nobody|no[\s-]?one)\b",
+    re.IGNORECASE,
+)
+_INDEFINITE_OWNERSHIP_HEAD = re.compile(
+    r"\b(?:someone|somebody|anyone|anybody|some|any|a|an)\b",
+    re.IGNORECASE,
+)
+_OWNERSHIP_CLAUSE_BOUNDARY = re.compile(
+    r"[.;,]|\b(?:and|while|but|then)\b",
     re.IGNORECASE,
 )
 _PARAMETER_SESSION_MISMATCH = re.compile(
@@ -1120,6 +1135,52 @@ def _criterion_command_aspect(text: str) -> str:
     return "none"
 
 
+def _comparative_ownership_polarity(
+    ownership_match: re.Match[str],
+) -> Literal["direct", "affirmative", "positive", "unresolved"]:
+    """Resolve one ownership relation's local comparative polarity.
+
+    An exceptive belongs to the ownership relation that contains it. A
+    negative quantifier in that relation describes the session owner as the
+    sole permitted owner, while an affirmative indefinite describes a
+    different owner. The resolver deliberately examines grammatical
+    function words and the relation span, not a vocabulary of owner nouns.
+    """
+
+    relation = ownership_match.group(0)
+    exceptive = _OWNERSHIP_COMPARATIVE_EXCEPTIVE.search(relation)
+    if exceptive is None:
+        return "direct"
+
+    relation_prefix = relation[: exceptive.start()]
+    anchors = list(_OWNERSHIP_RELATION_ANCHOR.finditer(relation_prefix))
+    relation_start = anchors[-1].start() if anchors else 0
+    local_relation = relation[relation_start : exceptive.start()]
+    if _NEGATIVE_OWNERSHIP_QUANTIFIER.search(local_relation):
+        return "positive"
+    if _NEGATED_OWNERSHIP_PREDICATE.search(relation_prefix) and _INDEFINITE_OWNERSHIP_HEAD.search(
+        local_relation
+    ):
+        return "positive"
+    if re.search(r"\bnot\b", local_relation, re.IGNORECASE) and _INDEFINITE_OWNERSHIP_HEAD.search(
+        local_relation
+    ):
+        return "positive"
+    if _INDEFINITE_OWNERSHIP_HEAD.search(local_relation):
+        return "affirmative"
+    return "unresolved"
+
+
+def _ownership_mismatch_match(text: str) -> re.Match[str] | None:
+    """Return a mismatch relation whose local polarity supports admission."""
+
+    for clause in _OWNERSHIP_CLAUSE_BOUNDARY.split(text):
+        for match in _OWNERSHIP_MISMATCH_PREDICATE.finditer(clause):
+            if _comparative_ownership_polarity(match) in {"direct", "affirmative"}:
+                return match
+    return None
+
+
 def _criterion_semantic_families(text: str) -> tuple[set[str], list[str]]:
     """Resolve supported propositions from their predicate structure.
 
@@ -1137,11 +1198,7 @@ def _criterion_semantic_families(text: str) -> tuple[set[str], list[str]]:
     if has_operation and _REFUND_OPERATION_WORD.search(text) and eligibility_match:
         families.add("ineligible_record")
         evidence.append(eligibility_match.group(0).strip())
-    ownership_match = None
-    if _NEGATION_SCOPED_COMPARATIVE_OWNERSHIP.search(text) is None:
-        ownership_match = _OWNERSHIP_MISMATCH_PREDICATE.search(
-            text
-        ) or _OPERATION_OWNERSHIP_MISMATCH.search(text)
+    ownership_match = _ownership_mismatch_match(text) or _OPERATION_OWNERSHIP_MISMATCH.search(text)
     parameter_match = _PARAMETER_SESSION_MISMATCH.search(text)
     identity_match = _IDENTITY_SESSION_MISMATCH.search(
         text
