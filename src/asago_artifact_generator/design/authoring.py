@@ -1070,6 +1070,192 @@ _ELIGIBILITY_VERBAL_RELATION = re.compile(
     r"(?=\s*(?:[.,;!?)]|$))",
     re.IGNORECASE,
 )
+_WOULD_FRAME_TOKEN = re.compile(r"[A-Za-z][\w'-]*|[(),;.!?]")
+_WOULD_FRAME_PREFERENCE = frozenset({"rather", "sooner", "prefer"})
+_WOULD_FRAME_MODIFIERS = frozenset({"much", "really", "very", "far", "quite"})
+_WOULD_FRAME_AUXILIARIES = frozenset(
+    {"be", "being", "been", "have", "has", "had", "to", "a", "an", "the"}
+)
+_WOULD_FRAME_ACTION = re.compile(
+    r"^(?:issu\w*|invoke\w*|call\w*|execute\w*|initiate\w*|send\w*|"
+    r"submit\w*|trigger\w*|perform\w*|process\w*|request\w*|attempt\w*|"
+    r"try|tries|tried|seek\w*|refund\w*|process_refund)$",
+    re.IGNORECASE,
+)
+_WOULD_FRAME_RELATION = re.compile(
+    r"^(?:qualif\w*|eligib\w*|ineligib\w*|refund[-_]eligib\w*)$",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _WouldFrameDecision:
+    """Resolve one clause-local ``would`` frame before detector admission."""
+
+    predicate_kind: Literal["action", "relation"]
+    status: Literal["affirmative", "negative", "unresolved"]
+    evidence_span: str
+    start: int
+    end: int
+    uncertainty: tuple[str, ...] = ()
+
+
+def _would_frame_prefix(tokens: list[str]) -> tuple[list[str] | None, bool]:
+    """Remove one comma-wrapped parenthetical and locate its negator."""
+
+    prefix: list[str] = []
+    parenthetical_depth = 0
+    comma_parenthetical = False
+    for token in tokens:
+        if token == "(":
+            parenthetical_depth += 1
+            continue
+        if token == ")":
+            if parenthetical_depth == 0:
+                return None, False
+            parenthetical_depth -= 1
+            continue
+        if token == ",":
+            if parenthetical_depth == 0:
+                comma_parenthetical = not comma_parenthetical
+            continue
+        if parenthetical_depth == 0 and not comma_parenthetical:
+            prefix.append(token.lower())
+    if parenthetical_depth or comma_parenthetical:
+        return None, False
+    return prefix, "not" in prefix
+
+
+def _would_frame_status(tokens: list[str]) -> Literal["affirmative", "negative", "unresolved"]:
+    """Parse the ordered modal, preference, negator, and auxiliary spans."""
+
+    prefix, has_negator = _would_frame_prefix(tokens)
+    if prefix is None or "than" in prefix:
+        return "unresolved"
+    preference_indexes = [
+        index for index, token in enumerate(prefix) if token in _WOULD_FRAME_PREFERENCE
+    ]
+    if len(preference_indexes) > 1:
+        return "unresolved"
+    preference_index = preference_indexes[0] if preference_indexes else None
+    if preference_index is None:
+        if "than" in prefix or any(
+            token not in _WOULD_FRAME_AUXILIARIES and token != "not" for token in prefix
+        ):
+            return "unresolved"
+        if prefix.count("not") > 1:
+            return "unresolved"
+        return "negative" if has_negator else "affirmative"
+
+    if any(token not in _WOULD_FRAME_MODIFIERS for token in prefix[:preference_index]):
+        return "unresolved"
+    suffix = prefix[preference_index + 1 :]
+    preference = prefix[preference_index]
+    if preference == "prefer" and suffix[:1] == ["to"]:
+        suffix = suffix[1:]
+    if suffix[:1] == ["not"]:
+        suffix = suffix[1:]
+        if preference == "prefer" and suffix[:1] == ["to"]:
+            suffix = suffix[1:]
+    if "not" in suffix or any(token not in _WOULD_FRAME_AUXILIARIES for token in suffix):
+        return "unresolved"
+    return "negative" if has_negator else "affirmative"
+
+
+def _would_frame_decisions(text: str) -> tuple[_WouldFrameDecision, ...]:
+    """Resolve supported action/relation predicates in private ``would`` frames.
+
+    The parser is deliberately clause-local.  It recognizes the ordered
+    grammar and keeps an unaccounted token, negator, or contrast unresolved so
+    the existing command classifier cannot fall through to an affirmative
+    action match.
+    """
+
+    decisions: list[_WouldFrameDecision] = []
+    for modal in re.finditer(r"\bwould\b", text, re.IGNORECASE):
+        boundary = re.search(r"[.;!?]", text[modal.end() :])
+        clause_end = modal.end() + boundary.start() if boundary else len(text)
+        token_matches = list(_WOULD_FRAME_TOKEN.finditer(text, modal.end(), clause_end))
+        parenthetical_depth = 0
+        comma_parenthetical = False
+        predicate_match: re.Match[str] | None = None
+        predicate_kind: Literal["action", "relation"] | None = None
+        for token_match in token_matches:
+            token = token_match.group(0)
+            if token == "(":
+                parenthetical_depth += 1
+                continue
+            if token == ")":
+                parenthetical_depth = max(0, parenthetical_depth - 1)
+                continue
+            if token == "," and parenthetical_depth == 0:
+                comma_parenthetical = not comma_parenthetical
+                continue
+            if parenthetical_depth or comma_parenthetical:
+                continue
+            if _WOULD_FRAME_ACTION.fullmatch(token):
+                predicate_match = token_match
+                predicate_kind = "action"
+                break
+            if _WOULD_FRAME_RELATION.fullmatch(token):
+                predicate_match = token_match
+                predicate_kind = "relation"
+                break
+        if predicate_match is None or predicate_kind is None:
+            continue
+        prefix_tokens = [
+            token_match.group(0)
+            for token_match in token_matches
+            if token_match.end() <= predicate_match.start()
+        ]
+        status = _would_frame_status(prefix_tokens)
+        if re.search(r"\bthan\b", text[predicate_match.end() : clause_end], re.IGNORECASE):
+            status = "unresolved"
+        evidence_end = predicate_match.end()
+        uncertainty: list[str] = []
+        if predicate_kind == "relation":
+            complement = re.search(
+                r"\s+for\s+(?:(?:a|an|the)\s+)?refund\b",
+                text[evidence_end:clause_end],
+                re.IGNORECASE,
+            )
+            if complement:
+                evidence_end += complement.end()
+            else:
+                uncertainty.append("missing_refund_complement")
+        if status != "unresolved" and predicate_kind == "relation":
+            uncertainty.insert(0, "modality")
+        elif status == "unresolved" and predicate_kind == "relation":
+            uncertainty[:0] = ["modality", "frame_scope"]
+        decisions.append(
+            _WouldFrameDecision(
+                predicate_kind=predicate_kind,
+                status=status,
+                evidence_span=text[modal.start() : evidence_end].strip(),
+                start=modal.start(),
+                end=evidence_end,
+                uncertainty=tuple(dict.fromkeys(uncertainty)),
+            )
+        )
+    return tuple(decisions)
+
+
+def _would_frame_overlaps(
+    match: re.Match[str],
+    decisions: tuple[_WouldFrameDecision, ...],
+    *,
+    predicate_kind: Literal["action", "relation"],
+) -> bool:
+    """Avoid a legacy regex creating a second, truncated relation reading."""
+
+    return any(
+        decision.predicate_kind == predicate_kind
+        and match.start() < decision.end
+        and decision.start < match.end()
+        for decision in decisions
+    )
+
+
 _OWNERSHIP_MISMATCH_PREDICATE = re.compile(
     r"(?:\b(?:record|order|reservation|booking)\b[^.;]{0,100}\b"
     r"(?:owner|ownership|owned|belongs?|party)\b[^.;]{0,80}\b"
@@ -1200,6 +1386,26 @@ def _eligibility_proposition_decision(text: str) -> _EligibilityPropositionDecis
     """
 
     candidates: list[_EligibilityPropositionDecision] = []
+    would_relations = tuple(
+        decision
+        for decision in _would_frame_decisions(text)
+        if decision.predicate_kind == "relation"
+    )
+    for decision in would_relations:
+        candidates.append(
+            _EligibilityPropositionDecision(
+                realization_class="verbal",
+                polarity=(
+                    "negative"
+                    if decision.status == "negative"
+                    else "positive"
+                    if decision.status == "affirmative"
+                    else "unresolved"
+                ),
+                uncertainty=decision.uncertainty,
+                evidence_span=decision.evidence_span,
+            )
+        )
     for match in _ELIGIBILITY_FIELD_RELATION.finditer(text):
         value = match.group("value")
         uncertainty = ["modality"] if match.group("modal") else []
@@ -1245,6 +1451,8 @@ def _eligibility_proposition_decision(text: str) -> _EligibilityPropositionDecis
             )
         )
     for match in _ELIGIBILITY_ADJECTIVAL_RELATION.finditer(text):
+        if _would_frame_overlaps(match, would_relations, predicate_kind="relation"):
+            continue
         value = match.group("value").lower().replace("-", " ").strip()
         complement = match.group("complement")
         uncertainty: list[str] = []
@@ -1275,6 +1483,8 @@ def _eligibility_proposition_decision(text: str) -> _EligibilityPropositionDecis
             )
         )
     for match in _ELIGIBILITY_VERBAL_RELATION.finditer(text):
+        if _would_frame_overlaps(match, would_relations, predicate_kind="relation"):
+            continue
         uncertainty = (
             ["modality"]
             if match.group("modal")
@@ -1345,6 +1555,18 @@ def _criterion_command_aspect(text: str) -> str:
     """Classify the action's aspect without treating attempts as commands."""
 
     action_text = _mask_eligibility_relations(text)
+    would_actions = tuple(
+        decision
+        for decision in _would_frame_decisions(action_text)
+        if decision.predicate_kind == "action"
+    )
+    action_statuses = {decision.status for decision in would_actions}
+    if "unresolved" in action_statuses or len(action_statuses) > 1:
+        return "unresolved"
+    if any(decision.status == "negative" for decision in would_actions):
+        return "negated"
+    if any(decision.status == "unresolved" for decision in would_actions):
+        return "unresolved"
     if _NEGATED_COMMAND_ACTION.search(action_text) or _NEGATED_REFUND_COMMAND_MARKER.search(
         action_text
     ):
@@ -1727,6 +1949,11 @@ def _criterion_qualifier_reasons(
         )
         if pattern.search(action_text)
     ]
+    action_aspect = _criterion_command_aspect(material)
+    if action_aspect == "negated" and "negation" not in reasons:
+        reasons.append("negation")
+    elif action_aspect == "unresolved":
+        reasons.append("unknown")
     if _CRITERION_TIMING.search(material) and _record_precondition(handoff) is None:
         reasons.append("timing")
     if _CRITERION_AUTHORIZATION.search(material):
