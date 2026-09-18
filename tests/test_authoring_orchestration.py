@@ -452,6 +452,7 @@ def test_failed_authoring_persists_reloadable_evidence_before_discarding_respons
         transport=transport,
         package_dir=package_dir,
         task_id="durable-failure",
+        budget=AuthoringBudget(aggregate_limit=1, task_limit=1),
     ).run(_view(), _inventory(), _contract())
 
     assert result.status == "failed"
