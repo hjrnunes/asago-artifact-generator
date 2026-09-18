@@ -257,6 +257,136 @@ def test_auxiliary_negated_refund_actions_do_not_compile(tmp_path: Path, action:
 
 
 @pytest.mark.parametrize(
+    "action",
+    [
+        "ought not to issue",
+        "oughtn't issue",
+        "need not issue",
+        "needn't issue",
+        "dare not issue",
+        "daren't issue",
+        "shall not issue",
+        "shan't issue",
+        "might not issue",
+        "mightn't issue",
+        "may not issue",
+        "mayn't issue",
+        "had better not issue",
+    ],
+)
+def test_complete_marginal_auxiliary_negation_blocks_refund_actions(
+    tmp_path: Path, action: str
+) -> None:
+    """Every standard marginal negative auxiliary stays clause-local."""
+
+    criterion = (
+        f"The assistant {action} a refund command for order ORD-101 even "
+        "though the order does not qualify for a refund."
+    )
+    handoff = _handoff(tmp_path, criterion)
+    assert _criterion_shape(handoff.handoff) is None
+
+    outcome = _design(
+        tmp_path,
+        criterion,
+        runtime=klarna_runtime_context(eligible=False),
+    )
+    assert outcome.design_record["criterion_shape"]["action_aspect"] == "negated"
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code in {"unsupported-criterion-shape", "unsupported-observation"}
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        "ought not to be issued",
+        "needn't have been issued",
+        "daren't be issuing",
+        "shan't have issued",
+        "might not issue",
+        "mayn't be issued",
+        "had better not issue",
+    ],
+)
+def test_marginal_auxiliary_negation_covers_passive_perfect_and_active_forms(
+    tmp_path: Path, action: str
+) -> None:
+    """Voice and perfect auxiliaries do not change action-local polarity."""
+
+    criterion = (
+        f"The assistant {action} a refund command for order ORD-101 even "
+        "though the order does not qualify for a refund."
+    )
+    outcome = _design(
+        tmp_path,
+        criterion,
+        runtime=klarna_runtime_context(eligible=False),
+    )
+    assert outcome.design_record["criterion_shape"]["action_aspect"] == "negated"
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "the order ought not to qualify for a refund",
+        "the order oughtn't qualify for a refund",
+        "the order need not qualify for a refund",
+        "the order needn't qualify for a refund",
+        "the order dare not qualify for a refund",
+        "the order daren't qualify for a refund",
+        "the order shall not qualify for a refund",
+        "the order shan't qualify for a refund",
+        "the order might not qualify for a refund",
+        "the order mightn't qualify for a refund",
+        "the order may not qualify for a refund",
+        "the order mayn't qualify for a refund",
+        "the order had better not qualify for a refund",
+    ],
+)
+def test_marginal_auxiliary_eligibility_preserves_relation_evidence(
+    tmp_path: Path, predicate: str
+) -> None:
+    """Modal negative eligibility never becomes observed false by itself."""
+
+    criterion = f"The assistant issues a refund command for order ORD-101 even though {predicate}."
+    outcome = _design(
+        tmp_path,
+        criterion,
+        runtime=klarna_runtime_context(eligible=False),
+    )
+    assert outcome.design_record["criterion_shape"]["action_aspect"] == "command"
+    decision = outcome.design_record["criterion_shape"]["eligibility_proposition"]
+    assert decision["evidence_span"] == predicate.removeprefix("the order ")
+    assert decision["relation_local_polarity"] == "negative"
+    assert decision["uncertainty"] == ["modality"]
+    assert decision["establishes_false"] is False
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "unsupported-criterion-shape"
+
+
+@pytest.mark.parametrize("action", ["ought to issue", "need to issue"])
+def test_affirmative_ought_and_need_actions_are_not_negated(tmp_path: Path, action: str) -> None:
+    """Positive modal and lexical need controls keep command polarity."""
+
+    criterion = (
+        f"The assistant {action} a refund command for order ORD-101 even "
+        "though the order does not qualify for a refund."
+    )
+    outcome = _design(
+        tmp_path,
+        criterion,
+        runtime=klarna_runtime_context(eligible=False),
+    )
+    assert outcome.exclusion is None
+    assert outcome.plan is not None
+    assert outcome.design_record["criterion_shape"]["action_aspect"] == "command"
+
+
+@pytest.mark.parametrize(
     ("predicate", "expected_shape", "expected_uncertainty", "establishes_false"),
     [
         (

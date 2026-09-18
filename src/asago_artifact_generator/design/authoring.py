@@ -153,11 +153,18 @@ def _record_transformation(
 
 _AUXILIARY_NEGATION = (
     r"(?:"
-    r"(?:does|do|did|will|would|should|must|can|could|may|might|is|are|was|were|"
-    r"has|have|had|shall)\s+not"
+    r"(?:does|do|did|will|would|should|must|can|could|may|might|ought|need|dare|"
+    r"is|are|was|were|has|have|had|shall)\s+not"
+    r"|had\s+better\s+not"
     r"|cannot|can't|couldn't|won't|wouldn't|shouldn't|mustn't|doesn't|don't|"
-    r"didn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't"
+    r"didn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|oughtn't|needn't|"
+    r"daren't|shan't|mightn't|mayn't"
     r")"
+)
+_MARGINAL_MODAL_NEGATION = re.compile(
+    r"^(?:ought|need|dare|shall|might|may)(?:n't|\s+not)\b|^shan't\b|"
+    r"^had\s+better\s+not\b",
+    re.IGNORECASE,
 )
 _NEGATED_REFUND_COMMAND_MARKER = re.compile(
     r"\b(?:never|without)\s+(?:[a-z][\w'-]*\s+){0,3}"
@@ -1040,8 +1047,10 @@ _ELIGIBILITY_NOMINAL_RELATION = re.compile(
     re.IGNORECASE,
 )
 _ELIGIBILITY_ADJECTIVAL_RELATION = re.compile(
-    r"\b(?:(?P<modal>may|might|could|possibly|perhaps|likely|unlikely)\s+)?"
+    r"\b(?:(?P<modal>may|might|could|ought|need|dare|shall|"
+    r"possibly|perhaps|likely|unlikely|had\s+better)\s+)?"
     rf"(?:(?P<neg_aux>{_AUXILIARY_NEGATION})\s+|(?P<bare_neg>not)\s+)?"
+    r"(?:to\s+)?"
     r"(?:(?:be|am|is|are|was|were|remain(?:s|ed)?)\s+)?"
     r"(?P<value>refund[- ]ineligible|not\s+not\s+eligible|not\s+ineligible|"
     r"not\s+eligible|ineligible|eligible)\b"
@@ -1049,9 +1058,11 @@ _ELIGIBILITY_ADJECTIVAL_RELATION = re.compile(
     re.IGNORECASE,
 )
 _ELIGIBILITY_VERBAL_RELATION = re.compile(
-    r"\b(?:(?P<modal>may|might|could|possibly|perhaps|likely|unlikely)\s+)?"
+    r"\b(?:(?P<modal>may|might|could|ought|need|dare|shall|"
+    r"possibly|perhaps|likely|unlikely|had\s+better)\s+)?"
     rf"(?:(?P<aux_neg>{_AUXILIARY_NEGATION})\s+|"
     r"(?P<failure>fails?\s+to\s+)|(?P<bare_neg>not)\s+)?"
+    r"(?:to\s+)?"
     r"(?P<value>qualif\w*)"
     r"(?P<complement>\s+for\s+(?:(?:a|an|the)\s+)?refund\b)?"
     r"(?=\s*(?:[.,;!?)]|$))",
@@ -1235,7 +1246,7 @@ def _eligibility_proposition_decision(text: str) -> _EligibilityPropositionDecis
         value = match.group("value").lower().replace("-", " ").strip()
         complement = match.group("complement")
         uncertainty: list[str] = []
-        if match.group("modal"):
+        if match.group("modal") or _MARGINAL_MODAL_NEGATION.search(match.group("neg_aux") or ""):
             uncertainty.append("modality")
         if complement is None and value != "refund ineligible":
             uncertainty.append("missing_refund_complement")
@@ -1262,7 +1273,12 @@ def _eligibility_proposition_decision(text: str) -> _EligibilityPropositionDecis
             )
         )
     for match in _ELIGIBILITY_VERBAL_RELATION.finditer(text):
-        uncertainty = ["modality"] if match.group("modal") else []
+        uncertainty = (
+            ["modality"]
+            if match.group("modal")
+            or _MARGINAL_MODAL_NEGATION.search(match.group("aux_neg") or "")
+            else []
+        )
         if match.group("complement") is None:
             uncertainty.append("missing_refund_complement")
         negative = bool(
@@ -1574,7 +1590,7 @@ _CRITERION_CLAUSE_SPLIT = re.compile(
     re.IGNORECASE,
 )
 _CRITERION_NEGATION = re.compile(
-    r"\b(?:does|do|did|will|would|should|must|can)\s+not\s+"
+    rf"\b{_AUXILIARY_NEGATION}\s+"
     r"(?:[a-z][\w'-]*\s+){0,3}"
     r"(?:issue|invoke|call|execute|send|submit|trigger|perform|request|"
     r"provide|commit|modify|delete|update|change|charge|debit|deduct|"
