@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal, NoReturn, Protocol
@@ -799,8 +799,20 @@ def _record_collections(
     return records
 
 
-def _handoff_record_references(handoff: ScenarioHandoff) -> list[str]:
-    """Record-id-like tokens the handoff itself names, in first-seen order."""
+def _handoff_record_references(
+    handoff: ScenarioHandoff,
+    *,
+    observed_record_ids: Collection[str] | None = None,
+    observed_record_roles: Collection[str] | None = None,
+) -> list[str]:
+    """Record identities the handoff names in record-bearing clauses.
+
+    Handoffs also contain causal lineage such as ``RESP-3`` and ``CA-3-2``.
+    Those identifiers are uppercase tokens, but they are not records and must
+    not make an otherwise environment-derived design fail as missing setup.
+    A reference therefore needs both a domain identity shape and a nearby
+    record role (for example ``order ORD-104`` or ``draft DFTA1B2C3``).
+    """
 
     texts = [
         handoff.narrative,
@@ -818,11 +830,46 @@ def _handoff_record_references(handoff: ScenarioHandoff) -> list[str]:
             for step in steps
         ],
     ]
+    role_names = {role.strip().lower() for role in (observed_record_roles or ()) if role.strip()}
+    role_names.add("record")
+    role_pattern = "|".join(re.escape(role) for role in sorted(role_names, key=len, reverse=True))
+    record_role = re.compile(
+        rf"\b(?:{role_pattern})"
+        r"(?:[_ -](?:id|identity|number))?\b",
+        re.IGNORECASE,
+    )
+    identity_token = re.compile(r"\b[A-Z][A-Z0-9-]*\d[A-Z0-9-]*\b")
+    observed_families = {
+        re.match(r"[A-Za-z]+", record_id).group().upper()
+        for record_id in (observed_record_ids or ())
+        if re.match(r"[A-Za-z]+", record_id)
+    }
     found: list[str] = []
     for text in texts:
-        for match in re.findall(r"\b[A-Z]{2,}-\d+\b", text):
-            if match not in found:
-                found.append(match)
+        for match in record_role.finditer(text):
+            suffix = text[match.end() : match.end() + 40]
+            identity_match = identity_token.search(suffix)
+            if identity_match is None:
+                continue
+            prefix = suffix[: identity_match.start()]
+            if not re.fullmatch(
+                r"\s*(?:'s\s*)?(?:(?:id|identity|number)\s*)?"
+                r"(?:(?:is)\s*|:\s*)?(?:\(\s*)?",
+                prefix,
+                re.IGNORECASE,
+            ):
+                continue
+            identity = identity_match.group()
+            if observed_families:
+                family_match = re.match(r"[A-Za-z]+", identity)
+                if (
+                    family_match is not None
+                    and family_match.group().upper() not in observed_families
+                    and identity not in (observed_record_ids or ())
+                ):
+                    continue
+            if identity not in found:
+                found.append(identity)
     return found
 
 
@@ -943,7 +990,7 @@ _OWNERSHIP_MISMATCH_PREDICATE = re.compile(
     r"(?:\b(?:record|order|reservation|booking)\b[^.;]{0,100}\b"
     r"(?:owner|ownership|owned|belongs?|party)\b[^.;]{0,80}\b"
     r"(?:does\s+not|do\s+not|is\s+not|isn't|isnt|not|differs?|"
-    r"outside|different)\b[^.;]{0,80}\b"
+    r"outside|different|other\s+than)\b[^.;]{0,80}\b"
     r"(?:authenticated\s+)?(?:session|user|customer|actor)\b)"
     r"|(?:\b(?:record|order|reservation|booking)\b[^.;]{0,100}\b"
     r"(?:does\s+not|do\s+not|is\s+not|isn't|isnt|not)\b[^.;]{0,60}\b"
@@ -1688,14 +1735,54 @@ def _select_test_record(
     candidates = _record_collections(state)
     if not candidates:
         raise _Blocked("missing-setup", "the environment state exposes no domain records")
-    referenced = _handoff_record_references(handoff)
+    observed_collections = _state_record_collections(state)
+    record_roles = {
+        role
+        for collection_name in observed_collections
+        for role in (
+            *_collection_identifier_names(collection_name),
+            *collection_name.split("_"),
+        )
+    }
+    referenced = _handoff_record_references(
+        handoff,
+        observed_record_ids=candidates,
+        observed_record_roles=record_roles,
+    )
+    referenced_present = [record for record in referenced if record in candidates]
     session, session_key = _session_identity(state)
 
     def _foreign_owned(record_id: str) -> bool:
         owner_values = _record_party_values(candidates[record_id])
         return session is not None and bool(owner_values) and session not in owner_values
 
-    if brief.record_hint is not None:
+    if referenced and not referenced_present:
+        names = ", ".join(repr(record) for record in referenced)
+        raise _Blocked(
+            "missing-setup",
+            f"the handoff names record identity {names}, but none is present in "
+            "the observed environment state; the design cannot substitute another "
+            "record",
+        )
+    if referenced:
+        if brief.record_hint is not None:
+            if brief.record_hint not in candidates:
+                raise _Blocked(
+                    "missing-setup",
+                    f"record hint {brief.record_hint!r} is absent from the environment state",
+                )
+            if brief.record_hint not in referenced_present:
+                raise _Blocked(
+                    "missing-setup",
+                    f"record hint {brief.record_hint!r} is not one of the handoff-named "
+                    "records present in the observed environment "
+                    f"({', '.join(referenced_present)}); "
+                    "the design cannot substitute another record",
+                )
+            selected = brief.record_hint
+        else:
+            selected = referenced_present[0]
+    elif brief.record_hint is not None:
         if brief.record_hint not in candidates:
             raise _Blocked(
                 "missing-setup",
@@ -1703,37 +1790,27 @@ def _select_test_record(
             )
         selected = brief.record_hint
     elif requires_foreign:
-        referenced_present = [record for record in referenced if record in candidates]
-        if referenced_present:
-            # The criterion names this record; its observed ownership decides
-            # the premise below. The design never falls back to a different
-            # record than the one the scenario names.
-            selected = referenced_present[0]
-        else:
-            foreign_candidates = sorted(
-                record_id for record_id in candidates if _foreign_owned(record_id)
+        foreign_candidates = sorted(
+            record_id for record_id in candidates if _foreign_owned(record_id)
+        )
+        if len(foreign_candidates) == 1:
+            selected = foreign_candidates[0]
+        elif len(foreign_candidates) > 1:
+            raise _Blocked(
+                "missing-setup",
+                "the scenario concerns a record the authenticated session does not "
+                f"own and the environment exposes {len(foreign_candidates)} "
+                "foreign-owned candidates; supply an explicit record hint",
             )
-            if len(foreign_candidates) == 1:
-                selected = foreign_candidates[0]
-            elif len(foreign_candidates) > 1:
-                raise _Blocked(
-                    "missing-setup",
-                    "the scenario concerns a record the authenticated session does not "
-                    f"own and the environment exposes {len(foreign_candidates)} "
-                    "foreign-owned candidates; supply an explicit record hint",
-                )
-            else:
-                raise _Blocked(
-                    "missing-setup",
-                    "the scenario concerns a record the authenticated session does not "
-                    "own, but the environment exposes no foreign-owned record; none is "
-                    "invented",
-                )
+        else:
+            raise _Blocked(
+                "missing-setup",
+                "the scenario concerns a record the authenticated session does not "
+                "own, but the environment exposes no foreign-owned record; none is "
+                "invented",
+            )
     else:
-        referenced_present = [record for record in referenced if record in candidates]
-        if referenced_present:
-            selected = referenced_present[0]
-        elif requires_ineligible:
+        if requires_ineligible:
             ineligible_candidates = sorted(
                 record_id
                 for record_id, record in candidates.items()
@@ -2210,7 +2287,18 @@ def _select_precondition_record(
             "the environment state exposes no record carrying the rule's "
             f"{argument_name!r} identity",
         )
-    referenced = [record for record in _handoff_record_references(handoff) if record in records]
+    referenced = [
+        record
+        for record in _handoff_record_references(
+            handoff,
+            observed_record_ids=records,
+            observed_record_roles={
+                argument_name,
+                argument_name.removesuffix("_id"),
+            },
+        )
+        if record in records
+    ]
     if brief.record_hint is not None:
         if brief.record_hint not in records:
             raise _Blocked(

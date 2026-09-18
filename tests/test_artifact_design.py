@@ -899,9 +899,11 @@ def test_no_record_invented_without_hint_or_reference() -> None:
     assert outcome.plan is None
 
 
-def test_ineligible_criterion_prefers_observed_ineligible_candidate(tmp_path: Path) -> None:
-    """When the referenced record is absent and the criterion concerns an
-    ineligible record, the single observed-ineligible candidate is the setup."""
+def test_ineligible_criterion_does_not_substitute_observed_ineligible_candidate(
+    tmp_path: Path,
+) -> None:
+    """When the referenced record is absent, an observed-ineligible candidate
+    cannot substitute for the criterion-named record."""
     payload = _scn033_payload()
     verified = load_scenario_handoff(write_yaml_handoff(tmp_path, payload))
     runtime = klarna_runtime_context(record_id="ORD-105", balance=25.0, eligible=False)
@@ -922,9 +924,12 @@ def test_ineligible_criterion_prefers_observed_ineligible_candidate(tmp_path: Pa
             }
         ),
     )
-    assert outcome.exclusion is None
-    assert outcome.plan.setup.selected_record_id == "ORD-105"
-    assert outcome.plan.detector.expected == "ORD-105"
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "missing-setup"
+    assert "ORD-104" in outcome.exclusion.detail
+    assert outcome.exclusion.authoring is not None
+    assert outcome.exclusion.authoring["call_count"] == 0
 
 
 def test_tool_declarations_match_observed_inventory() -> None:
@@ -1653,7 +1658,9 @@ def test_session_mismatch_without_foreign_record_is_typed_exclusion(
     assert outcome.plan is None
     assert outcome.exclusion is not None
     assert outcome.exclusion.code == "missing-setup"
-    assert "foreign" in outcome.exclusion.detail.lower()
+    assert "ORD-201" in outcome.exclusion.detail
+    assert outcome.exclusion.authoring is not None
+    assert outcome.exclusion.authoring["call_count"] == 0
 
 
 def test_session_mismatch_session_owned_record_is_unresolved_prerequisite(
@@ -1668,9 +1675,8 @@ def test_session_mismatch_session_owned_record_is_unresolved_prerequisite(
 
 
 def test_session_mismatch_multiple_foreign_records_need_a_hint(tmp_path: Path) -> None:
-    """When the handoff names no present record and the environment exposes
-    several foreign-owned candidates, the design fails closed and asks for an
-    explicit record hint instead of picking one."""
+    """When the handoff names no present record, multiple foreign-owned
+    candidates and even a different explicit hint cannot substitute for it."""
     base = klarna_runtime_context()
     for record_id, owner, balance in (
         ("ORD-301", "CUST003", 60.0),
@@ -1689,7 +1695,9 @@ def test_session_mismatch_multiple_foreign_records_need_a_hint(tmp_path: Path) -
     assert outcome.plan is None
     assert outcome.exclusion is not None
     assert outcome.exclusion.code == "missing-setup"
-    assert "record hint" in outcome.exclusion.detail
+    assert "ORD-201" in outcome.exclusion.detail
+    assert outcome.exclusion.authoring is not None
+    assert outcome.exclusion.authoring["call_count"] == 0
 
     hinted = _design_scn026(
         tmp_path,
@@ -1706,9 +1714,12 @@ def test_session_mismatch_multiple_foreign_records_need_a_hint(tmp_path: Path) -
             }
         ),
     )
-    assert hinted.exclusion is None
-    assert hinted.plan.setup.selected_record_id == "ORD-301"
-    assert hinted.plan.detector.expected == "ORD-301"
+    assert hinted.plan is None
+    assert hinted.exclusion is not None
+    assert hinted.exclusion.code == "missing-setup"
+    assert "ORD-201" in hinted.exclusion.detail
+    assert hinted.exclusion.authoring is not None
+    assert hinted.exclusion.authoring["call_count"] == 0
 
 
 def test_wrong_timing_run2_wording_still_excludes_unsupported_criterion_shape(
