@@ -159,7 +159,7 @@ _NEGATED_REFUND_COMMAND_MARKER = re.compile(
     r"\b(?:does|do|did|will|would|should|must|can)\s+not\s+"
     r"(?:[a-z][\w'-]*\s+){0,3}"
     r"(?:process_refund|refund|issue|invoke|call|execute|initiate|process|"
-    r"send|submit|trigger|perform)\b",
+    r"send|submit|trigger|perform|attempt)\w*\b",
     re.IGNORECASE,
 )
 
@@ -966,6 +966,30 @@ class CriterionInterpretation:
     evidence: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class _EligibilityPropositionDecision:
+    """Resolve one refund-eligibility relation without resolving the action.
+
+    The decision is intentionally private.  It keeps the grammatical
+    realization, relation-local polarity, uncertainty, and exact predicate
+    span together so the action classifier cannot mistake a relation such as
+    ``does not qualify for a refund`` for a negated refund request.
+    """
+
+    realization_class: Literal[
+        "field_token", "adjectival", "nominal", "verbal", "ambiguous", "none"
+    ]
+    polarity: Literal["positive", "negative", "uncertain", "unresolved"]
+    uncertainty: tuple[str, ...] = ()
+    evidence_span: str | None = None
+
+    @property
+    def establishes_false(self) -> bool:
+        """Whether the relation explicitly establishes boolean false."""
+
+        return self.polarity == "negative" and not self.uncertainty
+
+
 _REFUND_OPERATION_WORD = re.compile(
     r"\b(?:refund|process_refund)\b",
     re.IGNORECASE,
@@ -990,26 +1014,39 @@ _REFUND_COMMAND_CONTEXT = re.compile(
     r"(?:a\s+|an\s+|the\s+)?(?:refund|process_refund))\b",
     re.IGNORECASE,
 )
-_ELIGIBILITY_FALSE_PREDICATE = re.compile(
-    r"(?:\brefund[_ -]?eligible\b"
+_ELIGIBILITY_FIELD_RELATION = re.compile(
+    r"\b(?:(?P<modal>may|might|could|possibly|perhaps|likely|unlikely)\s+)?"
+    r"refund[_ -]?eligible\b"
     r"(?:\s+(?:status|state|flag|field|value))?\s*"
-    r"(?:is|being|equals?|set\s+to|marked\s+as)?\s*false\b)"
-    r"|(?:\brefund[_ -]?eligible\b"
-    r"(?:\s+(?:status|state|flag|field|value))?\s*[:=]\s*false\b)"
-    r"|(?:\brefund[_ -]?eligible\b"
-    r"(?:\s+(?:status|state|flag|field|value))?\s*"
-    r"(?:is|being|equals?|set\s+to|marked\s+as)\s+not\s+true\b)"
-    r"|(?:\b(?:order|record|transaction)\b[^.;]{0,80}\b"
-    r"(?:is|remains?|being)\s+not\s+eligible\s+for\s+"
-    r"(?:a\s+)?refund\b)"
-    r"|(?:\bnot\s+eligible\s+for\s+(?:a\s+)?refund\b)"
-    r"|(?:\b(?:refund[- ]ineligible|ineligible\s+for\s+(?:a\s+)?refund)\b)",
+    r"(?:(?:is|be|being|remain\w*|equals?|set\s+to|marked\s+as)\s*|[:=]\s*)?"
+    r"(?P<value>not\s+not\s+(?:true|false)|not\s+(?:true|false)|true|false)\b",
     re.IGNORECASE,
 )
-_ELIGIBILITY_TRUE_PREDICATE = re.compile(
-    r"\brefund[_ -]?eligible\b"
+_ELIGIBILITY_NOMINAL_RELATION = re.compile(
+    r"\b(?:(?P<modal>may|might|could|possibly|perhaps|likely|unlikely)\s+)?"
+    r"refund\s+eligib(?:ility|leness)\b"
     r"(?:\s+(?:status|state|flag|field|value))?\s*"
-    r"(?:is|being|equals?|set\s+to|marked\s+as)?\s*true\b",
+    r"(?:(?:is|be|being|remain\w*|equals?|set\s+to|marked\s+as)\s*|[:=]\s*)?"
+    r"(?P<value>not\s+not\s+(?:true|false)|not\s+(?:true|false)|true|false)\b",
+    re.IGNORECASE,
+)
+_ELIGIBILITY_ADJECTIVAL_RELATION = re.compile(
+    r"\b(?:(?P<modal>may|might|could|possibly|perhaps|likely|unlikely)\s+)?"
+    r"(?:(?:be|remain(?:s|ed)?)\s+)?"
+    r"(?P<value>refund[- ]ineligible|not\s+not\s+eligible|not\s+ineligible|"
+    r"not\s+eligible|ineligible|eligible)\b"
+    r"(?P<complement>\s+for\s+(?:(?:a|an|the)\s+)?refund\b)?",
+    re.IGNORECASE,
+)
+_ELIGIBILITY_VERBAL_RELATION = re.compile(
+    r"\b(?:(?P<modal>may|might|could|possibly|perhaps|likely|unlikely)\s+)?"
+    r"(?:(?P<aux>does|do|did|is|are|was|were|will|would|can|cannot)\s+"
+    r"(?P<neg>not)\s+|(?P<contract>doesn't|don't|didn't|isn't|aren't|"
+    r"wasn't|weren't|won't|wouldn't|can't|couldn't)\s+|"
+    r"(?P<failure>fails?\s+to\s+)|(?P<bare_neg>not)\s+)?"
+    r"(?P<value>qualif\w*)"
+    r"(?P<complement>\s+for\s+(?:(?:a|an|the)\s+)?refund\b)?"
+    r"(?=\s*(?:[.,;!?)]|$))",
     re.IGNORECASE,
 )
 _OWNERSHIP_MISMATCH_PREDICATE = re.compile(
@@ -1119,17 +1156,176 @@ _BOUND_POSITIVE_PREDICATE = re.compile(
 )
 
 
+def _eligibility_polarity(
+    value: str,
+) -> Literal["positive", "negative", "uncertain", "unresolved"]:
+    """Resolve polarity for a field-token or nominal value relation."""
+
+    normalized = " ".join(value.lower().split())
+    if normalized in {"false", "not true"}:
+        return "negative"
+    if normalized in {"true", "not false"}:
+        return "positive" if normalized == "true" else "uncertain"
+    if normalized in {"not not true", "not not false"}:
+        return "uncertain"
+    return "unresolved"
+
+
+def _eligibility_proposition_decision(text: str) -> _EligibilityPropositionDecision:
+    """Resolve one bounded refund-eligibility proposition.
+
+    Each realization is recognized from a derivational predicate class and
+    relation-local function words.  In particular, the ``not`` in a verbal
+    eligibility relation is never handed to the refund-action classifier.
+    """
+
+    candidates: list[_EligibilityPropositionDecision] = []
+    for match in _ELIGIBILITY_FIELD_RELATION.finditer(text):
+        value = match.group("value")
+        uncertainty = ["modality"] if match.group("modal") else []
+        candidates.append(
+            _EligibilityPropositionDecision(
+                realization_class="field_token",
+                polarity=_eligibility_polarity(value),
+                uncertainty=tuple(
+                    [
+                        *uncertainty,
+                        *(
+                            ["negated_false_value"]
+                            if value.lower().strip() == "not false"
+                            else ["double_negation"]
+                            if value.lower().count("not") == 2
+                            else []
+                        ),
+                    ]
+                ),
+                evidence_span=match.group(0).strip(),
+            )
+        )
+    for match in _ELIGIBILITY_NOMINAL_RELATION.finditer(text):
+        value = match.group("value")
+        uncertainty = ["modality"] if match.group("modal") else []
+        candidates.append(
+            _EligibilityPropositionDecision(
+                realization_class="nominal",
+                polarity=_eligibility_polarity(value),
+                uncertainty=tuple(
+                    [
+                        *uncertainty,
+                        *(
+                            ["negated_false_value"]
+                            if value.lower().strip() == "not false"
+                            else ["double_negation"]
+                            if value.lower().count("not") == 2
+                            else []
+                        ),
+                    ]
+                ),
+                evidence_span=match.group(0).strip(),
+            )
+        )
+    for match in _ELIGIBILITY_ADJECTIVAL_RELATION.finditer(text):
+        value = match.group("value").lower().replace("-", " ").strip()
+        complement = match.group("complement")
+        uncertainty: list[str] = []
+        if match.group("modal"):
+            uncertainty.append("modality")
+        if complement is None and value != "refund ineligible":
+            uncertainty.append("missing_refund_complement")
+        if value in {"not not eligible", "not ineligible"}:
+            polarity: Literal["positive", "negative", "uncertain", "unresolved"] = "uncertain"
+            uncertainty.append("negation_scope")
+        elif value in {"not eligible", "ineligible", "refund ineligible"}:
+            polarity = "negative"
+        else:
+            polarity = "positive"
+        candidates.append(
+            _EligibilityPropositionDecision(
+                realization_class="adjectival",
+                polarity=polarity,
+                uncertainty=tuple(dict.fromkeys(uncertainty)),
+                evidence_span=match.group(0).strip(),
+            )
+        )
+    for match in _ELIGIBILITY_VERBAL_RELATION.finditer(text):
+        uncertainty = ["modality"] if match.group("modal") else []
+        if match.group("complement") is None:
+            uncertainty.append("missing_refund_complement")
+        negative = bool(
+            match.group("neg")
+            or match.group("contract")
+            or match.group("failure")
+            or match.group("bare_neg")
+        )
+        candidates.append(
+            _EligibilityPropositionDecision(
+                realization_class="verbal",
+                polarity="negative" if negative else "positive",
+                uncertainty=tuple(uncertainty),
+                evidence_span=match.group(0).strip(),
+            )
+        )
+    if not candidates:
+        return _EligibilityPropositionDecision("none", "unresolved")
+    distinct = {
+        (candidate.realization_class, candidate.polarity, candidate.uncertainty)
+        for candidate in candidates
+    }
+    if len(distinct) > 1:
+        return _EligibilityPropositionDecision(
+            "ambiguous",
+            "uncertain",
+            ("multiple_eligibility_relations",),
+            " | ".join(candidate.evidence_span or "" for candidate in candidates),
+        )
+    return candidates[0]
+
+
+def _eligibility_proposition_evidence(
+    text: str,
+) -> dict[str, Any]:
+    """Persist the private proposition decision as design evidence."""
+
+    decision = _eligibility_proposition_decision(text)
+    return {
+        "realization_class": decision.realization_class,
+        "relation_local_polarity": decision.polarity,
+        "uncertainty": list(decision.uncertainty),
+        "evidence_span": decision.evidence_span,
+        "establishes_false": decision.establishes_false,
+    }
+
+
+def _mask_eligibility_relations(text: str) -> str:
+    """Hide eligibility predicates before classifying refund-action polarity."""
+
+    masked = list(text)
+    patterns = (
+        _ELIGIBILITY_FIELD_RELATION,
+        _ELIGIBILITY_NOMINAL_RELATION,
+        _ELIGIBILITY_ADJECTIVAL_RELATION,
+        _ELIGIBILITY_VERBAL_RELATION,
+    )
+    for pattern in patterns:
+        for match in pattern.finditer(text):
+            masked[match.start() : match.end()] = " " * (match.end() - match.start())
+    return "".join(masked)
+
+
 def _criterion_command_aspect(text: str) -> str:
     """Classify the action's aspect without treating attempts as commands."""
 
-    if _NEGATED_COMMAND_ACTION.search(text) or _NEGATED_REFUND_COMMAND_MARKER.search(text):
+    action_text = _mask_eligibility_relations(text)
+    if _NEGATED_COMMAND_ACTION.search(action_text) or _NEGATED_REFUND_COMMAND_MARKER.search(
+        action_text
+    ):
         return "negated"
-    if _REFUND_ATTEMPT_ACTION.search(text):
+    if _REFUND_ATTEMPT_ACTION.search(action_text):
         return "attempt"
     if (
-        _REFUND_COMMAND_ACTION.search(text)
-        or _REFUND_COMMAND_CONTEXT.search(text)
-        or _COMMAND_ACTION_MARKER.search(text)
+        _REFUND_COMMAND_ACTION.search(action_text)
+        or _REFUND_COMMAND_CONTEXT.search(action_text)
+        or _COMMAND_ACTION_MARKER.search(action_text)
     ):
         return "command"
     return "none"
@@ -1194,10 +1390,11 @@ def _criterion_semantic_families(text: str) -> tuple[set[str], list[str]]:
     evidence: list[str] = []
     aspect = _criterion_command_aspect(text)
     has_operation = aspect == "command"
-    eligibility_match = _ELIGIBILITY_FALSE_PREDICATE.search(text)
-    if has_operation and _REFUND_OPERATION_WORD.search(text) and eligibility_match:
+    eligibility = _eligibility_proposition_decision(text)
+    if has_operation and _REFUND_OPERATION_WORD.search(text) and eligibility.establishes_false:
         families.add("ineligible_record")
-        evidence.append(eligibility_match.group(0).strip())
+        if eligibility.evidence_span is not None:
+            evidence.append(eligibility.evidence_span)
     ownership_match = _ownership_mismatch_match(text) or _OPERATION_OWNERSHIP_MISMATCH.search(text)
     parameter_match = _PARAMETER_SESSION_MISMATCH.search(text)
     identity_match = _IDENTITY_SESSION_MISMATCH.search(
@@ -1490,6 +1687,7 @@ def _criterion_qualifier_reasons(
     status meaning.
     """
 
+    action_text = _mask_eligibility_relations(material)
     reasons = [
         reason
         for reason, pattern in (
@@ -1498,7 +1696,7 @@ def _criterion_qualifier_reasons(
             ("ambiguity", _CRITERION_AMBIGUITY),
             ("unknown", _CRITERION_UNACCOUNTED_CONJUNCTION),
         )
-        if pattern.search(material)
+        if pattern.search(action_text)
     ]
     if _CRITERION_TIMING.search(material) and _record_precondition(handoff) is None:
         reasons.append("timing")
@@ -1519,8 +1717,9 @@ def _criterion_qualifier_evidence(
         _CRITERION_AMBIGUITY,
         _CRITERION_UNACCOUNTED_CONJUNCTION,
     )
+    action_text = _mask_eligibility_relations(material)
     evidence = [
-        match.group(0).strip() for pattern in patterns for match in pattern.finditer(material)
+        match.group(0).strip() for pattern in patterns for match in pattern.finditer(action_text)
     ]
     if _record_precondition(handoff) is None:
         evidence.extend(match.group(0).strip() for match in _CRITERION_TIMING.finditer(material))
@@ -4940,6 +5139,9 @@ def design_artifact(
         "decision_basis": "complete_structural_clause_meaning",
         "evidence_spans": list(initial_interpretation.evidence),
         "action_aspect": _criterion_command_aspect(
+            _criterion_material_text(handoff.semantic_failure_criterion)
+        ),
+        "eligibility_proposition": _eligibility_proposition_evidence(
             _criterion_material_text(handoff.semantic_failure_criterion)
         ),
     }
