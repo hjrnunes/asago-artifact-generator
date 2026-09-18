@@ -387,18 +387,23 @@ def test_final_g07_binding_replay_preserves_bytes_and_surfaces_all_nested_findin
     assert len(result.ledger[1]["findings"]) >= 3
     correction = transport.requests[1]["payload"]
     assert correction["failed_response"] == raw_responses[0].decode()
-    assert correction["failed_response_bytes_hex"] == raw_responses[0].hex()
+    assert correction["failed_response_encoding"] == "utf-8-exact"
     assert (
-        "facts:<ref>" in correction["response_contract"]["binding_declaration"]["source_ref_rule"]
+        "facts:<ref>"
+        in correction["original_request"]["payload"]["response_contract"]["binding_declaration"][
+            "source_ref_rule"
+        ]
     )
-    correction_binding = correction["response_contract"]["binding_declaration"]
+    correction_binding = correction["original_request"]["payload"]["response_contract"][
+        "binding_declaration"
+    ]
     assert correction_binding["source_scope"].startswith(
         "Only environment inventory facts are bindable supplied sources"
     )
     assert "input payloads and source handles remain context" in correction_binding["source_scope"]
     assert "runtime_bindings must be []" in correction_binding["applicability"]
     assert (
-        correction["response_contract"]["empty_shapes"][
+        correction["original_request"]["payload"]["response_contract"]["empty_shapes"][
             "runtime_bindings_for_static_concrete_stimulus"
         ]
         == []
@@ -506,12 +511,16 @@ def test_shared_correction_contains_complete_contract_and_all_findings(
     original = transport.requests[0]
     payload = correction["payload"]
     assert payload["original_request"]["system"] == original["system"]
-    assert payload["original_request"]["user"] == original["user"]
     assert payload["original_request"]["payload"] == original["payload"]
     assert payload["failed_response"] == response
-    assert payload["failed_response_bytes_hex"] == response.encode().hex()
-    assert payload["response_contract"] == original["payload"]["response_contract"]
-    assert payload["failed_stage_contract"] == original["payload"]["response_contract"]
+    assert payload["failed_response_encoding"] == "utf-8-exact"
+    assert (
+        payload["original_request"]["payload"]["response_contract"]
+        == original["payload"]["response_contract"]
+    )
+    assert "failed_response_bytes_hex" not in payload
+    assert "failed_response_bytes_base64" not in payload
+    assert "failed_stage_contract" not in payload
     assert len(payload["findings"]) >= 9
     assert len(result.ledger[1]["findings"]) >= 9
     assert result.raw_responses["call1"] == response.encode()
@@ -564,8 +573,13 @@ def test_captured_g07_responses_replay_without_contact_and_report_all_findings(
     assert len(result.ledger[1]["findings"]) > 1
     correction = transport.requests[1]["payload"]
     assert correction["failed_response"] == raw_responses[0].decode()
-    assert correction["failed_response_bytes_hex"] == raw_responses[0].hex()
-    assert correction["response_contract"] == transport.requests[0]["payload"]["response_contract"]
+    assert correction["failed_response_encoding"] == "utf-8-exact"
+    assert (
+        correction["original_request"]["payload"]["response_contract"]
+        == (transport.requests[0]["payload"]["response_contract"])
+    )
+    assert "failed_response_bytes_hex" not in correction
+    assert "failed_response_bytes_base64" not in correction
     assert correction["findings"] == expected_call1_findings
 
 
@@ -667,7 +681,7 @@ def test_one_shared_correction_contains_exact_failure_and_never_fourth_request(
     failed_index = 0 if failed_stage == "call1" else 1
     assert correction["payload"]["failed_response"] == responses[failed_index]
     assert (
-        correction["payload"]["response_contract"]
+        correction["payload"]["original_request"]["payload"]["response_contract"]
         == transport.requests[failed_index]["payload"]["response_contract"]
     )
     assert correction["payload"]["findings"]

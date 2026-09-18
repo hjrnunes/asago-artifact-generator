@@ -13,7 +13,8 @@ import json
 import re
 import tempfile
 import unicodedata
-from dataclasses import dataclass, field
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -72,6 +73,7 @@ class InputView:
     source_digests: dict[str, str] = field(default_factory=dict)
     reference_label: str | None = None
     reference_id: str | None = None
+    benchmark_context: dict[str, Any] = field(default_factory=dict)
 
     @property
     def source_sha256(self) -> str:
@@ -146,6 +148,7 @@ def load_input(
     input_kind: InputKind | str | None = None,
     reference_label: str | None = None,
     reference_id: str | None = None,
+    benchmark_source_path: str | Path | None = None,
     snapshot_dir: str | Path | None = None,
 ) -> InputView:
     """Load one approved input and produce a source-pinned authoring view."""
@@ -174,14 +177,190 @@ def load_input(
     if selected_kind is InputKind.NATIVE_SEMANTIC_YAML:
         return _native_view(path, source_bytes, source)
     if selected_kind is InputKind.REFERENCE_TASK:
-        return _reference_view(
+        view = _reference_view(
             path,
             source_bytes,
             source,
             reference_label=reference_label,
             reference_id=reference_id,
         )
+        if benchmark_source_path is not None:
+            benchmark_bytes = _read_source(Path(benchmark_source_path))
+            benchmark_context = _benchmark_context(
+                benchmark_bytes,
+                reference_id=view.reference_id or view.scenario_id,
+            )
+            view = replace(
+                view,
+                source_digests={
+                    **view.source_digests,
+                    "benchmark": _sha256(benchmark_bytes),
+                },
+                benchmark_context=benchmark_context,
+            )
+        return view
     raise InputSourceError(f"unsupported input kind: {selected_kind}")
+
+
+def build_reference_task_view(view: InputView) -> dict[str, Any]:
+    """Project a reference task into meaning-bearing model-facing context.
+
+    The projection intentionally has no answer-shaped stimulus, oracle
+    implementation, scoring hint, verdict, or whole source payload.  Those
+    values remain available through :func:`build_comparison_inputs` for
+    offline comparison and provenance, never through an authoring prompt.
+    Native handoffs retain their producer-owned narrative and Gherkin rather
+    than passing through this reference-specific projection.
+    """
+
+    if view.kind is not InputKind.REFERENCE_TASK:
+        return {
+            "kind": view.kind.value,
+            "scenario_id": view.scenario_id,
+            "narrative": deepcopy(view.narrative),
+            "gherkin": view.gherkin_text,
+            "semantic_failure_condition": _handoff_failure_condition(view.payload),
+            "safe_alternative": view.payload.get("safe_alternative", ""),
+            "supplied_facts": _handoff_facts(view.payload),
+            "environment_documentation": _handoff_environment(view.payload),
+            "source_references": dict(view.source_digests),
+        }
+
+    source = view.payload
+    if not isinstance(source, dict):
+        raise InputSourceError("reference task payload must be an object")
+    oracle = source.get("oracle") if isinstance(source.get("oracle"), dict) else {}
+    benchmark_oracle = (
+        view.benchmark_context.get("oracle")
+        if isinstance(view.benchmark_context.get("oracle"), dict)
+        else {}
+    )
+    failure = source.get("constraint_meaning")
+    unsafe_when = benchmark_oracle.get("unsafe_when", oracle.get("unsafe_when", ""))
+    if not isinstance(failure, str) or not failure.strip():
+        failure = unsafe_when
+    elif isinstance(unsafe_when, str) and unsafe_when.strip():
+        failure = f"{failure} {unsafe_when}"
+    safe = source.get("safe_alternative")
+    if safe is None:
+        safe = source.get("safe_behaviors")
+    if safe is None:
+        safe = oracle.get("safe_behaviors", [])
+    if benchmark_oracle.get("safe_behaviors"):
+        safe = benchmark_oracle["safe_behaviors"]
+    facts: list[Any] = []
+    for key in ("facts", "state_facts", "policy_facts"):
+        supplied = source.get(key)
+        if isinstance(supplied, dict):
+            facts.append(deepcopy(supplied))
+        elif isinstance(supplied, list):
+            facts.extend(deepcopy(supplied))
+    benchmark = _reference_benchmark_view(source)
+    benchmark.update(
+        {
+            key: deepcopy(value)
+            for key, value in view.benchmark_context.items()
+            if key in {"benchmark_version", "record_conditions"}
+        }
+    )
+    return {
+        "kind": view.kind.value,
+        "scenario_id": view.scenario_id,
+        "functional_or_adversarial": source.get("kind", source.get("family", "")),
+        "title": source.get("title", ""),
+        "semantic_failure_condition": failure,
+        "safe_alternative": deepcopy(safe),
+        "supplied_facts": deepcopy(facts),
+        "relevant_policy_meaning": deepcopy(source.get("constraint_meaning", "")),
+        "benchmark_interpretation": benchmark,
+        "environment_documentation": {
+            "target_environment": source.get("target_environment"),
+            "documented_operations": deepcopy(source.get("documented_operations", [])),
+            "supported_observations": deepcopy(source.get("supported_observations", [])),
+        },
+        "source_references": dict(view.source_digests),
+        "reference_label": view.reference_label,
+    }
+
+
+def build_comparison_inputs(view: InputView) -> dict[str, Any]:
+    """Return sealed answer-bearing evidence for offline comparison only."""
+
+    return {
+        "source_snapshot": {
+            "path": view.source.source_path,
+            "sha256": view.source.sha256,
+            "length": view.source.length,
+        },
+        "source_digests": dict(view.source_digests),
+        "complete_source": deepcopy(view.payload),
+        "stimulus": deepcopy(view.payload.get("stimulus")),
+        "oracle": deepcopy(view.payload.get("oracle")),
+        "scoring_hints": deepcopy(
+            view.payload.get("scoring_hints", view.payload.get("scoring_hint"))
+        ),
+        "verdicts": deepcopy(view.payload.get("verdicts", view.payload.get("verdict"))),
+    }
+
+
+def _handoff_failure_condition(payload: dict[str, Any]) -> Any:
+    return payload.get("semantic_failure_criterion", "")
+
+
+def _handoff_facts(payload: dict[str, Any]) -> list[Any]:
+    facts = payload.get("sourced_facts", [])
+    return deepcopy(facts) if isinstance(facts, list) else []
+
+
+def _handoff_environment(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "documented_operations": deepcopy(payload.get("documented_operations", [])),
+        "governing_rules": deepcopy(payload.get("governing_rules", [])),
+        "assumptions_and_unknowns": deepcopy(payload.get("assumptions_and_unknowns", [])),
+    }
+
+
+def _reference_benchmark_view(source: dict[str, Any]) -> dict[str, Any]:
+    """Keep benchmark amendments as meaning, not as an answer encoding."""
+
+    result: dict[str, Any] = {}
+    for key in (
+        "benchmark_version",
+        "benchmark_revision",
+        "record_conditions",
+        "eligibility",
+        "ownership",
+        "balance_requirement",
+    ):
+        if key in source:
+            result[key] = deepcopy(source[key])
+    return result
+
+
+def _benchmark_context(source_bytes: bytes, *, reference_id: str) -> dict[str, Any]:
+    """Resolve one benchmark revision into meaning-only reference context."""
+
+    document = yaml.safe_load(source_bytes)
+    if not isinstance(document, dict):
+        raise InputSourceError("benchmark source must be an object")
+    selected = next(
+        (
+            item
+            for item in document.get("cases", [])
+            if isinstance(item, dict) and item.get("gold_id", item.get("id")) == reference_id
+        ),
+        None,
+    )
+    if not isinstance(selected, dict):
+        raise InputSourceError(f"benchmark case is not present: {reference_id}")
+    context: dict[str, Any] = {
+        "benchmark_version": document.get("benchmark_version"),
+    }
+    if isinstance(selected.get("record_conditions"), dict):
+        context["record_conditions"] = deepcopy(selected["record_conditions"])
+    if isinstance(selected.get("oracle"), dict):
+        context["oracle"] = deepcopy(selected["oracle"])
+    return context
 
 
 def _read_source(path: Path) -> bytes:
