@@ -110,6 +110,12 @@ discovery, or runtime-judge transport. An essential unresolved requirement
 produces a retained `*.blocked.json` plan and no package. The package contains
 the model-authored detector source, user-only stimulus, exact runtime-binding
 declarations, observations, explanation, examples, and digest-bound evidence.
+If authoring fails before a package exists, the sibling
+`<package>.failure-evidence.json` sidecar is written atomically. It preserves
+each exact rendered prompt, available raw response bytes, provider usage,
+controls, transformations, and findings. Missing responses or usage use an
+explicit `unavailable` marker. Provider endpoint and secret metadata are
+redacted from the sidecar.
 
 ### Offline detector checks
 

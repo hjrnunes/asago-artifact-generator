@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,7 +18,9 @@ from asago_artifact_generator.authoring import (
     PromptOverflowError,
     PromptPacket,
     ScriptedAuthoringTransport,
+    TransportResponse,
     build_call1_packet,
+    load_failure_evidence,
 )
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
@@ -172,6 +177,7 @@ def test_two_calls_build_an_immutable_package_with_exact_detector_bytes(tmp_path
     )
     assert result.package.members["authoring/01-call1.raw"] == json.dumps(_plan()).encode()
     assert [record["stage"] for record in result.ledger] == ["call1", "call2"]
+    assert result.package.manifest.authoring["usage"][0]["availability"] == "unavailable"
     assert result.raw_responses["call1"] == json.dumps(_plan()).encode()
     assert result.decoded_responses["call2"] == _artifact()
     assert result.prompts["call1"].version == "authoring-call1-v1"
@@ -423,3 +429,130 @@ def test_private_model_transport_constructs_with_zero_retries(
 def test_prompt_overflow_is_reported_without_silent_truncation() -> None:
     with pytest.raises(PromptOverflowError, match="explicitly scoped"):
         build_call1_packet(_view(), _inventory(), _contract(), max_prompt_bytes=10)
+
+
+@pytest.mark.parametrize(
+    ("response", "expected_code"),
+    [
+        (TransportResponse(raw=b'{"broken":', usage={"prompt_tokens": 7}), "response_parse_error"),
+        (TransportResponse(raw=b"{}", usage={"prompt_tokens": 8}), "plan_validation"),
+        (RuntimeError("provider unavailable"), "transport_failure"),
+    ],
+    ids=["malformed-json", "schema-invalid", "provider-failure"],
+)
+def test_failed_authoring_persists_reloadable_evidence_before_discarding_response(
+    tmp_path: Path,
+    response: object,
+    expected_code: str,
+) -> None:
+    package_dir = tmp_path / "package"
+    transport = ScriptedAuthoringTransport([response])
+
+    result = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=package_dir,
+        task_id="durable-failure",
+    ).run(_view(), _inventory(), _contract())
+
+    assert result.status == "failed"
+    assert len(transport.requests) == 1
+    evidence_path = package_dir.with_name("package.failure-evidence.json")
+    assert result.failure_evidence_path == evidence_path
+    saved = load_failure_evidence(evidence_path)
+    assert saved["status"] == "failed"
+    assert saved["task_id"] == "durable-failure"
+    assert saved["attempts"]
+    first = saved["attempts"][0]
+    assert first["prompt"]["system"] == result.prompts["call1"].system
+    assert first["prompt"]["user"] == result.prompts["call1"].user
+    assert first["controls"]["availability"] == "available"
+    assert first["controls"]["value"]["max_retries"] == 0
+    assert first["findings"][0]["code"] == expected_code
+
+    if isinstance(response, TransportResponse):
+        assert first["raw_response"]["availability"] == "available"
+        assert base64.b64decode(first["raw_response"]["base64"]) == response.raw
+        assert first["usage"]["availability"] == "available"
+        assert first["usage"]["value"] == response.usage
+    else:
+        assert first["raw_response"]["availability"] == "unavailable"
+        assert first["raw_response"]["reason"] == "provider_failure"
+        assert first["usage"]["availability"] == "unavailable"
+
+    assert not package_dir.exists()
+    assert not list(tmp_path.glob("*.failure-evidence.json.tmp"))
+
+
+def test_failure_evidence_redacts_endpoint_and_secret_metadata_without_losing_controls(
+    tmp_path: Path,
+) -> None:
+    package_dir = tmp_path / "package"
+    response = TransportResponse(
+        raw=b"{}",
+        usage={"prompt_tokens": 3},
+        controls={
+            "temperature": 0.0,
+            "max_retries": 0,
+            "base_url": "https://private.invalid/v1",
+            "api_key": "do-not-persist",
+        },
+    )
+    result = AuthoringOrchestrator(
+        transport=ScriptedAuthoringTransport([response]),
+        package_dir=package_dir,
+        task_id="safe-failure",
+    ).run(_view(), _inventory(), _contract())
+
+    assert result.status == "failed"
+    evidence_path = package_dir.with_name("package.failure-evidence.json")
+    persisted = evidence_path.read_text(encoding="utf-8")
+    assert "private.invalid" not in persisted
+    assert "do-not-persist" not in persisted
+    saved = load_failure_evidence(evidence_path)
+    controls = saved["attempts"][0]["controls"]["value"]
+    assert controls["temperature"] == 0.0
+    assert controls["max_retries"] == 0
+    assert controls["base_url"] == "<redacted>"
+    assert controls["api_key"] == "<redacted>"
+
+
+def test_failure_evidence_reloads_after_authoring_process_exits(tmp_path: Path) -> None:
+    package_dir = tmp_path / "package"
+    script = """
+import sys
+from pathlib import Path
+from asago_artifact_generator.authoring import AuthoringOrchestrator, ScriptedAuthoringTransport
+from asago_artifact_generator.input_adapter import InputKind, load_input
+
+source, destination = map(Path, sys.argv[1:3])
+view = load_input(source, kind=InputKind.SCENARIO_HANDOFF_V1)
+inventory = {
+    "operations": [],
+    "facts": [{"ref": "fact:one", "value": True, "schema": {"type": "boolean"}}],
+    "source_handles": [{"ref": "scenario:constraint", "meaning": "constraint"}],
+}
+contract = {
+    "delivery": ["direct_user_message"],
+    "observation": {},
+    "setup_permissions": [],
+    "limits": {"max_turns": 1},
+}
+result = AuthoringOrchestrator(
+    transport=ScriptedAuthoringTransport([b'{"broken":']),
+    package_dir=destination,
+    task_id="process-exit",
+).run(view, inventory, contract)
+raise SystemExit(0 if result.status == "failed" else 1)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(HANDOFF), str(package_dir)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    saved = load_failure_evidence(package_dir.with_name("package.failure-evidence.json"))
+    assert saved["status"] == "failed"
+    assert saved["attempts"][0]["raw_response"]["availability"] == "available"
+    assert saved["attempts"][0]["findings"][0]["code"] == "response_parse_error"

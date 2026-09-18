@@ -17,6 +17,15 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .bindings import BindingValidationError, validate_bindings
+from .failure_evidence import (
+    failure_evidence_path,
+    load_failure_evidence,
+    metadata_record,
+    new_failure_evidence,
+    raw_response_record,
+    redact_metadata,
+    write_failure_evidence,
+)
 from .input_adapter import InputView
 from .package_io import ArtifactPackage, build_package, write_package
 
@@ -98,8 +107,8 @@ class TransportResponse:
     """Raw provider response plus non-secret provider metadata."""
 
     raw: bytes
-    usage: dict[str, Any] = field(default_factory=dict)
-    controls: dict[str, Any] = field(default_factory=dict)
+    usage: dict[str, Any] | None = None
+    controls: dict[str, Any] | None = None
 
 
 @dataclass
@@ -142,6 +151,7 @@ class AuthoringResult:
     raw_responses: dict[str, bytes] = field(default_factory=dict)
     decoded_responses: dict[str, Any] = field(default_factory=dict)
     prompts: dict[str, PromptPacket] = field(default_factory=dict)
+    failure_evidence_path: Path | None = None
 
 
 class ScriptedAuthoringTransport:
@@ -237,6 +247,8 @@ class AuthoringOrchestrator:
         self._decoded_responses: dict[str, Any] = {}
         self._prompt_packets: dict[str, PromptPacket] = {}
         self._transformations: list[str] = []
+        self._failure_evidence = new_failure_evidence(self.task_id, self.package_dir)
+        self._failure_evidence_file: Path | None = None
 
     def run(
         self,
@@ -332,6 +344,7 @@ class AuthoringOrchestrator:
             raw_responses=dict(self._raw_responses),
             decoded_responses=dict(self._decoded_responses),
             prompts=dict(self._prompt_packets),
+            failure_evidence_path=None,
         )
 
     def _request_and_validate(
@@ -348,6 +361,11 @@ class AuthoringOrchestrator:
             finding = Finding("transport_failure", _safe_error(exc), stage)
             self._findings.append(finding)
             self._ledger[-1]["error"] = _safe_error(exc) if self._ledger else _safe_error(exc)
+            self._record_unavailable_response(
+                reason="provider_failure",
+                detail=_safe_error(exc),
+                finding=finding,
+            )
             return None, [finding], b""
         raw, usage, controls = _response_parts(response)
         self._raw_responses[stage] = raw
@@ -357,6 +375,7 @@ class AuthoringOrchestrator:
         record["raw_response_key"] = raw_key
         record["usage"] = _safe_metadata(usage)
         record["controls"] = _safe_metadata(controls)
+        self._record_available_response(raw, usage, controls)
         try:
             decoded, transformation = _decode_json_response(raw)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -364,23 +383,31 @@ class AuthoringOrchestrator:
             record["parse_error"] = str(exc)
             record["findings"] = [finding.to_dict()]
             self._findings.append(finding)
+            self._record_failure(finding)
             return None, [finding], raw
         if transformation:
             self._transformations.append(transformation)
             record["transformation"] = transformation
+            self._failure_attempt()["transformation"] = transformation
+            self._failure_evidence["transformations"] = list(self._transformations)
+            self._persist_failure_evidence()
         try:
             assert_no_secrets(decoded)
         except AuthoringError as exc:
             finding = Finding("secret_in_response", str(exc), stage)
             record["findings"] = [finding.to_dict()]
             self._findings.append(finding)
+            self._record_failure(finding)
             return None, [finding], raw
         self._decoded_responses[stage] = decoded
         record["decoded_output"] = decoded
+        self._failure_attempt()["decoded_output"] = decoded
+        self._persist_failure_evidence()
         if not isinstance(decoded, dict):
             finding = Finding("response_type_error", "response must decode to an object", stage)
             record["findings"] = [finding.to_dict()]
             self._findings.append(finding)
+            self._record_failure(finding)
             return None, [finding], raw
         try:
             validator(decoded)
@@ -388,8 +415,10 @@ class AuthoringOrchestrator:
             findings = _findings_from_error(exc)
             self._findings.extend(findings)
             record["findings"] = [finding.to_dict() for finding in findings]
+            self._record_failures(findings)
             return None, findings, raw
         record["validation"] = "passed"
+        self._persist_failure_evidence()
         return decoded, [], raw
 
     def _dispatch(self, packet: PromptPacket) -> TransportResponse | str | bytes:
@@ -406,6 +435,26 @@ class AuthoringOrchestrator:
             "raw_response": f"authoring/{dispatch_index}-{packet.stage}.raw",
         }
         self._ledger.append(record)
+        self._failure_evidence["attempts"].append(
+            {
+                "dispatch_index": dispatch_index,
+                "stage": packet.stage,
+                "task_id": self.task_id,
+                "prompt": {
+                    "version": packet.version,
+                    "system": packet.system,
+                    "user": packet.user,
+                },
+                "controls": metadata_record(
+                    {"max_retries": 0},
+                    unavailable_reason="controls_not_recorded",
+                ),
+                "raw_response": raw_response_record(b"", reason="not_returned"),
+                "usage": metadata_record(None, unavailable_reason="not_returned"),
+                "findings": [],
+            }
+        )
+        self._persist_failure_evidence()
         try:
             self.budget.reserve(self.task_id)
         except BudgetExceeded as exc:
@@ -453,6 +502,11 @@ class AuthoringOrchestrator:
             finding = Finding("correction_dispatch_failed", _safe_error(exc), failed_stage)
             self._ledger[-1]["error"] = _safe_error(exc) if self._ledger else _safe_error(exc)
             self._findings.append(finding)
+            self._record_unavailable_response(
+                reason="provider_failure",
+                detail=_safe_error(exc),
+                finding=finding,
+            )
             return None
         raw, usage, controls = _response_parts(response)
         raw_key = f"dispatch:{self._ledger[-1]['dispatch_index']}"
@@ -462,14 +516,25 @@ class AuthoringOrchestrator:
         self._ledger[-1]["usage"] = _safe_metadata(usage)
         self._ledger[-1]["controls"] = _safe_metadata(controls)
         self._ledger[-1]["failed_stage"] = failed_stage
+        self._failure_attempt()["failed_stage"] = failed_stage
+        self._failure_attempt()["failed_response"] = raw_response_record(
+            failed_response,
+            reason="not_returned" if not failed_response else None,
+        )
+        self._record_available_response(raw, usage, controls)
+        self._persist_failure_evidence()
         self._ledger[-1]["failed_response"] = exact_response
         try:
             decoded, transformation = _decode_json_response(raw)
             if transformation:
                 self._transformations.append(transformation)
+                self._failure_evidence["transformations"] = list(self._transformations)
                 self._ledger[-1]["transformation"] = transformation
+                self._failure_attempt()["transformation"] = transformation
             assert_no_secrets(decoded)
             self._decoded_responses[f"correction-{failed_stage}"] = decoded
+            self._failure_attempt()["decoded_output"] = decoded
+            self._persist_failure_evidence()
             self._ledger[-1]["decoded_output"] = decoded
             if not isinstance(decoded, dict):
                 raise ValueError("correction response must decode to an object")
@@ -495,8 +560,10 @@ class AuthoringOrchestrator:
             if isinstance(exc, (UnicodeDecodeError, json.JSONDecodeError)):
                 self._ledger[-1]["parse_error"] = str(exc)
             self._findings.append(finding)
+            self._record_failure(finding)
             return None
         self._ledger[-1]["validation"] = "passed"
+        self._persist_failure_evidence()
         # A correction response replaces the failed stage, but its exact raw
         # bytes remain under the correction record and are not rewritten.
         replacement_key = "call1" if failed_stage == "call1" else "call2"
@@ -530,7 +597,93 @@ class AuthoringOrchestrator:
             raw_responses=dict(self._raw_responses),
             decoded_responses=dict(self._decoded_responses),
             prompts=dict(self._prompt_packets),
+            failure_evidence_path=self._finish_failure_evidence(status, findings),
         )
+
+    def _failure_attempt(self) -> dict[str, Any]:
+        return self._failure_evidence["attempts"][-1]
+
+    def _record_available_response(
+        self,
+        raw: bytes,
+        usage: dict[str, Any] | None,
+        controls: dict[str, Any] | None,
+    ) -> None:
+        attempt = self._failure_attempt()
+        attempt["raw_response"] = raw_response_record(raw)
+        attempt["usage"] = metadata_record(
+            usage if usage else None,
+            unavailable_reason="provider_did_not_report_usage",
+        )
+        attempt["controls"] = metadata_record(
+            controls or {"max_retries": 0},
+            unavailable_reason="controls_not_recorded",
+        )
+        self._persist_failure_evidence()
+
+    def _record_unavailable_response(
+        self,
+        *,
+        reason: str,
+        detail: str,
+        finding: Finding,
+    ) -> None:
+        attempt = self._failure_attempt()
+        attempt["raw_response"] = raw_response_record(b"", reason=reason)
+        attempt["usage"] = metadata_record(None, unavailable_reason=reason)
+        attempt["failure"] = {"detail": _safe_error(detail), "phase": "invocation"}
+        self._record_failure(finding)
+
+    def _record_failure(self, finding: Finding) -> None:
+        attempt = self._failure_attempt()
+        attempt["findings"].append(finding.to_dict())
+        if "failure" not in attempt:
+            attempt["failure"] = {
+                "phase": "post_response",
+                "code": finding.code,
+                "detail": finding.detail,
+            }
+        else:
+            attempt["failure"]["code"] = finding.code
+            attempt["failure"]["detail"] = finding.detail
+        self._failure_evidence["findings"].append(finding.to_dict())
+        self._persist_failure_evidence()
+
+    def _record_failures(self, findings: list[Finding]) -> None:
+        attempt = self._failure_attempt()
+        for finding in findings:
+            attempt["findings"].append(finding.to_dict())
+            self._failure_evidence["findings"].append(finding.to_dict())
+        if findings:
+            failure = attempt.setdefault("failure", {})
+            failure.update(
+                {
+                    "phase": failure.get("phase", "post_response"),
+                    "code": findings[0].code,
+                    "detail": findings[0].detail,
+                }
+            )
+        self._persist_failure_evidence()
+
+    def _persist_failure_evidence(self) -> None:
+        self._failure_evidence_file = write_failure_evidence(
+            failure_evidence_path(self.package_dir),
+            self._failure_evidence,
+        )
+
+    def _finish_failure_evidence(
+        self,
+        status: str,
+        findings: list[Finding],
+    ) -> Path | None:
+        if not self._failure_evidence["attempts"] and not findings:
+            return None
+        self._failure_evidence["status"] = status
+        self._failure_evidence["findings"] = [finding.to_dict() for finding in self._findings] or [
+            finding.to_dict() for finding in findings
+        ]
+        self._persist_failure_evidence()
+        return self._failure_evidence_file
 
 
 def build_call1_packet(
@@ -1037,7 +1190,15 @@ def _package_from_responses(
         "correction_used": any(record["stage"] == "correction" for record in ledger),
         "max_retries": 0,
         "usage": [
-            record.get("usage", {}) for record in ledger if isinstance(record.get("usage"), dict)
+            (
+                {"availability": "available", "value": record["usage"]}
+                if record.get("usage")
+                else {
+                    "availability": "unavailable",
+                    "reason": "provider_did_not_report_usage",
+                }
+            )
+            for record in ledger
         ],
         "ledger": safe_ledger,
     }
@@ -1064,13 +1225,15 @@ def _package_from_responses(
     )
 
 
-def _response_parts(response: TransportResponse | str | bytes) -> tuple[bytes, dict, dict]:
+def _response_parts(
+    response: TransportResponse | str | bytes,
+) -> tuple[bytes, dict[str, Any] | None, dict[str, Any] | None]:
     if isinstance(response, TransportResponse):
         return response.raw, response.usage, response.controls
     if isinstance(response, str):
-        return response.encode("utf-8"), {}, {"max_retries": 0}
+        return response.encode("utf-8"), None, {"max_retries": 0}
     if isinstance(response, bytes):
-        return response, {}, {"max_retries": 0}
+        return response, None, {"max_retries": 0}
     raise TypeError("authoring transport returned an unsupported response")
 
 
@@ -1105,7 +1268,7 @@ def _findings_from_error(exc: Exception) -> list[Finding]:
 
 
 def _safe_metadata(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+    return redact_metadata(value) if isinstance(value, dict) else {}
 
 
 def _safe_error(exc: BaseException) -> str:
@@ -1270,5 +1433,6 @@ __all__ = [
     "assert_no_secrets",
     "build_call1_packet",
     "build_call2_packet",
+    "load_failure_evidence",
     "scan_for_secrets",
 ]
