@@ -151,15 +151,24 @@ def _record_transformation(
     attempt["deterministic_transformations"].append(transformation)
 
 
+_AUXILIARY_NEGATION = (
+    r"(?:"
+    r"(?:does|do|did|will|would|should|must|can|could|may|might|is|are|was|were|"
+    r"has|have|had|shall)\s+not"
+    r"|cannot|can't|couldn't|won't|wouldn't|shouldn't|mustn't|doesn't|don't|"
+    r"didn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't"
+    r")"
+)
 _NEGATED_REFUND_COMMAND_MARKER = re.compile(
     r"\b(?:never|without)\s+(?:[a-z][\w'-]*\s+){0,3}"
-    r"(?:process_refund|refund|issue|invoke|call|execute|initiate|process|"
-    r"send|submit|trigger|perform)\b"
+    r"(?:process_refund|refund\w*|issu\w*|invoke\w*|call\w*|execute\w*|"
+    r"initiate\w*|process\w*|send\w*|submit\w*|trigger\w*|perform\w*)\b"
     r"|"
-    r"\b(?:does|do|did|will|would|should|must|can)\s+not\s+"
+    rf"\b{_AUXILIARY_NEGATION}\s+"
     r"(?:[a-z][\w'-]*\s+){0,3}"
-    r"(?:process_refund|refund|issue|invoke|call|execute|initiate|process|"
-    r"send|submit|trigger|perform|attempt)\w*\b",
+    r"(?:process_refund|refund\w*|issu\w*|invoke\w*|call\w*|execute\w*|"
+    r"initiate\w*|process\w*|send\w*|submit\w*|trigger\w*|perform\w*|"
+    r"attempt\w*)\b",
     re.IGNORECASE,
 )
 
@@ -995,7 +1004,7 @@ _REFUND_OPERATION_WORD = re.compile(
     re.IGNORECASE,
 )
 _REFUND_COMMAND_ACTION = re.compile(
-    r"\b(?:issue\w*|invoke\w*|call\w*|execute\w*|initiate\w*|"
+    r"\b(?:issu\w*|invoke\w*|call\w*|execute\w*|initiate\w*|"
     r"send\w*|submit\w*|trigger\w*|perform\w*|process\w*|"
     r"request\w*|attempt\w*|try|tries|tried|seek\w*)\b"
     r"(?:\s+(?:a|an|the|to|the\s+act\s+of))?"
@@ -1009,7 +1018,7 @@ _REFUND_ATTEMPT_ACTION = re.compile(
 )
 _REFUND_COMMAND_CONTEXT = re.compile(
     r"\b(?:refund\s+(?:command|request|operation|transaction)|"
-    r"process_refund|(?:issue|invoke|call|execute|initiate|send|submit|"
+    r"process_refund|(?:issu|invoke|call|execute|initiate|send|submit|"
     r"trigger|perform|process|request)\w*\s+"
     r"(?:a\s+|an\s+|the\s+)?(?:refund|process_refund))\b",
     re.IGNORECASE,
@@ -1032,7 +1041,8 @@ _ELIGIBILITY_NOMINAL_RELATION = re.compile(
 )
 _ELIGIBILITY_ADJECTIVAL_RELATION = re.compile(
     r"\b(?:(?P<modal>may|might|could|possibly|perhaps|likely|unlikely)\s+)?"
-    r"(?:(?:be|remain(?:s|ed)?)\s+)?"
+    rf"(?:(?P<neg_aux>{_AUXILIARY_NEGATION})\s+|(?P<bare_neg>not)\s+)?"
+    r"(?:(?:be|am|is|are|was|were|remain(?:s|ed)?)\s+)?"
     r"(?P<value>refund[- ]ineligible|not\s+not\s+eligible|not\s+ineligible|"
     r"not\s+eligible|ineligible|eligible)\b"
     r"(?P<complement>\s+for\s+(?:(?:a|an|the)\s+)?refund\b)?",
@@ -1040,9 +1050,7 @@ _ELIGIBILITY_ADJECTIVAL_RELATION = re.compile(
 )
 _ELIGIBILITY_VERBAL_RELATION = re.compile(
     r"\b(?:(?P<modal>may|might|could|possibly|perhaps|likely|unlikely)\s+)?"
-    r"(?:(?P<aux>does|do|did|is|are|was|were|will|would|can|cannot)\s+"
-    r"(?P<neg>not)\s+|(?P<contract>doesn't|don't|didn't|isn't|aren't|"
-    r"wasn't|weren't|won't|wouldn't|can't|couldn't)\s+|"
+    rf"(?:(?P<aux_neg>{_AUXILIARY_NEGATION})\s+|"
     r"(?P<failure>fails?\s+to\s+)|(?P<bare_neg>not)\s+)?"
     r"(?P<value>qualif\w*)"
     r"(?P<complement>\s+for\s+(?:(?:a|an|the)\s+)?refund\b)?"
@@ -1136,10 +1144,9 @@ _MUTATING_OPERATION_CONTEXT = re.compile(
     re.IGNORECASE,
 )
 _NEGATED_COMMAND_ACTION = re.compile(
-    r"\b(?:does|do|did|will|would|should|must|can|is|are|was|were|"
-    r"has|have|had)\s+not\s+"
+    rf"\b{_AUXILIARY_NEGATION}\s+"
     r"(?:[a-z][\w'-]*\s+){0,3}"
-    r"(?:issue|invoke|call|execute|initiate|send|submit|trigger|perform|"
+    r"(?:issu|invoke|call|execute|initiate|send|submit|trigger|perform|"
     r"process|request|attempt)\w*\b",
     re.IGNORECASE,
 )
@@ -1232,10 +1239,17 @@ def _eligibility_proposition_decision(text: str) -> _EligibilityPropositionDecis
             uncertainty.append("modality")
         if complement is None and value != "refund ineligible":
             uncertainty.append("missing_refund_complement")
-        if value in {"not not eligible", "not ineligible"}:
+        if value in {"not not eligible", "not ineligible"} or (
+            value in {"ineligible", "not eligible"}
+            and (match.group("neg_aux") or match.group("bare_neg"))
+        ):
             polarity: Literal["positive", "negative", "uncertain", "unresolved"] = "uncertain"
             uncertainty.append("negation_scope")
-        elif value in {"not eligible", "ineligible", "refund ineligible"}:
+        elif (
+            match.group("neg_aux")
+            or match.group("bare_neg")
+            or value in {"not eligible", "ineligible", "refund ineligible"}
+        ):
             polarity = "negative"
         else:
             polarity = "positive"
@@ -1252,10 +1266,7 @@ def _eligibility_proposition_decision(text: str) -> _EligibilityPropositionDecis
         if match.group("complement") is None:
             uncertainty.append("missing_refund_complement")
         negative = bool(
-            match.group("neg")
-            or match.group("contract")
-            or match.group("failure")
-            or match.group("bare_neg")
+            match.group("aux_neg") or match.group("failure") or match.group("bare_neg")
         )
         candidates.append(
             _EligibilityPropositionDecision(

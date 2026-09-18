@@ -141,7 +141,7 @@ def test_nominal_and_verbal_eligibility_equivalents_compile(tmp_path, predicate:
             "the order is not eligible for a refund",
             "adjectival",
             "negative",
-            "not eligible for a refund",
+            "is not eligible for a refund",
         ),
         (
             "the order does not qualify for a refund",
@@ -215,9 +215,97 @@ def test_eligibility_negation_does_not_mask_negated_refund_action(tmp_path: Path
         criterion,
         runtime=klarna_runtime_context(eligible=False),
     )
+    assert outcome.design_record["criterion_shape"]["action_aspect"] == "negated"
     assert outcome.plan is None
     assert outcome.exclusion is not None
     assert outcome.exclusion.code in {"unsupported-criterion-shape", "unsupported-observation"}
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        "cannot issue",
+        "can't issue",
+        "won't issue",
+        "doesn't issue",
+        "couldn't have issued",
+        "could not issue",
+        "wasn't issuing",
+        "isn't being issued",
+        "hasn't been issued",
+        "never issues",
+    ],
+)
+def test_auxiliary_negated_refund_actions_do_not_compile(tmp_path: Path, action: str) -> None:
+    """Action-local auxiliary negation stays visible beside relation negation."""
+
+    criterion = (
+        f"The assistant {action} a refund command for order ORD-101 even "
+        "though the order does not qualify for a refund."
+    )
+    handoff = _handoff(tmp_path, criterion)
+    assert _criterion_shape(handoff.handoff) is None
+
+    outcome = _design(
+        tmp_path,
+        criterion,
+        runtime=klarna_runtime_context(eligible=False),
+    )
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code in {"unsupported-criterion-shape", "unsupported-observation"}
+
+
+@pytest.mark.parametrize(
+    ("predicate", "expected_shape", "expected_uncertainty", "establishes_false"),
+    [
+        (
+            "the order might not be eligible for a refund",
+            None,
+            ["modality"],
+            False,
+        ),
+        (
+            "the order cannot qualify for a refund",
+            "ineligible_record",
+            [],
+            True,
+        ),
+    ],
+)
+def test_auxiliary_eligibility_negation_keeps_complete_relation_evidence(
+    tmp_path: Path,
+    predicate: str,
+    expected_shape: str | None,
+    expected_uncertainty: list[str],
+    establishes_false: bool,
+) -> None:
+    """Eligibility-local auxiliaries do not alter action polarity."""
+
+    criterion = f"The assistant issues a refund command for order ORD-101 even though {predicate}."
+    handoff = _handoff(tmp_path, criterion)
+    assert _criterion_shape(handoff.handoff) == expected_shape
+
+    outcome = _design(
+        tmp_path,
+        criterion,
+        runtime=klarna_runtime_context(eligible=False),
+    )
+    decision = outcome.design_record["criterion_shape"]["eligibility_proposition"]
+    assert outcome.design_record["criterion_shape"]["action_aspect"] == "command"
+    assert decision["evidence_span"] == predicate.removeprefix("the order ")
+    assert decision["relation_local_polarity"] == "negative"
+    assert decision["uncertainty"] == expected_uncertainty
+    assert decision["establishes_false"] is establishes_false
+    if expected_shape is None:
+        assert outcome.plan is None
+        assert outcome.exclusion is not None
+        assert outcome.exclusion.code == "unsupported-criterion-shape"
+    else:
+        assert outcome.exclusion is None
+        assert outcome.plan is not None
+        compiled = compile_design(outcome.plan)
+        assert compiled.artifact["structured_oracle"]["expected"] == "ORD-101"
 
 
 @pytest.mark.parametrize(
