@@ -111,6 +111,23 @@ produces a retained `*.blocked.json` plan and no package. The package contains
 the model-authored detector source, user-only stimulus, exact runtime-binding
 declarations, observations, explanation, examples, and digest-bound evidence.
 
+### Offline detector checks
+
+Run the exact packaged `detector.py` against a JSON or YAML evidence packet:
+
+```bash
+asago-artifact-generator check runs/authoring/task/package \
+  --evidence build/evidence.json
+```
+
+The checker validates package and detector digests before and after execution.
+It runs the emitted source in `python:3.12-slim` through
+`/usr/local/bin/docker` with no network, read-only package and input mounts,
+bounded memory, process count, output, and wall-clock time, and no inherited
+credentials. Rich results remain separate from runtime failures. Reporting
+maps `detected`, `not_detected`, and `inconclusive` to Garak's `1`, `0`, and
+`None` only at the reporting edge.
+
 ## Output layout
 
 Each scenario gets its own directory under `runs/`:

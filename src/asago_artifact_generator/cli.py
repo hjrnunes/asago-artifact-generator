@@ -12,11 +12,13 @@ import typer
 import yaml
 
 from .authoring import AuthoringOrchestrator, PrivateModelAuthoringTransport
+from .detector_runtime import execute_detector
 from .extract import load_scenario
 from .garak.gen import generate_artifact, list_scenario_files
 from .garak.spec_io import MANIFEST_FILE, runs_dir
 from .input_adapter import InputKind, load_input
 from .llm import BASE_URL, MODEL
+from .reporting import garak_value
 
 app = typer.Typer(
     help="Policy-driven agentic red-teaming artifact generator.",
@@ -226,6 +228,51 @@ def author(
     if result.status != "packaged":
         for finding in result.findings:
             typer.echo(f"{finding.code}: {finding.detail}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command()
+def check(
+    package: Annotated[Path, typer.Argument(help="Immutable artifact package directory.")],
+    evidence_file: Annotated[
+        Path | None,
+        typer.Argument(help="JSON/YAML evidence packet (or use --evidence)."),
+    ] = None,
+    evidence_option: Annotated[
+        Path | None,
+        typer.Option("--evidence", "-e", help="JSON/YAML evidence packet."),
+    ] = None,
+    timeout_seconds: Annotated[
+        float,
+        typer.Option("--timeout-seconds", min=0.1, help="Detector wall-clock deadline."),
+    ] = 10.0,
+) -> None:
+    """Run exact packaged detector bytes against offline evidence."""
+
+    evidence_path = evidence_option or evidence_file
+    if evidence_path is None:
+        raise typer.BadParameter("provide an evidence path as an argument or with --evidence")
+    evidence = _load_mapping(evidence_path, "evidence")
+    execution = execute_detector(package, evidence, timeout_seconds=timeout_seconds)
+    typer.echo(
+        json.dumps(
+            {
+                "status": execution.status,
+                "failure": execution.failure,
+                "package_digest": execution.package_digest,
+                "package_digest_before": execution.package_digest_before,
+                "package_digest_after": execution.package_digest_after,
+                "detector_sha256": execution.detector_sha256,
+                "detector_sha256_before": execution.detector_sha256_before,
+                "detector_sha256_after": execution.detector_sha256_after,
+                "docker_argv": list(execution.docker_argv),
+                "result": execution.result,
+                "garak_value": garak_value(execution),
+            },
+            sort_keys=True,
+        )
+    )
+    if execution.status != "completed":
         raise typer.Exit(1)
 
 

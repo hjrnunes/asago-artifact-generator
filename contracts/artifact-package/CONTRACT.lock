@@ -4,6 +4,7 @@
   "digest_domain": "artifact-package-v1",
   "package_schema_version": "artifact-package-v1",
   "files": {
-    "artifact-package-v1/schema.json": "bec29fab189171e00af9af3b89bf0af9d44793bf87816c66f7ab1d3d1b374d1c"
+    "artifact-package-v1/schema.json": "bec29fab189171e00af9af3b89bf0af9d44793bf87816c66f7ab1d3d1b374d1c",
+    "artifact-result-v1/schema.json": "72482e19865d20f47336b4a11f365769ec72df54a8564f45d67e96b6fb915613"
   }
 }

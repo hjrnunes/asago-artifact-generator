@@ -1220,6 +1220,17 @@ def _call2_contract() -> dict[str, Any]:
             "examples",
         ],
         "detector_interface": "evaluate(evidence: dict) -> dict",
+        "detector_result": {
+            "fields": ["outcome", "reason", "evidence_refs", "claim_level"],
+            "outcomes": ["detected", "not_detected", "inconclusive"],
+            "claim_levels": [
+                "command_attempt",
+                "reply",
+                "returned_result",
+                "state_effect",
+            ],
+            "evidence_refs": "JSON Pointer or root path such as tool_calls[0]",
+        },
         "history": "user messages only; no fabricated assistant or tool items",
     }
 

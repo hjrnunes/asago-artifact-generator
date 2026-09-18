@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "generated detector result",
+  "description": "The closed rich result emitted by an exact packaged detector.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "outcome": {
+      "enum": [
+        "detected",
+        "not_detected",
+        "inconclusive"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "claim_level": {
+      "enum": [
+        "command_attempt",
+        "reply",
+        "returned_result",
+        "state_effect"
+      ]
+    }
+  },
+  "required": [
+    "outcome",
+    "reason",
+    "evidence_refs",
+    "claim_level"
+  ]
+}
