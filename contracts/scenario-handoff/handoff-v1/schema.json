@@ -1,0 +1,290 @@
+{
+  "$comment": "The scenario handoff is a versioned envelope over the three existing scenario representations (narrative, attack tree, Gherkin) plus necessary metadata. It introduces no fourth authoritative scenario representation and carries no artifact-design content.",
+  "$defs": {
+    "HandoffFact": {
+      "additionalProperties": false,
+      "description": "One source-grounded fact with its authority stamp.",
+      "properties": {
+        "authority": {
+          "title": "Authority",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "statement": {
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "statement",
+        "source",
+        "authority"
+      ],
+      "title": "HandoffFact",
+      "type": "object"
+    },
+    "HandoffGherkin": {
+      "additionalProperties": false,
+      "description": "Declarative Gherkin: no bindings, no prompt, no detector code.",
+      "properties": {
+        "feature": {
+          "title": "Feature",
+          "type": "string"
+        },
+        "given": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Given",
+          "type": "array"
+        },
+        "scenario": {
+          "title": "Scenario",
+          "type": "string"
+        },
+        "then_expected": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Then Expected",
+          "type": "array"
+        },
+        "then_unsafe_alternative": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Then Unsafe Alternative",
+          "type": "array"
+        },
+        "when": {
+          "items": {
+            "type": "string"
+          },
+          "title": "When",
+          "type": "array"
+        }
+      },
+      "required": [
+        "feature",
+        "scenario"
+      ],
+      "title": "HandoffGherkin",
+      "type": "object"
+    },
+    "HandoffLineage": {
+      "additionalProperties": false,
+      "description": "Stable identity plus loss/hazard/constraint lineage.",
+      "properties": {
+        "constraint_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Constraint Ids",
+          "type": "array"
+        },
+        "control_action_id": {
+          "default": "",
+          "title": "Control Action Id",
+          "type": "string"
+        },
+        "controller_id": {
+          "default": "",
+          "title": "Controller Id",
+          "type": "string"
+        },
+        "hazard_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hazard Ids",
+          "type": "array"
+        },
+        "ica_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ica Id"
+        },
+        "ica_slot_id": {
+          "default": "",
+          "title": "Ica Slot Id",
+          "type": "string"
+        },
+        "loss_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Loss Ids",
+          "type": "array"
+        }
+      },
+      "title": "HandoffLineage",
+      "type": "object"
+    },
+    "HandoffOperation": {
+      "additionalProperties": false,
+      "description": "A documented operation named only when it is supported and relevant.",
+      "properties": {
+        "authority": {
+          "anyOf": [
+            {
+              "enum": [
+                "criterion_observed_operation",
+                "verified_control_action_specialization"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "relevance": {
+          "title": "Relevance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "relevance"
+      ],
+      "title": "HandoffOperation",
+      "type": "object"
+    },
+    "HandoffRule": {
+      "additionalProperties": false,
+      "description": "One governing rule the unsafe behavior would violate.",
+      "properties": {
+        "constraint_id": {
+          "title": "Constraint Id",
+          "type": "string"
+        },
+        "statement": {
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "constraint_id",
+        "statement"
+      ],
+      "title": "HandoffRule",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The versioned scenario handoff envelope.",
+  "properties": {
+    "assumptions_and_unknowns": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions And Unknowns",
+      "type": "array"
+    },
+    "attack_tree": {
+      "additionalProperties": true,
+      "title": "Attack Tree",
+      "type": "object"
+    },
+    "content_digest": {
+      "default": "",
+      "title": "Content Digest",
+      "type": "string"
+    },
+    "documented_operations": {
+      "items": {
+        "$ref": "#/$defs/HandoffOperation"
+      },
+      "title": "Documented Operations",
+      "type": "array"
+    },
+    "gherkin": {
+      "$ref": "#/$defs/HandoffGherkin"
+    },
+    "governing_rules": {
+      "items": {
+        "$ref": "#/$defs/HandoffRule"
+      },
+      "title": "Governing Rules",
+      "type": "array"
+    },
+    "hypothesis_framing": {
+      "title": "Hypothesis Framing",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "adversarial",
+        "functional"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "lineage": {
+      "$ref": "#/$defs/HandoffLineage"
+    },
+    "narrative": {
+      "title": "Narrative",
+      "type": "string"
+    },
+    "safe_alternative": {
+      "title": "Safe Alternative",
+      "type": "string"
+    },
+    "scenario_id": {
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "scenario_version": {
+      "default": 1,
+      "title": "Scenario Version",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "scenario-handoff-v1",
+      "default": "scenario-handoff-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantic_failure_criterion": {
+      "title": "Semantic Failure Criterion",
+      "type": "string"
+    },
+    "sourced_facts": {
+      "items": {
+        "$ref": "#/$defs/HandoffFact"
+      },
+      "title": "Sourced Facts",
+      "type": "array"
+    }
+  },
+  "required": [
+    "scenario_id",
+    "kind",
+    "hypothesis_framing",
+    "narrative",
+    "attack_tree",
+    "gherkin",
+    "semantic_failure_criterion",
+    "safe_alternative",
+    "lineage"
+  ],
+  "title": "ScenarioHandoff",
+  "type": "object"
+}

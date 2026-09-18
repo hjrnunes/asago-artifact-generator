@@ -69,6 +69,28 @@ asago-artifact-generator generate -v
 4. **Validate** structural gates (rubric completeness, surface/turn alignment, schema). 
 5. **Gate** platform coverage: `full`, `partial`, or `skip` .
 
+## Source-pinned artifact foundation
+
+The new authoring path accepts three target-free inputs:
+
+- Producer-owned `scenario-handoff-v1` JSON or YAML.
+- Native semantic scenario YAML, including dictionary-shaped
+  `behavior_spec.gherkin_text`.
+- A labeled development reference task.
+
+Use `asago_artifact_generator.input_adapter.load_input` to validate the
+vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and
+record SHA-256 source pins. Use `snapshot_input` or `snapshot_inputs` before
+authoring when a supplied reference source must be copied into a run-local,
+hash-addressed snapshot. These functions only read the source.
+
+The consumer-owned `artifact-package-v1` contract lives in
+`contracts/artifact-package/`. `package_io.write_package` writes a complete
+directory atomically, and `load_package` verifies its manifest, member paths,
+lengths, and digests before returning content. Runtime receipts remain outside
+the immutable package. The existing `generate` command remains the legacy
+compatibility path.
+
 ## Output layout
 
 Each scenario gets its own directory under `runs/`:

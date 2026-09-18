@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "artifact-package-v1 directory manifest",
+  "description": "The consumer-owned immutable artifact package. Each listed member is a relative code-owned path whose bytes are digest-bound.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "artifact-package-v1"
+    },
+    "package_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scenario_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_kind": {
+      "enum": [
+        "scenario-handoff-v1",
+        "native-semantic-yaml",
+        "reference-task"
+      ]
+    },
+    "reference_task": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "source_digests": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "pattern": "^[a-f0-9]{64}$",
+        "type": "string"
+      }
+    },
+    "members": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/member"
+      },
+      "minItems": 1
+    },
+    "authoring": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "detector_interface": {
+      "const": "evaluate(evidence: dict) -> dict"
+    },
+    "runtime_capabilities": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "creation_model": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "manifest_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "package_id",
+    "scenario_id",
+    "input_kind",
+    "source_digests",
+    "members",
+    "authoring",
+    "detector_interface",
+    "runtime_capabilities",
+    "creation_model",
+    "manifest_digest"
+  ],
+  "$defs": {
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[^\\\\]+$"
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "media_type",
+        "length",
+        "sha256"
+      ]
+    }
+  }
+}
