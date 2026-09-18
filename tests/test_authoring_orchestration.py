@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import subprocess
 import sys
@@ -36,6 +37,7 @@ HANDOFF = (
     / "adversarial-refund.json"
 )
 G07_REPLAY = Path(__file__).parent / "fixtures" / "g07-recovery.failure-evidence.json"
+G07_FINAL_REPLAY = Path(__file__).parent / "fixtures" / "g07-final.failure-evidence.json"
 
 
 def _view():
@@ -200,6 +202,120 @@ def test_rendered_contracts_expose_complete_validator_shapes_and_empty_permissio
         "not_detected",
         "inconclusive",
     ]
+
+
+def test_rendered_binding_contract_explains_direction_grammar_and_example() -> None:
+    view = _view()
+    call1 = build_call1_packet(view, _inventory(), _contract())
+    call2 = build_call2_packet(view, _plan(), _inventory(), _contract())
+
+    for packet in (call1, call2):
+        binding = packet.payload["response_contract"]["binding_declaration"]
+        assert "facts:<ref>" in binding["source_ref_rule"]
+        assert "setup:<operation>" in binding["source_ref_rule"]
+        assert binding["direction"] == "source_ref -> selector -> consumers"
+        assert "extracts one value" in binding["selector_rule"]
+        assert "substitution destinations" in binding["consumer_rule"]
+        assert binding["valid_example"] == {
+            "name": "draft_id",
+            "expected_type": "string",
+            "source_kind": "setup_output",
+            "source_ref": "setup:summarize_for_ehr",
+            "selector": "result.draft.id",
+            "consumers": ["stimulus.user_text"],
+            "on_missing": "stop",
+        }
+
+
+def test_plan_binding_findings_accumulate_nested_faults_without_coercion() -> None:
+    malformed = {
+        "name": "draft_id",
+        "expected_type": "any",
+        "source_kind": "supplied_input",
+        "source_ref": "stimulus.turns[0].text",
+        "selector": "stimulus.turns[0].text",
+        "consumers": ["stimulus.turns[0].text"],
+        "on_missing": "ignore",
+    }
+    plan = _plan(runtime_bindings=[malformed])
+
+    findings = collect_plan_findings(plan, _inventory(), _contract())
+
+    binding_findings = [
+        finding for finding in findings if finding.path.startswith("runtime_bindings[0]")
+    ]
+    assert len(binding_findings) >= 5
+    assert all(finding.code == "plan_binding_validation" for finding in binding_findings)
+    details = " ".join(finding.detail for finding in binding_findings).lower()
+    assert "consumer" in details
+    assert "source_ref" in details
+    assert "selector" in details
+    assert "expected_type" in details
+    assert "on_missing" in details
+    assert all(finding.code != "artifact_validation" for finding in binding_findings)
+    assert plan["runtime_bindings"] == [malformed]
+
+
+def test_final_g07_binding_replay_preserves_bytes_and_surfaces_all_nested_findings(
+    tmp_path: Path,
+) -> None:
+    saved = load_failure_evidence(G07_FINAL_REPLAY)
+    attempts = saved["attempts"]
+    assert [attempt["stage"] for attempt in attempts] == ["call1", "correction"]
+    raw_responses = [base64.b64decode(attempt["raw_response"]["base64"]) for attempt in attempts]
+    decoded = [attempt["decoded_output"] for attempt in attempts]
+    for attempt, raw in zip(attempts, raw_responses, strict=True):
+        assert raw == base64.b64decode(attempt["raw_response"]["base64"])
+        assert hashlib.sha256(raw).hexdigest() == attempt["raw_response"]["sha256"]
+
+    captured_request = json.loads(attempts[0]["prompt"]["user"])
+    inventory = captured_request["environment_inventory"]
+    runtime_contract = captured_request["runtime_contract"]
+    expected = collect_plan_findings(decoded[0], inventory, runtime_contract)
+    expected_binding = [
+        finding.to_dict() for finding in expected if finding.path.startswith("runtime_bindings[0]")
+    ]
+    assert {finding["code"] for finding in expected_binding} == {"plan_binding_validation"}
+    assert {"source_ref", "selector", "consumers"} <= {
+        finding["path"].split(".")[-1].split("[")[0] for finding in expected_binding
+    }
+
+    transport = ScriptedAuthoringTransport(
+        [
+            TransportResponse(
+                raw=raw_responses[0],
+                usage=attempts[0]["usage"]["value"],
+                controls=attempts[0]["controls"]["value"],
+            ),
+            TransportResponse(
+                raw=raw_responses[1],
+                usage=attempts[1]["usage"]["value"],
+                controls=attempts[1]["controls"]["value"],
+            ),
+        ]
+    )
+    result = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=tmp_path / "package",
+        task_id="G07-final-replay",
+    ).run(_view(), inventory, runtime_contract)
+
+    assert result.status == "failed"
+    assert len(transport.requests) == 2
+    assert result.raw_responses["call1"] == raw_responses[0]
+    assert result.raw_responses["correction"] == raw_responses[1]
+    assert result.decoded_responses["call1"] == decoded[0]
+    assert result.decoded_responses["correction-call1"] == decoded[1]
+    assert result.ledger[0]["findings"] == expected_binding
+    assert len(result.ledger[0]["findings"]) >= 3
+    assert len(result.ledger[1]["findings"]) >= 3
+    correction = transport.requests[1]["payload"]
+    assert correction["failed_response"] == raw_responses[0].decode()
+    assert correction["failed_response_bytes_hex"] == raw_responses[0].hex()
+    assert (
+        "facts:<ref>" in correction["response_contract"]["binding_declaration"]["source_ref_rule"]
+    )
+    assert "stimulus.turns[0].text" in correction["failed_response"]
 
 
 def test_plan_validation_accumulates_all_structural_findings() -> None:

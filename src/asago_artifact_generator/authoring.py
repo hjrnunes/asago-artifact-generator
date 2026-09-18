@@ -17,7 +17,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from .bindings import BindingValidationError, validate_bindings
+from .bindings import (
+    CLOSED_TYPES,
+    MISSING_POLICIES,
+    SOURCE_KINDS,
+    BindingValidationError,
+    validate_bindings,
+)
 from .failure_evidence import (
     failure_evidence_path,
     load_failure_evidence,
@@ -944,7 +950,14 @@ def collect_plan_findings(
         findings.extend(_collect_setup_findings(setup_recipe, inventory, runtime_contract))
     runtime_bindings = plan.get("runtime_bindings")
     if isinstance(runtime_bindings, list):
-        findings.extend(_collect_binding_findings(runtime_bindings, inventory, runtime_contract))
+        findings.extend(
+            _collect_binding_findings(
+                runtime_bindings,
+                inventory,
+                runtime_contract,
+                finding_code="plan_binding_validation",
+            )
+        )
 
     approach = plan.get("stimulus_approach")
     if not isinstance(approach, dict):
@@ -1510,6 +1523,8 @@ def _collect_binding_findings(
     declarations: list[Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    *,
+    finding_code: str = "artifact_validation",
 ) -> list[Finding]:
     findings: list[Finding] = []
     names: dict[str, int] = {}
@@ -1517,16 +1532,315 @@ def _collect_binding_findings(
         path = f"runtime_bindings[{index}]"
         if isinstance(raw, dict) and isinstance(raw.get("name"), str):
             if raw["name"] in names:
-                findings.append(
-                    Finding("duplicate_binding", f"duplicate binding: {raw['name']}", path)
-                )
+                findings.append(Finding(finding_code, f"duplicate binding: {raw['name']}", path))
             names[raw["name"]] = index
-        try:
-            validate_bindings([raw], inventory=inventory, runtime_contract=runtime_contract)
-        except BindingValidationError as exc:
-            child = _findings_from_error(exc)[0]
-            findings.append(Finding(child.code, child.detail, path))
+        nested = _collect_binding_nested_findings(
+            raw,
+            inventory=inventory,
+            runtime_contract=runtime_contract,
+            path=path,
+            finding_code=finding_code,
+        )
+        findings.extend(nested)
+        if not nested:
+            try:
+                validate_bindings([raw], inventory=inventory, runtime_contract=runtime_contract)
+            except BindingValidationError as exc:
+                findings.append(Finding(finding_code, str(exc), path))
     return findings
+
+
+def _collect_binding_nested_findings(
+    raw: Any,
+    *,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    path: str,
+    finding_code: str,
+) -> list[Finding]:
+    """Collect independent binding faults without changing the closed validator."""
+
+    if not isinstance(raw, dict):
+        return [Finding(finding_code, "binding must be an object", path)]
+
+    required = {
+        "name",
+        "expected_type",
+        "source_kind",
+        "source_ref",
+        "selector",
+        "consumers",
+        "on_missing",
+    }
+    findings: list[Finding] = []
+    for field_name in sorted(required - set(raw)):
+        findings.append(
+            Finding(
+                finding_code,
+                f"binding missing field: {field_name}",
+                f"{path}.{field_name}",
+            )
+        )
+    for field_name in sorted(set(raw) - required):
+        findings.append(
+            Finding(
+                finding_code,
+                f"binding has unsupported field: {field_name}",
+                f"{path}.{field_name}",
+            )
+        )
+
+    string_fields = (
+        "name",
+        "expected_type",
+        "source_kind",
+        "source_ref",
+        "selector",
+        "on_missing",
+    )
+    for field_name in string_fields:
+        if field_name in raw and not isinstance(raw[field_name], str):
+            findings.append(
+                Finding(
+                    finding_code,
+                    f"binding {field_name} must be a string",
+                    f"{path}.{field_name}",
+                )
+            )
+
+    name = raw.get("name")
+    if isinstance(name, str) and not name.strip():
+        findings.append(Finding(finding_code, "binding name is blank", f"{path}.name"))
+
+    expected_type = raw.get("expected_type")
+    if isinstance(expected_type, str) and expected_type not in CLOSED_TYPES:
+        findings.append(
+            Finding(
+                finding_code,
+                f"binding expected_type is not closed: {name}",
+                f"{path}.expected_type",
+            )
+        )
+
+    source_kind = raw.get("source_kind")
+    if isinstance(source_kind, str) and source_kind not in SOURCE_KINDS:
+        findings.append(
+            Finding(
+                finding_code,
+                f"binding source_kind is not closed: {name}",
+                f"{path}.source_kind",
+            )
+        )
+
+    source_ref = raw.get("source_ref")
+    source_schema: dict[str, Any] | None = None
+    if isinstance(source_ref, str):
+        if not source_ref.strip():
+            findings.append(
+                Finding(
+                    finding_code,
+                    f"binding source reference is blank: {name}",
+                    f"{path}.source_ref",
+                )
+            )
+        elif source_kind in SOURCE_KINDS:
+            source_schema, source_error = _binding_source_schema(
+                source_kind,
+                source_ref,
+                inventory,
+                runtime_contract,
+                name,
+            )
+            if source_error:
+                findings.append(Finding(finding_code, source_error, f"{path}.source_ref"))
+
+    on_missing = raw.get("on_missing")
+    if isinstance(on_missing, str) and on_missing not in MISSING_POLICIES:
+        findings.append(
+            Finding(
+                finding_code,
+                f"binding on_missing is not closed: {name}",
+                f"{path}.on_missing",
+            )
+        )
+
+    consumers = raw.get("consumers")
+    if not isinstance(consumers, list):
+        findings.append(
+            Finding(
+                finding_code,
+                "binding consumers must be a list",
+                f"{path}.consumers",
+            )
+        )
+    elif not consumers:
+        findings.append(
+            Finding(
+                finding_code,
+                "binding consumers must be non-empty strings",
+                f"{path}.consumers",
+            )
+        )
+    else:
+        for consumer_index, consumer in enumerate(consumers):
+            consumer_path = f"{path}.consumers[{consumer_index}]"
+            if not isinstance(consumer, str) or not consumer.strip():
+                findings.append(
+                    Finding(
+                        finding_code,
+                        "binding consumers must be non-empty strings",
+                        consumer_path,
+                    )
+                )
+            elif not _is_closed_consumer(consumer):
+                findings.append(
+                    Finding(
+                        finding_code,
+                        "binding consumer is not a closed path",
+                        consumer_path,
+                    )
+                )
+
+    selector = raw.get("selector")
+    if not isinstance(selector, str):
+        if "selector" in raw:
+            findings.append(
+                Finding(
+                    finding_code,
+                    f"binding selector must be a string: {name}",
+                    f"{path}.selector",
+                )
+            )
+    elif not selector.strip():
+        findings.append(
+            Finding(
+                finding_code,
+                f"binding selector is blank: {name}",
+                f"{path}.selector",
+            )
+        )
+    elif _selector_root(selector) is None:
+        findings.append(
+            Finding(
+                finding_code,
+                (
+                    "selector must be an exact documented dot path rooted at value "
+                    "for supplied_input or result for setup_output"
+                ),
+                f"{path}.selector",
+            )
+        )
+    elif source_schema is not None:
+        actual_type = _binding_selector_type(source_schema, selector)
+        if actual_type is None:
+            findings.append(
+                Finding(
+                    finding_code,
+                    f"undocumented selector for binding {name}: {selector}",
+                    f"{path}.selector",
+                )
+            )
+        elif (
+            isinstance(expected_type, str)
+            and expected_type in CLOSED_TYPES
+            and not _binding_types_compatible(actual_type, expected_type)
+        ):
+            findings.append(
+                Finding(
+                    finding_code,
+                    (
+                        f"binding type mismatch for {name}: expected {expected_type}, "
+                        f"source is {actual_type}"
+                    ),
+                    f"{path}.selector",
+                )
+            )
+    return findings
+
+
+def _is_closed_consumer(value: str) -> bool:
+    return value in {"stimulus.user_text", "stimulus.history"} or value.startswith(
+        ("detector.", "prerequisites.", "setup.arguments.")
+    )
+
+
+def _binding_source_schema(
+    source_kind: str,
+    source_ref: str,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    name: Any,
+) -> tuple[dict[str, Any] | None, str | None]:
+    prefix, _, reference = source_ref.partition(":")
+    expected_prefix = "setup" if source_kind == "setup_output" else "facts"
+    if prefix != expected_prefix or not reference:
+        reference_label = "operation" if source_kind == "setup_output" else "ref"
+        return (
+            None,
+            (
+                f"{source_kind} binding source_ref must be "
+                f"{expected_prefix}:<{reference_label}>: "
+                f"{name}"
+            ),
+        )
+    if source_kind == "setup_output":
+        operation = next(
+            (
+                item
+                for item in inventory.get("operations", [])
+                if isinstance(item, dict) and item.get("name") == reference
+            ),
+            None,
+        )
+        if operation is None:
+            return None, f"unknown setup operation: {reference}"
+        if reference not in runtime_contract.get("setup_permissions", []):
+            return None, f"setup operation is not permitted: {reference}"
+        schema = operation.get("result_schema")
+    else:
+        fact = next(
+            (
+                item
+                for item in inventory.get("facts", [])
+                if isinstance(item, dict) and item.get("ref") == reference
+            ),
+            None,
+        )
+        if fact is None:
+            return None, f"unknown supplied fact: {reference}"
+        schema = fact.get("schema")
+    if not isinstance(schema, dict):
+        return None, f"missing source schema for binding: {name}"
+    return schema, None
+
+
+def _selector_root(selector: str) -> str | None:
+    root = selector.split(".", 1)[0]
+    return root if root in {"result", "value"} else None
+
+
+def _binding_selector_type(schema: dict[str, Any], selector: str) -> str | None:
+    current: Any = schema
+    parts = selector.split(".")
+    if not parts or any(not part for part in parts):
+        return None
+    for part in parts[1:]:
+        if not isinstance(current, dict):
+            return None
+        if current.get("type") == "object":
+            properties = current.get("properties")
+            if not isinstance(properties, dict) or part not in properties:
+                return None
+            current = properties[part]
+        elif current.get("type") == "array" and part == "items":
+            current = current.get("items")
+        else:
+            return None
+    return current.get("type") if isinstance(current, dict) else None
+
+
+def _binding_types_compatible(actual: str, expected: str) -> bool:
+    return actual == expected or (actual == "integer" and expected == "number")
 
 
 def _validated_bindings(
@@ -2191,14 +2505,31 @@ def _binding_contract() -> dict[str, Any]:
             "enum": ["supplied_input", "setup_output"],
         },
         "on_missing": {"type": "string", "enum": ["inconclusive", "stop"]},
+        "direction": "source_ref -> selector -> consumers",
+        "source_ref_rule": (
+            "source_ref identifies the permitted source using exactly facts:<ref> "
+            "for supplied_input or setup:<operation> for setup_output; it is not "
+            "a stimulus path or a guessed field name"
+        ),
         "selector_rule": (
-            "selector is an exact documented dot path rooted at value for supplied_input "
-            "or result for setup_output; inferred field names are invalid"
+            "selector performs value extraction: it extracts one value through an exact "
+            "documented dot path rooted at value for supplied_input or result for "
+            "setup_output; inferred field names are invalid"
         ),
         "consumer_rule": (
-            "consumers is a non-empty list of closed paths: stimulus.user_text, "
-            "stimulus.history, prerequisites.*, detector.*, or setup.arguments.*"
+            "consumers is a non-empty list of closed substitution destinations: "
+            "stimulus.user_text, stimulus.history, prerequisites.*, detector.*, or "
+            "setup.arguments.*; a consumer does not identify the source"
         ),
+        "valid_example": {
+            "name": "draft_id",
+            "expected_type": "string",
+            "source_kind": "setup_output",
+            "source_ref": "setup:summarize_for_ehr",
+            "selector": "result.draft.id",
+            "consumers": ["stimulus.user_text"],
+            "on_missing": "stop",
+        },
     }
 
 
@@ -2208,9 +2539,14 @@ def _binding_list_schema() -> dict[str, Any]:
         "name": {"type": "string"},
         "expected_type": contract["expected_type"],
         "source_kind": contract["source_kind"],
-        "source_ref": {"type": "string"},
-        "selector": {"type": "string"},
-        "consumers": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "source_ref": {"type": "string", "description": contract["source_ref_rule"]},
+        "selector": {"type": "string", "description": contract["selector_rule"]},
+        "consumers": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "description": contract["consumer_rule"],
+        },
         "on_missing": contract["on_missing"],
     }
     return {
