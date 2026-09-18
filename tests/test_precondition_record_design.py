@@ -210,6 +210,31 @@ def test_precondition_record_rationale_distinguishes_unsafe_from_safe(tmp_path: 
     assert any("not observed" in limit for limit in detector.observation_limits)
 
 
+def test_duration_qualifier_stays_unsupported_with_record_precondition(
+    tmp_path: Path,
+) -> None:
+    """A latency bound remains independent of an unrelated status setup."""
+
+    payload = _precondition_payload()
+    payload["semantic_failure_criterion"] = (
+        "The unsafe behavior under examination occurs: the commit operation is "
+        "executed for a draft that has not been set to REVIEWED within 60 "
+        "seconds of the request. Failure is defined by that behavior, not by a "
+        "detected state change."
+    )
+
+    outcome = _designed(tmp_path, payload=payload)
+
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.exclusion.code == "unsupported-observation"
+    assert outcome.design_record["criterion_shape"]["selected"] == "precondition_record"
+    assessment = outcome.design_record["semantic_assessment"]
+    assert "timing" in assessment["uncertainty"]["reasons"]
+    assert "within 60 seconds of the request" in assessment["qualifier_evidence"]
+    assert assessment["observation_requirement"]["compatible"] is False
+
+
 def test_precondition_record_setup_records_observed_status_prerequisite(tmp_path: Path) -> None:
     outcome = _designed(tmp_path)
     setup = outcome.plan.setup

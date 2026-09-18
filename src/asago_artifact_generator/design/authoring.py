@@ -1927,12 +1927,39 @@ _CRITERION_TIMING = re.compile(
     r"synchroni[sz]\w*)\b",
     re.IGNORECASE,
 )
+_CRITERION_DURATION_BOUND = re.compile(
+    r"\b(?:within|in|under|below|for|no\s+more\s+than|at\s+most|less\s+than|"
+    r"no\s+later\s+than)\s+"
+    r"(?:(?:less|more)\s+than\s+)?"
+    r"(?:a|an|zero|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"\d+(?:\.\d+)?)\s+"
+    r"(?:milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|"
+    r"hours?|hrs?|h|days?|d)\b"
+    r"(?:\s+(?:of|after|before)\s+(?:the\s+)?"
+    r"(?:request|command|operation|submission|invocation))?"
+    r"|"
+    r"\b(?:a|an|zero|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"\d+(?:\.\d+)?)\s+"
+    r"(?:milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|"
+    r"hours?|hrs?|h|days?|d)\s+"
+    r"(?:after|before)\s+(?:the\s+)?"
+    r"(?:request|command|operation|submission|invocation)\b",
+    re.IGNORECASE,
+)
 _CRITERION_AUTHORIZATION = re.compile(
     r"\b(?:without|lacking|lack(?:s|ed)?|missing|requires?|"
     r"requiring)\b[^.;,]*\b(?:authoriz\w*|approv\w*|permission|consent)\b"
     r"|"
     r"\b(?:authoriz\w*|approv\w*|permission|consent)\b[^.;,]*"
     r"\b(?:without|missing|absent|unverified|unconfirmed)\b",
+    re.IGNORECASE,
+)
+_CRITERION_GRANTED_PERMISSION = re.compile(
+    r"\b(?:is|are|was|were)\s+"
+    r"(?:authoriz\w*|permit\w*|allow\w*)\s+to\s+[a-z][\w'-]*\b"
+    r"|"
+    r"\b(?:has|have|had)\s+"
+    r"(?:permission|authorization)\s+to\s+[a-z][\w'-]*\b",
     re.IGNORECASE,
 )
 
@@ -2025,9 +2052,11 @@ def _criterion_qualifier_reasons(
         reasons.append("negation")
     elif action_aspect == "unresolved":
         reasons.append("unknown")
-    if _CRITERION_TIMING.search(material) and _record_precondition(handoff) is None:
+    if _CRITERION_DURATION_BOUND.search(material) or (
+        _CRITERION_TIMING.search(material) and _record_precondition(handoff) is None
+    ):
         reasons.append("timing")
-    if _CRITERION_AUTHORIZATION.search(material):
+    if _CRITERION_AUTHORIZATION.search(material) or _CRITERION_GRANTED_PERMISSION.search(material):
         reasons.append("authorization")
     return reasons
 
@@ -2048,10 +2077,21 @@ def _criterion_qualifier_evidence(
     evidence = [
         match.group(0).strip() for pattern in patterns for match in pattern.finditer(action_text)
     ]
+    duration_matches = tuple(_CRITERION_DURATION_BOUND.finditer(material))
+    evidence.extend(match.group(0).strip() for match in duration_matches)
     if _record_precondition(handoff) is None:
-        evidence.extend(match.group(0).strip() for match in _CRITERION_TIMING.finditer(material))
+        evidence.extend(
+            match.group(0).strip()
+            for match in _CRITERION_TIMING.finditer(material)
+            if not any(
+                match.start() < duration.end() and duration.start() < match.end()
+                for duration in duration_matches
+            )
+        )
     evidence.extend(
-        match.group(0).strip() for match in _CRITERION_AUTHORIZATION.finditer(material)
+        match.group(0).strip()
+        for pattern in (_CRITERION_AUTHORIZATION, _CRITERION_GRANTED_PERMISSION)
+        for match in pattern.finditer(material)
     )
     return list(dict.fromkeys(evidence))
 
