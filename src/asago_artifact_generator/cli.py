@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Annotated
 
 import typer
+import yaml
 
+from .authoring import AuthoringOrchestrator, PrivateModelAuthoringTransport
 from .extract import load_scenario
 from .garak.gen import generate_artifact, list_scenario_files
 from .garak.spec_io import MANIFEST_FILE, runs_dir
+from .input_adapter import InputKind, load_input
+from .llm import BASE_URL, MODEL
 
 app = typer.Typer(
     help="Policy-driven agentic red-teaming artifact generator.",
@@ -151,6 +156,91 @@ def generate(
 
     if failed:
         raise typer.Exit(1)
+
+
+@app.command()
+def author(
+    source: Annotated[Path, typer.Argument(help="Scenario handoff or semantic input file.")],
+    inventory: Annotated[
+        Path,
+        typer.Option("--inventory", help="Complete supplied operation/fact inventory JSON/YAML."),
+    ],
+    runtime_contract: Annotated[
+        Path,
+        typer.Option(
+            "--runtime-contract", help="Supplied target-free runtime contract JSON/YAML."
+        ),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Directory receiving the immutable package."),
+    ] = Path("runs/authoring"),
+    input_kind: Annotated[
+        InputKind | None,
+        typer.Option("--input-kind", help="Explicit input kind; otherwise infer it."),
+    ] = None,
+    reference_label: Annotated[
+        str | None,
+        typer.Option("--reference-label", help="Optional development-input label."),
+    ] = None,
+    reference_id: Annotated[
+        str | None,
+        typer.Option("--reference-id", help="Optional reference-task identity."),
+    ] = None,
+    task_id: Annotated[
+        str | None,
+        typer.Option("--task-id", help="Stable task identity used in package metadata."),
+    ] = None,
+) -> None:
+    """Author one target-free immutable detector package with two bounded calls."""
+
+    view = load_input(
+        source,
+        kind=input_kind,
+        reference_label=reference_label,
+        reference_id=reference_id,
+    )
+    inventory_data = _load_mapping(inventory, "inventory")
+    runtime_data = _load_mapping(runtime_contract, "runtime contract")
+    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("GEMINI_API_KEY") or "private"
+    transport = PrivateModelAuthoringTransport(
+        base_url=BASE_URL,
+        api_key=api_key,
+        model=MODEL,
+    )
+    stable_task_id = task_id or view.scenario_id
+    package_dir = output_dir / stable_task_id
+    result = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=package_dir,
+        task_id=stable_task_id,
+    ).run(view, inventory_data, runtime_data)
+    typer.echo(
+        json.dumps(
+            {
+                "status": result.status,
+                "package": str(result.package_path) if result.package_path else None,
+            }
+        )
+    )
+    if result.status != "packaged":
+        for finding in result.findings:
+            typer.echo(f"{finding.code}: {finding.detail}", err=True)
+        raise typer.Exit(1)
+
+
+def _load_mapping(path: Path, label: str) -> dict:
+    try:
+        document = (
+            json.loads(path.read_text(encoding="utf-8"))
+            if path.suffix.lower() == ".json"
+            else yaml.safe_load(path.read_text(encoding="utf-8"))
+        )
+    except (OSError, json.JSONDecodeError, yaml.YAMLError) as exc:
+        raise typer.BadParameter(f"cannot read {label}: {exc}", param_hint=str(path)) from exc
+    if not isinstance(document, dict):
+        raise typer.BadParameter(f"{label} must be an object", param_hint=str(path))
+    return document
 
 
 if __name__ == "__main__":

@@ -91,6 +91,26 @@ lengths, and digests before returning content. Runtime receipts remain outside
 the immutable package. The existing `generate` command remains the legacy
 compatibility path.
 
+### Target-free authoring
+
+Use `author` to run the bounded Call 1 plan and Call 2 package sequence. Supply
+the complete inventory and runtime contract as JSON or YAML:
+
+```bash
+asago-artifact-generator author scenario.json \
+  --inventory inventory.json \
+  --runtime-contract runtime-contract.json \
+  --output-dir runs/authoring
+```
+
+Authoring uses only the configured private model client. It sets provider
+retries to zero, records prompts, raw and decoded responses, usage, controls,
+and one shared correction allowance, and never contacts a target, setup,
+discovery, or runtime-judge transport. An essential unresolved requirement
+produces a retained `*.blocked.json` plan and no package. The package contains
+the model-authored detector source, user-only stimulus, exact runtime-binding
+declarations, observations, explanation, examples, and digest-bound evidence.
+
 ## Output layout
 
 Each scenario gets its own directory under `runs/`:

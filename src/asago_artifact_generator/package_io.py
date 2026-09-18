@@ -35,6 +35,8 @@ _ALLOWED_MEMBER_NAMES = {
     "source-hashes.json",
     "observations.json",
     "judge.json",
+    "explanation.json",
+    "examples.json",
 }
 _CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "artifact-package"
 _INPUT_KINDS = {"scenario-handoff-v1", "native-semantic-yaml", "reference-task"}
