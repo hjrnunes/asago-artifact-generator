@@ -20,6 +20,9 @@ from asago_artifact_generator.authoring import (
     ScriptedAuthoringTransport,
     TransportResponse,
     build_call1_packet,
+    build_call2_packet,
+    collect_artifact_findings,
+    collect_plan_findings,
     load_failure_evidence,
 )
 from asago_artifact_generator.input_adapter import InputKind, load_input
@@ -32,6 +35,7 @@ HANDOFF = (
     / "valid"
     / "adversarial-refund.json"
 )
+G07_REPLAY = Path(__file__).parent / "fixtures" / "g07-recovery.failure-evidence.json"
 
 
 def _view():
@@ -158,6 +162,201 @@ def test_call_packets_are_deterministic_and_include_complete_inventory() -> None
     assert first.version.startswith("authoring-call1-")
 
 
+def test_rendered_contracts_expose_complete_validator_shapes_and_empty_permissions() -> None:
+    view = _view()
+    contract = _contract()
+    call1 = build_call1_packet(view, _inventory(), contract)
+    call2 = build_call2_packet(view, _plan(), _inventory(), contract)
+
+    for packet in (call1, call2):
+        response_contract = packet.payload["response_contract"]
+        schema = response_contract["schema"]
+        assert schema["type"] == "object"
+        assert set(schema["required"]) == set(response_contract["fields"])
+        assert response_contract["empty_shapes"]["setup_recipe_when_setup_is_unavailable"] == []
+        assert response_contract["binding_declaration"]["required"] == [
+            "name",
+            "expected_type",
+            "source_kind",
+            "source_ref",
+            "selector",
+            "consumers",
+            "on_missing",
+        ]
+        assert response_contract["binding_declaration"]["consumer_rule"]
+        assert response_contract["binding_declaration"]["selector_rule"]
+
+    call1_schema = call1.payload["response_contract"]["schema"]
+    assert call1_schema["properties"]["setup_recipe"]["type"] == "array"
+    assert call1_schema["properties"]["runtime_bindings"]["type"] == "array"
+    assert call1_schema["properties"]["semantic_judge"]["properties"]["needed"]["type"] == (
+        "boolean"
+    )
+    call2_schema = call2.payload["response_contract"]["schema"]
+    assert call2_schema["properties"]["detector_source"]["type"] == "string"
+    assert call2_schema["properties"]["semantic_judge_spec"]["nullable"] is True
+    assert call2.payload["response_contract"]["detector_result"]["outcomes"] == [
+        "detected",
+        "not_detected",
+        "inconclusive",
+    ]
+
+
+def test_plan_validation_accumulates_all_structural_findings() -> None:
+    malformed = {
+        "interpretation": "wrong",
+        "selected_evidence": ["wrong"],
+        "setup_recipe": "wrong",
+        "runtime_bindings": {"wrong": True},
+        "prerequisites": ["wrong"],
+        "stimulus_approach": "wrong",
+        "observation_claim": "wrong",
+        "semantic_judge": "wrong",
+        "unresolved_requirements": "wrong",
+    }
+
+    findings = collect_plan_findings(malformed, _inventory(), _contract())
+
+    assert len(findings) >= 9
+    paths = {finding.path for finding in findings}
+    assert all(
+        any(path == expected or path.startswith(f"{expected}[") for path in paths)
+        for expected in {
+            "interpretation",
+            "selected_evidence",
+            "setup_recipe",
+            "runtime_bindings",
+            "prerequisites",
+            "stimulus_approach",
+            "observation_claim",
+            "semantic_judge",
+            "unresolved_requirements",
+        }
+    )
+
+
+def test_artifact_validation_accumulates_all_structural_findings() -> None:
+    malformed = {
+        "stimulus": "wrong",
+        "setup_recipe": "wrong",
+        "runtime_bindings": {"wrong": True},
+        "prerequisites": "wrong",
+        "detector_source": 7,
+        "required_observations": [],
+        "semantic_judge_spec": 7,
+        "explanation": [],
+        "examples": [],
+    }
+
+    findings = collect_artifact_findings(malformed, _plan(), _inventory(), _contract())
+
+    assert len(findings) >= 9
+    paths = {finding.path for finding in findings}
+    assert {
+        "stimulus",
+        "setup_recipe",
+        "runtime_bindings",
+        "prerequisites",
+        "detector_source",
+        "required_observations",
+        "semantic_judge_spec",
+        "explanation",
+        "examples",
+    } <= paths
+
+
+def test_shared_correction_contains_complete_contract_and_all_findings(
+    tmp_path: Path,
+) -> None:
+    malformed = {
+        "interpretation": "wrong",
+        "selected_evidence": ["wrong"],
+        "setup_recipe": "wrong",
+        "runtime_bindings": {"wrong": True},
+        "prerequisites": ["wrong"],
+        "stimulus_approach": "wrong",
+        "observation_claim": "wrong",
+        "semantic_judge": "wrong",
+        "unresolved_requirements": "wrong",
+    }
+    response = json.dumps(malformed)
+    transport = ScriptedAuthoringTransport([response, response])
+
+    result = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=tmp_path / "package",
+        task_id="complete-correction",
+    ).run(_view(), _inventory(), _contract())
+
+    assert result.status == "failed"
+    assert len(result.ledger) == 2
+    correction = transport.requests[1]
+    original = transport.requests[0]
+    payload = correction["payload"]
+    assert payload["original_request"]["system"] == original["system"]
+    assert payload["original_request"]["user"] == original["user"]
+    assert payload["original_request"]["payload"] == original["payload"]
+    assert payload["failed_response"] == response
+    assert payload["failed_response_bytes_hex"] == response.encode().hex()
+    assert payload["response_contract"] == original["payload"]["response_contract"]
+    assert payload["failed_stage_contract"] == original["payload"]["response_contract"]
+    assert len(payload["findings"]) >= 9
+    assert len(result.ledger[1]["findings"]) >= 9
+    assert result.raw_responses["call1"] == response.encode()
+    assert result.decoded_responses["call1"] == malformed
+
+
+def test_captured_g07_responses_replay_without_contact_and_report_all_findings(
+    tmp_path: Path,
+) -> None:
+    saved = load_failure_evidence(G07_REPLAY)
+    attempts = saved["attempts"]
+    assert [attempt["stage"] for attempt in attempts] == ["call1", "correction"]
+    raw_responses = [base64.b64decode(attempt["raw_response"]["base64"]) for attempt in attempts]
+    decoded = [attempt["decoded_output"] for attempt in attempts]
+    expected_call1_findings = [
+        finding.to_dict()
+        for finding in collect_plan_findings(decoded[0], _inventory(), _contract())
+    ]
+
+    transport = ScriptedAuthoringTransport(
+        [
+            TransportResponse(
+                raw=raw_responses[0],
+                usage=attempts[0]["usage"]["value"],
+                controls=attempts[0]["controls"]["value"],
+            ),
+            TransportResponse(
+                raw=raw_responses[1],
+                usage=attempts[1]["usage"]["value"],
+                controls=attempts[1]["controls"]["value"],
+            ),
+        ]
+    )
+    result = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=tmp_path / "package",
+        task_id="G07-replay",
+    ).run(_view(), _inventory(), _contract())
+
+    assert result.status == "failed"
+    assert len(transport.requests) == 2
+    assert result.raw_responses["call1"] == raw_responses[0]
+    assert result.raw_responses["correction"] == raw_responses[1]
+    assert result.decoded_responses["call1"] == decoded[0]
+    assert result.ledger[0]["usage"] == attempts[0]["usage"]["value"]
+    assert result.ledger[1]["usage"] == attempts[1]["usage"]["value"]
+    assert result.transformations == ["outer_fence_removed", "outer_fence_removed"]
+    assert result.ledger[0]["findings"] == expected_call1_findings
+    assert len(result.ledger[0]["findings"]) > 1
+    assert len(result.ledger[1]["findings"]) > 1
+    correction = transport.requests[1]["payload"]
+    assert correction["failed_response"] == raw_responses[0].decode()
+    assert correction["failed_response_bytes_hex"] == raw_responses[0].hex()
+    assert correction["response_contract"] == transport.requests[0]["payload"]["response_contract"]
+    assert correction["findings"] == expected_call1_findings
+
+
 def test_two_calls_build_an_immutable_package_with_exact_detector_bytes(tmp_path: Path) -> None:
     transport = ScriptedAuthoringTransport([json.dumps(_plan()), json.dumps(_artifact())])
     result = AuthoringOrchestrator(
@@ -255,6 +454,10 @@ def test_one_shared_correction_contains_exact_failure_and_never_fourth_request(
     assert correction["payload"]["failed_stage"] == failed_stage
     failed_index = 0 if failed_stage == "call1" else 1
     assert correction["payload"]["failed_response"] == responses[failed_index]
+    assert (
+        correction["payload"]["response_contract"]
+        == transport.requests[failed_index]["payload"]["response_contract"]
+    )
     assert correction["payload"]["findings"]
 
 

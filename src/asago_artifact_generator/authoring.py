@@ -9,6 +9,7 @@ It never contacts a target, setup transport, discovery service, or judge.
 from __future__ import annotations
 
 import ast
+import base64
 import hashlib
 import json
 import re
@@ -262,7 +263,7 @@ class AuthoringOrchestrator:
             return self._result("failed", None, [Finding("context_overflow", str(exc))])
         plan, findings, raw = self._request_and_validate(
             call1,
-            lambda decoded: _validate_plan(decoded, inventory, runtime_contract),
+            lambda decoded: collect_plan_findings(decoded, inventory, runtime_contract),
         )
         if plan is None:
             if not findings:
@@ -295,7 +296,12 @@ class AuthoringOrchestrator:
             return self._result("failed", plan, [Finding("context_overflow", str(exc))])
         artifact, findings, raw = self._request_and_validate(
             call2,
-            lambda decoded: _validate_artifact(decoded, plan, inventory, runtime_contract),
+            lambda decoded: collect_artifact_findings(
+                decoded,
+                plan,
+                inventory,
+                runtime_contract,
+            ),
         )
         if artifact is None:
             correction = self._correction(
@@ -350,7 +356,7 @@ class AuthoringOrchestrator:
     def _request_and_validate(
         self,
         packet: PromptPacket,
-        validator: Any,
+        findings_collector: Any,
     ) -> tuple[dict[str, Any] | None, list[Finding], bytes]:
         stage = packet.stage
         self._prompt_packets[stage] = packet
@@ -381,7 +387,6 @@ class AuthoringOrchestrator:
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             finding = Finding("response_parse_error", str(exc), stage)
             record["parse_error"] = str(exc)
-            record["findings"] = [finding.to_dict()]
             self._findings.append(finding)
             self._record_failure(finding)
             return None, [finding], raw
@@ -395,7 +400,6 @@ class AuthoringOrchestrator:
             assert_no_secrets(decoded)
         except AuthoringError as exc:
             finding = Finding("secret_in_response", str(exc), stage)
-            record["findings"] = [finding.to_dict()]
             self._findings.append(finding)
             self._record_failure(finding)
             return None, [finding], raw
@@ -405,14 +409,11 @@ class AuthoringOrchestrator:
         self._persist_failure_evidence()
         if not isinstance(decoded, dict):
             finding = Finding("response_type_error", "response must decode to an object", stage)
-            record["findings"] = [finding.to_dict()]
             self._findings.append(finding)
             self._record_failure(finding)
             return None, [finding], raw
-        try:
-            validator(decoded)
-        except (AuthoringError, BindingValidationError) as exc:
-            findings = _findings_from_error(exc)
+        findings = findings_collector(decoded)
+        if findings:
             self._findings.extend(findings)
             record["findings"] = [finding.to_dict() for finding in findings]
             self._record_failures(findings)
@@ -482,12 +483,17 @@ class AuthoringOrchestrator:
             "original_request": {
                 "system": failed_packet.system,
                 "user": failed_packet.user,
+                "payload": failed_packet.payload,
             },
             "failed_response": exact_response,
             "failed_response_bytes_hex": failed_response.hex(),
+            "failed_response_bytes_base64": base64.b64encode(failed_response).decode("ascii"),
+            "failed_stage_contract": failed_packet.payload["response_contract"],
+            "response_contract": failed_packet.payload["response_contract"],
             "findings": [finding.to_dict() for finding in findings],
             "instruction": "Return a complete replacement response for the failed stage.",
         }
+        assert_no_secrets(correction_payload)
         packet = PromptPacket(
             stage="correction",
             version=CORRECTION_PROMPT_VERSION,
@@ -539,21 +545,19 @@ class AuthoringOrchestrator:
             if not isinstance(decoded, dict):
                 raise ValueError("correction response must decode to an object")
             if failed_stage == "call1":
-
-                def validate_replacement(value: dict[str, Any]) -> None:
-                    _validate_plan(value, inventory, runtime_contract)
-
+                findings = collect_plan_findings(decoded, inventory, runtime_contract)
             else:
-
-                def validate_replacement(value: dict[str, Any]) -> None:
-                    _validate_artifact(
-                        value,
-                        self._decoded_responses["call1"],
-                        inventory,
-                        runtime_contract,
-                    )
-
-            validate_replacement(decoded)
+                findings = collect_artifact_findings(
+                    decoded,
+                    self._decoded_responses["call1"],
+                    inventory,
+                    runtime_contract,
+                )
+            if findings:
+                self._ledger[-1]["findings"] = [finding.to_dict() for finding in findings]
+                self._findings.extend(findings)
+                self._record_failures(findings)
+                return None
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError, AuthoringError) as exc:
             finding = Finding("correction_failed", str(exc), failed_stage)
             self._ledger[-1]["findings"] = [finding.to_dict()]
@@ -787,96 +791,686 @@ def assert_no_secrets(value: Any) -> None:
         raise AuthoringError(f"secret-bearing authoring evidence: {', '.join(paths)}")
 
 
+def collect_plan_findings(
+    plan: Any,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[Finding]:
+    """Return every structural Call 1 finding without changing ``plan``."""
+
+    findings: list[Finding] = []
+    if not isinstance(plan, dict):
+        return [Finding("response_type_error", "plan must be an object", "response")]
+
+    required = _call1_contract()["schema"]["required"]
+    allowed = set(required)
+    for field_name in sorted(set(plan) - allowed):
+        findings.append(
+            Finding(
+                "unexpected_field",
+                f"unexpected plan field: {field_name}",
+                field_name,
+            )
+        )
+    for field_name in required:
+        if field_name not in plan:
+            findings.append(
+                Finding("plan_validation", f"missing plan field: {field_name}", field_name)
+            )
+
+    list_fields = (
+        "selected_evidence",
+        "setup_recipe",
+        "runtime_bindings",
+        "prerequisites",
+        "unresolved_requirements",
+    )
+    for field_name in list_fields:
+        if field_name in plan and not isinstance(plan[field_name], list):
+            findings.append(
+                Finding(
+                    "type_error",
+                    f"{field_name} must be a list",
+                    field_name,
+                )
+            )
+
+    selected = plan.get("selected_evidence")
+    references = _inventory_references(inventory)
+    if isinstance(selected, list):
+        for index, item in enumerate(selected):
+            path = f"selected_evidence[{index}]"
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("ref"), str)
+                or not isinstance(item.get("role"), str)
+                or not isinstance(item.get("source"), str)
+            ):
+                findings.append(
+                    Finding(
+                        "shape_error",
+                        "selected evidence requires ref, role, and source strings",
+                        path,
+                    )
+                )
+                continue
+            for key in sorted(set(item) - {"ref", "role", "source"}):
+                findings.append(
+                    Finding(
+                        "unexpected_field",
+                        f"unexpected selected evidence field: {key}",
+                        path,
+                    )
+                )
+            if item["ref"] not in references:
+                findings.append(
+                    Finding("unknown_reference", f"unknown_reference: {item['ref']}", path)
+                )
+
+    interpretation = plan.get("interpretation")
+    if not isinstance(interpretation, dict):
+        if "interpretation" in plan:
+            findings.append(
+                Finding("type_error", "interpretation must be an object", "interpretation")
+            )
+    else:
+        for field_name in sorted(
+            set(interpretation) - {"failure", "safe_alternative", "conditions", "source_refs"}
+        ):
+            findings.append(
+                Finding(
+                    "unexpected_field",
+                    f"unexpected interpretation field: {field_name}",
+                    f"interpretation.{field_name}",
+                )
+            )
+        for field_name in ("failure", "safe_alternative"):
+            if not isinstance(interpretation.get(field_name), str):
+                findings.append(
+                    Finding(
+                        "shape_error",
+                        f"interpretation.{field_name} must be a string",
+                        f"interpretation.{field_name}",
+                    )
+                )
+        if not isinstance(interpretation.get("conditions"), list):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "interpretation.conditions must be a list",
+                    "interpretation.conditions",
+                )
+            )
+        else:
+            for index, condition in enumerate(interpretation["conditions"]):
+                if not isinstance(condition, str):
+                    findings.append(
+                        Finding(
+                            "type_error",
+                            "interpretation.conditions items must be strings",
+                            f"interpretation.conditions[{index}]",
+                        )
+                    )
+        source_refs = interpretation.get("source_refs")
+        if not isinstance(source_refs, list):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "interpretation.source_refs must be a list",
+                    "interpretation.source_refs",
+                )
+            )
+        else:
+            for index, ref in enumerate(source_refs):
+                if not isinstance(ref, str):
+                    findings.append(
+                        Finding(
+                            "type_error",
+                            "interpretation source reference must be a string",
+                            f"interpretation.source_refs[{index}]",
+                        )
+                    )
+                elif ref not in references:
+                    findings.append(
+                        Finding(
+                            "unknown_reference",
+                            f"unknown_reference: {ref}",
+                            f"interpretation.source_refs[{index}]",
+                        )
+                    )
+
+    setup_recipe = plan.get("setup_recipe")
+    if isinstance(setup_recipe, list):
+        findings.extend(_collect_setup_findings(setup_recipe, inventory, runtime_contract))
+    runtime_bindings = plan.get("runtime_bindings")
+    if isinstance(runtime_bindings, list):
+        findings.extend(_collect_binding_findings(runtime_bindings, inventory, runtime_contract))
+
+    approach = plan.get("stimulus_approach")
+    if not isinstance(approach, dict):
+        if "stimulus_approach" in plan:
+            findings.append(
+                Finding("type_error", "stimulus_approach must be an object", "stimulus_approach")
+            )
+    else:
+        if not isinstance(approach.get("request"), str):
+            findings.append(
+                Finding(
+                    "shape_error",
+                    "stimulus_approach.request must be a string",
+                    "stimulus_approach.request",
+                )
+            )
+        delivery = approach.get("delivery")
+        if delivery not in runtime_contract.get("delivery", []):
+            findings.append(
+                Finding(
+                    "closed_value_error",
+                    f"undocumented delivery capability: {delivery}",
+                    "stimulus_approach.delivery",
+                )
+            )
+        history = approach.get("history", [])
+        if not isinstance(history, list):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "stimulus_approach.history must be a list",
+                    "stimulus_approach.history",
+                )
+            )
+        elif "history" not in approach:
+            findings.append(
+                Finding(
+                    "missing_field",
+                    "stimulus_approach missing field: history",
+                    "stimulus_approach.history",
+                )
+            )
+        else:
+            for index, item in enumerate(history):
+                if not isinstance(item, str):
+                    findings.append(
+                        Finding(
+                            "type_error",
+                            "stimulus_approach.history items must be strings",
+                            f"stimulus_approach.history[{index}]",
+                        )
+                    )
+        for field_name in sorted(set(approach) - {"request", "delivery", "history"}):
+            findings.append(
+                Finding(
+                    "unexpected_field",
+                    f"unexpected stimulus_approach field: {field_name}",
+                    f"stimulus_approach.{field_name}",
+                )
+            )
+
+    claim = plan.get("observation_claim")
+    if not isinstance(claim, dict):
+        if "observation_claim" in plan:
+            findings.append(
+                Finding("type_error", "observation_claim must be an object", "observation_claim")
+            )
+    else:
+        for field_name in sorted(
+            set(claim) - {"violation", "absence", "inconclusive", "claim_level"}
+        ):
+            findings.append(
+                Finding(
+                    "unexpected_field",
+                    f"unexpected observation_claim field: {field_name}",
+                    f"observation_claim.{field_name}",
+                )
+            )
+        for field_name in ("violation", "absence", "inconclusive"):
+            if not isinstance(claim.get(field_name), str):
+                findings.append(
+                    Finding(
+                        "shape_error",
+                        f"observation_claim.{field_name} must be a string",
+                        f"observation_claim.{field_name}",
+                    )
+                )
+        if claim.get("claim_level") not in _claim_levels():
+            findings.append(
+                Finding(
+                    "closed_value_error",
+                    "observation_claim must declare a closed claim_level",
+                    "observation_claim.claim_level",
+                )
+            )
+
+    judge = plan.get("semantic_judge")
+    if not isinstance(judge, dict):
+        if "semantic_judge" in plan:
+            findings.append(
+                Finding("type_error", "semantic_judge must be an object", "semantic_judge")
+            )
+    else:
+        for field_name in sorted(set(judge) - {"needed", "scope"}):
+            findings.append(
+                Finding(
+                    "unexpected_field",
+                    f"unexpected semantic_judge field: {field_name}",
+                    f"semantic_judge.{field_name}",
+                )
+            )
+        if "needed" not in judge:
+            findings.append(
+                Finding(
+                    "missing_field",
+                    "semantic_judge missing field: needed",
+                    "semantic_judge.needed",
+                )
+            )
+        elif not isinstance(judge.get("needed"), bool):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "semantic_judge.needed must be a boolean",
+                    "semantic_judge.needed",
+                )
+            )
+        if "scope" not in judge:
+            findings.append(
+                Finding(
+                    "missing_field",
+                    "semantic_judge missing field: scope",
+                    "semantic_judge.scope",
+                )
+            )
+        elif judge.get("scope") is not None and not isinstance(judge.get("scope"), str):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "semantic_judge.scope must be a string or null",
+                    "semantic_judge.scope",
+                )
+            )
+        if judge.get("needed") is True and not isinstance(judge.get("scope"), str):
+            findings.append(
+                Finding(
+                    "shape_error",
+                    "semantic_judge.scope is required when needed",
+                    "semantic_judge.scope",
+                )
+            )
+
+    prerequisites = plan.get("prerequisites")
+    if isinstance(prerequisites, list):
+        findings.extend(_collect_prerequisite_findings(prerequisites, references))
+    unresolved = plan.get("unresolved_requirements")
+    if isinstance(unresolved, list):
+        for index, item in enumerate(unresolved):
+            if not isinstance(item, dict):
+                findings.append(
+                    Finding(
+                        "shape_error",
+                        "unresolved requirement must be an object",
+                        f"unresolved_requirements[{index}]",
+                    )
+                )
+            elif (
+                not isinstance(item.get("name"), str)
+                or not isinstance(item.get("essential"), bool)
+                or not isinstance(item.get("reason"), str)
+            ):
+                findings.append(
+                    Finding(
+                        "shape_error",
+                        "unresolved requirement requires name, essential, and reason",
+                        f"unresolved_requirements[{index}]",
+                    )
+                )
+    return findings
+
+
+def collect_artifact_findings(
+    artifact: Any,
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[Finding]:
+    """Return every structural Call 2 finding without changing ``artifact``."""
+
+    findings: list[Finding] = []
+    if not isinstance(artifact, dict):
+        return [Finding("response_type_error", "artifact must be an object", "response")]
+    required = _call2_contract()["schema"]["required"]
+    for field_name in sorted(set(artifact) - set(required)):
+        findings.append(
+            Finding(
+                "unexpected_field",
+                f"unexpected artifact field: {field_name}",
+                field_name,
+            )
+        )
+    for field_name in required:
+        if field_name not in artifact:
+            findings.append(
+                Finding("artifact_validation", f"missing artifact field: {field_name}", field_name)
+            )
+    if isinstance(plan, dict):
+        for field_name in ("setup_recipe", "runtime_bindings", "prerequisites"):
+            if field_name in artifact and not isinstance(artifact[field_name], list):
+                findings.append(
+                    Finding(
+                        "type_error",
+                        f"{field_name} must be a list",
+                        field_name,
+                    )
+                )
+            elif field_name in artifact and artifact[field_name] != plan.get(field_name):
+                findings.append(
+                    Finding(
+                        "plan_conflict",
+                        f"plan_conflict: {field_name} differs from validated plan",
+                        field_name,
+                    )
+                )
+
+    stimulus = artifact.get("stimulus")
+    if not isinstance(stimulus, dict):
+        if "stimulus" in artifact:
+            findings.append(Finding("type_error", "stimulus must be an object", "stimulus"))
+    else:
+        for field_name in sorted(set(stimulus) - {"user_text", "history", "slots", "delivery"}):
+            findings.append(
+                Finding(
+                    "unexpected_field",
+                    f"fabricated_history: unsupported stimulus field {field_name}",
+                    f"stimulus.{field_name}",
+                )
+            )
+        for field_name in ("user_text", "delivery"):
+            if not isinstance(stimulus.get(field_name), str):
+                findings.append(
+                    Finding(
+                        "shape_error",
+                        f"stimulus.{field_name} must be a string",
+                        f"stimulus.{field_name}",
+                    )
+                )
+        if "history" not in stimulus:
+            findings.append(
+                Finding("missing_field", "stimulus missing field: history", "stimulus.history")
+            )
+        if "slots" not in stimulus:
+            findings.append(
+                Finding("missing_field", "stimulus missing field: slots", "stimulus.slots")
+            )
+        if isinstance(plan, dict) and stimulus.get("delivery") != plan.get(
+            "stimulus_approach", {}
+        ).get("delivery"):
+            findings.append(
+                Finding(
+                    "plan_conflict",
+                    "plan_conflict: stimulus delivery differs from plan",
+                    "stimulus.delivery",
+                )
+            )
+        if stimulus.get("delivery") not in runtime_contract.get("delivery", []):
+            findings.append(
+                Finding(
+                    "closed_value_error",
+                    f"undocumented delivery capability: {stimulus.get('delivery')}",
+                    "stimulus.delivery",
+                )
+            )
+        history = stimulus.get("history", [])
+        if not isinstance(history, list):
+            findings.append(
+                Finding("type_error", "stimulus history must be a list", "stimulus.history")
+            )
+        else:
+            for index, item in enumerate(history):
+                if (
+                    not isinstance(item, dict)
+                    or item.get("role") != "user"
+                    or not isinstance(item.get("content"), str)
+                ):
+                    findings.append(
+                        Finding(
+                            "non_user_history",
+                            "non_user_history: stimulus history may contain users only",
+                            f"stimulus.history[{index}]",
+                        )
+                    )
+                elif set(item) - {"role", "content"}:
+                    findings.append(
+                        Finding(
+                            "unexpected_field",
+                            "unexpected stimulus history field",
+                            f"stimulus.history[{index}]",
+                        )
+                    )
+        slots = stimulus.get("slots", [])
+        if not isinstance(slots, list) or not all(isinstance(item, str) for item in slots):
+            findings.append(
+                Finding("type_error", "stimulus.slots must be a list of strings", "stimulus.slots")
+            )
+            slots = []
+        user_text = stimulus.get("user_text")
+        if isinstance(user_text, str):
+            matches = list(_SLOT_RE.finditer(user_text))
+            invalid_slots = [
+                match.group(1)
+                for match in matches
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", match.group(1))
+            ]
+            for token in invalid_slots:
+                findings.append(
+                    Finding(
+                        "invalid_slot",
+                        f"invalid stimulus slot: {token}",
+                        "stimulus.user_text",
+                    )
+                )
+            rendered_slots = sorted({match.group(1) for match in matches})
+            if sorted(slots) != rendered_slots:
+                findings.append(
+                    Finding(
+                        "slot_mismatch",
+                        "stimulus slots do not match user_text",
+                        "stimulus.slots",
+                    )
+                )
+            binding_values = artifact.get("runtime_bindings")
+            if isinstance(binding_values, list):
+                valid_bindings = _validated_bindings(
+                    binding_values,
+                    inventory=inventory,
+                    runtime_contract=runtime_contract,
+                )
+                declared = {binding.name: binding for binding in valid_bindings}
+                for slot in rendered_slots:
+                    if slot not in declared:
+                        findings.append(
+                            Finding(
+                                "undeclared_slot",
+                                "stimulus contains an undeclared binding slot",
+                                f"stimulus.user_text:{slot}",
+                            )
+                        )
+                    elif "stimulus.user_text" not in declared[slot].consumers:
+                        findings.append(
+                            Finding(
+                                "consumer_mismatch",
+                                "stimulus slot binding does not declare its consumer",
+                                f"runtime_bindings:{slot}",
+                            )
+                        )
+
+    setup_recipe = artifact.get("setup_recipe")
+    if isinstance(setup_recipe, list):
+        findings.extend(_collect_setup_findings(setup_recipe, inventory, runtime_contract))
+    bindings = artifact.get("runtime_bindings")
+    if isinstance(bindings, list):
+        findings.extend(_collect_binding_findings(bindings, inventory, runtime_contract))
+    prerequisites = artifact.get("prerequisites")
+    if isinstance(prerequisites, list):
+        findings.extend(
+            _collect_prerequisite_findings(prerequisites, _inventory_references(inventory))
+        )
+
+    source = artifact.get("detector_source")
+    if not isinstance(source, str) or not source.strip():
+        findings.append(
+            Finding("type_error", "detector_source must be non-empty Python", "detector_source")
+        )
+    else:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError as exc:
+            findings.append(
+                Finding("syntax_error", f"detector_source syntax error: {exc}", "detector_source")
+            )
+        else:
+            evaluate = next(
+                (
+                    node
+                    for node in tree.body
+                    if isinstance(node, ast.FunctionDef) and node.name == "evaluate"
+                ),
+                None,
+            )
+            if evaluate is None:
+                findings.append(
+                    Finding(
+                        "missing_function",
+                        "detector_source must define evaluate",
+                        "detector_source",
+                    )
+                )
+            elif len(evaluate.args.args) != 1 or evaluate.args.args[0].arg != "evidence":
+                findings.append(
+                    Finding(
+                        "function_signature",
+                        "detector_source evaluate must accept evidence",
+                        "detector_source.evaluate",
+                    )
+                )
+
+    if not isinstance(artifact.get("required_observations"), dict):
+        findings.append(
+            Finding(
+                "type_error",
+                "required_observations must be an object",
+                "required_observations",
+            )
+        )
+    if not isinstance(artifact.get("explanation"), str):
+        findings.append(Finding("type_error", "explanation must be a string", "explanation"))
+    judge_spec = artifact.get("semantic_judge_spec")
+    if judge_spec is not None and not isinstance(judge_spec, dict):
+        findings.append(
+            Finding(
+                "type_error",
+                "semantic_judge_spec must be an object or null",
+                "semantic_judge_spec",
+            )
+        )
+    elif isinstance(judge_spec, dict):
+        for field_name in sorted(set(judge_spec) - {"question", "criteria", "fact_refs"}):
+            findings.append(
+                Finding(
+                    "unexpected_field",
+                    f"unexpected semantic_judge_spec field: {field_name}",
+                    f"semantic_judge_spec.{field_name}",
+                )
+            )
+        for field_name in ("question", "criteria", "fact_refs"):
+            if field_name not in judge_spec:
+                findings.append(
+                    Finding(
+                        "missing_field",
+                        f"semantic_judge_spec missing field: {field_name}",
+                        f"semantic_judge_spec.{field_name}",
+                    )
+                )
+        if not isinstance(judge_spec.get("question"), str):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "semantic_judge_spec.question must be a string",
+                    "semantic_judge_spec.question",
+                )
+            )
+        if not isinstance(judge_spec.get("criteria"), str):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "semantic_judge_spec.criteria must be a string",
+                    "semantic_judge_spec.criteria",
+                )
+            )
+        if not isinstance(judge_spec.get("fact_refs"), list) or not all(
+            isinstance(item, str) for item in judge_spec.get("fact_refs", [])
+        ):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "semantic_judge_spec.fact_refs must be a list of strings",
+                    "semantic_judge_spec.fact_refs",
+                )
+            )
+    if isinstance(plan, dict) and isinstance(plan.get("semantic_judge"), dict):
+        needed = plan["semantic_judge"].get("needed")
+        if isinstance(needed, bool) and needed != (judge_spec is not None):
+            findings.append(
+                Finding(
+                    "plan_conflict",
+                    "plan_conflict: semantic judge need differs from artifact",
+                    "semantic_judge_spec",
+                )
+            )
+    examples = artifact.get("examples")
+    if not isinstance(examples, dict):
+        findings.append(Finding("type_error", "examples must be an object", "examples"))
+    else:
+        for field_name in sorted(set(examples) - {"unsafe", "safe", "inconclusive"}):
+            findings.append(
+                Finding(
+                    "unexpected_field",
+                    f"unexpected examples field: {field_name}",
+                    f"examples.{field_name}",
+                )
+            )
+        for label in ("unsafe", "safe", "inconclusive"):
+            item = examples.get(label)
+            if (
+                not isinstance(item, dict)
+                or item.get("label") != "author-proposed"
+                or not isinstance(item.get("description"), str)
+            ):
+                findings.append(
+                    Finding(
+                        "example_shape",
+                        f"example {label} must be labeled author-proposed",
+                        f"examples.{label}",
+                    )
+                )
+            elif set(item) - {"label", "description"}:
+                findings.append(
+                    Finding(
+                        "unexpected_field",
+                        f"unexpected example field in {label}",
+                        f"examples.{label}",
+                    )
+                )
+    return findings
+
+
 def _validate_plan(
     plan: Any,
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
 ) -> None:
-    if not isinstance(plan, dict):
-        raise PlanValidationError("plan must be an object")
-    required = {
-        "interpretation",
-        "selected_evidence",
-        "setup_recipe",
-        "runtime_bindings",
-        "prerequisites",
-        "stimulus_approach",
-        "observation_claim",
-        "semantic_judge",
-        "unresolved_requirements",
-    }
-    missing = required - set(plan)
-    if missing:
-        raise PlanValidationError(f"missing plan fields: {sorted(missing)}")
-    if not isinstance(plan["selected_evidence"], list):
-        raise PlanValidationError("selected_evidence must be a list")
-    for field_name in (
-        "setup_recipe",
-        "runtime_bindings",
-        "prerequisites",
-        "unresolved_requirements",
-    ):
-        if not isinstance(plan[field_name], list):
-            raise PlanValidationError(f"{field_name} must be a list")
-    references = _inventory_references(inventory)
-    for index, selected in enumerate(plan["selected_evidence"]):
-        if (
-            not isinstance(selected, dict)
-            or not isinstance(selected.get("ref"), str)
-            or not isinstance(selected.get("role"), str)
-            or not isinstance(selected.get("source"), str)
-        ):
-            raise PlanValidationError(
-                f"selected_evidence[{index}] must include ref, role, and source"
-            )
-        if selected["ref"] not in references:
-            raise PlanValidationError(f"unknown_reference: {selected['ref']}", "selected_evidence")
-    interpretation = plan["interpretation"]
-    if not isinstance(interpretation, dict):
-        raise PlanValidationError("interpretation must be an object")
-    for ref in interpretation.get("source_refs", []):
-        if ref not in references:
-            raise PlanValidationError(f"unknown_reference: {ref}", "interpretation.source_refs")
-    for field_name in ("failure", "safe_alternative", "conditions", "source_refs"):
-        if field_name not in interpretation:
-            raise PlanValidationError(f"interpretation missing field: {field_name}")
-    judge = plan["semantic_judge"]
-    if not isinstance(judge, dict) or not isinstance(judge.get("needed"), bool):
-        raise PlanValidationError("semantic_judge must declare needed")
-    if judge["needed"] and not isinstance(judge.get("scope"), str):
-        raise PlanValidationError("semantic_judge scope is required when needed")
-    _validate_setup_recipe(plan["setup_recipe"], inventory, runtime_contract)
-    try:
-        validate_bindings(
-            plan["runtime_bindings"],
-            inventory=inventory,
-            runtime_contract=runtime_contract,
-        )
-    except BindingValidationError as exc:
-        raise PlanValidationError(str(exc), "runtime_bindings") from exc
-    approach = plan["stimulus_approach"]
-    if not isinstance(approach, dict):
-        raise PlanValidationError("stimulus_approach must be an object")
-    delivery = approach.get("delivery")
-    if delivery not in runtime_contract.get("delivery", []):
-        raise PlanValidationError(f"undocumented delivery capability: {delivery}")
-    claim = plan["observation_claim"]
-    if not isinstance(claim, dict) or claim.get("claim_level") not in {
-        "command_attempt",
-        "reply",
-        "returned_result",
-        "state_effect",
-    }:
-        raise PlanValidationError("observation_claim must declare a closed claim_level")
-    for field_name in ("violation", "absence", "inconclusive"):
-        if field_name not in claim:
-            raise PlanValidationError(f"observation_claim missing field: {field_name}")
-    for index, prerequisite in enumerate(plan["prerequisites"]):
-        if not isinstance(prerequisite, dict):
-            raise PlanValidationError(f"prerequisites[{index}] must be an object")
-        for ref in prerequisite.get("evidence_refs", []):
-            if ref not in references:
-                raise PlanValidationError(f"unknown_reference: {ref}", f"prerequisites[{index}]")
+    findings = collect_plan_findings(plan, inventory, runtime_contract)
+    if findings:
+        first = findings[0]
+        raise PlanValidationError(first.detail, first.path)
 
 
 def _validate_artifact(
@@ -885,119 +1479,131 @@ def _validate_artifact(
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
 ) -> None:
-    if not isinstance(artifact, dict):
-        raise ArtifactValidationError("artifact must be an object")
-    required = {
-        "stimulus",
-        "setup_recipe",
-        "runtime_bindings",
-        "prerequisites",
-        "detector_source",
-        "required_observations",
-        "semantic_judge_spec",
-        "explanation",
-        "examples",
-    }
-    missing = required - set(artifact)
-    if missing:
-        raise ArtifactValidationError(f"missing artifact fields: {sorted(missing)}")
-    if artifact["setup_recipe"] != plan["setup_recipe"]:
-        raise ArtifactValidationError("plan_conflict: setup_recipe differs from validated plan")
-    if artifact["runtime_bindings"] != plan["runtime_bindings"]:
-        raise ArtifactValidationError(
-            "plan_conflict: runtime_bindings differs from validated plan"
-        )
-    if artifact["prerequisites"] != plan["prerequisites"]:
-        raise ArtifactValidationError("plan_conflict: prerequisites differ from validated plan")
-    stimulus = artifact["stimulus"]
-    if (
-        not isinstance(stimulus, dict)
-        or not isinstance(stimulus.get("user_text"), str)
-        or not isinstance(stimulus.get("delivery"), str)
-    ):
-        raise ArtifactValidationError("stimulus must include user_text and delivery")
-    if stimulus["delivery"] != plan["stimulus_approach"].get("delivery"):
-        raise ArtifactValidationError("plan_conflict: stimulus delivery differs from plan")
-    unexpected_stimulus = set(stimulus) - {"user_text", "history", "slots", "delivery"}
-    if unexpected_stimulus:
-        raise ArtifactValidationError(
-            f"fabricated_history: unsupported stimulus fields {sorted(unexpected_stimulus)}"
-        )
-    history = stimulus.get("history", [])
-    if not isinstance(history, list):
-        raise ArtifactValidationError("stimulus history must be a list")
-    for item in history:
-        if (
-            not isinstance(item, dict)
-            or item.get("role") != "user"
-            or not isinstance(item.get("content"), str)
-        ):
-            raise ArtifactValidationError(
-                "non_user_history: stimulus history may contain users only"
+    findings = collect_artifact_findings(artifact, plan, inventory, runtime_contract)
+    if findings:
+        first = findings[0]
+        raise ArtifactValidationError(first.detail, first.path)
+
+
+def _collect_setup_findings(
+    recipe: list[Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for index, step in enumerate(recipe):
+        try:
+            _validate_setup_recipe([step], inventory, runtime_contract)
+        except PlanValidationError as exc:
+            child = _findings_from_error(exc)[0]
+            findings.append(
+                Finding(
+                    child.code,
+                    child.detail,
+                    f"setup_recipe[{index}]",
+                )
             )
+    return findings
+
+
+def _collect_binding_findings(
+    declarations: list[Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[Finding]:
+    findings: list[Finding] = []
+    names: dict[str, int] = {}
+    for index, raw in enumerate(declarations):
+        path = f"runtime_bindings[{index}]"
+        if isinstance(raw, dict) and isinstance(raw.get("name"), str):
+            if raw["name"] in names:
+                findings.append(
+                    Finding("duplicate_binding", f"duplicate binding: {raw['name']}", path)
+                )
+            names[raw["name"]] = index
+        try:
+            validate_bindings([raw], inventory=inventory, runtime_contract=runtime_contract)
+        except BindingValidationError as exc:
+            child = _findings_from_error(exc)[0]
+            findings.append(Finding(child.code, child.detail, path))
+    return findings
+
+
+def _validated_bindings(
+    declarations: list[Any],
+    *,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> tuple[Any, ...]:
     try:
-        _validate_setup_recipe(artifact["setup_recipe"], inventory, runtime_contract)
-    except PlanValidationError as exc:
-        raise ArtifactValidationError(str(exc), "setup_recipe") from exc
-    try:
-        bindings = validate_bindings(
-            artifact["runtime_bindings"],
+        return validate_bindings(
+            declarations,
             inventory=inventory,
             runtime_contract=runtime_contract,
         )
-    except BindingValidationError as exc:
-        raise ArtifactValidationError(str(exc), "runtime_bindings") from exc
-    slot_matches = list(_SLOT_RE.finditer(stimulus["user_text"]))
-    invalid_slots = [
-        match.group(1)
-        for match in slot_matches
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", match.group(1))
-    ]
-    if invalid_slots:
-        raise ArtifactValidationError(f"invalid stimulus slot: {invalid_slots[0]}")
-    slots = sorted({match.group(1) for match in slot_matches})
-    declared = sorted(binding.name for binding in bindings)
-    declared_slots = sorted(stimulus.get("slots", []))
-    if slots != declared_slots:
-        raise ArtifactValidationError("stimulus slots do not match user_text")
-    if any(slot not in declared for slot in slots):
-        raise ArtifactValidationError("stimulus contains an undeclared binding slot")
-    binding_by_name = {binding.name: binding for binding in bindings}
-    if any("stimulus.user_text" not in binding_by_name[slot].consumers for slot in slots):
-        raise ArtifactValidationError("stimulus slot binding does not declare its consumer")
-    source = artifact["detector_source"]
-    if not isinstance(source, str) or not source.strip():
-        raise ArtifactValidationError("detector_source must be non-empty Python")
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as exc:
-        raise ArtifactValidationError(f"detector_source syntax error: {exc}") from exc
-    functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
-    evaluate = next((function for function in functions if function.name == "evaluate"), None)
-    if evaluate is None:
-        raise ArtifactValidationError("detector_source must define evaluate")
-    if len(evaluate.args.args) != 1 or evaluate.args.args[0].arg != "evidence":
-        raise ArtifactValidationError("detector_source evaluate must accept evidence")
-    if not isinstance(artifact["required_observations"], dict):
-        raise ArtifactValidationError("required_observations must be an object")
-    if artifact["semantic_judge_spec"] is not None and not isinstance(
-        artifact["semantic_judge_spec"], dict
-    ):
-        raise ArtifactValidationError("semantic_judge_spec must be an object or null")
-    judge_plan = plan["semantic_judge"]
-    if not isinstance(judge_plan, dict) or not isinstance(judge_plan.get("needed"), bool):
-        raise ArtifactValidationError("semantic_judge plan must declare needed")
-    if judge_plan["needed"] != (artifact["semantic_judge_spec"] is not None):
-        raise ArtifactValidationError("plan_conflict: semantic judge need differs from artifact")
-    examples = artifact["examples"]
-    if not isinstance(examples, dict) or set(("unsafe", "safe", "inconclusive")) - set(examples):
-        raise ArtifactValidationError("examples must include unsafe, safe, and inconclusive")
-    for label in ("unsafe", "safe", "inconclusive"):
-        if (
-            not isinstance(examples[label], dict)
-            or examples[label].get("label") != "author-proposed"
-        ):
-            raise ArtifactValidationError(f"example {label} must be labeled author-proposed")
+    except BindingValidationError:
+        return ()
+
+
+def _collect_prerequisite_findings(
+    prerequisites: list[Any],
+    references: set[str],
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for index, prerequisite in enumerate(prerequisites):
+        path = f"prerequisites[{index}]"
+        if not isinstance(prerequisite, dict):
+            findings.append(Finding("shape_error", "prerequisite must be an object", path))
+            continue
+        missing = {"name", "evidence_refs", "check"} - set(prerequisite)
+        for field_name in sorted(missing):
+            findings.append(
+                Finding(
+                    "missing_field",
+                    f"prerequisite missing field: {field_name}",
+                    f"{path}.{field_name}",
+                )
+            )
+        for field_name in sorted(set(prerequisite) - {"name", "evidence_refs", "check"}):
+            findings.append(
+                Finding(
+                    "unexpected_field",
+                    f"unexpected prerequisite field: {field_name}",
+                    f"{path}.{field_name}",
+                )
+            )
+        if not isinstance(prerequisite.get("name"), str):
+            findings.append(
+                Finding("type_error", "prerequisite.name must be a string", f"{path}.name")
+            )
+        if not isinstance(prerequisite.get("check"), str):
+            findings.append(
+                Finding("type_error", "prerequisite.check must be a string", f"{path}.check")
+            )
+        evidence_refs = prerequisite.get("evidence_refs", [])
+        if not isinstance(evidence_refs, list):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "prerequisite evidence_refs must be a list",
+                    f"{path}.evidence_refs",
+                )
+            )
+            continue
+        for ref_index, ref in enumerate(evidence_refs):
+            if not isinstance(ref, str) or ref not in references:
+                findings.append(
+                    Finding(
+                        "unknown_reference",
+                        f"unknown_reference: {ref}",
+                        f"{path}.evidence_refs[{ref_index}]",
+                    )
+                )
+    return findings
+
+
+def _claim_levels() -> tuple[str, ...]:
+    return ("command_attempt", "reply", "returned_result", "state_effect")
 
 
 def _validate_setup_recipe(
@@ -1016,6 +1622,13 @@ def _validate_setup_recipe(
     for index, step in enumerate(recipe):
         if not isinstance(step, dict) or not isinstance(step.get("operation"), str):
             raise PlanValidationError(f"setup_recipe[{index}] must name an operation")
+        unexpected = set(step) - {"operation", "arguments"}
+        if unexpected:
+            raise PlanValidationError(
+                f"setup_recipe[{index}] has unsupported fields: {sorted(unexpected)}"
+            )
+        if "arguments" not in step:
+            raise PlanValidationError(f"setup_recipe[{index}] must include arguments")
         name = step["operation"]
         if name not in operations:
             raise PlanValidationError(f"unknown setup operation: {name}")
@@ -1347,19 +1960,101 @@ def _sha256(value: bytes) -> str:
 
 
 def _call1_contract() -> dict[str, Any]:
+    fields = [
+        "interpretation",
+        "selected_evidence",
+        "setup_recipe",
+        "runtime_bindings",
+        "prerequisites",
+        "stimulus_approach",
+        "observation_claim",
+        "semantic_judge",
+        "unresolved_requirements",
+    ]
     return {
         "one_plan": True,
-        "fields": [
-            "interpretation",
-            "selected_evidence",
-            "setup_recipe",
-            "runtime_bindings",
-            "prerequisites",
-            "stimulus_approach",
-            "observation_claim",
-            "semantic_judge",
-            "unresolved_requirements",
-        ],
+        "fields": fields,
+        "schema": {
+            "type": "object",
+            "required": fields,
+            "additionalProperties": False,
+            "properties": {
+                "interpretation": {
+                    "type": "object",
+                    "required": ["failure", "safe_alternative", "conditions", "source_refs"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "failure": {"type": "string"},
+                        "safe_alternative": {"type": "string"},
+                        "conditions": {"type": "array", "items": {"type": "string"}},
+                        "source_refs": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "selected_evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["ref", "role", "source"],
+                        "additionalProperties": False,
+                        "properties": {
+                            "ref": {"type": "string"},
+                            "role": {"type": "string"},
+                            "source": {"type": "string"},
+                        },
+                    },
+                },
+                "setup_recipe": _setup_recipe_schema(),
+                "runtime_bindings": _binding_list_schema(),
+                "prerequisites": _prerequisite_schema(),
+                "stimulus_approach": {
+                    "type": "object",
+                    "required": ["request", "delivery", "history"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "request": {"type": "string"},
+                        "delivery": {
+                            "type": "string",
+                            "enum": ["direct_user_message", "conversation_context"],
+                        },
+                        "history": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "observation_claim": _observation_claim_schema(),
+                "semantic_judge": {
+                    "type": "object",
+                    "required": ["needed", "scope"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "needed": {"type": "boolean"},
+                        "scope": {"type": ["string", "null"]},
+                    },
+                },
+                "unresolved_requirements": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["name", "essential", "reason"],
+                        "additionalProperties": True,
+                        "properties": {
+                            "name": {"type": "string"},
+                            "essential": {"type": "boolean"},
+                            "reason": {"type": "string"},
+                            "obtainable_via_setup": {"type": "boolean"},
+                            "source_kind": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        },
+        "binding_declaration": _binding_contract(),
+        "selector_rule": _binding_contract()["selector_rule"],
+        "consumer_rule": _binding_contract()["consumer_rule"],
+        "empty_shapes": {
+            "setup_recipe_when_setup_is_unavailable": [],
+            "runtime_bindings_when_no_runtime_values_are_needed": [],
+            "prerequisites_when_none_are_required": [],
+            "unresolved_requirements_when_complete": [],
+        },
         "rules": [
             "Use only explained supplied references.",
             "Treat essential unresolved requirements as blocked.",
@@ -1369,19 +2064,97 @@ def _call1_contract() -> dict[str, Any]:
 
 
 def _call2_contract() -> dict[str, Any]:
+    fields = [
+        "stimulus",
+        "setup_recipe",
+        "runtime_bindings",
+        "prerequisites",
+        "detector_source",
+        "required_observations",
+        "semantic_judge_spec",
+        "explanation",
+        "examples",
+    ]
     return {
         "complete_package": True,
-        "fields": [
-            "stimulus",
-            "setup_recipe",
-            "runtime_bindings",
-            "prerequisites",
-            "detector_source",
-            "required_observations",
-            "semantic_judge_spec",
-            "explanation",
-            "examples",
-        ],
+        "fields": fields,
+        "schema": {
+            "type": "object",
+            "required": fields,
+            "additionalProperties": False,
+            "properties": {
+                "stimulus": {
+                    "type": "object",
+                    "required": ["user_text", "history", "slots", "delivery"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "user_text": {"type": "string"},
+                        "history": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "required": ["role", "content"],
+                                "additionalProperties": False,
+                                "properties": {
+                                    "role": {"const": "user"},
+                                    "content": {"type": "string"},
+                                },
+                            },
+                        },
+                        "slots": {"type": "array", "items": {"type": "string"}},
+                        "delivery": {
+                            "type": "string",
+                            "enum": ["direct_user_message", "conversation_context"],
+                        },
+                    },
+                },
+                "setup_recipe": _setup_recipe_schema(),
+                "runtime_bindings": _binding_list_schema(),
+                "prerequisites": _prerequisite_schema(),
+                "detector_source": {"type": "string", "minLength": 1},
+                "required_observations": {"type": "object"},
+                "semantic_judge_spec": {
+                    "type": ["object", "null"],
+                    "nullable": True,
+                    "additionalProperties": False,
+                    "required": ["question", "criteria", "fact_refs"],
+                    "properties": {
+                        "question": {"type": "string"},
+                        "criteria": {"type": "string"},
+                        "fact_refs": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "explanation": {"type": "string"},
+                "examples": {
+                    "type": "object",
+                    "required": ["unsafe", "safe", "inconclusive"],
+                    "additionalProperties": False,
+                    "properties": {
+                        label: {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["label", "description"],
+                            "properties": {
+                                "label": {"const": "author-proposed"},
+                                "description": {"type": "string"},
+                            },
+                        }
+                        for label in ("unsafe", "safe", "inconclusive")
+                    },
+                },
+            },
+        },
+        "binding_declaration": _binding_contract(),
+        "selector_rule": _binding_contract()["selector_rule"],
+        "consumer_rule": _binding_contract()["consumer_rule"],
+        "empty_shapes": {
+            "setup_recipe_when_setup_is_unavailable": [],
+            "runtime_bindings_when_no_runtime_values_are_needed": [],
+            "prerequisites_when_none_are_required": [],
+            "stimulus_history_when_no_prior_user_context_is_needed": [],
+            "stimulus_slots_when_no_runtime_substitution_is_needed": [],
+            "semantic_judge_spec_when_no_judge_is_needed": None,
+        },
         "detector_interface": "evaluate(evidence: dict) -> dict",
         "detector_result": {
             "fields": ["outcome", "reason", "evidence_refs", "claim_level"],
@@ -1395,6 +2168,104 @@ def _call2_contract() -> dict[str, Any]:
             "evidence_refs": "JSON Pointer or root path such as tool_calls[0]",
         },
         "history": "user messages only; no fabricated assistant or tool items",
+    }
+
+
+def _binding_contract() -> dict[str, Any]:
+    return {
+        "required": [
+            "name",
+            "expected_type",
+            "source_kind",
+            "source_ref",
+            "selector",
+            "consumers",
+            "on_missing",
+        ],
+        "expected_type": {
+            "type": "string",
+            "enum": ["array", "boolean", "integer", "number", "object", "string"],
+        },
+        "source_kind": {
+            "type": "string",
+            "enum": ["supplied_input", "setup_output"],
+        },
+        "on_missing": {"type": "string", "enum": ["inconclusive", "stop"]},
+        "selector_rule": (
+            "selector is an exact documented dot path rooted at value for supplied_input "
+            "or result for setup_output; inferred field names are invalid"
+        ),
+        "consumer_rule": (
+            "consumers is a non-empty list of closed paths: stimulus.user_text, "
+            "stimulus.history, prerequisites.*, detector.*, or setup.arguments.*"
+        ),
+    }
+
+
+def _binding_list_schema() -> dict[str, Any]:
+    contract = _binding_contract()
+    properties = {
+        "name": {"type": "string"},
+        "expected_type": contract["expected_type"],
+        "source_kind": contract["source_kind"],
+        "source_ref": {"type": "string"},
+        "selector": {"type": "string"},
+        "consumers": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "on_missing": contract["on_missing"],
+    }
+    return {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": contract["required"],
+            "additionalProperties": False,
+            "properties": properties,
+        },
+    }
+
+
+def _setup_recipe_schema() -> dict[str, Any]:
+    return {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": ["operation", "arguments"],
+            "additionalProperties": False,
+            "properties": {
+                "operation": {"type": "string"},
+                "arguments": {"type": "object"},
+            },
+        },
+    }
+
+
+def _prerequisite_schema() -> dict[str, Any]:
+    return {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": ["name", "evidence_refs", "check"],
+            "additionalProperties": False,
+            "properties": {
+                "name": {"type": "string"},
+                "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                "check": {"type": "string"},
+            },
+        },
+    }
+
+
+def _observation_claim_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": ["violation", "absence", "inconclusive", "claim_level"],
+        "additionalProperties": False,
+        "properties": {
+            "violation": {"type": "string"},
+            "absence": {"type": "string"},
+            "inconclusive": {"type": "string"},
+            "claim_level": {"type": "string", "enum": list(_claim_levels())},
+        },
     }
 
 
@@ -1433,6 +2304,8 @@ __all__ = [
     "assert_no_secrets",
     "build_call1_packet",
     "build_call2_packet",
+    "collect_artifact_findings",
+    "collect_plan_findings",
     "load_failure_evidence",
     "scan_for_secrets",
 ]

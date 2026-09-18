@@ -105,6 +105,21 @@ def test_binding_rejects_unknown_selector_with_closed_type() -> None:
         )
 
 
+def test_binding_rejects_non_string_declaration_fields() -> None:
+    with pytest.raises(BindingValidationError, match="source_ref must be a string"):
+        RuntimeBinding.from_dict(
+            {
+                "name": "draft_id",
+                "expected_type": "string",
+                "source_kind": "setup_output",
+                "source_ref": 7,
+                "selector": "result.draft.id",
+                "consumers": ["stimulus.user_text"],
+                "on_missing": "stop",
+            }
+        )
+
+
 def test_substitution_accepts_declared_slots_only_and_never_evaluates_text() -> None:
     binding = RuntimeBinding(
         name="draft_id",

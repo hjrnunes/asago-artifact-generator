@@ -69,6 +69,16 @@ class RuntimeBinding:
             isinstance(item, str) and item.strip() for item in consumers
         ):
             raise BindingValidationError("binding consumers must be non-empty strings")
+        for field_name in (
+            "name",
+            "expected_type",
+            "source_kind",
+            "source_ref",
+            "selector",
+            "on_missing",
+        ):
+            if not isinstance(value[field_name], str):
+                raise BindingValidationError(f"binding {field_name} must be a string")
         if any(
             item not in {"stimulus.user_text", "stimulus.history"}
             and not item.startswith(CONSUMER_PREFIXES)
