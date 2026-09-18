@@ -153,8 +153,10 @@ def _record_transformation(
 
 _AUXILIARY_NEGATION = (
     r"(?:"
-    r"(?:does|do|did|will|would|should|must|can|could|may|might|ought|need|dare|"
+    r"(?:does|do|did|will|would|should|must|can|could|may|might|ought|need|needs|"
+    r"dare|dares|"
     r"is|are|was|were|has|have|had|shall)\s+not"
+    r"|would\s+(?:much\s+)?rather\s+not"
     r"|had\s+better\s+not"
     r"|cannot|can't|couldn't|won't|wouldn't|shouldn't|mustn't|doesn't|don't|"
     r"didn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|oughtn't|needn't|"
@@ -162,8 +164,8 @@ _AUXILIARY_NEGATION = (
     r")"
 )
 _MARGINAL_MODAL_NEGATION = re.compile(
-    r"^(?:ought|need|dare|shall|might|may)(?:n't|\s+not)\b|^shan't\b|"
-    r"^had\s+better\s+not\b",
+    r"^(?:ought|need|needs|dare|dares|shall|might|may)(?:n't|\s+not)\b|"
+    r"^shan't\b|^had\s+better\s+not\b|^would\s+(?:much\s+)?rather\s+not\b",
     re.IGNORECASE,
 )
 _NEGATED_REFUND_COMMAND_MARKER = re.compile(
