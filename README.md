@@ -28,6 +28,8 @@ Use `design` for current artifact design. The cross-repository R9 evidence
 and accounting reconciliation is recorded in
 [`docs/development/result-observation-reconciliation.md`](docs/development/result-observation-reconciliation.md)
 and in the producer's dated reconciliation report.
+The current administrative closeout pointer is
+[`docs/development/administrative-closeout-2026-09-18.md`](docs/development/administrative-closeout-2026-09-18.md).
 
 ```
 Primary (design):
