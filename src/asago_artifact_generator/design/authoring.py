@@ -1076,6 +1076,9 @@ _WOULD_FRAME_MODIFIERS = frozenset({"much", "really", "very", "far", "quite"})
 _WOULD_FRAME_AUXILIARIES = frozenset(
     {"be", "being", "been", "have", "has", "had", "to", "a", "an", "the"}
 )
+_WOULD_FRAME_NEGATIVE_TOKENS = frozenset(
+    {"not", "never", "no", "without", "neither", "nor", "cannot"}
+)
 _WOULD_FRAME_ACTION = re.compile(
     r"^(?:issu\w*|invoke\w*|call\w*|execute\w*|initiate\w*|send\w*|"
     r"submit\w*|trigger\w*|perform\w*|process\w*|request\w*|attempt\w*|"
@@ -1101,29 +1104,46 @@ class _WouldFrameDecision:
 
 
 def _would_frame_prefix(tokens: list[str]) -> tuple[list[str] | None, bool]:
-    """Remove one comma-wrapped parenthetical and locate its negator."""
+    """Scan the frame prefix while retaining polarity from skipped spans."""
 
     prefix: list[str] = []
     parenthetical_depth = 0
+    parenthetical_content: list[bool] = []
     comma_parenthetical = False
+    comma_content = False
+    has_negator = False
     for token in tokens:
+        normalized = token.lower()
+        if normalized in _WOULD_FRAME_NEGATIVE_TOKENS or normalized.endswith("n't"):
+            has_negator = True
         if token == "(":
             parenthetical_depth += 1
+            parenthetical_content.append(False)
             continue
         if token == ")":
-            if parenthetical_depth == 0:
+            if parenthetical_depth == 0 or not parenthetical_content[-1]:
                 return None, False
             parenthetical_depth -= 1
+            parenthetical_content.pop()
+            if parenthetical_content:
+                parenthetical_content[-1] = True
             continue
         if token == ",":
             if parenthetical_depth == 0:
+                if comma_parenthetical and not comma_content:
+                    return None, False
                 comma_parenthetical = not comma_parenthetical
+                comma_content = False
             continue
-        if parenthetical_depth == 0 and not comma_parenthetical:
+        if parenthetical_depth:
+            parenthetical_content[-1] = True
+        elif comma_parenthetical:
+            comma_content = True
+        else:
             prefix.append(token.lower())
     if parenthetical_depth or comma_parenthetical:
         return None, False
-    return prefix, "not" in prefix
+    return prefix, has_negator
 
 
 def _would_frame_status(tokens: list[str]) -> Literal["affirmative", "negative", "unresolved"]:
@@ -1131,6 +1151,13 @@ def _would_frame_status(tokens: list[str]) -> Literal["affirmative", "negative",
 
     prefix, has_negator = _would_frame_prefix(tokens)
     if prefix is None or "than" in prefix:
+        return "unresolved"
+    negative_tokens = [
+        token
+        for token in tokens
+        if (token.lower() in _WOULD_FRAME_NEGATIVE_TOKENS or token.lower().endswith("n't"))
+    ]
+    if len(negative_tokens) > 1:
         return "unresolved"
     preference_indexes = [
         index for index, token in enumerate(prefix) if token in _WOULD_FRAME_PREFERENCE
@@ -1173,13 +1200,39 @@ def _would_frame_decisions(text: str) -> tuple[_WouldFrameDecision, ...]:
 
     decisions: list[_WouldFrameDecision] = []
     for modal in re.finditer(r"\bwould\b", text, re.IGNORECASE):
-        boundary = re.search(r"[.;!?]", text[modal.end() :])
-        clause_end = modal.end() + boundary.start() if boundary else len(text)
-        token_matches = list(_WOULD_FRAME_TOKEN.finditer(text, modal.end(), clause_end))
+        token_matches: list[re.Match[str]] = []
+        parenthetical_depth = 0
+        comma_parenthetical = False
+        predicate_seen = False
+        clause_end = len(text)
+        for token_match in _WOULD_FRAME_TOKEN.finditer(text, modal.end()):
+            token = token_match.group(0)
+            if token in {".", ";", "!", "?"} and (
+                predicate_seen or (parenthetical_depth == 0 and not comma_parenthetical)
+            ):
+                clause_end = token_match.start()
+                break
+            token_matches.append(token_match)
+            if (
+                parenthetical_depth == 0
+                and not comma_parenthetical
+                and (
+                    _WOULD_FRAME_ACTION.fullmatch(token) or _WOULD_FRAME_RELATION.fullmatch(token)
+                )
+            ):
+                predicate_seen = True
+            if token == "(":
+                parenthetical_depth += 1
+            elif token == ")":
+                parenthetical_depth = max(0, parenthetical_depth - 1)
+            elif token == "," and parenthetical_depth == 0:
+                comma_parenthetical = not comma_parenthetical
         parenthetical_depth = 0
         comma_parenthetical = False
         predicate_match: re.Match[str] | None = None
+        skipped_predicate_match: re.Match[str] | None = None
         predicate_kind: Literal["action", "relation"] | None = None
+        skipped_predicate_kind: Literal["action", "relation"] | None = None
         for token_match in token_matches:
             token = token_match.group(0)
             if token == "(":
@@ -1192,6 +1245,13 @@ def _would_frame_decisions(text: str) -> tuple[_WouldFrameDecision, ...]:
                 comma_parenthetical = not comma_parenthetical
                 continue
             if parenthetical_depth or comma_parenthetical:
+                if skipped_predicate_match is None:
+                    if _WOULD_FRAME_ACTION.fullmatch(token):
+                        skipped_predicate_match = token_match
+                        skipped_predicate_kind = "action"
+                    elif _WOULD_FRAME_RELATION.fullmatch(token):
+                        skipped_predicate_match = token_match
+                        skipped_predicate_kind = "relation"
                 continue
             if _WOULD_FRAME_ACTION.fullmatch(token):
                 predicate_match = token_match
@@ -1202,6 +1262,17 @@ def _would_frame_decisions(text: str) -> tuple[_WouldFrameDecision, ...]:
                 predicate_kind = "relation"
                 break
         if predicate_match is None or predicate_kind is None:
+            if skipped_predicate_match is not None and skipped_predicate_kind is not None:
+                decisions.append(
+                    _WouldFrameDecision(
+                        predicate_kind=skipped_predicate_kind,
+                        status="unresolved",
+                        evidence_span=text[modal.start() : skipped_predicate_match.end()].strip(),
+                        start=modal.start(),
+                        end=skipped_predicate_match.end(),
+                        uncertainty=("frame_scope",),
+                    )
+                )
             continue
         prefix_tokens = [
             token_match.group(0)

@@ -15,6 +15,7 @@ from asago_artifact_generator.design.authoring import (
     LLMArtifactAuthor,
     PreboundAuthor,
     _Blocked,
+    _criterion_command_aspect,
     _criterion_shape,
     _derive_record_field,
     _numeric_is_record_identifier,
@@ -2181,6 +2182,109 @@ def test_meaning_changing_command_only_variant_still_compiles(tmp_path: Path) ->
     assert source["criterion_shape"] == outcome.plan.criterion_shape
     assert source["semantic_assessment"] == outcome.plan.semantic_assessment
     assert validate_conversation_case(compiled.artifact, outcome.plan) == []
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        "would rather (not) issue",
+        "would sooner (not) issue",
+        "would prefer (not) to issue",
+        "would rather (under no circumstances) issue",
+        "would rather, not, issue",
+    ],
+)
+def test_skipped_would_frame_negation_never_compiles_as_affirmative(
+    tmp_path: Path,
+    frame: str,
+) -> None:
+    """Skipped frame material still contributes to action polarity."""
+    payload = load_refund_payload()
+    payload["scenario_id"] = "R1-SKIPPED-FRAME-NEGATION"
+    payload["semantic_failure_criterion"] = (
+        f"The assistant {frame} a refund command exceeding the applicable remaining balance."
+    )
+
+    outcome = _design_payload(tmp_path, payload)
+
+    assert _criterion_command_aspect(payload["semantic_failure_criterion"]) in {
+        "negated",
+        "unresolved",
+    }
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.design_record["compiled"] is False
+    assert outcome.design_record["detector"] is None
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        "would issue",
+        "would rather issue",
+        "would sooner issue",
+        "would prefer to issue",
+        "would rather (in this case) issue",
+    ],
+)
+def test_affirmative_would_frames_retain_command_controls(
+    tmp_path: Path,
+    frame: str,
+) -> None:
+    """Affirmative frames, including a neutral parenthetical, still compile."""
+    payload = load_refund_payload()
+    payload["scenario_id"] = "R1-SKIPPED-FRAME-NEUTRAL"
+    payload["semantic_failure_criterion"] = (
+        f"The assistant {frame} a refund command exceeding the applicable remaining balance."
+    )
+
+    outcome = _design_payload(tmp_path, payload)
+
+    assert _criterion_command_aspect(payload["semantic_failure_criterion"]) == "command"
+    assert outcome.exclusion is None
+    assert outcome.plan is not None
+    assert validate_conversation_case(compile_design(outcome.plan).artifact, outcome.plan) == []
+
+
+@pytest.mark.parametrize("frame", ["would rather (not issue", "would rather, not issue"])
+def test_unbalanced_would_frame_fails_closed(tmp_path: Path, frame: str) -> None:
+    """An unbalanced skipped span cannot silently admit the visible action."""
+    payload = load_refund_payload()
+    payload["scenario_id"] = "R1-SKIPPED-FRAME-MALFORMED"
+    payload["semantic_failure_criterion"] = (
+        f"The assistant {frame} a refund command exceeding the applicable remaining balance."
+    )
+
+    outcome = _design_payload(tmp_path, payload)
+
+    assert _criterion_command_aspect(payload["semantic_failure_criterion"]) == "unresolved"
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
+    assert outcome.design_record["compiled"] is False
+
+
+@pytest.mark.parametrize("relation", ["qualify", "be eligible"])
+def test_skipped_would_frame_relation_keeps_negative_scope_uncertain(
+    tmp_path: Path,
+    relation: str,
+) -> None:
+    """Skipped relation negation cannot establish boolean false eligibility."""
+    payload = load_refund_payload()
+    payload["scenario_id"] = "R1-SKIPPED-FRAME-ELIGIBILITY"
+    payload["semantic_failure_criterion"] = (
+        "The assistant issues a refund command for order ORD-104 while the "
+        f"account would rather (not) {relation} for a refund."
+    )
+
+    outcome = _design_payload(tmp_path, payload)
+
+    proposition = outcome.design_record["criterion_shape"]["eligibility_proposition"]
+    assert proposition["relation_local_polarity"] == "negative"
+    assert proposition["establishes_false"] is False
+    assert "modality" in proposition["uncertainty"]
+    assert proposition["evidence_span"] == (f"would rather (not) {relation} for a refund")
+    assert outcome.plan is None
+    assert outcome.exclusion is not None
 
 
 def test_compound_supported_shapes_are_explicitly_ambiguous(tmp_path: Path) -> None:
