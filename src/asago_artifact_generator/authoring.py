@@ -36,7 +36,7 @@ from .input_adapter import (
     InputView,
     build_reference_task_view,
 )
-from .metadata_policy import secret_metadata_paths
+from .metadata_policy import prompt_secret_metadata_paths, secret_metadata_paths
 from .package_io import ArtifactPackage, build_package, write_package
 
 CALL1_PROMPT_VERSION = "authoring-call1-v1"
@@ -495,7 +495,7 @@ class AuthoringOrchestrator:
             "findings": [finding.to_dict() for finding in findings],
             "instruction": "Return a complete replacement response for the failed stage.",
         }
-        assert_no_secrets(correction_payload)
+        assert_no_prompt_secrets(correction_payload)
         packet = PromptPacket(
             stage="correction",
             version=CORRECTION_PROMPT_VERSION,
@@ -708,7 +708,7 @@ def build_call1_packet(
         "runtime_contract": runtime_contract,
         "response_contract": _call1_contract(),
     }
-    assert_no_secrets(payload)
+    assert_no_prompt_secrets(payload)
     packet = PromptPacket(
         stage="call1",
         version=CALL1_PROMPT_VERSION,
@@ -765,7 +765,7 @@ def build_call2_packet(
         "runtime_contract": runtime_contract,
         "response_contract": _call2_contract(),
     }
-    assert_no_secrets(payload)
+    assert_no_prompt_secrets(payload)
     packet = PromptPacket(
         stage="call2",
         version=CALL2_PROMPT_VERSION,
@@ -783,8 +783,20 @@ def scan_for_secrets(value: Any, path: str = "") -> list[str]:
     return secret_metadata_paths(value, path)
 
 
+def scan_for_prompt_secrets(value: Any, path: str = "") -> list[str]:
+    """Return secret-bearing paths from a model-facing prompt view."""
+
+    return prompt_secret_metadata_paths(value, path)
+
+
 def assert_no_secrets(value: Any) -> None:
     paths = scan_for_secrets(value)
+    if paths:
+        raise AuthoringError(f"secret-bearing authoring evidence: {', '.join(paths)}")
+
+
+def assert_no_prompt_secrets(value: Any) -> None:
+    paths = scan_for_prompt_secrets(value)
     if paths:
         raise AuthoringError(f"secret-bearing authoring evidence: {', '.join(paths)}")
 
@@ -3168,6 +3180,7 @@ __all__ = [
     "ScriptedAuthoringTransport",
     "TransportResponse",
     "assert_no_secrets",
+    "assert_no_prompt_secrets",
     "build_neutral_artifact_package",
     "build_call1_packet",
     "build_call2_packet",
@@ -3180,4 +3193,5 @@ __all__ = [
     "neutral_artifact_response",
     "neutral_artifact_plan",
     "scan_for_secrets",
+    "scan_for_prompt_secrets",
 ]
