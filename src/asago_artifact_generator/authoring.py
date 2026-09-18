@@ -36,6 +36,7 @@ from .input_adapter import (
     InputView,
     build_reference_task_view,
 )
+from .metadata_policy import secret_metadata_paths
 from .package_io import ArtifactPackage, build_package, write_package
 
 CALL1_PROMPT_VERSION = "authoring-call1-v1"
@@ -47,9 +48,6 @@ MAX_REQUESTS_PER_TASK = 3
 MAX_RENDERED_PROMPT_BYTES = 1_000_000
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*\n?(.*?)\n?\s*```\s*$", re.DOTALL)
 _SLOT_RE = re.compile(r"\{\{([^{}]*)\}\}")
-_SECRET_TERMS = frozenset(
-    {"api_key", "apikey", "authorization", "password", "credential", "endpoint", "secret"}
-)
 
 
 class AuthoringTransport(Protocol):
@@ -782,20 +780,7 @@ def build_call2_packet(
 def scan_for_secrets(value: Any, path: str = "") -> list[str]:
     """Return secret-bearing metadata paths without inspecting secret values."""
 
-    found: list[str] = []
-    if isinstance(value, dict):
-        for key, item in value.items():
-            key_text = str(key).lower()
-            child_path = f"{path}.{key}" if path else str(key)
-            if key_text in _SECRET_TERMS or any(
-                key_text.startswith(f"{term}_") for term in _SECRET_TERMS
-            ):
-                found.append(child_path)
-            found.extend(scan_for_secrets(item, child_path))
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            found.extend(scan_for_secrets(item, f"{path}[{index}]"))
-    return found
+    return secret_metadata_paths(value, path)
 
 
 def assert_no_secrets(value: Any) -> None:
@@ -2158,7 +2143,7 @@ def _package_from_responses(
         {
             key: value
             for key, value in record.items()
-            if key not in {"prompt_system", "prompt_user"}
+            if key not in {"prompt_system", "prompt_user"} and not (key == "usage" and not value)
         }
         for record in ledger
     ]

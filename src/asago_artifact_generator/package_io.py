@@ -11,18 +11,10 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .metadata_policy import secret_metadata_paths
+
 PACKAGE_SCHEMA_VERSION = "artifact-package-v1"
 DETECTOR_INTERFACE_VERSION = "evaluate(evidence: dict) -> dict"
-_SECRET_TERMS = (
-    "api_key",
-    "apikey",
-    "authorization",
-    "credential",
-    "endpoint",
-    "password",
-    "secret",
-    "token",
-)
 _ALLOWED_MEMBER_NAMES = {
     "plan.json",
     "stimulus.json",
@@ -367,7 +359,7 @@ def _validate_manifest_fields(manifest: PackageManifest) -> None:
     ):
         if value is not None and not isinstance(value, dict):
             raise PackageIntegrityError("manifest metadata must be objects")
-        if value is not None and _contains_secret_key(value):
+        if value is not None and secret_metadata_paths(value):
             raise PackageIntegrityError("manifest contains secret-bearing metadata")
     if not isinstance(manifest.members, list):
         raise PackageIntegrityError("manifest members must be a list")
@@ -388,19 +380,6 @@ def _validate_package(package: ArtifactPackage) -> None:
         expected = _member_record(relative, normalized[relative])
         if record != expected:
             raise PackageIntegrityError(f"member digest or metadata mismatch: {relative}")
-
-
-def _contains_secret_key(value: Any) -> bool:
-    if isinstance(value, dict):
-        for key, item in value.items():
-            lowered = str(key).lower()
-            if any(term in lowered for term in _SECRET_TERMS):
-                return True
-            if _contains_secret_key(item):
-                return True
-    elif isinstance(value, list):
-        return any(_contains_secret_key(item) for item in value)
-    return False
 
 
 def _sha256(value: bytes) -> str:
