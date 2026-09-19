@@ -12,9 +12,12 @@ import ast
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
+
+import yaml
 
 from .bindings import (
     CLOSED_TYPES,
@@ -33,8 +36,10 @@ from .failure_evidence import (
     write_failure_evidence,
 )
 from .input_adapter import (
+    InputKind,
     InputView,
     build_reference_task_view,
+    load_input,
 )
 from .metadata_policy import prompt_secret_metadata_paths, secret_metadata_paths
 from .package_io import ArtifactPackage, build_package, write_package
@@ -46,6 +51,16 @@ AUTHORING_INTERFACE_VERSION = "artifact-authoring-v1"
 MAX_AUTHORING_REQUESTS = 16
 MAX_REQUESTS_PER_TASK = 3
 MAX_RENDERED_PROMPT_BYTES = 1_000_000
+A03_AGGREGATE_LIMIT = 26
+A03_HISTORICAL_REQUESTS = 18
+A03_HISTORICAL_TASK_ID = "A03-authored-20260919"
+A03_HISTORICAL_ATTEMPTS = 3
+A03_FAILURE_EVIDENCE_SHA256 = "f05c90cfa234e2fbb40d260f5c30c540c7447166ea20328cbba3c79e23b6328c"
+A03_INPUT_SNAPSHOT_SHA256 = "77a04e0b92355aac377fec570d59157364b188830186189fd92b02de9ac4f64f"
+A03_INVENTORY_SHA256 = "fc9ff4bca6d4477cc70328f857939dd89246dfcc02598fa9ed8b17d90c6cf098"
+A03_RUNTIME_CONTRACT_SHA256 = "3d5f4039436d30bbfc108c37213ff3d92d0391661e572d8f6556e4b2fc740649"
+_A03_INPUT_LABEL = "supplied_hash_verified_reference_task"
+_A03_REFERENCE_ID = "A03"
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*\n?(.*?)\n?\s*```\s*$", re.DOTALL)
 _SLOT_RE = re.compile(r"\{\{([^{}]*)\}\}")
 
@@ -81,6 +96,10 @@ class BudgetExceeded(AuthoringError):
 
 class PromptOverflowError(AuthoringError):
     """Raised before dispatch when a complete prompt exceeds its explicit bound."""
+
+
+class ContinuationValidationError(AuthoringError):
+    """Raised when a saved-plan continuation cannot reproduce pinned history."""
 
 
 @dataclass(frozen=True)
@@ -159,6 +178,77 @@ class AuthoringResult:
     decoded_responses: dict[str, Any] = field(default_factory=dict)
     prompts: dict[str, PromptPacket] = field(default_factory=dict)
     failure_evidence_path: Path | None = None
+
+
+@dataclass(frozen=True)
+class SavedPlanContinuation:
+    """Validated, Call-2-only continuation prepared without a transport."""
+
+    failure_evidence_path: Path
+    failure_evidence_sha256: str
+    saved_plan: dict[str, Any]
+    input_view: InputView
+    inventory: dict[str, Any]
+    runtime_contract: dict[str, Any]
+    call2_packet: PromptPacket
+    saved_plan_sha256: str
+    historical_attempts: int
+    aggregate_spent: int
+
+    def run(
+        self,
+        *,
+        transport_factory: Callable[[], AuthoringTransport],
+        package_dir: str | Path,
+        task_id: str,
+        budget: AuthoringBudget | None = None,
+    ) -> AuthoringResult:
+        """Run only the saved Call 2 and existing correction/package tail."""
+
+        if not task_id or task_id == A03_HISTORICAL_TASK_ID:
+            raise ContinuationValidationError("continuation task identity must be fresh")
+        active_budget = budget or _continuation_budget(self.aggregate_spent)
+        if active_budget.aggregate_limit == MAX_AUTHORING_REQUESTS:
+            active_budget.aggregate_limit = A03_AGGREGATE_LIMIT
+        elif active_budget.aggregate_limit > A03_AGGREGATE_LIMIT:
+            active_budget.aggregate_limit = A03_AGGREGATE_LIMIT
+        if active_budget.task_limit > 2:
+            active_budget.task_limit = 2
+        if active_budget.total_dispatched < self.aggregate_spent:
+            active_budget.total_dispatched = self.aggregate_spent
+        budget_failure = _continuation_budget_failure(
+            active_budget,
+            task_id=task_id,
+        )
+        if budget_failure is not None:
+            return budget_failure
+        transport = transport_factory()
+        orchestrator = AuthoringOrchestrator(
+            transport=transport,
+            package_dir=package_dir,
+            task_id=task_id,
+            budget=active_budget,
+        )
+        return orchestrator.run_call2_only(
+            view=self.input_view,
+            plan=self.saved_plan,
+            call2_packet=self.call2_packet,
+            inventory=self.inventory,
+            runtime_contract=self.runtime_contract,
+            continuation={
+                "mode": "saved-plan-call2-only",
+                "historical_failure_evidence": {
+                    "path": str(self.failure_evidence_path),
+                    "sha256": self.failure_evidence_sha256,
+                },
+                "saved_plan_sha256": self.saved_plan_sha256,
+                "historical_attempts": self.historical_attempts,
+                "aggregate": {
+                    "spent_before": self.aggregate_spent,
+                    "limit": active_budget.aggregate_limit,
+                },
+            },
+        )
 
 
 class ScriptedAuthoringTransport:
@@ -357,6 +447,84 @@ class AuthoringOrchestrator:
             decoded_responses=dict(self._decoded_responses),
             prompts=dict(self._prompt_packets),
             failure_evidence_path=None,
+        )
+
+    def run_call2_only(
+        self,
+        *,
+        view: InputView,
+        plan: dict[str, Any],
+        call2_packet: PromptPacket,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+        continuation: dict[str, Any],
+    ) -> AuthoringResult:
+        """Run the existing Call 2/correction/package tail without Call 1."""
+
+        self._decoded_responses["call1"] = plan
+        self._failure_evidence["continuation"] = continuation
+        self._failure_evidence["historical_attempts"] = continuation["historical_attempts"]
+        self._failure_evidence["aggregate"] = continuation["aggregate"]
+        self._persist_failure_evidence()
+        artifact, findings, raw = self._request_and_validate(
+            call2_packet,
+            lambda decoded: collect_artifact_findings(
+                decoded,
+                plan,
+                inventory,
+                runtime_contract,
+            ),
+        )
+        if artifact is None:
+            correction = self._correction(
+                failed_stage="call2",
+                failed_packet=call2_packet,
+                failed_response=raw,
+                findings=findings,
+                view=view,
+                inventory=inventory,
+                runtime_contract=runtime_contract,
+            )
+            if correction is None:
+                return self._result("failed", plan, self._findings or findings)
+            artifact, findings, _ = correction
+            if artifact is None:
+                return self._result("failed", plan, findings)
+
+        package = _package_from_responses(
+            view=view,
+            plan=plan,
+            artifact=artifact,
+            task_id=self.task_id,
+            ledger=self._ledger,
+            raw_responses=self._raw_responses,
+            decoded_responses=self._decoded_responses,
+            prompt_packets=self._prompt_packets,
+            transformations=self._transformations,
+            inventory=inventory,
+            runtime_contract=runtime_contract,
+            continuation=continuation,
+        )
+        try:
+            path = write_package(self.package_dir, package)
+        except Exception as exc:
+            finding = Finding("package_write_failed", str(exc))
+            return self._result("failed", plan, [finding])
+        self._finish_failure_evidence("packaged", [])
+        return AuthoringResult(
+            status="packaged",
+            task_id=self.task_id,
+            plan=plan,
+            artifact=artifact,
+            package=package,
+            package_path=path,
+            findings=[],
+            ledger=list(self._ledger),
+            transformations=list(self._transformations),
+            raw_responses=dict(self._raw_responses),
+            decoded_responses=dict(self._decoded_responses),
+            prompts=dict(self._prompt_packets),
+            failure_evidence_path=self._failure_evidence_file,
         )
 
     def _request_and_validate(
@@ -688,6 +856,11 @@ class AuthoringOrchestrator:
         self._failure_evidence["findings"] = [finding.to_dict() for finding in self._findings] or [
             finding.to_dict() for finding in findings
         ]
+        aggregate = self._failure_evidence.get("aggregate")
+        if isinstance(aggregate, dict) and isinstance(aggregate.get("spent_before"), int):
+            aggregate["spent_after"] = aggregate["spent_before"] + len(
+                self._failure_evidence["attempts"]
+            )
         self._persist_failure_evidence()
         return self._failure_evidence_file
 
@@ -2010,6 +2183,328 @@ def _is_blocked_plan(plan: Any) -> bool:
     )
 
 
+def prepare_saved_plan_continuation(
+    *,
+    failure_evidence: str | Path,
+    input_source: str | Path,
+    input_snapshot: str | Path,
+    inventory: str | Path | dict[str, Any],
+    runtime_contract: str | Path | dict[str, Any],
+    expected_failure_evidence_sha256: str = A03_FAILURE_EVIDENCE_SHA256,
+    expected_input_snapshot_sha256: str = A03_INPUT_SNAPSHOT_SHA256,
+    expected_inventory_sha256: str = A03_INVENTORY_SHA256,
+    expected_runtime_contract_sha256: str = A03_RUNTIME_CONTRACT_SHA256,
+    aggregate_spent: int = A03_HISTORICAL_REQUESTS,
+) -> SavedPlanContinuation:
+    """Validate the sealed A03 history and prepare a Call-2-only run.
+
+    This function has no transport parameter and constructs no provider
+    client.  It accepts only source documents and returns a prepared
+    continuation after all byte and structural checks pass.
+    """
+
+    evidence_path = Path(failure_evidence)
+    evidence_bytes = _read_continuation_file(evidence_path, "failure evidence")
+    evidence_hash = _sha256(evidence_bytes)
+    if evidence_hash != expected_failure_evidence_sha256:
+        raise ContinuationValidationError(
+            "failure evidence hash does not match the pinned A03 history"
+        )
+    evidence = load_failure_evidence(evidence_path)
+    attempts = evidence.get("attempts")
+    if (
+        evidence.get("task_id") != A03_HISTORICAL_TASK_ID
+        or evidence.get("status") != "failed"
+        or not isinstance(attempts, list)
+        or len(attempts) != A03_HISTORICAL_ATTEMPTS
+        or not all(isinstance(attempt, dict) for attempt in attempts)
+        or [attempt.get("stage") for attempt in attempts] != ["call1", "call2", "correction"]
+        or [attempt.get("dispatch_index") for attempt in attempts] != [1, 2, 3]
+    ):
+        raise ContinuationValidationError("historical A03 attempt identity is not exact")
+    if any(
+        attempt.get("task_id") != A03_HISTORICAL_TASK_ID
+        or not isinstance(attempt.get("controls"), dict)
+        or not isinstance(attempt["controls"].get("value"), dict)
+        or attempt["controls"]["value"].get("max_retries") != 0
+        for attempt in attempts
+    ):
+        raise ContinuationValidationError("historical A03 attempt controls are not exact")
+    if aggregate_spent != A03_HISTORICAL_REQUESTS:
+        raise ContinuationValidationError(
+            "A03 continuation must seed aggregate accounting from all 18 historical requests"
+        )
+
+    snapshot_path = Path(input_snapshot)
+    snapshot_bytes = _read_continuation_file(snapshot_path, "input snapshot")
+    if _sha256(snapshot_bytes) != expected_input_snapshot_sha256:
+        raise ContinuationValidationError("input snapshot hash does not match pinned history")
+    snapshot = _load_continuation_mapping(snapshot_path, "input snapshot")
+    source_path = Path(input_source)
+    source_hash = _sha256(_read_continuation_file(source_path, "original input"))
+    gold_digests = snapshot.get("gold_artifact_digests")
+    if (
+        snapshot.get("label") != "supplied_hash_verified_reference_task_inputs"
+        or snapshot.get("reference_id") != _A03_REFERENCE_ID
+        or not isinstance(gold_digests, dict)
+        or gold_digests.get("gold-cases.yaml") != source_hash
+    ):
+        raise ContinuationValidationError("original pinned input does not match its snapshot")
+
+    inventory_data = _load_continuation_value(inventory, "operation inventory")
+    runtime_data = _load_continuation_value(runtime_contract, "runtime contract")
+    if not isinstance(inventory_data, dict) or not isinstance(runtime_data, dict):
+        raise ContinuationValidationError("inventory and runtime contract must be objects")
+    if isinstance(inventory, (str, Path)) and _sha256(Path(inventory).read_bytes()) != (
+        expected_inventory_sha256
+    ):
+        raise ContinuationValidationError("operation inventory hash does not match pinned history")
+    if (
+        isinstance(runtime_contract, (str, Path))
+        and _sha256(Path(runtime_contract).read_bytes()) != expected_runtime_contract_sha256
+    ):
+        raise ContinuationValidationError("runtime contract hash does not match pinned history")
+
+    view = load_input(
+        source_path,
+        kind=InputKind.REFERENCE_TASK,
+        reference_label=_A03_INPUT_LABEL,
+        reference_id=_A03_REFERENCE_ID,
+    )
+    call1_attempt, call2_attempt, correction_attempt = attempts
+    call1_prompt = _continuation_prompt_payload(call1_attempt, "call1")
+    call2_prompt = _continuation_prompt_payload(call2_attempt, "call2")
+    if (
+        call1_prompt.get("interface") != AUTHORING_INTERFACE_VERSION
+        or call1_prompt.get("response_contract") != _call1_contract()
+    ):
+        raise ContinuationValidationError("saved Call 1 contract identity is not exact")
+    saved_plan = call1_attempt.get("decoded_output")
+    if not isinstance(saved_plan, dict):
+        raise ContinuationValidationError("saved Call 1 plan is unavailable")
+    if call1_prompt.get("environment_inventory") != inventory_data:
+        raise ContinuationValidationError("operation inventory differs from saved Call 1 input")
+    if call1_prompt.get("runtime_contract") != runtime_data:
+        raise ContinuationValidationError("runtime contract differs from saved Call 1 input")
+    if call1_prompt.get("input") != _input_view_payload(view):
+        raise ContinuationValidationError(
+            "reconstructed input view differs from saved Call 1 input"
+        )
+    plan_findings = collect_plan_findings(saved_plan, inventory_data, runtime_data)
+    if plan_findings:
+        raise ContinuationValidationError(
+            f"saved Call 1 plan fails structural validation: {plan_findings[0].detail}"
+        )
+    if correction_attempt.get("failed_stage") != "call2":
+        raise ContinuationValidationError("historical correction does not belong to Call 2")
+    call2_failure = call2_attempt.get("failure")
+    call2_findings = call2_attempt.get("findings")
+    if (
+        not isinstance(call2_failure, dict)
+        or call2_failure.get("code") != "response_parse_error"
+        or not isinstance(call2_findings, list)
+        or not any(
+            finding.get("code") == "response_parse_error" and finding.get("path") == "call2"
+            for finding in call2_findings
+            if isinstance(finding, dict)
+        )
+    ):
+        raise ContinuationValidationError("historical Call 2 parse failure is not exact")
+    correction = correction_attempt.get("decoded_output")
+    correction_findings = collect_artifact_findings(
+        correction, saved_plan, inventory_data, runtime_data
+    )
+    if not any(
+        finding.path == "setup_recipe" and finding.code in {"artifact_validation", "missing_field"}
+        for finding in correction_findings
+    ):
+        raise ContinuationValidationError(
+            "historical correction does not preserve the missing setup_recipe failure"
+        )
+    if call2_prompt.get("validated_plan") != saved_plan:
+        raise ContinuationValidationError("saved Call 2 plan differs from saved Call 1 plan")
+    if (
+        call2_prompt.get("interface") != AUTHORING_INTERFACE_VERSION
+        or call2_prompt.get("response_contract") != _call2_contract()
+    ):
+        raise ContinuationValidationError("saved Call 2 contract identity is not exact")
+    if call2_prompt.get("runtime_contract") != runtime_data:
+        raise ContinuationValidationError("saved Call 2 runtime contract differs from history")
+    if call2_prompt.get("operation_inventory", {}).get("operations") != inventory_data.get(
+        "operations"
+    ):
+        raise ContinuationValidationError("saved Call 2 operation inventory differs from history")
+    call2_packet = build_call2_packet(view, saved_plan, inventory_data, runtime_data)
+    if (
+        call2_packet.version != call2_attempt.get("prompt", {}).get("version")
+        or call2_packet.system != call2_attempt.get("prompt", {}).get("system")
+        or call2_packet.user != call2_attempt.get("prompt", {}).get("user")
+    ):
+        raise ContinuationValidationError("rebuilt Call 2 packet is not byte-identical to history")
+    _validate_continuation_raw_records(attempts)
+    return SavedPlanContinuation(
+        failure_evidence_path=evidence_path,
+        failure_evidence_sha256=evidence_hash,
+        saved_plan=saved_plan,
+        input_view=view,
+        inventory=inventory_data,
+        runtime_contract=runtime_data,
+        call2_packet=call2_packet,
+        saved_plan_sha256=_sha256(_canonical_json(saved_plan).encode("utf-8")),
+        historical_attempts=A03_HISTORICAL_ATTEMPTS,
+        aggregate_spent=aggregate_spent,
+    )
+
+
+def continue_authoring_from_saved_plan(
+    *,
+    failure_evidence: str | Path,
+    input_source: str | Path,
+    input_snapshot: str | Path,
+    inventory: str | Path | dict[str, Any],
+    runtime_contract: str | Path | dict[str, Any],
+    package_dir: str | Path,
+    task_id: str,
+    transport_factory: Callable[[], AuthoringTransport],
+    budget: AuthoringBudget | None = None,
+    expected_failure_evidence_sha256: str = A03_FAILURE_EVIDENCE_SHA256,
+    expected_input_snapshot_sha256: str = A03_INPUT_SNAPSHOT_SHA256,
+    expected_inventory_sha256: str = A03_INVENTORY_SHA256,
+    expected_runtime_contract_sha256: str = A03_RUNTIME_CONTRACT_SHA256,
+    aggregate_spent: int = A03_HISTORICAL_REQUESTS,
+) -> AuthoringResult:
+    """Prepare and execute the owner-authorized A03 Call-2-only continuation."""
+
+    if task_id == A03_HISTORICAL_TASK_ID:
+        raise ContinuationValidationError("continuation task identity must be fresh")
+    prepared = prepare_saved_plan_continuation(
+        failure_evidence=failure_evidence,
+        input_source=input_source,
+        input_snapshot=input_snapshot,
+        inventory=inventory,
+        runtime_contract=runtime_contract,
+        expected_failure_evidence_sha256=expected_failure_evidence_sha256,
+        expected_input_snapshot_sha256=expected_input_snapshot_sha256,
+        expected_inventory_sha256=expected_inventory_sha256,
+        expected_runtime_contract_sha256=expected_runtime_contract_sha256,
+        aggregate_spent=aggregate_spent,
+    )
+    return prepared.run(
+        transport_factory=transport_factory,
+        package_dir=package_dir,
+        task_id=task_id,
+        budget=budget,
+    )
+
+
+def _continuation_budget(
+    aggregate_spent: int,
+) -> AuthoringBudget:
+    return AuthoringBudget(
+        aggregate_limit=A03_AGGREGATE_LIMIT,
+        task_limit=2,
+        total_dispatched=aggregate_spent,
+        dispatched_by_task={A03_HISTORICAL_TASK_ID: A03_HISTORICAL_ATTEMPTS},
+    )
+
+
+def _continuation_budget_failure(
+    budget: AuthoringBudget,
+    *,
+    task_id: str,
+) -> AuthoringResult | None:
+    if budget.total_dispatched >= budget.aggregate_limit:
+        detail = "aggregate authoring budget exhausted before A03 continuation"
+    elif budget.dispatched_by_task.get(task_id, 0) >= budget.task_limit:
+        detail = f"per-task authoring budget exhausted: {task_id}"
+    else:
+        return None
+    return AuthoringResult(
+        status="failed",
+        task_id=task_id,
+        findings=[Finding("budget_exhausted", detail)],
+        ledger=[],
+        failure_evidence_path=None,
+    )
+
+
+def _read_continuation_file(path: Path, label: str) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise ContinuationValidationError(f"cannot read {label}: {path}") from exc
+
+
+def _load_continuation_mapping(path: Path, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ContinuationValidationError(f"cannot parse {label}: {path}") from exc
+    if not isinstance(value, dict):
+        raise ContinuationValidationError(f"{label} must be an object")
+    return value
+
+
+def _load_continuation_value(value: str | Path | dict[str, Any], label: str) -> Any:
+    if isinstance(value, dict):
+        return json.loads(json.dumps(value))
+    path = Path(value)
+    try:
+        raw = path.read_text(encoding="utf-8")
+        parsed = json.loads(raw) if path.suffix.lower() == ".json" else yaml.safe_load(raw)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+        raise ContinuationValidationError(f"cannot parse {label}: {path}") from exc
+    return parsed
+
+
+def _continuation_prompt_payload(attempt: dict[str, Any], stage: str) -> dict[str, Any]:
+    prompt = attempt.get("prompt")
+    if not isinstance(prompt, dict) or prompt.get("version") != (
+        CALL1_PROMPT_VERSION if stage == "call1" else CALL2_PROMPT_VERSION
+    ):
+        raise ContinuationValidationError(f"saved {stage} prompt identity is not exact")
+    try:
+        payload = json.loads(prompt["user"])
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise ContinuationValidationError(f"saved {stage} prompt is not JSON") from exc
+    if not isinstance(payload, dict):
+        raise ContinuationValidationError(f"saved {stage} prompt payload is not an object")
+    return payload
+
+
+def _validate_continuation_raw_records(attempts: list[dict[str, Any]]) -> None:
+    for attempt in attempts:
+        record = attempt.get("raw_response")
+        if not isinstance(record, dict) or record.get("availability") != "available":
+            raise ContinuationValidationError("historical A03 raw response is unavailable")
+        try:
+            import base64
+
+            raw = base64.b64decode(record["base64"], validate=True)
+        except (KeyError, ValueError, TypeError) as exc:
+            raise ContinuationValidationError(
+                "historical A03 raw response encoding is invalid"
+            ) from exc
+        if record.get("sha256") != _sha256(raw) or record.get("byte_length") != len(raw):
+            raise ContinuationValidationError("historical A03 raw response hash is not exact")
+        decoded = attempt.get("decoded_output")
+        if decoded is not None:
+            try:
+                text = raw.decode("utf-8").strip()
+                match = _FENCE_RE.match(text)
+                if match:
+                    text = match.group(1)
+                parsed = json.loads(text)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ContinuationValidationError(
+                    "historical A03 decoded output cannot be reproduced from raw bytes"
+                ) from exc
+            if parsed != decoded:
+                raise ContinuationValidationError(
+                    "historical A03 decoded output differs from raw response bytes"
+                )
+
+
 def _inventory_references(inventory: dict[str, Any]) -> set[str]:
     references = {
         str(item.get("ref"))
@@ -2108,6 +2603,7 @@ def _package_from_responses(
     transformations: list[str],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    continuation: dict[str, Any] | None = None,
 ) -> ArtifactPackage:
     authoring_records: dict[str, bytes] = {}
     for index, record in enumerate(ledger, start=1):
@@ -2177,6 +2673,17 @@ def _package_from_responses(
         ],
         "ledger": safe_ledger,
     }
+    if continuation is not None:
+        authoring_summary.update(
+            {
+                "continuation": continuation,
+                "historical_attempts": continuation["historical_attempts"],
+                "aggregate": {
+                    **continuation["aggregate"],
+                    "spent_after": continuation["aggregate"]["spent_before"] + len(ledger),
+                },
+            }
+        )
     creation_model = {"model": "configured-private-authoring", "controls": {"max_retries": 0}}
     assert_no_secrets({"authoring": authoring_summary, "creation_model": creation_model})
     package_id = f"{task_id}-{view.scenario_id}"
@@ -3164,6 +3671,8 @@ _CORRECTION_SYSTEM = (
 
 __all__ = [
     "AUTHORING_INTERFACE_VERSION",
+    "A03_AGGREGATE_LIMIT",
+    "A03_HISTORICAL_REQUESTS",
     "AuthoringBudget",
     "AuthoringError",
     "AuthoringOrchestrator",
@@ -3172,9 +3681,11 @@ __all__ = [
     "BudgetExceeded",
     "CALL1_PROMPT_VERSION",
     "CALL2_PROMPT_VERSION",
+    "ContinuationValidationError",
     "Finding",
     "PlanValidationError",
     "PromptPacket",
+    "SavedPlanContinuation",
     "PrivateModelAuthoringTransport",
     "PromptOverflowError",
     "ScriptedAuthoringTransport",
@@ -3187,11 +3698,13 @@ __all__ = [
     "evidence_packet_contract",
     "collect_artifact_findings",
     "collect_plan_findings",
+    "continue_authoring_from_saved_plan",
     "load_failure_evidence",
     "neutral_observation_cases",
     "neutral_observation_results",
     "neutral_artifact_response",
     "neutral_artifact_plan",
+    "prepare_saved_plan_continuation",
     "scan_for_secrets",
     "scan_for_prompt_secrets",
 ]
