@@ -198,6 +198,11 @@ discovery, or runtime-judge transport. An essential unresolved requirement
 produces a retained `*.blocked.json` plan and no package. The package contains
 the model-authored detector source, user-only stimulus, exact runtime-binding
 declarations, observations, explanation, examples, and digest-bound evidence.
+Prerequisites may remain descriptive (`name`, optional evidence references and
+check text) or declare one downstream executable `source` or `binding` string
+with an `equals` or `expected` JSON value. Descriptive prerequisites remain
+visible and non-blocking; declared executable references are typed and checked
+by downstream execution.
 If authoring fails before a package exists, the sibling
 `<package>.failure-evidence.json` sidecar is written atomically. It preserves
 each exact rendered prompt, available raw response bytes, provider usage,

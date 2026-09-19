@@ -51,8 +51,10 @@ AUTHORING_INTERFACE_VERSION = "artifact-authoring-v1"
 MAX_AUTHORING_REQUESTS = 16
 MAX_REQUESTS_PER_TASK = 3
 MAX_RENDERED_PROMPT_BYTES = 1_000_000
-A03_AGGREGATE_LIMIT = 26
-A03_HISTORICAL_REQUESTS = 18
+A03_AGGREGATE_LIMIT = 31
+A03_HISTORICAL_REQUESTS = 23
+A03_NEW_REQUESTS = 8
+A03_UNAVAILABLE_HISTORICAL_SLOTS = 3
 A03_HISTORICAL_TASK_ID = "A03-authored-20260919"
 A03_HISTORICAL_ATTEMPTS = 3
 A03_FAILURE_EVIDENCE_SHA256 = "f05c90cfa234e2fbb40d260f5c30c540c7447166ea20328cbba3c79e23b6328c"
@@ -250,6 +252,8 @@ class SavedPlanContinuation:
                 "aggregate": {
                     "spent_before": self.aggregate_spent,
                     "limit": active_budget.aggregate_limit,
+                    "new_authorized": A03_NEW_REQUESTS,
+                    "old_unused_slots": A03_UNAVAILABLE_HISTORICAL_SLOTS,
                 },
             },
         )
@@ -2084,7 +2088,7 @@ def _collect_prerequisite_findings(
         if not isinstance(prerequisite, dict):
             findings.append(Finding("shape_error", "prerequisite must be an object", path))
             continue
-        missing = {"name", "evidence_refs", "check"} - set(prerequisite)
+        missing = {"name"} - set(prerequisite)
         for field_name in sorted(missing):
             findings.append(
                 Finding(
@@ -2093,7 +2097,16 @@ def _collect_prerequisite_findings(
                     f"{path}.{field_name}",
                 )
             )
-        for field_name in sorted(set(prerequisite) - {"name", "evidence_refs", "check"}):
+        allowed_fields = {
+            "name",
+            "evidence_refs",
+            "check",
+            "source",
+            "binding",
+            "equals",
+            "expected",
+        }
+        for field_name in sorted(set(prerequisite) - allowed_fields):
             findings.append(
                 Finding(
                     "unexpected_field",
@@ -2101,14 +2114,46 @@ def _collect_prerequisite_findings(
                     f"{path}.{field_name}",
                 )
             )
-        if not isinstance(prerequisite.get("name"), str):
+        if (
+            not isinstance(prerequisite.get("name"), str)
+            or not prerequisite.get("name", "").strip()
+        ):
             findings.append(
                 Finding("type_error", "prerequisite.name must be a string", f"{path}.name")
             )
-        if not isinstance(prerequisite.get("check"), str):
+        if "check" in prerequisite and not isinstance(prerequisite.get("check"), str):
             findings.append(
                 Finding("type_error", "prerequisite.check must be a string", f"{path}.check")
             )
+        if "source" in prerequisite and (
+            not isinstance(prerequisite["source"], str) or not prerequisite["source"].strip()
+        ):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "prerequisite.source must be a non-empty string",
+                    f"{path}.source",
+                )
+            )
+        if "binding" in prerequisite and (
+            not isinstance(prerequisite["binding"], str) or not prerequisite["binding"].strip()
+        ):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "prerequisite.binding must be a non-empty string",
+                    f"{path}.binding",
+                )
+            )
+        for field_name in ("equals", "expected"):
+            if field_name in prerequisite and not _is_json_value(prerequisite[field_name]):
+                findings.append(
+                    Finding(
+                        "type_error",
+                        f"prerequisite.{field_name} must be a JSON value",
+                        f"{path}.{field_name}",
+                    )
+                )
         evidence_refs = prerequisite.get("evidence_refs", [])
         if not isinstance(evidence_refs, list):
             findings.append(
@@ -2120,7 +2165,7 @@ def _collect_prerequisite_findings(
             )
             continue
         for ref_index, ref in enumerate(evidence_refs):
-            if not isinstance(ref, str) or ref not in references:
+            if not isinstance(ref, str) or not ref.strip() or ref not in references:
                 findings.append(
                     Finding(
                         "unknown_reference",
@@ -2246,7 +2291,7 @@ def prepare_saved_plan_continuation(
         raise ContinuationValidationError("historical A03 attempt controls are not exact")
     if aggregate_spent != A03_HISTORICAL_REQUESTS:
         raise ContinuationValidationError(
-            "A03 continuation must seed aggregate accounting from all 18 historical requests"
+            "A03 continuation must seed aggregate accounting from all 23 historical requests"
         )
 
     snapshot_path = Path(input_snapshot)
@@ -2288,10 +2333,9 @@ def prepare_saved_plan_continuation(
     call1_attempt, call2_attempt, correction_attempt = attempts
     call1_prompt = _continuation_prompt_payload(call1_attempt, "call1")
     call2_prompt = _continuation_prompt_payload(call2_attempt, "call2")
-    if (
-        call1_prompt.get("interface") != AUTHORING_INTERFACE_VERSION
-        or call1_prompt.get("response_contract") != _call1_contract()
-    ):
+    if call1_prompt.get("interface") != AUTHORING_INTERFACE_VERSION or call1_prompt.get(
+        "response_contract"
+    ) not in (_call1_contract(), _historical_call1_contract()):
         raise ContinuationValidationError("saved Call 1 contract identity is not exact")
     saved_plan = call1_attempt.get("decoded_output")
     if not isinstance(saved_plan, dict):
@@ -2854,6 +2898,16 @@ def _json_bytes(value: Any) -> bytes:
     return (_canonical_json(value) + "\n").encode("utf-8")
 
 
+def _is_json_value(value: Any) -> bool:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return not isinstance(value, float) or value == value
+    if isinstance(value, list):
+        return all(_is_json_value(item) for item in value)
+    if isinstance(value, dict):
+        return all(isinstance(key, str) and _is_json_value(item) for key, item in value.items())
+    return False
+
+
 def _matches_schema_type(value: Any, schema_type: str) -> bool:
     if isinstance(value, str) and _SLOT_RE.fullmatch(value):
         return True
@@ -2990,6 +3044,31 @@ def _call1_contract() -> dict[str, Any]:
         ],
         "semantic_judging": _semantic_judging_contract(),
     }
+
+
+def _historical_call1_contract() -> dict[str, Any]:
+    """Return the sealed Call 1 contract used by the saved A03 plan.
+
+    The continuation reuses the exact historical prompt packet.  Its
+    descriptive-only prerequisite shape remains an accepted historical
+    identity while new prompts use the expanded executable union.
+    """
+
+    contract = json.loads(_canonical_json(_call1_contract()))
+    contract["schema"]["properties"]["prerequisites"] = {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": ["name", "evidence_refs", "check"],
+            "additionalProperties": False,
+            "properties": {
+                "name": {"type": "string"},
+                "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                "check": {"type": "string"},
+            },
+        },
+    }
+    return contract
 
 
 def _call2_contract() -> dict[str, Any]:
@@ -3242,12 +3321,35 @@ def _prerequisite_schema() -> dict[str, Any]:
         "type": "array",
         "items": {
             "type": "object",
-            "required": ["name", "evidence_refs", "check"],
+            "required": ["name"],
             "additionalProperties": False,
             "properties": {
                 "name": {"type": "string"},
                 "evidence_refs": {"type": "array", "items": {"type": "string"}},
                 "check": {"type": "string"},
+                "source": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": (
+                        "Optional executable reference consumed by downstream checks, "
+                        "for example bindings.order_id or setup.prepare.status."
+                    ),
+                },
+                "binding": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": (
+                        "Optional executable binding reference consumed by downstream checks."
+                    ),
+                },
+                "equals": {
+                    "type": ["string", "number", "boolean", "object", "array", "null"],
+                    "description": "Optional expected JSON value for the executable reference.",
+                },
+                "expected": {
+                    "type": ["string", "number", "boolean", "object", "array", "null"],
+                    "description": "Optional expected JSON value for the executable reference.",
+                },
             },
         },
     }
@@ -3722,6 +3824,8 @@ __all__ = [
     "AUTHORING_INTERFACE_VERSION",
     "A03_AGGREGATE_LIMIT",
     "A03_HISTORICAL_REQUESTS",
+    "A03_NEW_REQUESTS",
+    "A03_UNAVAILABLE_HISTORICAL_SLOTS",
     "AuthoringBudget",
     "AuthoringError",
     "AuthoringOrchestrator",

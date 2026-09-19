@@ -10,6 +10,8 @@ import pytest
 from asago_artifact_generator.authoring import (
     A03_AGGREGATE_LIMIT,
     A03_HISTORICAL_REQUESTS,
+    A03_NEW_REQUESTS,
+    A03_UNAVAILABLE_HISTORICAL_SLOTS,
     AuthoringBudget,
     ContinuationValidationError,
     ScriptedAuthoringTransport,
@@ -296,6 +298,14 @@ def _budget(task_id: str = "A03-continuation-20260919") -> AuthoringBudget:
     )
 
 
+def test_endpoint_recovery_allocator_is_explicit_and_bounded() -> None:
+    assert A03_HISTORICAL_REQUESTS == 23
+    assert A03_NEW_REQUESTS == 8
+    assert A03_AGGREGATE_LIMIT == 31
+    assert A03_AGGREGATE_LIMIT - A03_HISTORICAL_REQUESTS == A03_NEW_REQUESTS
+    assert A03_UNAVAILABLE_HISTORICAL_SLOTS == 3
+
+
 def test_continuation_preflight_rejects_tampering_before_transport_factory(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     factory_called = False
@@ -340,7 +350,7 @@ def test_continuation_dispatches_only_call2_and_seeds_aggregate_accounting(
         expected_input_snapshot_sha256=fixture["snapshot_hash"],
         expected_inventory_sha256=fixture["inventory_hash"],
         expected_runtime_contract_sha256=fixture["runtime_hash"],
-        aggregate_spent=18,
+        aggregate_spent=23,
         budget=budget,
     )
 
@@ -351,11 +361,55 @@ def test_continuation_dispatches_only_call2_and_seeds_aggregate_accounting(
     assert result.package is not None
     authoring = result.package.manifest.authoring
     assert authoring["continuation"]["mode"] == "saved-plan-call2-only"
-    assert authoring["aggregate"]["spent_before"] == 18
-    assert authoring["aggregate"]["spent_after"] == 19
+    assert authoring["aggregate"]["spent_before"] == 23
+    assert authoring["aggregate"]["spent_after"] == 24
+    assert authoring["aggregate"]["new_authorized"] == 8
+    assert authoring["aggregate"]["old_unused_slots"] == 3
     assert authoring["historical_attempts"] == 3
-    assert budget.total_dispatched == 19
+    assert budget.total_dispatched == 24
     assert fixture["evidence"].read_bytes() == historical_bytes
+
+
+def test_continuation_accepts_sealed_historical_prerequisite_contract(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    evidence = json.loads(fixture["evidence"].read_text(encoding="utf-8"))
+    call1_user = json.loads(evidence["attempts"][0]["prompt"]["user"])
+    call1_user["response_contract"]["schema"]["properties"]["prerequisites"] = {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": ["name", "evidence_refs", "check"],
+            "additionalProperties": False,
+            "properties": {
+                "name": {"type": "string"},
+                "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                "check": {"type": "string"},
+            },
+        },
+    }
+    evidence["attempts"][0]["prompt"]["user"] = json.dumps(
+        call1_user, sort_keys=True, separators=(",", ":")
+    )
+    write_failure_evidence(fixture["evidence"], evidence)
+    fixture["evidence_hash"] = hashlib.sha256(fixture["evidence"].read_bytes()).hexdigest()
+
+    result = continue_authoring_from_saved_plan(
+        failure_evidence=fixture["evidence"],
+        input_source=fixture["source"],
+        input_snapshot=fixture["snapshot"],
+        inventory=fixture["inventory"],
+        runtime_contract=fixture["runtime"],
+        package_dir=tmp_path / "historical-contract",
+        task_id="A03-continuation-historical-contract",
+        transport_factory=lambda: ScriptedAuthoringTransport([json.dumps(_artifact())]),
+        expected_failure_evidence_sha256=fixture["evidence_hash"],
+        expected_input_snapshot_sha256=fixture["snapshot_hash"],
+        expected_inventory_sha256=fixture["inventory_hash"],
+        expected_runtime_contract_sha256=fixture["runtime_hash"],
+        aggregate_spent=23,
+    )
+
+    assert result.status == "packaged"
 
 
 def test_continuation_allows_explicit_empty_setup_recipe_but_not_missing_field(
@@ -424,7 +478,7 @@ def test_continuation_exhaustion_stops_after_one_call2_and_one_correction(
         expected_input_snapshot_sha256=fixture["snapshot_hash"],
         expected_inventory_sha256=fixture["inventory_hash"],
         expected_runtime_contract_sha256=fixture["runtime_hash"],
-        aggregate_spent=18,
+        aggregate_spent=23,
     )
     assert result.status == "failed"
     assert [request["stage"] for request in transport.requests] == ["call2", "correction"]
