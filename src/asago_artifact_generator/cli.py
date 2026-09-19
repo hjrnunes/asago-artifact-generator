@@ -11,13 +11,7 @@ from typing import Annotated
 import typer
 import yaml
 
-from .authoring import (
-    MAX_AUTHORING_REQUESTS,
-    MAX_REQUESTS_PER_TASK,
-    AuthoringBudget,
-    AuthoringOrchestrator,
-    PrivateModelAuthoringTransport,
-)
+from .authoring import AuthoringOrchestrator, PrivateModelAuthoringTransport
 from .detector_runtime import execute_detector
 from .extract import load_scenario
 from .garak.gen import generate_artifact, list_scenario_files
@@ -199,37 +193,6 @@ def author(
         str | None,
         typer.Option("--task-id", help="Stable task identity used in package metadata."),
     ] = None,
-    task_dispatch_limit: Annotated[
-        int | None,
-        typer.Option(
-            "--task-dispatch-limit",
-            "--task-limit",
-            help="Maximum authoring dispatches for this task.",
-        ),
-    ] = None,
-    aggregate_dispatch_limit: Annotated[
-        int | None,
-        typer.Option(
-            "--aggregate-dispatch-limit",
-            "--aggregate-limit",
-            help="Maximum authoring dispatches across the caller's aggregate budget.",
-        ),
-    ] = None,
-    aggregate_spent: Annotated[
-        int | None,
-        typer.Option(
-            "--aggregate-spent",
-            help="Authoring dispatches already spent before this task.",
-        ),
-    ] = None,
-    no_correction: Annotated[
-        bool,
-        typer.Option(
-            "--no-correction",
-            "--correction-disabled",
-            help="Stop after a failed baseline call without dispatching correction.",
-        ),
-    ] = False,
 ) -> None:
     """Author one target-free immutable detector package with two bounded calls."""
 
@@ -241,30 +204,6 @@ def author(
     )
     inventory_data = _load_mapping(inventory, "inventory")
     runtime_data = _load_mapping(runtime_contract, "runtime contract")
-    budget_options_supplied = any(
-        value is not None
-        for value in (task_dispatch_limit, aggregate_dispatch_limit, aggregate_spent)
-    )
-    try:
-        budget = (
-            AuthoringBudget(
-                aggregate_limit=(
-                    aggregate_dispatch_limit
-                    if aggregate_dispatch_limit is not None
-                    else MAX_AUTHORING_REQUESTS
-                ),
-                task_limit=(
-                    task_dispatch_limit
-                    if task_dispatch_limit is not None
-                    else MAX_REQUESTS_PER_TASK
-                ),
-                total_dispatched=aggregate_spent if aggregate_spent is not None else 0,
-            )
-            if budget_options_supplied
-            else None
-        )
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
     api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("GEMINI_API_KEY") or "private"
     transport = PrivateModelAuthoringTransport(
         base_url=BASE_URL,
@@ -277,8 +216,6 @@ def author(
         transport=transport,
         package_dir=package_dir,
         task_id=stable_task_id,
-        budget=budget,
-        correction_allowed=not no_correction,
     ).run(view, inventory_data, runtime_data)
     typer.echo(
         json.dumps(

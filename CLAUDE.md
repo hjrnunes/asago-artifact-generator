@@ -12,10 +12,6 @@ uv sync --locked
 uv run pytest tests/ -q
 asago-artifact-generator generate -v
 asago-artifact-generator check <package-dir> --evidence <evidence.json>
-asago-artifact-generator author <source> --inventory <inventory.json> \
-  --runtime-contract <runtime-contract.json> --task-dispatch-limit 2 \
-  --aggregate-dispatch-limit <aggregate-limit> --aggregate-spent <already-spent> \
-  --no-correction
 ```
 
 Deterministic tests do not require an LLM endpoint. Live generation requires

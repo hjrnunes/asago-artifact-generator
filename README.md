@@ -117,24 +117,6 @@ controls, transformations, and findings. Missing responses or usage use an
 explicit `unavailable` marker. Provider endpoint and secret metadata are
 redacted from the sidecar.
 
-For a caller that reserves a two-dispatch baseline pair, pass generic budget
-controls and disable correction explicitly:
-
-```bash
-asago-artifact-generator author <source> \
-  --inventory <inventory.json> \
-  --runtime-contract <runtime-contract.json> \
-  --task-dispatch-limit 2 \
-  --aggregate-dispatch-limit <aggregate-limit> \
-  --aggregate-spent <already-spent> \
-  --no-correction
-```
-
-The aggregate spent count seeds accounting before the first dispatch. Negative,
-over-limit, or inconsistent budget values fail before the authoring transport
-is constructed. When these controls are absent, authoring keeps its normal
-two-call sequence and one shared correction allowance.
-
 ### Offline detector checks
 
 Run the exact packaged `detector.py` against a JSON or YAML evidence packet:
