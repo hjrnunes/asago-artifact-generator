@@ -10,13 +10,21 @@ evaluation platforms.
 uv sync --locked
 ./scripts/quality.sh
 uv run pytest tests/ -q
-asago-artifact-generator generate -v
-asago-artifact-generator check <package-dir> --evidence <evidence.json>
+uv run asago-artifact-generator author <scenario-handoff-or-input.json> \
+  --inventory <inventory.json> \
+  --runtime-contract <runtime-contract.json> \
+  --output-dir runs/authoring/<case-id>
+uv run asago-artifact-generator check <package-dir> --evidence <evidence.json>
 ```
 
-Deterministic tests do not require an LLM endpoint. Live generation requires
+`author` is the target-free primary workflow. `check` executes only supplied
+evidence through the immutable package. Deterministic tests do not require an LLM endpoint. Live authoring requires
 a configured provider (Gemini, OpenAI, Ollama, Hugging Face, or OpenRouter)
 via `.env` or environment variables.
+
+The `generate` command remains a read-only compatibility path for historical
+scenario YAMLs. New work uses producer `run`, consumer `author`, consumer
+`check`, and frozen downstream execution.
 
 ## Architecture
 

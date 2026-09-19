@@ -1,13 +1,98 @@
 # Policy-Driven Agentic Red Teaming
 
 Takes pre-built **scenario** YAMLs, classifies their injection surface, and generates red-teaming artifacts that can be run on downstream evaluation platforms.
+## Primary delivery workflow
 
+Run the target-free consumer workflow from this repository root:
+
+```bash
+cd <consumer-repo-root>
+uv sync --locked
+uv run asago-artifact-generator author <scenario-handoff-or-input.json> \
+  --inventory <inventory.json> \
+  --runtime-contract <runtime-contract.json> \
+  --output-dir runs/authoring/<case-id>
+uv run asago-artifact-generator check runs/authoring/<case-id>/<case-id> \
+  --evidence <evidence.json>
 ```
-examples/scenarios/*.yaml
-  → classify (injection surface + platform coverage)
-  → generate a platform-specific artifact
-  → runs/{scenario_id}/
+
+`author` makes the bounded two-call authoring decision and writes an immutable
+package or durable failure evidence. `check` runs only the supplied evidence
+through the packaged detector in the constrained offline harness. Neither
+command starts a target, setup service, discovery transport, or semantic judge.
+
+The producer owns scenario meaning. From the producer repository root, run the
+normal producer command and then hand the resulting `scenario-handoff-v1`
+input to `author`:
+
+```bash
+cd <producer-repo-root>
+uv sync --locked
+uv run asago-scenario-generator run \
+  --use-case @use-case.txt \
+  --risk-extraction risk-extraction.json \
+  --qualification-facts qualification-facts.yaml \
+  --taxonomy-inputs obligation-inputs.yaml \
+  --output-dir output/my-system \
+  --sp1-profile <profile-name> --sp2-profile <profile-name> \
+  --sp3-profile <profile-name>
 ```
+
+Frozen downstream execution remains producer-owned and consumes only a saved
+package:
+
+```bash
+cd <producer-repo-root>
+.venv/bin/python scripts/qualification/run_frozen_package.py \
+  /absolute/path/to/package \
+  --setup-fixture /absolute/path/to/setup.json \
+  --generation-fixture /absolute/path/to/generation.json \
+  --receipt build/qualification/frozen-receipt.json
+```
+
+Use the maintained safe lifecycle for a live qualification case. Start,
+verify, and stop only the documented safe target; never use an unsafe port:
+
+```bash
+cd <producer-repo-root>
+uv run python scripts/qualification/run_recipe.py start --domain klarna
+uv run python scripts/qualification/run_recipe.py verify --domain klarna
+uv run python scripts/qualification/run_recipe.py stop
+```
+
+The optional end-to-end orchestration command uses one registered safe domain
+and a fresh output directory:
+
+```bash
+cd <producer-repo-root>
+uv run python scripts/qualification/run_end_to_end.py \
+  --domain klarna \
+  --output-dir build/adaptive-e2e/<fresh-run-name>
+```
+
+Run the final broad gate once, after the last required execution:
+
+```bash
+# Consumer repository
+cd <consumer-repo-root>
+./scripts/quality.sh
+uv run pytest tests/ -q
+
+# Producer repository
+cd <producer-repo-root>
+./scripts/quality.sh
+export ASAGO_SCENARIO_GENERATOR_APS_ROOT=/absolute/path/to/Acceptance-Pipeline-Specification
+./scripts/acceptance.sh
+uv run pytest scripts/qualification -q
+```
+
+The producer qualification suite includes the offline fake-judge and spy
+checks. They verify the package-declared judge dependency, one-request bound,
+saved-result reuse, and inconclusive failure behavior without live judging.
+
+The old `generate` command remains a read-only compatibility path for
+historical scenario YAMLs. Migrate new work to `run` → `author` → `check`;
+do not use `generate` as the primary workflow or add another legacy command.
 
 ## Setup
 
@@ -29,7 +114,7 @@ Supported LLM backends: **Gemini** (default when `GEMINI_API_KEY` is set), **Ope
 1. **Classify** the injection surface from `narrative.entry_point` (`input` → `user_turn`, `tool_execution` → `tool_return`). Supply chain threats (`threat_name`) skip with no coverage.
 2. **Skip** surfaces the target platform cannot express (including supply chain).
 3. **Generate** a red-teaming artifact for that platform (transcript + detector rubric).
-4. **Validate** deos the artifact pass all checks (`ok` / `errors`). 
+4. **Validate** does the artifact pass all checks (`ok` / `errors`).
 5. **Gate** platform coverage: `full`, `partial`, or `skip`.
 
 ## Supported platforms
@@ -43,15 +128,18 @@ Supported LLM backends: **Gemini** (default when `GEMINI_API_KEY` is set), **Ope
 Each platform generator lives in its own subpackage under
 `src/asago_artifact_generator/` and writes artifacts under `runs/`.
 
-## Generate artifacts
+## Legacy `generate` compatibility
 
 ```bash
 # One scenario
-asago-artifact-generator generate examples/scenarios/AP-T2-01-28712e.yaml --force -v
+uv run asago-artifact-generator generate examples/scenarios/AP-T2-01-28712e.yaml --force -v
 
 # All scenarios in examples/scenarios/
-asago-artifact-generator generate -v
+uv run asago-artifact-generator generate -v
 ```
+
+Use `author` for new target-free artifact work. Keep `generate` for
+historical scenario YAML compatibility only.
 
 | Flag | Effect |
 |------|--------|
@@ -97,7 +185,7 @@ Use `author` to run the bounded Call 1 plan and Call 2 package sequence. Supply
 the complete inventory and runtime contract as JSON or YAML:
 
 ```bash
-asago-artifact-generator author scenario.json \
+uv run asago-artifact-generator author scenario.json \
   --inventory inventory.json \
   --runtime-contract runtime-contract.json \
   --output-dir runs/authoring
@@ -122,7 +210,7 @@ redacted from the sidecar.
 Run the exact packaged `detector.py` against a JSON or YAML evidence packet:
 
 ```bash
-asago-artifact-generator check runs/authoring/task/package \
+uv run asago-artifact-generator check runs/authoring/task \
   --evidence build/evidence.json
 ```
 
