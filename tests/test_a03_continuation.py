@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -545,3 +546,47 @@ def test_continuation_rejects_aliased_package_sidecar_collision(
     assert factory_called is False
     assert fixture["evidence"].read_bytes() == historical_bytes
     assert hashlib.sha256(fixture["evidence"].read_bytes()).hexdigest() == fixture["evidence_hash"]
+
+
+def test_continuation_rejects_case_variant_package_sidecar_without_restoration(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    historical_bytes = fixture["evidence"].read_bytes()
+    historical_digest = hashlib.sha256(historical_bytes).hexdigest()
+    case_variant_parent = fixture["evidence"].parent.with_name(
+        fixture["evidence"].parent.name.upper()
+    )
+    package_dir = case_variant_parent / "A03"
+    derived_sidecar = failure_evidence_path(package_dir)
+
+    assert derived_sidecar != fixture["evidence"]
+    assert derived_sidecar.exists()
+    assert os.path.samefile(derived_sidecar, fixture["evidence"])
+
+    factory_called = False
+
+    def transport_factory() -> ScriptedAuthoringTransport:
+        nonlocal factory_called
+        factory_called = True
+        return ScriptedAuthoringTransport([json.dumps(_artifact())])
+
+    with pytest.raises(ContinuationValidationError, match="aliases pinned historical evidence"):
+        continue_authoring_from_saved_plan(
+            failure_evidence=fixture["evidence"],
+            input_source=fixture["source"],
+            input_snapshot=fixture["snapshot"],
+            inventory=fixture["inventory"],
+            runtime_contract=fixture["runtime"],
+            package_dir=package_dir,
+            task_id="A03-continuation-case-variant-collision",
+            transport_factory=transport_factory,
+            expected_failure_evidence_sha256=fixture["evidence_hash"],
+            expected_input_snapshot_sha256=fixture["snapshot_hash"],
+            expected_inventory_sha256=fixture["inventory_hash"],
+            expected_runtime_contract_sha256=fixture["runtime_hash"],
+        )
+
+    assert factory_called is False
+    assert fixture["evidence"].read_bytes() == historical_bytes
+    assert hashlib.sha256(fixture["evidence"].read_bytes()).hexdigest() == historical_digest

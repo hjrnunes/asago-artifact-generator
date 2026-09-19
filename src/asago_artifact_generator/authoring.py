@@ -2459,10 +2459,29 @@ def _reject_continuation_evidence_collision(
     derived_sidecar = failure_evidence_path(package_dir)
     canonical_sidecar = derived_sidecar.expanduser().resolve(strict=False)
     canonical_evidence = Path(historical_evidence).expanduser().resolve(strict=False)
-    if canonical_sidecar == canonical_evidence:
+
+    def reject_alias() -> None:
         raise ContinuationValidationError(
             "continuation package failure-evidence sidecar aliases pinned historical evidence"
         )
+
+    if canonical_sidecar == canonical_evidence:
+        reject_alias()
+
+    try:
+        sidecar_stat = canonical_sidecar.stat()
+        evidence_stat = canonical_evidence.stat()
+    except OSError:
+        pass
+    else:
+        if (sidecar_stat.st_dev, sidecar_stat.st_ino) == (
+            evidence_stat.st_dev,
+            evidence_stat.st_ino,
+        ):
+            reject_alias()
+
+    if str(canonical_sidecar).casefold() == str(canonical_evidence).casefold():
+        reject_alias()
 
 
 def _load_continuation_mapping(path: Path, label: str) -> dict[str, Any]:
