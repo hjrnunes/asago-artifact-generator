@@ -742,6 +742,63 @@ def test_transport_failure_is_recorded_before_dispatch_and_contains_no_endpoint(
     assert "endpoint" not in json.dumps(result.ledger).lower()
 
 
+@pytest.mark.parametrize(
+    ("responses", "expected_stages"),
+    [
+        ([TimeoutError("Request timed out.")], ["call1"]),
+        ([json.dumps(_plan()), TimeoutError("Request timed out.")], ["call1", "call2"]),
+    ],
+    ids=["call1", "call2"],
+)
+def test_transport_failure_is_not_eligible_for_normal_correction(
+    tmp_path: Path,
+    responses: list[object],
+    expected_stages: list[str],
+) -> None:
+    transport = ScriptedAuthoringTransport(responses)
+
+    result = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=tmp_path / "package",
+        task_id="transport-gate",
+    ).run(_view(), _inventory(), _contract())
+
+    assert result.status == "failed"
+    assert [request["stage"] for request in transport.requests] == expected_stages
+    assert len(result.ledger) == len(expected_stages)
+    assert result.ledger[-1]["stage"] != "correction"
+    assert [finding.code for finding in result.findings] == ["transport_failure"]
+
+
+@pytest.mark.parametrize(
+    ("responses", "expected_stages"),
+    [
+        ([b"", json.dumps(_plan()), json.dumps(_artifact())], ["call1", "correction", "call2"]),
+        (
+            [json.dumps(_plan()), b'{"broken":', json.dumps(_artifact())],
+            ["call1", "call2", "correction"],
+        ),
+    ],
+    ids=["empty-call1-response", "malformed-call2-response"],
+)
+def test_response_bearing_failure_remains_eligible_for_correction(
+    tmp_path: Path,
+    responses: list[object],
+    expected_stages: list[str],
+) -> None:
+    transport = ScriptedAuthoringTransport(responses)
+
+    result = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=tmp_path / "package",
+        task_id="response-bearing-correction",
+    ).run(_view(), _inventory(), _contract())
+
+    assert result.status == "packaged"
+    assert [request["stage"] for request in transport.requests] == expected_stages
+    assert result.package is not None
+
+
 def test_call2_rejects_fabricated_assistant_or_tool_history(tmp_path: Path) -> None:
     bad = _artifact(
         stimulus={
@@ -807,7 +864,7 @@ def test_setup_argument_schema_mismatch_is_structural_and_uses_shared_correction
     assert any(finding.code == "schema_type_mismatch" for finding in result.findings)
 
 
-def test_budget_reserves_before_transport_failure_and_blocks_fourth_dispatch(
+def test_budget_reserves_before_transport_failure_without_correction(
     tmp_path: Path,
 ) -> None:
     budget = AuthoringBudget(aggregate_limit=3, task_limit=3)
@@ -829,9 +886,10 @@ def test_budget_reserves_before_transport_failure_and_blocks_fourth_dispatch(
 
     assert first.status == "failed"
     assert second.status == "failed"
-    assert budget.total_dispatched == 3
-    assert len(transport.requests) == 3
-    assert any("aggregate" in finding.detail for finding in second.findings)
+    assert budget.total_dispatched == 2
+    assert len(transport.requests) == 2
+    assert all(request["stage"] == "call1" for request in transport.requests)
+    assert any(finding.detail == "second" for finding in second.findings)
 
 
 def test_private_model_transport_constructs_with_zero_retries(

@@ -379,7 +379,7 @@ class AuthoringOrchestrator:
             if _is_blocked_plan(self._decoded_responses.get("call1")):
                 _persist_blocked_plan(self.package_dir, plan or self._decoded_responses["call1"])
                 return self._result("blocked", plan, findings)
-            if not self.correction_allowed:
+            if not self._correction_is_eligible(findings):
                 return self._result("failed", plan, findings)
             corrected = self._correction(
                 failed_stage="call1",
@@ -414,7 +414,7 @@ class AuthoringOrchestrator:
             ),
         )
         if artifact is None:
-            if not self.correction_allowed:
+            if not self._correction_is_eligible(findings):
                 return self._result("failed", plan, findings)
             correction = self._correction(
                 failed_stage="call2",
@@ -492,7 +492,7 @@ class AuthoringOrchestrator:
             ),
         )
         if artifact is None:
-            if not self.correction_allowed:
+            if not self._correction_is_eligible(findings):
                 return self._result("failed", plan, findings)
             correction = self._correction(
                 failed_stage="call2",
@@ -543,6 +543,15 @@ class AuthoringOrchestrator:
             decoded_responses=dict(self._decoded_responses),
             prompts=dict(self._prompt_packets),
             failure_evidence_path=self._failure_evidence_file,
+        )
+
+    def _correction_is_eligible(self, findings: list[Finding]) -> bool:
+        """Allow correction only for response-bearing validation failures."""
+
+        return (
+            self.correction_allowed
+            and bool(findings)
+            and not any(finding.code == "transport_failure" for finding in findings)
         )
 
     def _request_and_validate(

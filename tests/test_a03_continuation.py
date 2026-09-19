@@ -530,6 +530,39 @@ def test_continuation_exhaustion_stops_after_one_call2_and_one_correction(
     assert result.ledger[-1]["stage"] == "correction"
 
 
+def test_continuation_transport_failure_stops_without_correction(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    historical_bytes = fixture["evidence"].read_bytes()
+    transport = ScriptedAuthoringTransport([TimeoutError("Request timed out.")])
+
+    result = continue_authoring_from_saved_plan(
+        failure_evidence=fixture["evidence"],
+        input_source=fixture["source"],
+        input_snapshot=fixture["snapshot"],
+        inventory=fixture["inventory"],
+        runtime_contract=fixture["runtime"],
+        package_dir=tmp_path / "transport-failure",
+        task_id="A03-continuation-transport-failure",
+        transport_factory=lambda: transport,
+        expected_failure_evidence_sha256=fixture["evidence_hash"],
+        expected_input_snapshot_sha256=fixture["snapshot_hash"],
+        expected_inventory_sha256=fixture["inventory_hash"],
+        expected_runtime_contract_sha256=fixture["runtime_hash"],
+        aggregate_spent=23,
+    )
+
+    assert result.status == "failed"
+    assert [request["stage"] for request in transport.requests] == ["call2"]
+    assert [record["stage"] for record in result.ledger] == ["call2"]
+    assert result.ledger[0]["error"] == "Request timed out."
+    assert [finding.code for finding in result.findings] == ["transport_failure"]
+    assert result.failure_evidence_path is not None
+    assert len(json.loads(result.failure_evidence_path.read_text())["attempts"]) == 1
+    assert fixture["evidence"].read_bytes() == historical_bytes
+
+
 def test_continuation_budget_guard_constructs_no_transport(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     prepared = prepare_saved_plan_continuation(
