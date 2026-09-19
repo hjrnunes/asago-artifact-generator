@@ -709,22 +709,29 @@ class AuthoringOrchestrator:
             "prerequisites": plan["prerequisites"],
             "required_observations": plan["required_observations"],
         }
-        package = _package_from_responses(
-            view=view,
-            plan=plan,
-            artifact=artifact,
-            task_id=self.task_id,
-            ledger=self._ledger,
-            raw_responses=self._raw_responses,
-            decoded_responses=self._decoded_responses,
-            prompt_packets=self._prompt_packets,
-            transformations=self._transformations,
-            inventory=inventory,
-            runtime_contract=runtime_contract,
-            continuation=continuation,
-            detector_bytes=parsed.python_bytes,
-            interface_version=AUTHORING_INTERFACE_VERSION_V2,
-        )
+        try:
+            package = _package_from_responses(
+                view=view,
+                plan=plan,
+                artifact=artifact,
+                task_id=self.task_id,
+                ledger=self._ledger,
+                raw_responses=self._raw_responses,
+                decoded_responses=self._decoded_responses,
+                prompt_packets=self._prompt_packets,
+                transformations=self._transformations,
+                inventory=inventory,
+                runtime_contract=runtime_contract,
+                continuation=continuation,
+                detector_bytes=parsed.python_bytes,
+                interface_version=AUTHORING_INTERFACE_VERSION_V2,
+            )
+        except ArtifactValidationError as exc:
+            return self._result(
+                "failed",
+                plan,
+                [Finding("assembly_validation", exc.message, exc.path)],
+            )
         try:
             path = write_package(self.package_dir, package)
         except Exception as exc:
@@ -830,21 +837,28 @@ class AuthoringOrchestrator:
             "prerequisites": plan["prerequisites"],
             "required_observations": plan["required_observations"],
         }
-        package = _package_from_responses(
-            view=view,
-            plan=plan,
-            artifact=artifact,
-            task_id=self.task_id,
-            ledger=self._ledger,
-            raw_responses=self._raw_responses,
-            decoded_responses=self._decoded_responses,
-            prompt_packets=self._prompt_packets,
-            transformations=self._transformations,
-            inventory=inventory,
-            runtime_contract=runtime_contract,
-            detector_bytes=parsed.python_bytes,
-            interface_version=AUTHORING_INTERFACE_VERSION_V2,
-        )
+        try:
+            package = _package_from_responses(
+                view=view,
+                plan=plan,
+                artifact=artifact,
+                task_id=self.task_id,
+                ledger=self._ledger,
+                raw_responses=self._raw_responses,
+                decoded_responses=self._decoded_responses,
+                prompt_packets=self._prompt_packets,
+                transformations=self._transformations,
+                inventory=inventory,
+                runtime_contract=runtime_contract,
+                detector_bytes=parsed.python_bytes,
+                interface_version=AUTHORING_INTERFACE_VERSION_V2,
+            )
+        except ArtifactValidationError as exc:
+            return self._result(
+                "failed",
+                plan,
+                [Finding("assembly_validation", exc.message, exc.path)],
+            )
         try:
             path = write_package(self.package_dir, package)
         except Exception as exc:
@@ -2112,17 +2126,36 @@ def collect_artifact_findings_v2(
         )
     if isinstance(judge_spec, dict):
         refs = judge_spec.get("fact_refs")
-        references = _inventory_references(inventory)
+        facts = _inventory_fact_map(inventory)
         if isinstance(refs, list):
             for index, ref in enumerate(refs):
-                if not isinstance(ref, str) or ref not in references:
+                path = f"semantic_judge_spec.fact_refs[{index}]"
+                if not isinstance(ref, str) or ref not in facts:
                     findings.append(
                         Finding(
                             "unknown_reference",
                             f"unknown_reference: {ref}",
-                            f"semantic_judge_spec.fact_refs[{index}]",
+                            path,
                         )
                     )
+                elif "value" not in facts[ref]:
+                    findings.append(
+                        Finding(
+                            "unresolved_fact",
+                            f"static fact has no supplied value: {ref}",
+                            path,
+                        )
+                    )
+    if isinstance(plan, dict) and isinstance(plan.get("prerequisites"), list):
+        declared_bindings = _declared_binding_names(plan.get("runtime_bindings"))
+        findings.extend(
+            _collect_canonical_prerequisite_findings(
+                plan["prerequisites"],
+                _inventory_references(inventory),
+                declared_bindings,
+                plan.get("runtime_bindings"),
+            )
+        )
     return findings
 
 
@@ -2221,6 +2254,17 @@ def _collect_plan_findings_with_contract(
             and finding.code == "missing_field"
         )
     ]
+    declared_bindings = _declared_binding_names(plan.get("runtime_bindings"))
+    prerequisites = plan.get("prerequisites")
+    if isinstance(prerequisites, list):
+        findings.extend(
+            _collect_canonical_prerequisite_findings(
+                prerequisites,
+                _inventory_references(inventory),
+                declared_bindings,
+                plan.get("runtime_bindings"),
+            )
+        )
     return findings
 
 
@@ -3603,6 +3647,152 @@ def _collect_prerequisite_findings(
     return findings
 
 
+def _collect_canonical_prerequisite_findings(
+    prerequisites: list[Any],
+    references: set[str],
+    declared_bindings: set[str],
+    runtime_bindings: Any,
+) -> list[Finding]:
+    """Validate the closed prerequisite form used by the v2 plan wire."""
+
+    findings: list[Finding] = []
+    allowed_fields = {"name", "check", "evidence_refs", "binding", "equals"}
+    for index, prerequisite in enumerate(prerequisites):
+        path = f"prerequisites[{index}]"
+        if not isinstance(prerequisite, dict):
+            findings.append(Finding("shape_error", "prerequisite must be an object", path))
+            continue
+        for field_name in sorted(set(prerequisite) - allowed_fields):
+            findings.append(
+                Finding(
+                    "unexpected_field",
+                    f"unexpected prerequisite field: {field_name}",
+                    f"{path}.{field_name}",
+                )
+            )
+        for field_name in sorted(allowed_fields - set(prerequisite)):
+            findings.append(
+                Finding(
+                    "missing_field",
+                    f"prerequisite missing field: {field_name}",
+                    f"{path}.{field_name}",
+                )
+            )
+        if (
+            not isinstance(prerequisite.get("name"), str)
+            or not prerequisite.get("name", "").strip()
+        ):
+            findings.append(
+                Finding("type_error", "prerequisite.name must be a string", f"{path}.name")
+            )
+        if "check" in prerequisite and not isinstance(prerequisite.get("check"), str):
+            findings.append(
+                Finding("type_error", "prerequisite.check must be a string", f"{path}.check")
+            )
+        binding = prerequisite.get("binding")
+        if not isinstance(binding, str) or not binding.strip():
+            if "binding" in prerequisite:
+                findings.append(
+                    Finding(
+                        "type_error",
+                        "prerequisite.binding must be a non-empty binding name",
+                        f"{path}.binding",
+                    )
+                )
+        elif binding not in declared_bindings:
+            findings.append(
+                Finding(
+                    "unknown_binding",
+                    (
+                        f"prerequisite binding is not declared: {binding}; "
+                        "bare evidence IDs and bindings.<name> selectors are not executable"
+                    ),
+                    f"{path}.binding",
+                )
+            )
+        if "equals" in prerequisite and not _is_json_value(prerequisite["equals"]):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "prerequisite.equals must be a JSON value",
+                    f"{path}.equals",
+                )
+            )
+        evidence_refs = prerequisite.get("evidence_refs")
+        if isinstance(evidence_refs, list):
+            for ref_index, ref in enumerate(evidence_refs):
+                if not isinstance(ref, str) or not ref.strip() or ref not in references:
+                    findings.append(
+                        Finding(
+                            "unknown_reference",
+                            f"unknown_reference: {ref}",
+                            f"{path}.evidence_refs[{ref_index}]",
+                        )
+                    )
+        elif "evidence_refs" in prerequisite:
+            findings.append(
+                Finding(
+                    "type_error",
+                    "prerequisite evidence_refs must be a list",
+                    f"{path}.evidence_refs",
+                )
+            )
+        findings.extend(
+            _validate_prerequisite_binding_consumer(
+                prerequisite,
+                index=index,
+                runtime_bindings=runtime_bindings,
+            )
+        )
+    return findings
+
+
+def _validate_prerequisite_binding_consumer(
+    prerequisite: dict[str, Any],
+    *,
+    index: int,
+    runtime_bindings: Any,
+) -> list[Finding]:
+    """Require a declared binding to name this prerequisite as a consumer."""
+
+    binding_name = prerequisite.get("binding")
+    if not isinstance(binding_name, str) or not isinstance(runtime_bindings, list):
+        return []
+    declaration = next(
+        (
+            item
+            for item in runtime_bindings
+            if isinstance(item, dict) and item.get("name") == binding_name
+        ),
+        None,
+    )
+    if not isinstance(declaration, dict):
+        return []
+    consumers = declaration.get("consumers")
+    if isinstance(consumers, list) and f"prerequisites.{binding_name}" not in consumers:
+        return [
+            Finding(
+                "consumer_mismatch",
+                (
+                    f"binding {binding_name} does not declare prerequisite consumer "
+                    f"prerequisites.{binding_name}"
+                ),
+                f"prerequisites[{index}].binding",
+            )
+        ]
+    return []
+
+
+def _declared_binding_names(runtime_bindings: Any) -> set[str]:
+    if not isinstance(runtime_bindings, list):
+        return set()
+    return {
+        item["name"]
+        for item in runtime_bindings
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+
+
 def _claim_levels() -> tuple[str, ...]:
     return ("command_attempt", "reply", "returned_result", "state_effect")
 
@@ -4209,6 +4399,67 @@ def _inventory_references(inventory: dict[str, Any]) -> set[str]:
     return references
 
 
+def _inventory_fact_map(inventory: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Return supplied static facts keyed by their authoritative reference."""
+
+    return {
+        item["ref"]: item
+        for item in inventory.get("facts", [])
+        if isinstance(item, dict) and isinstance(item.get("ref"), str) and item["ref"].strip()
+    }
+
+
+def _resolved_judge_spec(
+    judge_spec: Any,
+    inventory: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Replace model-selected fact references with immutable supplied facts."""
+
+    if judge_spec is None:
+        return None
+    if not isinstance(judge_spec, dict):
+        raise ArtifactValidationError("judge specification must be an object", "judge.json")
+    refs = judge_spec.get("fact_refs")
+    if not isinstance(refs, list):
+        raise ArtifactValidationError(
+            "judge specification fact_refs must be a list",
+            "judge.json.fact_refs",
+        )
+    fact_map = _inventory_fact_map(inventory)
+    facts: list[dict[str, Any]] = []
+    for index, ref in enumerate(refs):
+        path = f"judge.json.fact_refs[{index}]"
+        if not isinstance(ref, str) or not ref.strip():
+            raise ArtifactValidationError(
+                f"unknown static fact reference: {ref}",
+                path,
+            )
+        supplied = fact_map.get(ref)
+        if not isinstance(supplied, dict):
+            raise ArtifactValidationError(
+                f"unknown static fact reference: {ref}",
+                path,
+            )
+        if "value" not in supplied:
+            raise ArtifactValidationError(
+                f"static fact has no supplied value: {ref}",
+                path,
+            )
+        fact: dict[str, Any] = {
+            "ref": ref,
+            "value": supplied["value"],
+            "source": ref,
+        }
+        if "provenance" in supplied:
+            fact["provenance"] = supplied["provenance"]
+        facts.append(fact)
+    return {
+        "question": judge_spec.get("question"),
+        "criteria": judge_spec.get("criteria"),
+        "facts": facts,
+    }
+
+
 def _selected_refs(plan: dict[str, Any], inventory: dict[str, Any]) -> dict[str, set[str]]:
     selected = {"operations": set(), "facts": set(), "sources": set()}
     operation_names = {
@@ -4342,8 +4593,13 @@ def _package_from_responses(
         "examples.json": _json_bytes(artifact["examples"]),
         **authoring_records,
     }
-    if artifact["semantic_judge_spec"] is not None:
-        members["judge.json"] = _json_bytes(artifact["semantic_judge_spec"])
+    if interface_version == AUTHORING_INTERFACE_VERSION_V2:
+        resolved_judge = _resolved_judge_spec(artifact["semantic_judge_spec"], inventory)
+    else:
+        # Historical packages retain the v1 judge member byte shape.
+        resolved_judge = artifact["semantic_judge_spec"]
+    if resolved_judge is not None:
+        members["judge.json"] = _json_bytes(resolved_judge)
     safe_ledger = [
         {
             key: value
@@ -4699,6 +4955,7 @@ def _call1_contract_v2() -> dict[str, Any]:
             "a negative finding requires complete relevant capture."
         ),
     }
+    contract["schema"]["properties"]["prerequisites"] = _canonical_prerequisite_schema()
     contract["interface_version"] = AUTHORING_INTERFACE_VERSION_V2
     contract["rules"] = [
         "Return exactly these root fields; do not add fields or generate IDs/digests.",
@@ -5186,6 +5443,39 @@ def _prerequisite_schema() -> dict[str, Any]:
                 "expected": {
                     "type": ["string", "number", "boolean", "object", "array", "null"],
                     "description": "Optional expected JSON value for the executable reference.",
+                },
+            },
+        },
+    }
+
+
+def _canonical_prerequisite_schema() -> dict[str, Any]:
+    """Return the closed executable prerequisite schema for the v2 wire."""
+
+    return {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": ["name", "check", "evidence_refs", "binding", "equals"],
+            "additionalProperties": False,
+            "properties": {
+                "name": {"type": "string"},
+                "check": {"type": "string"},
+                "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                "binding": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": (
+                        "The declared runtime binding name. Code resolves it through "
+                        "the downstream source bindings.<name>."
+                    ),
+                },
+                "equals": {
+                    "type": ["string", "number", "boolean", "object", "array", "null"],
+                    "description": (
+                        "Required JSON literal to compare. Explicit null is distinct "
+                        "from omitting equals."
+                    ),
                 },
             },
         },

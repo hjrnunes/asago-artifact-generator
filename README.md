@@ -210,11 +210,16 @@ Prompt sizes are measured from the rendered UTF-8 system and user bytes; token
 counts are not estimated. Use `build_neutral_artifact_package` and the public
 `check` command for the neutral evidence-interface example before reviewing
 model-authored output.
-Prerequisites may remain descriptive (`name`, optional evidence references and
-check text) or declare one downstream executable `source` or `binding` string
-with an `equals` or `expected` JSON value. Descriptive prerequisites remain
-visible and non-blocking; declared executable references are typed and checked
-by downstream execution.
+New v2 executable prerequisites use exactly `name`, `check`, `evidence_refs`,
+`binding`, and `equals`. The binding names a declared runtime binding, and
+`equals` is always present as a JSON literal, including when its value is
+explicitly `null`. Static judge `fact_refs` resolve from the supplied inventory
+into `judge.json` facts with their exact source reference before publication.
+Facts that depend on setup, live reads, or captured output remain declarations
+in `bindings.json`; the consumer never substitutes a static value for them.
+Historical v1 readers continue to accept their descriptive and
+`source`/`expected` prerequisite forms, but those aliases are not emitted by
+the v2 authoring path.
 If authoring fails before a package exists, the sibling
 `<package>.failure-evidence.json` sidecar is written atomically. It preserves
 each exact rendered prompt, available raw response bytes, provider usage,
