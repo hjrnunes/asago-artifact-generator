@@ -18,6 +18,7 @@ from asago_artifact_generator.authoring import (
     prepare_saved_plan_continuation,
 )
 from asago_artifact_generator.failure_evidence import (
+    failure_evidence_path,
     metadata_record,
     new_failure_evidence,
     raw_response_record,
@@ -466,3 +467,81 @@ def test_continuation_budget_guard_constructs_no_transport(tmp_path: Path) -> No
     assert any(finding.code == "budget_exhausted" for finding in result.findings)
     assert result.ledger == []
     assert called is False
+
+
+def test_continuation_rejects_package_sidecar_collision_before_transport_or_write(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    historical_bytes = fixture["evidence"].read_bytes()
+    package_dir = fixture["evidence"].with_name("A03")
+    assert failure_evidence_path(package_dir) == fixture["evidence"]
+    factory_called = False
+
+    def transport_factory() -> ScriptedAuthoringTransport:
+        nonlocal factory_called
+        factory_called = True
+        return ScriptedAuthoringTransport([json.dumps(_artifact())])
+
+    try:
+        with pytest.raises(ContinuationValidationError, match="failure-evidence sidecar"):
+            continue_authoring_from_saved_plan(
+                failure_evidence=fixture["evidence"],
+                input_source=fixture["source"],
+                input_snapshot=fixture["snapshot"],
+                inventory=fixture["inventory"],
+                runtime_contract=fixture["runtime"],
+                package_dir=package_dir,
+                task_id="A03-continuation-collision",
+                transport_factory=transport_factory,
+                expected_failure_evidence_sha256=fixture["evidence_hash"],
+                expected_input_snapshot_sha256=fixture["snapshot_hash"],
+                expected_inventory_sha256=fixture["inventory_hash"],
+                expected_runtime_contract_sha256=fixture["runtime_hash"],
+            )
+    finally:
+        fixture["evidence"].write_bytes(historical_bytes)
+
+    assert factory_called is False
+    assert fixture["evidence"].read_bytes() == historical_bytes
+    assert hashlib.sha256(fixture["evidence"].read_bytes()).hexdigest() == fixture["evidence_hash"]
+    assert not package_dir.exists()
+
+
+def test_continuation_rejects_aliased_package_sidecar_collision(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    historical_bytes = fixture["evidence"].read_bytes()
+    aliased_parent = tmp_path / "historical-alias"
+    aliased_parent.symlink_to(fixture["evidence"].parent, target_is_directory=True)
+    package_dir = aliased_parent / "A03"
+    derived_sidecar = failure_evidence_path(package_dir)
+    assert derived_sidecar != fixture["evidence"]
+    assert derived_sidecar.resolve() == fixture["evidence"].resolve()
+    factory_called = False
+
+    def transport_factory() -> ScriptedAuthoringTransport:
+        nonlocal factory_called
+        factory_called = True
+        return ScriptedAuthoringTransport([])
+
+    with pytest.raises(ContinuationValidationError, match="aliases pinned historical evidence"):
+        continue_authoring_from_saved_plan(
+            failure_evidence=fixture["evidence"],
+            input_source=fixture["source"],
+            input_snapshot=fixture["snapshot"],
+            inventory=fixture["inventory"],
+            runtime_contract=fixture["runtime"],
+            package_dir=package_dir,
+            task_id="A03-continuation-aliased-collision",
+            transport_factory=transport_factory,
+            expected_failure_evidence_sha256=fixture["evidence_hash"],
+            expected_input_snapshot_sha256=fixture["snapshot_hash"],
+            expected_inventory_sha256=fixture["inventory_hash"],
+            expected_runtime_contract_sha256=fixture["runtime_hash"],
+        )
+
+    assert factory_called is False
+    assert fixture["evidence"].read_bytes() == historical_bytes
+    assert hashlib.sha256(fixture["evidence"].read_bytes()).hexdigest() == fixture["evidence_hash"]

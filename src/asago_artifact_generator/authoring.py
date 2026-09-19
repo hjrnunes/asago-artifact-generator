@@ -205,6 +205,10 @@ class SavedPlanContinuation:
     ) -> AuthoringResult:
         """Run only the saved Call 2 and existing correction/package tail."""
 
+        _reject_continuation_evidence_collision(
+            package_dir=package_dir,
+            historical_evidence=self.failure_evidence_path,
+        )
         if not task_id or task_id == A03_HISTORICAL_TASK_ID:
             raise ContinuationValidationError("continuation task identity must be fresh")
         active_budget = budget or _continuation_budget(self.aggregate_spent)
@@ -2433,6 +2437,22 @@ def _read_continuation_file(path: Path, label: str) -> bytes:
         return path.read_bytes()
     except OSError as exc:
         raise ContinuationValidationError(f"cannot read {label}: {path}") from exc
+
+
+def _reject_continuation_evidence_collision(
+    *,
+    package_dir: str | Path,
+    historical_evidence: str | Path,
+) -> None:
+    """Reject output paths whose failure sidecar aliases sealed evidence."""
+
+    derived_sidecar = failure_evidence_path(package_dir)
+    canonical_sidecar = derived_sidecar.expanduser().resolve(strict=False)
+    canonical_evidence = Path(historical_evidence).expanduser().resolve(strict=False)
+    if canonical_sidecar == canonical_evidence:
+        raise ContinuationValidationError(
+            "continuation package failure-evidence sidecar aliases pinned historical evidence"
+        )
 
 
 def _load_continuation_mapping(path: Path, label: str) -> dict[str, Any]:
