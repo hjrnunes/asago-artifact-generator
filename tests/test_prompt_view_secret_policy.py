@@ -226,6 +226,25 @@ def test_prompt_policy_is_independent_of_structural_path_name(tmp_path: Path) ->
     ] == {"session_locator": ["authenticated_customer_id"]}
 
 
+def test_prompt_policy_allows_documented_session_identifier_schema() -> None:
+    value = {
+        "environment_inventory": {
+            "operations": [
+                {
+                    "name": "get_state",
+                    "result_schema": {
+                        "type": "object",
+                        "properties": {"session_id": {"type": "string"}},
+                    },
+                }
+            ]
+        }
+    }
+
+    assert prompt_secret_metadata_paths(value) == []
+    assert_no_prompt_secrets(value)
+
+
 @pytest.mark.parametrize(
     "key",
     [

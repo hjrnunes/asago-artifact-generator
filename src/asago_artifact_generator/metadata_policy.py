@@ -23,6 +23,7 @@ _PROMPT_STRUCTURAL_SUFFIXES = frozenset(
     {
         "handle",
         "handles",
+        "id",
         "locator",
         "locators",
         "path",
