@@ -52,6 +52,7 @@ MAX_AUTHORING_REQUESTS = 16
 MAX_REQUESTS_PER_TASK = 3
 MAX_RENDERED_PROMPT_BYTES = 1_000_000
 A03_AGGREGATE_LIMIT = 26
+MAX_MISSION_AUTHORING_REQUESTS = A03_AGGREGATE_LIMIT
 A03_HISTORICAL_REQUESTS = 18
 A03_HISTORICAL_TASK_ID = "A03-authored-20260919"
 A03_HISTORICAL_ATTEMPTS = 3
@@ -150,6 +151,42 @@ class AuthoringBudget:
     total_dispatched: int = 0
     dispatched_by_task: dict[str, int] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        """Validate caller-supplied limits and seeded accounting."""
+
+        _validate_budget_value(
+            self.aggregate_limit,
+            "aggregate_limit",
+            maximum=MAX_MISSION_AUTHORING_REQUESTS,
+        )
+        _validate_budget_value(
+            self.task_limit,
+            "task_limit",
+            maximum=MAX_REQUESTS_PER_TASK,
+        )
+        _validate_budget_value(
+            self.total_dispatched,
+            "total_dispatched",
+            maximum=self.aggregate_limit,
+        )
+        if not isinstance(self.dispatched_by_task, dict):
+            raise ValueError("dispatched_by_task must be a mapping")
+        task_total = 0
+        for task_id, count in self.dispatched_by_task.items():
+            if not isinstance(task_id, str) or not task_id:
+                raise ValueError("dispatched_by_task keys must be non-empty strings")
+            _validate_budget_value(
+                count,
+                f"dispatched_by_task[{task_id!r}]",
+                maximum=self.aggregate_limit,
+            )
+            task_total += count
+        if task_total > self.total_dispatched:
+            raise ValueError("dispatched_by_task counts exceed total_dispatched")
+
     def reserve(self, task_id: str) -> int:
         used = self.dispatched_by_task.get(task_id, 0)
         if used >= self.task_limit:
@@ -159,6 +196,15 @@ class AuthoringBudget:
         self.total_dispatched += 1
         self.dispatched_by_task[task_id] = used + 1
         return self.total_dispatched
+
+
+def _validate_budget_value(value: Any, name: str, *, maximum: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} must be an integer")
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative")
+    if value > maximum:
+        raise ValueError(f"{name} exceeds maximum of {maximum}")
 
 
 @dataclass
@@ -333,13 +379,21 @@ class AuthoringOrchestrator:
         package_dir: str | Path,
         task_id: str,
         budget: AuthoringBudget | None = None,
+        correction_allowed: bool = True,
     ) -> None:
         if getattr(transport, "max_retries", None) != 0:
             raise ValueError("authoring transport must set max_retries=0")
+        if not isinstance(correction_allowed, bool):
+            raise ValueError("correction_allowed must be a boolean")
+        active_budget = budget or AuthoringBudget()
+        active_budget.validate()
         self.transport = transport
         self.package_dir = Path(package_dir)
         self.task_id = task_id
-        self.budget = budget or AuthoringBudget()
+        self.budget = active_budget
+        self.correction_allowed = correction_allowed
+        self._aggregate_spent_before = active_budget.total_dispatched
+        self._task_spent_before = active_budget.dispatched_by_task.get(task_id, 0)
         self._ledger: list[dict[str, Any]] = []
         self._findings: list[Finding] = []
         self._correction_used = False
@@ -349,6 +403,15 @@ class AuthoringOrchestrator:
         self._prompt_packets: dict[str, PromptPacket] = {}
         self._transformations: list[str] = []
         self._failure_evidence = new_failure_evidence(self.task_id, self.package_dir)
+        self._failure_evidence["aggregate"] = {
+            "spent_before": self._aggregate_spent_before,
+            "limit": self.budget.aggregate_limit,
+        }
+        self._failure_evidence["task"] = {
+            "spent_before": self._task_spent_before,
+            "limit": self.budget.task_limit,
+        }
+        self._failure_evidence["correction_allowed"] = self.correction_allowed
         self._failure_evidence_file: Path | None = None
 
     def run(
@@ -371,6 +434,8 @@ class AuthoringOrchestrator:
             if _is_blocked_plan(self._decoded_responses.get("call1")):
                 _persist_blocked_plan(self.package_dir, plan or self._decoded_responses["call1"])
                 return self._result("blocked", plan, findings)
+            if not self.correction_allowed:
+                return self._result("failed", plan, findings)
             corrected = self._correction(
                 failed_stage="call1",
                 failed_packet=call1,
@@ -404,6 +469,8 @@ class AuthoringOrchestrator:
             ),
         )
         if artifact is None:
+            if not self.correction_allowed:
+                return self._result("failed", plan, findings)
             correction = self._correction(
                 failed_stage="call2",
                 failed_packet=call2,
@@ -431,6 +498,9 @@ class AuthoringOrchestrator:
             transformations=self._transformations,
             inventory=inventory,
             runtime_contract=runtime_contract,
+            budget=self.budget,
+            task_spent_before=self._task_spent_before,
+            correction_allowed=self.correction_allowed,
         )
         try:
             path = write_package(self.package_dir, package)
@@ -480,6 +550,8 @@ class AuthoringOrchestrator:
             ),
         )
         if artifact is None:
+            if not self.correction_allowed:
+                return self._result("failed", plan, findings)
             correction = self._correction(
                 failed_stage="call2",
                 failed_packet=call2_packet,
@@ -508,6 +580,9 @@ class AuthoringOrchestrator:
             inventory=inventory,
             runtime_contract=runtime_contract,
             continuation=continuation,
+            budget=self.budget,
+            task_spent_before=self._task_spent_before,
+            correction_allowed=self.correction_allowed,
         )
         try:
             path = write_package(self.package_dir, package)
@@ -862,9 +937,7 @@ class AuthoringOrchestrator:
         ]
         aggregate = self._failure_evidence.get("aggregate")
         if isinstance(aggregate, dict) and isinstance(aggregate.get("spent_before"), int):
-            aggregate["spent_after"] = aggregate["spent_before"] + len(
-                self._failure_evidence["attempts"]
-            )
+            aggregate["spent_after"] = self.budget.total_dispatched
         self._persist_failure_evidence()
         return self._failure_evidence_file
 
@@ -2624,6 +2697,9 @@ def _package_from_responses(
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
     continuation: dict[str, Any] | None = None,
+    budget: AuthoringBudget | None = None,
+    task_spent_before: int = 0,
+    correction_allowed: bool = True,
 ) -> ArtifactPackage:
     authoring_records: dict[str, bytes] = {}
     for index, record in enumerate(ledger, start=1):
@@ -2679,7 +2755,18 @@ def _package_from_responses(
         "interface": AUTHORING_INTERFACE_VERSION,
         "attempts": len(ledger),
         "correction_used": any(record["stage"] == "correction" for record in ledger),
+        "correction_allowed": correction_allowed,
         "max_retries": 0,
+        "aggregate": {
+            "spent_before": budget.total_dispatched - len(ledger) if budget else 0,
+            "limit": budget.aggregate_limit if budget else MAX_AUTHORING_REQUESTS,
+            "spent_after": budget.total_dispatched if budget else len(ledger),
+        },
+        "task": {
+            "spent_before": task_spent_before,
+            "limit": budget.task_limit if budget else MAX_REQUESTS_PER_TASK,
+            "spent_after": task_spent_before + len(ledger),
+        },
         "usage": [
             (
                 {"availability": "available", "value": record["usage"]}
@@ -3693,6 +3780,7 @@ __all__ = [
     "AUTHORING_INTERFACE_VERSION",
     "A03_AGGREGATE_LIMIT",
     "A03_HISTORICAL_REQUESTS",
+    "MAX_MISSION_AUTHORING_REQUESTS",
     "AuthoringBudget",
     "AuthoringError",
     "AuthoringOrchestrator",
