@@ -72,11 +72,15 @@ def run_detector_controls(
 
     if not isinstance(detector_bytes, bytes):
         raise TypeError("detector_bytes must be bytes")
-    selected = list(cases) if cases is not None else _contract_control_cases(
-        runtime_contract or {},
-        plan or {},
-        metadata or {},
-        inventory or {},
+    selected = (
+        list(cases)
+        if cases is not None
+        else _contract_control_cases(
+            runtime_contract or {},
+            plan or {},
+            metadata or {},
+            inventory or {},
+        )
     )
     if not selected:
         return [], []
@@ -197,10 +201,7 @@ def _control_result(case: ControlCase, execution: DetectorExecution) -> ControlR
             observed_claim_level=observed_claim_level,
             failure="outcome_mismatch",
         )
-    if (
-        case.expected_claim_level is not None
-        and observed_claim_level != case.expected_claim_level
-    ):
+    if case.expected_claim_level is not None and observed_claim_level != case.expected_claim_level:
         return ControlResult(
             name=case.name,
             expected_outcome=case.expected_outcome,
@@ -755,9 +756,7 @@ def _supplied_control_bindings(
     fact_by_ref = {
         item.get("ref"): item.get("value")
         for item in facts
-        if isinstance(item, Mapping)
-        and isinstance(item.get("ref"), str)
-        and "value" in item
+        if isinstance(item, Mapping) and isinstance(item.get("ref"), str) and "value" in item
     }
     result: dict[str, Any] = {}
     for declaration in declarations:
@@ -843,20 +842,22 @@ def _malformed_tool_call(native_id: str) -> dict[str, Any]:
     }
 
 
-def _selected_fact_values(
-    plan: Mapping[str, Any], inventory: Mapping[str, Any]
-) -> list[Any]:
+def _selected_fact_values(plan: Mapping[str, Any], inventory: Mapping[str, Any]) -> list[Any]:
     facts = {
         item.get("ref"): item.get("value")
         for item in inventory.get("facts", [])
         if isinstance(item, Mapping) and isinstance(item.get("ref"), str) and "value" in item
     }
     selected = plan.get("selected_evidence")
-    refs = {
-        item.get("ref")
-        for item in selected
-        if isinstance(item, Mapping) and isinstance(item.get("ref"), str)
-    } if isinstance(selected, list) else set()
+    refs = (
+        {
+            item.get("ref")
+            for item in selected
+            if isinstance(item, Mapping) and isinstance(item.get("ref"), str)
+        }
+        if isinstance(selected, list)
+        else set()
+    )
     return [facts[ref] for ref in refs if ref in facts]
 
 

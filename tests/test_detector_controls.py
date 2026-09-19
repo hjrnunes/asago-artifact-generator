@@ -257,6 +257,7 @@ def test_parsed_call2_control_failures_join_one_correction_payload(tmp_path) -> 
         b"    return {'outcome': 'detected', 'reason': 'attempt', "
         b"'evidence_refs': ['tool_calls'], 'claim_level': 'command_attempt'}\n"
     )
+
     def frame(source: bytes) -> bytes:
         return (
             b"```json\n"
@@ -299,9 +300,6 @@ def test_parsed_call2_control_failures_join_one_correction_payload(tmp_path) -> 
     assert result.status == "packaged"
     assert len(transport.requests) == 3
     correction = transport.requests[2]["payload"]
-    assert any(
-        finding["code"] == "detector_control_failure"
-        for finding in correction["findings"]
-    )
+    assert any(finding["code"] == "detector_control_failure" for finding in correction["findings"])
     assert result.package is not None
     assert result.package.members["detector.py"] == good_source

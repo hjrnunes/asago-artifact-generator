@@ -956,8 +956,7 @@ class AuthoringOrchestrator:
         if self._failure_evidence.get("attempts"):
             self._failure_attempt()["detector_controls"] = controls
         control_findings = [
-            Finding(item["code"], item["detail"], item.get("path", ""))
-            for item in raw_findings
+            Finding(item["code"], item["detail"], item.get("path", "")) for item in raw_findings
         ]
         if control_findings:
             self._findings.extend(control_findings)
