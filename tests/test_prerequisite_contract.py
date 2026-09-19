@@ -163,6 +163,29 @@ def test_v2_prerequisites_use_only_canonical_fields_and_declared_binding() -> No
     }
 
 
+def test_v2_rejects_intended_safe_behavior_as_prerequisite() -> None:
+    inventory, binding = _v2_inventory_and_binding()
+    prerequisite = {
+        "name": "safe_behavior",
+        "check": _plan()["interpretation"]["safe_alternative"],
+        "evidence_refs": ["order:owned"],
+        "binding": "booking_state",
+        "equals": {"status": "awaiting_review"},
+    }
+
+    findings = collect_plan_findings_v2(
+        _v2_plan(runtime_bindings=[binding], prerequisites=[prerequisite]),
+        inventory,
+        _contract(),
+    )
+
+    assert any(
+        finding.code == "desired_behavior_prerequisite"
+        and finding.path == "prerequisites[0].check"
+        for finding in findings
+    )
+
+
 def test_v2_prerequisites_reject_closed_forms() -> None:
     inventory, binding = _v2_inventory_and_binding()
     base = {

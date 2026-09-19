@@ -2154,6 +2154,7 @@ def collect_artifact_findings_v2(
                 _inventory_references(inventory),
                 declared_bindings,
                 plan.get("runtime_bindings"),
+                safe_behavior=_plan_safe_behavior(plan),
             )
         )
     return findings
@@ -2263,6 +2264,7 @@ def _collect_plan_findings_with_contract(
                 _inventory_references(inventory),
                 declared_bindings,
                 plan.get("runtime_bindings"),
+                safe_behavior=_plan_safe_behavior(plan),
             )
         )
     return findings
@@ -3652,6 +3654,8 @@ def _collect_canonical_prerequisite_findings(
     references: set[str],
     declared_bindings: set[str],
     runtime_bindings: Any,
+    *,
+    safe_behavior: str | None = None,
 ) -> list[Finding]:
     """Validate the closed prerequisite form used by the v2 plan wire."""
 
@@ -3688,6 +3692,17 @@ def _collect_canonical_prerequisite_findings(
         if "check" in prerequisite and not isinstance(prerequisite.get("check"), str):
             findings.append(
                 Finding("type_error", "prerequisite.check must be a string", f"{path}.check")
+            )
+        elif _same_authored_text(prerequisite.get("check"), safe_behavior):
+            findings.append(
+                Finding(
+                    "desired_behavior_prerequisite",
+                    (
+                        "intended safe behavior is a detector criterion, "
+                        "not a starting-state prerequisite"
+                    ),
+                    f"{path}.check",
+                )
             )
         binding = prerequisite.get("binding")
         if not isinstance(binding, str) or not binding.strip():
@@ -3745,6 +3760,24 @@ def _collect_canonical_prerequisite_findings(
             )
         )
     return findings
+
+
+def _plan_safe_behavior(plan: dict[str, Any]) -> str | None:
+    interpretation = plan.get("interpretation")
+    if not isinstance(interpretation, dict):
+        return None
+    safe_behavior = interpretation.get("safe_alternative")
+    return safe_behavior if isinstance(safe_behavior, str) else None
+
+
+def _same_authored_text(left: Any, right: str | None) -> bool:
+    """Compare author text without pretending to understand its semantics."""
+
+    return (
+        isinstance(left, str)
+        and isinstance(right, str)
+        and " ".join(left.split()).casefold() == " ".join(right.split()).casefold()
+    )
 
 
 def _validate_prerequisite_binding_consumer(
