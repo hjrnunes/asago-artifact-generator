@@ -412,6 +412,50 @@ def test_continuation_accepts_sealed_historical_prerequisite_contract(tmp_path: 
     assert result.status == "packaged"
 
 
+def test_continuation_replays_historical_call2_contract_exactly(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    evidence = json.loads(fixture["evidence"].read_text(encoding="utf-8"))
+    call2_attempt = next(
+        attempt for attempt in evidence["attempts"] if attempt["stage"] == "call2"
+    )
+    call2_payload = json.loads(call2_attempt["prompt"]["user"])
+    prerequisites = call2_payload["response_contract"]["schema"]["properties"]["prerequisites"]
+    prerequisites["items"]["required"] = ["name", "evidence_refs", "check"]
+    prerequisites["items"]["properties"] = {
+        "name": {"type": "string"},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}},
+        "check": {"type": "string"},
+    }
+    call2_attempt["prompt"]["user"] = json.dumps(
+        call2_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    write_failure_evidence(fixture["evidence"], evidence)
+    fixture["evidence_hash"] = hashlib.sha256(fixture["evidence"].read_bytes()).hexdigest()
+
+    transport = ScriptedAuthoringTransport([json.dumps(_artifact())])
+    result = continue_authoring_from_saved_plan(
+        failure_evidence=fixture["evidence"],
+        input_source=fixture["source"],
+        input_snapshot=fixture["snapshot"],
+        inventory=fixture["inventory"],
+        runtime_contract=fixture["runtime"],
+        package_dir=tmp_path / "historical-call2",
+        task_id="A03-continuation-historical-call2",
+        transport_factory=lambda: transport,
+        expected_failure_evidence_sha256=fixture["evidence_hash"],
+        expected_input_snapshot_sha256=fixture["snapshot_hash"],
+        expected_inventory_sha256=fixture["inventory_hash"],
+        expected_runtime_contract_sha256=fixture["runtime_hash"],
+        aggregate_spent=23,
+    )
+
+    assert result.status == "packaged"
+    assert [request["stage"] for request in transport.requests] == ["call2"]
+    assert transport.requests[0]["user"] == call2_attempt["prompt"]["user"]
+
+
 def test_continuation_allows_explicit_empty_setup_recipe_but_not_missing_field(
     tmp_path: Path,
 ) -> None:

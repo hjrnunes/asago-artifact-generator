@@ -2381,10 +2381,11 @@ def prepare_saved_plan_continuation(
         )
     if call2_prompt.get("validated_plan") != saved_plan:
         raise ContinuationValidationError("saved Call 2 plan differs from saved Call 1 plan")
-    if (
-        call2_prompt.get("interface") != AUTHORING_INTERFACE_VERSION
-        or call2_prompt.get("response_contract") != _call2_contract()
-    ):
+    current_call2_contract = _call2_contract()
+    historical_call2_contract = _historical_call2_contract()
+    if call2_prompt.get("interface") != AUTHORING_INTERFACE_VERSION or call2_prompt.get(
+        "response_contract"
+    ) not in (current_call2_contract, historical_call2_contract):
         raise ContinuationValidationError("saved Call 2 contract identity is not exact")
     if call2_prompt.get("runtime_contract") != runtime_data:
         raise ContinuationValidationError("saved Call 2 runtime contract differs from history")
@@ -2392,13 +2393,29 @@ def prepare_saved_plan_continuation(
         "operations"
     ):
         raise ContinuationValidationError("saved Call 2 operation inventory differs from history")
-    call2_packet = build_call2_packet(view, saved_plan, inventory_data, runtime_data)
-    if (
-        call2_packet.version != call2_attempt.get("prompt", {}).get("version")
-        or call2_packet.system != call2_attempt.get("prompt", {}).get("system")
-        or call2_packet.user != call2_attempt.get("prompt", {}).get("user")
-    ):
-        raise ContinuationValidationError("rebuilt Call 2 packet is not byte-identical to history")
+    prompt_record = call2_attempt.get("prompt")
+    if not isinstance(prompt_record, dict) or prompt_record.get("system") != _CALL2_SYSTEM:
+        raise ContinuationValidationError("saved Call 2 system prompt identity is not exact")
+    if call2_prompt.get("response_contract") == historical_call2_contract:
+        assert_no_prompt_secrets(call2_prompt)
+        call2_packet = PromptPacket(
+            stage="call2",
+            version=prompt_record["version"],
+            system=prompt_record["system"],
+            user=prompt_record["user"],
+            payload=call2_prompt,
+        )
+        _enforce_prompt_size(call2_packet, MAX_RENDERED_PROMPT_BYTES)
+    else:
+        call2_packet = build_call2_packet(view, saved_plan, inventory_data, runtime_data)
+        if (
+            call2_packet.version != prompt_record.get("version")
+            or call2_packet.system != prompt_record.get("system")
+            or call2_packet.user != prompt_record.get("user")
+        ):
+            raise ContinuationValidationError(
+                "rebuilt Call 2 packet is not byte-identical to history"
+            )
     _validate_continuation_raw_records(attempts)
     return SavedPlanContinuation(
         failure_evidence_path=evidence_path,
@@ -3055,6 +3072,26 @@ def _historical_call1_contract() -> dict[str, Any]:
     """
 
     contract = json.loads(_canonical_json(_call1_contract()))
+    contract["schema"]["properties"]["prerequisites"] = {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": ["name", "evidence_refs", "check"],
+            "additionalProperties": False,
+            "properties": {
+                "name": {"type": "string"},
+                "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                "check": {"type": "string"},
+            },
+        },
+    }
+    return contract
+
+
+def _historical_call2_contract() -> dict[str, Any]:
+    """Return the sealed Call 2 contract used by the saved A03 prompt."""
+
+    contract = json.loads(_canonical_json(_call2_contract()))
     contract["schema"]["properties"]["prerequisites"] = {
         "type": "array",
         "items": {
