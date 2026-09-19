@@ -16,10 +16,18 @@ uv run asago-artifact-generator check runs/authoring/<case-id>/<case-id> \
   --evidence <evidence.json>
 ```
 
-`author` makes the bounded two-call authoring decision and writes an immutable
-package or durable failure evidence. `check` runs only the supplied evidence
-through the packaged detector in the constrained offline harness. Neither
-command starts a target, setup service, discovery transport, or semantic judge.
+`author` uses the versioned v2 authoring wire. Call 1 returns one closed plan
+root. Call 2 returns exactly one fenced JSON metadata block followed by one
+fenced Python block. The Python block becomes `detector.py` byte-for-byte.
+The accepted Call 1 plan owns setup, bindings, prerequisites, evidence,
+assumptions, observation requirements, and judge decisions; Call 2 cannot
+resubmit those fields. Historical v1 readers remain explicit for preserved
+responses and packages.
+
+`author` writes an immutable package or durable failure evidence. `check` runs
+only the supplied evidence through the packaged detector in the constrained
+offline harness. Neither command starts a target, setup service, discovery
+transport, or semantic judge.
 
 The producer owns scenario meaning. From the producer repository root, run the
 normal producer command and then hand the resulting `scenario-handoff-v1`
@@ -198,6 +206,10 @@ discovery, or runtime-judge transport. An essential unresolved requirement
 produces a retained `*.blocked.json` plan and no package. The package contains
 the model-authored detector source, user-only stimulus, exact runtime-binding
 declarations, observations, explanation, examples, and digest-bound evidence.
+Prompt sizes are measured from the rendered UTF-8 system and user bytes; token
+counts are not estimated. Use `build_neutral_artifact_package` and the public
+`check` command for the neutral evidence-interface example before reviewing
+model-authored output.
 Prerequisites may remain descriptive (`name`, optional evidence references and
 check text) or declare one downstream executable `source` or `binding` string
 with an `equals` or `expected` JSON value. Descriptive prerequisites remain

@@ -216,6 +216,7 @@ def author(
         transport=transport,
         package_dir=package_dir,
         task_id=stable_task_id,
+        wire_version="v2",
     ).run(view, inventory_data, runtime_data)
     typer.echo(
         json.dumps(
