@@ -2377,7 +2377,7 @@ def _v2_prompt_payload(
     return {
         "interface": AUTHORING_INTERFACE_VERSION_V2,
         "case_meaning": _case_meaning(view),
-        "input": _input_view_payload(view, include_reference_task=False),
+        "input": _v2_input_projection(view),
         "evidence_references": _explained_inventory_references(inventory),
         "binding_names": [],
         "operation_names": _operation_handles(inventory),
@@ -2393,6 +2393,20 @@ def _v2_prompt_payload(
             if all_operations
             else {}
         ),
+    }
+
+
+def _v2_input_projection(view: InputView) -> dict[str, Any]:
+    """Return v2 input identity and digests without repeating case meaning."""
+
+    return {
+        "kind": view.kind.value,
+        "scenario_id": view.scenario_id,
+        "narrative_bytes_sha256": _sha256(view.narrative_bytes),
+        "gherkin_bytes_sha256": _sha256(view.gherkin_bytes),
+        "source_digests": dict(view.source_digests),
+        "reference_label": view.reference_label,
+        "reference_id": view.reference_id,
     }
 
 

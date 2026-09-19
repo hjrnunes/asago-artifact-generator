@@ -19,6 +19,9 @@ uv run asago-artifact-generator check runs/authoring/<case-id>/<case-id> \
 `author` uses the versioned v2 authoring wire. Call 1 returns one closed plan
 root. Call 2 returns exactly one fenced JSON metadata block followed by one
 fenced Python block. The Python block becomes `detector.py` byte-for-byte.
+Each v2 prompt carries the selected case meaning once under `case_meaning`;
+the input projection retains scenario/reference identities and narrative/Gherkin
+SHA-256 digests without repeating those texts.
 The accepted Call 1 plan owns setup, bindings, prerequisites, evidence,
 assumptions, observation requirements, and judge decisions; Call 2 cannot
 resubmit those fields. Historical v1 readers remain explicit for preserved
