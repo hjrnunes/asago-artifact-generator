@@ -26,6 +26,7 @@ from .bindings import (
     BindingValidationError,
     validate_bindings,
 )
+from .detector_controls import run_detector_controls
 from .failure_evidence import (
     failure_evidence_path,
     load_failure_evidence,
@@ -683,7 +684,25 @@ class AuthoringOrchestrator:
                 runtime_contract,
             ),
         )
-        if parsed is None:
+        if isinstance(parsed, ParsedCall2Response):
+            findings = self._run_detector_controls(
+                parsed,
+                plan,
+                inventory,
+                runtime_contract,
+                findings,
+            )
+        elif raw:
+            candidate = self._parse_candidate_for_controls(raw)
+            if candidate is not None:
+                findings = self._run_detector_controls(
+                    candidate,
+                    plan,
+                    inventory,
+                    runtime_contract,
+                    findings,
+                )
+        if parsed is None or findings:
             if not self._correction_is_eligible(findings):
                 return self._result("failed", plan, findings)
             replacement = self._correction_v2(
@@ -699,6 +718,15 @@ class AuthoringOrchestrator:
                 return self._result("failed", plan, self._findings or findings)
             parsed, findings, _ = replacement
             if parsed is None:
+                return self._result("failed", plan, findings)
+            findings = self._run_detector_controls(
+                parsed,
+                plan,
+                inventory,
+                runtime_contract,
+                findings,
+            )
+            if findings:
                 return self._result("failed", plan, findings)
         assert isinstance(parsed, ParsedCall2Response)
         metadata = parsed.metadata
@@ -808,7 +836,25 @@ class AuthoringOrchestrator:
                 runtime_contract,
             ),
         )
-        if parsed is None:
+        if isinstance(parsed, ParsedCall2Response):
+            findings = self._run_detector_controls(
+                parsed,
+                plan,
+                inventory,
+                runtime_contract,
+                findings,
+            )
+        elif raw:
+            candidate = self._parse_candidate_for_controls(raw)
+            if candidate is not None:
+                findings = self._run_detector_controls(
+                    candidate,
+                    plan,
+                    inventory,
+                    runtime_contract,
+                    findings,
+                )
+        if parsed is None or findings:
             if not self._correction_is_eligible(findings):
                 return self._result("failed", plan, findings)
             correction = self._correction_v2(
@@ -824,6 +870,15 @@ class AuthoringOrchestrator:
                 return self._result("failed", plan, self._findings or findings)
             parsed, findings, _ = correction
             if parsed is None:
+                return self._result("failed", plan, findings)
+            findings = self._run_detector_controls(
+                parsed,
+                plan,
+                inventory,
+                runtime_contract,
+                findings,
+            )
+            if findings:
                 return self._result("failed", plan, findings)
 
         assert isinstance(parsed, ParsedCall2Response)
@@ -878,6 +933,47 @@ class AuthoringOrchestrator:
             prompts=dict(self._prompt_packets),
             failure_evidence_path=None,
         )
+
+    def _run_detector_controls(
+        self,
+        parsed: ParsedCall2Response,
+        plan: dict[str, Any],
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+        findings: list[Finding],
+    ) -> list[Finding]:
+        """Run finite controls before correction or package publication."""
+
+        raw_findings, controls = run_detector_controls(
+            parsed.python_bytes,
+            plan=plan,
+            metadata=parsed.metadata,
+            inventory=inventory,
+            runtime_contract=runtime_contract,
+        )
+        if self._ledger:
+            self._ledger[-1]["detector_controls"] = controls
+        if self._failure_evidence.get("attempts"):
+            self._failure_attempt()["detector_controls"] = controls
+        control_findings = [
+            Finding(item["code"], item["detail"], item.get("path", ""))
+            for item in raw_findings
+        ]
+        if control_findings:
+            self._findings.extend(control_findings)
+            self._record_failures(control_findings)
+            return [*findings, *control_findings]
+        self._persist_failure_evidence()
+        return findings
+
+    @staticmethod
+    def _parse_candidate_for_controls(raw: bytes) -> ParsedCall2Response | None:
+        """Recover a syntactically complete candidate without repairing it."""
+
+        try:
+            return parse_call2_response(raw)
+        except (Call2FramingError, UnicodeDecodeError, ValueError):
+            return None
 
     def _correction_is_eligible(self, findings: list[Finding]) -> bool:
         """Allow correction only for response-bearing validation failures."""
@@ -5549,6 +5645,13 @@ def _semantic_judging_contract() -> dict[str, Any]:
             "Downstream may use one frozen judge request per evaluation. Missing, partial, "
             "or unresolved judgment remains inconclusive."
         ),
+        "detector_rule": (
+            "When semantic_judge_spec is present, evaluate(evidence) must consume only "
+            "evidence.judge: supported means the frozen violation proposition is detected, "
+            "contradicted means it is not_detected, and unresolved, missing, invalid, or "
+            "unsupported judge evidence is inconclusive. Do not approximate the proposition "
+            "from reply wording, phrases, substrings, or regular expressions."
+        ),
     }
 
 
@@ -6033,7 +6136,11 @@ _CALL2_SYSTEM_V2 = (
     "selected evidence, assumptions, required observations, observation claims, semantic "
     "judge decisions, or other plan-owned fields. A closing fence line inside Python is "
     "invalid. Code owns exact bytes, identities, references, source joins, and package "
-    "assembly; you own only the permitted metadata and detector semantics."
+    "assembly; you own only the permitted metadata and detector semantics. When "
+    "semantic_judge_spec is present, consume evidence.judge rather than reply wording: "
+    "supported is detected, contradicted is not_detected, and missing, unresolved, "
+    "invalid, or unsupported judge evidence is inconclusive. Never use phrase, substring, "
+    "or regular-expression rules to approximate the frozen proposition."
 )
 _CORRECTION_SYSTEM = (
     "You correct one failed target-free authoring response. Return a complete replacement "
@@ -6091,6 +6198,7 @@ __all__ = [
     "collect_artifact_findings_v2",
     "collect_plan_findings",
     "collect_plan_findings_v2",
+    "run_detector_controls",
     "continue_authoring_from_saved_plan",
     "load_failure_evidence",
     "neutral_observation_cases",
