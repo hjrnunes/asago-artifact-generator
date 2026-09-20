@@ -12,6 +12,7 @@ import ast
 import hashlib
 import json
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -56,6 +57,12 @@ CALL1_PROMPT_VERSION_V2 = "authoring-call1-v2"
 CALL2_PROMPT_VERSION_V2 = "authoring-call2-v2"
 CORRECTION_PROMPT_VERSION_V2 = "authoring-correction-v2"
 AUTHORING_INTERFACE_VERSION_V2 = "artifact-authoring-v2"
+# Semantic-review roles.  Each review is a separate provider request recorded
+# beside the author dispatches; the reviewer contract is the small closed
+# decision/summary/findings shape parsed by ``parse_review_response``.
+PLAN_REVIEW_PROMPT_VERSION = "authoring-plan-review-v1"
+ARTIFACT_REVIEW_PROMPT_VERSION = "authoring-artifact-review-v1"
+_REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 MAX_AUTHORING_REQUESTS = 16
 MAX_REQUESTS_PER_TASK = 3
 MAX_RENDERED_PROMPT_BYTES = 1_000_000
@@ -182,6 +189,142 @@ class Call1FramingError(AuthoringError):
         super().__init__(detail or "invalid Call 1 framing", "call1")
 
 
+class ReviewResponseError(AuthoringError):
+    """Raised when a reviewer response fails framing, shape, or consistency."""
+
+    def __init__(self, findings: list[Finding]) -> None:
+        self.findings = list(findings)
+        detail = "; ".join(finding.detail for finding in self.findings)
+        super().__init__(detail or "invalid reviewer response", "review")
+
+
+@dataclass(frozen=True)
+class ReviewResponse:
+    """One validated semantic-review response.
+
+    ``decision`` is ``accept``, ``revise``, or ``blocked``; ``findings`` is a
+    tuple of complete finding objects with exactly ``location``, ``problem``,
+    ``basis``, and ``required_change``.
+    """
+
+    decision: str
+    summary: str
+    findings: tuple[dict[str, str], ...] = ()
+
+
+_REVIEW_DECISIONS = ("accept", "revise", "blocked")
+_REVIEW_FINDING_FIELDS = ("location", "problem", "basis", "required_change")
+
+
+def parse_review_response(raw: bytes | str) -> ReviewResponse:
+    """Parse one strict reviewer response without changing its raw bytes.
+
+    The accepted framing is one bare JSON object or exactly one lowercase
+    ```json fenced JSON object, the same strict normalization as a v2 Call 1
+    response.  Prose wrappers, multiple objects or fences, and malformed JSON
+    fail mechanically.  ``accept`` requires an empty findings array while
+    ``revise`` and ``blocked`` require at least one complete finding; a
+    contradictory decision raises instead of being silently coerced.
+    """
+
+    source = raw.encode("utf-8") if isinstance(raw, str) else raw
+    if not isinstance(source, bytes):
+        raise TypeError("review response must be bytes or text")
+    try:
+        decoded, _transformation = _decode_review_json_response(source)
+    except UnicodeDecodeError as exc:
+        raise ReviewResponseError(
+            [Finding("invalid_json", f"review response is not valid UTF-8: {exc}", "review")]
+        ) from exc
+    problems: list[Finding] = []
+    unknown = set(decoded) - {"decision", "summary", "findings"}
+    if unknown:
+        problems.append(
+            Finding(
+                "review_schema",
+                f"review response has unknown fields: {', '.join(sorted(unknown))}",
+                "review",
+            )
+        )
+    decision = decoded.get("decision")
+    if decision not in _REVIEW_DECISIONS:
+        problems.append(
+            Finding(
+                "review_schema",
+                "review decision must be one of accept, revise, blocked",
+                "review",
+            )
+        )
+    summary = decoded.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        problems.append(
+            Finding("review_schema", "review summary must be a nonblank string", "review")
+        )
+    raw_findings = decoded.get("findings")
+    if not isinstance(raw_findings, list):
+        problems.append(Finding("review_schema", "review findings must be a list", "review"))
+        raw_findings = []
+    else:
+        for index, item in enumerate(raw_findings):
+            problems.extend(_review_finding_shape_problems(item, index))
+    if decision == "accept" and raw_findings:
+        problems.append(
+            Finding(
+                "review_contradiction",
+                "accept requires an empty findings array",
+                "review",
+            )
+        )
+    if decision in {"revise", "blocked"} and not raw_findings:
+        problems.append(
+            Finding(
+                "review_contradiction",
+                f"{decision} requires at least one complete finding",
+                "review",
+            )
+        )
+    if problems:
+        raise ReviewResponseError(problems)
+    return ReviewResponse(
+        decision=decision,
+        summary=summary,
+        findings=tuple(dict(item) for item in raw_findings),
+    )
+
+
+def _review_finding_shape_problems(item: Any, index: int) -> list[Finding]:
+    """Return the shape findings for one reviewer finding entry."""
+
+    path = f"review.findings[{index}]"
+    if not isinstance(item, dict):
+        return [Finding("review_schema", f"{path} must be an object", path)]
+    unknown = set(item) - set(_REVIEW_FINDING_FIELDS)
+    missing = set(_REVIEW_FINDING_FIELDS) - set(item)
+    if unknown or missing:
+        return [
+            Finding(
+                "review_schema",
+                f"{path} must have exactly location, problem, basis, and required_change"
+                f" (missing={sorted(missing)}, unknown={sorted(unknown)})",
+                path,
+            )
+        ]
+    blank = [
+        name
+        for name in _REVIEW_FINDING_FIELDS
+        if not isinstance(item[name], str) or not item[name].strip()
+    ]
+    if blank:
+        return [
+            Finding(
+                "review_schema",
+                f"{path} fields must be nonblank strings: {', '.join(blank)}",
+                path,
+            )
+        ]
+    return []
+
+
 @dataclass(frozen=True)
 class TransportResponse:
     """Raw provider response plus non-secret provider metadata."""
@@ -215,6 +358,105 @@ class AuthoringBudget:
         return self.total_dispatched
 
 
+_UNSET_CORRECTIONS = object()
+
+
+@dataclass(frozen=True)
+class AuthoringPolicy:
+    """Stage-local correction allowances and review switches for one task.
+
+    ``plan_max_corrections`` and ``artifact_max_corrections`` each default to
+    one and accept only nonnegative integers; booleans, negatives, and other
+    types are rejected and values are never clamped.  ``review_plan`` and
+    ``review_artifact`` default to enabled and are validated independently.
+    ``no_correction`` is the legacy global switch: used alone it sets both
+    stage counts to zero, and combined with an explicit nonzero stage limit it
+    is rejected instead of choosing a precedence.
+    """
+
+    plan_max_corrections: Any = _UNSET_CORRECTIONS
+    artifact_max_corrections: Any = _UNSET_CORRECTIONS
+    review_plan: bool = True
+    review_artifact: bool = True
+    no_correction: bool = False
+
+    def __post_init__(self) -> None:
+        for name in ("review_plan", "review_artifact", "no_correction"):
+            if not isinstance(getattr(self, name), bool):
+                raise ValueError(f"{name} must be a boolean")
+        explicit: dict[str, int] = {}
+        for name in ("plan_max_corrections", "artifact_max_corrections"):
+            value = getattr(self, name)
+            if value is _UNSET_CORRECTIONS:
+                continue
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a nonnegative integer, got {value!r}")
+            explicit[name] = value
+        if self.no_correction:
+            conflicts = sorted(name for name, value in explicit.items() if value != 0)
+            if conflicts:
+                raise ValueError(
+                    "no_correction conflicts with an explicit nonzero correction limit ("
+                    + ", ".join(conflicts)
+                    + "); set the stage limit to zero or drop no_correction"
+                )
+        object.__setattr__(
+            self,
+            "plan_max_corrections",
+            explicit.get("plan_max_corrections", 0 if self.no_correction else 1),
+        )
+        object.__setattr__(
+            self,
+            "artifact_max_corrections",
+            explicit.get("artifact_max_corrections", 0 if self.no_correction else 1),
+        )
+
+    @classmethod
+    def from_cli(
+        cls,
+        *,
+        plan_max_corrections: int | None = None,
+        artifact_max_corrections: int | None = None,
+        review_plan: bool = True,
+        review_artifact: bool = True,
+        no_correction: bool = False,
+    ) -> AuthoringPolicy:
+        """Build one policy from optional CLI values; ``None`` keeps defaults."""
+
+        kwargs: dict[str, Any] = {
+            "review_plan": review_plan,
+            "review_artifact": review_artifact,
+            "no_correction": no_correction,
+        }
+        if plan_max_corrections is not None:
+            kwargs["plan_max_corrections"] = plan_max_corrections
+        if artifact_max_corrections is not None:
+            kwargs["artifact_max_corrections"] = artifact_max_corrections
+        return cls(**kwargs)
+
+
+def policy_max_dispatches(policy: AuthoringPolicy) -> int:
+    """Return the closed worst-case dispatch count one policy can spend.
+
+    With both reviews enabled a stage costs its corrections plus one initial
+    attempt, and each of those author responses can also cost one review; with
+    a review disabled the stage costs at most ``corrections + 1``.  These are
+    upper bounds used for default budget guards, not spending targets.
+    """
+
+    plan_cost = (
+        2 * (policy.plan_max_corrections + 1)
+        if policy.review_plan
+        else policy.plan_max_corrections + 1
+    )
+    artifact_cost = (
+        2 * (policy.artifact_max_corrections + 1)
+        if policy.review_artifact
+        else policy.artifact_max_corrections + 1
+    )
+    return plan_cost + artifact_cost
+
+
 @dataclass
 class AuthoringResult:
     """Outcome and retained evidence from one bounded authoring task."""
@@ -232,6 +474,8 @@ class AuthoringResult:
     decoded_responses: dict[str, Any] = field(default_factory=dict)
     prompts: dict[str, PromptPacket] = field(default_factory=dict)
     failure_evidence_path: Path | None = None
+    review_status: dict[str, str] = field(default_factory=dict)
+    allowances: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -444,8 +688,32 @@ class PrivateModelAuthoringTransport:
         )
 
 
+@dataclass(frozen=True)
+class _StageStop:
+    """One terminal stop of the stage-local orchestration state machine."""
+
+    status: str
+    findings: tuple[Finding, ...] = ()
+
+
+@dataclass(frozen=True)
+class _ReviewOutcome:
+    """One completed semantic-review dispatch and its closed classification."""
+
+    decision: str
+    findings: tuple[dict[str, str], ...] = ()
+    stop: _StageStop | None = None
+    raw: bytes = b""
+
+
 class AuthoringOrchestrator:
-    """Run Call 1, mechanical checks, Call 2, and one shared correction."""
+    """Run Call 1, mechanical checks, Call 2, and one shared correction.
+
+    With an explicit ``AuthoringPolicy`` the orchestrator instead runs the
+    stage-local state machine: each stage keeps its own correction allowance,
+    deterministic checks and detector controls precede every semantic review,
+    and review decisions route corrections without shared state.
+    """
 
     def __init__(
         self,
@@ -456,6 +724,8 @@ class AuthoringOrchestrator:
         budget: AuthoringBudget | None = None,
         correction_allowed: bool = True,
         wire_version: str = "v1",
+        policy: AuthoringPolicy | None = None,
+        review_model_profile: str | None = None,
     ) -> None:
         if getattr(transport, "max_retries", None) != 0:
             raise ValueError("authoring transport must set max_retries=0")
@@ -463,16 +733,48 @@ class AuthoringOrchestrator:
             raise ValueError("correction_allowed must be a boolean")
         if wire_version not in {"v1", "v2"}:
             raise ValueError("wire_version must be 'v1' or 'v2'")
+        if policy is not None:
+            if not isinstance(policy, AuthoringPolicy):
+                raise ValueError("policy must be an AuthoringPolicy instance")
+            if wire_version != "v2":
+                raise ValueError("stage-local policy requires wire_version='v2'")
+            if not correction_allowed:
+                raise ValueError(
+                    "policy governs stage corrections; do not combine it with"
+                    " correction_allowed=False"
+                )
+        if review_model_profile is not None and (
+            not isinstance(review_model_profile, str) or not review_model_profile.strip()
+        ):
+            raise ValueError("review_model_profile must be a nonblank string when provided")
         self.transport = transport
         self.package_dir = Path(package_dir)
         self.task_id = task_id
-        self.budget = budget or AuthoringBudget()
+        self.policy = policy
+        self.review_model_profile = review_model_profile
+        if budget is None:
+            # The stage-local default budget covers the policy's own closed
+            # worst case; an explicitly supplied budget is honored as an
+            # earlier stop and never raised to the policy maximum.
+            budget = (
+                AuthoringBudget(
+                    aggregate_limit=MAX_AUTHORING_REQUESTS,
+                    task_limit=policy_max_dispatches(policy),
+                )
+                if policy is not None
+                else AuthoringBudget()
+            )
+        self.budget = budget
         self.correction_allowed = correction_allowed
         self.wire_version = wire_version
         self._ledger: list[dict[str, Any]] = []
         self._findings: list[Finding] = []
         self._correction_used = False
         self._dispatch_count = 0
+        self._dispatch_recorded = True
+        self._allowances: dict[str, int] | None = None
+        self._review_status: dict[str, str] | None = None
+        self._last_controls: list[dict[str, Any]] | None = None
         self._raw_responses: dict[str, bytes] = {}
         self._decoded_responses: dict[str, Any] = {}
         self._prompt_packets: dict[str, PromptPacket] = {}
@@ -797,6 +1099,8 @@ class AuthoringOrchestrator:
     ) -> AuthoringResult:
         """Run the explicitly versioned plan and two-block artifact wire."""
 
+        if self.policy is not None:
+            return self._run_v2_policy(view, inventory, runtime_contract)
         try:
             call1 = build_call1_packet_v2(view, inventory, runtime_contract)
         except PromptOverflowError as exc:
@@ -960,6 +1264,7 @@ class AuthoringOrchestrator:
             inventory=inventory,
             runtime_contract=runtime_contract,
         )
+        self._last_controls = controls
         if self._ledger:
             self._ledger[-1]["detector_controls"] = controls
         if self._failure_evidence.get("attempts"):
@@ -989,7 +1294,9 @@ class AuthoringOrchestrator:
         return (
             self.correction_allowed
             and bool(findings)
-            and not any(finding.code == "transport_failure" for finding in findings)
+            and not any(
+                finding.code in {"transport_failure", "budget_exhausted"} for finding in findings
+            )
         )
 
     def _request_and_validate(
@@ -1001,11 +1308,19 @@ class AuthoringOrchestrator:
         self._prompt_packets[stage] = packet
         try:
             response = self._dispatch(packet)
-        except (BudgetExceeded, Exception) as exc:
-            # BudgetExceeded is included here to preserve a typed ledger record.
+        except BudgetExceeded as exc:
+            # Budget stops happen before dispatch: no ledger record exists to
+            # annotate, and no stage attempt was created for this request.
+            finding = Finding("budget_exhausted", _safe_error(exc), stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            return None, [finding], b""
+        except Exception as exc:
             finding = Finding("transport_failure", _safe_error(exc), stage)
             self._findings.append(finding)
-            self._ledger[-1]["error"] = _safe_error(exc) if self._ledger else _safe_error(exc)
+            if self._dispatch_recorded:
+                self._ledger[-1]["error"] = _safe_error(exc)
             self._record_unavailable_response(
                 reason="provider_failure",
                 detail=_safe_error(exc),
@@ -1070,16 +1385,27 @@ class AuthoringOrchestrator:
 
         stage = packet.stage
         self._prompt_packets[stage] = packet
+        started = time.monotonic()
         try:
             response = self._dispatch(packet)
-        except (BudgetExceeded, Exception) as exc:
+        except BudgetExceeded as exc:
+            # Budget stops happen before dispatch: no ledger record exists to
+            # annotate, and no stage attempt was created for this request.
+            finding = Finding("budget_exhausted", _safe_error(exc), stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            return None, [finding], b""
+        except Exception as exc:
             finding = Finding("transport_failure", _safe_error(exc), stage)
             self._findings.append(finding)
-            self._ledger[-1]["error"] = _safe_error(exc) if self._ledger else _safe_error(exc)
+            if self._dispatch_recorded:
+                self._ledger[-1]["error"] = _safe_error(exc)
             self._record_unavailable_response(
                 reason="provider_failure",
                 detail=_safe_error(exc),
                 finding=finding,
+                elapsed_ms=(time.monotonic() - started) * 1000,
             )
             return None, [finding], b""
         raw, usage, controls = _response_parts(response)
@@ -1150,10 +1476,20 @@ class AuthoringOrchestrator:
         return validation_value, [], raw
 
     def _dispatch(self, packet: PromptPacket) -> TransportResponse | str | bytes:
+        # Reserve before creating any ledger or evidence record: a budget stop
+        # happens before dispatch, so it leaves no dispatch event behind.
+        try:
+            self.budget.reserve(self.task_id)
+        except BudgetExceeded:
+            self._dispatch_recorded = False
+            raise
+        self._dispatch_recorded = True
         dispatch_index = self._dispatch_count + 1
         self._dispatch_count = dispatch_index
+        role = "reviewer" if packet.stage in _REVIEW_STAGES else "author"
         record = {
             "dispatch_index": dispatch_index,
+            "role": role,
             "stage": packet.stage,
             "task_id": self.task_id,
             "prompt_version": packet.version,
@@ -1166,6 +1502,7 @@ class AuthoringOrchestrator:
         self._failure_evidence["attempts"].append(
             {
                 "dispatch_index": dispatch_index,
+                "role": role,
                 "stage": packet.stage,
                 "task_id": self.task_id,
                 "prompt": {
@@ -1183,11 +1520,6 @@ class AuthoringOrchestrator:
             }
         )
         self._persist_failure_evidence()
-        try:
-            self.budget.reserve(self.task_id)
-        except BudgetExceeded as exc:
-            record["error"] = str(exc)
-            raise
         return self.transport.complete(packet)
 
     def _correction(
@@ -1227,9 +1559,18 @@ class AuthoringOrchestrator:
         self._prompt_packets["correction"] = packet
         try:
             response = self._dispatch(packet)
-        except (BudgetExceeded, Exception) as exc:
+        except BudgetExceeded as exc:
+            # Budget stops happen before dispatch: no ledger record or stage
+            # attempt exists for the refused correction request.
+            finding = Finding("budget_exhausted", _safe_error(exc), failed_stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            return None
+        except Exception as exc:
             finding = Finding("correction_dispatch_failed", _safe_error(exc), failed_stage)
-            self._ledger[-1]["error"] = _safe_error(exc) if self._ledger else _safe_error(exc)
+            if self._dispatch_recorded:
+                self._ledger[-1]["error"] = _safe_error(exc)
             self._findings.append(finding)
             self._record_unavailable_response(
                 reason="provider_failure",
@@ -1318,12 +1659,19 @@ class AuthoringOrchestrator:
         view: InputView,
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
+        stage_allowance: str | None = None,
     ) -> tuple[dict[str, Any] | ParsedCall2Response | None, list[Finding], bytes] | None:
-        """Replace one failed v2 response in its original stage format."""
+        """Replace one failed v2 response in its original stage format.
 
-        if self._correction_used:
-            return None
-        self._correction_used = True
+        With ``stage_allowance`` the caller owns the stage-local allowance
+        decision and the shared legacy guard is bypassed; without one the
+        historical single shared-correction boolean applies.
+        """
+
+        if stage_allowance is None:
+            if self._correction_used:
+                return None
+            self._correction_used = True
         exact_response, response_encoding = _readable_response(failed_response)
         correction_payload = {
             "failed_stage": failed_stage,
@@ -1352,9 +1700,18 @@ class AuthoringOrchestrator:
         self._prompt_packets["correction"] = packet
         try:
             response = self._dispatch(packet)
-        except (BudgetExceeded, Exception) as exc:
+        except BudgetExceeded as exc:
+            # Budget stops happen before dispatch: no ledger record or stage
+            # attempt exists for the refused correction request.
+            finding = Finding("budget_exhausted", _safe_error(exc), failed_stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            return None
+        except Exception as exc:
             finding = Finding("correction_dispatch_failed", _safe_error(exc), failed_stage)
-            self._ledger[-1]["error"] = _safe_error(exc) if self._ledger else _safe_error(exc)
+            if self._dispatch_recorded:
+                self._ledger[-1]["error"] = _safe_error(exc)
             self._findings.append(finding)
             self._record_unavailable_response(
                 reason="provider_failure",
@@ -1449,6 +1806,429 @@ class AuthoringOrchestrator:
         )
         return validation_value, [], raw
 
+    def _run_v2_policy(
+        self,
+        view: InputView,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> AuthoringResult:
+        """Run the stage-local correction and review state machine.
+
+        Each stage owns its correction allowance; deterministic checks and
+        detector controls precede every semantic review; and review decisions
+        route corrections without shared state or hidden retries.
+        """
+
+        policy = self.policy
+        assert policy is not None
+        self._allowances = {
+            "plan": policy.plan_max_corrections,
+            "artifact": policy.artifact_max_corrections,
+        }
+        self._review_status = {"plan": "not_requested", "artifact": "not_requested"}
+        self._failure_evidence["policy"] = self._effective_policy_record()
+        self._persist_failure_evidence()
+        plan = self._plan_stage_policy(view, inventory, runtime_contract)
+        if isinstance(plan, _StageStop):
+            return self._policy_result(plan.status, None, plan.findings)
+        artifact = self._artifact_stage_policy(view, plan, inventory, runtime_contract)
+        if isinstance(artifact, _StageStop):
+            return self._policy_result(artifact.status, plan, artifact.findings)
+        parsed, metadata, artifact_definition = artifact
+        try:
+            package = _package_from_responses(
+                view=view,
+                plan=plan,
+                artifact=artifact_definition,
+                task_id=self.task_id,
+                ledger=self._ledger,
+                raw_responses=self._raw_responses,
+                decoded_responses=self._decoded_responses,
+                prompt_packets=self._prompt_packets,
+                transformations=self._transformations,
+                inventory=inventory,
+                runtime_contract=runtime_contract,
+                detector_bytes=parsed.python_bytes,
+                interface_version=AUTHORING_INTERFACE_VERSION_V2,
+                policy=self._effective_policy_record(),
+                review_status=dict(self._review_status),
+            )
+        except ArtifactValidationError as exc:
+            return self._policy_result(
+                "failed",
+                plan,
+                [Finding("assembly_validation", exc.message, exc.path)],
+            )
+        try:
+            path = write_package(self.package_dir, package)
+        except Exception as exc:
+            return self._policy_result("failed", plan, [Finding("package_write_failed", str(exc))])
+        return AuthoringResult(
+            status="accepted",
+            task_id=self.task_id,
+            plan=plan,
+            artifact=metadata,
+            package=package,
+            package_path=path,
+            findings=[],
+            ledger=list(self._ledger),
+            transformations=list(self._transformations),
+            raw_responses=dict(self._raw_responses),
+            decoded_responses=dict(self._decoded_responses),
+            prompts=dict(self._prompt_packets),
+            review_status=dict(self._review_status),
+            allowances=dict(self._allowances),
+            failure_evidence_path=None,
+        )
+
+    def _plan_stage_policy(
+        self,
+        view: InputView,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> dict[str, Any] | _StageStop:
+        """Author, check, correct, and review the plan within its allowance."""
+
+        policy = self.policy
+        assert policy is not None
+        try:
+            packet = build_call1_packet_v2(view, inventory, runtime_contract)
+        except PromptOverflowError as exc:
+            return _StageStop("failed", (Finding("context_overflow", str(exc)),))
+
+        def collector(decoded: Any) -> list[Finding]:
+            return collect_plan_findings_v2(decoded, inventory, runtime_contract)
+
+        candidate: dict[str, Any] | None = None
+        pending: list[Finding] | None = None
+        raw = b""
+        while True:
+            if candidate is None:
+                if pending is None:
+                    decoded, pending, raw = self._request_and_validate_v2(packet, collector)
+                    candidate = decoded if isinstance(decoded, dict) else None
+                if candidate is None:
+                    pending = pending or [
+                        Finding("call1_failed", "Call 1 did not return a plan", "call1")
+                    ]
+                    blocked = candidate or self._decoded_responses.get("call1")
+                    if _is_blocked_plan(blocked):
+                        _persist_blocked_plan(self.package_dir, blocked)
+                        return _StageStop("blocked")
+                    stop = self._stop_for_author_findings(pending)
+                    if stop is not None:
+                        return stop
+                    if not self._consume_allowance("plan"):
+                        return _StageStop("unresolved", tuple(pending))
+                    corrected = self._correction_v2(
+                        failed_stage="call1",
+                        failed_packet=packet,
+                        failed_response=raw,
+                        findings=list(pending),
+                        view=view,
+                        inventory=inventory,
+                        runtime_contract=runtime_contract,
+                        stage_allowance="plan",
+                    )
+                    if corrected is None:
+                        stop = self._stop_for_author_findings(list(self._findings))
+                        if stop is not None:
+                            return stop
+                        return _StageStop("unresolved", tuple(self._findings or pending))
+                    candidate, _correction_findings, raw = corrected
+                    pending = None
+            assert candidate is not None
+            if _is_blocked_plan(candidate):
+                _persist_blocked_plan(self.package_dir, candidate)
+                return _StageStop("blocked")
+            if not policy.review_plan:
+                self._review_status["plan"] = "not_requested"
+                return candidate
+            outcome = self._semantic_review(
+                "plan",
+                build_plan_review_packet(view, candidate, inventory, runtime_contract),
+            )
+            if outcome.stop is not None:
+                return outcome.stop
+            if outcome.decision == "accept":
+                self._review_status["plan"] = "accepted"
+                return candidate
+            if outcome.decision == "blocked":
+                self._review_status["plan"] = "blocked"
+                return _StageStop("blocked", self._semantic_finding_objects(outcome, "plan"))
+            # Semantic revise findings join the same stage correction path as
+            # mechanical findings and consume the same stage allowance.
+            pending = self._semantic_finding_objects(outcome, "plan")
+            candidate = None
+
+    def _artifact_stage_policy(
+        self,
+        view: InputView,
+        plan: dict[str, Any],
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> tuple[ParsedCall2Response, dict[str, Any], dict[str, Any]] | _StageStop:
+        """Author, check, control, correct, and review the artifact stage."""
+
+        policy = self.policy
+        assert policy is not None
+        try:
+            packet = build_call2_packet_v2(view, plan, inventory, runtime_contract)
+        except PromptOverflowError as exc:
+            return _StageStop("failed", (Finding("context_overflow", str(exc)),))
+
+        def collector(decoded: Any) -> list[Finding]:
+            return collect_artifact_findings_v2(decoded, plan, inventory, runtime_contract)
+
+        parsed: ParsedCall2Response | None = None
+        pending: list[Finding] | None = None
+        raw = b""
+        while True:
+            if parsed is None:
+                if pending is None:
+                    candidate, pending, raw = self._request_and_validate_v2(packet, collector)
+                    recover = (
+                        candidate
+                        if isinstance(candidate, ParsedCall2Response)
+                        else (self._parse_candidate_for_controls(raw) if raw else None)
+                    )
+                    if recover is not None:
+                        # A runnable candidate is exercised where the isolated
+                        # control interface safely supports it, even beside
+                        # structural findings; every obtainable defect is
+                        # collected before any correction decision.
+                        pending = self._run_detector_controls(
+                            recover,
+                            plan,
+                            inventory,
+                            runtime_contract,
+                            pending,
+                        )
+                    if candidate is not None and not pending:
+                        parsed = candidate
+                if parsed is None:
+                    pending = pending or [
+                        Finding("call2_failed", "Call 2 did not return a valid artifact", "call2")
+                    ]
+                    stop = self._stop_for_author_findings(pending)
+                    if stop is not None:
+                        return stop
+                    if not self._consume_allowance("artifact"):
+                        return _StageStop("unresolved", tuple(pending))
+                    correction = self._correction_v2(
+                        failed_stage="call2",
+                        failed_packet=packet,
+                        failed_response=raw,
+                        findings=list(pending),
+                        view=view,
+                        inventory=inventory,
+                        runtime_contract=runtime_contract,
+                        stage_allowance="artifact",
+                    )
+                    if correction is None:
+                        stop = self._stop_for_author_findings(list(self._findings))
+                        if stop is not None:
+                            return stop
+                        return _StageStop("unresolved", tuple(self._findings or pending))
+                    parsed, _correction_findings, raw = correction
+                    control_findings = self._run_detector_controls(
+                        parsed,
+                        plan,
+                        inventory,
+                        runtime_contract,
+                        [],
+                    )
+                    if control_findings:
+                        # The corrected bytes failed their own controls; treat
+                        # the findings like any other mechanical failure of
+                        # this stage.
+                        pending = control_findings
+                        parsed = None
+                        continue
+            assert parsed is not None
+            if not policy.review_artifact:
+                self._review_status["artifact"] = "not_requested"
+                return self._artifact_parts(parsed, plan)
+            outcome = self._semantic_review(
+                "artifact",
+                build_artifact_review_packet(
+                    view,
+                    plan,
+                    parsed.metadata,
+                    parsed.python_bytes,
+                    self._last_controls,
+                    inventory,
+                    runtime_contract,
+                ),
+            )
+            if outcome.stop is not None:
+                return outcome.stop
+            if outcome.decision == "accept":
+                self._review_status["artifact"] = "accepted"
+                return self._artifact_parts(parsed, plan)
+            if outcome.decision == "blocked":
+                # The accepted plan itself must change; never recurse back
+                # into plan authoring.
+                self._review_status["artifact"] = "blocked"
+                return _StageStop(
+                    "needs_plan_revision",
+                    self._semantic_finding_objects(outcome, "artifact"),
+                )
+            # Semantic revise findings join the same stage correction path as
+            # mechanical and control findings and consume the same stage
+            # allowance.
+            pending = self._semantic_finding_objects(outcome, "artifact")
+            parsed = None
+
+    @staticmethod
+    def _artifact_parts(
+        parsed: ParsedCall2Response,
+        plan: dict[str, Any],
+    ) -> tuple[ParsedCall2Response, dict[str, Any], dict[str, Any]]:
+        """Join the validated candidate with the accepted plan-owned fields."""
+
+        metadata = parsed.metadata
+        artifact = {
+            **metadata,
+            # These values are copied from the accepted plan.  Call 2 and its
+            # corrections never rewrite them.
+            "setup_recipe": plan["setup_recipe"],
+            "runtime_bindings": plan["runtime_bindings"],
+            "prerequisites": plan["prerequisites"],
+            "required_observations": plan["required_observations"],
+        }
+        return parsed, metadata, artifact
+
+    def _semantic_review(self, review_key: str, packet: PromptPacket) -> _ReviewOutcome:
+        """Dispatch one semantic review and classify its closed outcome."""
+
+        assert self._review_status is not None
+        started = time.monotonic()
+        try:
+            response = self._dispatch(packet)
+        except BudgetExceeded as exc:
+            # Budget stops happen before dispatch: no ledger record or stage
+            # attempt exists for the refused review request.
+            finding = Finding("budget_exhausted", _safe_error(exc), packet.stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            self._review_status[review_key] = "unavailable"
+            return _ReviewOutcome(
+                decision="",
+                stop=_StageStop("review_unavailable", (finding,)),
+            )
+        except Exception as exc:
+            finding = Finding("transport_failure", _safe_error(exc), packet.stage)
+            self._findings.append(finding)
+            if self._dispatch_recorded:
+                self._ledger[-1]["error"] = _safe_error(exc)
+            self._record_unavailable_response(
+                reason="provider_failure",
+                detail=_safe_error(exc),
+                finding=finding,
+                elapsed_ms=(time.monotonic() - started) * 1000,
+            )
+            self._review_status[review_key] = "unavailable"
+            return _ReviewOutcome(
+                decision="",
+                stop=_StageStop("review_unavailable", (finding,)),
+            )
+        raw, usage, controls = _response_parts(response)
+        record = self._ledger[-1]
+        raw_key = f"dispatch:{record['dispatch_index']}"
+        self._raw_responses[raw_key] = raw
+        self._raw_responses[packet.stage] = raw
+        record["raw_response_key"] = raw_key
+        record["usage"] = _safe_metadata(usage)
+        record["controls"] = _safe_metadata(controls)
+        self._record_available_response(raw, usage, controls)
+        try:
+            review = parse_review_response(raw)
+        except ReviewResponseError as exc:
+            finding = Finding("review_unavailable", _safe_error(exc), packet.stage)
+            self._findings.append(finding)
+            if self._dispatch_recorded:
+                self._ledger[-1]["review_error"] = [item.to_dict() for item in exc.findings]
+            self._record_failures(list(exc.findings))
+            self._review_status[review_key] = "unavailable"
+            return _ReviewOutcome(
+                decision="",
+                stop=_StageStop("review_unavailable", (finding,)),
+            )
+        review_record = {
+            "decision": review.decision,
+            "summary": review.summary,
+            "findings": [dict(item) for item in review.findings],
+        }
+        record["review"] = review_record
+        self._decoded_responses[packet.stage] = review_record
+        self._failure_attempt()["review"] = review_record
+        self._persist_failure_evidence()
+        return _ReviewOutcome(
+            decision=review.decision,
+            findings=tuple(review.findings),
+            raw=raw,
+        )
+
+    def _consume_allowance(self, stage: str) -> bool:
+        """Spend one correction from the named stage's independent allowance."""
+
+        assert self._allowances is not None
+        if self._allowances[stage] <= 0:
+            return False
+        self._allowances[stage] -= 1
+        return True
+
+    @staticmethod
+    def _stop_for_author_findings(findings: list[Finding]) -> _StageStop | None:
+        """Return the terminal run stop for transport or budget failures."""
+
+        stop_findings = [
+            finding
+            for finding in findings
+            if finding.code
+            in {"transport_failure", "budget_exhausted", "correction_dispatch_failed"}
+        ]
+        if not stop_findings:
+            return None
+        return _StageStop("transport_failure", tuple(stop_findings))
+
+    @staticmethod
+    def _semantic_finding_objects(
+        outcome: _ReviewOutcome,
+        stage: str,
+    ) -> tuple[Finding, ...]:
+        """Convert complete reviewer findings into typed stage findings."""
+
+        return tuple(_review_finding_to_finding(item, stage) for item in outcome.findings)
+
+    def _effective_policy_record(self) -> dict[str, Any]:
+        """Return the effective stage policy and reviewer controls record."""
+
+        policy = self.policy
+        assert policy is not None
+        return {
+            "plan_max_corrections": policy.plan_max_corrections,
+            "artifact_max_corrections": policy.artifact_max_corrections,
+            "review_plan": policy.review_plan,
+            "review_artifact": policy.review_artifact,
+            "review_model_profile": self.review_model_profile,
+            "review_temperature": 0,
+            "max_retries": 0,
+        }
+
+    def _policy_result(
+        self,
+        status: str,
+        plan: dict[str, Any] | None,
+        findings: tuple[Finding, ...] | list[Finding],
+    ) -> AuthoringResult:
+        result = self._result(status, plan, list(findings))
+        result.review_status = dict(self._review_status) if self._review_status else {}
+        result.allowances = dict(self._allowances) if self._allowances else {}
+        return result
+
     def _result(
         self,
         status: str,
@@ -1495,11 +2275,14 @@ class AuthoringOrchestrator:
         reason: str,
         detail: str,
         finding: Finding,
+        elapsed_ms: float | None = None,
     ) -> None:
         attempt = self._failure_attempt()
         attempt["raw_response"] = raw_response_record(b"", reason=reason)
         attempt["usage"] = metadata_record(None, unavailable_reason=reason)
         attempt["failure"] = {"detail": _safe_error(detail), "phase": "invocation"}
+        if elapsed_ms is not None:
+            attempt["failure"]["elapsed_ms"] = round(elapsed_ms, 3)
         self._record_failure(finding)
 
     def _record_failure(self, finding: Finding) -> None:
@@ -1707,6 +2490,132 @@ def build_call2_packet_v2(
     )
     _enforce_prompt_size(packet, max_prompt_bytes)
     return packet
+
+
+def _review_response_contract() -> dict[str, Any]:
+    """Return the closed reviewer response contract shared by both stages."""
+
+    return {
+        "framing": {
+            "accepted": [
+                "one bare JSON object",
+                "exactly one lowercase ```json fenced JSON object",
+            ],
+            "rejected": [
+                "untagged fence",
+                "uppercase or differently tagged fence",
+                "multiple objects or fences",
+                "prose wrapper",
+                "trailing content",
+            ],
+        },
+        "fields": ["decision", "summary", "findings"],
+        "decision_values": list(_REVIEW_DECISIONS),
+        "consistency": {
+            "accept": "findings must be empty",
+            "revise": "findings must contain at least one complete finding",
+            "blocked": "findings must contain at least one complete finding",
+        },
+        "finding_fields": list(_REVIEW_FINDING_FIELDS),
+        "finding_field_rule": (
+            "every finding field is a nonblank string; location is a "
+            "human-readable pointer into supplied material; basis states the "
+            "supplied facts and the conflict"
+        ),
+        "forbidden": [
+            "numeric quality scores",
+            "severity rankings",
+            "confidence thresholds",
+            "replacement content",
+            "style advice",
+        ],
+    }
+
+
+def build_plan_review_packet(
+    view: InputView,
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    *,
+    max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
+) -> PromptPacket:
+    """Render the plan-review view from source context and the candidate."""
+
+    payload = {
+        "interface": AUTHORING_INTERFACE_VERSION_V2,
+        "stage": "plan_review",
+        "case_meaning": _case_meaning(view),
+        "input": _v2_input_projection(view),
+        "evidence_references": _explained_inventory_references(inventory),
+        "operation_names": _operation_handles(inventory),
+        "runtime_contract": runtime_contract,
+        "mechanical_checks": {"status": "passed"},
+        "candidate_plan": plan,
+        "response_contract": _review_response_contract(),
+    }
+    assert_no_prompt_secrets(payload)
+    packet = PromptPacket(
+        stage="plan_review",
+        version=PLAN_REVIEW_PROMPT_VERSION,
+        system=_PLAN_REVIEW_SYSTEM,
+        user=_canonical_json(payload),
+        payload=payload,
+    )
+    _enforce_prompt_size(packet, max_prompt_bytes)
+    return packet
+
+
+def build_artifact_review_packet(
+    view: InputView,
+    plan: dict[str, Any],
+    metadata: dict[str, Any],
+    python_bytes: bytes,
+    controls: list[dict[str, Any]] | None,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    *,
+    max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
+) -> PromptPacket:
+    """Render the artifact-review view with exact behavior evidence."""
+
+    python_text, python_encoding = _readable_response(python_bytes)
+    payload = {
+        "interface": AUTHORING_INTERFACE_VERSION_V2,
+        "stage": "artifact_review",
+        "case_meaning": _case_meaning(view),
+        "input": _v2_input_projection(view),
+        "evidence_references": _explained_inventory_references(inventory),
+        "runtime_contract": runtime_contract,
+        "mechanical_checks": {"status": "passed"},
+        "accepted_plan_read_only": plan,
+        "candidate_metadata": metadata,
+        "candidate_python_source": python_text,
+        "candidate_python_encoding": python_encoding,
+        "detector_controls": list(controls or []),
+        "response_contract": _review_response_contract(),
+    }
+    assert_no_prompt_secrets(payload)
+    packet = PromptPacket(
+        stage="artifact_review",
+        version=ARTIFACT_REVIEW_PROMPT_VERSION,
+        system=_ARTIFACT_REVIEW_SYSTEM,
+        user=_canonical_json(payload),
+        payload=payload,
+    )
+    _enforce_prompt_size(packet, max_prompt_bytes)
+    return packet
+
+
+def _review_finding_to_finding(record: dict[str, str], stage: str) -> Finding:
+    """Convert one complete reviewer finding into a typed stage finding."""
+
+    detail = (
+        f"{record.get('location', '')}: {record.get('problem', '')} "
+        f"Basis: {record.get('basis', '')} Required change: "
+        f"{record.get('required_change', '')}"
+    )
+    return Finding("semantic_review", detail, stage)
 
 
 def parse_call2_response(raw: bytes | str) -> ParsedCall2Response:
@@ -4700,6 +5609,8 @@ def _package_from_responses(
     continuation: dict[str, Any] | None = None,
     detector_bytes: bytes | None = None,
     interface_version: str = AUTHORING_INTERFACE_VERSION,
+    policy: dict[str, Any] | None = None,
+    review_status: dict[str, str] | None = None,
 ) -> ArtifactPackage:
     authoring_records: dict[str, bytes] = {}
     for index, record in enumerate(ledger, start=1):
@@ -4790,6 +5701,10 @@ def _package_from_responses(
                     },
                 }
             )
+    if policy is not None:
+        authoring_summary["policy"] = dict(policy)
+    if review_status is not None:
+        authoring_summary["review_status"] = dict(review_status)
     creation_model = {"model": "configured-private-authoring", "controls": {"max_retries": 0}}
     assert_no_secrets({"authoring": authoring_summary, "creation_model": creation_model})
     package_id = f"{task_id}-{view.scenario_id}"
@@ -4847,20 +5762,48 @@ def _decode_json_response(raw: bytes) -> tuple[Any, str | None]:
 def _decode_v2_json_response(raw: bytes) -> tuple[dict[str, Any], str | None]:
     """Decode exactly one v2 Call 1 object without changing response bytes."""
 
+    return _decode_strict_single_json_response(
+        raw,
+        subject="Call 1",
+        error=Call1FramingError,
+        path="call1",
+    )
+
+
+def _decode_review_json_response(raw: bytes) -> tuple[dict[str, Any], str | None]:
+    """Decode exactly one reviewer object without changing response bytes."""
+
+    return _decode_strict_single_json_response(
+        raw,
+        subject="review response",
+        error=ReviewResponseError,
+        path="review",
+    )
+
+
+def _decode_strict_single_json_response(
+    raw: bytes,
+    *,
+    subject: str,
+    error: type[AuthoringError],
+    path: str,
+) -> tuple[dict[str, Any], str | None]:
+    """Accept one bare JSON object or exactly one lowercase ```json fence."""
+
     text = raw.decode("utf-8").strip()
     if text.startswith("```"):
         first_line = text.splitlines()[0] if text.splitlines() else ""
         if first_line == "```":
-            raise Call1FramingError(
-                [Finding("bare_fence", "Call 1 does not allow an untagged fence", "call1")]
+            raise error(
+                [Finding("bare_fence", f"{subject} does not allow an untagged fence", path)]
             )
         if first_line != "```json":
-            raise Call1FramingError(
+            raise error(
                 [
                     Finding(
                         "unsupported_fence",
-                        "Call 1 requires one lowercase ```json fence",
-                        "call1",
+                        f"{subject} requires one lowercase ```json fence",
+                        path,
                     )
                 ]
             )
@@ -4871,22 +5814,47 @@ def _decode_v2_json_response(raw: bytes) -> tuple[dict[str, Any], str | None]:
         )
         if closed is None:
             code = "truncated_fence"
-            detail = "Call 1 lowercase ```json fence is not closed"
-            raise Call1FramingError([Finding(code, detail, "call1")])
+            detail = f"{subject} lowercase ```json fence is not closed"
+            raise error([Finding(code, detail, path)])
         tail = closed.group("tail").lstrip()
         if tail:
             code = "multiple_json_blocks" if tail.startswith("```") else "trailing_content"
             detail = (
-                "Call 1 contains more than one fenced JSON block"
+                f"{subject} contains more than one fenced JSON block"
                 if code == "multiple_json_blocks"
-                else "Call 1 contains content outside its JSON fence"
+                else f"{subject} contains content outside its JSON fence"
             )
-            raise Call1FramingError([Finding(code, detail, "call1")])
-        return _decode_v2_json_object(closed.group("body").strip()), "outer_fence_removed"
-    return _decode_v2_json_object(text), None
+            raise error([Finding(code, detail, path)])
+        return (
+            _decode_strict_json_object(
+                closed.group("body").strip(),
+                subject=subject,
+                error=error,
+                path=path,
+            ),
+            "outer_fence_removed",
+        )
+    return _decode_strict_json_object(text, subject=subject, error=error, path=path), None
 
 
 def _decode_v2_json_object(text: str) -> dict[str, Any]:
+    """Decode one complete JSON object and classify framing-only failures."""
+
+    return _decode_strict_json_object(
+        text,
+        subject="Call 1",
+        error=Call1FramingError,
+        path="call1",
+    )
+
+
+def _decode_strict_json_object(
+    text: str,
+    *,
+    subject: str,
+    error: type[AuthoringError],
+    path: str,
+) -> dict[str, Any]:
     """Decode one complete JSON object and classify framing-only failures."""
 
     try:
@@ -4894,24 +5862,22 @@ def _decode_v2_json_object(text: str) -> dict[str, Any]:
         value, end = decoder.raw_decode(text)
     except (json.JSONDecodeError, ValueError) as exc:
         code = "invalid_json" if text.startswith("{") else "ambiguous_content"
-        raise Call1FramingError(
-            [Finding(code, f"Call 1 JSON object is invalid: {exc}", "call1")]
-        ) from exc
+        raise error([Finding(code, f"{subject} JSON object is invalid: {exc}", path)]) from exc
     trailing = text[end:].strip()
     if trailing:
         code = "multiple_json_objects" if trailing.startswith(("{", "[")) else "trailing_content"
-        raise Call1FramingError(
+        raise error(
             [
                 Finding(
                     code,
-                    "Call 1 must contain exactly one JSON object with no trailing content",
-                    "call1",
+                    f"{subject} must contain exactly one JSON object with no trailing content",
+                    path,
                 )
             ]
         )
     if not isinstance(value, dict):
-        raise Call1FramingError(
-            [Finding("json_object_required", "Call 1 must decode to one JSON object", "call1")]
+        raise error(
+            [Finding("json_object_required", f"{subject} must decode to one JSON object", path)]
         )
     return value
 
@@ -6268,6 +7234,35 @@ _CORRECTION_SYSTEM_V2 = (
     "listed finding in one replacement, do not repeat plan-owned fields, and do not add "
     "target, setup, discovery, or judge calls."
 )
+_PLAN_REVIEW_SYSTEM = (
+    "You review one target-free experiment plan for semantic correctness against the "
+    "supplied case. Judge only the supplied case meaning, authoritative context, and the "
+    "candidate plan. Return exactly one bare JSON object, or exactly one lowercase ```json "
+    "fenced JSON object, with decision, summary, and findings and no other fields. "
+    "decision is accept, revise, or blocked. accept requires an empty findings array; "
+    "revise and blocked require at least one complete finding with exactly location, "
+    "problem, basis, and required_change, all nonblank strings. location is a "
+    "human-readable pointer into supplied material; basis states the supplied facts and "
+    "the conflict. Consolidate material root causes, distinguish fact from uncertainty, "
+    "and list every correctness finding you can establish. Do not report scores, "
+    "severity, style preferences, optional hardening, or replacement content. Never call "
+    "setup or target."
+)
+_ARTIFACT_REVIEW_SYSTEM = (
+    "You review one target-free authored artifact for semantic correctness against the "
+    "supplied case and the accepted read-only plan. Judge the candidate metadata, the "
+    "exact detector source, and the actual isolated control results. Return exactly one "
+    "bare JSON object, or exactly one lowercase ```json fenced JSON object, with "
+    "decision, summary, and findings and no other fields. decision is accept, revise, or "
+    "blocked. accept requires an empty findings array; revise and blocked require at "
+    "least one complete finding with exactly location, problem, basis, and "
+    "required_change, all nonblank strings. location is a human-readable pointer into "
+    "supplied material; basis states the supplied facts and the conflict. Consolidate "
+    "material root causes, distinguish fact from uncertainty, and list every correctness "
+    "finding you can establish from supplied facts and actual control results. Do not "
+    "report scores, severity, style preferences, optional hardening, or replacement "
+    "content. Never call setup or target."
+)
 
 
 __all__ = [
@@ -6280,6 +7275,7 @@ __all__ = [
     "AuthoringBudget",
     "AuthoringError",
     "AuthoringOrchestrator",
+    "AuthoringPolicy",
     "AuthoringResult",
     "ArtifactValidationError",
     "BudgetExceeded",
@@ -6294,6 +7290,8 @@ __all__ = [
     "PlanValidationError",
     "PromptPacket",
     "ParsedCall2Response",
+    "ReviewResponse",
+    "ReviewResponseError",
     "SavedPlanContinuation",
     "PrivateModelAuthoringTransport",
     "PromptOverflowError",
@@ -6304,15 +7302,19 @@ __all__ = [
     "build_neutral_artifact_package",
     "neutral_call2_response_v2",
     "neutral_artifact_plan_v2",
+    "build_artifact_review_packet",
     "build_call1_packet",
     "build_call1_packet_v2",
     "build_call2_packet",
     "build_call2_packet_v2",
+    "build_plan_review_packet",
     "evidence_packet_contract",
     "collect_artifact_findings",
     "collect_artifact_findings_v2",
     "collect_plan_findings",
     "collect_plan_findings_v2",
+    "parse_review_response",
+    "policy_max_dispatches",
     "run_detector_controls",
     "continue_authoring_from_saved_plan",
     "load_failure_evidence",

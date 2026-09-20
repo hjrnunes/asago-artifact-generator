@@ -32,6 +32,42 @@ assumptions, observation requirements, and judge decisions; Call 2 cannot
 resubmit those fields. Historical v1 readers remain explicit for preserved
 responses and packages.
 
+### Stage-local corrections and semantic review
+
+By default `author` allows one plan correction and one artifact correction and
+enables both semantic reviews. Configure the stages independently:
+
+```bash
+uv run asago-artifact-generator author <input.json> \
+  --inventory <inventory.json> \
+  --runtime-contract <runtime-contract.json> \
+  --plan-max-corrections 1 \
+  --artifact-max-corrections 1 \
+  --review-plan/--no-review-plan \
+  --review-artifact/--no-review-artifact \
+  --review-model-profile <already-authorized-profile>
+```
+
+Correction allowances are nonnegative integers; booleans, negatives, and
+non-integers are rejected before dispatch and values are never clamped. The
+legacy `--no-correction` flag sets both stage allowances to zero and conflicts
+with an explicit nonzero stage allowance instead of choosing a precedence.
+Stage allowances are independent: a plan correction never consumes artifact
+allowance, and zero disables only its own stage.
+
+With reviews enabled, each stage runs deterministic checks (and, for the
+artifact stage, the isolated Docker detector controls) before its semantic
+review of a mechanically valid candidate. A reviewer returns one JSON object
+with `decision` (`accept`, `revise`, or `blocked`), a nonblank `summary`, and
+findings with exactly `location`, `problem`, `basis`, and `required_change`;
+the framing rules match Call 1. `revise` feeds a stage correction that repeats
+all checks, controls, and review; `blocked` at the artifact stage stops as
+`needs_plan_revision` without recursing into plan authoring. Malformed or
+contradictory reviewer responses and reviewer transport failures produce
+`review_unavailable`, never a silent pass, and transport failures stop the run
+with no automatic retry. An explicit caller, per-task, or aggregate budget cap
+stops the run before the next dispatch.
+
 `author` writes an immutable package or durable failure evidence. `check` runs
 only the supplied evidence through the packaged detector in the constrained
 offline harness. Neither command starts a target, setup service, discovery

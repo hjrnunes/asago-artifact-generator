@@ -11,7 +11,7 @@ from typing import Annotated
 import typer
 import yaml
 
-from .authoring import AuthoringOrchestrator, PrivateModelAuthoringTransport
+from .authoring import AuthoringOrchestrator, AuthoringPolicy, PrivateModelAuthoringTransport
 from .detector_runtime import execute_detector
 from .extract import load_scenario
 from .garak.gen import generate_artifact, list_scenario_files
@@ -193,9 +193,70 @@ def author(
         str | None,
         typer.Option("--task-id", help="Stable task identity used in package metadata."),
     ] = None,
+    plan_max_corrections: Annotated[
+        int | None,
+        typer.Option(
+            "--plan-max-corrections",
+            help="Plan-stage correction allowance (default: 1). Zero disables plan corrections.",
+        ),
+    ] = None,
+    artifact_max_corrections: Annotated[
+        int | None,
+        typer.Option(
+            "--artifact-max-corrections",
+            help=(
+                "Artifact-stage correction allowance (default: 1). Zero disables "
+                "artifact corrections."
+            ),
+        ),
+    ] = None,
+    review_plan: Annotated[
+        bool,
+        typer.Option(
+            "--review-plan/--no-review-plan",
+            help="Review the plan semantically before artifact authoring (default: enabled).",
+        ),
+    ] = True,
+    review_artifact: Annotated[
+        bool,
+        typer.Option(
+            "--review-artifact/--no-review-artifact",
+            help="Review the artifact semantically before packaging (default: enabled).",
+        ),
+    ] = True,
+    review_model_profile: Annotated[
+        str | None,
+        typer.Option(
+            "--review-model-profile",
+            help=(
+                "Recorded name of an already-authorized reviewer profile; the default "
+                "inherits the configured private authoring profile."
+            ),
+        ),
+    ] = None,
+    no_correction: Annotated[
+        bool,
+        typer.Option(
+            "--no-correction",
+            help=(
+                "Legacy no-correction mode: both stage allowances become zero. "
+                "Conflicts with an explicit nonzero stage allowance."
+            ),
+        ),
+    ] = False,
 ) -> None:
-    """Author one target-free immutable detector package with two bounded calls."""
+    """Author one target-free immutable detector package with per-stage corrections and reviews."""
 
+    try:
+        policy = AuthoringPolicy.from_cli(
+            plan_max_corrections=plan_max_corrections,
+            artifact_max_corrections=artifact_max_corrections,
+            review_plan=review_plan,
+            review_artifact=review_artifact,
+            no_correction=no_correction,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from None
     view = load_input(
         source,
         kind=input_kind,
@@ -217,16 +278,19 @@ def author(
         package_dir=package_dir,
         task_id=stable_task_id,
         wire_version="v2",
+        policy=policy,
+        review_model_profile=review_model_profile,
     ).run(view, inventory_data, runtime_data)
     typer.echo(
         json.dumps(
             {
                 "status": result.status,
                 "package": str(result.package_path) if result.package_path else None,
+                "review_status": result.review_status or None,
             }
         )
     )
-    if result.status != "packaged":
+    if result.status not in {"packaged", "accepted"}:
         for finding in result.findings:
             typer.echo(f"{finding.code}: {finding.detail}", err=True)
         raise typer.Exit(1)

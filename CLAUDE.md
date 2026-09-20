@@ -17,8 +17,16 @@ uv run asago-artifact-generator author <scenario-handoff-or-input.json> \
 uv run asago-artifact-generator check <package-dir> --evidence <evidence.json>
 ```
 
-`author` is the target-free primary workflow. `check` executes only supplied
-evidence through the immutable package. Deterministic tests do not require an LLM endpoint. Live authoring requires
+`author` is the target-free primary workflow. It defaults to one plan
+correction, one artifact correction, and both semantic reviews enabled; the
+stages are configured independently through `--plan-max-corrections`,
+`--artifact-max-corrections`, `--review-plan/--no-review-plan`,
+`--review-artifact/--no-review-artifact`, and `--review-model-profile`.
+Deterministic checks and artifact Docker detector controls run before each
+semantic review; a reviewer `revise` consumes its own stage's allowance, and a
+reviewer `blocked` at the artifact stage stops as `needs_plan_revision`.
+`check` executes only supplied evidence through the immutable package.
+Deterministic tests do not require an LLM endpoint. Live authoring requires
 a configured provider (Gemini, OpenAI, Ollama, Hugging Face, or OpenRouter)
 via `.env` or environment variables.
 
