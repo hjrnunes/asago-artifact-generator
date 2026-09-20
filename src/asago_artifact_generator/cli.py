@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Annotated
 
@@ -18,6 +17,11 @@ from .garak.gen import generate_artifact, list_scenario_files
 from .garak.spec_io import MANIFEST_FILE, runs_dir
 from .input_adapter import InputKind, load_input
 from .llm import BASE_URL, MODEL
+from .profiles import (
+    ProfileLoadError,
+    authoring_profile_from_environment,
+    load_authoring_profile,
+)
 from .reporting import garak_value
 
 app = typer.Typer(
@@ -234,6 +238,23 @@ def author(
             ),
         ),
     ] = None,
+    profile: Annotated[
+        str | None,
+        typer.Option(
+            "--profile",
+            help=(
+                "Named private authoring profile. Values are loaded in process and "
+                "never persisted."
+            ),
+        ),
+    ] = None,
+    profiles_file: Annotated[
+        Path,
+        typer.Option(
+            "--profiles-file",
+            help="YAML file containing the named private authoring profiles.",
+        ),
+    ] = Path("config/model-profiles.yaml"),
     no_correction: Annotated[
         bool,
         typer.Option(
@@ -247,6 +268,9 @@ def author(
 ) -> None:
     """Author one target-free immutable detector package with per-stage corrections and reviews."""
 
+    effective_review_profile = (
+        review_model_profile if review_model_profile is not None else profile
+    )
     try:
         policy = AuthoringPolicy.from_cli(
             plan_max_corrections=plan_max_corrections,
@@ -254,7 +278,7 @@ def author(
             review_plan=review_plan,
             review_artifact=review_artifact,
             no_correction=no_correction,
-            review_model_profile=review_model_profile,
+            review_model_profile=effective_review_profile,
         )
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from None
@@ -266,11 +290,21 @@ def author(
     )
     inventory_data = _load_mapping(inventory, "inventory")
     runtime_data = _load_mapping(runtime_contract, "runtime contract")
-    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("GEMINI_API_KEY") or "private"
+    try:
+        connection = (
+            load_authoring_profile(profiles_file, profile)
+            if profile is not None
+            else authoring_profile_from_environment(base_url=BASE_URL, model=MODEL)
+        )
+    except ProfileLoadError as exc:
+        raise typer.BadParameter(
+            str(exc),
+            param_hint="--profile/--profiles-file" if profile is not None else "--profile",
+        ) from None
     transport = PrivateModelAuthoringTransport(
-        base_url=BASE_URL,
-        api_key=api_key,
-        model=MODEL,
+        base_url=connection.base_url,
+        api_key=connection.api_key,
+        model=connection.model,
     )
     stable_task_id = task_id or view.scenario_id
     package_dir = output_dir / stable_task_id

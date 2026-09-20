@@ -30,6 +30,15 @@ Deterministic tests do not require an LLM endpoint. Live authoring requires
 a configured provider (Gemini, OpenAI, Ollama, Hugging Face, or OpenRouter)
 via `.env` or environment variables.
 
+For the approved private endpoint, invoke `author` with
+`--profile gemma4-oc --profiles-file /absolute/path/to/asago-scenario-generator/config/model-profiles.yaml`.
+The consumer resolves the named profile in process and passes its base URL,
+API key, and model directly to `PrivateModelAuthoringTransport`. Credentials
+and endpoint values stay in memory and never enter shell output, prompts,
+ledgers, packages, or failure evidence. Without `--profile`, environment-only
+configuration still works when it supplies a real API key; missing credentials
+fail before dispatch.
+
 Prompt roles are versioned independently from the response wire:
 `authoring-call1-v3`, `authoring-plan-review-v1`,
 `authoring-call2-v3`, `authoring-artifact-review-v1`, and

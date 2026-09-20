@@ -32,6 +32,29 @@ assumptions, observation requirements, and judge decisions; Call 2 cannot
 resubmit those fields. Historical v1 readers remain explicit for preserved
 responses and packages.
 
+### Private authoring profiles
+
+For live private authoring, pass the approved named profile and the producer
+profile file directly to `author`:
+
+```bash
+uv run asago-artifact-generator author <scenario-handoff-or-input.json> \
+  --inventory <inventory.json> \
+  --runtime-contract <runtime-contract.json> \
+  --output-dir runs/authoring/<case-id> \
+  --profile gemma4-oc \
+  --profiles-file /absolute/path/to/asago-scenario-generator/config/model-profiles.yaml
+```
+
+The consumer loads `base_url`, `api_key`, and `model` in process and passes
+them directly to the private transport. It does not extract profile values
+through a shell or print them. Credentials and endpoint values stay out of
+prompts, ledgers, packages, and failure evidence. A missing profile or required
+field stops before dispatch.
+If you omit `--profile`, existing environment-only configuration remains
+supported when it provides a real API key; an absent key fails closed instead
+of using a placeholder credential.
+
 ### Stage-local corrections and semantic review
 
 By default `author` allows one plan correction and one artifact correction and
