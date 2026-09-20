@@ -77,6 +77,18 @@ runtime judge, or owns downstream cleanup. Downstream qualification uses the
 component-specific `start-safe`, `verify-safe`, and `stop-safe` lifecycle on
 gateway port `8321` and target ports `8888`, `8890`, or `8892`.
 
+The recovered A03 candidate uses a separate
+`prepare_a03_recovered_continuation(...)` /
+`A03RecoveredArtifactContinuation.run(...)` seam. It hash-verifies the
+current-mission recovery sidecar, accepted plan, original inputs, exact
+candidate, deterministic checks, isolated controls, preserved 5/4 spend
+breach, and failed `VAL-LIVE-003` result before transport construction. It
+seeds 5 author/correction and 1 review requests, exposes no author or
+correction path, permits one artifact-review dispatch with zero retries, and
+writes terminal evidence for every non-accept or preflight outcome. Only
+`accept` reaches the existing immutable package assembly path; a prepared
+continuation cannot run twice.
+
 The `generate` command remains a read-only compatibility path for historical
 scenario YAMLs. New work uses producer `run`, consumer `author`, consumer
 `check`, and frozen downstream execution.

@@ -116,6 +116,32 @@ already exhausted, the run records typed `budget_exhausted` evidence and
 contacts no provider. For example, a resumed case with prior author/correction
 spend of `1` has only three author/correction dispatches remaining.
 
+### Sealed A03 artifact-review continuation
+
+The recovered A03 candidate has a separate consumer-owned Python seam. Prepare
+it from the current-mission recovery sidecar and an empty package destination,
+then run the returned continuation with a caller-owned transport factory:
+
+```python
+continuation = prepare_a03_recovered_continuation(
+    recovery_sidecar="/absolute/path/to/recovery-candidates.json",
+    package_dir="/absolute/path/to/new-package",
+    task_id="A03-recovered-artifact-review",
+)
+result = continuation.run(transport_factory=transport_factory)
+```
+
+Preparation verifies the sidecar, accepted plan, every original-input pin,
+the recovered candidate bytes, deterministic results, isolated Docker control
+results, preserved 5/4 author/correction spend breach, and failed
+`VAL-LIVE-003` authority before constructing a transport. The seam carries
+forward 5 author/correction and 1 review request, constructs no author or
+correction request, and permits one artifact-review dispatch with
+`max_retries=0`. `accept` alone enters immutable package assembly. `revise`,
+`blocked`, `review_unavailable`, transport failure, budget exhaustion, and
+preflight defects write terminal continuation evidence and produce no package.
+The same prepared continuation cannot run twice.
+
 `author` writes an immutable package or durable failure evidence. `check` runs
 only the supplied evidence through the packaged detector in the constrained
 offline harness. Neither command starts a target, setup service, discovery

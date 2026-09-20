@@ -91,6 +91,28 @@ A03_FAILURE_EVIDENCE_SHA256 = "f05c90cfa234e2fbb40d260f5c30c540c7447166ea20328cb
 A03_INPUT_SNAPSHOT_SHA256 = "77a04e0b92355aac377fec570d59157364b188830186189fd92b02de9ac4f64f"
 A03_INVENTORY_SHA256 = "fc9ff4bca6d4477cc70328f857939dd89246dfcc02598fa9ed8b17d90c6cf098"
 A03_RUNTIME_CONTRACT_SHA256 = "3d5f4039436d30bbfc108c37213ff3d92d0391661e572d8f6556e4b2fc740649"
+# The recovered A03 continuation is a separate authority chain.  These pins
+# identify the current-mission recovery record and the exact bytes already
+# recovered from its historical Call 2/correction pair.
+A03_RECOVERY_SIDECAR_SHA256 = (
+    "7d668116bfb7e8070da034c18f321a5d257ca2f5bc5e36a91554524fcc8e773c"
+)
+A03_RECOVERED_CANDIDATE_SHA256 = (
+    "9f634b9bf73d805cd9b13a917ceebc4a0640c9e2da3ce2f27a897ef5b0272a94"
+)
+A03_RECOVERED_PLAN_SHA256 = (
+    "fc8f4245dfd8ddcdb0609d2af681759b3ebd70d60649bb9a1139c9a88af807ed"
+)
+A03_CONTINUATION_TASK_ID = "A03-recovered-artifact-review"
+_A03_RECOVERY_SCHEMA = "offline-recovery-candidates-v1"
+_A03_RECOVERED_HISTORICAL_TASK_ID = "A03-live-20260920-resume"
+_A03_FREEZE_RECORD_SHA256 = (
+    "c3bee6feedd0102215c5e2b7dff2a5d4c723208131d9873455456f3d8e3f1d19"
+)
+_A03_RESUME_LEDGER_SHA256 = (
+    "83bd69a8be1e3814ed75290b6618d696e3b4e2c41ab782dd426497f89e24897b"
+)
+_A03_CONTINUATION_MODE = "sealed-a03-artifact-review"
 _A03_INPUT_LABEL = "supplied_hash_verified_reference_task"
 _A03_REFERENCE_ID = "A03"
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*\n?(.*?)\n?\s*```\s*$", re.DOTALL)
@@ -157,6 +179,10 @@ class PromptOverflowError(PromptPreflightError):
 
 class ContinuationValidationError(AuthoringError):
     """Raised when a saved-plan continuation cannot reproduce pinned history."""
+
+
+class A03ContinuationValidationError(ContinuationValidationError):
+    """Raised when recovered A03 authority cannot be sealed before dispatch."""
 
 
 @dataclass(frozen=True)
@@ -704,6 +730,215 @@ class AuthoringResult:
     allowances: dict[str, int] = field(default_factory=dict)
     review_reuse: dict[str, str] = field(default_factory=dict)
     budget: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class A03ContinuationResult:
+    """Result of one sealed recovered-artifact review continuation."""
+
+    status: str
+    task_id: str
+    findings: list[Finding] = field(default_factory=list)
+    ledger: list[dict[str, Any]] = field(default_factory=list)
+    package: ArtifactPackage | None = None
+    package_path: Path | None = None
+    failure_evidence_path: Path | None = None
+    budget: dict[str, Any] = field(default_factory=dict)
+    review: dict[str, Any] = field(default_factory=dict)
+    preflight: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class A03RecoveredArtifact:
+    """Hash-sealed recovered A03 candidate and its source authority."""
+
+    recovery_sidecar: Path
+    recovery_sidecar_sha256: str
+    candidate_raw: bytes
+    candidate_sha256: str
+    parsed: ParsedCall2Response
+    plan: dict[str, Any]
+    input_view: InputView
+    inventory: dict[str, Any]
+    runtime_contract: dict[str, Any]
+    deterministic_results: dict[str, Any]
+    control_results: dict[str, Any]
+    authority: dict[str, Any]
+
+
+@dataclass
+class A03RecoveredArtifactContinuation:
+    """A one-review-only continuation over a sealed recovered artifact."""
+
+    artifact: A03RecoveredArtifact
+    package_dir: Path
+    task_id: str
+    evidence_path: Path
+    prior_author_correction_spend: int = 5
+    prior_review_spend: int = 1
+    aggregate_spent: int = 15
+    aggregate_limit: int = 32
+    task_limit: int = 8
+    review_limit: int = 4
+    _completed: bool = field(default=False, init=False, repr=False)
+    _result: A03ContinuationResult | None = field(default=None, init=False, repr=False)
+
+    def run(
+        self,
+        *,
+        transport_factory: Callable[[], AuthoringTransport],
+    ) -> A03ContinuationResult:
+        """Dispatch one artifact review and never enter authoring or correction."""
+
+        if self._completed:
+            return A03ContinuationResult(
+                status="continuation_already_completed",
+                task_id=self.task_id,
+                findings=[
+                    Finding(
+                        "continuation_already_completed",
+                        "sealed A03 continuation permits one terminal run",
+                        "continuation",
+                    )
+                ],
+                budget=self._budget_snapshot(),
+                preflight=self._preflight_record(),
+            )
+        self._completed = True
+        budget = self._new_budget()
+        if budget.total_dispatched >= budget.aggregate_limit:
+            return self._terminal_without_dispatch(
+                "budget_exhausted",
+                Finding(
+                    "budget_exhausted",
+                    "aggregate continuation budget is exhausted before artifact review",
+                    "budget",
+                ),
+                budget,
+            )
+        if budget.dispatched_by_task.get(self.task_id, 0) >= budget.task_limit:
+            return self._terminal_without_dispatch(
+                "budget_exhausted",
+                Finding(
+                    "budget_exhausted",
+                    "A03 continuation task budget is exhausted before artifact review",
+                    "budget",
+                ),
+                budget,
+            )
+        if (
+            budget.dispatched_by_task_role.get(self.task_id, {}).get("reviewer", 0)
+            >= self.review_limit
+        ):
+            return self._terminal_without_dispatch(
+                "budget_exhausted",
+                Finding(
+                    "budget_exhausted",
+                    "A03 continuation review budget is exhausted before artifact review",
+                    "budget",
+                ),
+                budget,
+            )
+
+        try:
+            packet = build_artifact_review_packet(
+                self.artifact.input_view,
+                self.artifact.plan,
+                self.artifact.parsed.metadata,
+                self.artifact.parsed.python_bytes,
+                self.artifact.control_results.get("records", []),
+                self.artifact.inventory,
+                self.artifact.runtime_contract,
+            )
+        except (AuthoringError, ValueError, TypeError) as exc:
+            return self._terminal_without_dispatch(
+                "preflight_defect",
+                Finding("review_preflight", _safe_error(exc), "artifact_review"),
+                budget,
+            )
+        try:
+            transport = transport_factory()
+        except Exception as exc:
+            return self._terminal_without_dispatch(
+                "preflight_defect",
+                Finding("transport_construction", _safe_error(exc), "artifact_review"),
+                budget,
+            )
+        if getattr(transport, "max_retries", None) != 0:
+            return self._terminal_without_dispatch(
+                "preflight_defect",
+                Finding(
+                    "retry_policy",
+                    "artifact-review transport must set max_retries=0",
+                    "artifact_review",
+                ),
+                budget,
+            )
+        orchestrator = _A03ReviewOrchestrator(
+            transport=transport,
+            package_dir=self.package_dir,
+            task_id=self.task_id,
+            budget=budget,
+            artifact=self.artifact,
+            packet=packet,
+            evidence_path=self.evidence_path,
+        )
+        result = orchestrator.run_once()
+        self._result = result
+        return result
+
+    def _budget_snapshot(self) -> dict[str, Any]:
+        budget = self._new_budget()
+        return budget.snapshot(self.task_id)
+
+    def _new_budget(self) -> AuthoringBudget:
+        budget = AuthoringBudget.from_prior_spend(
+            task_id=self.task_id,
+            prior_author_correction_spend=self.prior_author_correction_spend,
+            prior_review_spend=self.prior_review_spend,
+            aggregate_limit=self.aggregate_limit,
+            task_limit=self.task_limit,
+            author_limit=MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK,
+            review_limit=self.review_limit,
+        )
+        budget.total_dispatched = self.aggregate_spent
+        return budget
+
+    def _preflight_record(self) -> dict[str, Any]:
+        return {
+            "status": "passed",
+            "mode": _A03_CONTINUATION_MODE,
+            "recovery_sidecar_sha256": self.artifact.recovery_sidecar_sha256,
+            "candidate_sha256": self.artifact.candidate_sha256,
+            "plan_sha256": _mapping_sha256(self.artifact.plan),
+        }
+
+    def _terminal_without_dispatch(
+        self,
+        status: str,
+        finding: Finding,
+        budget: AuthoringBudget,
+    ) -> A03ContinuationResult:
+        evidence = _new_a03_continuation_evidence(
+            task_id=self.task_id,
+            package_dir=self.package_dir,
+            artifact=self.artifact,
+            budget=budget.snapshot(self.task_id),
+            preflight=self._preflight_record(),
+        )
+        evidence["status"] = status
+        evidence["terminal_status"] = status
+        evidence["review_status"]["artifact"] = status
+        evidence["findings"] = [finding.to_dict()]
+        path = _write_a03_continuation_evidence(self.evidence_path, evidence)
+        return A03ContinuationResult(
+            status=status,
+            task_id=self.task_id,
+            findings=[finding],
+            failure_evidence_path=path,
+            budget=budget.snapshot(self.task_id),
+            preflight=self._preflight_record(),
+        )
 
 
 @dataclass(frozen=True)
@@ -3239,6 +3474,1094 @@ class AuthoringOrchestrator:
             )
         self._persist_failure_evidence()
         return self._failure_evidence_file
+
+
+class _A03ReviewOrchestrator:
+    """Persist and execute the sole recovered-artifact review dispatch."""
+
+    def __init__(
+        self,
+        *,
+        transport: AuthoringTransport,
+        package_dir: Path,
+        task_id: str,
+        budget: AuthoringBudget,
+        artifact: A03RecoveredArtifact,
+        packet: PromptPacket,
+        evidence_path: Path,
+    ) -> None:
+        if getattr(transport, "max_retries", None) != 0:
+            raise A03ContinuationValidationError(
+                "artifact-review transport must set max_retries=0"
+            )
+        self.transport = transport
+        self.package_dir = package_dir
+        self.task_id = task_id
+        self.budget = budget
+        self.artifact = artifact
+        self.packet = packet
+        self.evidence_path = evidence_path
+        self.ledger: list[dict[str, Any]] = []
+        self.raw_responses: dict[str, bytes] = {}
+        self.review_evidence: dict[str, Any] = {}
+        self.plan_sha256 = _mapping_sha256(artifact.plan)
+        self.original_input_pins = deepcopy(
+            artifact.authority.get("original_inputs", [])
+        )
+        self.evidence = _new_a03_continuation_evidence(
+            task_id=task_id,
+            package_dir=package_dir,
+            artifact=artifact,
+            budget=budget.snapshot(task_id),
+            preflight={
+                "status": "passed",
+                "mode": _A03_CONTINUATION_MODE,
+                "recovery_sidecar_sha256": artifact.recovery_sidecar_sha256,
+                "candidate_sha256": artifact.candidate_sha256,
+                "plan_sha256": _mapping_sha256(artifact.plan),
+            },
+        )
+
+    def run_once(self) -> A03ContinuationResult:
+        """Dispatch once, classify the response, and stop at the first outcome."""
+
+        _write_a03_continuation_evidence(self.evidence_path, self.evidence)
+        try:
+            self.budget.reserve(self.task_id, role="reviewer")
+        except BudgetExceeded as exc:
+            finding = Finding("budget_exhausted", _safe_error(exc), "artifact_review")
+            return self._finish("budget_exhausted", [finding])
+
+        input_digest, _ = _review_packet_digests(self.packet)
+        effective_controls = _a03_review_controls(self.transport)
+        policy = _a03_continuation_policy(
+            reviewer_profile=effective_controls.get("review_model_profile")
+        )
+        candidate_digest = self.artifact.candidate_sha256
+        review_record: dict[str, Any] = {
+            "status": "pending",
+            "prompt_version": self.packet.version,
+            "prompt_sha256": self.packet.sha256,
+            "reviewed_input_sha256": input_digest,
+            "reviewed_candidate_sha256": candidate_digest,
+            "candidate_bytes_sha256": candidate_digest,
+            "candidate_sha256": candidate_digest,
+            "candidate_semantic_sha256": _review_packet_digests(self.packet)[1],
+            "accepted_plan_sha256": self.plan_sha256,
+            "original_input_pins": deepcopy(self.original_input_pins),
+            "recovery_sidecar_sha256": self.artifact.recovery_sidecar_sha256,
+            "contract_sha256": _review_contract_digest(self.packet),
+            "configuration_sha256": _review_configuration_digest(
+                effective_controls, policy
+            ),
+            "effective_controls": effective_controls,
+        }
+        record = {
+            "dispatch_index": 1,
+            "attempt_index": 1,
+            "stage_attempt_index": 1,
+            "correction_index": 0,
+            "role": "reviewer",
+            "stage": "artifact_review",
+            "task_id": self.task_id,
+            "prompt_version": self.packet.version,
+            "prompt_sha256": self.packet.sha256,
+            "prompt_hash": self.packet.sha256,
+            "prompt_system": self.packet.system,
+            "prompt_user": self.packet.user,
+            "controls": dict(effective_controls),
+            "policy": policy,
+            "raw_response": "continuation/artifact-review.raw",
+            "reviewed_input_sha256": input_digest,
+            "reviewed_candidate_sha256": candidate_digest,
+            "candidate_bytes_sha256": candidate_digest,
+            "candidate_sha256": candidate_digest,
+            "candidate_semantic_sha256": _review_packet_digests(self.packet)[1],
+            "accepted_plan_sha256": self.plan_sha256,
+            "original_input_pins": deepcopy(self.original_input_pins),
+            "recovery_sidecar_sha256": self.artifact.recovery_sidecar_sha256,
+            "review": review_record,
+            "terminal_status": "in_progress",
+        }
+        self.ledger.append(record)
+        self.evidence["budget"] = self.budget.snapshot(self.task_id)
+        self.evidence["attempts"].append(
+            {
+                "dispatch_index": 1,
+                "attempt_index": 1,
+                "stage_attempt_index": 1,
+                "correction_index": 0,
+                "role": "reviewer",
+                "stage": "artifact_review",
+                "task_id": self.task_id,
+                "policy": deepcopy(policy),
+                "prompt": {
+                    "version": self.packet.version,
+                    "sha256": self.packet.sha256,
+                    "hash": self.packet.sha256,
+                    "system": self.packet.system,
+                    "user": self.packet.user,
+                },
+                "controls": metadata_record(
+                    effective_controls,
+                    unavailable_reason="controls_not_recorded",
+                ),
+                "raw_response": raw_response_record(b"", reason="not_returned"),
+                "usage": metadata_record(None, unavailable_reason="not_returned"),
+                "review": deepcopy(review_record),
+                "reviewed_input_sha256": input_digest,
+                "reviewed_candidate_sha256": candidate_digest,
+                "candidate_bytes_sha256": candidate_digest,
+                "candidate_sha256": candidate_digest,
+                "accepted_plan_sha256": self.plan_sha256,
+                "original_input_pins": deepcopy(self.original_input_pins),
+                "terminal_status": "in_progress",
+                "findings": [],
+            }
+        )
+        self.evidence["review"] = deepcopy(review_record)
+        self._persist()
+
+        started = time.monotonic()
+        try:
+            response = self.transport.complete(self.packet)
+        except Exception as exc:
+            detail = _safe_error(exc)
+            finding = Finding("transport_failure", detail, "artifact_review")
+            record["error"] = detail
+            attempt = self.evidence["attempts"][-1]
+            attempt["raw_response"] = raw_response_record(b"", reason="provider_failure")
+            attempt["usage"] = metadata_record(None, unavailable_reason="provider_failure")
+            attempt["failure"] = {
+                "phase": "invocation",
+                "code": finding.code,
+                "detail": detail,
+                "elapsed_ms": round((time.monotonic() - started) * 1000, 3),
+            }
+            review_record["status"] = "unavailable"
+            review_record["reason"] = detail
+            self.evidence["review"] = deepcopy(review_record)
+            self.review_evidence = deepcopy(review_record)
+            return self._finish("transport_failure", [finding])
+
+        try:
+            raw, usage, controls = _response_parts(response)
+            if not isinstance(raw, bytes):
+                raise TypeError("artifact-review response bytes are invalid")
+        except (TypeError, ValueError) as exc:
+            detail = _safe_error(exc)
+            finding = Finding("review_unavailable", detail, "artifact_review")
+            review_record.update(
+                {
+                    "status": "unavailable",
+                    "reason": detail,
+                }
+            )
+            self.evidence["attempts"][-1]["raw_response"] = raw_response_record(
+                b"", reason="invalid_provider_response"
+            )
+            self.evidence["attempts"][-1]["usage"] = metadata_record(
+                None, unavailable_reason="invalid_provider_response"
+            )
+            self.evidence["attempts"][-1]["failure"] = {
+                "phase": "response",
+                "code": finding.code,
+                "detail": detail,
+            }
+            self.review_evidence = deepcopy(review_record)
+            self.evidence["review"] = deepcopy(review_record)
+            return self._finish("review_unavailable", [finding])
+        self.raw_responses["artifact_review"] = raw
+        self.raw_responses["dispatch:1"] = raw
+        record["raw_response_key"] = "dispatch:1"
+        _set_record_usage(record, usage)
+        effective_controls = _a03_review_controls(self.transport, controls)
+        record["controls"] = effective_controls
+        review_record["effective_controls"] = effective_controls
+        record["review"]["effective_controls"] = effective_controls
+        self.evidence["attempts"][-1]["raw_response"] = raw_response_record(raw)
+        self.evidence["attempts"][-1]["usage"] = metadata_record(
+            usage if usage else None,
+            unavailable_reason="provider_did_not_report_usage",
+        )
+        self.evidence["attempts"][-1]["controls"] = metadata_record(
+            effective_controls,
+            unavailable_reason="controls_not_recorded",
+        )
+        self.evidence["attempts"][-1]["raw_response_key"] = "dispatch:1"
+        self.evidence["attempts"][-1]["review"] = deepcopy(review_record)
+        self._persist()
+
+        try:
+            review = parse_review_response(raw)
+        except ReviewResponseError as exc:
+            finding = Finding("review_unavailable", _safe_error(exc), "artifact_review")
+            review_record.update(
+                {
+                    "status": "unavailable",
+                    "error": [item.to_dict() for item in exc.findings],
+                    "raw_response_sha256": _sha256(raw),
+                    "raw_response_bytes": len(raw),
+                }
+            )
+            record["review"] = deepcopy(review_record)
+            record["review_error"] = [item.to_dict() for item in exc.findings]
+            self.evidence["attempts"][-1]["review"] = deepcopy(review_record)
+            self.review_evidence = deepcopy(review_record)
+            return self._finish("review_unavailable", [finding, *exc.findings])
+
+        review_payload = {
+            "decision": review.decision,
+            "summary": review.summary,
+            "findings": [dict(item) for item in review.findings],
+        }
+        if review.transformation:
+            record["transformation"] = review.transformation
+            self.evidence["transformations"] = [review.transformation]
+        review_record.update(
+            {
+                "status": {
+                    "accept": "accepted",
+                    "revise": "revise",
+                    "blocked": "blocked",
+                }[review.decision],
+                "decision": review.decision,
+                "summary": review.summary,
+                "findings": deepcopy(review_payload["findings"]),
+                "raw_response_sha256": _sha256(raw),
+                "raw_response_bytes": len(raw),
+            }
+        )
+        record["review"] = deepcopy(review_record)
+        self.evidence["attempts"][-1]["review"] = deepcopy(review_record)
+        self.review_evidence = deepcopy(review_record)
+        self.evidence["review"] = deepcopy(review_record)
+        self._persist()
+
+        if review.decision != "accept":
+            status = "revise" if review.decision == "revise" else "blocked"
+            findings = [
+                _review_finding_to_finding(item, "artifact_review")
+                for item in review.findings
+            ]
+            return self._finish(status, findings)
+
+        return self._assemble(review_record)
+
+    def _assemble(self, review_record: dict[str, Any]) -> A03ContinuationResult:
+        artifact = {
+            **self.artifact.parsed.metadata,
+            "setup_recipe": self.artifact.plan["setup_recipe"],
+            "runtime_bindings": self.artifact.plan["runtime_bindings"],
+            "prerequisites": self.artifact.plan["prerequisites"],
+            "required_observations": self.artifact.plan["required_observations"],
+        }
+        continuation = {
+            "mode": _A03_CONTINUATION_MODE,
+            "recovery_sidecar": str(self.artifact.recovery_sidecar),
+            "recovery_sidecar_sha256": self.artifact.recovery_sidecar_sha256,
+            "candidate_sha256": self.artifact.candidate_sha256,
+            "candidate_semantic_sha256": review_record["candidate_semantic_sha256"],
+            "plan_sha256": _mapping_sha256(self.artifact.plan),
+            "original_input_pins": deepcopy(
+                self.artifact.authority.get("original_inputs", [])
+            ),
+            "deterministic_results": deepcopy(self.artifact.deterministic_results),
+            "control_results": deepcopy(self.artifact.control_results),
+            "historical_failure_evidence": deepcopy(
+                self.artifact.authority["historical_failure_evidence"]
+            ),
+            "historical_freeze_record": deepcopy(
+                self.artifact.authority["historical_freeze_record"]
+            ),
+            "historical_resume_ledger": deepcopy(
+                self.artifact.authority["historical_resume_ledger"]
+            ),
+            "historical_spend": deepcopy(self.artifact.authority["historical_spend"]),
+            "prior_spend": {
+                "author_correction": 5,
+                "review": 1,
+            },
+        }
+        policy = _a03_continuation_policy(
+            reviewer_profile=review_record["effective_controls"].get("review_model_profile")
+        )
+        try:
+            package = _package_from_responses(
+                view=self.artifact.input_view,
+                plan=self.artifact.plan,
+                artifact=artifact,
+                task_id=self.task_id,
+                ledger=self.ledger,
+                raw_responses=self.raw_responses,
+                decoded_responses={"artifact_review": review_record},
+                prompt_packets={"artifact_review": self.packet},
+                transformations=list(self.evidence.get("transformations", [])),
+                inventory=self.artifact.inventory,
+                runtime_contract=self.artifact.runtime_contract,
+                continuation=continuation,
+                detector_bytes=self.artifact.parsed.python_bytes,
+                interface_version=AUTHORING_INTERFACE_VERSION_V2,
+                policy=policy,
+                review_status={"plan": "accepted", "artifact": "accepted"},
+                preserved_reviews={
+                    "plan": deepcopy(self.artifact.authority["plan_review"]),
+                    "artifact": deepcopy(review_record),
+                },
+                terminal_status="accepted",
+                budget=self.budget.snapshot(self.task_id),
+                preserved_candidate_raw=self.artifact.candidate_raw,
+            )
+            path = write_package(self.package_dir, package)
+        except Exception as exc:
+            finding = Finding("package_assembly_failed", str(exc), "package")
+            self.evidence["package"] = {
+                "status": "failed",
+                "reason": _safe_error(exc),
+            }
+            return self._finish("package_failed", [finding])
+
+        self.evidence["package"] = {
+            "status": "published",
+            "path": str(path),
+            "manifest_digest": package.manifest.manifest_digest,
+        }
+        return self._finish(
+            "accepted",
+            [],
+            package=package,
+            package_path=path,
+        )
+
+    def _finish(
+        self,
+        status: str,
+        findings: list[Finding],
+        *,
+        package: ArtifactPackage | None = None,
+        package_path: Path | None = None,
+    ) -> A03ContinuationResult:
+        self.evidence["status"] = status
+        self.evidence["terminal_status"] = status
+        self.evidence["review_status"]["artifact"] = (
+            "accepted" if status == "accepted" else status
+        )
+        self.evidence["findings"] = [finding.to_dict() for finding in findings]
+        self.evidence["budget"] = self.budget.snapshot(self.task_id)
+        for attempt in self.evidence["attempts"]:
+            attempt["terminal_status"] = status
+            attempt["stage_status"] = status
+        for record in self.ledger:
+            record["terminal_status"] = status
+            record["stage_status"] = status
+        self.evidence["ledger"] = deepcopy(self.ledger)
+        path = _write_a03_continuation_evidence(self.evidence_path, self.evidence)
+        return A03ContinuationResult(
+            status=status,
+            task_id=self.task_id,
+            findings=findings,
+            ledger=deepcopy(self.ledger),
+            package=package,
+            package_path=package_path,
+            failure_evidence_path=path,
+            budget=self.budget.snapshot(self.task_id),
+            review=deepcopy(self.review_evidence),
+            preflight=deepcopy(self.evidence["preflight"]),
+        )
+
+    def _persist(self) -> None:
+        self.evidence["ledger"] = deepcopy(self.ledger)
+        self.evidence["budget"] = self.budget.snapshot(self.task_id)
+        _write_a03_continuation_evidence(self.evidence_path, self.evidence)
+
+
+def _a03_review_controls(
+    transport: AuthoringTransport,
+    supplied: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return redacted reviewer controls with retries fixed to zero."""
+
+    controls: dict[str, Any] = {
+        "review_model_profile": getattr(transport, "review_model_profile", None),
+        "temperature": 0,
+        "max_retries": 0,
+    }
+    model = getattr(transport, "model", None)
+    if isinstance(model, str) and model.strip():
+        controls["model"] = model
+    if isinstance(supplied, dict):
+        controls.update(_safe_metadata(supplied))
+    controls["max_retries"] = 0
+    return controls
+
+
+def _a03_continuation_policy(*, reviewer_profile: Any) -> dict[str, Any]:
+    return {
+        "plan_max_corrections": 0,
+        "artifact_max_corrections": 0,
+        "review_plan": False,
+        "review_artifact": True,
+        "review_model_profile": reviewer_profile,
+        "review_temperature": 0,
+        "max_retries": 0,
+        "sealed": True,
+    }
+
+
+def _new_a03_continuation_evidence(
+    *,
+    task_id: str,
+    package_dir: Path,
+    artifact: A03RecoveredArtifact,
+    budget: dict[str, Any],
+    preflight: dict[str, Any],
+) -> dict[str, Any]:
+    evidence = new_failure_evidence(task_id, package_dir)
+    evidence.update(
+        {
+            "continuation_schema": "a03-recovered-artifact-review-v1",
+            "status": "in_progress",
+            "continuation_mode": _A03_CONTINUATION_MODE,
+            "preflight": deepcopy(preflight),
+            "authority": {
+                "recovery_sidecar": str(artifact.recovery_sidecar),
+                "recovery_sidecar_sha256": artifact.recovery_sidecar_sha256,
+                "candidate_sha256": artifact.candidate_sha256,
+                "plan_sha256": _mapping_sha256(artifact.plan),
+                "original_inputs": deepcopy(artifact.authority.get("original_inputs", [])),
+                "deterministic_results": deepcopy(artifact.deterministic_results),
+                "control_results": deepcopy(artifact.control_results),
+                "historical_failure_evidence": deepcopy(
+                    artifact.authority["historical_failure_evidence"]
+                ),
+                "historical_freeze_record": deepcopy(
+                    artifact.authority["historical_freeze_record"]
+                ),
+                "historical_resume_ledger": deepcopy(
+                    artifact.authority["historical_resume_ledger"]
+                ),
+                "historical_spend": deepcopy(artifact.authority["historical_spend"]),
+                "plan_review": deepcopy(artifact.authority["plan_review"]),
+            },
+            "budget": deepcopy(budget),
+            "review_status": {
+                "plan": "accepted",
+                "artifact": "pending",
+            },
+            "attempts": [],
+            "findings": [],
+        }
+    )
+    return evidence
+
+
+def _write_a03_continuation_evidence(path: Path, evidence: dict[str, Any]) -> Path:
+    """Write continuation evidence using the existing atomic evidence writer."""
+
+    return write_failure_evidence(path, evidence)
+
+
+def _a03_default_evidence_path(package_dir: str | Path, task_id: str) -> Path:
+    package_path = Path(package_dir)
+    return package_path.with_name(f"{package_path.name}.{task_id}.continuation.json")
+
+
+def _prepare_a03_recovered_continuation(
+    *,
+    recovery_sidecar: str | Path,
+    package_dir: str | Path,
+    task_id: str = A03_CONTINUATION_TASK_ID,
+    evidence_path: str | Path | None = None,
+    expected_recovery_sidecar_sha256: str = A03_RECOVERY_SIDECAR_SHA256,
+    expected_candidate_sha256: str = A03_RECOVERED_CANDIDATE_SHA256,
+    expected_plan_sha256: str = A03_RECOVERED_PLAN_SHA256,
+    aggregate_spent: int = 15,
+    aggregate_limit: int = 32,
+    task_limit: int = 8,
+    prior_author_correction_spend: int = 5,
+    prior_review_spend: int = 1,
+) -> A03RecoveredArtifactContinuation:
+    """Seal the exact recovered A03 candidate before any provider construction."""
+
+    if not isinstance(task_id, str) or not task_id.strip():
+        raise A03ContinuationValidationError("continuation task_id must be nonblank")
+    if task_id in {A03_HISTORICAL_TASK_ID, _A03_RECOVERED_HISTORICAL_TASK_ID}:
+        raise A03ContinuationValidationError("continuation task identity must be fresh")
+    _validate_nonnegative_integer("aggregate_spent", aggregate_spent)
+    _validate_nonnegative_integer("aggregate_limit", aggregate_limit)
+    _validate_nonnegative_integer("task_limit", task_limit)
+    _validate_nonnegative_integer(
+        "prior_author_correction_spend", prior_author_correction_spend
+    )
+    _validate_nonnegative_integer("prior_review_spend", prior_review_spend)
+    if prior_author_correction_spend != 5 or prior_review_spend != 1:
+        raise A03ContinuationValidationError(
+            "sealed A03 continuation must seed prior spend as 5 author/correction and 1 review"
+        )
+    if aggregate_spent != 15:
+        raise A03ContinuationValidationError(
+            "sealed A03 continuation aggregate spend must start at 15"
+        )
+
+    sidecar_path = Path(recovery_sidecar)
+    sidecar_bytes = _read_continuation_file(sidecar_path, "recovery sidecar")
+    sidecar_hash = _sha256(sidecar_bytes)
+    if sidecar_hash != expected_recovery_sidecar_sha256:
+        raise A03ContinuationValidationError(
+            "recovery sidecar hash does not match the pinned current-mission authority"
+        )
+    recovery = _load_continuation_mapping(sidecar_path, "recovery sidecar")
+    if recovery.get("schema") != _A03_RECOVERY_SCHEMA:
+        raise A03ContinuationValidationError("recovery sidecar schema is not exact")
+    candidates = recovery.get("candidates")
+    candidate_entry = next(
+        (
+            item
+            for item in candidates
+            if isinstance(item, dict) and item.get("case") == "A03"
+        ),
+        None,
+    ) if isinstance(candidates, list) else None
+    if candidate_entry is None:
+        raise A03ContinuationValidationError("recovery sidecar has no exact A03 candidate")
+    candidate_evaluation = candidate_entry.get("candidate_evaluation")
+    if not isinstance(candidate_evaluation, dict):
+        raise A03ContinuationValidationError("A03 candidate evaluation is unavailable")
+    candidate_hash = candidate_evaluation.get("candidate_sha256")
+    if candidate_hash != expected_candidate_sha256:
+        raise A03ContinuationValidationError(
+            "recovered A03 candidate hash does not match the pinned artifact bytes"
+        )
+    association = candidate_entry.get("historical_attempt_association")
+    associated_attempts = association.get("attempts") if isinstance(association, dict) else None
+    if (
+        not isinstance(association, dict)
+        or association.get("byte_identical") is not True
+        or association.get("evaluation_count") != 1
+        or not isinstance(associated_attempts, list)
+        or len(associated_attempts) != 2
+        or not all(isinstance(item, dict) for item in associated_attempts)
+        or associated_attempts[0].get("historical_attempt") != 4
+        or associated_attempts[0].get("stage") != "call2"
+        or associated_attempts[0].get("raw_sha256") != candidate_hash
+        or associated_attempts[1].get("historical_attempt") != 5
+        or associated_attempts[1].get("stage") != "correction"
+        or associated_attempts[1].get("raw_sha256") != candidate_hash
+    ):
+        raise A03ContinuationValidationError(
+            "recovered A03 historical attempt association is not exact"
+        )
+
+    source_hashes = candidate_entry.get("source_hashes")
+    if not isinstance(source_hashes, dict):
+        raise A03ContinuationValidationError("A03 source hash authority is unavailable")
+    failure_pin = source_hashes.get("failure_sidecar", {})
+    if not isinstance(failure_pin, dict):
+        raise A03ContinuationValidationError("A03 failure sidecar pin is unavailable")
+    failure_path = Path(failure_pin.get("path", ""))
+    failure_bytes = _read_continuation_file(failure_path, "historical A03 sidecar")
+    if _sha256(failure_bytes) != failure_pin.get("sha256"):
+        raise A03ContinuationValidationError("historical A03 sidecar hash does not match recovery")
+    failure = load_failure_evidence(failure_path)
+    attempts = failure.get("attempts")
+    if (
+        failure.get("task_id") != _A03_RECOVERED_HISTORICAL_TASK_ID
+        or not isinstance(attempts, list)
+        or len(attempts) != 5
+        or not all(isinstance(attempt, dict) for attempt in attempts)
+        or [attempt.get("stage") for attempt in attempts] != [
+            "call1",
+            "correction",
+            "plan_review",
+            "call2",
+            "correction",
+        ]
+        or [attempt.get("dispatch_index") for attempt in attempts] != [1, 2, 3, 4, 5]
+    ):
+        raise A03ContinuationValidationError("historical A03 attempts are not exact")
+    if any(
+        not isinstance(attempt, dict)
+        or attempt.get("task_id") != _A03_RECOVERED_HISTORICAL_TASK_ID
+        or not isinstance(attempt.get("controls"), dict)
+        or not isinstance(attempt["controls"].get("value"), dict)
+        or attempt["controls"]["value"].get("max_retries") != 0
+        for attempt in attempts
+    ):
+        raise A03ContinuationValidationError("historical A03 attempt controls are not exact")
+    mission_root = sidecar_path.parents[2]
+    freeze_path = mission_root / "evidence" / "live-a03-20260920" / "a03-freeze-record.json"
+    resume_ledger_path = (
+        mission_root / "evidence" / "live-a03-20260920" / "resume-case-ledger.json"
+    )
+    freeze_bytes = _read_continuation_file(freeze_path, "A03 freeze record")
+    resume_ledger_bytes = _read_continuation_file(resume_ledger_path, "A03 resume ledger")
+    if _sha256(freeze_bytes) != _A03_FREEZE_RECORD_SHA256:
+        raise A03ContinuationValidationError("A03 freeze record hash does not match authority")
+    if _sha256(resume_ledger_bytes) != _A03_RESUME_LEDGER_SHA256:
+        raise A03ContinuationValidationError("A03 resume ledger hash does not match authority")
+    freeze_record = _load_continuation_mapping(freeze_path, "A03 freeze record")
+    resume_ledger = _load_continuation_mapping(resume_ledger_path, "A03 resume ledger")
+    freeze_spend = freeze_record.get("spend")
+    ledger_spend = resume_ledger.get("spend")
+    if (
+        freeze_record.get("case") != "A03"
+        or not isinstance(freeze_spend, dict)
+        or freeze_spend.get("author_correction") != 5
+        or freeze_spend.get("author_correction_cap") != 4
+        or freeze_spend.get("review") != 1
+        or not isinstance(freeze_record.get("assertions"), dict)
+        or not isinstance(freeze_record["assertions"].get("VAL-LIVE-003"), dict)
+        or freeze_record["assertions"]["VAL-LIVE-003"].get("status") != "failed"
+        or not isinstance(ledger_spend, dict)
+        or ledger_spend.get("cumulative_author_correction") != 5
+        or ledger_spend.get("author_correction_cap") != 4
+        or ledger_spend.get("cumulative_review") != 1
+    ):
+        raise A03ContinuationValidationError(
+            "preserved A03 5/4 spend and failed VAL-LIVE-003 authority is not exact"
+        )
+    plan_attempt = next(
+        (
+            item
+            for item in attempts
+            if isinstance(item, dict)
+            and item.get("stage") == "correction"
+            and item.get("decoded_output") is not None
+        ),
+        None,
+    )
+    if plan_attempt is None or not isinstance(plan_attempt.get("decoded_output"), dict):
+        raise A03ContinuationValidationError("accepted A03 plan bytes are unavailable")
+    plan = deepcopy(plan_attempt["decoded_output"])
+    plan_hash = _mapping_sha256(plan)
+    if plan_hash != expected_plan_sha256:
+        raise A03ContinuationValidationError(
+            "accepted A03 plan hash does not match the pinned recovery authority"
+        )
+    accepted_plan = candidate_entry.get("accepted_plan", {})
+    if not isinstance(accepted_plan, dict):
+        raise A03ContinuationValidationError("accepted A03 plan authority is malformed")
+    accepted_plan_pin = source_hashes.get("accepted_plan_canonical", {})
+    if (
+        not isinstance(accepted_plan_pin, dict)
+        or accepted_plan_pin.get("sha256") != plan_hash
+        or accepted_plan_pin.get("byte_length")
+        != len(_canonical_json(plan).encode("utf-8"))
+        or accepted_plan.get("canonical_sha256") != plan_hash
+        or accepted_plan.get("plan_review_decision") != "accept"
+    ):
+        raise A03ContinuationValidationError("accepted A03 plan canonical pin is not exact")
+    accepted_plan_response = source_hashes.get("accepted_plan_response", {})
+    plan_raw = _decode_raw_attempt(plan_attempt, "accepted A03 plan")
+    if (
+        not isinstance(accepted_plan_response, dict)
+        or accepted_plan_response.get("sha256") != _sha256(plan_raw)
+        or plan_attempt.get("candidate_sha256") != plan_hash
+    ):
+        raise A03ContinuationValidationError("accepted A03 plan response hash is not exact")
+    if accepted_plan.get("plan_review_decision") != "accept":
+        raise A03ContinuationValidationError("accepted A03 plan review authority is not accept")
+
+    plan_review_attempt = next(
+        (
+            item
+            for item in attempts
+            if isinstance(item, dict) and item.get("stage") == "plan_review"
+        ),
+        None,
+    )
+    if plan_review_attempt is None:
+        raise A03ContinuationValidationError("accepted A03 plan review evidence is unavailable")
+    plan_review_prompt = plan_review_attempt.get("prompt")
+    if (
+        not isinstance(plan_review_prompt, dict)
+        or plan_review_prompt.get("version") != PLAN_REVIEW_PROMPT_VERSION
+        or plan_review_attempt.get("reviewed_candidate_sha256") != plan_hash
+        or plan_review_attempt.get("reviewed_input_sha256") is None
+    ):
+        raise A03ContinuationValidationError("accepted A03 plan review pins are not exact")
+    plan_review_raw = _decode_raw_attempt(plan_review_attempt, "plan review")
+    plan_review_pin = source_hashes.get("plan_review_response", {})
+    if (
+        _sha256(plan_review_raw) != accepted_plan.get("plan_review_response_sha256")
+        or not isinstance(plan_review_pin, dict)
+        or _sha256(plan_review_raw) != plan_review_pin.get("sha256")
+    ):
+        raise A03ContinuationValidationError("A03 plan review response hash is not exact")
+    try:
+        plan_review = parse_review_response(plan_review_raw)
+    except ReviewResponseError as exc:
+        raise A03ContinuationValidationError(
+            "accepted A03 plan review response is not valid"
+        ) from exc
+    if plan_review.decision != "accept" or plan_review.findings:
+        raise A03ContinuationValidationError("accepted A03 plan review is contradictory")
+
+    original_inputs = candidate_entry.get("original_inputs")
+    if not isinstance(original_inputs, list) or not original_inputs:
+        raise A03ContinuationValidationError("A03 original input pins are unavailable")
+    for item in original_inputs:
+        if not isinstance(item, dict):
+            raise A03ContinuationValidationError("A03 original input pin is malformed")
+        path = Path(item.get("path", ""))
+        content = _read_continuation_file(path, "A03 original input")
+        if len(content) != item.get("byte_length") or _sha256(content) != item.get("sha256"):
+            raise A03ContinuationValidationError(
+                f"A03 original input hash does not match: {path}"
+            )
+    source_path = Path(original_inputs[0]["path"])
+    input_view = load_input(
+        source_path,
+        kind=InputKind.REFERENCE_TASK,
+        reference_label=_A03_INPUT_LABEL,
+        reference_id=_A03_REFERENCE_ID,
+    )
+    inventory_pin = source_hashes.get("inventory", {})
+    runtime_pin = source_hashes.get("runtime_contract", {})
+    if not isinstance(inventory_pin, dict) or not isinstance(runtime_pin, dict):
+        raise A03ContinuationValidationError("A03 source document pins are malformed")
+    inventory_path = Path(inventory_pin.get("path", ""))
+    runtime_path = Path(runtime_pin.get("path", ""))
+    inventory = _load_continuation_value(inventory_path, "A03 operation inventory")
+    runtime_contract = _load_continuation_value(runtime_path, "A03 runtime contract")
+    if not isinstance(inventory, dict) or not isinstance(runtime_contract, dict):
+        raise A03ContinuationValidationError("A03 inventory and runtime contract must be objects")
+    if _sha256(inventory_path.read_bytes()) != inventory_pin.get("sha256"):
+        raise A03ContinuationValidationError("A03 operation inventory hash does not match")
+    if _sha256(runtime_path.read_bytes()) != runtime_pin.get("sha256"):
+        raise A03ContinuationValidationError("A03 runtime contract hash does not match")
+    plan_findings = collect_plan_findings_v2(plan, inventory, runtime_contract)
+    if plan_findings:
+        raise A03ContinuationValidationError(
+            f"accepted A03 plan fails deterministic checks: {plan_findings[0].detail}"
+        )
+
+    call2_raw = _decode_raw_attempt(attempts[3], "recovered A03 artifact")
+    correction_raw = _decode_raw_attempt(attempts[4], "recovered A03 correction")
+    if (
+        _sha256(call2_raw) != candidate_hash
+        or _sha256(correction_raw) != candidate_hash
+        or call2_raw != correction_raw
+    ):
+        raise A03ContinuationValidationError(
+            "recovered A03 artifact attempts are not byte-identical to the candidate"
+        )
+    recovered_raw = call2_raw
+    if len(recovered_raw) != candidate_evaluation.get("raw_byte_length"):
+        raise A03ContinuationValidationError("recovered A03 artifact byte length does not match")
+    try:
+        parsed = parse_call2_response(recovered_raw)
+    except (Call2FramingError, UnicodeDecodeError, ValueError) as exc:
+        raise A03ContinuationValidationError(
+            "recovered A03 artifact cannot be parsed by the current Call 2 parser"
+        ) from exc
+    artifact_findings = collect_artifact_findings_v2(
+        parsed, plan, inventory, runtime_contract
+    )
+    deterministic = candidate_evaluation.get("deterministic_checks")
+    if not isinstance(deterministic, dict):
+        raise A03ContinuationValidationError("recorded deterministic A03 results are malformed")
+    expected_deterministic = {
+        "all_passed": not plan_findings and not artifact_findings,
+        "plan_findings": [finding.to_dict() for finding in plan_findings],
+        "artifact_findings": [finding.to_dict() for finding in artifact_findings],
+    }
+    if deterministic != expected_deterministic or not deterministic.get("all_passed", False):
+        raise A03ContinuationValidationError(
+            "recorded deterministic A03 results do not match the recovered candidate"
+        )
+    controls = candidate_evaluation.get("detector_controls")
+    _validate_a03_control_results(controls)
+    if _sha256(parsed.python_bytes) != candidate_evaluation.get("python_sha256"):
+        raise A03ContinuationValidationError("recovered A03 detector bytes hash does not match")
+    if len(parsed.python_bytes) != candidate_evaluation.get("python_byte_length"):
+        raise A03ContinuationValidationError("recovered A03 detector byte length does not match")
+    if _sha256(_canonical_json(parsed.metadata).encode("utf-8")) != candidate_evaluation.get(
+        "metadata_sha256"
+    ):
+        raise A03ContinuationValidationError("recovered A03 metadata hash does not match")
+
+    authority = {
+        "original_inputs": deepcopy(original_inputs),
+        "historical_failure_evidence": {
+            "path": str(failure_path),
+            "sha256": failure_pin.get("sha256"),
+        },
+        "historical_freeze_record": {
+            "path": str(freeze_path),
+            "sha256": _A03_FREEZE_RECORD_SHA256,
+        },
+        "historical_resume_ledger": {
+            "path": str(resume_ledger_path),
+            "sha256": _A03_RESUME_LEDGER_SHA256,
+        },
+        "historical_spend": {
+            "author_correction": freeze_spend["author_correction"],
+            "author_correction_cap": freeze_spend["author_correction_cap"],
+            "review": freeze_spend["review"],
+            "val_live_003": freeze_record["assertions"]["VAL-LIVE-003"],
+        },
+        "plan_review": {
+            "status": "accepted",
+            "decision": plan_review.decision,
+            "summary": plan_review.summary,
+            "findings": [dict(item) for item in plan_review.findings],
+            "raw_response_sha256": _sha256(plan_review_raw),
+            "prompt_version": plan_review_attempt.get("prompt", {}).get("version"),
+            "prompt_sha256": plan_review_attempt.get("prompt", {}).get("sha256"),
+            "reviewed_candidate_sha256": plan_hash,
+        },
+        "source_hashes": deepcopy(source_hashes),
+    }
+    artifact = A03RecoveredArtifact(
+        recovery_sidecar=sidecar_path,
+        recovery_sidecar_sha256=sidecar_hash,
+        candidate_raw=recovered_raw,
+        candidate_sha256=candidate_hash,
+        parsed=parsed,
+        plan=plan,
+        input_view=input_view,
+        inventory=inventory,
+        runtime_contract=runtime_contract,
+        deterministic_results=deepcopy(deterministic),
+        control_results=deepcopy(controls),
+        authority=authority,
+    )
+    destination = Path(package_dir)
+    _reject_continuation_evidence_collision(
+        package_dir=destination,
+        historical_evidence=failure_path,
+    )
+    if destination.exists() and any(destination.iterdir()):
+        raise A03ContinuationValidationError(
+            "A03 continuation package destination is not empty"
+        )
+    destination_evidence = (
+        Path(evidence_path)
+        if evidence_path is not None
+        else _a03_default_evidence_path(destination, task_id)
+    )
+    evidence_identity = destination_evidence.expanduser().resolve(strict=False)
+    destination_identity = destination.expanduser().resolve(strict=False)
+    historical_paths = {
+        failure_path.expanduser().resolve(strict=False),
+        freeze_path.expanduser().resolve(strict=False),
+        resume_ledger_path.expanduser().resolve(strict=False),
+    }
+    if evidence_identity in historical_paths:
+        raise A03ContinuationValidationError(
+            "continuation evidence path aliases pinned historical evidence"
+        )
+    try:
+        evidence_identity.relative_to(destination_identity)
+    except ValueError:
+        pass
+    else:
+        raise A03ContinuationValidationError(
+            "continuation evidence must remain outside the package destination"
+        )
+    if destination_evidence.exists():
+        raise A03ContinuationValidationError(
+            "continuation evidence path already contains a terminal or interrupted run"
+        )
+    return A03RecoveredArtifactContinuation(
+        artifact=artifact,
+        package_dir=destination,
+        task_id=task_id,
+        evidence_path=destination_evidence,
+        prior_author_correction_spend=prior_author_correction_spend,
+        prior_review_spend=prior_review_spend,
+        aggregate_spent=aggregate_spent,
+        aggregate_limit=aggregate_limit,
+        task_limit=task_limit,
+        review_limit=4,
+    )
+
+
+def prepare_a03_recovered_continuation(
+    *,
+    recovery_sidecar: str | Path,
+    package_dir: str | Path,
+    task_id: str = A03_CONTINUATION_TASK_ID,
+    evidence_path: str | Path | None = None,
+    expected_recovery_sidecar_sha256: str = A03_RECOVERY_SIDECAR_SHA256,
+    expected_candidate_sha256: str = A03_RECOVERED_CANDIDATE_SHA256,
+    expected_plan_sha256: str = A03_RECOVERED_PLAN_SHA256,
+    aggregate_spent: int = 15,
+    aggregate_limit: int = 32,
+    task_limit: int = 8,
+    prior_author_correction_spend: int = 5,
+    prior_review_spend: int = 1,
+) -> A03RecoveredArtifactContinuation:
+    """Prepare the sealed A03 continuation and normalize input defects."""
+
+    try:
+        return _prepare_a03_recovered_continuation(
+            recovery_sidecar=recovery_sidecar,
+            package_dir=package_dir,
+            task_id=task_id,
+            evidence_path=evidence_path,
+            expected_recovery_sidecar_sha256=expected_recovery_sidecar_sha256,
+            expected_candidate_sha256=expected_candidate_sha256,
+            expected_plan_sha256=expected_plan_sha256,
+            aggregate_spent=aggregate_spent,
+            aggregate_limit=aggregate_limit,
+            task_limit=task_limit,
+            prior_author_correction_spend=prior_author_correction_spend,
+            prior_review_spend=prior_review_spend,
+        )
+    except A03ContinuationValidationError:
+        raise
+    except (ContinuationValidationError, OSError, ValueError, TypeError, KeyError) as exc:
+        raise A03ContinuationValidationError(str(exc)) from exc
+
+
+def run_a03_recovered_continuation(
+    *,
+    recovery_sidecar: str | Path,
+    package_dir: str | Path,
+    transport_factory: Callable[[], AuthoringTransport],
+    task_id: str = A03_CONTINUATION_TASK_ID,
+    evidence_path: str | Path | None = None,
+    expected_recovery_sidecar_sha256: str = A03_RECOVERY_SIDECAR_SHA256,
+    expected_candidate_sha256: str = A03_RECOVERED_CANDIDATE_SHA256,
+    expected_plan_sha256: str = A03_RECOVERED_PLAN_SHA256,
+    aggregate_spent: int = 15,
+    aggregate_limit: int = 32,
+    task_limit: int = 8,
+) -> A03ContinuationResult:
+    """Run the sealed A03 review or return a typed preflight terminal result."""
+
+    destination = Path(package_dir)
+    output_evidence = (
+        Path(evidence_path)
+        if evidence_path is not None
+        else _a03_default_evidence_path(destination, task_id)
+    )
+    if output_evidence.exists():
+        finding = Finding(
+            "continuation_already_completed",
+            "continuation evidence already exists; a second run is not permitted",
+            "continuation",
+        )
+        try:
+            existing = load_failure_evidence(output_evidence)
+        except ValueError:
+            existing = {}
+        return A03ContinuationResult(
+            status="continuation_already_completed",
+            task_id=task_id,
+            findings=[finding],
+            failure_evidence_path=output_evidence,
+            budget=deepcopy(existing.get("budget", {})),
+            preflight=deepcopy(existing.get("preflight", {})),
+        )
+    try:
+        continuation = prepare_a03_recovered_continuation(
+            recovery_sidecar=recovery_sidecar,
+            package_dir=destination,
+            task_id=task_id,
+            evidence_path=output_evidence,
+            expected_recovery_sidecar_sha256=expected_recovery_sidecar_sha256,
+            expected_candidate_sha256=expected_candidate_sha256,
+            expected_plan_sha256=expected_plan_sha256,
+            aggregate_spent=aggregate_spent,
+            aggregate_limit=aggregate_limit,
+            task_limit=task_limit,
+        )
+    except A03ContinuationValidationError as exc:
+        finding = Finding("preflight_authority", str(exc), "preflight")
+        evidence = new_failure_evidence(task_id, destination)
+        evidence.update(
+            {
+                "continuation_schema": "a03-recovered-artifact-review-v1",
+                "continuation_mode": _A03_CONTINUATION_MODE,
+                "status": "preflight_defect",
+                "terminal_status": "preflight_defect",
+                "preflight": {
+                    "status": "failed",
+                    "finding": finding.to_dict(),
+                },
+                "findings": [finding.to_dict()],
+                "budget": {
+                    "author_correction_spent": 5,
+                    "review_spent": 1,
+                    "aggregate_spent": aggregate_spent,
+                },
+                "review_status": {
+                    "plan": "accepted",
+                    "artifact": "preflight_defect",
+                },
+                "attempts": [],
+            }
+        )
+        path = _write_a03_continuation_evidence(output_evidence, evidence)
+        return A03ContinuationResult(
+            status="preflight_defect",
+            task_id=task_id,
+            findings=[finding],
+            failure_evidence_path=path,
+            budget=deepcopy(evidence["budget"]),
+            preflight=deepcopy(evidence["preflight"]),
+        )
+    return continuation.run(transport_factory=transport_factory)
+
+
+# Descriptive aliases keep the product boundary discoverable to downstream
+# callers while preserving one implementation and one-review invariant.
+prepare_a03_artifact_review_continuation = prepare_a03_recovered_continuation
+run_a03_artifact_review_continuation = run_a03_recovered_continuation
+continue_a03_recovered_artifact_review = run_a03_recovered_continuation
+
+
+def _decode_raw_attempt(attempt: dict[str, Any], label: str) -> bytes:
+    record = attempt.get("raw_response")
+    if not isinstance(record, dict) or record.get("availability") != "available":
+        raise A03ContinuationValidationError(f"{label} response is unavailable")
+    try:
+        raw = base64.b64decode(record["base64"], validate=True)
+    except (KeyError, ValueError, TypeError) as exc:
+        raise A03ContinuationValidationError(f"{label} response encoding is invalid") from exc
+    if record.get("sha256") != _sha256(raw) or record.get("byte_length") != len(raw):
+        raise A03ContinuationValidationError(f"{label} response hash is not exact")
+    return raw
+
+
+def _validate_a03_control_results(value: Any) -> None:
+    if not isinstance(value, dict) or value.get("eligible") is not True:
+        raise A03ContinuationValidationError("recorded A03 controls are not eligible")
+    if value.get("findings") != []:
+        raise A03ContinuationValidationError("recorded A03 controls contain findings")
+    records = value.get("records")
+    if not isinstance(records, list) or not records:
+        raise A03ContinuationValidationError("recorded A03 controls are unavailable")
+    summary_runtime = value.get("runtime")
+    if not isinstance(summary_runtime, dict):
+        raise A03ContinuationValidationError("recorded A03 control summary is malformed")
+    if (
+        summary_runtime.get("engine") != "docker"
+        or summary_runtime.get("image") != "python:3.12-slim"
+        or summary_runtime.get("network") != "none"
+        or summary_runtime.get("read_only") is not True
+    ):
+        raise A03ContinuationValidationError(
+            "recorded A03 controls do not identify the isolated runtime"
+        )
+    for record in records:
+        if not isinstance(record, dict) or record.get("status") != "passed":
+            raise A03ContinuationValidationError("recorded A03 controls are not all passing")
+        runtime = record.get("runtime", {})
+        if not isinstance(runtime, dict):
+            raise A03ContinuationValidationError("recorded A03 control runtime is malformed")
+        if (
+            runtime.get("engine") != "docker"
+            or runtime.get("image") != "python:3.12-slim"
+            or runtime.get("network") != "none"
+            or runtime.get("read_only") is not True
+        ):
+            raise A03ContinuationValidationError(
+                "recorded A03 controls do not identify the isolated runtime"
+            )
 
 
 def build_call1_packet(
@@ -7336,6 +8659,7 @@ def _package_from_responses(
     runtime_contract: dict[str, Any],
     continuation: dict[str, Any] | None = None,
     detector_bytes: bytes | None = None,
+    preserved_candidate_raw: bytes | None = None,
     interface_version: str = AUTHORING_INTERFACE_VERSION,
     policy: dict[str, Any] | None = None,
     budget: dict[str, Any] | None = None,
@@ -7397,6 +8721,8 @@ def _package_from_responses(
     authoring_records["authoring/ledger.json"] = (
         _canonical_json(package_ledger).encode("utf-8") + b"\n"
     )
+    if preserved_candidate_raw is not None:
+        authoring_records["authoring/recovered-candidate.raw"] = preserved_candidate_raw
     authoring_input_pins = _expected_authoring_input_pins(
         input_view=view,
         inventory=inventory,
