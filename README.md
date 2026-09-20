@@ -73,6 +73,35 @@ only the supplied evidence through the packaged detector in the constrained
 offline harness. Neither command starts a target, setup service, discovery
 transport, or semantic judge.
 
+### Versioned prompt roles and evidence
+
+New v2 authoring uses five independently versioned, hashed prompt roles:
+
+- `authoring-call1-v3` renders the plan author context while preserving the
+  existing 11-field plan response.
+- `authoring-plan-review-v1` reviews a fresh source-derived plan context.
+- `authoring-call2-v3` renders the immutable accepted plan and preserves the
+  two-block JSON-metadata-plus-Python response.
+- `authoring-artifact-review-v1` reviews the exact metadata, detector bytes,
+  binding/judge declarations, and offline controls.
+- `authoring-correction-v3` renders only the failed stage format and all
+  current findings.
+
+Author and reviewer prompts receive the original scenario, supplied facts,
+operations, schemas, provenance, and runtime capabilities. Reviewers do not
+receive an author transcript or unrelated budget plumbing. The artifact author
+cannot rewrite plan-owned setup, bindings, prerequisites, observations, or
+judge decisions. Prompt construction fails before dispatch on overflow, secret
+values, endpoint URLs, or bounded duplicate candidate forms. Dispatch evidence
+records the role, version, UTF-8 prompt hash, raw response, controls, findings,
+and terminal review status.
+
+The plan field guide distinguishes `source_ref`, `selector`, binding `name`,
+`consumers`, prerequisite `binding`, and literal `equals`. Its neutral example
+checks a setup result's `status` against the literal `READY`; it is illustrative
+and not a case answer. Review statuses remain visible as `accepted`,
+`not_requested`, `revise`, `blocked`, or `review_unavailable`.
+
 The producer owns scenario meaning. From the producer repository root, run the
 normal producer command and then hand the resulting `scenario-handoff-v1`
 input to `author`:

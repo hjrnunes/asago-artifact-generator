@@ -30,6 +30,24 @@ Deterministic tests do not require an LLM endpoint. Live authoring requires
 a configured provider (Gemini, OpenAI, Ollama, Hugging Face, or OpenRouter)
 via `.env` or environment variables.
 
+Prompt roles are versioned independently from the response wire:
+`authoring-call1-v3`, `authoring-plan-review-v1`,
+`authoring-call2-v3`, `authoring-artifact-review-v1`, and
+`authoring-correction-v3`. Each rendered packet exposes a SHA-256 hash and
+dispatch evidence records the role, version, hash, raw response, controls,
+findings, and review status. The v3 author prompts keep the v2 11-field plan
+and two-block artifact contracts unchanged.
+
+Build reviewer contexts from the original scenario and supplied facts,
+operations, result schemas, provenance, and runtime capabilities. Do not pass
+an author transcript or unrelated plumbing to a reviewer. Artifact authoring
+receives the accepted plan as read-only and cannot rewrite plan-owned setup,
+bindings, prerequisites, observations, or judge decisions. Correction prompts
+show only the active plan or artifact format and all current findings.
+Overflow, endpoint/credential values, and bounded duplicate candidate forms
+fail before dispatch. The neutral plan example uses a `setup_status` binding
+and compares its returned `status` with literal `READY`.
+
 The `generate` command remains a read-only compatibility path for historical
 scenario YAMLs. New work uses producer `run`, consumer `author`, consumer
 `check`, and frozen downstream execution.
