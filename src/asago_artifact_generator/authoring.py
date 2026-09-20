@@ -4092,6 +4092,8 @@ def parse_call2_response(raw: bytes | str) -> ParsedCall2Response:
             raise Call2FramingError(findings)
 
         index = json_close_index + 1
+        while index < len(lines) and not lines[index].strip():
+            index += 1
         if index >= len(lines):
             findings.append(
                 Finding("missing_python_block", "Call 2 must contain one Python block", "call2")

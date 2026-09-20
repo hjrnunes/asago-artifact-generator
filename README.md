@@ -22,7 +22,8 @@ object, with optional surrounding whitespace. Untagged, uppercase, or other
 fences, multiple objects or blocks, prose, trailing content, and malformed JSON
 are rejected. The raw Call 1 bytes remain preserved, and a removed outer fence
 is recorded before plan validation. Call 2 remains exactly one fenced JSON
-metadata block followed by one fenced Python block. The Python block becomes
+metadata block followed by one fenced Python block; one or more
+whitespace-only lines may separate the blocks. The Python block becomes
 `detector.py` byte-for-byte.
 Each v2 prompt carries the selected case meaning once under `case_meaning`;
 the input projection retains scenario/reference identities and narrative/Gherkin

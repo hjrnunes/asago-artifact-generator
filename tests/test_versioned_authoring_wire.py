@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -354,6 +356,46 @@ def test_call2_v2_extracts_python_bytes_without_json_round_trip() -> None:
     assert parsed.metadata == _metadata()
     assert parsed.python_bytes == _source()
     assert hashlib.sha256(parsed.python_bytes).hexdigest() == hashlib.sha256(_source()).hexdigest()
+
+
+def _saved_artifact_responses() -> list[bytes]:
+    sidecars = (
+        Path(__file__).parents[1]
+        / "runs"
+        / "authoring"
+        / "A03-live-20260920-resume"
+        / "A03-live-20260920-resume.failure-evidence.json",
+        Path(__file__).parents[1]
+        / "runs"
+        / "authoring"
+        / "O04-live-20260920"
+        / "O04-live-20260920.failure-evidence.json",
+    )
+    responses: list[bytes] = []
+    for sidecar in sidecars:
+        evidence = json.loads(sidecar.read_text(encoding="utf-8"))
+        for attempt in evidence["attempts"]:
+            if attempt["stage"] not in {"call2", "correction"}:
+                continue
+            raw = base64.b64decode(attempt["raw_response"]["base64"])
+            if b"```python" in raw:
+                responses.append(raw)
+    assert len(responses) == 4
+    return responses
+
+
+def test_saved_artifacts_accept_whitespace_separators_without_byte_drift() -> None:
+    for raw in _saved_artifact_responses():
+        separator_free = raw.replace(b"```\n\n```python", b"```\n```python")
+        expected = parse_call2_response(separator_free)
+        parsed = parse_call2_response(raw)
+        assert parsed.metadata == expected.metadata
+        assert parsed.python_bytes == expected.python_bytes
+
+    expanded = separator_free.replace(b"```\n```python", b"```\n \n\t\n```python")
+    parsed_expanded = parse_call2_response(expanded)
+    assert parsed_expanded.metadata == expected.metadata
+    assert parsed_expanded.python_bytes == expected.python_bytes
 
 
 @pytest.mark.parametrize(
