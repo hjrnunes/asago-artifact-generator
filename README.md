@@ -212,15 +212,9 @@ The safe-only boundary permits gateway port `8321` and target ports `8888`,
 only those captured processes. Do not use the unrestricted stack or lifecycle
 commands for qualification.
 
-The optional end-to-end orchestration command uses one registered safe domain
-and a fresh output directory:
-
-```bash
-cd <producer-repo-root>
-uv run python scripts/qualification/run_end_to_end.py \
-  --domain klarna \
-  --output-dir build/adaptive-e2e/<fresh-run-name>
-```
+For end-to-end qualification, follow the downstream repository's
+`scripts/qualification/README.md`. The consumer does not start or reset a
+downstream stack.
 
 Run the final broad gate once, after the last required execution:
 
