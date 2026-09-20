@@ -58,6 +58,16 @@ fail before dispatch. The neutral plan example uses a case-permitted status
 binding when supplied operations provide one; otherwise it is a labeled
 generic illustration with no operation, binding, or prerequisite.
 
+For fresh or resumed runs, pass explicit caller-owned prior spend with
+`--prior-author-correction-spend` and `--prior-review-spend`; use `0` for both
+fresh counters. The consumer does not discover mission ledgers. It seeds the
+two counters before dispatch, enforces four author/correction requests, four
+review requests, and eight combined requests per case, and records typed
+`budget_exhausted` evidence without provider contact when a cap is exhausted.
+The aggregate authoring ceiling remains 32 requests. A resumed run with prior
+author/correction spend of `1` therefore has only three author/correction
+dispatches available.
+
 The `generate` command remains a read-only compatibility path for historical
 scenario YAMLs. New work uses producer `run`, consumer `author`, consumer
 `check`, and frozen downstream execution.

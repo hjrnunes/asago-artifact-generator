@@ -78,6 +78,8 @@ _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 # cases; one case can use the policy's full eight-dispatch worst case.
 MAX_AUTHORING_REQUESTS = 32
 MAX_REQUESTS_PER_TASK = 8
+MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK = 4
+MAX_REVIEW_REQUESTS_PER_TASK = 4
 MAX_RENDERED_PROMPT_BYTES = 1_000_000
 A03_AGGREGATE_LIMIT = 31
 A03_HISTORICAL_REQUESTS = 23
@@ -125,7 +127,24 @@ class ArtifactValidationError(AuthoringError):
 
 
 class BudgetExceeded(AuthoringError):
-    """Raised before dispatch when a task or aggregate cap is exhausted."""
+    """Raised before dispatch when an aggregate, task, or role cap is exhausted."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        scope: str | None = None,
+        task_id: str | None = None,
+        role: str | None = None,
+        used: int | None = None,
+        limit: int | None = None,
+    ) -> None:
+        self.scope = scope
+        self.task_id = task_id
+        self.role = role
+        self.used = used
+        self.limit = limit
+        super().__init__(message)
 
 
 class PromptPreflightError(AuthoringError):
@@ -386,21 +405,179 @@ class AuthoringBudget:
 
     aggregate_limit: int = MAX_AUTHORING_REQUESTS
     task_limit: int = MAX_REQUESTS_PER_TASK
+    author_limit: int = MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK
+    review_limit: int = MAX_REVIEW_REQUESTS_PER_TASK
     total_dispatched: int = 0
     dispatched_by_task: dict[str, int] = field(default_factory=dict)
+    dispatched_by_task_role: dict[str, dict[str, int]] = field(default_factory=dict)
 
-    def reserve(self, task_id: str) -> int:
+    def __post_init__(self) -> None:
+        for name in (
+            "aggregate_limit",
+            "task_limit",
+            "author_limit",
+            "review_limit",
+            "total_dispatched",
+        ):
+            _validate_nonnegative_integer(name, getattr(self, name))
+        if not isinstance(self.dispatched_by_task, dict):
+            raise ValueError("dispatched_by_task must be a mapping")
+        if not isinstance(self.dispatched_by_task_role, dict):
+            raise ValueError("dispatched_by_task_role must be a mapping")
+        for task_id, count in self.dispatched_by_task.items():
+            if not isinstance(task_id, str) or not task_id.strip():
+                raise ValueError("dispatched_by_task keys must be nonblank strings")
+            _validate_nonnegative_integer(f"dispatched_by_task[{task_id!r}]", count)
+        for task_id, roles in self.dispatched_by_task_role.items():
+            if not isinstance(task_id, str) or not task_id.strip():
+                raise ValueError("dispatched_by_task_role keys must be nonblank strings")
+            if not isinstance(roles, dict):
+                raise ValueError(f"dispatched_by_task_role[{task_id!r}] must be a mapping")
+            for role, count in roles.items():
+                if role not in {"author", "reviewer"}:
+                    raise ValueError(
+                        f"dispatched_by_task_role[{task_id!r}] has unsupported role {role!r}"
+                    )
+                _validate_nonnegative_integer(
+                    f"dispatched_by_task_role[{task_id!r}][{role!r}]",
+                    count,
+                )
+
+    @classmethod
+    def from_prior_spend(
+        cls,
+        *,
+        task_id: str,
+        prior_author_correction_spend: int = 0,
+        prior_review_spend: int = 0,
+        aggregate_limit: int = MAX_AUTHORING_REQUESTS,
+        task_limit: int = MAX_REQUESTS_PER_TASK,
+        author_limit: int = MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK,
+        review_limit: int = MAX_REVIEW_REQUESTS_PER_TASK,
+    ) -> AuthoringBudget:
+        """Create a guard seeded with caller-supplied spend for one task."""
+
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ValueError("task_id must be a nonblank string")
+        _validate_nonnegative_integer(
+            "prior_author_correction_spend",
+            prior_author_correction_spend,
+        )
+        _validate_nonnegative_integer("prior_review_spend", prior_review_spend)
+        total = prior_author_correction_spend + prior_review_spend
+        return cls(
+            aggregate_limit=aggregate_limit,
+            task_limit=task_limit,
+            author_limit=author_limit,
+            review_limit=review_limit,
+            total_dispatched=total,
+            dispatched_by_task={task_id: total},
+            dispatched_by_task_role={
+                task_id: {
+                    "author": prior_author_correction_spend,
+                    "reviewer": prior_review_spend,
+                }
+            },
+        )
+
+    def seed_prior_spend(
+        self,
+        *,
+        task_id: str,
+        prior_author_correction_spend: int = 0,
+        prior_review_spend: int = 0,
+    ) -> None:
+        """Add caller-supplied prior spend before the first dispatch."""
+
+        seeded = self.from_prior_spend(
+            task_id=task_id,
+            prior_author_correction_spend=prior_author_correction_spend,
+            prior_review_spend=prior_review_spend,
+            aggregate_limit=self.aggregate_limit,
+            task_limit=self.task_limit,
+            author_limit=self.author_limit,
+            review_limit=self.review_limit,
+        )
+        self.total_dispatched += seeded.total_dispatched
+        self.dispatched_by_task[task_id] = (
+            self.dispatched_by_task.get(task_id, 0) + seeded.dispatched_by_task[task_id]
+        )
+        current_roles = self.dispatched_by_task_role.setdefault(task_id, {})
+        for role, count in seeded.dispatched_by_task_role[task_id].items():
+            current_roles[role] = current_roles.get(role, 0) + count
+
+    def reserve(self, task_id: str, *, role: str = "author") -> int:
+        if role not in {"author", "reviewer"}:
+            raise ValueError(f"unsupported budget role: {role}")
+        if self.total_dispatched >= self.aggregate_limit:
+            raise BudgetExceeded(
+                "aggregate authoring budget exhausted",
+                scope="aggregate",
+                task_id=task_id,
+                role=role,
+                used=self.total_dispatched,
+                limit=self.aggregate_limit,
+            )
         used = self.dispatched_by_task.get(task_id, 0)
         if used >= self.task_limit:
-            raise BudgetExceeded(f"per-task authoring budget exhausted: {task_id}")
-        if self.total_dispatched >= self.aggregate_limit:
-            raise BudgetExceeded("aggregate authoring budget exhausted")
+            raise BudgetExceeded(
+                f"per-task authoring budget exhausted: {task_id}",
+                scope="task",
+                task_id=task_id,
+                role=role,
+                used=used,
+                limit=self.task_limit,
+            )
+        roles = self.dispatched_by_task_role.get(task_id, {})
+        role_used = roles.get(role, 0)
+        role_limit = self.author_limit if role == "author" else self.review_limit
+        if role_used >= role_limit:
+            role_name = "author/correction" if role == "author" else "review"
+            raise BudgetExceeded(
+                f"per-task {role_name} budget exhausted: {task_id}",
+                scope=role,
+                task_id=task_id,
+                role=role,
+                used=role_used,
+                limit=role_limit,
+            )
         self.total_dispatched += 1
         self.dispatched_by_task[task_id] = used + 1
+        self.dispatched_by_task_role.setdefault(task_id, {})[role] = role_used + 1
         return self.total_dispatched
+
+    def snapshot(self, task_id: str) -> dict[str, Any]:
+        """Return redacted accounting state for evidence and package metadata."""
+
+        task_spent = self.dispatched_by_task.get(task_id, 0)
+        roles = self.dispatched_by_task_role.get(task_id, {})
+        author_spent = roles.get("author", 0)
+        review_spent = roles.get("reviewer", 0)
+        return {
+            "aggregate_limit": self.aggregate_limit,
+            "aggregate_spent": self.total_dispatched,
+            "aggregate_remaining": max(self.aggregate_limit - self.total_dispatched, 0),
+            "task_limit": self.task_limit,
+            "task_spent": task_spent,
+            "task_remaining": max(self.task_limit - task_spent, 0),
+            "author_correction_limit": self.author_limit,
+            "author_correction_spent": author_spent,
+            "author_correction_remaining": max(self.author_limit - author_spent, 0),
+            "review_limit": self.review_limit,
+            "review_spent": review_spent,
+            "review_remaining": max(self.review_limit - review_spent, 0),
+            "task_id": task_id,
+        }
 
 
 _UNSET_CORRECTIONS = object()
+
+
+def _validate_nonnegative_integer(name: str, value: Any) -> None:
+    """Reject booleans and other nonnegative-integer budget inputs."""
+
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{name} must be a nonnegative integer, got {value!r}")
 
 
 @dataclass(frozen=True)
@@ -526,6 +703,7 @@ class AuthoringResult:
     review_status: dict[str, str] = field(default_factory=dict)
     allowances: dict[str, int] = field(default_factory=dict)
     review_reuse: dict[str, str] = field(default_factory=dict)
+    budget: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -786,6 +964,8 @@ class AuthoringOrchestrator:
         package_dir: str | Path,
         task_id: str,
         budget: AuthoringBudget | None = None,
+        prior_author_correction_spend: int = 0,
+        prior_review_spend: int = 0,
         correction_allowed: bool = True,
         wire_version: str = "v1",
         policy: AuthoringPolicy | None = None,
@@ -864,6 +1044,17 @@ class AuthoringOrchestrator:
                 if policy is not None
                 else AuthoringBudget()
             )
+        _validate_nonnegative_integer(
+            "prior_author_correction_spend",
+            prior_author_correction_spend,
+        )
+        _validate_nonnegative_integer("prior_review_spend", prior_review_spend)
+        if prior_author_correction_spend or prior_review_spend:
+            budget.seed_prior_spend(
+                task_id=task_id,
+                prior_author_correction_spend=prior_author_correction_spend,
+                prior_review_spend=prior_review_spend,
+            )
         self.budget = budget
         self.correction_allowed = correction_allowed
         self.wire_version = wire_version
@@ -883,6 +1074,7 @@ class AuthoringOrchestrator:
         self._prompt_packets: dict[str, PromptPacket] = {}
         self._transformations: list[str] = []
         self._failure_evidence = new_failure_evidence(self.task_id, self.package_dir)
+        self._failure_evidence["budget"] = self.budget.snapshot(self.task_id)
         self._failure_evidence_file: Path | None = None
         self._call2_python_bytes: bytes | None = None
 
@@ -1635,15 +1827,16 @@ class AuthoringOrchestrator:
     def _dispatch(self, packet: PromptPacket) -> TransportResponse | str | bytes:
         # Reserve before creating any ledger or evidence record: a budget stop
         # happens before dispatch, so it leaves no dispatch event behind.
+        role = "reviewer" if packet.stage in _REVIEW_STAGES else "author"
         try:
-            self.budget.reserve(self.task_id)
+            self.budget.reserve(self.task_id, role=role)
         except BudgetExceeded:
             self._dispatch_recorded = False
             raise
         self._dispatch_recorded = True
         dispatch_index = self._dispatch_count + 1
         self._dispatch_count = dispatch_index
-        role = "reviewer" if packet.stage in _REVIEW_STAGES else "author"
+        self._failure_evidence["budget"] = self.budget.snapshot(self.task_id)
         stage_attempt_index = (
             sum(1 for prior in self._ledger if prior.get("stage") == packet.stage) + 1
         )
@@ -2172,6 +2365,7 @@ class AuthoringOrchestrator:
                 review_status=dict(self._review_status),
                 preserved_reviews=self._review_evidence,
                 terminal_status="accepted",
+                budget=self.budget.snapshot(self.task_id),
             )
         except ArtifactValidationError as exc:
             return self._policy_result(
@@ -2203,6 +2397,7 @@ class AuthoringOrchestrator:
             allowances=dict(self._allowances),
             review_reuse=dict(self._review_reuse),
             failure_evidence_path=None,
+            budget=self.budget.snapshot(self.task_id),
         )
 
     def _run_saved_plan_policy(
@@ -2333,6 +2528,7 @@ class AuthoringOrchestrator:
                 review_status=dict(self._review_status),
                 preserved_reviews=self._review_evidence,
                 terminal_status="accepted",
+                budget=self.budget.snapshot(self.task_id),
             )
         except ArtifactValidationError as exc:
             return self._policy_result(
@@ -2368,6 +2564,7 @@ class AuthoringOrchestrator:
             allowances=dict(self._allowances),
             review_reuse=dict(self._review_reuse),
             failure_evidence_path=None,
+            budget=self.budget.snapshot(self.task_id),
         )
 
     def _plan_stage_policy(
@@ -2900,6 +3097,7 @@ class AuthoringOrchestrator:
         result.review_status = dict(self._review_status) if self._review_status else {}
         result.allowances = dict(self._allowances) if self._allowances else {}
         result.review_reuse = dict(self._review_reuse)
+        result.budget = self.budget.snapshot(self.task_id)
         return result
 
     def _result(
@@ -2919,6 +3117,7 @@ class AuthoringOrchestrator:
             decoded_responses=dict(self._decoded_responses),
             prompts=dict(self._prompt_packets),
             failure_evidence_path=self._finish_failure_evidence(status, findings),
+            budget=self.budget.snapshot(self.task_id),
         )
 
     def _failure_attempt(self) -> dict[str, Any]:
@@ -7140,6 +7339,7 @@ def _package_from_responses(
     detector_bytes: bytes | None = None,
     interface_version: str = AUTHORING_INTERFACE_VERSION,
     policy: dict[str, Any] | None = None,
+    budget: dict[str, Any] | None = None,
     review_status: dict[str, str] | None = None,
     preserved_reviews: dict[str, dict[str, Any]] | None = None,
     terminal_status: str | None = None,
@@ -7298,6 +7498,8 @@ def _package_from_responses(
             )
     if policy is not None:
         authoring_summary["policy"] = dict(policy)
+    if budget is not None:
+        authoring_summary["budget"] = dict(budget)
     if review_status is not None:
         authoring_summary["review_status"] = dict(review_status)
     if terminal_status is not None:
@@ -8975,6 +9177,8 @@ __all__ = [
     "A03_HISTORICAL_REQUESTS",
     "A03_NEW_REQUESTS",
     "A03_UNAVAILABLE_HISTORICAL_SLOTS",
+    "MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK",
+    "MAX_REVIEW_REQUESTS_PER_TASK",
     "AuthoringBudget",
     "AuthoringError",
     "AuthoringOrchestrator",

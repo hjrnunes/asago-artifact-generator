@@ -91,6 +91,30 @@ contradictory reviewer responses and reviewer transport failures produce
 with no automatic retry. An explicit caller, per-task, or aggregate budget cap
 stops the run before the next dispatch.
 
+### Cross-run budget guard
+
+The caller owns spend reconciliation across separate `author` processes. Pass
+both prior per-case counters on every resumed run:
+
+```bash
+uv run asago-artifact-generator author <input.json> \
+  --inventory <inventory.json> \
+  --runtime-contract <runtime-contract.json> \
+  --output-dir runs/authoring/<case-id> \
+  --task-id <case-id> \
+  --prior-author-correction-spend <count> \
+  --prior-review-spend <count>
+```
+
+Use `0` for each counter on a fresh case. The consumer does not discover
+mission ledgers, inspect targets, or infer prior spend. The guard seeds the
+caller-supplied counters before the first dispatch and enforces the per-case
+limits of four author/correction requests, four review requests, and eight
+combined requests, alongside the aggregate authoring limit of 32. If a cap is
+already exhausted, the run records typed `budget_exhausted` evidence and
+contacts no provider. For example, a resumed case with prior author/correction
+spend of `1` has only three author/correction dispatches remaining.
+
 `author` writes an immutable package or durable failure evidence. `check` runs
 only the supplied evidence through the packaged detector in the constrained
 offline harness. Neither command starts a target, setup service, discovery

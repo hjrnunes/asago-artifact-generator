@@ -10,7 +10,12 @@ from typing import Annotated
 import typer
 import yaml
 
-from .authoring import AuthoringOrchestrator, AuthoringPolicy, PrivateModelAuthoringTransport
+from .authoring import (
+    AuthoringBudget,
+    AuthoringOrchestrator,
+    AuthoringPolicy,
+    PrivateModelAuthoringTransport,
+)
 from .detector_runtime import execute_detector
 from .extract import load_scenario
 from .garak.gen import generate_artifact, list_scenario_files
@@ -265,6 +270,27 @@ def author(
             ),
         ),
     ] = False,
+    prior_author_correction_spend: Annotated[
+        int,
+        typer.Option(
+            "--prior-author-correction-spend",
+            "--prior-author-spend",
+            help=(
+                "Caller-supplied prior author/correction requests for this case "
+                "(default: 0). Pass explicitly when resuming."
+            ),
+        ),
+    ] = 0,
+    prior_review_spend: Annotated[
+        int,
+        typer.Option(
+            "--prior-review-spend",
+            help=(
+                "Caller-supplied prior design-review requests for this case "
+                "(default: 0). Pass explicitly when resuming."
+            ),
+        ),
+    ] = 0,
 ) -> None:
     """Author one target-free immutable detector package with per-stage corrections and reviews."""
 
@@ -290,6 +316,18 @@ def author(
     )
     inventory_data = _load_mapping(inventory, "inventory")
     runtime_data = _load_mapping(runtime_contract, "runtime contract")
+    stable_task_id = task_id or view.scenario_id
+    try:
+        AuthoringBudget.from_prior_spend(
+            task_id=stable_task_id,
+            prior_author_correction_spend=prior_author_correction_spend,
+            prior_review_spend=prior_review_spend,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(
+            str(exc),
+            param_hint="--prior-author-correction-spend/--prior-review-spend",
+        ) from None
     try:
         connection = (
             load_authoring_profile(profiles_file, profile)
@@ -306,7 +344,6 @@ def author(
         api_key=connection.api_key,
         model=connection.model,
     )
-    stable_task_id = task_id or view.scenario_id
     package_dir = output_dir / stable_task_id
     result = AuthoringOrchestrator(
         transport=transport,
@@ -314,6 +351,8 @@ def author(
         task_id=stable_task_id,
         wire_version="v2",
         policy=policy,
+        prior_author_correction_spend=prior_author_correction_spend,
+        prior_review_spend=prior_review_spend,
     ).run(view, inventory_data, runtime_data)
     typer.echo(
         json.dumps(
