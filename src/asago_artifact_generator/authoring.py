@@ -525,6 +525,7 @@ class AuthoringResult:
     failure_evidence_path: Path | None = None
     review_status: dict[str, str] = field(default_factory=dict)
     allowances: dict[str, int] = field(default_factory=dict)
+    review_reuse: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -613,10 +614,12 @@ class SavedPlanContinuationDecision:
     provenance: dict[str, str]
     meaning_digest: str
     meaning_preserving_migration: bool = False
+    review_reused: bool = False
+    review_reuse_reason: str = "not_available"
 
     @property
     def skips_call1(self) -> bool:
-        return self.mode == "call2_only"
+        return self.mode in {"call2_only", "call2_only_review"}
 
 
 @dataclass(frozen=True)
@@ -629,6 +632,10 @@ class SavedPlanContinuationV2:
     inventory: dict[str, Any]
     runtime_contract: dict[str, Any]
     call2_packet: PromptPacket | None
+    policy: AuthoringPolicy | None = None
+    plan_review_packet: PromptPacket | None = None
+    review_evidence: dict[str, Any] | None = None
+    review_reuse: dict[str, str] = field(default_factory=dict)
 
     def run(
         self,
@@ -646,6 +653,7 @@ class SavedPlanContinuationV2:
             task_id=task_id,
             budget=budget,
             wire_version="v2",
+            policy=self.policy,
         )
         if not self.decision.skips_call1:
             return orchestrator.run(
@@ -665,7 +673,13 @@ class SavedPlanContinuationV2:
                 "provenance": dict(self.decision.provenance),
                 "meaning_digest": self.decision.meaning_digest,
                 "meaning_preserving_migration": self.decision.meaning_preserving_migration,
+                "review_reuse": dict(self.review_reuse),
             },
+            policy=self.policy,
+            plan_review_packet=self.plan_review_packet,
+            plan_review_reused=self.decision.review_reused,
+            review_reuse=dict(self.review_reuse),
+            review_evidence=deepcopy(self.review_evidence),
         )
 
 
@@ -859,6 +873,9 @@ class AuthoringOrchestrator:
         self._dispatch_recorded = True
         self._allowances: dict[str, int] | None = None
         self._review_status: dict[str, str] | None = None
+        self._review_reuse: dict[str, str] = {}
+        self._review_evidence: dict[str, dict[str, Any]] = {}
+        self._saved_plan_review_packet: PromptPacket | None = None
         self._last_controls: list[dict[str, Any]] | None = None
         self._raw_responses: dict[str, bytes] = {}
         self._decoded_responses: dict[str, Any] = {}
@@ -1071,12 +1088,32 @@ class AuthoringOrchestrator:
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
         continuation: dict[str, Any],
+        policy: AuthoringPolicy | None = None,
+        plan_review_packet: PromptPacket | None = None,
+        plan_review_reused: bool = False,
+        review_reuse: dict[str, str] | None = None,
+        review_evidence: dict[str, Any] | None = None,
     ) -> AuthoringResult:
         """Run a reviewed v2 saved-plan continuation without Call 1."""
 
         self._decoded_responses["call1"] = plan
         self._failure_evidence["continuation"] = continuation
         self._persist_failure_evidence()
+        if policy is not None:
+            self.policy = policy
+            self._saved_plan_review_packet = plan_review_packet
+            self._review_reuse = dict(review_reuse or {})
+            if isinstance(review_evidence, dict):
+                self._review_evidence["plan"] = deepcopy(review_evidence)
+            return self._run_saved_plan_policy(
+                view=view,
+                plan=plan,
+                call2_packet=call2_packet,
+                inventory=inventory,
+                runtime_contract=runtime_contract,
+                continuation=continuation,
+                plan_review_reused=plan_review_reused,
+            )
         parsed, findings, raw = self._request_and_validate_v2(
             call2_packet,
             lambda decoded: collect_artifact_findings_v2(
@@ -1180,6 +1217,7 @@ class AuthoringOrchestrator:
             decoded_responses=dict(self._decoded_responses),
             prompts=dict(self._prompt_packets),
             failure_evidence_path=None,
+            review_reuse=dict(self._review_reuse),
         )
 
     def _run_v2(
@@ -1436,7 +1474,7 @@ class AuthoringOrchestrator:
         raw_key = f"dispatch:{record['dispatch_index']}"
         self._raw_responses[raw_key] = raw
         record["raw_response_key"] = raw_key
-        record["usage"] = _safe_metadata(usage)
+        _set_record_usage(record, usage)
         record["controls"] = _safe_metadata(controls or {"max_retries": 0})
         self._record_available_response(raw, usage, controls)
         try:
@@ -1463,6 +1501,8 @@ class AuthoringOrchestrator:
         self._decoded_responses[stage] = decoded
         record["decoded_output"] = decoded
         self._failure_attempt()["decoded_output"] = decoded
+        if isinstance(decoded, dict):
+            self._record_candidate_digest(decoded)
         self._persist_failure_evidence()
         if not isinstance(decoded, dict):
             finding = Finding("response_type_error", "response must decode to an object", stage)
@@ -1517,7 +1557,7 @@ class AuthoringOrchestrator:
         raw_key = f"dispatch:{record['dispatch_index']}"
         self._raw_responses[raw_key] = raw
         record["raw_response_key"] = raw_key
-        record["usage"] = _safe_metadata(usage)
+        _set_record_usage(record, usage)
         record["controls"] = _safe_metadata(controls or {"max_retries": 0})
         self._record_available_response(raw, usage, controls)
         try:
@@ -1530,6 +1570,7 @@ class AuthoringOrchestrator:
                 record["decoded_output"] = decoded.metadata
                 self._decoded_responses[stage] = decoded.metadata
                 self._failure_attempt()["decoded_output"] = decoded.metadata
+                self._record_candidate_digest(decoded)
             else:
                 decoded, transformation = _decode_v2_json_response(raw)
                 validation_value = decoded
@@ -1541,6 +1582,8 @@ class AuthoringOrchestrator:
                 self._decoded_responses[stage] = decoded
                 record["decoded_output"] = decoded
                 self._failure_attempt()["decoded_output"] = decoded
+                if isinstance(decoded, dict):
+                    self._record_candidate_digest(decoded)
         except (Call1FramingError, Call2FramingError) as exc:
             self._findings.extend(exc.findings)
             record["framing_findings"] = [finding.to_dict() for finding in exc.findings]
@@ -1600,8 +1643,39 @@ class AuthoringOrchestrator:
         dispatch_index = self._dispatch_count + 1
         self._dispatch_count = dispatch_index
         role = "reviewer" if packet.stage in _REVIEW_STAGES else "author"
+        stage_attempt_index = (
+            sum(1 for prior in self._ledger if prior.get("stage") == packet.stage) + 1
+        )
+        failed_stage = (
+            packet.payload.get("failed_stage")
+            if packet.stage == "correction" and isinstance(packet.payload, dict)
+            else None
+        )
+        correction_index = (
+            sum(
+                1
+                for prior in self._ledger
+                if prior.get("stage") == "correction"
+                and prior.get("failed_stage") == failed_stage
+            )
+            + 1
+            if packet.stage == "correction"
+            else 0
+        )
+        policy_record = (
+            self._effective_policy_record()
+            if self.policy is not None
+            else {
+                "legacy": True,
+                "correction_allowed": self.correction_allowed,
+                "max_retries": 0,
+            }
+        )
         record = {
             "dispatch_index": dispatch_index,
+            "attempt_index": stage_attempt_index,
+            "stage_attempt_index": stage_attempt_index,
+            "correction_index": correction_index,
             "role": role,
             "stage": packet.stage,
             "task_id": self.task_id,
@@ -1611,15 +1685,45 @@ class AuthoringOrchestrator:
             "prompt_system": packet.system,
             "prompt_user": packet.user,
             "controls": {"max_retries": 0},
+            "policy": deepcopy(policy_record),
             "raw_response": f"authoring/{dispatch_index}-{packet.stage}.raw",
+            "terminal_status": "in_progress",
         }
+        if packet.stage in _REVIEW_STAGES:
+            input_digest, candidate_digest = _review_packet_digests(packet)
+            effective_controls = self._review_controls(None)
+            record.update(
+                {
+                    "reviewed_input_sha256": input_digest,
+                    "reviewed_candidate_sha256": candidate_digest,
+                    "candidate_bytes_sha256": candidate_digest,
+                    "review": {
+                        "status": "pending",
+                        "prompt_version": packet.version,
+                        "prompt_sha256": packet.sha256,
+                        "reviewed_input_sha256": input_digest,
+                        "reviewed_candidate_sha256": candidate_digest,
+                        "candidate_bytes_sha256": candidate_digest,
+                        "contract_sha256": _review_contract_digest(packet),
+                        "configuration_sha256": _review_configuration_digest(
+                            effective_controls,
+                            self._effective_policy_record() if self.policy is not None else None,
+                        ),
+                        "effective_controls": effective_controls,
+                    },
+                }
+            )
         self._ledger.append(record)
         self._failure_evidence["attempts"].append(
             {
                 "dispatch_index": dispatch_index,
+                "attempt_index": stage_attempt_index,
+                "stage_attempt_index": stage_attempt_index,
+                "correction_index": correction_index,
                 "role": role,
                 "stage": packet.stage,
                 "task_id": self.task_id,
+                "policy": deepcopy(policy_record),
                 "prompt": {
                     "version": packet.version,
                     "sha256": packet.sha256,
@@ -1634,10 +1738,35 @@ class AuthoringOrchestrator:
                 "raw_response": raw_response_record(b"", reason="not_returned"),
                 "usage": metadata_record(None, unavailable_reason="not_returned"),
                 "findings": [],
+                "terminal_status": "in_progress",
             }
         )
+        if packet.stage in _REVIEW_STAGES:
+            self._failure_attempt()["review"] = deepcopy(record["review"])
+            self._failure_attempt()["reviewed_input_sha256"] = record["reviewed_input_sha256"]
+            self._failure_attempt()["reviewed_candidate_sha256"] = record[
+                "reviewed_candidate_sha256"
+            ]
         self._persist_failure_evidence()
-        return self.transport.complete(packet)
+        response = self.transport.complete(packet)
+        raw, usage, controls = _response_parts(response)
+        raw_key = f"dispatch:{dispatch_index}"
+        self._raw_responses[raw_key] = raw
+        record["raw_response_key"] = raw_key
+        _set_record_usage(record, usage)
+        record["controls"] = _safe_metadata(controls or {"max_retries": 0})
+        attempt = self._failure_attempt()
+        attempt["raw_response"] = raw_response_record(raw)
+        attempt["usage"] = metadata_record(
+            usage if usage else None,
+            unavailable_reason="provider_did_not_report_usage",
+        )
+        attempt["controls"] = metadata_record(
+            controls or {"max_retries": 0},
+            unavailable_reason="controls_not_recorded",
+        )
+        self._persist_failure_evidence()
+        return response
 
     def _correction(
         self,
@@ -1702,7 +1831,7 @@ class AuthoringOrchestrator:
         self._raw_responses[raw_key] = raw
         self._raw_responses["correction"] = raw
         self._ledger[-1]["raw_response_key"] = raw_key
-        self._ledger[-1]["usage"] = _safe_metadata(usage)
+        _set_record_usage(self._ledger[-1], usage)
         self._ledger[-1]["controls"] = _safe_metadata(controls or {"max_retries": 0})
         self._ledger[-1]["failed_stage"] = failed_stage
         self._failure_attempt()["failed_stage"] = failed_stage
@@ -1723,6 +1852,7 @@ class AuthoringOrchestrator:
             assert_no_secrets(decoded)
             self._decoded_responses[f"correction-{failed_stage}"] = decoded
             self._failure_attempt()["decoded_output"] = decoded
+            self._record_candidate_digest(decoded)
             self._persist_failure_evidence()
             self._ledger[-1]["decoded_output"] = decoded
             if not isinstance(decoded, dict):
@@ -1899,7 +2029,7 @@ class AuthoringOrchestrator:
         self._raw_responses[raw_key] = raw
         self._raw_responses["correction"] = raw
         self._ledger[-1]["raw_response_key"] = raw_key
-        self._ledger[-1]["usage"] = _safe_metadata(usage)
+        _set_record_usage(self._ledger[-1], usage)
         self._ledger[-1]["controls"] = _safe_metadata(controls or {"max_retries": 0})
         self._ledger[-1]["failed_stage"] = failed_stage
         self._failure_attempt()["failed_stage"] = failed_stage
@@ -1930,6 +2060,7 @@ class AuthoringOrchestrator:
             )
             self._decoded_responses[f"correction-{failed_stage}"] = decoded
             self._failure_attempt()["decoded_output"] = decoded
+            self._record_candidate_digest(validation_value)
             self._persist_failure_evidence()
             if not isinstance(decoded, dict):
                 raise ValueError("correction response must decode to an object")
@@ -2038,6 +2169,7 @@ class AuthoringOrchestrator:
                 interface_version=AUTHORING_INTERFACE_VERSION_V2,
                 policy=self._effective_policy_record(),
                 review_status=dict(self._review_status),
+                preserved_reviews=self._review_evidence,
                 terminal_status="accepted",
             )
         except ArtifactValidationError as exc:
@@ -2068,6 +2200,172 @@ class AuthoringOrchestrator:
             prompts=dict(self._prompt_packets),
             review_status=dict(self._review_status),
             allowances=dict(self._allowances),
+            review_reuse=dict(self._review_reuse),
+            failure_evidence_path=None,
+        )
+
+    def _run_saved_plan_policy(
+        self,
+        *,
+        view: InputView,
+        plan: dict[str, Any],
+        call2_packet: PromptPacket,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+        continuation: dict[str, Any],
+        plan_review_reused: bool,
+    ) -> AuthoringResult:
+        """Continue a validated plan under the normal review policy.
+
+        A saved plan skips only its author request.  It still receives a fresh
+        review when the preserved review does not cover the current authority,
+        and both stage-local allowances remain available for corrections.
+        """
+
+        policy = self.policy
+        assert policy is not None
+        self._allowances = {
+            "plan": policy.plan_max_corrections,
+            "artifact": policy.artifact_max_corrections,
+        }
+        self._review_status = {"plan": "not_requested", "artifact": "not_requested"}
+        self._failure_evidence["policy"] = self._effective_policy_record()
+        self._failure_evidence["review_status"] = dict(self._review_status)
+        self._persist_failure_evidence()
+
+        current_plan = plan
+        if not policy.review_plan:
+            self._review_status["plan"] = "not_requested"
+            self._review_reuse["plan"] = "not_requested"
+        elif plan_review_reused:
+            self._review_status["plan"] = "accepted"
+            self._review_reuse["plan"] = "reused"
+        else:
+            self._review_reuse["plan"] = "fresh_dispatch"
+            review_packet = self._saved_plan_review_packet or build_plan_review_packet(
+                view, current_plan, inventory, runtime_contract
+            )
+            while True:
+                outcome = self._semantic_review("plan", review_packet)
+                if outcome.stop is not None:
+                    return self._policy_result(
+                        outcome.stop.status,
+                        current_plan,
+                        outcome.stop.findings,
+                    )
+                if outcome.decision == "accept":
+                    self._review_status["plan"] = "accepted"
+                    break
+                if outcome.decision == "blocked":
+                    self._review_status["plan"] = "blocked"
+                    return self._policy_result(
+                        "blocked",
+                        current_plan,
+                        self._semantic_finding_objects(outcome, "plan"),
+                    )
+                self._review_status["plan"] = "revise"
+                if not self._consume_allowance("plan"):
+                    return self._policy_result(
+                        "unresolved",
+                        current_plan,
+                        [
+                            *self._semantic_finding_objects(outcome, "plan"),
+                            Finding(
+                                "correction_limit_exhausted",
+                                "plan correction allowance is exhausted",
+                                "plan",
+                            ),
+                        ],
+                    )
+                findings = list(self._semantic_finding_objects(outcome, "plan"))
+                correction_packet = build_call1_packet_v2(
+                    view, inventory, runtime_contract
+                )
+                replacement = self._correction_v2(
+                    failed_stage="call1",
+                    failed_packet=correction_packet,
+                    failed_response=_canonical_json(current_plan).encode("utf-8"),
+                    findings=findings,
+                    view=view,
+                    inventory=inventory,
+                    runtime_contract=runtime_contract,
+                    stage_allowance="plan",
+                )
+                if replacement is None or not isinstance(replacement[0], dict):
+                    return self._policy_result(
+                        "unresolved",
+                        current_plan,
+                        tuple(self._findings or findings),
+                    )
+                current_plan = replacement[0]
+                self._decoded_responses["call1"] = current_plan
+                review_packet = build_plan_review_packet(
+                    view, current_plan, inventory, runtime_contract
+                )
+
+        artifact = self._artifact_stage_policy(
+            view, current_plan, inventory, runtime_contract
+        )
+        if isinstance(artifact, _StageStop):
+            return self._policy_result(artifact.status, current_plan, artifact.findings)
+        parsed, metadata, artifact_definition = artifact
+        try:
+            package = _package_from_responses(
+                view=view,
+                plan=current_plan,
+                artifact=artifact_definition,
+                task_id=self.task_id,
+                ledger=self._ledger,
+                raw_responses=self._raw_responses,
+                decoded_responses=self._decoded_responses,
+                prompt_packets=self._prompt_packets,
+                transformations=self._transformations,
+                inventory=inventory,
+                runtime_contract=runtime_contract,
+                continuation={
+                    **continuation,
+                    "review_reuse": dict(self._review_reuse),
+                },
+                detector_bytes=parsed.python_bytes,
+                interface_version=AUTHORING_INTERFACE_VERSION_V2,
+                policy=self._effective_policy_record(),
+                review_status=dict(self._review_status),
+                preserved_reviews=self._review_evidence,
+                terminal_status="accepted",
+            )
+        except ArtifactValidationError as exc:
+            return self._policy_result(
+                "failed",
+                current_plan,
+                [Finding("assembly_validation", exc.message, exc.path)],
+            )
+        try:
+            path = write_package(self.package_dir, package)
+        except Exception as exc:
+            return self._policy_result(
+                "failed",
+                current_plan,
+                [Finding("package_write_failed", str(exc))],
+            )
+        self._failure_evidence["review_status"] = dict(self._review_status)
+        self._failure_evidence["allowances"] = dict(self._allowances)
+        self._finish_failure_evidence("accepted", [])
+        return AuthoringResult(
+            status="accepted",
+            task_id=self.task_id,
+            plan=current_plan,
+            artifact=metadata,
+            package=package,
+            package_path=path,
+            findings=[],
+            ledger=list(self._ledger),
+            transformations=list(self._transformations),
+            raw_responses=dict(self._raw_responses),
+            decoded_responses=dict(self._decoded_responses),
+            prompts=dict(self._prompt_packets),
+            review_status=dict(self._review_status),
+            allowances=dict(self._allowances),
+            review_reuse=dict(self._review_reuse),
             failure_evidence_path=None,
         )
 
@@ -2146,7 +2444,9 @@ class AuthoringOrchestrator:
                 return _StageStop("blocked")
             if not policy.review_plan:
                 self._review_status["plan"] = "not_requested"
+                self._review_reuse["plan"] = "not_requested"
                 return candidate
+            self._review_reuse["plan"] = "fresh_dispatch"
             try:
                 review_packet = build_plan_review_packet(
                     view, candidate, inventory, runtime_contract
@@ -2273,7 +2573,9 @@ class AuthoringOrchestrator:
             assert parsed is not None
             if not policy.review_artifact:
                 self._review_status["artifact"] = "not_requested"
+                self._review_reuse["artifact"] = "not_requested"
                 return self._artifact_parts(parsed, plan)
+            self._review_reuse["artifact"] = "fresh_dispatch"
             try:
                 review_packet = build_artifact_review_packet(
                     view,
@@ -2366,6 +2668,11 @@ class AuthoringOrchestrator:
                 self._ledger[-1]["reviewed_candidate_sha256"] = candidate_digest
                 self._failure_attempt()["reviewed_input_sha256"] = input_digest
                 self._failure_attempt()["reviewed_candidate_sha256"] = candidate_digest
+                self._set_review_evidence(
+                    status="unavailable",
+                    effective_controls=effective_controls,
+                    packet=packet,
+                )
             self._record_unavailable_response(
                 reason="provider_failure",
                 detail=_safe_error(exc),
@@ -2383,14 +2690,20 @@ class AuthoringOrchestrator:
         self._raw_responses[raw_key] = raw
         self._raw_responses[packet.stage] = raw
         record["raw_response_key"] = raw_key
-        record["usage"] = _safe_metadata(usage)
+        _set_record_usage(record, usage)
         effective_controls = self._review_controls(controls)
         record["controls"] = effective_controls
         input_digest, candidate_digest = _review_packet_digests(packet)
         record["reviewed_input_sha256"] = input_digest
         record["reviewed_candidate_sha256"] = candidate_digest
+        record["candidate_bytes_sha256"] = candidate_digest
         self._failure_attempt()["reviewed_input_sha256"] = input_digest
         self._failure_attempt()["reviewed_candidate_sha256"] = candidate_digest
+        self._set_review_evidence(
+            status="pending",
+            effective_controls=effective_controls,
+            packet=packet,
+        )
         self._record_available_response(raw, usage, effective_controls)
         try:
             review = parse_review_response(raw)
@@ -2399,6 +2712,11 @@ class AuthoringOrchestrator:
             self._findings.append(finding)
             if self._dispatch_recorded:
                 self._ledger[-1]["review_error"] = [item.to_dict() for item in exc.findings]
+            self._set_review_evidence(
+                status="unavailable",
+                effective_controls=effective_controls,
+                packet=packet,
+            )
             self._record_failures(list(exc.findings))
             if self._dispatch_recorded:
                 self._ledger[-1]["failure"] = {
@@ -2429,8 +2747,16 @@ class AuthoringOrchestrator:
             self._failure_attempt()["transformation"] = review.transformation
             self._failure_evidence["transformations"] = list(self._transformations)
         record["review"] = review_record
+        self._set_review_evidence(
+            status={"accept": "accepted", "revise": "revise", "blocked": "blocked"}[
+                review.decision
+            ],
+            effective_controls=effective_controls,
+            packet=packet,
+            review=review_record,
+        )
         self._decoded_responses[packet.stage] = review_record
-        self._failure_attempt()["review"] = review_record
+        self._failure_attempt()["review"] = deepcopy(record["review"])
         self._persist_failure_evidence()
         return _ReviewOutcome(
             decision=review.decision,
@@ -2505,6 +2831,60 @@ class AuthoringOrchestrator:
         effective["max_retries"] = 0
         return effective
 
+    def _set_review_evidence(
+        self,
+        *,
+        status: str,
+        effective_controls: dict[str, Any],
+        packet: PromptPacket,
+        review: dict[str, Any] | None = None,
+    ) -> None:
+        """Update the durable review record shared by ledger and failure evidence."""
+
+        if not self._dispatch_recorded or not self._ledger or not self._failure_evidence.get(
+            "attempts"
+        ):
+            return
+        record = self._ledger[-1]
+        evidence = record.setdefault("review", {})
+        evidence.update(
+            {
+                "status": status,
+                "prompt_version": packet.version,
+                "prompt_sha256": packet.sha256,
+                "reviewed_input_sha256": record.get(
+                    "reviewed_input_sha256", _review_packet_digests(packet)[0]
+                ),
+                "reviewed_candidate_sha256": record.get(
+                    "reviewed_candidate_sha256", _review_packet_digests(packet)[1]
+                ),
+                "candidate_bytes_sha256": record.get(
+                    "candidate_bytes_sha256", _review_packet_digests(packet)[1]
+                ),
+                "contract_sha256": _review_contract_digest(packet),
+                "configuration_sha256": _review_configuration_digest(
+                    effective_controls,
+                    self._effective_policy_record() if self.policy is not None else None,
+                ),
+                "effective_controls": dict(effective_controls),
+            }
+        )
+        raw_key = record.get("raw_response_key")
+        raw = self._raw_responses.get(raw_key) if isinstance(raw_key, str) else None
+        if raw is not None:
+            evidence["raw_response_key"] = raw_key
+            evidence["raw_response_sha256"] = _sha256(raw)
+            evidence["raw_response_bytes"] = len(raw)
+        if review is not None:
+            evidence["decision"] = review["decision"]
+            evidence["summary"] = review["summary"]
+            evidence["findings"] = deepcopy(review["findings"])
+        attempt = self._failure_attempt()
+        attempt["review"] = deepcopy(evidence)
+        self._review_evidence["plan" if packet.stage == "plan_review" else "artifact"] = deepcopy(
+            evidence
+        )
+
     def _policy_result(
         self,
         status: str,
@@ -2518,6 +2898,7 @@ class AuthoringOrchestrator:
         result = self._result(status, plan, list(findings))
         result.review_status = dict(self._review_status) if self._review_status else {}
         result.allowances = dict(self._allowances) if self._allowances else {}
+        result.review_reuse = dict(self._review_reuse)
         return result
 
     def _result(
@@ -2541,6 +2922,20 @@ class AuthoringOrchestrator:
 
     def _failure_attempt(self) -> dict[str, Any]:
         return self._failure_evidence["attempts"][-1]
+
+    def _record_candidate_digest(self, candidate: dict[str, Any] | ParsedCall2Response) -> None:
+        """Pin the normalized candidate bytes to the current dispatch event."""
+
+        if isinstance(candidate, ParsedCall2Response):
+            digest = _sha256(
+                _canonical_json(candidate.metadata).encode("utf-8")
+                + b"\0"
+                + candidate.python_bytes
+            )
+        else:
+            digest = _sha256(_canonical_json(candidate).encode("utf-8"))
+        self._ledger[-1]["candidate_sha256"] = digest
+        self._failure_attempt()["candidate_sha256"] = digest
 
     def _record_available_response(
         self,
@@ -2634,6 +3029,12 @@ class AuthoringOrchestrator:
         self._failure_evidence["findings"] = [finding.to_dict() for finding in self._findings] or [
             finding.to_dict() for finding in findings
         ]
+        for attempt in self._failure_evidence["attempts"]:
+            attempt["terminal_status"] = status
+            attempt["stage_status"] = status
+        for record in self._ledger:
+            record["terminal_status"] = status
+            record["stage_status"] = status
         aggregate = self._failure_evidence.get("aggregate")
         if isinstance(aggregate, dict) and isinstance(aggregate.get("spent_before"), int):
             aggregate["spent_after"] = aggregate["spent_before"] + len(
@@ -3439,6 +3840,26 @@ def _review_packet_digests(packet: PromptPacket) -> tuple[str, str]:
         ).encode("utf-8")
     )
     return input_digest, candidate_digest
+
+
+def _review_contract_digest(packet: PromptPacket) -> str:
+    """Digest the exact reviewer response contract supplied to the provider."""
+
+    contract = packet.payload.get("response_contract")
+    return _sha256(_canonical_json(contract).encode("utf-8"))
+
+
+def _review_configuration_digest(
+    controls: dict[str, Any],
+    policy: dict[str, Any] | None,
+) -> str:
+    """Digest reviewer controls and policy without retaining endpoint material."""
+
+    configuration = {
+        "controls": redact_metadata(controls),
+        "policy": redact_metadata(policy) if policy is not None else None,
+    }
+    return _sha256(_canonical_json(configuration).encode("utf-8"))
 
 
 def parse_call2_response(raw: bytes | str) -> ParsedCall2Response:
@@ -6065,6 +6486,8 @@ def prepare_saved_plan_continuation_v2(
     runtime_contract: dict[str, Any],
     provenance: dict[str, Any],
     meaning_review: dict[str, Any] | None = None,
+    review_evidence: dict[str, Any] | None = None,
+    policy: AuthoringPolicy | None = None,
 ) -> SavedPlanContinuationV2:
     """Decide whether a saved plan may skip Call 1.
 
@@ -6072,6 +6495,15 @@ def prepare_saved_plan_continuation_v2(
     provenance or meaning check returns ``fresh_call1`` rather than silently
     repairing a model decision.
     """
+
+    if review_evidence is not None and policy is None:
+        # A preserved review is a new authority-bearing continuation input.
+        # Use the new author defaults for the remaining stage; the saved
+        # review covers only the plan, so artifact review remains required.
+        policy = AuthoringPolicy()
+    if isinstance(review_evidence, dict) and isinstance(review_evidence.get("plan"), dict):
+        # Accept the package member shape as well as the direct plan record.
+        review_evidence = deepcopy(review_evidence["plan"])
 
     findings: list[Finding] = []
     expected = {
@@ -6108,32 +6540,33 @@ def prepare_saved_plan_continuation_v2(
                 "provenance.meaning_sha256",
             )
         )
-    if meaning_review is None:
-        findings.append(
-            Finding(
-                "meaning_review_required",
-                "saved plan has no passing current semantic review",
-                "meaning_review",
-            )
-        )
-    else:
-        if meaning_review.get("status") != "passed":
+    if review_evidence is None and policy is None:
+        if meaning_review is None:
             findings.append(
                 Finding(
                     "meaning_review_required",
                     "saved plan has no passing current semantic review",
-                    "meaning_review.status",
+                    "meaning_review",
                 )
             )
-        reviewed_digest = meaning_review.get("meaning_sha256")
-        if reviewed_digest != meaning_digest:
-            findings.append(
-                Finding(
-                    "meaning_changed",
-                    "current semantic review covers different plan meaning",
-                    "meaning_review.meaning_sha256",
+        else:
+            if meaning_review.get("status") != "passed":
+                findings.append(
+                    Finding(
+                        "meaning_review_required",
+                        "saved plan has no passing current semantic review",
+                        "meaning_review.status",
+                    )
                 )
-            )
+            reviewed_digest = meaning_review.get("meaning_sha256")
+            if reviewed_digest != meaning_digest:
+                findings.append(
+                    Finding(
+                        "meaning_changed",
+                        "current semantic review covers different plan meaning",
+                        "meaning_review.meaning_sha256",
+                    )
+                )
     if not isinstance(saved_plan.get("selected_evidence"), list):
         findings.append(
             Finding(
@@ -6149,7 +6582,7 @@ def prepare_saved_plan_continuation_v2(
             **expected,
             "wire_version": "v2",
             "meaning_sha256": meaning_digest,
-            "review_status": "passed" if not findings else "fresh_call1_required",
+            "review_status": "fresh_call1_required" if findings else "validated",
         }.items()
     }
     if findings:
@@ -6165,22 +6598,57 @@ def prepare_saved_plan_continuation_v2(
             inventory=inventory,
             runtime_contract=runtime_contract,
             call2_packet=None,
+            policy=policy,
+            review_evidence=deepcopy(review_evidence),
         )
     packet = build_call2_packet_v2(input_view, saved_plan, inventory, runtime_contract)
+    plan_review_packet: PromptPacket | None = None
+    review_reused = False
+    review_reuse_reason = "not_available"
+    review_reuse = {"plan": "not_requested"}
+    if policy is not None and policy.review_plan:
+        plan_review_packet = build_plan_review_packet(
+            input_view,
+            saved_plan,
+            inventory,
+            runtime_contract,
+        )
+        if review_evidence is not None and _saved_review_matches(
+            review_evidence,
+            packet=plan_review_packet,
+            policy=policy,
+        ):
+            review_reused = True
+            review_reuse_reason = "exact_authority_match"
+            review_reuse = {"plan": "reused"}
+        else:
+            review_reuse_reason = (
+                "review_missing" if review_evidence is None else "review_authority_mismatch"
+            )
+            review_reuse = {"plan": "fresh_dispatch"}
+    if policy is not None and not policy.review_plan:
+        review_reuse = {"plan": "not_requested"}
+    mode = "call2_only_review" if review_reuse.get("plan") == "fresh_dispatch" else "call2_only"
     return SavedPlanContinuationV2(
         decision=SavedPlanContinuationDecision(
-            mode="call2_only",
+            mode=mode,
             findings=(),
             provenance=provenance_output,
             meaning_digest=meaning_digest,
             meaning_preserving_migration=provenance.get("representation_migration")
             == "meaning-preserving",
+            review_reused=review_reused,
+            review_reuse_reason=review_reuse_reason,
         ),
         saved_plan=saved_plan,
         input_view=input_view,
         inventory=inventory,
         runtime_contract=runtime_contract,
         call2_packet=packet,
+        policy=policy,
+        plan_review_packet=plan_review_packet,
+        review_evidence=deepcopy(review_evidence),
+        review_reuse=review_reuse,
     )
 
 
@@ -6203,6 +6671,61 @@ def _plan_meaning_digest(plan: dict[str, Any]) -> str:
         )
     }
     return _mapping_sha256(meaning)
+
+
+def _policy_record_for_review(policy: AuthoringPolicy | None) -> dict[str, Any] | None:
+    """Return the policy fields that contribute reviewer authority."""
+
+    if policy is None:
+        return None
+    return {
+        "plan_max_corrections": policy.plan_max_corrections,
+        "artifact_max_corrections": policy.artifact_max_corrections,
+        "review_plan": policy.review_plan,
+        "review_artifact": policy.review_artifact,
+        "review_model_profile": policy.review_model_profile,
+        "review_temperature": 0,
+        "max_retries": 0,
+    }
+
+
+def _saved_review_matches(
+    review: dict[str, Any],
+    *,
+    packet: PromptPacket,
+    policy: AuthoringPolicy | None,
+) -> bool:
+    """Check every exact authority pin needed to reuse an accepted review."""
+
+    if review.get("status") not in {"accepted", "passed"}:
+        return False
+    if review.get("decision") != "accept":
+        return False
+    if review.get("prompt_version") != packet.version:
+        return False
+    input_digest, candidate_digest = _review_packet_digests(packet)
+    if review.get("prompt_sha256") != packet.sha256:
+        return False
+    if review.get("reviewed_input_sha256") != input_digest:
+        return False
+    if review.get("reviewed_candidate_sha256") != candidate_digest:
+        return False
+    if review.get("candidate_bytes_sha256") != candidate_digest:
+        return False
+    if review.get("contract_sha256") != _review_contract_digest(packet):
+        return False
+    controls = review.get("effective_controls")
+    if not isinstance(controls, dict):
+        return False
+    if controls.get("temperature") != 0 or controls.get("max_retries") != 0:
+        return False
+    if policy is not None and controls.get("review_model_profile") != policy.review_model_profile:
+        return False
+    expected_configuration = _review_configuration_digest(
+        controls,
+        _policy_record_for_review(policy),
+    )
+    return review.get("configuration_sha256") == expected_configuration
 
 
 def _continuation_budget(
@@ -6518,13 +7041,18 @@ def _package_from_responses(
     interface_version: str = AUTHORING_INTERFACE_VERSION,
     policy: dict[str, Any] | None = None,
     review_status: dict[str, str] | None = None,
+    preserved_reviews: dict[str, dict[str, Any]] | None = None,
     terminal_status: str | None = None,
 ) -> ArtifactPackage:
     authoring_records: dict[str, bytes] = {}
     for index, record in enumerate(ledger, start=1):
         stage = record["stage"]
+        package_record = dict(record)
+        if terminal_status is not None:
+            package_record["terminal_status"] = terminal_status
+            package_record["stage_status"] = terminal_status
         authoring_records[f"authoring/{index:02d}-{stage}.json"] = (
-            _canonical_json(record).encode("utf-8") + b"\n"
+            _canonical_json(package_record).encode("utf-8") + b"\n"
         )
         raw = raw_responses.get(record.get("raw_response_key", ""))
         if raw is None:
@@ -6542,9 +7070,33 @@ def _package_from_responses(
                 authoring_records[f"authoring/{index:02d}-{stage}.prompt"] = packet.user.encode(
                     "utf-8"
                 )
-    authoring_records["authoring/ledger.json"] = _canonical_json(ledger).encode("utf-8") + b"\n"
     authoring_records["authoring/transformations.json"] = (
         _canonical_json(transformations).encode("utf-8") + b"\n"
+    )
+    review_records = _package_review_records(
+        ledger,
+        review_status=review_status,
+        preserved_reviews=preserved_reviews,
+    )
+    authoring_records["authoring/reviews.json"] = (
+        _canonical_json(review_records).encode("utf-8") + b"\n"
+    )
+    package_ledger = [
+        {
+            **record,
+            **(
+                {
+                    "terminal_status": terminal_status,
+                    "stage_status": terminal_status,
+                }
+                if terminal_status is not None
+                else {}
+            ),
+        }
+        for record in ledger
+    ]
+    authoring_records["authoring/ledger.json"] = (
+        _canonical_json(package_ledger).encode("utf-8") + b"\n"
     )
     members = {
         "plan.json": _json_bytes(plan),
@@ -6584,7 +7136,19 @@ def _package_from_responses(
     safe_ledger = [
         {
             key: value
-            for key, value in record.items()
+            for key, value in (
+                {
+                    **record,
+                    **(
+                        {
+                            "terminal_status": terminal_status,
+                            "stage_status": terminal_status,
+                        }
+                        if terminal_status is not None
+                        else {}
+                    ),
+                }
+            ).items()
             if key not in {"prompt_system", "prompt_user"} and not (key == "usage" and not value)
         }
         for record in ledger
@@ -6647,6 +7211,41 @@ def _package_from_responses(
         runtime_capabilities=runtime_contract,
         creation_model=creation_model,
     )
+
+
+def _package_review_records(
+    ledger: list[dict[str, Any]],
+    *,
+    review_status: dict[str, str] | None,
+    preserved_reviews: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Return the package-owned review truth, including disabled stages."""
+
+    records: dict[str, Any] = {}
+    for stage, key in (("plan_review", "plan"), ("artifact_review", "artifact")):
+        requested_status = (review_status or {}).get(key)
+        matching = [
+            record.get("review")
+            for record in ledger
+            if record.get("stage") == stage and isinstance(record.get("review"), dict)
+        ]
+        if requested_status == "not_requested":
+            records[key] = {"status": "not_requested"}
+        elif matching:
+            records[key] = deepcopy(matching[-1])
+        elif isinstance(preserved_reviews, dict) and isinstance(
+            preserved_reviews.get(key), dict
+        ):
+            records[key] = deepcopy(preserved_reviews[key])
+        else:
+            records[key] = {
+                "status": requested_status or "not_requested",
+            }
+    return {
+        "schema_version": "authoring-review-evidence-v1",
+        "plan": records["plan"],
+        "artifact": records["artifact"],
+    }
 
 
 def _response_parts(
@@ -6831,6 +7430,15 @@ def _findings_from_error(exc: Exception) -> list[Finding]:
 
 def _safe_metadata(value: Any) -> dict[str, Any]:
     return redact_metadata(value) if isinstance(value, dict) else {}
+
+
+def _set_record_usage(record: dict[str, Any], usage: Any) -> None:
+    """Persist provider usage only when the transport supplied it."""
+
+    if usage is None:
+        record.pop("usage", None)
+    else:
+        record["usage"] = _safe_metadata(usage)
 
 
 def _safe_error(exc: BaseException) -> str:
