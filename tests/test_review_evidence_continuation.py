@@ -28,6 +28,7 @@ from .test_stage_local_orchestration import (
 def _provenance(plan: dict, view, inventory: dict, runtime: dict) -> dict[str, str]:
     def canonical(value: object) -> bytes:
         return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
     meaning = {
         key: plan.get(key)
         for key in (

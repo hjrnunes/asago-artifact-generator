@@ -84,9 +84,10 @@ def test_scn030_preparation_preserves_handoff_pins_and_typed_lookup_result() -> 
         prepared.runtime_contract,
     )
     assert context["execution_capabilities"]["setup_permissions"] == ["lookup_order"]
-    assert context["field_guide"]["neutral_binding_example"]["runtime_bindings"][0][
-        "source_ref"
-    ] == "setup:lookup_order"
+    assert (
+        context["field_guide"]["neutral_binding_example"]["runtime_bindings"][0]["source_ref"]
+        == "setup:lookup_order"
+    )
     assert "setup:process_refund" not in json.dumps(context)
 
 
@@ -132,7 +133,6 @@ def test_continuation_rejects_stale_refreshed_authoring_input_pins() -> None:
 
     assert continuation.decision.mode == "fresh_call1"
     assert any(
-        finding.code == "provenance_mismatch"
-        and finding.path == "provenance.authoring_input_pins"
+        finding.code == "provenance_mismatch" and finding.path == "provenance.authoring_input_pins"
         for finding in continuation.decision.findings
     )

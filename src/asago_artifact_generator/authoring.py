@@ -1849,8 +1849,7 @@ class AuthoringOrchestrator:
             sum(
                 1
                 for prior in self._ledger
-                if prior.get("stage") == "correction"
-                and prior.get("failed_stage") == failed_stage
+                if prior.get("stage") == "correction" and prior.get("failed_stage") == failed_stage
             )
             + 1
             if packet.stage == "correction"
@@ -2474,9 +2473,7 @@ class AuthoringOrchestrator:
                         ],
                     )
                 findings = list(self._semantic_finding_objects(outcome, "plan"))
-                correction_packet = build_call1_packet_v2(
-                    view, inventory, runtime_contract
-                )
+                correction_packet = build_call1_packet_v2(view, inventory, runtime_contract)
                 replacement = self._correction_v2(
                     failed_stage="call1",
                     failed_packet=correction_packet,
@@ -2499,9 +2496,7 @@ class AuthoringOrchestrator:
                     view, current_plan, inventory, runtime_contract
                 )
 
-        artifact = self._artifact_stage_policy(
-            view, current_plan, inventory, runtime_contract
-        )
+        artifact = self._artifact_stage_policy(view, current_plan, inventory, runtime_contract)
         if isinstance(artifact, _StageStop):
             return self._policy_result(artifact.status, current_plan, artifact.findings)
         parsed, metadata, artifact_definition = artifact
@@ -3039,8 +3034,10 @@ class AuthoringOrchestrator:
     ) -> None:
         """Update the durable review record shared by ledger and failure evidence."""
 
-        if not self._dispatch_recorded or not self._ledger or not self._failure_evidence.get(
-            "attempts"
+        if (
+            not self._dispatch_recorded
+            or not self._ledger
+            or not self._failure_evidence.get("attempts")
         ):
             return
         record = self._ledger[-1]
@@ -7548,9 +7545,7 @@ def _package_review_records(
             records[key] = {"status": "not_requested"}
         elif matching:
             records[key] = deepcopy(matching[-1])
-        elif isinstance(preserved_reviews, dict) and isinstance(
-            preserved_reviews.get(key), dict
-        ):
+        elif isinstance(preserved_reviews, dict) and isinstance(preserved_reviews.get(key), dict):
             records[key] = deepcopy(preserved_reviews[key])
         else:
             records[key] = {
