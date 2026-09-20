@@ -142,6 +142,41 @@ correction request, and permits one artifact-review dispatch with
 preflight defects write terminal continuation evidence and produce no package.
 The same prepared continuation cannot run twice.
 
+### Sealed O04 correction-first continuation
+
+The O04 continuation owns one saved-artifact correction and one conditional
+artifact review. Prepare it from the pinned historical failure sidecar and
+offline mismatch proof, then supply a caller-owned scripted or private
+transport:
+
+```python
+continuation = prepare_o04_correction_continuation(
+    failure_sidecar="/absolute/path/to/O04.failure-evidence.json",
+    mismatch_proof="/absolute/path/to/mismatch-evidence.json",
+    package_dir="/absolute/path/to/new-package",
+    task_id="O04-corrected-artifact-continuation",
+)
+result = continuation.run(transport_factory=transport_factory)
+```
+
+Preparation verifies the original PAT-104 and approved-education facts,
+accepted plan and review, exact saved metadata/Python, runtime contract,
+unchanged eleven controls and outcomes, and the completed mismatch proof
+before constructing a transport. It records historical spend as 4
+author/correction and 1 review, then adds a separate 1/1 correction and
+conditional 1/1 review allowance. The seam constructs no plan or fresh
+artifact request, permits no retry, and excludes the test-owned conformant
+detector from the correction prompt. The prompt names the supported
+`availability.messages`, `completeness.messages`, and `judge.verdict` paths
+alongside each incompatible saved read.
+
+The corrected candidate must pass the existing deterministic checks and all
+eleven constrained Docker controls before one artifact review is dispatched.
+Only an `accept` review reaches immutable package assembly. Correction,
+control, review, transport, package, and preflight non-pass outcomes are
+terminal and write continuation evidence without a package. This consumer
+seam remains target-free; downstream owns any later MiniOcciAI execution.
+
 `author` writes an immutable package or durable failure evidence. `check` runs
 only the supplied evidence through the packaged detector in the constrained
 offline harness. Neither command starts a target, setup service, discovery

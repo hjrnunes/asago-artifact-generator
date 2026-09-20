@@ -89,6 +89,21 @@ writes terminal evidence for every non-accept or preflight outcome. Only
 `accept` reaches the existing immutable package assembly path; a prepared
 continuation cannot run twice.
 
+The sealed
+`prepare_o04_correction_continuation(...)` /
+`O04CorrectionContinuation.run(...)` seam consumes the exact saved O04
+artifact, accepted plan, original PAT-104 and approved-education facts,
+runtime contract, eleven controls, historical outcomes, and offline mismatch
+proof. It seeds historical 4/1 spend separately from one artifact correction
+and one conditional artifact-review allowance. It constructs no plan or fresh
+artifact authoring request, uses zero retries, and builds the correction
+prompt from the supported `availability.messages`, `completeness.messages`,
+and `judge.verdict` packet paths plus incompatible saved reads. The
+test-owned conformant detector stays outside the prompt. Unchanged
+deterministic checks and controls gate one review, and only review `accept`
+reaches existing immutable package assembly; every other outcome writes
+terminal evidence without a package.
+
 The `generate` command remains a read-only compatibility path for historical
 scenario YAMLs. New work uses producer `run`, consumer `author`, consumer
 `check`, and frozen downstream execution.
