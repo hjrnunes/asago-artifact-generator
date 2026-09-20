@@ -234,6 +234,120 @@ def test_call1_v2_has_closed_root_and_reports_all_root_faults() -> None:
     }
 
 
+def test_v2_call1_accepts_one_lowercase_json_fence_through_orchestrator(tmp_path) -> None:
+    plan = _plan()
+    raw_plan = b" \n```json\n" + json.dumps(plan, sort_keys=True).encode("utf-8") + b"\n```\n\t"
+    transport = ScriptedAuthoringTransport([raw_plan, _framed()])
+
+    result = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=tmp_path / "package",
+        task_id="v2-fenced-call1",
+        wire_version="v2",
+    ).run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "packaged"
+    assert result.raw_responses["call1"] == raw_plan
+    assert result.transformations == ["outer_fence_removed"]
+    assert result.ledger[0]["transformation"] == "outer_fence_removed"
+    assert result.prompts["call1"].payload["response_contract"]["framing"]["accepted"]
+
+
+def test_v2_call1_accepts_one_bare_object_without_transformation(tmp_path) -> None:
+    raw_plan = json.dumps(_plan(), sort_keys=True).encode("utf-8")
+    result = AuthoringOrchestrator(
+        transport=ScriptedAuthoringTransport([raw_plan, _framed()]),
+        package_dir=tmp_path / "package",
+        task_id="v2-bare-call1",
+        wire_version="v2",
+    ).run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "packaged"
+    assert result.raw_responses["call1"] == raw_plan
+    assert result.transformations == []
+    assert "transformation" not in result.ledger[0]
+
+
+def test_v2_call1_correction_accepts_one_lowercase_json_fence(tmp_path) -> None:
+    invalid_plan = json.dumps({"unexpected": True}).encode("utf-8")
+    corrected_plan = (
+        b"\n```json\r\n" + json.dumps(_plan(), sort_keys=True).encode("utf-8") + b"\r\n```\n"
+    )
+    result = AuthoringOrchestrator(
+        transport=ScriptedAuthoringTransport([invalid_plan, corrected_plan, _framed()]),
+        package_dir=tmp_path / "package",
+        task_id="v2-corrected-fenced-call1",
+        wire_version="v2",
+    ).run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "packaged"
+    assert result.raw_responses["call1"] == corrected_plan
+    assert result.raw_responses["correction"] == corrected_plan
+    assert result.transformations == ["outer_fence_removed"]
+    assert result.ledger[1]["transformation"] == "outer_fence_removed"
+    assert "lowercase ```json" in result.prompts["correction"].payload["instruction"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "finding_code"),
+    [
+        (b"```\n{}\n```", "bare_fence"),
+        (b"```JSON\n{}\n```", "unsupported_fence"),
+        (b"```yaml\n{}\n```", "unsupported_fence"),
+        (b"```json\n{}\n```\n```json\n{}\n```", "multiple_json_blocks"),
+        (b"{}\n{}", "multiple_json_objects"),
+        (b"prefix\n{}", "ambiguous_content"),
+        (b"{}\ntrailing", "trailing_content"),
+        (b"```json\n{broken}\n```", "invalid_json"),
+        (b'{"value": NaN}', "invalid_json"),
+    ],
+)
+def test_v2_call1_rejects_unsupported_framing_through_orchestrator(
+    tmp_path, raw: bytes, finding_code: str
+) -> None:
+    result = AuthoringOrchestrator(
+        transport=ScriptedAuthoringTransport([raw]),
+        package_dir=tmp_path / finding_code,
+        task_id=f"v2-reject-{finding_code}",
+        correction_allowed=False,
+        wire_version="v2",
+    ).run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "failed"
+    assert result.raw_responses["call1"] == raw
+    assert any(finding.code == finding_code for finding in result.findings)
+
+
+@pytest.mark.parametrize(
+    ("raw", "finding_code"),
+    [
+        (b"```\n{}\n```", "bare_fence"),
+        (b"```JSON\n{}\n```", "unsupported_fence"),
+        (b"```yaml\n{}\n```", "unsupported_fence"),
+        (b"```json\n{}\n```\n```json\n{}\n```", "multiple_json_blocks"),
+        (b"{}\n{}", "multiple_json_objects"),
+        (b"prefix\n{}", "ambiguous_content"),
+        (b"{}\ntrailing", "trailing_content"),
+        (b"```json\n{broken}\n```", "invalid_json"),
+        (b'{"value": NaN}', "invalid_json"),
+    ],
+)
+def test_v2_call1_correction_rejects_unsupported_framing(
+    tmp_path, raw: bytes, finding_code: str
+) -> None:
+    result = AuthoringOrchestrator(
+        transport=ScriptedAuthoringTransport([b"{}", raw]),
+        package_dir=tmp_path / f"correction-{finding_code}",
+        task_id=f"v2-correction-reject-{finding_code}",
+        wire_version="v2",
+    ).run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "failed"
+    assert result.raw_responses["correction"] == raw
+    assert "call2" not in result.raw_responses
+    assert any(finding.code == finding_code for finding in result.findings)
+
+
 def test_call2_v2_extracts_python_bytes_without_json_round_trip() -> None:
     parsed = parse_call2_response(_framed())
     assert isinstance(parsed, ParsedCall2Response)

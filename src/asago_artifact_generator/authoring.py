@@ -173,6 +173,15 @@ class Call2FramingError(AuthoringError):
         super().__init__(detail or "invalid Call 2 framing", "call2")
 
 
+class Call1FramingError(AuthoringError):
+    """Raised when a v2 Call 1 response has unsupported outer framing."""
+
+    def __init__(self, findings: list[Finding]) -> None:
+        self.findings = list(findings)
+        detail = "; ".join(finding.detail for finding in self.findings)
+        super().__init__(detail or "invalid Call 1 framing", "call1")
+
+
 @dataclass(frozen=True)
 class TransportResponse:
     """Raw provider response plus non-secret provider metadata."""
@@ -1103,7 +1112,7 @@ class AuthoringOrchestrator:
                 self._decoded_responses[stage] = decoded
                 record["decoded_output"] = decoded
                 self._failure_attempt()["decoded_output"] = decoded
-        except Call2FramingError as exc:
+        except (Call1FramingError, Call2FramingError) as exc:
             self._findings.extend(exc.findings)
             record["framing_findings"] = [finding.to_dict() for finding in exc.findings]
             self._record_failures(exc.findings)
@@ -1327,8 +1336,9 @@ class AuthoringOrchestrator:
             "findings": [finding.to_dict() for finding in findings],
             "instruction": (
                 "Return one complete replacement in the failed stage format. "
-                "Call 1 is one JSON object. Call 2 is exactly one JSON metadata "
-                "block followed by one Python block."
+                "Call 1 is one bare JSON object or exactly one lowercase ```json "
+                "fenced JSON object with optional surrounding whitespace. Call 2 "
+                "is exactly one JSON metadata block followed by one Python block."
             ),
         }
         assert_no_prompt_secrets(correction_payload)
@@ -1409,7 +1419,7 @@ class AuthoringOrchestrator:
                 self._findings.extend(replacement_findings)
                 self._record_failures(replacement_findings)
                 return None
-        except Call2FramingError as exc:
+        except (Call1FramingError, Call2FramingError) as exc:
             self._ledger[-1]["framing_findings"] = [finding.to_dict() for finding in exc.findings]
             self._findings.extend(exc.findings)
             self._record_failures(exc.findings)
@@ -4834,13 +4844,82 @@ def _decode_json_response(raw: bytes) -> tuple[Any, str | None]:
     return json.loads(text), transformation
 
 
-def _decode_v2_json_response(raw: bytes) -> tuple[Any, str | None]:
-    """Decode the v2 Call 1 object without importing Call 2 recovery rules."""
+def _decode_v2_json_response(raw: bytes) -> tuple[dict[str, Any], str | None]:
+    """Decode exactly one v2 Call 1 object without changing response bytes."""
 
-    text = raw.decode("utf-8")
-    if text != text.strip():
-        text = text.strip()
-    return json.loads(text), None
+    text = raw.decode("utf-8").strip()
+    if text.startswith("```"):
+        first_line = text.splitlines()[0] if text.splitlines() else ""
+        if first_line == "```":
+            raise Call1FramingError(
+                [Finding("bare_fence", "Call 1 does not allow an untagged fence", "call1")]
+            )
+        if first_line != "```json":
+            raise Call1FramingError(
+                [
+                    Finding(
+                        "unsupported_fence",
+                        "Call 1 requires one lowercase ```json fence",
+                        "call1",
+                    )
+                ]
+            )
+        closed = re.match(
+            r"```json\r?\n(?P<body>.*?)\r?\n```(?P<tail>.*)\Z",
+            text,
+            re.DOTALL,
+        )
+        if closed is None:
+            code = "truncated_fence"
+            detail = "Call 1 lowercase ```json fence is not closed"
+            raise Call1FramingError([Finding(code, detail, "call1")])
+        tail = closed.group("tail").lstrip()
+        if tail:
+            code = "multiple_json_blocks" if tail.startswith("```") else "trailing_content"
+            detail = (
+                "Call 1 contains more than one fenced JSON block"
+                if code == "multiple_json_blocks"
+                else "Call 1 contains content outside its JSON fence"
+            )
+            raise Call1FramingError([Finding(code, detail, "call1")])
+        return _decode_v2_json_object(closed.group("body").strip()), "outer_fence_removed"
+    return _decode_v2_json_object(text), None
+
+
+def _decode_v2_json_object(text: str) -> dict[str, Any]:
+    """Decode one complete JSON object and classify framing-only failures."""
+
+    try:
+        decoder = json.JSONDecoder(parse_constant=_reject_json_constant)
+        value, end = decoder.raw_decode(text)
+    except (json.JSONDecodeError, ValueError) as exc:
+        code = "invalid_json" if text.startswith("{") else "ambiguous_content"
+        raise Call1FramingError(
+            [Finding(code, f"Call 1 JSON object is invalid: {exc}", "call1")]
+        ) from exc
+    trailing = text[end:].strip()
+    if trailing:
+        code = "multiple_json_objects" if trailing.startswith(("{", "[")) else "trailing_content"
+        raise Call1FramingError(
+            [
+                Finding(
+                    code,
+                    "Call 1 must contain exactly one JSON object with no trailing content",
+                    "call1",
+                )
+            ]
+        )
+    if not isinstance(value, dict):
+        raise Call1FramingError(
+            [Finding("json_object_required", "Call 1 must decode to one JSON object", "call1")]
+        )
+    return value
+
+
+def _reject_json_constant(value: str) -> None:
+    """Reject Python-only numeric constants that are not JSON values."""
+
+    raise ValueError(f"invalid JSON constant: {value}")
 
 
 def _findings_from_error(exc: Exception) -> list[Finding]:
@@ -5106,6 +5185,23 @@ def _call1_contract_v2() -> dict[str, Any]:
         "Treat essential unresolved requirements as visibly incomplete.",
         "Do not call target or setup transports.",
     ]
+    contract["framing"] = {
+        "accepted": [
+            "one bare JSON object",
+            "one JSON object inside exactly one lowercase ```json fence",
+        ],
+        "surrounding_whitespace": True,
+        "transformation": (
+            "When the outer lowercase json fence is present, retain the exact raw "
+            "response bytes and record outer_fence_removed before validation."
+        ),
+        "rejected": [
+            "untagged, uppercase, or other fence labels",
+            "multiple fenced blocks or JSON objects",
+            "prose, trailing content, or ambiguous framing",
+            "malformed JSON",
+        ],
+    }
     return contract
 
 
@@ -6122,7 +6218,10 @@ _CALL1_SYSTEM = (
 )
 _CALL1_SYSTEM_V2 = (
     "You author one target-free experiment plan for the selected case. Return exactly one "
-    "JSON object matching the v2 response_contract and exactly its required root fields. "
+    "bare JSON object, or exactly one lowercase ```json fenced JSON object, with optional "
+    "surrounding whitespace. Do not use an untagged, uppercase, or other fence, multiple "
+    "objects or blocks, prose, or trailing content. The v2 response_contract and exactly "
+    "its required root fields must match. "
     "The case meaning, evidence references, binding names, operation names, schemas, and "
     "runtime limits are supplied as read-only context. Select semantic choices only; code "
     "owns identifiers, joins, source pins, digests, and package fields. Keep assumptions "
@@ -6163,9 +6262,11 @@ _CORRECTION_SYSTEM = (
 )
 _CORRECTION_SYSTEM_V2 = (
     "You replace one failed v2 authoring response completely. Preserve the failed stage's "
-    "format. Call 1 is one JSON plan object. Call 2 is exactly one JSON metadata block "
-    "followed by one Python block. Address every listed finding in one replacement, do not "
-    "repeat plan-owned fields, and do not add target, setup, discovery, or judge calls."
+    "format. Call 1 is one bare JSON plan object or exactly one lowercase ```json fenced "
+    "JSON plan object with optional surrounding whitespace; no other framing is allowed. "
+    "Call 2 is exactly one JSON metadata block followed by one Python block. Address every "
+    "listed finding in one replacement, do not repeat plan-owned fields, and do not add "
+    "target, setup, discovery, or judge calls."
 )
 
 
@@ -6182,6 +6283,7 @@ __all__ = [
     "AuthoringResult",
     "ArtifactValidationError",
     "BudgetExceeded",
+    "Call1FramingError",
     "CALL1_PROMPT_VERSION",
     "CALL1_PROMPT_VERSION_V2",
     "CALL2_PROMPT_VERSION",

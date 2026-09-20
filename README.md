@@ -17,8 +17,13 @@ uv run asago-artifact-generator check runs/authoring/<case-id>/<case-id> \
 ```
 
 `author` uses the versioned v2 authoring wire. Call 1 returns one closed plan
-root. Call 2 returns exactly one fenced JSON metadata block followed by one
-fenced Python block. The Python block becomes `detector.py` byte-for-byte.
+root as either one bare JSON object or exactly one lowercase `json` fenced
+object, with optional surrounding whitespace. Untagged, uppercase, or other
+fences, multiple objects or blocks, prose, trailing content, and malformed JSON
+are rejected. The raw Call 1 bytes remain preserved, and a removed outer fence
+is recorded before plan validation. Call 2 remains exactly one fenced JSON
+metadata block followed by one fenced Python block. The Python block becomes
+`detector.py` byte-for-byte.
 Each v2 prompt carries the selected case meaning once under `case_meaning`;
 the input projection retains scenario/reference identities and narrative/Gherkin
 SHA-256 digests without repeating those texts.
