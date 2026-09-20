@@ -402,6 +402,7 @@ def test_saved_artifacts_accept_whitespace_separators_without_byte_drift() -> No
     ("raw", "code"),
     [
         (b"", "missing_json_block"),
+        (b"```python\nx\n```\n```json\n{}\n```\n", "missing_json_block"),
         (b"```json\n{}\n```\n", "missing_python_block"),
         (b"```json\n{}\n```\n```json\n{}\n```\n```python\nx\n```\n", "duplicate_json_block"),
         (b"```json\n{}\n", "truncated_block"),
