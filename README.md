@@ -179,15 +179,38 @@ cd <producer-repo-root>
   --receipt build/qualification/frozen-receipt.json
 ```
 
-Use the maintained safe lifecycle for a live qualification case. Start,
-verify, and stop only the documented safe target; never use an unsafe port:
+The consumer remains target-free. Downstream owns live qualification and uses
+the safe-only lifecycle with one target and the gateway at a time. Start,
+verify, and stop only the component-specific safe commands:
 
 ```bash
 cd <producer-repo-root>
-uv run python scripts/qualification/run_recipe.py start --domain klarna
-uv run python scripts/qualification/run_recipe.py verify --domain klarna
-uv run python scripts/qualification/run_recipe.py stop
+uv run python scripts/qualification/run_recipe.py start-safe \
+  --component target --domain klarna --port 8888 \
+  --state-dir build/qualification/runtime/klarna
+uv run python scripts/qualification/run_recipe.py start-safe \
+  --component gateway --port 8321 \
+  --profile <configured-profile> \
+  --profiles-file config/model-profiles.yaml \
+  --state-dir build/qualification/runtime/gateway
+uv run python scripts/qualification/run_recipe.py verify-safe \
+  --component target --domain klarna --port 8888 \
+  --state-dir build/qualification/runtime/klarna
+uv run python scripts/qualification/run_recipe.py verify-safe \
+  --component gateway --port 8321 \
+  --state-dir build/qualification/runtime/gateway
+uv run python scripts/qualification/run_recipe.py stop-safe \
+  --component target --domain klarna --port 8888 \
+  --state-dir build/qualification/runtime/klarna
+uv run python scripts/qualification/run_recipe.py stop-safe \
+  --component gateway --port 8321 \
+  --state-dir build/qualification/runtime/gateway
 ```
+
+The safe-only boundary permits gateway port `8321` and target ports `8888`,
+`8890`, and `8892`. The lifecycle records process identities and cleans up
+only those captured processes. Do not use the unrestricted stack or lifecycle
+commands for qualification.
 
 The optional end-to-end orchestration command uses one registered safe domain
 and a fresh output directory:

@@ -68,6 +68,15 @@ The aggregate authoring ceiling remains 32 requests. A resumed run with prior
 author/correction spend of `1` therefore has only three author/correction
 dispatches available.
 
+An `author` run either writes an immutable package after the configured checks
+and reviews pass or writes durable failure evidence. Failure evidence keeps
+the terminal stage and typed status, including `unresolved`, `blocked`,
+`review_unavailable`, `needs_plan_revision`, transport stop, and budget stop.
+The consumer never starts a target, performs setup or generation, calls a
+runtime judge, or owns downstream cleanup. Downstream qualification uses the
+component-specific `start-safe`, `verify-safe`, and `stop-safe` lifecycle on
+gateway port `8321` and target ports `8888`, `8890`, or `8892`.
+
 The `generate` command remains a read-only compatibility path for historical
 scenario YAMLs. New work uses producer `run`, consumer `author`, consumer
 `check`, and frozen downstream execution.
