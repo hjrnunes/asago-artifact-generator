@@ -611,7 +611,7 @@ class SavedPlanContinuationDecision:
 
     mode: str
     findings: tuple[Finding, ...]
-    provenance: dict[str, str]
+    provenance: dict[str, Any]
     meaning_digest: str
     meaning_preserving_migration: bool = False
     review_reused: bool = False
@@ -632,6 +632,7 @@ class SavedPlanContinuationV2:
     inventory: dict[str, Any]
     runtime_contract: dict[str, Any]
     call2_packet: PromptPacket | None
+    authoring_input_pins: dict[str, Any] | None = None
     policy: AuthoringPolicy | None = None
     plan_review_packet: PromptPacket | None = None
     review_evidence: dict[str, Any] | None = None
@@ -3208,35 +3209,20 @@ def _neutral_status_binding_example(
                     "equals": "READY",
                 }
             ],
+            "label": "case-permitted operation example",
             "explanation": (
                 "The binding name setup_status names the resolved value. "
                 "The equals value READY is a literal status, not another binding."
             ),
         }
     return {
-        "runtime_bindings": [
-            {
-                "name": "setup_status",
-                "expected_type": "string",
-                "source_kind": "setup_output",
-                "source_ref": "setup:summarize_for_ehr",
-                "selector": "result.status",
-                "consumers": ["prerequisites.*"],
-                "on_missing": "stop",
-            }
-        ],
-        "prerequisites": [
-            {
-                "name": "setup_ready",
-                "check": "The setup operation returned a ready result.",
-                "evidence_refs": ["setup:summarize_for_ehr"],
-                "binding": "setup_status",
-                "equals": "READY",
-            }
-        ],
+        "runtime_bindings": [],
+        "prerequisites": [],
+        "label": "generic illustration; no case operation is implied",
         "explanation": (
-            "The binding name setup_status names the resolved value. "
-            "The equals value READY is a literal status, not another binding."
+            "No permitted operation returns a typed status in this input. "
+            "This generic illustration intentionally declares no operation, binding, "
+            "or prerequisite; it is not a case-specific setup recipe."
         ),
     }
 
@@ -6488,6 +6474,7 @@ def prepare_saved_plan_continuation_v2(
     meaning_review: dict[str, Any] | None = None,
     review_evidence: dict[str, Any] | None = None,
     policy: AuthoringPolicy | None = None,
+    authoring_input_pins: dict[str, Any] | None = None,
 ) -> SavedPlanContinuationV2:
     """Decide whether a saved plan may skip Call 1.
 
@@ -6521,6 +6508,53 @@ def prepare_saved_plan_continuation_v2(
                     f"provenance.{key}",
                 )
             )
+    expected_authoring_pins = _expected_authoring_input_pins(
+        input_view=input_view,
+        inventory=inventory,
+        runtime_contract=runtime_contract,
+    )
+    pinned_provenance = provenance.get("authoring_input_pins")
+    if pinned_provenance is not None and not _authoring_input_pins_match(
+        pinned_provenance,
+        expected_authoring_pins,
+        input_view=input_view,
+    ):
+        findings.append(
+            Finding(
+                "provenance_mismatch",
+                "saved-plan provenance does not match current authoring input pins",
+                "provenance.authoring_input_pins",
+            )
+        )
+    if authoring_input_pins is not None and not _authoring_input_pins_match(
+        authoring_input_pins,
+        expected_authoring_pins,
+        input_view=input_view,
+    ):
+        findings.append(
+            Finding(
+                "provenance_mismatch",
+                "supplied authoring input pins do not match current authoring inputs",
+                "authoring_input_pins",
+            )
+        )
+    if (
+        pinned_provenance is not None
+        and authoring_input_pins is not None
+        and pinned_provenance != authoring_input_pins
+    ):
+        findings.append(
+            Finding(
+                "provenance_mismatch",
+                "saved-plan provenance does not match the supplied refreshed input pins",
+                "provenance.authoring_input_pins",
+            )
+        )
+    refreshed_authoring_pins = (
+        deepcopy(authoring_input_pins or pinned_provenance)
+        if pinned_provenance is not None or authoring_input_pins is not None
+        else None
+    )
     if provenance.get("wire_version") not in {"v2", "artifact-authoring-v2"}:
         findings.append(
             Finding(
@@ -6576,15 +6610,16 @@ def prepare_saved_plan_continuation_v2(
             )
         )
 
-    provenance_output = {
-        key: str(value)
-        for key, value in {
-            **expected,
-            "wire_version": "v2",
-            "meaning_sha256": meaning_digest,
-            "review_status": "fresh_call1_required" if findings else "validated",
-        }.items()
+    provenance_output: dict[str, Any] = {
+        **{key: str(value) for key, value in expected.items()},
+        "wire_version": "v2",
+        "meaning_sha256": meaning_digest,
+        "review_status": "fresh_call1_required" if findings else "validated",
     }
+    if pinned_provenance is not None or authoring_input_pins is not None:
+        provenance_output["authoring_input_pins"] = deepcopy(
+            authoring_input_pins or pinned_provenance or expected_authoring_pins
+        )
     if findings:
         return SavedPlanContinuationV2(
             decision=SavedPlanContinuationDecision(
@@ -6598,6 +6633,7 @@ def prepare_saved_plan_continuation_v2(
             inventory=inventory,
             runtime_contract=runtime_contract,
             call2_packet=None,
+            authoring_input_pins=refreshed_authoring_pins,
             policy=policy,
             review_evidence=deepcopy(review_evidence),
         )
@@ -6645,6 +6681,7 @@ def prepare_saved_plan_continuation_v2(
         inventory=inventory,
         runtime_contract=runtime_contract,
         call2_packet=packet,
+        authoring_input_pins=refreshed_authoring_pins,
         policy=policy,
         plan_review_packet=plan_review_packet,
         review_evidence=deepcopy(review_evidence),
@@ -6654,6 +6691,69 @@ def prepare_saved_plan_continuation_v2(
 
 def _mapping_sha256(value: dict[str, Any]) -> str:
     return _sha256(_canonical_json(value).encode("utf-8"))
+
+
+def _expected_authoring_input_pins(
+    *,
+    input_view: InputView,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> dict[str, Any]:
+    """Return the refreshed pins that bind one continuation input set."""
+
+    return {
+        "schema_version": "authoring-input-pins-v1",
+        "scenario_id": input_view.scenario_id,
+        "input_sha256": input_view.source_sha256,
+        "source_digests": dict(input_view.source_digests),
+        "inventory_sha256": _mapping_sha256(inventory),
+        "runtime_contract_sha256": _mapping_sha256(runtime_contract),
+    }
+
+
+def _authoring_input_pins_match(
+    supplied: Any,
+    expected: dict[str, Any],
+    *,
+    input_view: InputView,
+) -> bool:
+    """Compare refreshed pins, including known authority extensions."""
+
+    if not isinstance(supplied, dict):
+        return False
+    if not all(supplied.get(key) == value for key, value in expected.items()):
+        return False
+    source_digests = expected["source_digests"]
+    authority_digests = supplied.get("authority_digests")
+    if authority_digests is not None:
+        if not isinstance(authority_digests, dict):
+            return False
+        expected_authority: dict[str, str] = {}
+        if "seed_state" in source_digests:
+            expected_authority["seed_state"] = source_digests["seed_state"]
+        if "source_evidence" in source_digests:
+            expected_authority["source_evidence"] = source_digests["source_evidence"]
+        if "gold_cases" in source_digests:
+            expected_authority["gold_cases"] = source_digests["gold_cases"]
+        elif "input" in source_digests:
+            expected_authority["gold_cases"] = source_digests["input"]
+        if "selection" in source_digests:
+            expected_authority["selection"] = source_digests["selection"]
+        if "input" in source_digests and "gold_cases" in source_digests:
+            expected_authority["handoff"] = source_digests["input"]
+        if authority_digests != expected_authority:
+            return False
+    handoff_pins = supplied.get("handoff_pins")
+    if handoff_pins is not None:
+        if not isinstance(handoff_pins, dict):
+            return False
+        if handoff_pins.get("scenario_id") != input_view.scenario_id:
+            return False
+        if handoff_pins.get("source_sha256") != input_view.source_sha256:
+            return False
+        if handoff_pins.get("content_digest") != input_view.payload.get("content_digest"):
+            return False
+    return True
 
 
 def _plan_meaning_digest(plan: dict[str, Any]) -> str:
@@ -7098,6 +7198,17 @@ def _package_from_responses(
     authoring_records["authoring/ledger.json"] = (
         _canonical_json(package_ledger).encode("utf-8") + b"\n"
     )
+    authoring_input_pins = _expected_authoring_input_pins(
+        input_view=view,
+        inventory=inventory,
+        runtime_contract=runtime_contract,
+    )
+    if (
+        isinstance(continuation, dict)
+        and isinstance(continuation.get("provenance"), dict)
+        and isinstance(continuation["provenance"].get("authoring_input_pins"), dict)
+    ):
+        authoring_input_pins = deepcopy(continuation["provenance"]["authoring_input_pins"])
     members = {
         "plan.json": _json_bytes(plan),
         "stimulus.json": _json_bytes(artifact["stimulus"]),
@@ -7118,6 +7229,7 @@ def _package_from_responses(
                 "source_input": _source_input_payload(view),
                 "inventory": inventory,
                 "runtime_contract": runtime_contract,
+                "authoring_input_pins": authoring_input_pins,
             }
         ),
         "source-hashes.json": _json_bytes(view.source_digests),
@@ -7170,6 +7282,7 @@ def _package_from_responses(
             for record in ledger
         ],
         "ledger": safe_ledger,
+        "authoring_input_pins": authoring_input_pins,
     }
     if continuation is not None:
         authoring_summary["continuation"] = continuation
@@ -8041,12 +8154,12 @@ def validate_neutral_example() -> list[Finding]:
 
 def _binding_contract() -> dict[str, Any]:
     setup_output_example = {
-        "name": "draft_id",
+        "name": "setup_status",
         "expected_type": "string",
         "source_kind": "setup_output",
-        "source_ref": "setup:summarize_for_ehr",
-        "selector": "result.draft.id",
-        "consumers": ["stimulus.user_text"],
+        "source_ref": "setup:case_permitted_operation",
+        "selector": "result.status",
+        "consumers": ["prerequisites.setup_status"],
         "on_missing": "stop",
     }
     supplied_input_example = {
@@ -8078,6 +8191,10 @@ def _binding_contract() -> dict[str, Any]:
         },
         "on_missing": {"type": "string", "enum": ["inconclusive", "stop"]},
         "direction": "source_ref -> selector -> consumers",
+        "valid_example_label": (
+            "generic illustration; replace case_permitted_operation only with an "
+            "operation permitted by the supplied runtime contract"
+        ),
         "source_ref_rule": (
             "source_ref identifies the permitted source using exactly facts:<ref> "
             "for supplied_input or setup:<operation> for setup_output; it is not "

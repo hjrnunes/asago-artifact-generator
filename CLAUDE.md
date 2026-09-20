@@ -45,8 +45,9 @@ receives the accepted plan as read-only and cannot rewrite plan-owned setup,
 bindings, prerequisites, observations, or judge decisions. Correction prompts
 show only the active plan or artifact format and all current findings.
 Overflow, endpoint/credential values, and bounded duplicate candidate forms
-fail before dispatch. The neutral plan example uses a `setup_status` binding
-and compares its returned `status` with literal `READY`.
+fail before dispatch. The neutral plan example uses a case-permitted status
+binding when supplied operations provide one; otherwise it is a labeled
+generic illustration with no operation, binding, or prerequisite.
 
 The `generate` command remains a read-only compatibility path for historical
 scenario YAMLs. New work uses producer `run`, consumer `author`, consumer

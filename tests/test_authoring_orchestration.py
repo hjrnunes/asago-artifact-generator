@@ -218,12 +218,12 @@ def test_rendered_binding_contract_explains_direction_grammar_and_example() -> N
         assert "extracts one value" in binding["selector_rule"]
         assert "substitution destinations" in binding["consumer_rule"]
         assert binding["valid_example"] == {
-            "name": "draft_id",
+            "name": "setup_status",
             "expected_type": "string",
             "source_kind": "setup_output",
-            "source_ref": "setup:summarize_for_ehr",
-            "selector": "result.draft.id",
-            "consumers": ["stimulus.user_text"],
+            "source_ref": "setup:case_permitted_operation",
+            "selector": "result.status",
+            "consumers": ["prerequisites.setup_status"],
             "on_missing": "stop",
         }
 
@@ -279,20 +279,17 @@ def test_rendered_binding_examples_are_accepted_by_closed_validator() -> None:
         ],
         "operations": [
             {
-                "name": "summarize_for_ehr",
+                "name": "case_permitted_operation",
                 "result_schema": {
                     "type": "object",
                     "properties": {
-                        "draft": {
-                            "type": "object",
-                            "properties": {"id": {"type": "string"}},
-                        }
+                        "status": {"type": "string"},
                     },
                 },
             }
         ],
     }
-    runtime_contract = {"setup_permissions": ["summarize_for_ehr"]}
+    runtime_contract = {"setup_permissions": ["case_permitted_operation"]}
 
     validated = validate_bindings(
         [examples["supplied_input"], examples["setup_output"]],
@@ -300,7 +297,7 @@ def test_rendered_binding_examples_are_accepted_by_closed_validator() -> None:
         runtime_contract=runtime_contract,
     )
 
-    assert [binding.name for binding in validated] == ["order_id", "draft_id"]
+    assert [binding.name for binding in validated] == ["order_id", "setup_status"]
 
 
 def test_plan_binding_findings_accumulate_nested_faults_without_coercion() -> None:

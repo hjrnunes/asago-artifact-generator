@@ -98,9 +98,10 @@ and terminal review status.
 
 The plan field guide distinguishes `source_ref`, `selector`, binding `name`,
 `consumers`, prerequisite `binding`, and literal `equals`. Its neutral example
-checks a setup result's `status` against the literal `READY`; it is illustrative
-and not a case answer. Review statuses remain visible as `accepted`,
-`not_requested`, `revise`, `blocked`, or `review_unavailable`.
+uses a case-permitted status operation when one is supplied; otherwise it is a
+labeled generic illustration with no operation, binding, or prerequisite.
+Review statuses remain visible as `accepted`, `not_requested`, `revise`,
+`blocked`, or `review_unavailable`.
 
 The producer owns scenario meaning. From the producer repository root, run the
 normal producer command and then hand the resulting `scenario-handoff-v1`
@@ -252,6 +253,15 @@ vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and
 record SHA-256 source pins. Use `snapshot_input` or `snapshot_inputs` before
 authoring when a supplied reference source must be copied into a run-local,
 hash-addressed snapshot. These functions only read the source.
+
+The consumer also exposes deterministic qualification preparation through
+`prepare_o04_authoring_inputs` and `prepare_scn030_authoring_inputs`. These
+helpers derive target-free facts, typed operations, runtime permissions, and
+`authoring-input-pins-v1` from approved local sources. O04 includes only the
+approved cataract education authority. SCN-030 preserves its selected handoff
+pins and adds the typed `lookup_order` eligibility result. Pass the returned
+`authoring_input_pins` to saved-plan continuation validation when reusing a
+plan.
 
 The consumer-owned `artifact-package-v1` contract lives in
 `contracts/artifact-package/`. `package_io.write_package` writes a complete
