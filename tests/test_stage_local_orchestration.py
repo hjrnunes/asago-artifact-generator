@@ -87,10 +87,82 @@ def test_legacy_no_correction_translates_both_stages_without_precedence() -> Non
         AuthoringPolicy(no_correction=True, artifact_max_corrections=2)
 
 
+def test_orchestrator_python_options_build_stage_policy_directly(tmp_path: Path) -> None:
+    transport = ScriptedAuthoringTransport([json.dumps(_plan()), _framed()])
+    orchestrator = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=tmp_path / "package",
+        task_id="direct-options",
+        wire_version="v2",
+        plan_max_corrections=0,
+        artifact_max_corrections=2,
+        review_plan=False,
+        review_artifact=False,
+    )
+
+    result = orchestrator.run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "accepted"
+    assert result.package is not None
+    assert result.package.manifest.authoring["policy"] == {
+        "plan_max_corrections": 0,
+        "artifact_max_corrections": 2,
+        "review_plan": False,
+        "review_artifact": False,
+        "review_model_profile": None,
+        "review_temperature": 0,
+        "max_retries": 0,
+    }
+
+
+def test_reviewer_controls_record_profile_model_and_zero_temperature(
+    tmp_path: Path,
+) -> None:
+    transport = ScriptedAuthoringTransport([json.dumps(_plan()), _review(), _framed(), _review()])
+    transport.model = "reviewer-model"
+    orchestrator = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=tmp_path / "package",
+        task_id="review-controls",
+        wire_version="v2",
+        policy=AuthoringPolicy(review_model_profile="reviewer-profile"),
+    )
+
+    result = orchestrator.run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "accepted"
+    assert result.ledger[1]["controls"] == {
+        "review_model_profile": "reviewer-profile",
+        "temperature": 0,
+        "max_retries": 0,
+        "model": "reviewer-model",
+    }
+    assert result.package is not None
+    assert result.package.manifest.authoring["policy"]["review_model_profile"] == (
+        "reviewer-profile"
+    )
+
+
+def test_unparseable_candidate_records_checks_that_did_not_run(tmp_path: Path) -> None:
+    orchestrator, _transport = _orchestrator(
+        tmp_path,
+        [b"not json"],
+        policy=AuthoringPolicy(plan_max_corrections=0),
+    )
+
+    result = orchestrator.run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "unresolved"
+    assert result.ledger[0]["checks_not_run"] == ["plan_validation"]
+    assert result.ledger[0]["checks"]["not_run"] == ["plan_validation"]
+
+
 def test_review_response_parser_accepts_bare_and_single_json_fenced_objects() -> None:
     payload = _review()
     assert parse_review_response(payload).decision == "accept"
-    assert parse_review_response(b"```json\n" + payload + b"\n```").findings == ()
+    fenced = parse_review_response(b"```json\n" + payload + b"\n```")
+    assert fenced.findings == ()
+    assert fenced.transformation == "outer_fence_removed"
 
     for raw in (b"prefix\n" + payload, payload + b"\n{}", b"```json\n{}\n```\n```json\n{}\n```"):
         with pytest.raises(ReviewResponseError):
@@ -121,6 +193,10 @@ def test_default_review_order_is_plan_author_review_artifact_author_review(
     }
     assert result.package is not None
     assert result.package.manifest.authoring["policy"]["plan_max_corrections"] == 1
+    assert result.package.manifest.authoring["terminal_status"] == "accepted"
+    assert result.failure_evidence_path is None
+    assert result.ledger[1]["reviewed_input_sha256"]
+    assert result.ledger[1]["reviewed_candidate_sha256"]
 
 
 def test_disabling_reviews_omits_only_review_dispatches_and_records_not_requested(
@@ -201,6 +277,10 @@ def test_artifact_review_revision_preserves_plan_and_uses_artifact_allowance(
     assert result.allowances == {"plan": 1, "artifact": 0}
     assert result.package is not None
     assert json.loads(result.package.members["plan.json"]) == plan
+    assert (
+        result.package.members["authoring/05-correction.prompt"]
+        == transport.requests[4]["user"].encode()
+    )
 
 
 def test_reviewer_blocked_and_malformed_are_distinct_terminal_states(tmp_path: Path) -> None:
@@ -288,7 +368,7 @@ def test_budget_exhaustion_stops_before_provider_dispatch(tmp_path: Path) -> Non
 
     result = orchestrator.run(_view(), _inventory(), _runtime_contract())
 
-    assert result.status == "review_unavailable"
+    assert result.status == "budget_exhausted"
     assert [request["stage"] for request in transport.requests] == ["call1"]
     assert [record["stage"] for record in result.ledger] == ["call1"]
     assert result.findings[-1].code == "budget_exhausted"
@@ -443,6 +523,14 @@ def test_corrected_detector_failing_own_controls_stops_without_publication(
         "correction",
     ]
     assert any(finding.code == "detector_control_failure" for finding in result.findings)
+    control_record = result.ledger[2]["detector_controls"][0]
+    assert control_record["runtime"] == {
+        "engine": "docker",
+        "docker_path": "/usr/local/bin/docker",
+        "image": "python:3.12-slim",
+        "network": "none",
+        "read_only": True,
+    }
     assert not (tmp_path / "package").exists()
 
 

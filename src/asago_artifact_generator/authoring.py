@@ -63,8 +63,10 @@ AUTHORING_INTERFACE_VERSION_V2 = "artifact-authoring-v2"
 PLAN_REVIEW_PROMPT_VERSION = "authoring-plan-review-v1"
 ARTIFACT_REVIEW_PROMPT_VERSION = "authoring-artifact-review-v1"
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
-MAX_AUTHORING_REQUESTS = 16
-MAX_REQUESTS_PER_TASK = 3
+# New authoring/review dispatches share the approved aggregate ceiling across
+# cases; one case can use the policy's full eight-dispatch worst case.
+MAX_AUTHORING_REQUESTS = 32
+MAX_REQUESTS_PER_TASK = 8
 MAX_RENDERED_PROMPT_BYTES = 1_000_000
 A03_AGGREGATE_LIMIT = 31
 A03_HISTORICAL_REQUESTS = 23
@@ -210,6 +212,7 @@ class ReviewResponse:
     decision: str
     summary: str
     findings: tuple[dict[str, str], ...] = ()
+    transformation: str | None = None
 
 
 _REVIEW_DECISIONS = ("accept", "revise", "blocked")
@@ -231,7 +234,7 @@ def parse_review_response(raw: bytes | str) -> ReviewResponse:
     if not isinstance(source, bytes):
         raise TypeError("review response must be bytes or text")
     try:
-        decoded, _transformation = _decode_review_json_response(source)
+        decoded, transformation = _decode_review_json_response(source)
     except UnicodeDecodeError as exc:
         raise ReviewResponseError(
             [Finding("invalid_json", f"review response is not valid UTF-8: {exc}", "review")]
@@ -289,6 +292,7 @@ def parse_review_response(raw: bytes | str) -> ReviewResponse:
         decision=decision,
         summary=summary,
         findings=tuple(dict(item) for item in raw_findings),
+        transformation=transformation,
     )
 
 
@@ -379,11 +383,16 @@ class AuthoringPolicy:
     review_plan: bool = True
     review_artifact: bool = True
     no_correction: bool = False
+    review_model_profile: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("review_plan", "review_artifact", "no_correction"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"{name} must be a boolean")
+        if self.review_model_profile is not None and (
+            not isinstance(self.review_model_profile, str) or not self.review_model_profile.strip()
+        ):
+            raise ValueError("review_model_profile must be a nonblank string when provided")
         explicit: dict[str, int] = {}
         for name in ("plan_max_corrections", "artifact_max_corrections"):
             value = getattr(self, name)
@@ -420,6 +429,7 @@ class AuthoringPolicy:
         review_plan: bool = True,
         review_artifact: bool = True,
         no_correction: bool = False,
+        review_model_profile: str | None = None,
     ) -> AuthoringPolicy:
         """Build one policy from optional CLI values; ``None`` keeps defaults."""
 
@@ -427,6 +437,7 @@ class AuthoringPolicy:
             "review_plan": review_plan,
             "review_artifact": review_artifact,
             "no_correction": no_correction,
+            "review_model_profile": review_model_profile,
         }
         if plan_max_corrections is not None:
             kwargs["plan_max_corrections"] = plan_max_corrections
@@ -707,7 +718,7 @@ class _ReviewOutcome:
 
 
 class AuthoringOrchestrator:
-    """Run Call 1, mechanical checks, Call 2, and one shared correction.
+    """Run target-free authoring with legacy or stage-local correction policy.
 
     With an explicit ``AuthoringPolicy`` the orchestrator instead runs the
     stage-local state machine: each stage keeps its own correction allowance,
@@ -726,6 +737,11 @@ class AuthoringOrchestrator:
         wire_version: str = "v1",
         policy: AuthoringPolicy | None = None,
         review_model_profile: str | None = None,
+        plan_max_corrections: int | None = None,
+        artifact_max_corrections: int | None = None,
+        review_plan: bool | None = None,
+        review_artifact: bool | None = None,
+        no_correction: bool = False,
     ) -> None:
         if getattr(transport, "max_retries", None) != 0:
             raise ValueError("authoring transport must set max_retries=0")
@@ -733,6 +749,26 @@ class AuthoringOrchestrator:
             raise ValueError("correction_allowed must be a boolean")
         if wire_version not in {"v1", "v2"}:
             raise ValueError("wire_version must be 'v1' or 'v2'")
+        direct_policy_options = (
+            plan_max_corrections is not None
+            or artifact_max_corrections is not None
+            or review_plan is not None
+            or review_artifact is not None
+            or no_correction
+            or review_model_profile is not None
+        )
+        if policy is not None and direct_policy_options:
+            raise ValueError("provide policy or direct stage-policy options, not both")
+        if policy is None and direct_policy_options:
+            policy = AuthoringPolicy.from_cli(
+                plan_max_corrections=plan_max_corrections,
+                artifact_max_corrections=artifact_max_corrections,
+                review_plan=True if review_plan is None else review_plan,
+                review_artifact=True if review_artifact is None else review_artifact,
+                no_correction=no_correction,
+                review_model_profile=review_model_profile,
+            )
+            review_model_profile = None
         if policy is not None:
             if not isinstance(policy, AuthoringPolicy):
                 raise ValueError("policy must be an AuthoringPolicy instance")
@@ -747,11 +783,22 @@ class AuthoringOrchestrator:
             not isinstance(review_model_profile, str) or not review_model_profile.strip()
         ):
             raise ValueError("review_model_profile must be a nonblank string when provided")
+        if (
+            policy is not None
+            and review_model_profile is not None
+            and policy.review_model_profile is not None
+            and review_model_profile != policy.review_model_profile
+        ):
+            raise ValueError("review_model_profile conflicts with policy")
         self.transport = transport
         self.package_dir = Path(package_dir)
         self.task_id = task_id
         self.policy = policy
-        self.review_model_profile = review_model_profile
+        self.review_model_profile = (
+            review_model_profile
+            if review_model_profile is not None
+            else (policy.review_model_profile if policy is not None else None)
+        )
         if budget is None:
             # The stage-local default budget covers the policy's own closed
             # worst case; an explicitly supplied budget is honored as an
@@ -1274,6 +1321,12 @@ class AuthoringOrchestrator:
         ]
         if control_findings:
             self._findings.extend(control_findings)
+            if self._ledger:
+                prior = self._ledger[-1].get("findings", [])
+                self._ledger[-1]["findings"] = [
+                    *prior,
+                    *(finding.to_dict() for finding in control_findings),
+                ]
             self._record_failures(control_findings)
             return [*findings, *control_findings]
         self._persist_failure_evidence()
@@ -1334,7 +1387,7 @@ class AuthoringOrchestrator:
         self._raw_responses[raw_key] = raw
         record["raw_response_key"] = raw_key
         record["usage"] = _safe_metadata(usage)
-        record["controls"] = _safe_metadata(controls)
+        record["controls"] = _safe_metadata(controls or {"max_retries": 0})
         self._record_available_response(raw, usage, controls)
         try:
             decoded, transformation = _decode_json_response(raw)
@@ -1415,7 +1468,7 @@ class AuthoringOrchestrator:
         self._raw_responses[raw_key] = raw
         record["raw_response_key"] = raw_key
         record["usage"] = _safe_metadata(usage)
-        record["controls"] = _safe_metadata(controls)
+        record["controls"] = _safe_metadata(controls or {"max_retries": 0})
         self._record_available_response(raw, usage, controls)
         try:
             if stage == "call2":
@@ -1441,11 +1494,21 @@ class AuthoringOrchestrator:
         except (Call1FramingError, Call2FramingError) as exc:
             self._findings.extend(exc.findings)
             record["framing_findings"] = [finding.to_dict() for finding in exc.findings]
+            self._record_checks_not_run(
+                ["plan_validation"]
+                if stage == "call1"
+                else ["artifact_validation", "detector_controls"]
+            )
             self._record_failures(exc.findings)
             return None, exc.findings, raw
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             finding = Finding("response_parse_error", str(exc), stage)
             record["parse_error"] = str(exc)
+            self._record_checks_not_run(
+                ["plan_validation"]
+                if stage == "call1"
+                else ["artifact_validation", "detector_controls"]
+            )
             self._findings.append(finding)
             self._record_failure(finding)
             return None, [finding], raw
@@ -1557,6 +1620,7 @@ class AuthoringOrchestrator:
             payload=correction_payload,
         )
         self._prompt_packets["correction"] = packet
+        started = time.monotonic()
         try:
             response = self._dispatch(packet)
         except BudgetExceeded as exc:
@@ -1576,6 +1640,7 @@ class AuthoringOrchestrator:
                 reason="provider_failure",
                 detail=_safe_error(exc),
                 finding=finding,
+                elapsed_ms=(time.monotonic() - started) * 1000,
             )
             return None
         raw, usage, controls = _response_parts(response)
@@ -1584,7 +1649,7 @@ class AuthoringOrchestrator:
         self._raw_responses["correction"] = raw
         self._ledger[-1]["raw_response_key"] = raw_key
         self._ledger[-1]["usage"] = _safe_metadata(usage)
-        self._ledger[-1]["controls"] = _safe_metadata(controls)
+        self._ledger[-1]["controls"] = _safe_metadata(controls or {"max_retries": 0})
         self._ledger[-1]["failed_stage"] = failed_stage
         self._failure_attempt()["failed_stage"] = failed_stage
         self._failure_attempt()["failed_response"] = raw_response_record(
@@ -1698,6 +1763,7 @@ class AuthoringOrchestrator:
             payload=correction_payload,
         )
         self._prompt_packets["correction"] = packet
+        started = time.monotonic()
         try:
             response = self._dispatch(packet)
         except BudgetExceeded as exc:
@@ -1717,6 +1783,7 @@ class AuthoringOrchestrator:
                 reason="provider_failure",
                 detail=_safe_error(exc),
                 finding=finding,
+                elapsed_ms=(time.monotonic() - started) * 1000,
             )
             return None
         raw, usage, controls = _response_parts(response)
@@ -1725,7 +1792,7 @@ class AuthoringOrchestrator:
         self._raw_responses["correction"] = raw
         self._ledger[-1]["raw_response_key"] = raw_key
         self._ledger[-1]["usage"] = _safe_metadata(usage)
-        self._ledger[-1]["controls"] = _safe_metadata(controls)
+        self._ledger[-1]["controls"] = _safe_metadata(controls or {"max_retries": 0})
         self._ledger[-1]["failed_stage"] = failed_stage
         self._failure_attempt()["failed_stage"] = failed_stage
         self._failure_attempt()["failed_response"] = raw_response_record(
@@ -1778,6 +1845,11 @@ class AuthoringOrchestrator:
                 return None
         except (Call1FramingError, Call2FramingError) as exc:
             self._ledger[-1]["framing_findings"] = [finding.to_dict() for finding in exc.findings]
+            self._record_checks_not_run(
+                ["plan_validation"]
+                if failed_stage == "call1"
+                else ["artifact_validation", "detector_controls"]
+            )
             self._findings.extend(exc.findings)
             self._record_failures(exc.findings)
             return None
@@ -1786,6 +1858,11 @@ class AuthoringOrchestrator:
             self._ledger[-1]["findings"] = [finding.to_dict()]
             if isinstance(exc, (UnicodeDecodeError, json.JSONDecodeError)):
                 self._ledger[-1]["parse_error"] = str(exc)
+                self._record_checks_not_run(
+                    ["plan_validation"]
+                    if failed_stage == "call1"
+                    else ["artifact_validation", "detector_controls"]
+                )
             self._findings.append(finding)
             self._record_failure(finding)
             return None
@@ -1827,6 +1904,7 @@ class AuthoringOrchestrator:
         }
         self._review_status = {"plan": "not_requested", "artifact": "not_requested"}
         self._failure_evidence["policy"] = self._effective_policy_record()
+        self._failure_evidence["review_status"] = dict(self._review_status)
         self._persist_failure_evidence()
         plan = self._plan_stage_policy(view, inventory, runtime_contract)
         if isinstance(plan, _StageStop):
@@ -1852,6 +1930,7 @@ class AuthoringOrchestrator:
                 interface_version=AUTHORING_INTERFACE_VERSION_V2,
                 policy=self._effective_policy_record(),
                 review_status=dict(self._review_status),
+                terminal_status="accepted",
             )
         except ArtifactValidationError as exc:
             return self._policy_result(
@@ -1863,6 +1942,9 @@ class AuthoringOrchestrator:
             path = write_package(self.package_dir, package)
         except Exception as exc:
             return self._policy_result("failed", plan, [Finding("package_write_failed", str(exc))])
+        self._failure_evidence["review_status"] = dict(self._review_status)
+        self._failure_evidence["allowances"] = dict(self._allowances)
+        self._finish_failure_evidence("accepted", [])
         return AuthoringResult(
             status="accepted",
             task_id=self.task_id,
@@ -1919,7 +2001,17 @@ class AuthoringOrchestrator:
                     if stop is not None:
                         return stop
                     if not self._consume_allowance("plan"):
-                        return _StageStop("unresolved", tuple(pending))
+                        return _StageStop(
+                            "unresolved",
+                            (
+                                *pending,
+                                Finding(
+                                    "correction_limit_exhausted",
+                                    "plan correction allowance is exhausted",
+                                    "plan",
+                                ),
+                            ),
+                        )
                     corrected = self._correction_v2(
                         failed_stage="call1",
                         failed_packet=packet,
@@ -1958,6 +2050,7 @@ class AuthoringOrchestrator:
                 return _StageStop("blocked", self._semantic_finding_objects(outcome, "plan"))
             # Semantic revise findings join the same stage correction path as
             # mechanical findings and consume the same stage allowance.
+            self._review_status["plan"] = "revise"
             pending = self._semantic_finding_objects(outcome, "plan")
             candidate = None
 
@@ -2014,7 +2107,17 @@ class AuthoringOrchestrator:
                     if stop is not None:
                         return stop
                     if not self._consume_allowance("artifact"):
-                        return _StageStop("unresolved", tuple(pending))
+                        return _StageStop(
+                            "unresolved",
+                            (
+                                *pending,
+                                Finding(
+                                    "correction_limit_exhausted",
+                                    "artifact correction allowance is exhausted",
+                                    "artifact",
+                                ),
+                            ),
+                        )
                     correction = self._correction_v2(
                         failed_stage="call2",
                         failed_packet=packet,
@@ -2077,6 +2180,7 @@ class AuthoringOrchestrator:
             # Semantic revise findings join the same stage correction path as
             # mechanical and control findings and consume the same stage
             # allowance.
+            self._review_status["artifact"] = "revise"
             pending = self._semantic_finding_objects(outcome, "artifact")
             parsed = None
 
@@ -2116,13 +2220,24 @@ class AuthoringOrchestrator:
             self._review_status[review_key] = "unavailable"
             return _ReviewOutcome(
                 decision="",
-                stop=_StageStop("review_unavailable", (finding,)),
+                stop=_StageStop("budget_exhausted", (finding,)),
             )
         except Exception as exc:
             finding = Finding("transport_failure", _safe_error(exc), packet.stage)
             self._findings.append(finding)
             if self._dispatch_recorded:
                 self._ledger[-1]["error"] = _safe_error(exc)
+                effective_controls = self._review_controls(self._ledger[-1].get("controls"))
+                self._ledger[-1]["controls"] = effective_controls
+                self._failure_attempt()["controls"] = metadata_record(
+                    effective_controls,
+                    unavailable_reason="controls_not_recorded",
+                )
+                input_digest, candidate_digest = _review_packet_digests(packet)
+                self._ledger[-1]["reviewed_input_sha256"] = input_digest
+                self._ledger[-1]["reviewed_candidate_sha256"] = candidate_digest
+                self._failure_attempt()["reviewed_input_sha256"] = input_digest
+                self._failure_attempt()["reviewed_candidate_sha256"] = candidate_digest
             self._record_unavailable_response(
                 reason="provider_failure",
                 detail=_safe_error(exc),
@@ -2141,8 +2256,14 @@ class AuthoringOrchestrator:
         self._raw_responses[packet.stage] = raw
         record["raw_response_key"] = raw_key
         record["usage"] = _safe_metadata(usage)
-        record["controls"] = _safe_metadata(controls)
-        self._record_available_response(raw, usage, controls)
+        effective_controls = self._review_controls(controls)
+        record["controls"] = effective_controls
+        input_digest, candidate_digest = _review_packet_digests(packet)
+        record["reviewed_input_sha256"] = input_digest
+        record["reviewed_candidate_sha256"] = candidate_digest
+        self._failure_attempt()["reviewed_input_sha256"] = input_digest
+        self._failure_attempt()["reviewed_candidate_sha256"] = candidate_digest
+        self._record_available_response(raw, usage, effective_controls)
         try:
             review = parse_review_response(raw)
         except ReviewResponseError as exc:
@@ -2151,6 +2272,19 @@ class AuthoringOrchestrator:
             if self._dispatch_recorded:
                 self._ledger[-1]["review_error"] = [item.to_dict() for item in exc.findings]
             self._record_failures(list(exc.findings))
+            if self._dispatch_recorded:
+                self._ledger[-1]["failure"] = {
+                    "phase": "post_response",
+                    "code": finding.code,
+                    "detail": finding.detail,
+                }
+            self._failure_attempt()["failure"] = {
+                "phase": "post_response",
+                "code": finding.code,
+                "detail": finding.detail,
+            }
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
             self._review_status[review_key] = "unavailable"
             return _ReviewOutcome(
                 decision="",
@@ -2161,6 +2295,11 @@ class AuthoringOrchestrator:
             "summary": review.summary,
             "findings": [dict(item) for item in review.findings],
         }
+        if review.transformation:
+            record["transformation"] = review.transformation
+            self._transformations.append(review.transformation)
+            self._failure_attempt()["transformation"] = review.transformation
+            self._failure_evidence["transformations"] = list(self._transformations)
         record["review"] = review_record
         self._decoded_responses[packet.stage] = review_record
         self._failure_attempt()["review"] = review_record
@@ -2192,6 +2331,11 @@ class AuthoringOrchestrator:
         ]
         if not stop_findings:
             return None
+        if any(finding.code == "budget_exhausted" for finding in stop_findings):
+            return _StageStop(
+                "budget_exhausted",
+                tuple(finding for finding in stop_findings if finding.code == "budget_exhausted"),
+            )
         return _StageStop("transport_failure", tuple(stop_findings))
 
     @staticmethod
@@ -2218,12 +2362,31 @@ class AuthoringOrchestrator:
             "max_retries": 0,
         }
 
+    def _review_controls(self, controls: Any) -> dict[str, Any]:
+        """Return redacted effective reviewer controls for durable evidence."""
+
+        effective = {
+            "review_model_profile": self.review_model_profile,
+            "temperature": 0,
+            "max_retries": 0,
+        }
+        model = getattr(self.transport, "model", None)
+        if isinstance(model, str) and model.strip():
+            effective["model"] = model
+        effective.update(_safe_metadata(controls))
+        effective["max_retries"] = 0
+        return effective
+
     def _policy_result(
         self,
         status: str,
         plan: dict[str, Any] | None,
         findings: tuple[Finding, ...] | list[Finding],
     ) -> AuthoringResult:
+        if self._review_status is not None:
+            self._failure_evidence["review_status"] = dict(self._review_status)
+        if self._allowances is not None:
+            self._failure_evidence["allowances"] = dict(self._allowances)
         result = self._result(status, plan, list(findings))
         result.review_status = dict(self._review_status) if self._review_status else {}
         result.allowances = dict(self._allowances) if self._allowances else {}
@@ -2299,6 +2462,16 @@ class AuthoringOrchestrator:
             attempt["failure"]["detail"] = finding.detail
         self._failure_evidence["findings"].append(finding.to_dict())
         self._persist_failure_evidence()
+
+    def _record_checks_not_run(self, checks: list[str]) -> None:
+        """Record downstream checks skipped after response framing failed."""
+
+        if not checks:
+            return
+        values = list(dict.fromkeys(checks))
+        for record in (self._ledger[-1], self._failure_attempt()):
+            record["checks_not_run"] = values
+            record["checks"] = {"status": "not_run", "not_run": values}
 
     def _record_failures(self, findings: list[Finding]) -> None:
         attempt = self._failure_attempt()
@@ -2616,6 +2789,46 @@ def _review_finding_to_finding(record: dict[str, str], stage: str) -> Finding:
         f"{record.get('required_change', '')}"
     )
     return Finding("semantic_review", detail, stage)
+
+
+def _review_packet_digests(packet: PromptPacket) -> tuple[str, str]:
+    """Pin the source projection and exact candidate bytes judged by a review."""
+
+    if packet.stage == "plan_review":
+        input_payload = {
+            key: value for key, value in packet.payload.items() if key != "candidate_plan"
+        }
+        candidate_payload = packet.payload.get("candidate_plan", {})
+        candidate_digest = _sha256(_canonical_json(candidate_payload).encode("utf-8"))
+    else:
+        input_payload = {
+            key: value
+            for key, value in packet.payload.items()
+            if key
+            not in {
+                "candidate_metadata",
+                "candidate_python_source",
+                "candidate_python_encoding",
+            }
+        }
+        metadata = packet.payload.get("candidate_metadata", {})
+        source = packet.payload.get("candidate_python_source", "")
+        candidate_bytes = (
+            _canonical_json(metadata).encode("utf-8")
+            + b"\0"
+            + (source.encode("utf-8") if isinstance(source, str) else b"")
+        )
+        candidate_digest = _sha256(candidate_bytes)
+    input_digest = _sha256(
+        _canonical_json(
+            {
+                "version": packet.version,
+                "system": packet.system,
+                "payload": input_payload,
+            }
+        ).encode("utf-8")
+    )
+    return input_digest, candidate_digest
 
 
 def parse_call2_response(raw: bytes | str) -> ParsedCall2Response:
@@ -5611,6 +5824,7 @@ def _package_from_responses(
     interface_version: str = AUTHORING_INTERFACE_VERSION,
     policy: dict[str, Any] | None = None,
     review_status: dict[str, str] | None = None,
+    terminal_status: str | None = None,
 ) -> ArtifactPackage:
     authoring_records: dict[str, bytes] = {}
     for index, record in enumerate(ledger, start=1):
@@ -5618,12 +5832,22 @@ def _package_from_responses(
         authoring_records[f"authoring/{index:02d}-{stage}.json"] = (
             _canonical_json(record).encode("utf-8") + b"\n"
         )
-        raw = raw_responses.get(record.get("raw_response_key", "")) or raw_responses.get(stage)
+        raw = raw_responses.get(record.get("raw_response_key", ""))
+        if raw is None:
+            raw = raw_responses.get(stage)
         if raw is not None:
             authoring_records[f"authoring/{index:02d}-{stage}.raw"] = raw
-        packet = prompt_packets.get(stage)
-        if packet is not None:
-            authoring_records[f"authoring/{index:02d}-{stage}.prompt"] = packet.user.encode()
+        prompt_user = record.get("prompt_user")
+        if isinstance(prompt_user, str):
+            authoring_records[f"authoring/{index:02d}-{stage}.prompt"] = prompt_user.encode(
+                "utf-8"
+            )
+        else:
+            packet = prompt_packets.get(stage)
+            if packet is not None:
+                authoring_records[f"authoring/{index:02d}-{stage}.prompt"] = packet.user.encode(
+                    "utf-8"
+                )
     authoring_records["authoring/ledger.json"] = _canonical_json(ledger).encode("utf-8") + b"\n"
     authoring_records["authoring/transformations.json"] = (
         _canonical_json(transformations).encode("utf-8") + b"\n"
@@ -5705,6 +5929,9 @@ def _package_from_responses(
         authoring_summary["policy"] = dict(policy)
     if review_status is not None:
         authoring_summary["review_status"] = dict(review_status)
+    if terminal_status is not None:
+        authoring_summary["status"] = terminal_status
+        authoring_summary["terminal_status"] = terminal_status
     creation_model = {"model": "configured-private-authoring", "controls": {"max_retries": 0}}
     assert_no_secrets({"authoring": authoring_summary, "creation_model": creation_model})
     package_id = f"{task_id}-{view.scenario_id}"

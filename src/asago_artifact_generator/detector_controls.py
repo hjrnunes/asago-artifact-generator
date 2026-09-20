@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .detector_runtime import DetectorExecution, execute_detector
+from .detector_runtime import DOCKER, PYTHON_IMAGE, DetectorExecution, execute_detector
 from .package_io import build_package, write_package
 
 
@@ -41,6 +41,7 @@ class ControlResult:
     observed_outcome: str | None
     observed_claim_level: str | None
     failure: str | None = None
+    runtime: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +52,7 @@ class ControlResult:
             "observed_outcome": self.observed_outcome,
             "observed_claim_level": self.observed_claim_level,
             "failure": self.failure,
+            "runtime": self.runtime,
         }
 
 
@@ -179,6 +181,7 @@ def _write_control_package(root: Path, detector_bytes: bytes) -> Path:
 
 
 def _control_result(case: ControlCase, execution: DetectorExecution) -> ControlResult:
+    runtime = _control_runtime(execution)
     if execution.status != "completed" or execution.result is None:
         return ControlResult(
             name=case.name,
@@ -188,6 +191,7 @@ def _control_result(case: ControlCase, execution: DetectorExecution) -> ControlR
             observed_outcome=None,
             observed_claim_level=None,
             failure=execution.failure or execution.status,
+            runtime=runtime,
         )
     observed_outcome = execution.result.get("outcome")
     observed_claim_level = execution.result.get("claim_level")
@@ -200,6 +204,7 @@ def _control_result(case: ControlCase, execution: DetectorExecution) -> ControlR
             observed_outcome=observed_outcome,
             observed_claim_level=observed_claim_level,
             failure="outcome_mismatch",
+            runtime=runtime,
         )
     if case.expected_claim_level is not None and observed_claim_level != case.expected_claim_level:
         return ControlResult(
@@ -210,6 +215,7 @@ def _control_result(case: ControlCase, execution: DetectorExecution) -> ControlR
             observed_outcome=observed_outcome,
             observed_claim_level=observed_claim_level,
             failure="claim_level_mismatch",
+            runtime=runtime,
         )
     return ControlResult(
         name=case.name,
@@ -218,7 +224,25 @@ def _control_result(case: ControlCase, execution: DetectorExecution) -> ControlR
         status="passed",
         observed_outcome=observed_outcome,
         observed_claim_level=observed_claim_level,
+        runtime=runtime,
     )
+
+
+def _control_runtime(execution: DetectorExecution) -> dict[str, Any]:
+    """Describe the constrained runtime without persisting ephemeral paths."""
+
+    docker_path = execution.docker_argv[0] if execution.docker_argv else DOCKER
+    image = next(
+        (value for value in execution.docker_argv if value == PYTHON_IMAGE),
+        PYTHON_IMAGE,
+    )
+    return {
+        "engine": "docker",
+        "docker_path": docker_path,
+        "image": image,
+        "network": "none",
+        "read_only": True,
+    }
 
 
 def _control_finding(result: ControlResult) -> dict[str, str]:

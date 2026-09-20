@@ -254,6 +254,7 @@ def author(
             review_plan=review_plan,
             review_artifact=review_artifact,
             no_correction=no_correction,
+            review_model_profile=review_model_profile,
         )
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from None
@@ -279,7 +280,6 @@ def author(
         task_id=stable_task_id,
         wire_version="v2",
         policy=policy,
-        review_model_profile=review_model_profile,
     ).run(view, inventory_data, runtime_data)
     typer.echo(
         json.dumps(
