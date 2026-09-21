@@ -117,6 +117,9 @@ _A03_INPUT_LABEL = "supplied_hash_verified_reference_task"
 _A03_REFERENCE_ID = "A03"
 O04_CONTINUATION_TASK_ID = "O04-corrected-artifact-continuation"
 O04_REFINEMENT_CONTINUATION_TASK_ID = "O04-artifact-refinement-continuation"
+O04_REFINEMENT_RESTART_CONTINUATION_TASK_ID = (
+    "O04-provider-recovery-restart"
+)
 O04_FAILURE_SIDECAR_SHA256 = (
     "7e6d3c8814e6138400751f61a89558ec377c89622c87617d1113a91232763abc"
 )
@@ -156,6 +159,8 @@ O04_CONTROL_FIXTURES_SHA256 = (
 _O04_CONTINUATION_MODE = "sealed-o04-correction-first"
 _O04_REFINEMENT_CONTINUATION_MODE = "sealed-o04-artifact-refinement"
 _O04_REFINEMENT_SCHEMA = "o04-artifact-refinement-continuation-v1"
+_O04_REFINEMENT_RESTART_CONTINUATION_MODE = "sealed-o04-provider-recovery-restart"
+_O04_REFINEMENT_RESTART_SCHEMA = "o04-provider-recovery-restart-v1"
 O04_PRIOR_CONTINUATION_EVIDENCE_SHA256 = (
     "abb09d21f9d60899e5d1f43cd7927757a31254c642e68f022dd23f01b130fbf3"
 )
@@ -173,6 +178,38 @@ O04_REFINEMENT_AGGREGATE_SPENT = 17
 O04_REFINEMENT_TASK_LIMIT = 4
 O04_REFINEMENT_THINKING_EXTRA_BODY = {
     "chat_template_kwargs": {"enable_thinking": False}
+}
+O04_REFINEMENT_RESTART_PRIOR_AUTHOR_SPEND = 6
+O04_REFINEMENT_RESTART_PRIOR_REVIEW_SPEND = 1
+O04_REFINEMENT_RESTART_AGGREGATE_SPENT = 18
+O04_REFINEMENT_RESTART_TASK_LIMIT = 11
+O04_REFINEMENT_RESTART_CORRECTION_LIMIT = 2
+O04_REFINEMENT_RESTART_REVIEW_LIMIT = 2
+O04_REFINEMENT_RESTART_EVIDENCE_SHA256 = (
+    "61f8aa1e7e23f7f5921dc8b04f0bf69d4eaecd316a48e4d88fdff6adfa4b801e"
+)
+O04_REFINEMENT_RESTART_REPORT_SHA256 = (
+    "c8f50d35612059b5465d71d020c48cc3a0c35e19bb903db34fe1ca4bbaf17b37"
+)
+O04_REFINEMENT_RESTART_ACCOUNTING_SHA256 = (
+    "58ef7361edf9fcec591090850bb533291bd9183bf9dd80033e19a453ebc7cf0c"
+)
+O04_REFINEMENT_RESTART_CANDIDATE_SHA256 = (
+    "f374565bef6fe20e4f8863a0f75c6f869b074aadb8d38cef9ff29124e81c9e4e"
+)
+O04_REFINEMENT_RESTART_OUTAGE_SHA256 = (
+    "0ccdd3b4f240a05716e9dd3e8a7c28afa2b37c5d77a85fb6dc5a644f3b01a2e4"
+)
+O04_REFINEMENT_RESTART_OUTAGE_BYTES = 2501
+O04_REFINEMENT_RESTART_PROVIDER_READINESS = {
+    "schema": "provider-readiness-v1",
+    "status": "available",
+    "classification": "authenticated_non_generative_models_surface_read",
+    "category": "models_surface",
+    "request_count": 1,
+    "http_status": 200,
+    "model_discoverable": True,
+    "latency_ms": 534.6,
 }
 _O04_RECOVERY_CANDIDATES_SHA256 = (
     "7d668116bfb7e8070da034c18f321a5d257ca2f5bc5e36a91554524fcc8e773c"
@@ -897,10 +934,46 @@ class O04RefinementContinuation:
     aggregate_spent: int = O04_REFINEMENT_AGGREGATE_SPENT
     aggregate_limit: int = MAX_AUTHORING_REQUESTS
     task_limit: int = O04_REFINEMENT_TASK_LIMIT + 6
+    restart: bool = False
+    terminal_refinement_evidence: Path | None = None
+    terminal_delivery_report: Path | None = None
+    terminal_accounting: Path | None = None
+    provider_readiness: dict[str, Any] = field(
+        default_factory=lambda: deepcopy(O04_REFINEMENT_RESTART_PROVIDER_READINESS)
+    )
     _completed: bool = field(default=False, init=False, repr=False)
     _result: O04ContinuationResult | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if self.restart:
+            if self.continuation_author_limit != O04_REFINEMENT_RESTART_CORRECTION_LIMIT:
+                raise ValueError("O04 restart correction allowance is fixed at two")
+            if self.continuation_review_limit != O04_REFINEMENT_RESTART_REVIEW_LIMIT:
+                raise ValueError("O04 restart review allowance is fixed at two")
+            if (
+                self.prior_author_correction_spend
+                != O04_REFINEMENT_RESTART_PRIOR_AUTHOR_SPEND
+            ):
+                raise ValueError("O04 restart prior author spend is fixed at six")
+            if self.prior_review_spend != O04_REFINEMENT_RESTART_PRIOR_REVIEW_SPEND:
+                raise ValueError("O04 restart prior review spend is fixed at one")
+            if self.aggregate_spent != O04_REFINEMENT_RESTART_AGGREGATE_SPENT:
+                raise ValueError("O04 restart aggregate spend must start at eighteen")
+            if self.aggregate_limit != MAX_AUTHORING_REQUESTS:
+                raise ValueError("O04 restart aggregate limit is fixed at thirty-two")
+            if self.task_limit != O04_REFINEMENT_RESTART_TASK_LIMIT:
+                raise ValueError("O04 restart task limit is fixed at eleven")
+            if any(
+                path is None
+                for path in (
+                    self.terminal_refinement_evidence,
+                    self.terminal_delivery_report,
+                    self.terminal_accounting,
+                )
+            ):
+                raise ValueError("O04 restart terminal authority paths are required")
+            _validate_restart_provider_readiness(self.provider_readiness)
+            return
         if self.continuation_author_limit != O04_REFINEMENT_CORRECTION_LIMIT:
             raise ValueError("O04 refinement correction allowance is fixed at two")
         if self.continuation_review_limit != O04_REFINEMENT_REVIEW_LIMIT:
@@ -943,11 +1016,11 @@ class O04RefinementContinuation:
         self._completed = True
         budget = self._new_budget()
         thinking_choice = self._thinking_choice()
-        evidence = _new_o04_refinement_evidence(
+        evidence = self._new_evidence(
             task_id=self.task_id,
             package_dir=self.package_dir,
             artifact=self.artifact,
-            budget=_o04_refinement_budget_snapshot(
+            budget=self._budget_snapshot_for(
                 budget,
                 self.task_id,
                 prior_author=self.prior_author_correction_spend,
@@ -1068,7 +1141,7 @@ class O04RefinementContinuation:
             )
             evidence["attempts"].append(record["attempt"])
             evidence["ledger"].append(record["ledger"])
-            evidence["budget"] = _o04_refinement_budget_snapshot(
+            evidence["budget"] = self._budget_snapshot_for(
                 budget,
                 self.task_id,
                 prior_author=self.prior_author_correction_spend,
@@ -1115,7 +1188,7 @@ class O04RefinementContinuation:
                 dispatch_index=dispatch_index,
             )
             raw_responses[f"dispatch:{dispatch_index}"] = raw
-            evidence["budget"] = _o04_refinement_budget_snapshot(
+            evidence["budget"] = self._budget_snapshot_for(
                 budget,
                 self.task_id,
                 prior_author=self.prior_author_correction_spend,
@@ -1399,7 +1472,7 @@ class O04RefinementContinuation:
             )
             evidence["attempts"].append(review_record["attempt"])
             evidence["ledger"].append(review_record["ledger"])
-            evidence["budget"] = _o04_refinement_budget_snapshot(
+            evidence["budget"] = self._budget_snapshot_for(
                 budget,
                 self.task_id,
                 prior_author=self.prior_author_correction_spend,
@@ -1567,12 +1640,16 @@ class O04RefinementContinuation:
                 "required_observations": current.plan["required_observations"],
             }
             continuation = {
-                "mode": _O04_REFINEMENT_CONTINUATION_MODE,
+                "mode": self._continuation_mode(),
                 "failure_sidecar": str(current.failure_sidecar),
                 "failure_sidecar_sha256": current.failure_sidecar_sha256,
                 "mismatch_proof": str(current.mismatch_proof),
                 "mismatch_proof_sha256": current.mismatch_proof_sha256,
-                "saved_candidate_sha256": current.authority["saved_candidate_sha256"],
+                "saved_candidate_sha256": (
+                    current.candidate_sha256
+                    if self.restart
+                    else current.authority["saved_candidate_sha256"]
+                ),
                 "prior_continuation_evidence_sha256": _sha256(
                     self.prior_continuation_evidence.read_bytes()
                 ),
@@ -1598,8 +1675,35 @@ class O04RefinementContinuation:
                 "refinement_allowance": {
                     "correction": self.continuation_author_limit,
                     "review": self.continuation_review_limit,
+                    **(
+                        {
+                            "correction_spent": 1,
+                            "review_spent": 0,
+                            "expired": True,
+                        }
+                        if self.restart
+                        else {}
+                    ),
                 },
             }
+            if self.restart:
+                continuation["restart_allowance"] = {
+                    "correction": self.continuation_author_limit,
+                    "review": self.continuation_review_limit,
+                    "dispatch": 4,
+                    "correction_spent": correction_count,
+                    "review_spent": review_count,
+                    "expired": False,
+                }
+                continuation["terminal_authority"] = {
+                    "evidence_path": str(self.terminal_refinement_evidence),
+                    "evidence_sha256": O04_REFINEMENT_RESTART_EVIDENCE_SHA256,
+                    "delivery_report_path": str(self.terminal_delivery_report),
+                    "delivery_report_sha256": O04_REFINEMENT_RESTART_REPORT_SHA256,
+                    "accounting_path": str(self.terminal_accounting),
+                    "accounting_sha256": O04_REFINEMENT_RESTART_ACCOUNTING_SHA256,
+                }
+                continuation["provider_readiness"] = deepcopy(self.provider_readiness)
             try:
                 package = _package_from_responses(
                     view=current.input_view,
@@ -1619,7 +1723,7 @@ class O04RefinementContinuation:
                     policy=_o04_refinement_policy(
                         reviewer_profile=last_review_controls.get("review_model_profile")
                     ),
-                    budget=_o04_refinement_budget_snapshot(
+                    budget=self._budget_snapshot_for(
                         budget,
                         self.task_id,
                         prior_author=self.prior_author_correction_spend,
@@ -1717,7 +1821,7 @@ class O04RefinementContinuation:
         return budget
 
     def _budget_snapshot(self) -> dict[str, Any]:
-        return _o04_refinement_budget_snapshot(
+        return self._budget_snapshot_for(
             self._new_budget(),
             self.task_id,
             prior_author=self.prior_author_correction_spend,
@@ -1738,11 +1842,124 @@ class O04RefinementContinuation:
             "value": False,
         }
 
+    def _continuation_mode(self) -> str:
+        return (
+            _O04_REFINEMENT_RESTART_CONTINUATION_MODE
+            if self.restart
+            else _O04_REFINEMENT_CONTINUATION_MODE
+        )
+
+    def _continuation_schema(self) -> str:
+        return _O04_REFINEMENT_RESTART_SCHEMA if self.restart else _O04_REFINEMENT_SCHEMA
+
+    def _budget_snapshot_for(
+        self,
+        budget: AuthoringBudget,
+        task_id: str,
+        *,
+        prior_author: int,
+        prior_review: int,
+        correction_spent: int,
+        review_spent: int,
+    ) -> dict[str, Any]:
+        snapshot = _o04_refinement_budget_snapshot(
+            budget,
+            task_id,
+            prior_author=prior_author,
+            prior_review=prior_review,
+            correction_spent=correction_spent,
+            review_spent=review_spent,
+        )
+        if self.restart:
+            snapshot.update(
+                {
+                    "prior_refinement_correction_spent": 1,
+                    "prior_refinement_review_spent": 0,
+                    "prior_refinement_correction_limit": 2,
+                    "prior_refinement_review_limit": 2,
+                    "restart_correction_spent": correction_spent,
+                    "restart_review_spent": review_spent,
+                    "restart_correction_limit": O04_REFINEMENT_RESTART_CORRECTION_LIMIT,
+                    "restart_review_limit": O04_REFINEMENT_RESTART_REVIEW_LIMIT,
+                    "restart_dispatch_spent": correction_spent + review_spent,
+                    "restart_dispatch_limit": 4,
+                    "restart_task_limit": O04_REFINEMENT_RESTART_TASK_LIMIT,
+                    "restart_allowance_expired": False,
+                    "prior_refinement_allowance_expired": True,
+                    "refinement_correction_spent": 1,
+                    "refinement_review_spent": 0,
+                    "continuation_correction_spent": correction_spent,
+                    "continuation_review_spent": review_spent,
+                    "continuation_correction_limit": O04_REFINEMENT_RESTART_CORRECTION_LIMIT,
+                    "continuation_review_limit": O04_REFINEMENT_REVIEW_LIMIT,
+                    "aggregate_new_ceiling": 22,
+                    "aggregate_combined_ceiling": 61,
+                }
+            )
+        return snapshot
+
+    def _new_evidence(self, **kwargs: Any) -> dict[str, Any]:
+        evidence = _new_o04_refinement_evidence(**kwargs)
+        if not self.restart:
+            return evidence
+        evidence["continuation_schema"] = _O04_REFINEMENT_RESTART_SCHEMA
+        evidence["continuation_mode"] = _O04_REFINEMENT_RESTART_CONTINUATION_MODE
+        evidence["provider_readiness"] = deepcopy(self.provider_readiness)
+        evidence["authority"].update(
+            {
+                "saved_candidate_sha256": self.artifact.candidate_sha256,
+                "prior_candidate_sha256": self.artifact.candidate_sha256,
+                "terminal_refinement_evidence": {
+                    "path": str(self.terminal_refinement_evidence),
+                    "sha256": O04_REFINEMENT_RESTART_EVIDENCE_SHA256,
+                },
+                "terminal_delivery_report": {
+                    "path": str(self.terminal_delivery_report),
+                    "sha256": O04_REFINEMENT_RESTART_REPORT_SHA256,
+                },
+                "terminal_accounting": {
+                    "path": str(self.terminal_accounting),
+                    "sha256": O04_REFINEMENT_RESTART_ACCOUNTING_SHA256,
+                },
+                "terminal_refinement_status": {
+                    "status": "transport_failure",
+                    "correction_spent": 1,
+                    "review_spent": 0,
+                    "candidate_created": False,
+                    "package_published": False,
+                    "execution": "inapplicable",
+                },
+                "outage_transport_sha256": O04_REFINEMENT_RESTART_OUTAGE_SHA256,
+                "outage_transport_bytes": O04_REFINEMENT_RESTART_OUTAGE_BYTES,
+            }
+        )
+        evidence["allowances"] = {
+            **evidence["allowances"],
+            "refinement_correction": "1/2 expired",
+            "refinement_review": "0/2 expired",
+            "prior_refinement_correction": "1/2 expired",
+            "prior_refinement_review": "0/2 expired",
+            "restart_correction": "0/2",
+            "restart_review": "0/2",
+            "restart_dispatch": "0/4",
+            "historical_author_correction": "4/4",
+            "historical_review": "1/4",
+        }
+        evidence["budget"] = self._budget_snapshot_for(
+            self._new_budget(),
+            self.task_id,
+            prior_author=self.prior_author_correction_spend,
+            prior_review=self.prior_review_spend,
+            correction_spent=0,
+            review_spent=0,
+        )
+        return evidence
+
     def _preflight_record(self) -> dict[str, Any]:
-        return {
+        record = {
             "status": "passed",
-            "mode": _O04_REFINEMENT_CONTINUATION_MODE,
-            "schema": _O04_REFINEMENT_SCHEMA,
+            "mode": self._continuation_mode(),
+            "schema": self._continuation_schema(),
             "failure_sidecar_sha256": self.artifact.failure_sidecar_sha256,
             "mismatch_proof_sha256": self.artifact.mismatch_proof_sha256,
             "saved_candidate_sha256": self.artifact.authority["saved_candidate_sha256"],
@@ -1791,6 +2008,42 @@ class O04RefinementContinuation:
                 "expired": True,
             },
         }
+        if self.restart:
+            record.update(
+                {
+                    "mode": _O04_REFINEMENT_RESTART_CONTINUATION_MODE,
+                    "schema": _O04_REFINEMENT_RESTART_SCHEMA,
+                    "saved_candidate_sha256": self.artifact.candidate_sha256,
+                    "prior_candidate_sha256": self.artifact.candidate_sha256,
+                    "provider_readiness": deepcopy(self.provider_readiness),
+                    "terminal_refinement_evidence": {
+                        "path": str(self.terminal_refinement_evidence),
+                        "sha256": O04_REFINEMENT_RESTART_EVIDENCE_SHA256,
+                    },
+                    "terminal_delivery_report": {
+                        "path": str(self.terminal_delivery_report),
+                        "sha256": O04_REFINEMENT_RESTART_REPORT_SHA256,
+                    },
+                    "terminal_accounting": {
+                        "path": str(self.terminal_accounting),
+                        "sha256": O04_REFINEMENT_RESTART_ACCOUNTING_SHA256,
+                    },
+                    "prior_refinement_outcome": {
+                        "status": "transport_failure",
+                        "correction_spent": 1,
+                        "review_spent": 0,
+                        "candidate_created": False,
+                        "package_published": False,
+                        "execution": "inapplicable",
+                    },
+                    "restart_allowance": {
+                        "correction": O04_REFINEMENT_RESTART_CORRECTION_LIMIT,
+                        "review": O04_REFINEMENT_RESTART_REVIEW_LIMIT,
+                        "dispatch": 4,
+                    },
+                }
+            )
+        return record
 
     def _finish(
         self,
@@ -1807,7 +2060,7 @@ class O04RefinementContinuation:
         evidence["status"] = status
         evidence["terminal_status"] = status
         evidence["findings"] = [finding.to_dict() for finding in findings]
-        evidence["budget"] = _o04_refinement_budget_snapshot(
+        evidence["budget"] = self._budget_snapshot_for(
             budget,
             self.task_id,
             prior_author=self.prior_author_correction_spend,
@@ -3212,6 +3465,208 @@ def _o04_refinement_authority_paths(mismatch_proof: Path) -> dict[str, Path]:
     }
 
 
+def _validate_restart_provider_readiness(record: dict[str, Any]) -> None:
+    """Validate the already-recorded provider readiness fact without probing."""
+
+    if not isinstance(record, dict):
+        raise ValueError("O04 restart provider readiness must be a mapping")
+    if record != O04_REFINEMENT_RESTART_PROVIDER_READINESS:
+        raise ValueError("O04 restart provider readiness record is not exact")
+
+
+def _o04_validate_restart_terminal_authority(
+    *,
+    refinement_evidence_path: Path,
+    delivery_report_path: Path,
+    accounting_path: Path,
+    package_dir: Path,
+    expected_refinement_evidence_sha256: str,
+    expected_delivery_report_sha256: str,
+    expected_accounting_sha256: str,
+) -> None:
+    """Seal the prior terminal refinement run before restart preparation."""
+
+    evidence_raw = _o04_read_file(
+        refinement_evidence_path,
+        "O04 terminal refinement evidence",
+        expected_refinement_evidence_sha256,
+    )
+    report_raw = _o04_read_file(
+        delivery_report_path,
+        "O04 terminal refinement delivery report",
+        expected_delivery_report_sha256,
+    )
+    accounting_raw = _o04_read_file(
+        accounting_path,
+        "O04 terminal refinement accounting",
+        expected_accounting_sha256,
+    )
+    try:
+        evidence = json.loads(evidence_raw)
+        accounting = json.loads(accounting_raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise O04ContinuationValidationError(
+            "O04 terminal refinement authority JSON is invalid"
+        ) from exc
+    if not isinstance(evidence, dict) or not isinstance(accounting, dict):
+        raise O04ContinuationValidationError(
+            "O04 terminal refinement authority must contain JSON objects"
+        )
+    if (
+        evidence.get("continuation_schema") != _O04_REFINEMENT_SCHEMA
+        or evidence.get("continuation_mode") != _O04_REFINEMENT_CONTINUATION_MODE
+        or evidence.get("status") != "transport_failure"
+        or evidence.get("terminal_status") != "transport_failure"
+        or evidence.get("task_id") != O04_REFINEMENT_CONTINUATION_TASK_ID
+    ):
+        raise O04ContinuationValidationError(
+            "O04 terminal refinement outcome is not an exact transport failure"
+        )
+    attempts = evidence.get("attempts")
+    if not isinstance(attempts, list) or len(attempts) != 1:
+        raise O04ContinuationValidationError(
+            "O04 terminal refinement must preserve exactly one correction attempt"
+        )
+    attempt = attempts[0]
+    raw_response = attempt.get("raw_response") if isinstance(attempt, dict) else None
+    failure = attempt.get("failure") if isinstance(attempt, dict) else None
+    failure_detail = failure.get("detail") if isinstance(failure, dict) else None
+    if (
+        not isinstance(attempt, dict)
+        or attempt.get("stage") != "correction"
+        or attempt.get("role") != "author"
+        or attempt.get("dispatch_index") != 1
+        or attempt.get("correction_index") != 1
+        or attempt.get("candidate_sha256") != O04_REFINEMENT_RESTART_CANDIDATE_SHA256
+        or attempt.get("accepted_plan_sha256") != O04_ACCEPTED_PLAN_SHA256
+        or attempt.get("controls", {}).get("value", {}).get("max_retries") != 0
+        or attempt.get("controls", {}).get("value", {}).get("extra_body")
+        != O04_REFINEMENT_THINKING_EXTRA_BODY
+        or not isinstance(failure, dict)
+        or failure.get("code") != "transport_failure"
+        or not isinstance(raw_response, dict)
+        or raw_response.get("availability") != "unavailable"
+        or raw_response.get("reason") != "provider_failure"
+        or not isinstance(failure_detail, str)
+        or len(failure_detail.encode("utf-8")) != O04_REFINEMENT_RESTART_OUTAGE_BYTES
+        or _sha256(failure_detail.encode("utf-8"))
+        != O04_REFINEMENT_RESTART_OUTAGE_SHA256
+    ):
+        raise O04ContinuationValidationError(
+            "O04 terminal refinement transport evidence is not exact"
+        )
+    if (
+        evidence.get("candidate_attempts") != []
+        or evidence.get("reviews") != []
+        or (
+            isinstance(evidence.get("package"), dict)
+            and evidence["package"].get("status") == "published"
+        )
+    ):
+        raise O04ContinuationValidationError(
+            "O04 terminal refinement must have no candidate, review, or package"
+        )
+    historical_package = evidence.get("package_path")
+    if isinstance(historical_package, str) and historical_package:
+        if Path(historical_package).expanduser().resolve(strict=False) == (
+            package_dir.expanduser().resolve(strict=False)
+        ):
+            raise O04ContinuationValidationError(
+                "O04 restart package path reuses terminal refinement package path"
+            )
+    if (
+        accounting.get("schema") != "o04-refinement-delivery-accounting-v1"
+        or accounting.get("append_only") is not True
+    ):
+        raise O04ContinuationValidationError(
+            "O04 terminal refinement accounting schema is not exact"
+        )
+    outcome = accounting.get("outcome")
+    dispatches = accounting.get("dispatches")
+    candidate = accounting.get("candidate")
+    package = accounting.get("package")
+    execution = accounting.get("execution")
+    correction_dispatch = (
+        dispatches.get("correction") if isinstance(dispatches, dict) else None
+    )
+    review_dispatch = (
+        dispatches.get("review") if isinstance(dispatches, dict) else None
+    )
+    retry_dispatch = (
+        dispatches.get("automatic_retry") if isinstance(dispatches, dict) else None
+    )
+    if (
+        not isinstance(outcome, dict)
+        or outcome.get("terminal_status") != "transport_failure"
+        or outcome.get("terminal_stage") != "artifact_correction_transport"
+        or not isinstance(correction_dispatch, dict)
+        or correction_dispatch.get("count") != 1
+        or not isinstance(review_dispatch, dict)
+        or review_dispatch.get("count") != 0
+        or not isinstance(retry_dispatch, dict)
+        or retry_dispatch.get("count") != 0
+        or retry_dispatch.get("allowed") is not False
+        or not isinstance(candidate, dict)
+        or candidate.get("new_candidate_created") is not False
+        or not isinstance(package, dict)
+        or package.get("published") is not False
+        or not isinstance(execution, dict)
+        or execution.get("status") != "inapplicable"
+        or execution.get("setup_read_calls") != 0
+        or execution.get("generation_calls") != 0
+        or execution.get("runtime_judge_calls") != 0
+    ):
+        raise O04ContinuationValidationError(
+            "O04 terminal refinement delivery accounting is not exact"
+        )
+    activity_counters = accounting.get("activity_counters")
+    activity = (
+        activity_counters.get("provider_authoring_design_review")
+        if isinstance(activity_counters, dict)
+        else None
+    )
+    if (
+        not isinstance(activity, dict)
+        or
+        activity.get("start") != 17
+        or activity.get("added") != 1
+        or activity.get("end") != 18
+        or activity.get("cap") != MAX_AUTHORING_REQUESTS
+    ):
+        raise O04ContinuationValidationError(
+            "O04 terminal refinement accounting spend is not exact"
+        )
+    spending = accounting.get("spending")
+    if (
+        not isinstance(spending, dict)
+        or not isinstance(spending.get("first_continuation_allowance"), dict)
+        or spending["first_continuation_allowance"].get("expired") is not True
+        or spending["first_continuation_allowance"].get("reopened") is not False
+        or not isinstance(spending.get("new_refinement_allowance"), dict)
+        or spending["new_refinement_allowance"].get("artifact_correction_spent")
+        != 1
+        or spending["new_refinement_allowance"].get("artifact_correction_cap") != 2
+        or spending["new_refinement_allowance"].get("artifact_review_spent") != 0
+        or spending["new_refinement_allowance"].get("artifact_review_cap") != 2
+        or spending["new_refinement_allowance"].get("retries") != 0
+    ):
+        raise O04ContinuationValidationError(
+            "O04 terminal refinement allowance epochs are not exact"
+        )
+    if not all(
+        marker in report_raw
+        for marker in (
+            b"transport_failure",
+            b"No corrected candidate was created",
+            b"Artifact review is explicitly inapplicable",
+            b"no immutable package was assembled or published",
+        )
+    ):
+        raise O04ContinuationValidationError(
+            "O04 terminal refinement delivery report omits terminal facts"
+        )
+
+
 def _o04_validate_refinement_prior(
     *,
     continuation_path: Path,
@@ -3489,6 +3944,225 @@ def _prepare_o04_refinement_continuation(
     )
 
 
+def _prepare_o04_refinement_restart_continuation(
+    *,
+    failure_sidecar: str | Path,
+    mismatch_proof: str | Path,
+    terminal_refinement_evidence: str | Path,
+    terminal_delivery_report: str | Path,
+    terminal_accounting: str | Path,
+    package_dir: str | Path,
+    task_id: str = O04_REFINEMENT_RESTART_CONTINUATION_TASK_ID,
+    evidence_path: str | Path | None = None,
+    expected_failure_sidecar_sha256: str = O04_FAILURE_SIDECAR_SHA256,
+    expected_mismatch_proof_sha256: str = O04_MISMATCH_PROOF_SHA256,
+    expected_terminal_refinement_evidence_sha256: str = (
+        O04_REFINEMENT_RESTART_EVIDENCE_SHA256
+    ),
+    expected_terminal_delivery_report_sha256: str = O04_REFINEMENT_RESTART_REPORT_SHA256,
+    expected_terminal_accounting_sha256: str = O04_REFINEMENT_RESTART_ACCOUNTING_SHA256,
+    expected_candidate_sha256: str = O04_REFINEMENT_RESTART_CANDIDATE_SHA256,
+    expected_plan_sha256: str = O04_ACCEPTED_PLAN_SHA256,
+    aggregate_spent: int = O04_REFINEMENT_RESTART_AGGREGATE_SPENT,
+    aggregate_limit: int = MAX_AUTHORING_REQUESTS,
+    task_limit: int = O04_REFINEMENT_RESTART_TASK_LIMIT,
+    prior_author_correction_spend: int = O04_REFINEMENT_RESTART_PRIOR_AUTHOR_SPEND,
+    prior_review_spend: int = O04_REFINEMENT_RESTART_PRIOR_REVIEW_SPEND,
+    provider_readiness: dict[str, Any] | None = None,
+) -> O04RefinementContinuation:
+    """Seal a fresh O04 provider-recovery restart without reopening history."""
+
+    if not isinstance(task_id, str) or not task_id.strip():
+        raise O04ContinuationValidationError("O04 restart task_id must be nonblank")
+    if task_id in {
+        "O04-live-20260920",
+        "O04-correction-continuation-20260921",
+        O04_CONTINUATION_TASK_ID,
+        O04_REFINEMENT_CONTINUATION_TASK_ID,
+    }:
+        raise O04ContinuationValidationError(
+            "O04 restart task identity must be fresh"
+        )
+    for name, value in (
+        ("aggregate_spent", aggregate_spent),
+        ("aggregate_limit", aggregate_limit),
+        ("task_limit", task_limit),
+        ("prior_author_correction_spend", prior_author_correction_spend),
+        ("prior_review_spend", prior_review_spend),
+    ):
+        try:
+            _validate_nonnegative_integer(name, value)
+        except ValueError as exc:
+            raise O04ContinuationValidationError(str(exc)) from exc
+    if (
+        aggregate_spent != O04_REFINEMENT_RESTART_AGGREGATE_SPENT
+        or aggregate_limit != MAX_AUTHORING_REQUESTS
+        or task_limit != O04_REFINEMENT_RESTART_TASK_LIMIT
+        or prior_author_correction_spend != O04_REFINEMENT_RESTART_PRIOR_AUTHOR_SPEND
+        or prior_review_spend != O04_REFINEMENT_RESTART_PRIOR_REVIEW_SPEND
+    ):
+        raise O04ContinuationValidationError(
+            "sealed O04 restart must seed 6 author/correction, 1 review, "
+            "aggregate 18, and task limit 11"
+        )
+    if (
+        expected_failure_sidecar_sha256 != O04_FAILURE_SIDECAR_SHA256
+        or expected_mismatch_proof_sha256 != O04_MISMATCH_PROOF_SHA256
+        or expected_plan_sha256 != O04_ACCEPTED_PLAN_SHA256
+        or expected_terminal_refinement_evidence_sha256
+        != O04_REFINEMENT_RESTART_EVIDENCE_SHA256
+        or expected_terminal_delivery_report_sha256
+        != O04_REFINEMENT_RESTART_REPORT_SHA256
+        or expected_terminal_accounting_sha256
+        != O04_REFINEMENT_RESTART_ACCOUNTING_SHA256
+    ):
+        raise O04ContinuationValidationError(
+            "O04 restart authority pins must match the sealed recorded values"
+        )
+    if expected_candidate_sha256 != O04_REFINEMENT_RESTART_CANDIDATE_SHA256:
+        raise O04ContinuationValidationError(
+            "O04 restart candidate pin must be the terminal refinement candidate"
+        )
+    readiness = deepcopy(
+        O04_REFINEMENT_RESTART_PROVIDER_READINESS
+        if provider_readiness is None
+        else provider_readiness
+    )
+    try:
+        _validate_restart_provider_readiness(readiness)
+    except ValueError as exc:
+        raise O04ContinuationValidationError(str(exc)) from exc
+
+    destination = Path(package_dir)
+    if destination.exists():
+        raise O04ContinuationValidationError(
+            "O04 restart package path must be fresh and not already exist"
+        )
+    output_evidence = (
+        Path(evidence_path)
+        if evidence_path is not None
+        else _o04_default_evidence_path(destination, task_id)
+    )
+    if output_evidence.exists():
+        raise O04ContinuationValidationError(
+            "O04 restart evidence path must be fresh and not already exist"
+        )
+    evidence_identity = output_evidence.expanduser().resolve(strict=False)
+    destination_identity = destination.expanduser().resolve(strict=False)
+    try:
+        evidence_identity.relative_to(destination_identity)
+    except ValueError:
+        pass
+    else:
+        raise O04ContinuationValidationError(
+            "O04 restart evidence root must remain outside package path"
+        )
+
+    terminal_evidence_path = Path(terminal_refinement_evidence)
+    terminal_report_path = Path(terminal_delivery_report)
+    terminal_accounting_path = Path(terminal_accounting)
+    _o04_validate_restart_terminal_authority(
+        refinement_evidence_path=terminal_evidence_path,
+        delivery_report_path=terminal_report_path,
+        accounting_path=terminal_accounting_path,
+        package_dir=destination,
+        expected_refinement_evidence_sha256=expected_terminal_refinement_evidence_sha256,
+        expected_delivery_report_sha256=expected_terminal_delivery_report_sha256,
+        expected_accounting_sha256=expected_terminal_accounting_sha256,
+    )
+
+    prior_paths = _o04_refinement_authority_paths(Path(mismatch_proof))
+    historical_package_paths: list[Path] = []
+    for historical_path, label in (
+        (terminal_evidence_path, "terminal refinement"),
+        (prior_paths["prior_continuation_evidence"], "first continuation"),
+    ):
+        historical = _load_continuation_mapping(historical_path, f"{label} evidence")
+        historical_package = historical.get("package_path")
+        if isinstance(historical_package, str) and historical_package:
+            historical_package_paths.append(Path(historical_package))
+            if Path(historical_package).expanduser().resolve(strict=False) == (
+                destination.expanduser().resolve(strict=False)
+            ):
+                raise O04ContinuationValidationError(
+                    f"O04 restart package path reuses {label} package path"
+                )
+    historical_paths = (
+        Path(failure_sidecar),
+        Path(mismatch_proof),
+        terminal_evidence_path,
+        terminal_report_path,
+        terminal_accounting_path,
+        prior_paths["prior_continuation_evidence"],
+        prior_paths["prior_delivery_report"],
+        prior_paths["prior_preservation"],
+        *historical_package_paths,
+    )
+    if any(
+        evidence_identity == path.expanduser().resolve(strict=False)
+        for path in historical_paths
+    ):
+        raise O04ContinuationValidationError(
+            "O04 restart evidence path aliases pinned historical authority"
+        )
+
+    # Reuse the existing saved-input and first-continuation validators.  The
+    # restart-specific terminal authority is sealed above and does not reopen
+    # any of those expired paths or allowances.
+    old = _prepare_o04_correction_continuation(
+        failure_sidecar=failure_sidecar,
+        mismatch_proof=mismatch_proof,
+        package_dir=destination,
+        task_id=task_id,
+        evidence_path=output_evidence,
+        expected_failure_sidecar_sha256=expected_failure_sidecar_sha256,
+        expected_mismatch_proof_sha256=expected_mismatch_proof_sha256,
+        expected_candidate_sha256=O04_SAVED_CANDIDATE_SHA256,
+        expected_plan_sha256=expected_plan_sha256,
+        aggregate_spent=16,
+        aggregate_limit=MAX_AUTHORING_REQUESTS,
+        task_limit=7,
+        prior_author_correction_spend=4,
+        prior_review_spend=1,
+    )
+    artifact = _o04_validate_refinement_prior(
+        continuation_path=prior_paths["prior_continuation_evidence"],
+        delivery_report_path=prior_paths["prior_delivery_report"],
+        preservation_path=prior_paths["prior_preservation"],
+        artifact=old.artifact,
+    )
+    if (
+        artifact.candidate_sha256 != expected_candidate_sha256
+        or _mapping_sha256(artifact.plan) != expected_plan_sha256
+        or artifact.authority.get("control_fixture_sha256", O04_CONTROL_FIXTURES_SHA256)
+        != O04_CONTROL_FIXTURES_SHA256
+    ):
+        raise O04ContinuationValidationError(
+            "O04 restart candidate, plan, or control fixture pin is not exact"
+        )
+    return O04RefinementContinuation(
+        artifact=artifact,
+        package_dir=destination,
+        task_id=task_id,
+        evidence_path=output_evidence,
+        prior_continuation_evidence=prior_paths["prior_continuation_evidence"],
+        prior_delivery_report=prior_paths["prior_delivery_report"],
+        prior_preservation=prior_paths["prior_preservation"],
+        prior_author_correction_spend=prior_author_correction_spend,
+        prior_review_spend=prior_review_spend,
+        continuation_author_limit=O04_REFINEMENT_RESTART_CORRECTION_LIMIT,
+        continuation_review_limit=O04_REFINEMENT_RESTART_REVIEW_LIMIT,
+        aggregate_spent=aggregate_spent,
+        aggregate_limit=aggregate_limit,
+        task_limit=task_limit,
+        restart=True,
+        terminal_refinement_evidence=terminal_evidence_path,
+        terminal_delivery_report=terminal_report_path,
+        terminal_accounting=terminal_accounting_path,
+        provider_readiness=readiness,
+    )
+
+
 def prepare_o04_refinement_continuation(
     *,
     failure_sidecar: str | Path,
@@ -3533,6 +4207,75 @@ def prepare_o04_refinement_continuation(
             task_limit=task_limit,
             prior_author_correction_spend=prior_author_correction_spend,
             prior_review_spend=prior_review_spend,
+        )
+    except O04ContinuationValidationError:
+        raise
+    except (
+        ContinuationValidationError,
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise O04ContinuationValidationError(str(exc)) from exc
+
+
+def prepare_o04_refinement_restart_continuation(
+    *,
+    failure_sidecar: str | Path,
+    mismatch_proof: str | Path,
+    terminal_refinement_evidence: str | Path,
+    terminal_delivery_report: str | Path,
+    terminal_accounting: str | Path,
+    package_dir: str | Path,
+    task_id: str = O04_REFINEMENT_RESTART_CONTINUATION_TASK_ID,
+    evidence_path: str | Path | None = None,
+    expected_failure_sidecar_sha256: str = O04_FAILURE_SIDECAR_SHA256,
+    expected_mismatch_proof_sha256: str = O04_MISMATCH_PROOF_SHA256,
+    expected_terminal_refinement_evidence_sha256: str = (
+        O04_REFINEMENT_RESTART_EVIDENCE_SHA256
+    ),
+    expected_terminal_delivery_report_sha256: str = O04_REFINEMENT_RESTART_REPORT_SHA256,
+    expected_terminal_accounting_sha256: str = O04_REFINEMENT_RESTART_ACCOUNTING_SHA256,
+    expected_candidate_sha256: str = O04_REFINEMENT_RESTART_CANDIDATE_SHA256,
+    expected_plan_sha256: str = O04_ACCEPTED_PLAN_SHA256,
+    aggregate_spent: int = O04_REFINEMENT_RESTART_AGGREGATE_SPENT,
+    aggregate_limit: int = MAX_AUTHORING_REQUESTS,
+    task_limit: int = O04_REFINEMENT_RESTART_TASK_LIMIT,
+    prior_author_correction_spend: int = O04_REFINEMENT_RESTART_PRIOR_AUTHOR_SPEND,
+    prior_review_spend: int = O04_REFINEMENT_RESTART_PRIOR_REVIEW_SPEND,
+    provider_readiness: dict[str, Any] | None = None,
+) -> O04RefinementContinuation:
+    """Prepare the fresh sealed O04 provider-recovery restart offline."""
+
+    try:
+        return _prepare_o04_refinement_restart_continuation(
+            failure_sidecar=failure_sidecar,
+            mismatch_proof=mismatch_proof,
+            terminal_refinement_evidence=terminal_refinement_evidence,
+            terminal_delivery_report=terminal_delivery_report,
+            terminal_accounting=terminal_accounting,
+            package_dir=package_dir,
+            task_id=task_id,
+            evidence_path=evidence_path,
+            expected_failure_sidecar_sha256=expected_failure_sidecar_sha256,
+            expected_mismatch_proof_sha256=expected_mismatch_proof_sha256,
+            expected_terminal_refinement_evidence_sha256=(
+                expected_terminal_refinement_evidence_sha256
+            ),
+            expected_terminal_delivery_report_sha256=(
+                expected_terminal_delivery_report_sha256
+            ),
+            expected_terminal_accounting_sha256=expected_terminal_accounting_sha256,
+            expected_candidate_sha256=expected_candidate_sha256,
+            expected_plan_sha256=expected_plan_sha256,
+            aggregate_spent=aggregate_spent,
+            aggregate_limit=aggregate_limit,
+            task_limit=task_limit,
+            prior_author_correction_spend=prior_author_correction_spend,
+            prior_review_spend=prior_review_spend,
+            provider_readiness=provider_readiness,
         )
     except O04ContinuationValidationError:
         raise
@@ -3638,6 +4381,191 @@ def run_o04_refinement_continuation(
                     "refinement_review_spent": 0,
                     "aggregate_spent": aggregate_spent,
                     "aggregate_limit": aggregate_limit,
+                },
+                "review_status": {"plan": "unverified", "artifact": "preflight_defect"},
+                "attempts": [],
+                "candidate_attempts": [],
+                "ledger": [],
+                "reviews": [],
+            }
+        )
+        path = _write_o04_continuation_evidence(output_evidence, evidence)
+        return O04ContinuationResult(
+            status="preflight_defect",
+            task_id=task_id,
+            findings=[finding],
+            failure_evidence_path=path,
+            budget=deepcopy(evidence["budget"]),
+            preflight=deepcopy(evidence["preflight"]),
+            thinking_choice=deepcopy(evidence["thinking_choice"]),
+        )
+    return continuation.run(transport_factory=transport_factory)
+
+
+def run_o04_refinement_restart_continuation(
+    *,
+    failure_sidecar: str | Path,
+    mismatch_proof: str | Path,
+    terminal_refinement_evidence: str | Path,
+    terminal_delivery_report: str | Path,
+    terminal_accounting: str | Path,
+    package_dir: str | Path,
+    transport_factory: Callable[[], AuthoringTransport],
+    task_id: str = O04_REFINEMENT_RESTART_CONTINUATION_TASK_ID,
+    evidence_path: str | Path | None = None,
+    expected_failure_sidecar_sha256: str = O04_FAILURE_SIDECAR_SHA256,
+    expected_mismatch_proof_sha256: str = O04_MISMATCH_PROOF_SHA256,
+    expected_terminal_refinement_evidence_sha256: str = (
+        O04_REFINEMENT_RESTART_EVIDENCE_SHA256
+    ),
+    expected_terminal_delivery_report_sha256: str = O04_REFINEMENT_RESTART_REPORT_SHA256,
+    expected_terminal_accounting_sha256: str = O04_REFINEMENT_RESTART_ACCOUNTING_SHA256,
+    expected_candidate_sha256: str = O04_REFINEMENT_RESTART_CANDIDATE_SHA256,
+    expected_plan_sha256: str = O04_ACCEPTED_PLAN_SHA256,
+    aggregate_spent: int = O04_REFINEMENT_RESTART_AGGREGATE_SPENT,
+    aggregate_limit: int = MAX_AUTHORING_REQUESTS,
+    task_limit: int = O04_REFINEMENT_RESTART_TASK_LIMIT,
+    prior_author_correction_spend: int = O04_REFINEMENT_RESTART_PRIOR_AUTHOR_SPEND,
+    prior_review_spend: int = O04_REFINEMENT_RESTART_PRIOR_REVIEW_SPEND,
+    provider_readiness: dict[str, Any] | None = None,
+) -> O04ContinuationResult:
+    """Run the fresh sealed O04 restart or persist a typed preflight stop."""
+
+    destination = Path(package_dir)
+    output_evidence = (
+        Path(evidence_path)
+        if evidence_path is not None
+        else _o04_default_evidence_path(destination, task_id)
+    )
+    if output_evidence.exists():
+        try:
+            existing = load_failure_evidence(output_evidence)
+        except ValueError:
+            existing = {}
+        if (
+            existing.get("continuation_schema") != _O04_REFINEMENT_RESTART_SCHEMA
+            or existing.get("task_id") != task_id
+        ):
+            finding = Finding(
+                "preflight_authority",
+                "O04 restart evidence path is already used by another authority",
+                "continuation",
+            )
+            return O04ContinuationResult(
+                status="preflight_defect",
+                task_id=task_id,
+                findings=[finding],
+                failure_evidence_path=output_evidence,
+                budget={
+                    "prior_author_correction_spend": prior_author_correction_spend,
+                    "prior_review_spend": prior_review_spend,
+                    "aggregate_spent": aggregate_spent,
+                    "aggregate_limit": aggregate_limit,
+                    "task_limit": task_limit,
+                },
+                preflight={"status": "failed", "finding": finding.to_dict()},
+            )
+        finding = Finding(
+            "continuation_already_completed",
+            "O04 restart evidence already exists; a second run is not permitted",
+            "continuation",
+        )
+        return O04ContinuationResult(
+            status="continuation_already_completed",
+            task_id=task_id,
+            findings=[finding],
+            failure_evidence_path=output_evidence,
+            budget=deepcopy(existing.get("budget", {})),
+            preflight=deepcopy(existing.get("preflight", {})),
+            accepted_plan=deepcopy(existing.get("accepted_plan", {})),
+            accepted_plan_sha256=existing.get("accepted_plan_sha256", ""),
+            corrected_candidate_sha256=existing.get("corrected_candidate_sha256", ""),
+            thinking_choice=deepcopy(existing.get("thinking_choice", {})),
+        )
+    try:
+        continuation = prepare_o04_refinement_restart_continuation(
+            failure_sidecar=failure_sidecar,
+            mismatch_proof=mismatch_proof,
+            terminal_refinement_evidence=terminal_refinement_evidence,
+            terminal_delivery_report=terminal_delivery_report,
+            terminal_accounting=terminal_accounting,
+            package_dir=destination,
+            task_id=task_id,
+            evidence_path=output_evidence,
+            expected_failure_sidecar_sha256=expected_failure_sidecar_sha256,
+            expected_mismatch_proof_sha256=expected_mismatch_proof_sha256,
+            expected_terminal_refinement_evidence_sha256=(
+                expected_terminal_refinement_evidence_sha256
+            ),
+            expected_terminal_delivery_report_sha256=(
+                expected_terminal_delivery_report_sha256
+            ),
+            expected_terminal_accounting_sha256=expected_terminal_accounting_sha256,
+            expected_candidate_sha256=expected_candidate_sha256,
+            expected_plan_sha256=expected_plan_sha256,
+            aggregate_spent=aggregate_spent,
+            aggregate_limit=aggregate_limit,
+            task_limit=task_limit,
+            prior_author_correction_spend=prior_author_correction_spend,
+            prior_review_spend=prior_review_spend,
+            provider_readiness=provider_readiness,
+        )
+    except O04ContinuationValidationError as exc:
+        finding = Finding("preflight_authority", str(exc), "preflight")
+        readiness = deepcopy(O04_REFINEMENT_RESTART_PROVIDER_READINESS)
+        evidence = new_failure_evidence(task_id, destination)
+        evidence.update(
+            {
+                "continuation_schema": _O04_REFINEMENT_RESTART_SCHEMA,
+                "continuation_mode": _O04_REFINEMENT_RESTART_CONTINUATION_MODE,
+                "status": "preflight_defect",
+                "terminal_status": "preflight_defect",
+                "provider_readiness": readiness,
+                "preflight": {"status": "failed", "finding": finding.to_dict()},
+                "findings": [finding.to_dict()],
+                "authority": {
+                    "terminal_refinement_evidence": {
+                        "path": str(terminal_refinement_evidence),
+                        "sha256": expected_terminal_refinement_evidence_sha256,
+                    },
+                    "terminal_delivery_report": {
+                        "path": str(terminal_delivery_report),
+                        "sha256": expected_terminal_delivery_report_sha256,
+                    },
+                    "terminal_accounting": {
+                        "path": str(terminal_accounting),
+                        "sha256": expected_terminal_accounting_sha256,
+                    },
+                    "outage_transport_sha256": O04_REFINEMENT_RESTART_OUTAGE_SHA256,
+                    "outage_transport_bytes": O04_REFINEMENT_RESTART_OUTAGE_BYTES,
+                },
+                "thinking_choice": {
+                    "status": "fixed",
+                    "extra_body": deepcopy(O04_REFINEMENT_THINKING_EXTRA_BODY),
+                    "field": "chat_template_kwargs.enable_thinking",
+                    "value": False,
+                },
+                "allowances": {
+                    "historical_author_correction": "4/4",
+                    "historical_review": "1/4",
+                    "first_continuation_correction": "1/1 expired",
+                    "first_continuation_review": "0/1 expired",
+                    "prior_refinement_correction": "1/2 expired",
+                    "prior_refinement_review": "0/2 expired",
+                    "restart_correction": "0/2",
+                    "restart_review": "0/2",
+                    "automatic_retry": False,
+                },
+                "budget": {
+                    "prior_author_correction_spent": O04_REFINEMENT_RESTART_PRIOR_AUTHOR_SPEND,
+                    "prior_review_spend": O04_REFINEMENT_RESTART_PRIOR_REVIEW_SPEND,
+                    "restart_correction_spent": 0,
+                    "restart_review_spent": 0,
+                    "restart_correction_limit": O04_REFINEMENT_RESTART_CORRECTION_LIMIT,
+                    "restart_review_limit": O04_REFINEMENT_RESTART_REVIEW_LIMIT,
+                    "aggregate_spent": aggregate_spent,
+                    "aggregate_limit": aggregate_limit,
+                    "task_limit": task_limit,
                 },
                 "review_status": {"plan": "unverified", "artifact": "preflight_defect"},
                 "attempts": [],
@@ -14414,10 +15342,23 @@ __all__ = [
     "O04_ACCEPTED_PLAN_SHA256",
     "O04_CONTINUATION_TASK_ID",
     "O04_REFINEMENT_CONTINUATION_TASK_ID",
+    "O04_REFINEMENT_RESTART_CONTINUATION_TASK_ID",
     "O04_CONTROL_FIXTURES_SHA256",
     "O04_FAILURE_SIDECAR_SHA256",
     "O04_MISMATCH_PROOF_SHA256",
     "O04_SAVED_CANDIDATE_SHA256",
+    "O04_REFINEMENT_RESTART_EVIDENCE_SHA256",
+    "O04_REFINEMENT_RESTART_REPORT_SHA256",
+    "O04_REFINEMENT_RESTART_ACCOUNTING_SHA256",
+    "O04_REFINEMENT_RESTART_CANDIDATE_SHA256",
+    "O04_REFINEMENT_RESTART_OUTAGE_SHA256",
+    "O04_REFINEMENT_RESTART_PRIOR_AUTHOR_SPEND",
+    "O04_REFINEMENT_RESTART_PRIOR_REVIEW_SPEND",
+    "O04_REFINEMENT_RESTART_AGGREGATE_SPENT",
+    "O04_REFINEMENT_RESTART_TASK_LIMIT",
+    "O04_REFINEMENT_RESTART_CORRECTION_LIMIT",
+    "O04_REFINEMENT_RESTART_REVIEW_LIMIT",
+    "O04_REFINEMENT_RESTART_PROVIDER_READINESS",
     "MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK",
     "MAX_REVIEW_REQUESTS_PER_TASK",
     "AuthoringBudget",
@@ -14492,8 +15433,10 @@ __all__ = [
     "prepare_saved_plan_continuation",
     "prepare_o04_correction_continuation",
     "prepare_o04_refinement_continuation",
+    "prepare_o04_refinement_restart_continuation",
     "run_o04_correction_continuation",
     "run_o04_refinement_continuation",
+    "run_o04_refinement_restart_continuation",
     "scan_for_secrets",
     "scan_for_prompt_secrets",
     "scan_prompt_duplicates",

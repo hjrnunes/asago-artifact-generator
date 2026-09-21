@@ -208,6 +208,56 @@ correction or review transport failure is terminal and never retries.
 Only an accepted review assembles a package; every other outcome leaves the
 package path absent.
 
+### O04 provider-recovery restart
+
+The provider-recovery restart is a new sealed seam, not a retry of the
+expired refinement. Use `prepare_o04_refinement_restart_continuation(...)` or
+`run_o04_refinement_restart_continuation(...)` with a fresh task ID, evidence
+path, and package path:
+
+```python
+continuation = prepare_o04_refinement_restart_continuation(
+    failure_sidecar="/absolute/path/to/O04.failure-evidence.json",
+    mismatch_proof="/absolute/path/to/mismatch-evidence.json",
+    terminal_refinement_evidence="/absolute/path/to/continuation-evidence.json",
+    terminal_delivery_report="/absolute/path/to/report.md",
+    terminal_accounting="/absolute/path/to/accounting.json",
+    package_dir="/absolute/path/to/fresh-package",
+)
+result = continuation.run(transport_factory=transport_factory)
+```
+
+Preparation verifies the terminal refinement evidence, delivery report, and
+accounting pins:
+
+- `continuation-evidence.json`:
+  `61f8aa1e7e23f7f5921dc8b04f0bf69d4eaecd316a48e4d88fdff6adfa4b801e`
+- `report.md`:
+  `c8f50d35612059b5465d71d020c48cc3a0c35e19bb903db34fe1ca4bbaf17b37`
+- `accounting.json`:
+  `58ef7361edf9fcec591090850bb533291bd9183bf9dd80033e19a453ebc7cf0c`
+
+The pinned run is a terminal transport failure with one consumed correction,
+no candidate, review, package, or execution. The restart starts from candidate
+`f374565b...9e4e`, seeds 6 author/correction requests and 1 review at aggregate
+18, and enforces task limit 11. Its fresh shared allowance is at most two
+corrections and two exact-candidate reviews; historical, first-continuation,
+and prior-refinement allowances remain expired.
+
+The durable readiness record describes one authenticated, non-generative
+models-surface read: HTTP 200, configured model discoverable, and 534.6 ms.
+The restart records that fact without probing again or persisting endpoint,
+credential, header, body, or model-list data.
+
+Every dispatch persists raw bytes before validation, sends
+`chat_template_kwargs.enable_thinking=false` through `extra_body`, and uses
+zero automatic retries. Review remains gated by deterministic checks and all
+eleven unchanged controls. A transport failure consumes its role slot and
+stops the restart without dispatching the other slot. Only review `accept`
+assembles the immutable package. The prior 2,501-byte outage response
+(`0ccdd3b4f240a05716e9dd3e8a7c28afa2b37c5d77a85fb6dc5a644f3b01a2e4`)
+remains transport evidence and is never candidate input or output.
+
 `author` writes an immutable package or durable failure evidence. `check` runs
 only the supplied evidence through the packaged detector in the constrained
 offline harness. Neither command starts a target, setup service, discovery

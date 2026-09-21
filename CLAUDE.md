@@ -122,6 +122,38 @@ The `generate` command remains a read-only compatibility path for historical
 scenario YAMLs. New work uses producer `run`, consumer `author`, consumer
 `check`, and frozen downstream execution.
 
+The sealed
+`prepare_o04_refinement_restart_continuation(...)` /
+`run_o04_refinement_restart_continuation(...)` seam is a fresh provider-
+recovery continuation, not a retry or reopening of the expired refinement.
+Preparation hash-pins the terminal refinement evidence
+(`61f8aa1e7e23f7f5921dc8b04f0bf69d4eaecd316a48e4d88fdff6adfa4b801e`),
+delivery report
+(`c8f50d35612059b5465d71d020c48cc3a0c35e19bb903db34fe1ca4bbaf17b37`), and
+accounting
+(`58ef7361edf9fcec591090850bb533291bd9183bf9dd80033e19a453ebc7cf0c`), and verifies the prior transport failure consumed one
+correction without creating a candidate, review, package, or execution. It
+starts from candidate `f374565b...9e4e`, seeds 6 author/correction and 1 review
+at aggregate 18 with task limit 11, and requires fresh task, evidence, and
+package paths. Earlier historical, first-continuation, and prior-refinement
+allowances remain expired and separate.
+
+The readiness record carries one authenticated, non-generative models-surface
+read with HTTP 200, the configured model discoverable, and 534.6 ms latency.
+The restart records classification and timing without issuing another probe or
+persisting endpoint, credential, header, body, or model-list data.
+
+The restart grants one shared allowance of at most two artifact corrections
+and two exact-candidate product reviews. Every dispatch persists raw bytes
+before validation, fixes
+`chat_template_kwargs.enable_thinking=false` through the existing
+`extra_body`, and uses zero automatic retries. Review requires all unchanged
+deterministic checks and eleven controls to pass. A correction or review
+transport failure consumes its role slot and stops the restart. Only review
+`accept` assembles the immutable package. The prior 2,501-byte outage HTML
+(`0ccdd3b4f240a05716e9dd3e8a7c28afa2b37c5d77a85fb6dc5a644f3b01a2e4`)
+remains transport evidence and never becomes candidate input or output.
+
 ## Architecture
 
 - `src/asago_artifact_generator/` contains shared domain models, the LLM
