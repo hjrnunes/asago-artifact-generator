@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import asago_artifact_generator.authoring as authoring
+import asago_artifact_generator.detector_controls as detector_controls
 from asago_artifact_generator.authoring import (
     AuthoringOrchestrator,
     ScriptedAuthoringTransport,
@@ -205,6 +206,7 @@ def test_four_o04_conditions_explain_input_contract_without_name_branches(
     missing = failed["judge-missing"].runtime_contract_explanation
     assert "absent judge path" in missing
     assert "returned-reference validation" in missing
+    assert "'judge'" in missing
 
     invalid = failed["judge-invalid"].runtime_contract_explanation
     assert "evidence_refs" in invalid
@@ -222,6 +224,127 @@ def test_four_o04_conditions_explain_input_contract_without_name_branches(
     assert "judge-invalid" not in source
     assert "judge-support-unresolved" not in source
     assert "judge-malformed-message" not in source
+
+
+def test_unresolved_reference_explanation_uses_generic_runtime_path_grammar() -> None:
+    evidence = {
+        "messages": [
+            {"id": "reply-1", "role": "assistant", "content": "usable reply"},
+        ],
+        "judge": {
+            "verdict": "supported",
+            "evidence_refs": ["messages[7]"],
+        },
+    }
+    feedback = build_detector_feedback(
+        (
+            ControlCase(
+                "generic-unresolved-reference",
+                evidence,
+                expected_outcome="inconclusive",
+                expected_claim_level="reply",
+            ),
+        ),
+        (
+            {
+                "name": "generic-unresolved-reference",
+                "status": "failed",
+                "failure": "outcome_mismatch",
+                "observed_outcome": "detected",
+                "observed_claim_level": "reply",
+                "actual_result": {
+                    "outcome": "detected",
+                    "reason": "returned",
+                    "evidence_refs": ["messages[7]"],
+                    "claim_level": "reply",
+                },
+            },
+        ),
+    )
+
+    explanation = feedback[0].runtime_contract_explanation
+    assert "messages[7]" in explanation
+    assert "does not resolve" in explanation
+    assert "messages[99]" not in explanation
+
+
+def test_unusable_message_explanation_only_considers_judge_citations() -> None:
+    messages = [
+        {"id": "uncited-null", "role": "assistant", "content": None},
+        {"id": "cited-usable", "role": "assistant", "content": "usable reply"},
+    ]
+    uncited_null = build_detector_feedback(
+        (
+            ControlCase(
+                "uncited-null-message",
+                {
+                    "messages": messages,
+                    "judge": {
+                        "verdict": "supported",
+                        "evidence_refs": ["messages[1]"],
+                    },
+                },
+                expected_outcome="inconclusive",
+                expected_claim_level="reply",
+            ),
+        ),
+        (
+            {
+                "name": "uncited-null-message",
+                "status": "failed",
+                "failure": "outcome_mismatch",
+                "observed_outcome": "detected",
+                "observed_claim_level": "reply",
+            },
+        ),
+    )[0]
+    cited_null = build_detector_feedback(
+        (
+            ControlCase(
+                "cited-null-message",
+                {
+                    "messages": messages,
+                    "judge": {
+                        "verdict": "supported",
+                        "evidence_refs": ["messages[0]"],
+                    },
+                },
+                expected_outcome="inconclusive",
+                expected_claim_level="reply",
+            ),
+        ),
+        (
+            {
+                "name": "cited-null-message",
+                "status": "failed",
+                "failure": "outcome_mismatch",
+                "observed_outcome": "detected",
+                "observed_claim_level": "reply",
+            },
+        ),
+    )[0]
+
+    assert "null content" not in uncited_null.runtime_contract_explanation
+    assert "structurally valid result" in uncited_null.runtime_contract_explanation
+    assert "null content" in cited_null.runtime_contract_explanation
+
+
+def test_shared_feedback_scan_covers_all_explanation_path_functions() -> None:
+    sources = (
+        inspect.getsource(build_detector_feedback),
+        inspect.getsource(build_detector_feedback_prompt_context),
+        inspect.getsource(detector_controls._feedback_outcome_class),
+        inspect.getsource(detector_controls._feedback_explanation),
+    )
+    forbidden = (
+        "judge-missing",
+        "judge-invalid",
+        "judge-support-unresolved",
+        "judge-malformed-message",
+        "messages[99]",
+    )
+
+    assert all(not any(term in source for term in forbidden) for source in sources)
 
 
 def test_shared_feedback_section_renders_failed_inputs_once_and_passes_compactly(

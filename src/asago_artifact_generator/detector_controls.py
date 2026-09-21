@@ -10,13 +10,21 @@ scenario-specific verdict from source text.
 from __future__ import annotations
 
 import hashlib
+import re
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .detector_runtime import DOCKER, PYTHON_IMAGE, DetectorExecution, execute_detector
+from .detector_runtime import (
+    DOCKER,
+    PYTHON_IMAGE,
+    DetectorExecution,
+    DetectorRuntimeError,
+    _resolve_evidence_ref,
+    execute_detector,
+)
 from .package_io import build_package, write_package
 
 
@@ -213,6 +221,7 @@ def build_detector_feedback(
                 outcome_class=outcome_class,
                 runtime_contract_explanation=_feedback_explanation(
                     case.evidence,
+                    actual_result=actual_result,
                     expected_claim_level=case.expected_claim_level,
                     error=error,
                     outcome_class=outcome_class,
@@ -287,6 +296,7 @@ def _feedback_outcome_class(status: str, error: str | None) -> str:
 def _feedback_explanation(
     evidence: Mapping[str, Any],
     *,
+    actual_result: Mapping[str, Any] | None,
     expected_claim_level: str | None,
     error: str | None,
     outcome_class: str,
@@ -294,23 +304,11 @@ def _feedback_explanation(
     """Explain the runtime-contract issue from supplied evidence only."""
 
     judge = evidence.get("judge")
-    messages = evidence.get("messages")
     claim_boundary = (
         "reply-level"
         if expected_claim_level == "reply"
         else f"{expected_claim_level or 'declared'} claim-level"
     )
-    if (
-        not isinstance(judge, Mapping)
-        and error is not None
-        and error.startswith("evidence reference")
-    ):
-        return (
-            "The detector returned an inconclusive result that cited an absent judge "
-            "path; returned-reference validation rejected the citation before exposing "
-            f"a validated result. Keep the {claim_boundary} outcome inconclusive and cite only "
-            "evidence that resolves in the supplied packet."
-        )
     if isinstance(judge, Mapping) and isinstance(judge.get("evidence_refs"), str):
         return (
             "The supplied judge record contains a string evidence_refs value, but the "
@@ -318,22 +316,31 @@ def _feedback_explanation(
             f"inconclusive {claim_boundary} outcome when the returned reference contract is "
             "invalid."
         )
-    if isinstance(judge, Mapping):
-        refs = judge.get("evidence_refs")
-        if isinstance(refs, list) and any(ref == "messages[99]" for ref in refs):
-            return (
-                "The supplied judge record cites messages[99], which is unresolved in "
-                f"the supplied evidence. Preserve an inconclusive {claim_boundary} outcome "
-                "when supporting evidence cannot be resolved."
-            )
-    if isinstance(messages, list) and any(
-        isinstance(message, Mapping) and message.get("content") is None
-        for message in messages
-    ):
+    unresolved_reference = _first_unresolved_reference(
+        evidence,
+        judge=judge,
+        actual_result=actual_result,
+        error=error,
+    )
+    if unresolved_reference is not None:
+        absent_judge = (
+            " This is an absent judge path."
+            if unresolved_reference == "judge"
+            else ""
+        )
         return (
-            "The supplied supporting message has null content, so the cited judge "
-            f"support is malformed. Preserve an inconclusive {claim_boundary} outcome rather "
-            "than treating the judge verdict as usable evidence."
+            f"The supplied evidence reference {unresolved_reference!r} does not resolve "
+            f"in the supplied evidence packet.{absent_judge} returned-reference validation "
+            f"rejected the citation. Preserve an inconclusive {claim_boundary} outcome "
+            "when supporting evidence cannot be resolved."
+        )
+    cited_unusable_reference = _first_cited_unusable_reference(evidence, judge)
+    if cited_unusable_reference is not None:
+        return (
+            f"The supplied judge cites {cited_unusable_reference!r}, whose message has "
+            "null content, so the cited support is unusable. Preserve an "
+            f"inconclusive {claim_boundary} outcome rather than treating the judge "
+            "verdict as usable evidence."
         )
     if outcome_class == "detector_exception":
         return (
@@ -358,6 +365,69 @@ def _feedback_explanation(
         "actual result unavailable and preserve the runtime contract's "
         f"inconclusive {claim_boundary} boundary."
     )
+
+
+def _first_unresolved_reference(
+    evidence: Mapping[str, Any],
+    *,
+    judge: Mapping[str, Any] | None,
+    actual_result: Mapping[str, Any] | None,
+    error: str | None,
+) -> str | None:
+    """Find the first cited path that fails the detector runtime resolver."""
+
+    references: list[str] = []
+    if isinstance(judge, Mapping):
+        references.extend(_string_references(judge.get("evidence_refs")))
+    if isinstance(actual_result, Mapping):
+        references.extend(_string_references(actual_result.get("evidence_refs")))
+    error_reference = _reference_from_error(error)
+    if error_reference is not None:
+        references.append(error_reference)
+    for reference in references:
+        try:
+            _resolve_evidence_ref(dict(evidence), reference)
+        except DetectorRuntimeError:
+            return reference
+    return None
+
+
+def _first_cited_unusable_reference(
+    evidence: Mapping[str, Any],
+    judge: Mapping[str, Any] | None,
+) -> str | None:
+    """Find a judge-cited message whose content is explicitly unusable."""
+
+    if not isinstance(judge, Mapping):
+        return None
+    for reference in _string_references(judge.get("evidence_refs")):
+        try:
+            resolved = _resolve_evidence_ref(dict(evidence), reference)
+        except DetectorRuntimeError:
+            continue
+        if isinstance(resolved, Mapping) and resolved.get("content") is None:
+            return reference
+        if resolved is None and (
+            reference.endswith(".content") or reference.endswith("/content")
+        ):
+            return reference
+    return None
+
+
+def _string_references(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [reference for reference in value if isinstance(reference, str) and reference.strip()]
+
+
+def _reference_from_error(error: str | None) -> str | None:
+    if not isinstance(error, str):
+        return None
+    match = re.search(r"evidence reference (?P<reference>['\"].+?['\"]) does not resolve", error)
+    if match is None:
+        return None
+    quoted = match.group("reference")
+    return quoted[1:-1]
 
 
 def build_control_cases(
