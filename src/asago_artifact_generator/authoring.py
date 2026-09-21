@@ -269,6 +269,68 @@ _O04_FEEDBACK_SCHEMA = "o04-feedback-continuation-v1"
 O04_FEEDBACK_THINKING_EXTRA_BODY = {
     "chat_template_kwargs": {"enable_thinking": False}
 }
+O04_REFERENCE_RESOLUTION_CONTINUATION_TASK_ID = (
+    "O04-reference-resolution-20260922"
+)
+O04_REFERENCE_RESOLUTION_EVIDENCE_ROOT = (
+    "evidence/o04-reference-resolution-20260922"
+)
+O04_REFERENCE_RESOLUTION_READINESS_ROOT = (
+    "evidence/o04-reference-resolution-readiness-20260922"
+)
+O04_REFERENCE_RESOLUTION_DELIVERY_ROOT = (
+    "evidence/o04-reference-resolution-delivery-20260922"
+)
+O04_REFERENCE_RESOLUTION_PRIOR_EVIDENCE_SHA256 = (
+    "0560f60a9d00f23aad1345556b3956dc03fd742d9a87b77263bd5d3959d6aee8"
+)
+O04_REFERENCE_RESOLUTION_PRIOR_REPORT_SHA256 = (
+    "bd4852adec5adaf7499c3354c0bb5e8c91a0508de66f2ef84c5ab7abfb2c6ad0"
+)
+O04_REFERENCE_RESOLUTION_PRIOR_ACCOUNTING_SHA256 = (
+    "cadfe1079d2b325a8c01adab25b656ed7426260b8ea0cd97192316bb2744198e"
+)
+O04_REFERENCE_RESOLUTION_PRIOR_RECONCILIATION_SHA256 = (
+    "c3505b3d6dc2c2ebc030c0bbb07427c9f2b7b1d5ecb462f23da94abb59fa82ec"
+)
+O04_REFERENCE_RESOLUTION_CANDIDATE_SHA256 = (
+    "04b4b57a6933196189c2e7b0ac07b5b5e06829b248fcced5f9348a50da804863"
+)
+O04_REFERENCE_RESOLUTION_RAW_SHA256 = (
+    "ba4ad380b287b47d3fc26c3c65f4bfcb4f5ee54dc5b00c115d7df60addb37a7c"
+)
+O04_REFERENCE_RESOLUTION_RAW_BYTES = 7259
+O04_REFERENCE_RESOLUTION_METADATA_SHA256 = (
+    "2f6e6bfbed120b5acf83dab8799ff5e5a8c946941bca1b4b47d5154f9459ecef"
+)
+O04_REFERENCE_RESOLUTION_PYTHON_SHA256 = (
+    "e69563fbd30829eb55a01ea7af399f9c620e6f9d1279e7e9629b30c46cc48331"
+)
+O04_REFERENCE_RESOLUTION_PLAN_SHA256 = (
+    "ecc6e5299344908f621bc7c84414215aac9885f37a88cb7b6f768ecdc9ca019d"
+)
+O04_REFERENCE_RESOLUTION_CORRECTION_LIMIT = 1
+O04_REFERENCE_RESOLUTION_REVIEW_LIMIT = 1
+O04_REFERENCE_RESOLUTION_PRIOR_AUTHOR_SPEND = 9
+O04_REFERENCE_RESOLUTION_PRIOR_REVIEW_SPEND = 1
+O04_REFERENCE_RESOLUTION_AGGREGATE_SPENT = 21
+O04_REFERENCE_RESOLUTION_TASK_LIMIT = 12
+_O04_REFERENCE_RESOLUTION_CONTINUATION_MODE = (
+    "sealed-o04-reference-resolution-continuation"
+)
+_O04_REFERENCE_RESOLUTION_SCHEMA = "o04-reference-resolution-continuation-v1"
+O04_REFERENCE_RESOLUTION_THINKING_EXTRA_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False}
+}
+O04_REFERENCE_RESOLUTION_MODEL = "gemma4-oc"
+O04_REFERENCE_RESOLUTION_OWNER_GUIDANCE = (
+    "When required evidence is absent or a supplied reference cannot resolve, "
+    "explain the missing path in `reason`. Do not copy that nonexistent path "
+    "into the result's `evidence_refs`. An inconclusive result may use an empty "
+    "reference list under the existing contract. If you cite an existing "
+    "container or field instead, ensure it actually exists. Preserve valid "
+    "supporting references for decisive outcomes."
+)
 _O04_RECOVERY_CANDIDATES_SHA256 = (
     "7d668116bfb7e8070da034c18f321a5d257ca2f5bc5e36a91554524fcc8e773c"
 )
@@ -2668,6 +2730,553 @@ class O04FeedbackContinuation(O04RefinementContinuation):
             "thinking_choice": deepcopy(O04_FEEDBACK_THINKING_EXTRA_BODY),
             "provider_readiness": {"request_count": 0, "reprobed": False},
         }
+
+
+@dataclass
+class O04ReferenceResolutionContinuation(O04RefinementContinuation):
+    """One sealed reference-resolution correction and conditional review."""
+
+    prior_accounting: Path = field(default_factory=Path)
+    prior_attempt_reconciliation: Path = field(default_factory=Path)
+    readiness_root: Path = field(default_factory=Path)
+    delivery_root: Path = field(default_factory=Path)
+    provider_readiness: dict[str, Any] = field(
+        default_factory=lambda: {"request_count": 0, "reprobed": False}
+    )
+
+    def __post_init__(self) -> None:
+        if self.task_id != O04_REFERENCE_RESOLUTION_CONTINUATION_TASK_ID:
+            raise ValueError("O04 reference-resolution task identity is fixed")
+        if (
+            self.prior_author_correction_spend
+            != O04_REFERENCE_RESOLUTION_PRIOR_AUTHOR_SPEND
+            or self.prior_review_spend != O04_REFERENCE_RESOLUTION_PRIOR_REVIEW_SPEND
+            or self.continuation_author_limit
+            != O04_REFERENCE_RESOLUTION_CORRECTION_LIMIT
+            or self.continuation_review_limit != O04_REFERENCE_RESOLUTION_REVIEW_LIMIT
+            or self.aggregate_spent != O04_REFERENCE_RESOLUTION_AGGREGATE_SPENT
+            or self.aggregate_limit != MAX_AUTHORING_REQUESTS
+            or self.task_limit != O04_REFERENCE_RESOLUTION_TASK_LIMIT
+        ):
+            raise ValueError("O04 reference-resolution budget is not sealed")
+        for name, path in (
+            ("prior feedback evidence", self.prior_continuation_evidence),
+            ("prior delivery report", self.prior_delivery_report),
+            ("prior accounting", self.prior_accounting),
+            ("prior attempt reconciliation", self.prior_attempt_reconciliation),
+            ("readiness root", self.readiness_root),
+            ("delivery root", self.delivery_root),
+        ):
+            if not isinstance(path, Path) or not str(path):
+                raise ValueError(f"O04 reference-resolution {name} path is required")
+
+    def _continuation_mode(self) -> str:
+        return _O04_REFERENCE_RESOLUTION_CONTINUATION_MODE
+
+    def _continuation_schema(self) -> str:
+        return _O04_REFERENCE_RESOLUTION_SCHEMA
+
+    def _thinking_choice(self) -> dict[str, Any]:
+        return {
+            "status": "fixed",
+            "reason": (
+                "the sealed reference-resolution epoch fixes thinking off "
+                "for every dispatch"
+            ),
+            "extra_body": deepcopy(O04_REFERENCE_RESOLUTION_THINKING_EXTRA_BODY),
+            "field": "chat_template_kwargs.enable_thinking",
+            "value": False,
+        }
+
+    def _package_policy(self, *, reviewer_profile: Any) -> dict[str, Any]:
+        policy = _o04_refinement_policy(reviewer_profile=reviewer_profile)
+        policy["artifact_max_corrections"] = O04_REFERENCE_RESOLUTION_CORRECTION_LIMIT
+        policy["thinking_choice"] = deepcopy(
+            O04_REFERENCE_RESOLUTION_THINKING_EXTRA_BODY
+        )
+        policy["model"] = O04_REFERENCE_RESOLUTION_MODEL
+        return policy
+
+    def _build_correction_packet(
+        self,
+        artifact: O04SavedArtifact,
+        *,
+        findings: list[Finding],
+        control_results: dict[str, Any],
+    ) -> PromptPacket:
+        packet = _build_o04_correction_packet(
+            artifact,
+            findings=findings,
+            control_results=control_results,
+        )
+        records = artifact.historical_control_results.get("records", [])
+        failed_records = [
+            record
+            for record in records
+            if isinstance(record, dict) and record.get("status") != "passed"
+        ]
+        if [record.get("name") for record in failed_records] != [
+            "judge-missing",
+            "judge-support-unresolved",
+        ]:
+            raise O04ContinuationValidationError(
+                "O04 reference-resolution packet requires the two recorded "
+                "unresolved-reference failures"
+            )
+        if _o04_control_status_counts(records) != {
+            "passed": 9,
+            "failed": 0,
+            "runtime_failure": 2,
+        }:
+            raise O04ContinuationValidationError(
+                "O04 reference-resolution packet requires the prior 9/0/2 controls"
+            )
+        required = (
+            "FAILED STAGE",
+            "ORIGINAL STAGE CONTEXT",
+            "RESPONSE CONTRACT",
+            "CURRENT OUTPUT",
+            "CURRENT FINDINGS",
+            "DETECTOR CONTROL FEEDBACK",
+            "availability.messages",
+            "completeness.messages",
+            "judge.verdict",
+            "complete corrected artifact",
+        )
+        if not all(marker in packet.user for marker in required):
+            raise O04ContinuationValidationError(
+                "O04 reference-resolution correction packet omitted authority sections"
+            )
+        candidate_text = artifact.candidate_raw.decode("utf-8")
+        if packet.user.count(candidate_text) != 1:
+            raise O04ContinuationValidationError(
+                "O04 reference-resolution correction packet must include "
+                "the complete current candidate once"
+            )
+
+        contract = {
+            "name": "validate_detector_result",
+            "rule": (
+                "A detector result is usable only when outcome, reason, "
+                "claim_level, and evidence_refs satisfy the existing contract. "
+                "Every supplied evidence reference must resolve in the packet; "
+                "an absent or unresolved reference cannot support a decisive "
+                "result and remains inconclusive."
+            ),
+            "inconclusive_reference_rule": (
+                "An inconclusive result may use an empty evidence_refs list; "
+                "a nonexistent path must not be copied into evidence_refs."
+            ),
+            "reference_placement_rule": (
+                "Explain the missing path in reason. Do not copy that "
+                "nonexistent path from `evidence_refs`. If you cite an "
+                "existing container or field, the existing container or field "
+                "must exist."
+            ),
+        }
+        summary = {
+            "nine passing controls": [
+                {
+                    "name": record["name"],
+                    "expected_outcome": record.get("expected_outcome"),
+                    "expected_claim_level": record.get("expected_claim_level"),
+                    "status": record.get("status"),
+                }
+                for record in records
+                if record.get("status") == "passed"
+            ],
+            "two_failing_controls": [
+                {
+                    "name": failure["name"],
+                    "input": failure["exact_supplied_feedback"]["evidence"],
+                    "returned_result": failure["returned_code_behavior"][
+                        "returned_result"
+                    ],
+                    "returned_behavior": failure["returned_code_behavior"]["behavior"],
+                    "validation_error": failure["returned_control_record"]["failure"],
+                    "error": failure["exact_supplied_feedback"]["error"],
+                    "classification": failure["returned_code_behavior"][
+                        "classification"
+                    ],
+                }
+                for failure in artifact.authority["reference_resolution_failures"]
+            ],
+            "validate_detector_result": contract,
+        }
+        guidance = (
+            "REFERENCE-RESOLUTION OWNER INSTRUCTION\n"
+            + O04_REFERENCE_RESOLUTION_OWNER_GUIDANCE
+            + "\n\nREFERENCE-RESOLUTION CONTRACT SUMMARY\n"
+            + json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True)
+            + "\n"
+        )
+        marker = "CORRECTION INSTRUCTIONS\n"
+        if marker not in packet.user:
+            raise O04ContinuationValidationError(
+                "O04 reference-resolution correction packet lacks correction instructions"
+            )
+        user = packet.user.replace(marker, guidance + "\n" + marker, 1)
+        required = (
+            *required,
+            "validate_detector_result",
+            "nine passing controls",
+            "Verify criticism against the original scenario and supplied evidence",
+            "retain an essential unsupported requirement as unresolved",
+            "missing path in `reason`",
+            "nonexistent path from `evidence_refs`",
+            "existing container or field must exist",
+            "valid supporting references for decisive outcomes",
+        )
+        if not all(marker in user for marker in required):
+            raise O04ContinuationValidationError(
+                "O04 reference-resolution correction packet omitted authority sections"
+            )
+        for record in failed_records:
+            name = str(record["name"])
+            failure = str(record.get("failure") or "")
+            if (
+                f'"name": "{name}"' not in user
+                or failure not in user
+                or json.dumps(record.get("expected_outcome"))
+                not in user
+            ):
+                raise O04ContinuationValidationError(
+                    f"O04 reference-resolution packet omitted failed input {name}"
+                )
+        return PromptPacket(
+            stage=packet.stage,
+            version=packet.version,
+            system=packet.system,
+            user=user,
+            payload={
+                **deepcopy(packet.payload),
+                "reference_resolution_owner_guidance": (
+                    O04_REFERENCE_RESOLUTION_OWNER_GUIDANCE
+                ),
+                "reference_resolution_contract": deepcopy(contract),
+            },
+        )
+
+    def _dispatch_record(
+        self,
+        *,
+        packet: PromptPacket,
+        task_id: str,
+        dispatch_index: int,
+        role: str,
+        correction_index: int,
+        artifact: O04SavedArtifact,
+        controls: dict[str, Any],
+        candidate_sha256: str,
+        budget: dict[str, Any],
+    ) -> dict[str, dict[str, Any]]:
+        record = super()._dispatch_record(
+            packet=packet,
+            task_id=task_id,
+            dispatch_index=dispatch_index,
+            role=role,
+            correction_index=correction_index,
+            artifact=artifact,
+            controls=controls,
+            candidate_sha256=candidate_sha256,
+            budget=budget,
+        )
+        policy = _o04_reference_resolution_policy(
+            reviewer_profile=controls.get("review_model_profile")
+        )
+        for item in ("ledger", "attempt"):
+            record[item]["policy"] = deepcopy(policy)
+            record[item]["thinking_choice"] = deepcopy(
+                O04_REFERENCE_RESOLUTION_THINKING_EXTRA_BODY
+            )
+        return record
+
+    def _budget_snapshot_for(
+        self,
+        budget: AuthoringBudget,
+        task_id: str,
+        *,
+        prior_author: int,
+        prior_review: int,
+        correction_spent: int,
+        review_spent: int,
+    ) -> dict[str, Any]:
+        snapshot = budget.snapshot(task_id)
+        snapshot.update(
+            {
+                "prior_author_correction_spent": prior_author,
+                "prior_review_spent": prior_review,
+                "historical_author_correction_spent": 4,
+                "historical_review_spent": 1,
+                "first_continuation_correction_spent": 1,
+                "first_continuation_review_spent": 0,
+                "prior_refinement_correction_spent": 1,
+                "prior_refinement_review_spent": 0,
+                "restart_correction_spent": 2,
+                "restart_review_spent": 0,
+                "feedback_correction_spent": 1,
+                "feedback_review_spent": 0,
+                "reference_resolution_correction_spent": correction_spent,
+                "reference_resolution_review_spent": review_spent,
+                "reference_resolution_correction_limit": (
+                    O04_REFERENCE_RESOLUTION_CORRECTION_LIMIT
+                ),
+                "reference_resolution_review_limit": (
+                    O04_REFERENCE_RESOLUTION_REVIEW_LIMIT
+                ),
+                "continuation_correction_spent": correction_spent,
+                "continuation_review_spent": review_spent,
+                "continuation_correction_limit": (
+                    O04_REFERENCE_RESOLUTION_CORRECTION_LIMIT
+                ),
+                "continuation_review_limit": O04_REFERENCE_RESOLUTION_REVIEW_LIMIT,
+                "o04_lifetime_author_correction_spent": (
+                    prior_author + correction_spent
+                ),
+                "o04_lifetime_review_spent": prior_review + review_spent,
+                "o04_lifetime_author_correction_limit": 10,
+                "o04_lifetime_review_limit": 2,
+                "historical_allowance_reopened": False,
+                "prior_allowance_revived": False,
+                "first_continuation_allowance_expired": True,
+                "prior_refinement_allowance_expired": True,
+                "restart_allowance_expired": True,
+                "feedback_allowance_expired": True,
+                "aggregate_new_spent": snapshot["aggregate_spent"],
+                "aggregate_new_limit": snapshot["aggregate_limit"],
+                "aggregate_new_ceiling": 23,
+                "aggregate_combined_spent": 39 + snapshot["aggregate_spent"],
+                "aggregate_combined_limit": 71,
+                "aggregate_combined_ceiling": 62,
+                "provider_readiness_reads": 0,
+            }
+        )
+        return snapshot
+
+    def _new_evidence(self, **kwargs: Any) -> dict[str, Any]:
+        evidence = _new_o04_refinement_evidence(**kwargs)
+        evidence["continuation_schema"] = _O04_REFERENCE_RESOLUTION_SCHEMA
+        evidence["continuation_mode"] = _O04_REFERENCE_RESOLUTION_CONTINUATION_MODE
+        evidence["authority"].update(
+            {
+                "saved_candidate_sha256": self.artifact.candidate_sha256,
+                "prior_candidate_sha256": self.artifact.candidate_sha256,
+                "prior_raw_response_sha256": _sha256(self.artifact.candidate_raw),
+                "prior_metadata_sha256": _mapping_sha256(
+                    self.artifact.parsed.metadata
+                ),
+                "prior_python_sha256": _sha256(self.artifact.parsed.python_bytes),
+                "prior_feedback_evidence": {
+                    "path": str(self.prior_continuation_evidence),
+                    "sha256": O04_REFERENCE_RESOLUTION_PRIOR_EVIDENCE_SHA256,
+                },
+                "prior_delivery_report": {
+                    "path": str(self.prior_delivery_report),
+                    "sha256": O04_REFERENCE_RESOLUTION_PRIOR_REPORT_SHA256,
+                },
+                "prior_accounting": {
+                    "path": str(self.prior_accounting),
+                    "sha256": O04_REFERENCE_RESOLUTION_PRIOR_ACCOUNTING_SHA256,
+                },
+                "prior_attempt_reconciliation": {
+                    "path": str(self.prior_attempt_reconciliation),
+                    "sha256": O04_REFERENCE_RESOLUTION_PRIOR_RECONCILIATION_SHA256,
+                },
+                "readiness_root": str(self.readiness_root),
+                "delivery_root": str(self.delivery_root),
+                "prior_feedback_status": {
+                    "status": "controls_failed",
+                    "deterministic": "passed",
+                    "controls": {"passed": 9, "failed": 0, "runtime_failure": 2},
+                    "review": 0,
+                    "package": False,
+                    "execution": "inapplicable",
+                },
+            }
+        )
+        evidence["allowances"] = {
+            "historical_author_correction": "4/4 expired",
+            "historical_review": "1/4 expired",
+            "first_continuation_correction": "1/1 expired",
+            "first_continuation_review": "0/1 expired",
+            "prior_refinement_correction": "1/2 expired",
+            "prior_refinement_review": "0/2 expired",
+            "restart_correction": "2/2 expired",
+            "restart_review": "0/2 expired",
+            "feedback_correction": "1/1 expired",
+            "feedback_review": "0/1 expired",
+            "reference_resolution_correction": "0/1",
+            "reference_resolution_review": "0/1",
+            "plan_authoring": False,
+            "plan_correction": False,
+            "plan_review": False,
+            "fresh_artifact_authoring": False,
+            "automatic_retry": False,
+        }
+        evidence["budget"] = self._budget_snapshot_for(
+            self._new_budget(),
+            self.task_id,
+            prior_author=self.prior_author_correction_spend,
+            prior_review=self.prior_review_spend,
+            correction_spent=0,
+            review_spent=0,
+        )
+        return evidence
+
+    def _preflight_record(self) -> dict[str, Any]:
+        return {
+            "status": "passed",
+            "mode": _O04_REFERENCE_RESOLUTION_CONTINUATION_MODE,
+            "schema": _O04_REFERENCE_RESOLUTION_SCHEMA,
+            "failure_sidecar_sha256": self.artifact.failure_sidecar_sha256,
+            "mismatch_proof_sha256": self.artifact.mismatch_proof_sha256,
+            "saved_candidate_sha256": self.artifact.candidate_sha256,
+            "prior_candidate_sha256": self.artifact.candidate_sha256,
+            "prior_raw_response_sha256": _sha256(self.artifact.candidate_raw),
+            "prior_raw_response_bytes": len(self.artifact.candidate_raw),
+            "prior_metadata_sha256": _mapping_sha256(self.artifact.parsed.metadata),
+            "prior_python_sha256": _sha256(self.artifact.parsed.python_bytes),
+            "accepted_plan_sha256": _mapping_sha256(self.artifact.plan),
+            "accepted_plan": {
+                "canonical_sha256": _mapping_sha256(self.artifact.plan),
+                "raw_response_sha256": _sha256(self.artifact.plan_response_raw),
+                "raw_response_bytes": len(self.artifact.plan_response_raw),
+            },
+            "runtime_contract_sha256": _mapping_sha256(self.artifact.runtime_contract),
+            "control_fixture_sha256": O04_CONTROL_FIXTURES_SHA256,
+            "control_count": len(self.artifact.control_cases),
+            "prior_control_status_counts": _o04_control_status_counts(
+                self.artifact.historical_control_results.get("records", [])
+            ),
+            "prior_control_results": deepcopy(self.artifact.historical_control_results),
+            "prior_feedback_evidence": {
+                "path": str(self.prior_continuation_evidence),
+                "sha256": O04_REFERENCE_RESOLUTION_PRIOR_EVIDENCE_SHA256,
+            },
+            "prior_delivery_report": {
+                "path": str(self.prior_delivery_report),
+                "sha256": O04_REFERENCE_RESOLUTION_PRIOR_REPORT_SHA256,
+            },
+            "prior_accounting": {
+                "path": str(self.prior_accounting),
+                "sha256": O04_REFERENCE_RESOLUTION_PRIOR_ACCOUNTING_SHA256,
+            },
+            "prior_attempt_reconciliation": {
+                "path": str(self.prior_attempt_reconciliation),
+                "sha256": O04_REFERENCE_RESOLUTION_PRIOR_RECONCILIATION_SHA256,
+            },
+            "fresh_roots": {
+                "package": str(self.package_dir),
+                "evidence": str(self.evidence_path),
+                "readiness": str(self.readiness_root),
+                "delivery": str(self.delivery_root),
+            },
+            "prior_spend": {
+                "author_correction": self.prior_author_correction_spend,
+                "review": self.prior_review_spend,
+                "aggregate_new": self.aggregate_spent,
+                "aggregate_combined": 39 + self.aggregate_spent,
+                "task_spent": 10,
+                "task_limit": self.task_limit,
+            },
+            "expired_allowances": {
+                "first_continuation": True,
+                "prior_refinement": True,
+                "restart": True,
+                "feedback": True,
+                "reopened": False,
+            },
+            "provider_readiness": {"request_count": 0, "reprobed": False},
+        }
+
+    def _continuation_metadata(
+        self,
+        *,
+        current: O04SavedArtifact,
+        evidence: dict[str, Any],
+        correction_count: int,
+        review_count: int,
+        last_review_controls: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "mode": _O04_REFERENCE_RESOLUTION_CONTINUATION_MODE,
+            "schema": _O04_REFERENCE_RESOLUTION_SCHEMA,
+            "failure_sidecar": str(current.failure_sidecar),
+            "failure_sidecar_sha256": current.failure_sidecar_sha256,
+            "mismatch_proof": str(current.mismatch_proof),
+            "mismatch_proof_sha256": current.mismatch_proof_sha256,
+            "saved_candidate_sha256": current.candidate_sha256,
+            "latest_candidate_sha256": current.candidate_sha256,
+            "prior_feedback_evidence_sha256": (
+                O04_REFERENCE_RESOLUTION_PRIOR_EVIDENCE_SHA256
+            ),
+            "prior_delivery_report_sha256": O04_REFERENCE_RESOLUTION_PRIOR_REPORT_SHA256,
+            "prior_accounting_sha256": O04_REFERENCE_RESOLUTION_PRIOR_ACCOUNTING_SHA256,
+            "prior_attempt_reconciliation_sha256": (
+                O04_REFERENCE_RESOLUTION_PRIOR_RECONCILIATION_SHA256
+            ),
+            "refined_candidate_sha256": current.candidate_sha256,
+            "accepted_plan_sha256": _mapping_sha256(current.plan),
+            "original_input_pins": deepcopy(current.authority["original_inputs"]),
+            "runtime_contract_sha256": _mapping_sha256(current.runtime_contract),
+            "historical_control_results": deepcopy(
+                current.historical_control_results
+            ),
+            "historical_spend": {
+                "author_correction": self.prior_author_correction_spend,
+                "review": self.prior_review_spend,
+            },
+            "expired_allowances": {
+                "first_continuation": True,
+                "prior_refinement": True,
+                "restart": True,
+                "feedback": True,
+                "reopened": False,
+            },
+            "reference_resolution_allowance": {
+                "correction": self.continuation_author_limit,
+                "review": self.continuation_review_limit,
+                "dispatch": self.continuation_author_limit
+                + self.continuation_review_limit,
+                "correction_spent": correction_count,
+                "review_spent": review_count,
+                "expired": False,
+            },
+            "fresh_roots": {
+                "readiness": str(self.readiness_root),
+                "delivery": str(self.delivery_root),
+            },
+            "thinking_choice": deepcopy(O04_REFERENCE_RESOLUTION_THINKING_EXTRA_BODY),
+            "provider_readiness": {"request_count": 0, "reprobed": False},
+        }
+
+    def _construct_transport(
+        self,
+        transport_factory: Callable[[], AuthoringTransport],
+        evidence: dict[str, Any],
+        budget: AuthoringBudget,
+    ) -> AuthoringTransport | None:
+        transport = super()._construct_transport(transport_factory, evidence, budget)
+        if transport is None:
+            return None
+        model = getattr(transport, "model", None)
+        if model is None:
+            transport.model = O04_REFERENCE_RESOLUTION_MODEL
+        elif model != O04_REFERENCE_RESOLUTION_MODEL:
+            self._finish(
+                evidence,
+                budget,
+                "preflight_defect",
+                [
+                    Finding(
+                        "model_profile",
+                        "O04 reference-resolution transport must use gemma4-oc",
+                        "transport.model",
+                    )
+                ],
+            )
+            return None
+        return transport
 
 
 @dataclass
@@ -5782,6 +6391,853 @@ def run_o04_feedback_continuation(
     return continuation.run(transport_factory=transport_factory)
 
 
+def _o04_reference_resolution_authority_paths(
+    mismatch_proof: Path,
+) -> dict[str, Path]:
+    mission_root = mismatch_proof.resolve().parents[2]
+    return {
+        "prior_continuation_evidence": (
+            mission_root
+            / f"{O04_FEEDBACK_EVIDENCE_ROOT}/continuation-evidence.json"
+        ),
+        "prior_delivery_report": (
+            mission_root
+            / f"{O04_FEEDBACK_DELIVERY_ROOT}/report.md"
+        ),
+        "prior_accounting": (
+            mission_root / f"{O04_FEEDBACK_DELIVERY_ROOT}/accounting.json"
+        ),
+        "prior_attempt_reconciliation": (
+            mission_root
+            / f"{O04_FEEDBACK_DELIVERY_ROOT}/attempt-reconciliation.json"
+        ),
+    }
+
+
+def _o04_validate_reference_resolution_prior(
+    *,
+    continuation_path: Path,
+    delivery_report_path: Path,
+    accounting_path: Path,
+    reconciliation_path: Path,
+    artifact: O04SavedArtifact,
+    expected_continuation_sha256: str,
+    expected_delivery_report_sha256: str,
+    expected_accounting_sha256: str,
+    expected_reconciliation_sha256: str,
+    expected_candidate_sha256: str,
+    expected_raw_sha256: str,
+    expected_metadata_sha256: str,
+    expected_python_sha256: str,
+    expected_plan_sha256: str,
+    expected_control_fixture_sha256: str,
+) -> O04SavedArtifact:
+    """Validate the completed feedback epoch before a new request exists."""
+
+    continuation_raw = _o04_read_file(
+        continuation_path,
+        "O04 prior feedback continuation evidence",
+        expected_continuation_sha256,
+    )
+    report_raw = _o04_read_file(
+        delivery_report_path,
+        "O04 prior feedback delivery report",
+        expected_delivery_report_sha256,
+    )
+    accounting_raw = _o04_read_file(
+        accounting_path,
+        "O04 prior feedback accounting",
+        expected_accounting_sha256,
+    )
+    reconciliation_raw = _o04_read_file(
+        reconciliation_path,
+        "O04 prior feedback attempt reconciliation",
+        expected_reconciliation_sha256,
+    )
+    try:
+        continuation = json.loads(continuation_raw)
+        accounting = json.loads(accounting_raw)
+        reconciliation = json.loads(reconciliation_raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise O04ContinuationValidationError(
+            "O04 reference-resolution prior authority JSON is invalid"
+        ) from exc
+    if not all(
+        isinstance(value, dict)
+        for value in (continuation, accounting, reconciliation)
+    ):
+        raise O04ContinuationValidationError(
+            "O04 reference-resolution prior authorities must be objects"
+        )
+    if (
+        continuation.get("continuation_schema")
+        != "o04-feedback-continuation-v1"
+        or continuation.get("continuation_mode")
+        != "sealed-o04-feedback-continuation"
+        or continuation.get("task_id") != O04_FEEDBACK_CONTINUATION_TASK_ID
+        or continuation.get("status") != "controls_failed"
+        or continuation.get("terminal_status") != "controls_failed"
+        or continuation.get("reviews") != []
+    ):
+        raise O04ContinuationValidationError(
+            "O04 prior feedback outcome is not the exact terminal controls_failed result"
+        )
+    attempts = continuation.get("attempts")
+    if not isinstance(attempts, list) or len(attempts) != 1:
+        raise O04ContinuationValidationError(
+            "O04 prior feedback outcome must contain exactly one attempt"
+        )
+    attempt = attempts[0]
+    if (
+        not isinstance(attempt, dict)
+        or attempt.get("stage") != "correction"
+        or attempt.get("role") != "author"
+        or attempt.get("dispatch_index") != 1
+        or attempt.get("attempt_index") != 1
+        or attempt.get("correction_index") != 1
+        or attempt.get("accepted_plan_sha256") != expected_plan_sha256
+        or attempt.get("deterministic_checks")
+        != {"all_passed": True, "artifact_findings": []}
+        or attempt.get("controls", {}).get("value", {}).get("max_retries") != 0
+        or attempt.get("controls", {}).get("value", {}).get("extra_body")
+        != O04_FEEDBACK_THINKING_EXTRA_BODY
+    ):
+        raise O04ContinuationValidationError(
+            "O04 prior feedback correction authority is not exact"
+        )
+    raw = _o04_decode_response(attempt, "O04 prior feedback candidate")
+    try:
+        parsed = parse_call2_response(raw)
+    except (Call2FramingError, UnicodeDecodeError, ValueError) as exc:
+        raise O04ContinuationValidationError(
+            "O04 prior feedback candidate cannot be parsed"
+        ) from exc
+    semantic = _sha256(
+        _canonical_json(parsed.metadata).encode("utf-8")
+        + b"\0"
+        + parsed.python_bytes
+    )
+    if (
+        _sha256(raw) != expected_raw_sha256
+        or len(raw) != O04_REFERENCE_RESOLUTION_RAW_BYTES
+        or _mapping_sha256(parsed.metadata) != expected_metadata_sha256
+        or _sha256(parsed.python_bytes) != expected_python_sha256
+        or semantic != expected_candidate_sha256
+        or attempt.get("candidate_sha256") != expected_candidate_sha256
+    ):
+        raise O04ContinuationValidationError(
+            "O04 prior feedback candidate member hashes differ"
+        )
+    candidate_attempts = continuation.get("candidate_attempts")
+    if (
+        not isinstance(candidate_attempts, list)
+        or len(candidate_attempts) != 1
+        or candidate_attempts[0].get("candidate_sha256") != expected_candidate_sha256
+        or candidate_attempts[0].get("raw_sha256") != expected_raw_sha256
+        or candidate_attempts[0].get("metadata_sha256") != expected_metadata_sha256
+        or candidate_attempts[0].get("python_sha256") != expected_python_sha256
+        or candidate_attempts[0].get("raw_byte_length")
+        != O04_REFERENCE_RESOLUTION_RAW_BYTES
+    ):
+        raise O04ContinuationValidationError(
+            "O04 prior feedback candidate-attempt pins differ"
+        )
+    records = attempt.get("detector_controls")
+    if (
+        not isinstance(records, list)
+        or len(records) != len(_O04_CONTROL_NAMES)
+        or tuple(record.get("name") for record in records) != _O04_CONTROL_NAMES
+        or _o04_control_status_counts(records)
+        != {"passed": 9, "failed": 0, "runtime_failure": 2}
+        or tuple(
+            record.get("name")
+            for record in records
+            if record.get("status") != "passed"
+        )
+        != ("judge-missing", "judge-support-unresolved")
+    ):
+        raise O04ContinuationValidationError(
+            "O04 prior feedback controls are not the recorded 9/0/2 outcome"
+        )
+    expected_failures = {
+        "judge-missing": (
+            "inconclusive",
+            None,
+            "evidence reference 'judge' does not resolve: missing path segment 'judge'",
+        ),
+        "judge-support-unresolved": (
+            "inconclusive",
+            None,
+            "evidence reference 'messages[99]' does not resolve: missing path segment '99'",
+        ),
+    }
+    for record in records:
+        expected = expected_failures.get(record.get("name"))
+        if expected is None:
+            continue
+        if (
+            record.get("expected_outcome") != expected[0]
+            or record.get("observed_outcome") != expected[1]
+            or record.get("failure") != expected[2]
+            or record.get("status") != "runtime_failure"
+        ):
+            raise O04ContinuationValidationError(
+                f"O04 prior feedback failure differs: {record.get('name')}"
+            )
+    deterministic = continuation.get("authority", {}).get("deterministic_results")
+    if deterministic != {"all_passed": True, "artifact_findings": [], "plan_findings": []}:
+        raise O04ContinuationValidationError(
+            "O04 prior feedback deterministic result is not an exact pass"
+        )
+    if continuation.get("package") is not None or continuation.get("execution") is not None:
+        raise O04ContinuationValidationError(
+            "O04 prior feedback must have no package or execution record"
+        )
+    if (
+        accounting.get("schema")
+        != "o04-feedback-continuation-delivery-accounting-v1"
+        or accounting.get("append_only") is not True
+        or accounting.get("outcome", {}).get("terminal_status") != "controls_failed"
+        or accounting.get("review", {}).get("dispatch_count") != 0
+        or accounting.get("package", {}).get("published") is not False
+        or accounting.get("execution", {}).get("status") != "inapplicable"
+        or accounting.get("thinking_transport", {}).get("automatic_retries") != 0
+        or accounting.get("activity_counters", {})
+        .get("provider_authoring_design_review", {})
+        .get("end")
+        != 21
+        or accounting.get("activity_counters", {})
+        .get("combined_historical_plus_new", {})
+        .get("end")
+        != 60
+        or accounting.get("activity_counters", {})
+        .get("o04_lifetime_author_correction", {})
+        .get("end")
+        != 9
+        or accounting.get("activity_counters", {})
+        .get("o04_lifetime_review", {})
+        .get("end")
+        != 1
+        or accounting.get("activity_counters", {}).get("task", {}).get("end") != 10
+    ):
+        raise O04ContinuationValidationError(
+            "O04 prior feedback accounting outcome is not exact"
+        )
+    if (
+        reconciliation.get("schema")
+        != "o04-feedback-continuation-attempt-reconciliation-v1"
+        or reconciliation.get("task_id") != O04_FEEDBACK_CONTINUATION_TASK_ID
+        or reconciliation.get("attempt_count") != 1
+        or reconciliation.get("review_count") != 0
+        or reconciliation.get("terminal_stage") != "controls_failed"
+        or reconciliation.get("raw_before_parse") is not True
+        or reconciliation.get("zero_retries") is not True
+        or [
+            record.get("name")
+            for record in reconciliation.get("remaining_failed_controls", [])
+        ]
+        != ["judge-missing", "judge-support-unresolved"]
+        or reconciliation.get("source_sha256") != expected_continuation_sha256
+    ):
+        raise O04ContinuationValidationError(
+            "O04 prior feedback attempt reconciliation is not exact"
+        )
+    remaining_failed_controls = reconciliation.get("remaining_failed_controls")
+    if not isinstance(remaining_failed_controls, list):
+        raise O04ContinuationValidationError(
+            "O04 prior feedback reconciliation lacks exact failed-control feedback"
+        )
+    reference_resolution_failures = [
+        deepcopy(record)
+        for record in remaining_failed_controls
+        if isinstance(record, dict)
+        and record.get("name")
+        in {"judge-missing", "judge-support-unresolved"}
+    ]
+    if [record.get("name") for record in reference_resolution_failures] != [
+        "judge-missing",
+        "judge-support-unresolved",
+    ]:
+        raise O04ContinuationValidationError(
+            "O04 prior feedback reconciliation lacks the two reference failures"
+        )
+    for marker in (
+        b"Consumer commit `30925b5b11239f0398fb3b82fce6836bf32c72fb`",
+        b"Downstream commit `bbdf520844c972b59b732a5db33cd16c14e0c24f`",
+        b"nine passed controls and two runtime failures",
+        b"No package was published",
+        b"zero added counts",
+    ):
+        if marker not in report_raw:
+            raise O04ContinuationValidationError(
+                "O04 prior feedback delivery report omits sealed terminal facts"
+            )
+    authority = deepcopy(artifact.authority)
+    authority.update(
+        {
+            "saved_candidate_sha256": expected_candidate_sha256,
+            "latest_candidate_sha256": expected_candidate_sha256,
+            "latest_raw_sha256": expected_raw_sha256,
+            "latest_metadata_sha256": expected_metadata_sha256,
+            "latest_python_sha256": expected_python_sha256,
+            "control_fixture_sha256": expected_control_fixture_sha256,
+            "prior_feedback_evidence": {
+                "path": str(continuation_path),
+                "sha256": expected_continuation_sha256,
+            },
+            "prior_delivery_report": {
+                "path": str(delivery_report_path),
+                "sha256": expected_delivery_report_sha256,
+            },
+            "prior_accounting": {
+                "path": str(accounting_path),
+                "sha256": expected_accounting_sha256,
+            },
+            "prior_attempt_reconciliation": {
+                "path": str(reconciliation_path),
+                "sha256": expected_reconciliation_sha256,
+            },
+        }
+    )
+    control_cases = tuple(
+        build_control_cases(artifact.plan, parsed.metadata, artifact.inventory)
+    )
+    fixture_bytes = _canonical_json(
+        [
+            {
+                "name": control.name,
+                "evidence": control.evidence,
+                "expected_outcome": control.expected_outcome,
+                "expected_claim_level": control.expected_claim_level,
+            }
+            for control in control_cases
+        ]
+    ).encode("utf-8")
+    if (
+        tuple(control.name for control in control_cases) != _O04_CONTROL_NAMES
+        or _sha256(fixture_bytes) != expected_control_fixture_sha256
+    ):
+        raise O04ContinuationValidationError(
+            "O04 reference-resolution control fixture authority differs"
+        )
+    historical_controls = {
+        "eligible": True,
+        "records": deepcopy(records),
+        "findings": [
+            finding.to_dict()
+            for finding in _o04_prior_control_findings({"records": records})
+        ],
+        "runtime": {
+            "engine": "docker",
+            "image": "python:3.12-slim",
+            "network": "none",
+            "read_only": True,
+        },
+    }
+    authority["prior_feedback_status"] = {
+        "status": "controls_failed",
+        "deterministic": "passed",
+        "controls": _o04_control_status_counts(records),
+        "review": 0,
+        "package": False,
+        "execution": "inapplicable",
+    }
+    authority["reference_resolution_failures"] = reference_resolution_failures
+    return replace(
+        artifact,
+        candidate_raw=raw,
+        candidate_sha256=expected_candidate_sha256,
+        parsed=parsed,
+        deterministic_results=deepcopy(deterministic),
+        historical_control_results=historical_controls,
+        control_cases=control_cases,
+        detector_feedback=build_detector_feedback(control_cases, records),
+        authority=authority,
+    )
+
+
+def _prepare_o04_reference_resolution_continuation(
+    *,
+    failure_sidecar: str | Path,
+    mismatch_proof: str | Path,
+    prior_continuation_evidence: str | Path,
+    prior_delivery_report: str | Path,
+    prior_accounting: str | Path,
+    prior_attempt_reconciliation: str | Path,
+    package_dir: str | Path,
+    evidence_path: str | Path,
+    readiness_root: str | Path,
+    delivery_root: str | Path,
+    task_id: str,
+    expected_failure_sidecar_sha256: str,
+    expected_mismatch_proof_sha256: str,
+    expected_prior_continuation_evidence_sha256: str,
+    expected_prior_delivery_report_sha256: str,
+    expected_prior_accounting_sha256: str,
+    expected_prior_attempt_reconciliation_sha256: str,
+    expected_candidate_sha256: str,
+    expected_raw_sha256: str,
+    expected_metadata_sha256: str,
+    expected_python_sha256: str,
+    expected_plan_sha256: str,
+    expected_control_fixture_sha256: str,
+    aggregate_spent: int,
+    aggregate_limit: int,
+    task_limit: int,
+    prior_author_correction_spend: int,
+    prior_review_spend: int,
+) -> O04ReferenceResolutionContinuation:
+    if task_id != O04_REFERENCE_RESOLUTION_CONTINUATION_TASK_ID:
+        raise O04ContinuationValidationError(
+            "O04 reference-resolution task identity is fixed and fresh"
+        )
+    if (
+        expected_failure_sidecar_sha256 != O04_FAILURE_SIDECAR_SHA256
+        or expected_mismatch_proof_sha256 != O04_MISMATCH_PROOF_SHA256
+        or expected_prior_continuation_evidence_sha256
+        != O04_REFERENCE_RESOLUTION_PRIOR_EVIDENCE_SHA256
+        or expected_prior_delivery_report_sha256
+        != O04_REFERENCE_RESOLUTION_PRIOR_REPORT_SHA256
+        or expected_prior_accounting_sha256
+        != O04_REFERENCE_RESOLUTION_PRIOR_ACCOUNTING_SHA256
+        or expected_prior_attempt_reconciliation_sha256
+        != O04_REFERENCE_RESOLUTION_PRIOR_RECONCILIATION_SHA256
+        or expected_candidate_sha256 != O04_REFERENCE_RESOLUTION_CANDIDATE_SHA256
+        or expected_raw_sha256 != O04_REFERENCE_RESOLUTION_RAW_SHA256
+        or expected_metadata_sha256 != O04_REFERENCE_RESOLUTION_METADATA_SHA256
+        or expected_python_sha256 != O04_REFERENCE_RESOLUTION_PYTHON_SHA256
+        or expected_plan_sha256 != O04_REFERENCE_RESOLUTION_PLAN_SHA256
+        or expected_control_fixture_sha256 != O04_CONTROL_FIXTURES_SHA256
+    ):
+        raise O04ContinuationValidationError(
+            "O04 reference-resolution authority pins must match sealed values"
+        )
+    for name, value in (
+        ("aggregate_spent", aggregate_spent),
+        ("aggregate_limit", aggregate_limit),
+        ("task_limit", task_limit),
+        ("prior_author_correction_spend", prior_author_correction_spend),
+        ("prior_review_spend", prior_review_spend),
+    ):
+        try:
+            _validate_nonnegative_integer(name, value)
+        except ValueError as exc:
+            raise O04ContinuationValidationError(str(exc)) from exc
+    if (
+        aggregate_spent != O04_REFERENCE_RESOLUTION_AGGREGATE_SPENT
+        or aggregate_limit != MAX_AUTHORING_REQUESTS
+        or task_limit != O04_REFERENCE_RESOLUTION_TASK_LIMIT
+        or prior_author_correction_spend
+        != O04_REFERENCE_RESOLUTION_PRIOR_AUTHOR_SPEND
+        or prior_review_spend != O04_REFERENCE_RESOLUTION_PRIOR_REVIEW_SPEND
+    ):
+        raise O04ContinuationValidationError(
+            "sealed O04 reference-resolution continuation must seed 21/32 "
+            "new spend, 60/71 combined spend, and task limit 12"
+        )
+    destination = Path(package_dir)
+    output_evidence = Path(evidence_path)
+    readiness = Path(readiness_root)
+    delivery = Path(delivery_root)
+    expected_package_name = Path(
+        "runs/authoring"
+    ) / O04_REFERENCE_RESOLUTION_CONTINUATION_TASK_ID
+    expected_evidence_name = (
+        Path(O04_REFERENCE_RESOLUTION_EVIDENCE_ROOT)
+        / "continuation-evidence.json"
+    )
+    if (
+        destination.parts[-3:] != expected_package_name.parts
+        or output_evidence.parts[-3:] != expected_evidence_name.parts
+        or readiness.name != O04_REFERENCE_RESOLUTION_READINESS_ROOT.rsplit("/", 1)[-1]
+        or delivery.name != O04_REFERENCE_RESOLUTION_DELIVERY_ROOT.rsplit("/", 1)[-1]
+    ):
+        raise O04ContinuationValidationError(
+            "O04 reference-resolution package, evidence, readiness, and delivery "
+            "roots must use the fresh sealed names"
+        )
+    for path, label in (
+        (destination, "package"),
+        (output_evidence, "evidence"),
+        (readiness, "readiness"),
+        (delivery, "delivery"),
+    ):
+        if path.exists():
+            raise O04ContinuationValidationError(
+                f"O04 reference-resolution {label} path is already used"
+            )
+    identities = [
+        destination.expanduser().resolve(strict=False),
+        output_evidence.expanduser().resolve(strict=False),
+        readiness.expanduser().resolve(strict=False),
+        delivery.expanduser().resolve(strict=False),
+    ]
+    if len(set(identities)) != len(identities):
+        raise O04ContinuationValidationError(
+            "O04 reference-resolution fresh roots collide"
+        )
+    historical_paths = [
+        Path(failure_sidecar),
+        Path(mismatch_proof),
+        Path(prior_continuation_evidence),
+        Path(prior_delivery_report),
+        Path(prior_accounting),
+        Path(prior_attempt_reconciliation),
+    ]
+    if any(
+        identity == historical.expanduser().resolve(strict=False)
+        for identity in identities
+        for historical in historical_paths
+    ):
+        raise O04ContinuationValidationError(
+            "O04 reference-resolution fresh root aliases pinned historical authority"
+        )
+    old = _prepare_o04_correction_continuation(
+        failure_sidecar=failure_sidecar,
+        mismatch_proof=mismatch_proof,
+        package_dir=destination,
+        task_id=task_id,
+        evidence_path=output_evidence,
+        expected_failure_sidecar_sha256=expected_failure_sidecar_sha256,
+        expected_mismatch_proof_sha256=expected_mismatch_proof_sha256,
+        expected_candidate_sha256=O04_SAVED_CANDIDATE_SHA256,
+        expected_plan_sha256=expected_plan_sha256,
+        aggregate_spent=16,
+        aggregate_limit=MAX_AUTHORING_REQUESTS,
+        task_limit=7,
+        prior_author_correction_spend=4,
+        prior_review_spend=1,
+    )
+    artifact = _o04_validate_reference_resolution_prior(
+        continuation_path=Path(prior_continuation_evidence),
+        delivery_report_path=Path(prior_delivery_report),
+        accounting_path=Path(prior_accounting),
+        reconciliation_path=Path(prior_attempt_reconciliation),
+        artifact=old.artifact,
+        expected_continuation_sha256=expected_prior_continuation_evidence_sha256,
+        expected_delivery_report_sha256=expected_prior_delivery_report_sha256,
+        expected_accounting_sha256=expected_prior_accounting_sha256,
+        expected_reconciliation_sha256=expected_prior_attempt_reconciliation_sha256,
+        expected_candidate_sha256=expected_candidate_sha256,
+        expected_raw_sha256=expected_raw_sha256,
+        expected_metadata_sha256=expected_metadata_sha256,
+        expected_python_sha256=expected_python_sha256,
+        expected_plan_sha256=expected_plan_sha256,
+        expected_control_fixture_sha256=expected_control_fixture_sha256,
+    )
+    return O04ReferenceResolutionContinuation(
+        artifact=artifact,
+        package_dir=destination,
+        task_id=task_id,
+        evidence_path=output_evidence,
+        prior_continuation_evidence=Path(prior_continuation_evidence),
+        prior_delivery_report=Path(prior_delivery_report),
+        prior_preservation=Path(prior_attempt_reconciliation),
+        prior_accounting=Path(prior_accounting),
+        prior_attempt_reconciliation=Path(prior_attempt_reconciliation),
+        readiness_root=readiness,
+        delivery_root=delivery,
+        prior_author_correction_spend=prior_author_correction_spend,
+        prior_review_spend=prior_review_spend,
+        continuation_author_limit=O04_REFERENCE_RESOLUTION_CORRECTION_LIMIT,
+        continuation_review_limit=O04_REFERENCE_RESOLUTION_REVIEW_LIMIT,
+        aggregate_spent=aggregate_spent,
+        aggregate_limit=aggregate_limit,
+        task_limit=task_limit,
+    )
+
+
+def prepare_o04_reference_resolution_continuation(
+    *,
+    failure_sidecar: str | Path,
+    mismatch_proof: str | Path,
+    prior_continuation_evidence: str | Path | None = None,
+    prior_delivery_report: str | Path | None = None,
+    prior_accounting: str | Path | None = None,
+    prior_attempt_reconciliation: str | Path | None = None,
+    package_dir: str | Path,
+    evidence_path: str | Path | None = None,
+    readiness_root: str | Path | None = None,
+    delivery_root: str | Path | None = None,
+    task_id: str = O04_REFERENCE_RESOLUTION_CONTINUATION_TASK_ID,
+    expected_failure_sidecar_sha256: str = O04_FAILURE_SIDECAR_SHA256,
+    expected_mismatch_proof_sha256: str = O04_MISMATCH_PROOF_SHA256,
+    expected_prior_continuation_evidence_sha256: str = (
+        O04_REFERENCE_RESOLUTION_PRIOR_EVIDENCE_SHA256
+    ),
+    expected_prior_delivery_report_sha256: str = (
+        O04_REFERENCE_RESOLUTION_PRIOR_REPORT_SHA256
+    ),
+    expected_prior_accounting_sha256: str = (
+        O04_REFERENCE_RESOLUTION_PRIOR_ACCOUNTING_SHA256
+    ),
+    expected_prior_attempt_reconciliation_sha256: str = (
+        O04_REFERENCE_RESOLUTION_PRIOR_RECONCILIATION_SHA256
+    ),
+    expected_candidate_sha256: str = O04_REFERENCE_RESOLUTION_CANDIDATE_SHA256,
+    expected_raw_sha256: str = O04_REFERENCE_RESOLUTION_RAW_SHA256,
+    expected_metadata_sha256: str = O04_REFERENCE_RESOLUTION_METADATA_SHA256,
+    expected_python_sha256: str = O04_REFERENCE_RESOLUTION_PYTHON_SHA256,
+    expected_plan_sha256: str = O04_REFERENCE_RESOLUTION_PLAN_SHA256,
+    expected_control_fixture_sha256: str = O04_CONTROL_FIXTURES_SHA256,
+    aggregate_spent: int = O04_REFERENCE_RESOLUTION_AGGREGATE_SPENT,
+    aggregate_limit: int = MAX_AUTHORING_REQUESTS,
+    task_limit: int = O04_REFERENCE_RESOLUTION_TASK_LIMIT,
+    prior_author_correction_spend: int = (
+        O04_REFERENCE_RESOLUTION_PRIOR_AUTHOR_SPEND
+    ),
+    prior_review_spend: int = O04_REFERENCE_RESOLUTION_PRIOR_REVIEW_SPEND,
+) -> O04ReferenceResolutionContinuation:
+    """Prepare the sealed reference-resolution epoch without transport setup."""
+
+    paths = _o04_reference_resolution_authority_paths(Path(mismatch_proof))
+    output_evidence = (
+        Path(evidence_path)
+        if evidence_path is not None
+        else Path(package_dir).parent.parent.parent
+        / O04_REFERENCE_RESOLUTION_EVIDENCE_ROOT
+        / "continuation-evidence.json"
+    )
+    try:
+        return _prepare_o04_reference_resolution_continuation(
+            failure_sidecar=failure_sidecar,
+            mismatch_proof=mismatch_proof,
+            prior_continuation_evidence=(
+                prior_continuation_evidence
+                or paths["prior_continuation_evidence"]
+            ),
+            prior_delivery_report=prior_delivery_report or paths["prior_delivery_report"],
+            prior_accounting=prior_accounting or paths["prior_accounting"],
+            prior_attempt_reconciliation=(
+                prior_attempt_reconciliation or paths["prior_attempt_reconciliation"]
+            ),
+            package_dir=package_dir,
+            evidence_path=output_evidence,
+            readiness_root=(
+                readiness_root
+                or Path(package_dir).parent.parent.parent
+                / O04_REFERENCE_RESOLUTION_READINESS_ROOT
+            ),
+            delivery_root=(
+                delivery_root
+                or Path(package_dir).parent.parent.parent
+                / O04_REFERENCE_RESOLUTION_DELIVERY_ROOT
+            ),
+            task_id=task_id,
+            expected_failure_sidecar_sha256=expected_failure_sidecar_sha256,
+            expected_mismatch_proof_sha256=expected_mismatch_proof_sha256,
+            expected_prior_continuation_evidence_sha256=(
+                expected_prior_continuation_evidence_sha256
+            ),
+            expected_prior_delivery_report_sha256=expected_prior_delivery_report_sha256,
+            expected_prior_accounting_sha256=expected_prior_accounting_sha256,
+            expected_prior_attempt_reconciliation_sha256=(
+                expected_prior_attempt_reconciliation_sha256
+            ),
+            expected_candidate_sha256=expected_candidate_sha256,
+            expected_raw_sha256=expected_raw_sha256,
+            expected_metadata_sha256=expected_metadata_sha256,
+            expected_python_sha256=expected_python_sha256,
+            expected_plan_sha256=expected_plan_sha256,
+            expected_control_fixture_sha256=expected_control_fixture_sha256,
+            aggregate_spent=aggregate_spent,
+            aggregate_limit=aggregate_limit,
+            task_limit=task_limit,
+            prior_author_correction_spend=prior_author_correction_spend,
+            prior_review_spend=prior_review_spend,
+        )
+    except O04ContinuationValidationError:
+        raise
+    except (
+        ContinuationValidationError,
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise O04ContinuationValidationError(str(exc)) from exc
+
+
+def run_o04_reference_resolution_continuation(
+    *,
+    failure_sidecar: str | Path,
+    mismatch_proof: str | Path,
+    package_dir: str | Path,
+    transport_factory: Callable[[], AuthoringTransport],
+    prior_continuation_evidence: str | Path | None = None,
+    prior_delivery_report: str | Path | None = None,
+    prior_accounting: str | Path | None = None,
+    prior_attempt_reconciliation: str | Path | None = None,
+    evidence_path: str | Path | None = None,
+    readiness_root: str | Path | None = None,
+    delivery_root: str | Path | None = None,
+    task_id: str = O04_REFERENCE_RESOLUTION_CONTINUATION_TASK_ID,
+    expected_failure_sidecar_sha256: str = O04_FAILURE_SIDECAR_SHA256,
+    expected_mismatch_proof_sha256: str = O04_MISMATCH_PROOF_SHA256,
+    expected_prior_continuation_evidence_sha256: str = (
+        O04_REFERENCE_RESOLUTION_PRIOR_EVIDENCE_SHA256
+    ),
+    expected_prior_delivery_report_sha256: str = (
+        O04_REFERENCE_RESOLUTION_PRIOR_REPORT_SHA256
+    ),
+    expected_prior_accounting_sha256: str = (
+        O04_REFERENCE_RESOLUTION_PRIOR_ACCOUNTING_SHA256
+    ),
+    expected_prior_attempt_reconciliation_sha256: str = (
+        O04_REFERENCE_RESOLUTION_PRIOR_RECONCILIATION_SHA256
+    ),
+    expected_candidate_sha256: str = O04_REFERENCE_RESOLUTION_CANDIDATE_SHA256,
+    expected_raw_sha256: str = O04_REFERENCE_RESOLUTION_RAW_SHA256,
+    expected_metadata_sha256: str = O04_REFERENCE_RESOLUTION_METADATA_SHA256,
+    expected_python_sha256: str = O04_REFERENCE_RESOLUTION_PYTHON_SHA256,
+    expected_plan_sha256: str = O04_REFERENCE_RESOLUTION_PLAN_SHA256,
+    expected_control_fixture_sha256: str = O04_CONTROL_FIXTURES_SHA256,
+    aggregate_spent: int = O04_REFERENCE_RESOLUTION_AGGREGATE_SPENT,
+    aggregate_limit: int = MAX_AUTHORING_REQUESTS,
+    task_limit: int = O04_REFERENCE_RESOLUTION_TASK_LIMIT,
+    prior_author_correction_spend: int = (
+        O04_REFERENCE_RESOLUTION_PRIOR_AUTHOR_SPEND
+    ),
+    prior_review_spend: int = O04_REFERENCE_RESOLUTION_PRIOR_REVIEW_SPEND,
+) -> O04ContinuationResult:
+    """Run the sealed reference-resolution epoch or persist a preflight stop."""
+
+    destination = Path(package_dir)
+    output_evidence = (
+        Path(evidence_path)
+        if evidence_path is not None
+        else destination.parent.parent.parent
+        / O04_REFERENCE_RESOLUTION_EVIDENCE_ROOT
+        / "continuation-evidence.json"
+    )
+    if output_evidence.exists():
+        try:
+            existing = load_failure_evidence(output_evidence)
+        except ValueError:
+            existing = {}
+        if (
+            existing.get("continuation_schema") != _O04_REFERENCE_RESOLUTION_SCHEMA
+            or existing.get("task_id") != task_id
+        ):
+            finding = Finding(
+                "preflight_authority",
+                "O04 reference-resolution evidence path is already used by another authority",
+                "continuation",
+            )
+            return O04ContinuationResult(
+                status="preflight_defect",
+                task_id=task_id,
+                findings=[finding],
+                failure_evidence_path=output_evidence,
+            )
+        finding = Finding(
+            "continuation_already_completed",
+            "O04 reference-resolution evidence already exists; a second run is not permitted",
+            "continuation",
+        )
+        return O04ContinuationResult(
+            status="continuation_already_completed",
+            task_id=task_id,
+            findings=[finding],
+            failure_evidence_path=output_evidence,
+            budget=deepcopy(existing.get("budget", {})),
+            preflight=deepcopy(existing.get("preflight", {})),
+            accepted_plan=deepcopy(existing.get("accepted_plan", {})),
+            accepted_plan_sha256=existing.get("accepted_plan_sha256", ""),
+            corrected_candidate_sha256=existing.get(
+                "corrected_candidate_sha256", ""
+            ),
+            thinking_choice=deepcopy(existing.get("thinking_choice", {})),
+        )
+    try:
+        continuation = prepare_o04_reference_resolution_continuation(
+            failure_sidecar=failure_sidecar,
+            mismatch_proof=mismatch_proof,
+            prior_continuation_evidence=prior_continuation_evidence,
+            prior_delivery_report=prior_delivery_report,
+            prior_accounting=prior_accounting,
+            prior_attempt_reconciliation=prior_attempt_reconciliation,
+            package_dir=destination,
+            evidence_path=output_evidence,
+            readiness_root=readiness_root,
+            delivery_root=delivery_root,
+            task_id=task_id,
+            expected_failure_sidecar_sha256=expected_failure_sidecar_sha256,
+            expected_mismatch_proof_sha256=expected_mismatch_proof_sha256,
+            expected_prior_continuation_evidence_sha256=(
+                expected_prior_continuation_evidence_sha256
+            ),
+            expected_prior_delivery_report_sha256=expected_prior_delivery_report_sha256,
+            expected_prior_accounting_sha256=expected_prior_accounting_sha256,
+            expected_prior_attempt_reconciliation_sha256=(
+                expected_prior_attempt_reconciliation_sha256
+            ),
+            expected_candidate_sha256=expected_candidate_sha256,
+            expected_raw_sha256=expected_raw_sha256,
+            expected_metadata_sha256=expected_metadata_sha256,
+            expected_python_sha256=expected_python_sha256,
+            expected_plan_sha256=expected_plan_sha256,
+            expected_control_fixture_sha256=expected_control_fixture_sha256,
+            aggregate_spent=aggregate_spent,
+            aggregate_limit=aggregate_limit,
+            task_limit=task_limit,
+            prior_author_correction_spend=prior_author_correction_spend,
+            prior_review_spend=prior_review_spend,
+        )
+    except O04ContinuationValidationError as exc:
+        finding = Finding("preflight_authority", str(exc), "preflight")
+        evidence = new_failure_evidence(task_id, destination)
+        evidence.update(
+            {
+                "continuation_schema": _O04_REFERENCE_RESOLUTION_SCHEMA,
+                "continuation_mode": _O04_REFERENCE_RESOLUTION_CONTINUATION_MODE,
+                "status": "preflight_defect",
+                "terminal_status": "preflight_defect",
+                "preflight": {"status": "failed", "finding": finding.to_dict()},
+                "findings": [finding.to_dict()],
+                "thinking_choice": {
+                    "status": "fixed",
+                    "extra_body": deepcopy(
+                        O04_REFERENCE_RESOLUTION_THINKING_EXTRA_BODY
+                    ),
+                    "field": "chat_template_kwargs.enable_thinking",
+                    "value": False,
+                },
+                "budget": {
+                    "prior_author_correction_spent": prior_author_correction_spend,
+                    "prior_review_spend": prior_review_spend,
+                    "reference_resolution_correction_spent": 0,
+                    "reference_resolution_review_spent": 0,
+                    "aggregate_spent": aggregate_spent,
+                    "aggregate_limit": aggregate_limit,
+                    "aggregate_combined_spent": 39 + aggregate_spent,
+                    "aggregate_combined_limit": 71,
+                    "task_limit": task_limit,
+                },
+                "review_status": {
+                    "plan": "unverified",
+                    "artifact": "preflight_defect",
+                },
+                "attempts": [],
+                "candidate_attempts": [],
+                "ledger": [],
+                "reviews": [],
+            }
+        )
+        path = _write_o04_continuation_evidence(output_evidence, evidence)
+        return O04ContinuationResult(
+            status="preflight_defect",
+            task_id=task_id,
+            findings=[finding],
+            failure_evidence_path=path,
+            budget=deepcopy(evidence["budget"]),
+            preflight=deepcopy(evidence["preflight"]),
+            thinking_choice=deepcopy(evidence["thinking_choice"]),
+        )
+    return continuation.run(transport_factory=transport_factory)
+
+
 def run_o04_refinement_continuation(
     *,
     failure_sidecar: str | Path,
@@ -6722,6 +8178,22 @@ def _o04_refinement_policy(*, reviewer_profile: Any) -> dict[str, Any]:
         "max_retries": 0,
         "sealed": True,
         "thinking_choice": deepcopy(O04_REFINEMENT_THINKING_EXTRA_BODY),
+    }
+
+
+def _o04_reference_resolution_policy(*, reviewer_profile: Any) -> dict[str, Any]:
+    return {
+        "plan_max_corrections": 0,
+        "artifact_max_corrections": O04_REFERENCE_RESOLUTION_CORRECTION_LIMIT,
+        "review_plan": False,
+        "review_artifact": True,
+        "review_model_profile": reviewer_profile,
+        "model": O04_REFERENCE_RESOLUTION_MODEL,
+        "fresh_artifact_authoring": False,
+        "automatic_retry": False,
+        "max_retries": 0,
+        "sealed": True,
+        "thinking_choice": deepcopy(O04_REFERENCE_RESOLUTION_THINKING_EXTRA_BODY),
     }
 
 
@@ -16934,6 +18406,27 @@ __all__ = [
     "O04_FEEDBACK_TASK_LIMIT",
     "O04_FEEDBACK_CORRECTION_LIMIT",
     "O04_FEEDBACK_REVIEW_LIMIT",
+    "O04_REFERENCE_RESOLUTION_CONTINUATION_TASK_ID",
+    "O04_REFERENCE_RESOLUTION_EVIDENCE_ROOT",
+    "O04_REFERENCE_RESOLUTION_READINESS_ROOT",
+    "O04_REFERENCE_RESOLUTION_DELIVERY_ROOT",
+    "O04_REFERENCE_RESOLUTION_PRIOR_EVIDENCE_SHA256",
+    "O04_REFERENCE_RESOLUTION_PRIOR_REPORT_SHA256",
+    "O04_REFERENCE_RESOLUTION_PRIOR_ACCOUNTING_SHA256",
+    "O04_REFERENCE_RESOLUTION_PRIOR_RECONCILIATION_SHA256",
+    "O04_REFERENCE_RESOLUTION_CANDIDATE_SHA256",
+    "O04_REFERENCE_RESOLUTION_RAW_SHA256",
+    "O04_REFERENCE_RESOLUTION_METADATA_SHA256",
+    "O04_REFERENCE_RESOLUTION_PYTHON_SHA256",
+    "O04_REFERENCE_RESOLUTION_PLAN_SHA256",
+    "O04_REFERENCE_RESOLUTION_PRIOR_AUTHOR_SPEND",
+    "O04_REFERENCE_RESOLUTION_PRIOR_REVIEW_SPEND",
+    "O04_REFERENCE_RESOLUTION_AGGREGATE_SPENT",
+    "O04_REFERENCE_RESOLUTION_TASK_LIMIT",
+    "O04_REFERENCE_RESOLUTION_CORRECTION_LIMIT",
+    "O04_REFERENCE_RESOLUTION_REVIEW_LIMIT",
+    "O04_REFERENCE_RESOLUTION_THINKING_EXTRA_BODY",
+    "O04_REFERENCE_RESOLUTION_MODEL",
     "MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK",
     "MAX_REVIEW_REQUESTS_PER_TASK",
     "AuthoringBudget",
@@ -16960,6 +18453,7 @@ __all__ = [
     "O04CorrectionContinuation",
     "O04RefinementContinuation",
     "O04FeedbackContinuation",
+    "O04ReferenceResolutionContinuation",
     "O04SavedArtifact",
     "Call2FramingError",
     "Finding",
@@ -17011,10 +18505,12 @@ __all__ = [
     "prepare_o04_refinement_continuation",
     "prepare_o04_refinement_restart_continuation",
     "prepare_o04_feedback_continuation",
+    "prepare_o04_reference_resolution_continuation",
     "run_o04_correction_continuation",
     "run_o04_refinement_continuation",
     "run_o04_refinement_restart_continuation",
     "run_o04_feedback_continuation",
+    "run_o04_reference_resolution_continuation",
     "scan_for_secrets",
     "scan_for_prompt_secrets",
     "scan_prompt_duplicates",
