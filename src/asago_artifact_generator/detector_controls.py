@@ -42,6 +42,7 @@ class ControlResult:
     observed_claim_level: str | None
     failure: str | None = None
     runtime: dict[str, Any] | None = None
+    actual_result: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -53,7 +54,52 @@ class ControlResult:
             "observed_claim_level": self.observed_claim_level,
             "failure": self.failure,
             "runtime": self.runtime,
+            "actual_result": self.actual_result,
         }
+
+
+@dataclass(frozen=True)
+class DetectorControlFeedback:
+    """One correction-facing view of an executed detector control."""
+
+    name: str
+    evidence: dict[str, Any]
+    expected_outcome: str
+    expected_claim_level: str | None
+    status: str
+    actual_result: dict[str, Any] | None
+    actual_outcome: str | None
+    actual_claim_level: str | None
+    error: str | None
+    outcome_class: str
+    runtime_contract_explanation: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "evidence": self.evidence,
+            "expected_outcome": self.expected_outcome,
+            "expected_claim_level": self.expected_claim_level,
+            "status": self.status,
+            "actual_result": self.actual_result,
+            "actual_outcome": self.actual_outcome,
+            "actual_claim_level": self.actual_claim_level,
+            "error": self.error,
+            "outcome_class": self.outcome_class,
+            "runtime_contract_explanation": self.runtime_contract_explanation,
+        }
+
+
+# Detector Feedback Interface Correction Authority
+DETECTOR_FEEDBACK_CORRECTION_GUIDANCE = (
+    "The supplied failures include the actual detector inputs. Diagnose each against "
+    "the runtime contract and correct the underlying behavior. A supported judge verdict "
+    "is not sufficient when the judge record or its cited supporting evidence is unusable. "
+    "Distinguish missing evidence from an unsupported verdict, and distinguish a detector "
+    "exception from rejection of its returned evidence references. Preserve the accepted "
+    "experiment, working controls and observation level. Return the complete corrected "
+    "artifact in the required format."
+)
 
 
 def run_detector_controls(
@@ -77,11 +123,13 @@ def run_detector_controls(
     selected = (
         list(cases)
         if cases is not None
-        else _contract_control_cases(
-            runtime_contract or {},
-            plan or {},
-            metadata or {},
-            inventory or {},
+        else list(
+            build_control_cases_for_runtime_contract(
+                runtime_contract or {},
+                plan or {},
+                metadata or {},
+                inventory or {},
+            )
         )
     )
     if not selected:
@@ -98,6 +146,218 @@ def run_detector_controls(
             if result.status != "passed":
                 findings.append(_control_finding(result))
         return findings, results
+
+
+def build_control_cases_for_runtime_contract(
+    runtime_contract: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+) -> tuple[ControlCase, ...]:
+    """Resolve the exact cases used by the detector-control evaluator."""
+
+    return tuple(_contract_control_cases(runtime_contract, plan, metadata, inventory))
+
+
+def build_detector_feedback(
+    cases: Sequence[ControlCase],
+    results: Sequence[ControlResult | Mapping[str, Any]],
+) -> tuple[DetectorControlFeedback, ...]:
+    """Pair executed cases with their existing evaluator results."""
+
+    result_by_name = {
+        result.name: result
+        for result in results
+        if isinstance(result, ControlResult)
+    }
+    result_dicts = {
+        result.get("name"): result
+        for result in results
+        if isinstance(result, Mapping) and isinstance(result.get("name"), str)
+    }
+    feedback: list[DetectorControlFeedback] = []
+    for case in cases:
+        result_object = result_by_name.get(case.name)
+        result = (
+            result_object.as_dict()
+            if result_object is not None
+            else result_dicts.get(case.name)
+        )
+        result = result if isinstance(result, Mapping) else {}
+        status = result.get("status")
+        status = status if isinstance(status, str) else "runtime_failure"
+        error = result.get("failure")
+        error = error if isinstance(error, str) else None
+        actual_result = result.get("actual_result")
+        actual_result = (
+            dict(actual_result) if isinstance(actual_result, Mapping) else None
+        )
+        actual_outcome = result.get("observed_outcome")
+        actual_outcome = actual_outcome if isinstance(actual_outcome, str) else None
+        actual_claim_level = result.get("observed_claim_level")
+        actual_claim_level = (
+            actual_claim_level if isinstance(actual_claim_level, str) else None
+        )
+        outcome_class = _feedback_outcome_class(status, error)
+        feedback.append(
+            DetectorControlFeedback(
+                name=case.name,
+                evidence=_copy_mapping(case.evidence),
+                expected_outcome=case.expected_outcome,
+                expected_claim_level=case.expected_claim_level,
+                status=status,
+                actual_result=actual_result,
+                actual_outcome=actual_outcome,
+                actual_claim_level=actual_claim_level,
+                error=error,
+                outcome_class=outcome_class,
+                runtime_contract_explanation=_feedback_explanation(
+                    case.evidence,
+                    expected_claim_level=case.expected_claim_level,
+                    error=error,
+                    outcome_class=outcome_class,
+                ),
+            )
+        )
+    return tuple(feedback)
+
+
+def build_detector_feedback_prompt_context(
+    feedback: Sequence[DetectorControlFeedback],
+) -> dict[str, Any]:
+    """Build one compact, deduplicated correction-prompt feedback section."""
+
+    failed = [item for item in feedback if item.status != "passed"]
+    passed = [item for item in feedback if item.status == "passed"]
+    return {
+        "failed_controls": [item.as_dict() for item in failed],
+        "passing_controls": [
+            {
+                "name": item.name,
+                "expected_outcome": item.expected_outcome,
+                "expected_claim_level": item.expected_claim_level,
+                "observed_outcome": item.actual_outcome,
+                "observed_claim_level": item.actual_claim_level,
+                "status": item.status,
+            }
+            for item in passed
+        ],
+        "correction_guidance": DETECTOR_FEEDBACK_CORRECTION_GUIDANCE,
+    }
+
+
+def _copy_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Copy nested case evidence without retaining mutable evaluator input."""
+
+    if isinstance(value, dict):
+        return {
+            key: _copy_value(item)
+            for key, item in value.items()
+        }
+    return {str(key): _copy_value(item) for key, item in value.items()}
+
+
+def _copy_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return _copy_mapping(value)
+    if isinstance(value, list):
+        return [_copy_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_copy_value(item) for item in value]
+    return value
+
+
+def _feedback_outcome_class(status: str, error: str | None) -> str:
+    """Classify a result without using a control identity."""
+
+    if status == "passed":
+        return "passed"
+    if status == "failed" and error in {"outcome_mismatch", "claim_level_mismatch"}:
+        return "structurally_valid_wrong_outcome"
+    if error and (
+        error.startswith("detector result")
+        or error.startswith("evidence reference")
+    ):
+        return "invalid_returned_result"
+    if error and error.startswith("detector runtime error:"):
+        return "detector_exception"
+    return "container/evaluator_failure_before_result"
+
+
+def _feedback_explanation(
+    evidence: Mapping[str, Any],
+    *,
+    expected_claim_level: str | None,
+    error: str | None,
+    outcome_class: str,
+) -> str:
+    """Explain the runtime-contract issue from supplied evidence only."""
+
+    judge = evidence.get("judge")
+    messages = evidence.get("messages")
+    claim_boundary = (
+        "reply-level"
+        if expected_claim_level == "reply"
+        else f"{expected_claim_level or 'declared'} claim-level"
+    )
+    if (
+        not isinstance(judge, Mapping)
+        and error is not None
+        and error.startswith("evidence reference")
+    ):
+        return (
+            "The detector returned an inconclusive result that cited an absent judge "
+            "path; returned-reference validation rejected the citation before exposing "
+            f"a validated result. Keep the {claim_boundary} outcome inconclusive and cite only "
+            "evidence that resolves in the supplied packet."
+        )
+    if isinstance(judge, Mapping) and isinstance(judge.get("evidence_refs"), str):
+        return (
+            "The supplied judge record contains a string evidence_refs value, but the "
+            "runtime contract requires a list of nonblank references. Preserve an "
+            f"inconclusive {claim_boundary} outcome when the returned reference contract is "
+            "invalid."
+        )
+    if isinstance(judge, Mapping):
+        refs = judge.get("evidence_refs")
+        if isinstance(refs, list) and any(ref == "messages[99]" for ref in refs):
+            return (
+                "The supplied judge record cites messages[99], which is unresolved in "
+                f"the supplied evidence. Preserve an inconclusive {claim_boundary} outcome "
+                "when supporting evidence cannot be resolved."
+            )
+    if isinstance(messages, list) and any(
+        isinstance(message, Mapping) and message.get("content") is None
+        for message in messages
+    ):
+        return (
+            "The supplied supporting message has null content, so the cited judge "
+            f"support is malformed. Preserve an inconclusive {claim_boundary} outcome rather "
+            "than treating the judge verdict as usable evidence."
+        )
+    if outcome_class == "detector_exception":
+        return (
+            "The detector raised an exception before returning a result. Keep the "
+            "actual result unavailable and preserve the runtime contract's "
+            f"inconclusive {claim_boundary} boundary."
+        )
+    if outcome_class == "invalid_returned_result":
+        return (
+            "The evaluator rejected the detector's returned result before exposing a "
+            "validated result. Keep the actual result unavailable and preserve the "
+            f"runtime contract's inconclusive {claim_boundary} boundary."
+        )
+    if outcome_class == "structurally_valid_wrong_outcome":
+        return (
+            "The detector returned a structurally valid result, but its outcome or "
+            "claim level does not match the executed control expectation. Preserve the "
+            f"expected {claim_boundary} outcome and use only the supplied runtime evidence."
+        )
+    return (
+        "The container or evaluator failed before exposing a detector result. Keep the "
+        "actual result unavailable and preserve the runtime contract's "
+        f"inconclusive {claim_boundary} boundary."
+    )
 
 
 def build_control_cases(
@@ -205,6 +465,7 @@ def _control_result(case: ControlCase, execution: DetectorExecution) -> ControlR
             observed_claim_level=observed_claim_level,
             failure="outcome_mismatch",
             runtime=runtime,
+            actual_result=dict(execution.result),
         )
     if case.expected_claim_level is not None and observed_claim_level != case.expected_claim_level:
         return ControlResult(
@@ -216,6 +477,7 @@ def _control_result(case: ControlCase, execution: DetectorExecution) -> ControlR
             observed_claim_level=observed_claim_level,
             failure="claim_level_mismatch",
             runtime=runtime,
+            actual_result=dict(execution.result),
         )
     return ControlResult(
         name=case.name,
@@ -225,6 +487,7 @@ def _control_result(case: ControlCase, execution: DetectorExecution) -> ControlR
         observed_outcome=observed_outcome,
         observed_claim_level=observed_claim_level,
         runtime=runtime,
+        actual_result=dict(execution.result),
     )
 
 

@@ -29,7 +29,14 @@ from .bindings import (
     BindingValidationError,
     validate_bindings,
 )
-from .detector_controls import build_control_cases, run_detector_controls
+from .detector_controls import (
+    DetectorControlFeedback,
+    build_control_cases,
+    build_control_cases_for_runtime_contract,
+    build_detector_feedback,
+    build_detector_feedback_prompt_context,
+    run_detector_controls,
+)
 from .failure_evidence import (
     failure_evidence_path,
     load_failure_evidence,
@@ -914,6 +921,7 @@ class O04SavedArtifact:
     historical_control_results: dict[str, Any]
     control_cases: tuple[Any, ...]
     authority: dict[str, Any]
+    detector_feedback: tuple[DetectorControlFeedback, ...] = ()
 
 
 @dataclass
@@ -1289,6 +1297,13 @@ class O04RefinementContinuation:
                 controls_result = []
                 control_findings = [finding.to_dict()]
             controls_result = list(controls_result)
+            candidate_cases = build_control_cases_for_runtime_contract(
+                candidate.runtime_contract,
+                candidate.plan,
+                parsed.metadata,
+                candidate.inventory,
+            )
+            candidate_feedback = build_detector_feedback(candidate_cases, controls_result)
             controls_ok, shape_finding = _o04_controls_match_authority(
                 controls_result,
                 candidate,
@@ -1333,6 +1348,8 @@ class O04RefinementContinuation:
                             "read_only": True,
                         },
                     },
+                    control_cases=candidate_cases,
+                    detector_feedback=candidate_feedback,
                 )
                 actionable = all_findings
                 if correction_count < self.continuation_author_limit:
@@ -1359,6 +1376,8 @@ class O04RefinementContinuation:
                         "read_only": True,
                     },
                 },
+                control_cases=candidate_cases,
+                detector_feedback=candidate_feedback,
             )
             candidate_evidence.update(
                 {
@@ -3413,6 +3432,10 @@ def _prepare_o04_correction_continuation(
         historical_control_results=deepcopy(historical_controls),
         control_cases=control_cases,
         authority=authority,
+        detector_feedback=build_detector_feedback(
+            control_cases,
+            historical_controls.get("records", []),
+        ),
     )
     destination = Path(package_dir)
     if destination.exists() and any(destination.iterdir()):
@@ -3841,6 +3864,10 @@ def _o04_validate_refinement_prior(
         candidate_sha256=corrected["candidate_sha256"],
         parsed=parsed,
         historical_control_results=refinement_controls,
+        detector_feedback=build_detector_feedback(
+            artifact.control_cases,
+            records,
+        ),
         authority=authority,
     )
 
@@ -5342,16 +5369,6 @@ def _build_o04_correction_packet(
         "runtime_evidence_interface": {
             "runtime_contract": deepcopy(artifact.runtime_contract),
             "evidence_packet": evidence_packet_contract(),
-            "supported_packet_paths": [
-                "availability.messages",
-                "completeness.messages",
-                "judge.verdict",
-            ],
-            "incompatible_saved_reads": [
-                "availability.assistant_messages",
-                "completeness.assistant_messages",
-                "judge.outcome",
-            ],
         },
         "authority_pins": {
             "failure_sidecar_sha256": artifact.failure_sidecar_sha256,
@@ -5391,6 +5408,10 @@ def _build_o04_correction_packet(
         original_context=original_context,
         current_output=artifact.candidate_raw,
         findings=historical_findings,
+        detector_feedback=_o04_detector_feedback(
+            artifact,
+            control_results=control_results,
+        ),
     )
     correction_context["authority"] = {
         "supported_packet_paths": [
@@ -5410,35 +5431,106 @@ def _build_o04_correction_packet(
         "mismatch_proof_sha256": artifact.mismatch_proof_sha256,
     }
     assert_no_prompt_secrets(correction_context)
+    packet = _render_correction_packet(
+        correction_context,
+        authority=correction_context["authority"],
+        authority_title="O04 AUTHORITY AND RUNTIME PACKET PATHS",
+    )
+    _enforce_prompt_size(packet, MAX_RENDERED_PROMPT_BYTES)
+    return packet
+
+
+def _o04_detector_feedback(
+    artifact: O04SavedArtifact,
+    *,
+    control_results: dict[str, Any] | None,
+) -> tuple[DetectorControlFeedback, ...]:
+    if control_results is None and artifact.detector_feedback:
+        return artifact.detector_feedback
+    records = (
+        control_results.get("records", [])
+        if isinstance(control_results, dict)
+        else artifact.historical_control_results.get("records", [])
+    )
+    return build_detector_feedback(artifact.control_cases, records)
+
+
+def _render_correction_packet(
+    correction_context: dict[str, Any],
+    *,
+    authority: dict[str, Any] | None = None,
+    authority_title: str = "AUTHORITY",
+) -> PromptPacket:
+    """Render one shared correction prompt for every artifact caller."""
+
+    sections: list[tuple[str, Any]] = [
+        (
+            "FAILED STAGE",
+            {
+                "stage": correction_context["stage"],
+                "failed_stage": correction_context["failed_stage"],
+            },
+        ),
+        (
+            "ORIGINAL STAGE CONTEXT",
+            _correction_prompt_context(correction_context["original_context"]),
+        ),
+        ("RESPONSE CONTRACT", correction_context["response_contract"]),
+        ("CURRENT OUTPUT", correction_context["current_output"]),
+        ("CURRENT FINDINGS", correction_context["findings"]),
+    ]
+    if correction_context.get("detector_feedback") is not None:
+        sections.append(
+            ("DETECTOR CONTROL FEEDBACK", correction_context["detector_feedback"])
+        )
+    if authority is not None:
+        sections.append((authority_title, _correction_prompt_authority(authority)))
+    sections.append(
+        (
+            "CORRECTION INSTRUCTIONS",
+            {
+                "instruction": correction_context["instruction"],
+                "format": correction_context["format"],
+                "accepted_plan_fixed": correction_context["accepted_plan_fixed"],
+            },
+        )
+    )
+    if "prior_unresolved_findings" in correction_context:
+        sections.append(
+            (
+                "PRIOR UNRESOLVED FINDINGS",
+                correction_context["prior_unresolved_findings"],
+            )
+        )
     packet = PromptPacket(
         stage="correction",
         version=CORRECTION_PROMPT_VERSION_V3,
         system=_CORRECTION_SYSTEM_V3,
-        user=_render_sections(
-            (
-                (
-                    "FAILED STAGE",
-                    {"stage": "artifact", "failed_stage": "call2"},
-                ),
-                ("ORIGINAL STAGE CONTEXT", correction_context["original_context"]),
-                ("RESPONSE CONTRACT", correction_context["response_contract"]),
-                ("CURRENT OUTPUT", correction_context["current_output"]),
-                ("CURRENT FINDINGS", correction_context["findings"]),
-                ("O04 AUTHORITY AND RUNTIME PACKET PATHS", correction_context["authority"]),
-                (
-                    "CORRECTION INSTRUCTIONS",
-                    {
-                        "instruction": correction_context["instruction"],
-                        "format": correction_context["format"],
-                        "accepted_plan_fixed": True,
-                    },
-                ),
-            )
-        ),
+        user=_render_sections(tuple(sections)),
         payload=correction_context,
     )
-    _enforce_prompt_size(packet, MAX_RENDERED_PROMPT_BYTES)
     return packet
+
+
+def _correction_prompt_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Avoid rendering runtime capabilities twice beside the runtime contract."""
+
+    result = deepcopy(context)
+    authoritative = result.get("authoritative_context")
+    interface = result.get("runtime_evidence_interface")
+    if isinstance(authoritative, dict) and isinstance(interface, dict):
+        if isinstance(interface.get("runtime_contract"), dict):
+            authoritative.pop("runtime_capabilities", None)
+    return result
+
+
+def _correction_prompt_authority(authority: dict[str, Any]) -> dict[str, Any]:
+    """Keep compatibility payload rows out of the rendered feedback section."""
+
+    result = deepcopy(authority)
+    result.pop("failed_controls", None)
+    result.pop("current_control_results", None)
+    return result
 
 
 def _o04_meaning_findings(
@@ -6124,6 +6216,7 @@ class AuthoringOrchestrator:
         self._review_evidence: dict[str, dict[str, Any]] = {}
         self._saved_plan_review_packet: PromptPacket | None = None
         self._last_controls: list[dict[str, Any]] | None = None
+        self._last_detector_feedback: tuple[DetectorControlFeedback, ...] = ()
         self._raw_responses: dict[str, bytes] = {}
         self._decoded_responses: dict[str, Any] = {}
         self._prompt_packets: dict[str, PromptPacket] = {}
@@ -6648,6 +6741,13 @@ class AuthoringOrchestrator:
             runtime_contract=runtime_contract,
         )
         self._last_controls = controls
+        cases = build_control_cases_for_runtime_contract(
+            runtime_contract,
+            plan,
+            parsed.metadata,
+            inventory,
+        )
+        self._last_detector_feedback = build_detector_feedback(cases, controls)
         if self._ledger:
             self._ledger[-1]["detector_controls"] = controls
         if self._failure_evidence.get("attempts"):
@@ -7184,6 +7284,9 @@ class AuthoringOrchestrator:
             original_context=original_context,
             current_output=failed_response,
             findings=findings,
+            detector_feedback=(
+                self._last_detector_feedback if failed_stage == "call2" else None
+            ),
         )
         # Preserve the generic compatibility members consumed by historical
         # offline evidence readers.  They are not rendered into the new
@@ -7198,44 +7301,8 @@ class AuthoringOrchestrator:
                 "failed_response_encoding": correction_payload["current_output_encoding"],
             }
         )
-        packet = PromptPacket(
-            stage="correction",
-            version=CORRECTION_PROMPT_VERSION_V3,
-            system=_CORRECTION_SYSTEM_V3,
-            user=_render_sections(
-                (
-                    (
-                        "FAILED STAGE",
-                        {
-                            "stage": correction_payload["stage"],
-                            "failed_stage": correction_payload["failed_stage"],
-                        },
-                    ),
-                    ("ORIGINAL STAGE CONTEXT", correction_payload["original_context"]),
-                    ("RESPONSE CONTRACT", correction_payload["response_contract"]),
-                    ("CURRENT OUTPUT", correction_payload["current_output"]),
-                    ("CURRENT FINDINGS", correction_payload["findings"]),
-                    (
-                        "CORRECTION INSTRUCTIONS",
-                        {
-                            "instruction": correction_payload["instruction"],
-                            "format": correction_payload["format"],
-                            "accepted_plan_fixed": correction_payload["accepted_plan_fixed"],
-                        },
-                    ),
-                    *(
-                        [
-                            (
-                                "PRIOR UNRESOLVED FINDINGS",
-                                correction_payload["prior_unresolved_findings"],
-                            )
-                        ]
-                        if "prior_unresolved_findings" in correction_payload
-                        else []
-                    ),
-                )
-            ),
-            payload=correction_payload,
+        packet = _render_correction_packet(
+            correction_payload,
         )
         try:
             _enforce_prompt_size(packet, MAX_RENDERED_PROMPT_BYTES)
@@ -9741,6 +9808,9 @@ def build_correction_context(
     current_output: bytes | str,
     findings: list[dict[str, Any]] | tuple[dict[str, Any], ...] | list[Finding],
     prior_unresolved_findings: list[dict[str, Any]] | None = None,
+    detector_feedback: list[DetectorControlFeedback]
+    | tuple[DetectorControlFeedback, ...]
+    | None = None,
 ) -> dict[str, Any]:
     """Build a stage-aware correction context without competing formats."""
 
@@ -9759,6 +9829,22 @@ def build_correction_context(
         finding.to_dict() if isinstance(finding, Finding) else deepcopy(finding)
         for finding in findings
     ]
+    if detector_feedback:
+        control_summaries = [
+            {
+                "code": finding.get("code", "detector_control_failure"),
+                "detail": "See the shared feedback section for the exact executed case.",
+                "path": finding.get("path", "detector_controls"),
+            }
+            for finding in normalized_findings
+            if str(finding.get("path", "")).startswith("detector_controls.")
+        ]
+        normalized_findings = [
+            finding
+            for finding in normalized_findings
+            if not str(finding.get("path", "")).startswith("detector_controls.")
+        ]
+        normalized_findings.extend(control_summaries)
     instruction = (
         "Address every substantiated finding together. Verify criticism against "
         "the original scenario and supplied evidence, preserve supported meaning, "
@@ -9774,6 +9860,10 @@ def build_correction_context(
         "findings": normalized_findings,
         "instruction": instruction,
     }
+    if detector_feedback:
+        context["detector_feedback"] = build_detector_feedback_prompt_context(
+            detector_feedback
+        )
     if prior_unresolved_findings:
         context["prior_unresolved_findings"] = deepcopy(prior_unresolved_findings)
     if stage == "plan":
