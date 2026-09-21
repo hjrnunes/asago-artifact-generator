@@ -177,6 +177,37 @@ control, review, transport, package, and preflight non-pass outcomes are
 terminal and write continuation evidence without a package. This consumer
 seam remains target-free; downstream owns any later MiniOcciAI execution.
 
+### O04 artifact-refinement continuation
+
+The refinement continuation extends the sealed O04 seam from the first
+continuation's corrected candidate. Prepare it with the same historical
+sidecar and mismatch proof plus the first-continuation evidence chain:
+
+```python
+continuation = prepare_o04_refinement_continuation(
+    failure_sidecar="/absolute/path/to/O04.failure-evidence.json",
+    mismatch_proof="/absolute/path/to/mismatch-evidence.json",
+    prior_continuation_evidence="/absolute/path/to/continuation-evidence.json",
+    prior_delivery_report="/absolute/path/to/o04-continuation-report.md",
+    prior_preservation="/absolute/path/to/preservation-digests.json",
+    package_dir="/absolute/path/to/new-package",
+)
+result = continuation.run(transport_factory=transport_factory)
+```
+
+Preparation pins the first-continuation report, preservation record, raw
+response, semantic candidate, metadata, Python block, accepted plan, and
+recorded seven-pass/three-fail/one-runtime control result. The seam seeds
+factual O04 spend at 5 author/correction and 1 review, keeps the first
+continuation's one-call allowances expired, and grants one shared allowance
+of two corrections plus two artifact reviews. Review remains gated by every
+deterministic check and all eleven unchanged controls. Each attempt persists
+its raw response and evidence before validation, and each request records the
+fixed `chat_template_kwargs.enable_thinking=false` transport option. A
+correction or review transport failure is terminal and never retries.
+Only an accepted review assembles a package; every other outcome leaves the
+package path absent.
+
 `author` writes an immutable package or durable failure evidence. `check` runs
 only the supplied evidence through the packaged detector in the constrained
 offline harness. Neither command starts a target, setup service, discovery

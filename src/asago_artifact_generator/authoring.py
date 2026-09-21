@@ -116,6 +116,7 @@ _A03_CONTINUATION_MODE = "sealed-a03-artifact-review"
 _A03_INPUT_LABEL = "supplied_hash_verified_reference_task"
 _A03_REFERENCE_ID = "A03"
 O04_CONTINUATION_TASK_ID = "O04-corrected-artifact-continuation"
+O04_REFINEMENT_CONTINUATION_TASK_ID = "O04-artifact-refinement-continuation"
 O04_FAILURE_SIDECAR_SHA256 = (
     "7e6d3c8814e6138400751f61a89558ec377c89622c87617d1113a91232763abc"
 )
@@ -153,6 +154,26 @@ O04_CONTROL_FIXTURES_SHA256 = (
     "4aa1d442418f9e0b94ec6ff935591dc0cfc7434b7e511b7a1ef8e167c7e6c7d0"
 )
 _O04_CONTINUATION_MODE = "sealed-o04-correction-first"
+_O04_REFINEMENT_CONTINUATION_MODE = "sealed-o04-artifact-refinement"
+_O04_REFINEMENT_SCHEMA = "o04-artifact-refinement-continuation-v1"
+O04_PRIOR_CONTINUATION_EVIDENCE_SHA256 = (
+    "abb09d21f9d60899e5d1f43cd7927757a31254c642e68f022dd23f01b130fbf3"
+)
+O04_PRIOR_DELIVERY_REPORT_SHA256 = (
+    "33e9d38fb02e41b28ca83f0dc69fe8520084f57bb811bd1da281cb31103f5933"
+)
+O04_PRIOR_PRESERVATION_SHA256 = (
+    "2263415b48b50be5b1887a88a85d776e37992217877e88f24462cd30669664fd"
+)
+O04_REFINEMENT_PRIOR_AUTHOR_SPEND = 5
+O04_REFINEMENT_PRIOR_REVIEW_SPEND = 1
+O04_REFINEMENT_CORRECTION_LIMIT = 2
+O04_REFINEMENT_REVIEW_LIMIT = 2
+O04_REFINEMENT_AGGREGATE_SPENT = 17
+O04_REFINEMENT_TASK_LIMIT = 4
+O04_REFINEMENT_THINKING_EXTRA_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False}
+}
 _O04_RECOVERY_CANDIDATES_SHA256 = (
     "7d668116bfb7e8070da034c18f321a5d257ca2f5bc5e36a91554524fcc8e773c"
 )
@@ -829,6 +850,10 @@ class O04ContinuationResult:
     accepted_plan: dict[str, Any] = field(default_factory=dict)
     accepted_plan_sha256: str = ""
     corrected_candidate_sha256: str = ""
+    attempts: list[dict[str, Any]] = field(default_factory=list)
+    candidate_attempts: list[dict[str, Any]] = field(default_factory=list)
+    reviews: list[dict[str, Any]] = field(default_factory=list)
+    thinking_choice: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -852,6 +877,984 @@ class O04SavedArtifact:
     historical_control_results: dict[str, Any]
     control_cases: tuple[Any, ...]
     authority: dict[str, Any]
+
+
+@dataclass
+class O04RefinementContinuation:
+    """Bounded refinement over the first O04 continuation candidate."""
+
+    artifact: O04SavedArtifact
+    package_dir: Path
+    task_id: str
+    evidence_path: Path
+    prior_continuation_evidence: Path
+    prior_delivery_report: Path
+    prior_preservation: Path
+    prior_author_correction_spend: int = O04_REFINEMENT_PRIOR_AUTHOR_SPEND
+    prior_review_spend: int = O04_REFINEMENT_PRIOR_REVIEW_SPEND
+    continuation_author_limit: int = O04_REFINEMENT_CORRECTION_LIMIT
+    continuation_review_limit: int = O04_REFINEMENT_REVIEW_LIMIT
+    aggregate_spent: int = O04_REFINEMENT_AGGREGATE_SPENT
+    aggregate_limit: int = MAX_AUTHORING_REQUESTS
+    task_limit: int = O04_REFINEMENT_TASK_LIMIT + 6
+    _completed: bool = field(default=False, init=False, repr=False)
+    _result: O04ContinuationResult | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.continuation_author_limit != O04_REFINEMENT_CORRECTION_LIMIT:
+            raise ValueError("O04 refinement correction allowance is fixed at two")
+        if self.continuation_review_limit != O04_REFINEMENT_REVIEW_LIMIT:
+            raise ValueError("O04 refinement review allowance is fixed at two")
+        if self.prior_author_correction_spend != O04_REFINEMENT_PRIOR_AUTHOR_SPEND:
+            raise ValueError("O04 refinement prior author spend is fixed at five")
+        if self.prior_review_spend != O04_REFINEMENT_PRIOR_REVIEW_SPEND:
+            raise ValueError("O04 refinement prior review spend is fixed at one")
+        if self.aggregate_spent != O04_REFINEMENT_AGGREGATE_SPENT:
+            raise ValueError("O04 refinement aggregate spend must start at seventeen")
+        if self.aggregate_limit != MAX_AUTHORING_REQUESTS:
+            raise ValueError("O04 refinement aggregate limit is fixed at thirty-two")
+        if self.task_limit != O04_REFINEMENT_TASK_LIMIT + 6:
+            raise ValueError("O04 refinement task limit is fixed at ten")
+
+    def run(
+        self,
+        *,
+        transport_factory: Callable[[], AuthoringTransport],
+    ) -> O04ContinuationResult:
+        """Run the shared two-correction/two-review loop once."""
+
+        if self._completed:
+            return O04ContinuationResult(
+                status="continuation_already_completed",
+                task_id=self.task_id,
+                findings=[
+                    Finding(
+                        "continuation_already_completed",
+                        "sealed O04 refinement permits one terminal run",
+                        "continuation",
+                    )
+                ],
+                budget=self._budget_snapshot(),
+                preflight=self._preflight_record(),
+                accepted_plan=deepcopy(self.artifact.plan),
+                accepted_plan_sha256=_mapping_sha256(self.artifact.plan),
+                thinking_choice=self._thinking_choice(),
+            )
+        self._completed = True
+        budget = self._new_budget()
+        thinking_choice = self._thinking_choice()
+        evidence = _new_o04_refinement_evidence(
+            task_id=self.task_id,
+            package_dir=self.package_dir,
+            artifact=self.artifact,
+            budget=_o04_refinement_budget_snapshot(
+                budget,
+                self.task_id,
+                prior_author=self.prior_author_correction_spend,
+                prior_review=self.prior_review_spend,
+                correction_spent=0,
+                review_spent=0,
+            ),
+            preflight=self._preflight_record(),
+            thinking_choice=thinking_choice,
+            prior_continuation_evidence=self.prior_continuation_evidence,
+            prior_delivery_report=self.prior_delivery_report,
+            prior_preservation=self.prior_preservation,
+        )
+        _write_o04_continuation_evidence(self.evidence_path, evidence)
+
+        budget_failure = _o04_budget_failure(budget, self.task_id, role="author")
+        if budget_failure is not None:
+            return self._finish(
+                evidence,
+                budget,
+                "budget_exhausted",
+                [Finding("budget_exhausted", _safe_error(budget_failure), "correction")],
+                thinking_choice=thinking_choice,
+            )
+        transport = self._construct_transport(transport_factory, evidence, budget)
+        if transport is None:
+            return self._result or self._finish(
+                evidence,
+                budget,
+                "preflight_defect",
+                [Finding("transport_construction", "transport construction failed", "preflight")],
+            )
+
+        current = self.artifact
+        actionable: list[Finding] = _o04_prior_control_findings(
+            current.historical_control_results
+        )
+        raw_responses: dict[str, bytes] = {}
+        prompt_packets: dict[str, PromptPacket] = {}
+        decoded_responses: dict[str, Any] = {}
+        reviewed_candidates: set[str] = set()
+        reviewed_candidate_raws: set[str] = set()
+        correction_count = 0
+        review_count = 0
+        dispatch_index = 0
+        last_review_controls: dict[str, Any] = _refinement_dispatch_controls(transport)
+
+        while True:
+            if correction_count >= self.continuation_author_limit:
+                return self._finish(
+                    evidence,
+                    budget,
+                    "budget_exhausted",
+                    [
+                        Finding(
+                            "budget_exhausted",
+                            "shared O04 refinement correction allowance is exhausted",
+                            "correction",
+                        )
+                    ],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            correction_count += 1
+            dispatch_index += 1
+            try:
+                correction_packet = _build_o04_correction_packet(
+                    current,
+                    findings=actionable,
+                    control_results=current.historical_control_results,
+                )
+            except (AuthoringError, ValueError, TypeError) as exc:
+                return self._finish(
+                    evidence,
+                    budget,
+                    "preflight_defect",
+                    [Finding("correction_preflight", _safe_error(exc), "correction")],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            prompt_packets[f"correction:{correction_count}"] = correction_packet
+            try:
+                budget.reserve(self.task_id, role="author")
+            except BudgetExceeded as exc:
+                return self._finish(
+                    evidence,
+                    budget,
+                    "budget_exhausted",
+                    [Finding("budget_exhausted", _safe_error(exc), "correction")],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            if not _refinement_transport_is_fixed(transport):
+                return self._finish(
+                    evidence,
+                    budget,
+                    "preflight_defect",
+                    [
+                        Finding(
+                            "thinking_choice",
+                            "refinement transport changed the fixed thinking-off option",
+                            "transport.extra_body",
+                        )
+                    ],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            record = _o04_refinement_dispatch_record(
+                packet=correction_packet,
+                task_id=self.task_id,
+                dispatch_index=dispatch_index,
+                role="author",
+                correction_index=correction_count,
+                artifact=current,
+                controls=_refinement_dispatch_controls(transport),
+                candidate_sha256=current.candidate_sha256,
+                budget=budget.snapshot(self.task_id),
+            )
+            evidence["attempts"].append(record["attempt"])
+            evidence["ledger"].append(record["ledger"])
+            evidence["budget"] = _o04_refinement_budget_snapshot(
+                budget,
+                self.task_id,
+                prior_author=self.prior_author_correction_spend,
+                prior_review=self.prior_review_spend,
+                correction_spent=correction_count,
+                review_spent=review_count,
+            )
+            _write_o04_continuation_evidence(self.evidence_path, evidence)
+
+            started = time.monotonic()
+            try:
+                response = transport.complete(correction_packet)
+                raw, usage, supplied_controls = _response_parts(response)
+                if not isinstance(raw, bytes):
+                    raise TypeError("artifact-correction response bytes are invalid")
+            except Exception as exc:
+                detail = _safe_error(exc)
+                _record_refinement_transport_failure(
+                    record,
+                    detail=detail,
+                    elapsed_ms=round((time.monotonic() - started) * 1000, 3),
+                )
+                _record_refinement_findings(
+                    record,
+                    [Finding("transport_failure", detail, "correction")],
+                )
+                _write_o04_continuation_evidence(self.evidence_path, evidence)
+                return self._finish(
+                    evidence,
+                    budget,
+                    "transport_failure",
+                    [Finding("transport_failure", detail, "correction")],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+
+            controls = _o04_review_controls(transport, supplied_controls)
+            controls["extra_body"] = deepcopy(O04_REFINEMENT_THINKING_EXTRA_BODY)
+            _persist_refinement_response(
+                record,
+                raw=raw,
+                usage=usage,
+                controls=controls,
+                dispatch_index=dispatch_index,
+            )
+            raw_responses[f"dispatch:{dispatch_index}"] = raw
+            evidence["budget"] = _o04_refinement_budget_snapshot(
+                budget,
+                self.task_id,
+                prior_author=self.prior_author_correction_spend,
+                prior_review=self.prior_review_spend,
+                correction_spent=correction_count,
+                review_spent=review_count,
+            )
+            _write_o04_continuation_evidence(self.evidence_path, evidence)
+
+            try:
+                parsed = parse_call2_response(raw)
+            except (Call2FramingError, UnicodeDecodeError, ValueError) as exc:
+                finding = Finding("correction_unavailable", _safe_error(exc), "correction")
+                _record_refinement_findings(record, [finding])
+                _write_o04_continuation_evidence(self.evidence_path, evidence)
+                actionable = [finding]
+                if correction_count < self.continuation_author_limit:
+                    continue
+                return self._finish(
+                    evidence,
+                    budget,
+                    "correction_unavailable",
+                    [finding],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+
+            candidate = replace(
+                current,
+                candidate_raw=raw,
+                candidate_sha256=_sha256(
+                    _canonical_json(parsed.metadata).encode("utf-8")
+                    + b"\0"
+                    + parsed.python_bytes
+                ),
+                parsed=parsed,
+            )
+            decoded_responses[f"correction:{correction_count}"] = deepcopy(parsed.metadata)
+            deterministic_findings = collect_artifact_findings_v2(
+                parsed,
+                candidate.plan,
+                candidate.inventory,
+                candidate.runtime_contract,
+            )
+            deterministic_findings.extend(
+                _o04_meaning_findings(parsed.metadata, candidate.plan, candidate.inventory)
+            )
+            candidate_digest = candidate.candidate_sha256
+            record["attempt"]["candidate_sha256"] = candidate_digest
+            record["ledger"]["candidate_sha256"] = candidate_digest
+            record["attempt"]["candidate_bytes_sha256"] = candidate_digest
+            candidate_evidence = {
+                "attempt_index": dispatch_index,
+                "stage": "correction",
+                "role": "author",
+                "prompt": deepcopy(record["attempt"]["prompt"]),
+                "raw_sha256": _sha256(raw),
+                "raw_byte_length": len(raw),
+                "raw_response": deepcopy(record["attempt"]["raw_response"]),
+                "usage": deepcopy(record["attempt"]["usage"]),
+                "controls": deepcopy(record["attempt"]["controls"]),
+                "budget_before_dispatch": deepcopy(
+                    record["attempt"]["budget_before_dispatch"]
+                ),
+                "budget_after_dispatch": deepcopy(evidence["budget"]),
+                "candidate_sha256": candidate_digest,
+                "metadata_sha256": _mapping_sha256(parsed.metadata),
+                "python_sha256": _sha256(parsed.python_bytes),
+                "python_byte_length": len(parsed.python_bytes),
+                "budget": deepcopy(evidence["budget"]),
+            }
+            evidence["candidate_attempts"].append(candidate_evidence)
+            deterministic_record = {
+                "all_passed": not deterministic_findings,
+                "artifact_findings": [item.to_dict() for item in deterministic_findings],
+            }
+            candidate_evidence["findings"] = [
+                finding.to_dict() for finding in deterministic_findings
+            ]
+            candidate_evidence["deterministic_checks"] = deepcopy(deterministic_record)
+            record["attempt"]["deterministic_checks"] = deepcopy(deterministic_record)
+            record["ledger"]["deterministic_checks"] = deepcopy(deterministic_record)
+
+            try:
+                control_findings, controls_result = run_detector_controls(
+                    parsed.python_bytes,
+                    plan=candidate.plan,
+                    metadata=parsed.metadata,
+                    inventory=candidate.inventory,
+                    runtime_contract=candidate.runtime_contract,
+                )
+            except Exception as exc:
+                finding = Finding(
+                    "detector_control_runtime_failure",
+                    _safe_error(exc),
+                    "detector_controls",
+                )
+                controls_result = []
+                control_findings = [finding.to_dict()]
+            controls_result = list(controls_result)
+            controls_ok, shape_finding = _o04_controls_match_authority(
+                controls_result,
+                candidate,
+            )
+            if shape_finding is not None:
+                control_findings = [*control_findings, shape_finding.to_dict()]
+            control_findings_typed = _o04_control_findings(control_findings, controls_result)
+            record["attempt"]["detector_controls"] = deepcopy(controls_result)
+            record["ledger"]["detector_controls"] = deepcopy(controls_result)
+            record["attempt"]["controls"] = metadata_record(
+                _refinement_dispatch_controls(transport),
+                unavailable_reason="controls_not_recorded",
+            )
+            candidate_evidence["detector_controls"] = deepcopy(controls_result)
+            record["attempt"]["deterministic_checks"] = deepcopy(deterministic_record)
+            record["ledger"]["deterministic_checks"] = deepcopy(deterministic_record)
+            all_findings = [*deterministic_findings, *control_findings_typed]
+            if not controls_ok and not control_findings_typed:
+                all_findings.append(
+                    Finding(
+                        "detector_control_failure",
+                        "unchanged O04 detector controls did not all pass",
+                        "detector_controls",
+                    )
+                )
+            if all_findings:
+                _record_refinement_findings(record, all_findings)
+                candidate_evidence["findings"] = [
+                    finding.to_dict() for finding in all_findings
+                ]
+                _write_o04_continuation_evidence(self.evidence_path, evidence)
+                current = replace(
+                    candidate,
+                    historical_control_results={
+                        "eligible": True,
+                        "records": deepcopy(controls_result),
+                        "findings": [item.to_dict() for item in all_findings],
+                        "runtime": {
+                            "engine": "docker",
+                            "image": "python:3.12-slim",
+                            "network": "none",
+                            "read_only": True,
+                        },
+                    },
+                )
+                actionable = all_findings
+                if correction_count < self.continuation_author_limit:
+                    continue
+                return self._finish(
+                    evidence,
+                    budget,
+                    "correction_failed" if deterministic_findings else "controls_failed",
+                    actionable,
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+
+            current = replace(
+                candidate,
+                historical_control_results={
+                    "eligible": True,
+                    "records": deepcopy(controls_result),
+                    "findings": [],
+                    "runtime": {
+                        "engine": "docker",
+                        "image": "python:3.12-slim",
+                        "network": "none",
+                        "read_only": True,
+                    },
+                },
+            )
+            candidate_evidence.update(
+                {
+                    "deterministic_checks": deepcopy(deterministic_record),
+                    "detector_controls": deepcopy(controls_result),
+                }
+            )
+            _write_o04_continuation_evidence(self.evidence_path, evidence)
+            actionable = []
+
+            if review_count >= self.continuation_review_limit:
+                return self._finish(
+                    evidence,
+                    budget,
+                    "budget_exhausted",
+                    [
+                        Finding(
+                            "budget_exhausted",
+                            "shared O04 refinement review allowance is exhausted",
+                            "artifact_review",
+                        )
+                    ],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            review_count += 1
+            dispatch_index += 1
+            try:
+                review_packet = build_artifact_review_packet(
+                    current.input_view,
+                    current.plan,
+                    current.parsed.metadata,
+                    current.parsed.python_bytes,
+                    controls_result,
+                    current.inventory,
+                    current.runtime_contract,
+                )
+            except (AuthoringError, ValueError, TypeError) as exc:
+                return self._finish(
+                    evidence,
+                    budget,
+                    "preflight_defect",
+                    [Finding("review_preflight", _safe_error(exc), "artifact_review")],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            review_candidate_digest = current.candidate_sha256
+            review_candidate_raw_digest = _sha256(current.candidate_raw)
+            if (
+                review_candidate_digest in reviewed_candidates
+                or review_candidate_raw_digest in reviewed_candidate_raws
+            ):
+                finding = Finding(
+                    "review_duplicate_candidate",
+                    "each O04 refinement review must pin distinct candidate bytes",
+                    "artifact_review",
+                )
+                return self._finish(
+                    evidence,
+                    budget,
+                    "review_unavailable",
+                    [finding],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            reviewed_candidates.add(review_candidate_digest)
+            reviewed_candidate_raws.add(review_candidate_raw_digest)
+            prompt_packets[f"artifact_review:{review_count}"] = review_packet
+            if not _refinement_transport_is_fixed(transport):
+                return self._finish(
+                    evidence,
+                    budget,
+                    "preflight_defect",
+                    [
+                        Finding(
+                            "thinking_choice",
+                            "refinement transport changed the fixed thinking-off option",
+                            "transport.extra_body",
+                        )
+                    ],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            try:
+                budget.reserve(self.task_id, role="reviewer")
+            except BudgetExceeded as exc:
+                return self._finish(
+                    evidence,
+                    budget,
+                    "budget_exhausted",
+                    [Finding("budget_exhausted", _safe_error(exc), "artifact_review")],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            review_record = _o04_refinement_dispatch_record(
+                packet=review_packet,
+                task_id=self.task_id,
+                dispatch_index=dispatch_index,
+                role="reviewer",
+                correction_index=0,
+                artifact=current,
+                controls=_refinement_dispatch_controls(transport),
+                candidate_sha256=review_candidate_digest,
+                budget=budget.snapshot(self.task_id),
+            )
+            review_record["ledger"]["review"]["reviewed_candidate_raw_sha256"] = (
+                review_candidate_raw_digest
+            )
+            review_record["attempt"]["review"]["reviewed_candidate_raw_sha256"] = (
+                review_candidate_raw_digest
+            )
+            evidence["attempts"].append(review_record["attempt"])
+            evidence["ledger"].append(review_record["ledger"])
+            evidence["budget"] = _o04_refinement_budget_snapshot(
+                budget,
+                self.task_id,
+                prior_author=self.prior_author_correction_spend,
+                prior_review=self.prior_review_spend,
+                correction_spent=correction_count,
+                review_spent=review_count,
+            )
+            evidence["reviews"].append(
+                {
+                    "status": "pending",
+                    "review_index": review_count,
+                    "prompt_version": review_packet.version,
+                    "prompt_sha256": review_packet.sha256,
+                    "reviewed_input_sha256": _review_packet_digests(review_packet)[0],
+                    "reviewed_candidate_sha256": review_candidate_digest,
+                    "candidate_bytes_sha256": review_candidate_digest,
+                    "reviewed_candidate_raw_sha256": review_candidate_raw_digest,
+                    "accepted_plan_sha256": _mapping_sha256(current.plan),
+                    "control_results": deepcopy(controls_result),
+                }
+            )
+            _write_o04_continuation_evidence(self.evidence_path, evidence)
+            started = time.monotonic()
+            try:
+                review_response = transport.complete(review_packet)
+                review_raw, review_usage, review_supplied_controls = _response_parts(
+                    review_response
+                )
+                if not isinstance(review_raw, bytes):
+                    raise TypeError("artifact-review response bytes are invalid")
+            except Exception as exc:
+                detail = _safe_error(exc)
+                _record_refinement_transport_failure(
+                    review_record,
+                    detail=detail,
+                    elapsed_ms=round((time.monotonic() - started) * 1000, 3),
+                )
+                _record_refinement_findings(
+                    review_record,
+                    [Finding("transport_failure", detail, "artifact_review")],
+                )
+                evidence["reviews"][-1].update(
+                    {
+                        "status": "unavailable",
+                        "reason": detail,
+                        "raw_response": deepcopy(review_record["attempt"]["raw_response"]),
+                        "usage": deepcopy(review_record["attempt"]["usage"]),
+                        "controls": deepcopy(review_record["attempt"]["controls"]),
+                    }
+                )
+                review_record["ledger"]["review"] = deepcopy(evidence["reviews"][-1])
+                review_record["attempt"]["review"] = deepcopy(evidence["reviews"][-1])
+                _write_o04_continuation_evidence(self.evidence_path, evidence)
+                return self._finish(
+                    evidence,
+                    budget,
+                    "review_unavailable",
+                    [Finding("transport_failure", detail, "artifact_review")],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            review_controls = _o04_review_controls(transport, review_supplied_controls)
+            review_controls["extra_body"] = deepcopy(O04_REFINEMENT_THINKING_EXTRA_BODY)
+            last_review_controls = deepcopy(review_controls)
+            _persist_refinement_response(
+                review_record,
+                raw=review_raw,
+                usage=review_usage,
+                controls=review_controls,
+                dispatch_index=dispatch_index,
+            )
+            raw_responses[f"dispatch:{dispatch_index}"] = review_raw
+            evidence["reviews"][-1].update(
+                {
+                    "raw_response": deepcopy(review_record["attempt"]["raw_response"]),
+                    "usage": deepcopy(review_record["attempt"]["usage"]),
+                    "controls": deepcopy(review_record["attempt"]["controls"]),
+                }
+            )
+            _write_o04_continuation_evidence(self.evidence_path, evidence)
+            try:
+                review = parse_review_response(review_raw)
+            except ReviewResponseError as exc:
+                finding = Finding("review_unavailable", _safe_error(exc), "artifact_review")
+                review_findings = [finding, *exc.findings]
+                _record_refinement_findings(review_record, review_findings)
+                review_record["attempt"]["review_error"] = [
+                    item.to_dict() for item in exc.findings
+                ]
+                evidence["reviews"][-1].update(
+                    {
+                        "status": "unavailable",
+                        "error": [item.to_dict() for item in exc.findings],
+                    }
+                )
+                review_record["ledger"]["review"] = deepcopy(evidence["reviews"][-1])
+                review_record["attempt"]["review"] = deepcopy(evidence["reviews"][-1])
+                _write_o04_continuation_evidence(self.evidence_path, evidence)
+                return self._finish(
+                    evidence,
+                    budget,
+                    "review_unavailable",
+                    review_findings,
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            review_payload = {
+                "decision": review.decision,
+                "summary": review.summary,
+                "findings": [dict(item) for item in review.findings],
+            }
+            decoded_responses[f"artifact_review:{review_count}"] = deepcopy(review_payload)
+            review_status = {
+                "accept": "accepted",
+                "revise": "revise",
+                "blocked": "blocked",
+            }[review.decision]
+            evidence["reviews"][-1].update({"status": review_status, **review_payload})
+            review_record["ledger"]["review"] = deepcopy(evidence["reviews"][-1])
+            review_record["attempt"]["review"] = deepcopy(evidence["reviews"][-1])
+            _record_refinement_findings(
+                review_record,
+                [
+                    _review_finding_to_finding(item, "artifact_review")
+                    for item in review.findings
+                ],
+            )
+            _write_o04_continuation_evidence(self.evidence_path, evidence)
+            if review.decision == "blocked":
+                return self._finish(
+                    evidence,
+                    budget,
+                    "blocked",
+                    [
+                        _review_finding_to_finding(item, "artifact_review")
+                        for item in review.findings
+                    ],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            if review.decision == "revise":
+                if correction_count >= self.continuation_author_limit:
+                    return self._finish(
+                        evidence,
+                        budget,
+                        "revise",
+                        [
+                            _review_finding_to_finding(item, "artifact_review")
+                            for item in review.findings
+                        ],
+                        current=current,
+                        thinking_choice=thinking_choice,
+                    )
+                actionable = [
+                    _review_finding_to_finding(item, "artifact_review")
+                    for item in review.findings
+                ]
+                continue
+
+            artifact_definition = {
+                **current.parsed.metadata,
+                "setup_recipe": current.plan["setup_recipe"],
+                "runtime_bindings": current.plan["runtime_bindings"],
+                "prerequisites": current.plan["prerequisites"],
+                "required_observations": current.plan["required_observations"],
+            }
+            continuation = {
+                "mode": _O04_REFINEMENT_CONTINUATION_MODE,
+                "failure_sidecar": str(current.failure_sidecar),
+                "failure_sidecar_sha256": current.failure_sidecar_sha256,
+                "mismatch_proof": str(current.mismatch_proof),
+                "mismatch_proof_sha256": current.mismatch_proof_sha256,
+                "saved_candidate_sha256": current.authority["saved_candidate_sha256"],
+                "prior_continuation_evidence_sha256": _sha256(
+                    self.prior_continuation_evidence.read_bytes()
+                ),
+                "prior_delivery_report_sha256": _sha256(
+                    self.prior_delivery_report.read_bytes()
+                ),
+                "prior_preservation_sha256": _sha256(self.prior_preservation.read_bytes()),
+                "refined_candidate_sha256": current.candidate_sha256,
+                "accepted_plan_sha256": _mapping_sha256(current.plan),
+                "original_input_pins": deepcopy(current.authority["original_inputs"]),
+                "runtime_contract_sha256": _mapping_sha256(current.runtime_contract),
+                "historical_control_results": deepcopy(current.historical_control_results),
+                "historical_spend": {
+                    "author_correction": self.prior_author_correction_spend,
+                    "review": self.prior_review_spend,
+                },
+                "expired_first_continuation_allowance": {
+                    "correction": 1,
+                    "review": 1,
+                    "correction_spent": 1,
+                    "review_spent": 0,
+                },
+                "refinement_allowance": {
+                    "correction": self.continuation_author_limit,
+                    "review": self.continuation_review_limit,
+                },
+            }
+            try:
+                package = _package_from_responses(
+                    view=current.input_view,
+                    plan=current.plan,
+                    artifact=artifact_definition,
+                    task_id=self.task_id,
+                    ledger=evidence["ledger"],
+                    raw_responses=raw_responses,
+                    decoded_responses=decoded_responses,
+                    prompt_packets=prompt_packets,
+                    transformations=[],
+                    inventory=current.inventory,
+                    runtime_contract=current.runtime_contract,
+                    continuation=continuation,
+                    detector_bytes=current.parsed.python_bytes,
+                    interface_version=AUTHORING_INTERFACE_VERSION_V2,
+                    policy=_o04_refinement_policy(
+                        reviewer_profile=last_review_controls.get("review_model_profile")
+                    ),
+                    budget=_o04_refinement_budget_snapshot(
+                        budget,
+                        self.task_id,
+                        prior_author=self.prior_author_correction_spend,
+                        prior_review=self.prior_review_spend,
+                        correction_spent=correction_count,
+                        review_spent=review_count,
+                    ),
+                    review_status={"plan": "accepted", "artifact": "accepted"},
+                    preserved_reviews={
+                        "plan": deepcopy(current.plan_review),
+                        "artifact": deepcopy(evidence["reviews"][-1]),
+                    },
+                    terminal_status="accepted",
+                )
+                package_path = write_package(self.package_dir, package)
+            except Exception as exc:
+                evidence["package"] = {"status": "failed", "reason": _safe_error(exc)}
+                return self._finish(
+                    evidence,
+                    budget,
+                    "package_failed",
+                    [Finding("package_assembly_failed", _safe_error(exc), "package")],
+                    current=current,
+                    thinking_choice=thinking_choice,
+                )
+            evidence["package"] = {
+                "status": "published",
+                "path": str(package_path),
+                "manifest_digest": package.manifest.manifest_digest,
+            }
+            return self._finish(
+                evidence,
+                budget,
+                "accepted",
+                [],
+                current=current,
+                thinking_choice=thinking_choice,
+                package=package,
+                package_path=package_path,
+            )
+
+    def _construct_transport(
+        self,
+        transport_factory: Callable[[], AuthoringTransport],
+        evidence: dict[str, Any],
+        budget: AuthoringBudget,
+    ) -> AuthoringTransport | None:
+        try:
+            transport = transport_factory()
+        except Exception as exc:
+            self._finish(
+                evidence,
+                budget,
+                "preflight_defect",
+                [Finding("transport_construction", _safe_error(exc), "preflight")],
+            )
+            return None
+        try:
+            _configure_refinement_transport(transport)
+        except (AttributeError, TypeError, ValueError) as exc:
+            self._finish(
+                evidence,
+                budget,
+                "preflight_defect",
+                [Finding("thinking_choice", _safe_error(exc), "transport.extra_body")],
+            )
+            return None
+        if getattr(transport, "max_retries", None) != 0:
+            self._finish(
+                evidence,
+                budget,
+                "preflight_defect",
+                [
+                    Finding(
+                        "retry_policy",
+                        "O04 refinement transport must set max_retries=0",
+                        "transport",
+                    )
+                ],
+            )
+            return None
+        return transport
+
+    def _new_budget(self) -> AuthoringBudget:
+        budget = AuthoringBudget.from_prior_spend(
+            task_id=self.task_id,
+            prior_author_correction_spend=self.prior_author_correction_spend,
+            prior_review_spend=self.prior_review_spend,
+            aggregate_limit=self.aggregate_limit,
+            task_limit=self.task_limit,
+            author_limit=self.prior_author_correction_spend + self.continuation_author_limit,
+            review_limit=self.prior_review_spend + self.continuation_review_limit,
+        )
+        budget.total_dispatched = self.aggregate_spent
+        return budget
+
+    def _budget_snapshot(self) -> dict[str, Any]:
+        return _o04_refinement_budget_snapshot(
+            self._new_budget(),
+            self.task_id,
+            prior_author=self.prior_author_correction_spend,
+            prior_review=self.prior_review_spend,
+            correction_spent=0,
+            review_spent=0,
+        )
+
+    def _thinking_choice(self) -> dict[str, Any]:
+        return {
+            "status": "fixed",
+            "reason": (
+                "thinking comparison found no benefit; "
+                "all six thinking-on outputs truncated"
+            ),
+            "extra_body": deepcopy(O04_REFINEMENT_THINKING_EXTRA_BODY),
+            "field": "chat_template_kwargs.enable_thinking",
+            "value": False,
+        }
+
+    def _preflight_record(self) -> dict[str, Any]:
+        return {
+            "status": "passed",
+            "mode": _O04_REFINEMENT_CONTINUATION_MODE,
+            "schema": _O04_REFINEMENT_SCHEMA,
+            "failure_sidecar_sha256": self.artifact.failure_sidecar_sha256,
+            "mismatch_proof_sha256": self.artifact.mismatch_proof_sha256,
+            "saved_candidate_sha256": self.artifact.authority["saved_candidate_sha256"],
+            "prior_candidate_sha256": self.artifact.candidate_sha256,
+            "prior_raw_response_sha256": _sha256(self.artifact.candidate_raw),
+            "prior_metadata_sha256": _mapping_sha256(self.artifact.parsed.metadata),
+            "prior_python_sha256": _sha256(self.artifact.parsed.python_bytes),
+            "accepted_plan_sha256": _mapping_sha256(self.artifact.plan),
+            "accepted_plan": {
+                "canonical_sha256": _mapping_sha256(self.artifact.plan),
+                "raw_response_sha256": _sha256(self.artifact.plan_response_raw),
+                "raw_response_bytes": len(self.artifact.plan_response_raw),
+            },
+            "runtime_contract_sha256": _mapping_sha256(self.artifact.runtime_contract),
+            "runtime_contract": {
+                "canonical_sha256": _mapping_sha256(self.artifact.runtime_contract),
+                "raw_file_sha256": O04_RUNTIME_CONTRACT_FILE_SHA256,
+            },
+            "control_fixture_sha256": O04_CONTROL_FIXTURES_SHA256,
+            "control_count": len(self.artifact.control_cases),
+            "prior_control_status_counts": _o04_control_status_counts(
+                self.artifact.historical_control_results.get("records", [])
+            ),
+            "prior_control_results": deepcopy(self.artifact.historical_control_results),
+            "prior_continuation_evidence": {
+                "path": str(self.prior_continuation_evidence),
+                "sha256": _sha256(self.prior_continuation_evidence.read_bytes()),
+            },
+            "prior_delivery_report": {
+                "path": str(self.prior_delivery_report),
+                "sha256": _sha256(self.prior_delivery_report.read_bytes()),
+            },
+            "prior_preservation": {
+                "path": str(self.prior_preservation),
+                "sha256": _sha256(self.prior_preservation.read_bytes()),
+            },
+            "prior_spend": {
+                "author_correction": self.prior_author_correction_spend,
+                "review": self.prior_review_spend,
+            },
+            "expired_first_continuation_allowance": {
+                "correction": 1,
+                "review": 1,
+                "correction_spent": 1,
+                "review_spent": 0,
+                "expired": True,
+            },
+        }
+
+    def _finish(
+        self,
+        evidence: dict[str, Any],
+        budget: AuthoringBudget,
+        status: str,
+        findings: list[Finding],
+        *,
+        current: O04SavedArtifact | None = None,
+        thinking_choice: dict[str, Any] | None = None,
+        package: ArtifactPackage | None = None,
+        package_path: Path | None = None,
+    ) -> O04ContinuationResult:
+        evidence["status"] = status
+        evidence["terminal_status"] = status
+        evidence["findings"] = [finding.to_dict() for finding in findings]
+        evidence["budget"] = _o04_refinement_budget_snapshot(
+            budget,
+            self.task_id,
+            prior_author=self.prior_author_correction_spend,
+            prior_review=self.prior_review_spend,
+            correction_spent=max(
+                budget.dispatched_by_task_role.get(self.task_id, {}).get("author", 0)
+                - self.prior_author_correction_spend,
+                0,
+            ),
+            review_spent=max(
+                budget.dispatched_by_task_role.get(self.task_id, {}).get("reviewer", 0)
+                - self.prior_review_spend,
+                0,
+            ),
+        )
+        evidence["review_status"] = {
+            "plan": "accepted",
+            "artifact": "accepted" if status == "accepted" else status,
+        }
+        for attempt in evidence["attempts"]:
+            attempt["terminal_status"] = status
+            attempt["stage_status"] = status
+        for record in evidence["ledger"]:
+            record["terminal_status"] = status
+            record["stage_status"] = status
+        path = _write_o04_continuation_evidence(self.evidence_path, evidence)
+        candidate = current or self.artifact
+        self._result = O04ContinuationResult(
+            status=status,
+            task_id=self.task_id,
+            findings=findings,
+            ledger=deepcopy(evidence["ledger"]),
+            package=package,
+            package_path=package_path,
+            failure_evidence_path=path,
+            budget=deepcopy(evidence["budget"]),
+            review=deepcopy(evidence.get("reviews", [{}])[-1] if evidence.get("reviews") else {}),
+            preflight=deepcopy(evidence["preflight"]),
+            accepted_plan=deepcopy(candidate.plan),
+            accepted_plan_sha256=_mapping_sha256(candidate.plan),
+            corrected_candidate_sha256=candidate.candidate_sha256,
+            attempts=deepcopy(evidence["attempts"]),
+            candidate_attempts=deepcopy(evidence.get("candidate_attempts", [])),
+            reviews=deepcopy(evidence.get("reviews", [])),
+            thinking_choice=deepcopy(evidence.get("thinking_choice", thinking_choice or {})),
+        )
+        return self._result
 
 
 @dataclass
@@ -2198,6 +3201,464 @@ def _prepare_o04_correction_continuation(
     )
 
 
+def _o04_refinement_authority_paths(mismatch_proof: Path) -> dict[str, Path]:
+    mission_root = mismatch_proof.resolve().parents[2]
+    delivery_root = mission_root / "evidence/o04-continuation-delivery-20260921"
+    continuation_root = mission_root / "evidence/o04-correction-continuation-20260921"
+    return {
+        "prior_continuation_evidence": continuation_root / "continuation-evidence.json",
+        "prior_delivery_report": delivery_root / "o04-continuation-report.md",
+        "prior_preservation": delivery_root / "preservation-digests.json",
+    }
+
+
+def _o04_validate_refinement_prior(
+    *,
+    continuation_path: Path,
+    delivery_report_path: Path,
+    preservation_path: Path,
+    artifact: O04SavedArtifact,
+) -> O04SavedArtifact:
+    continuation_raw = _o04_read_file(
+        continuation_path,
+        "O04 first-continuation evidence",
+        O04_PRIOR_CONTINUATION_EVIDENCE_SHA256,
+    )
+    report_raw = _o04_read_file(
+        delivery_report_path,
+        "O04 first-continuation delivery report",
+        O04_PRIOR_DELIVERY_REPORT_SHA256,
+    )
+    preservation_raw = _o04_read_file(
+        preservation_path,
+        "O04 first-continuation preservation",
+        O04_PRIOR_PRESERVATION_SHA256,
+    )
+    if b"terminal branch is `controls_failed`" not in report_raw:
+        raise O04ContinuationValidationError(
+            "O04 first-continuation delivery report does not preserve controls_failed"
+        )
+    prior = json.loads(continuation_raw)
+    preservation = json.loads(preservation_raw)
+    if (
+        not isinstance(prior, dict)
+        or prior.get("continuation_schema") != "o04-correction-first-continuation-v1"
+        or prior.get("status") != "controls_failed"
+        or prior.get("terminal_status") != "controls_failed"
+        or prior.get("task_id") != "O04-correction-continuation-20260921"
+    ):
+        raise O04ContinuationValidationError("O04 first-continuation outcome is not exact")
+    attempts = prior.get("attempts")
+    if not isinstance(attempts, list) or len(attempts) != 1:
+        raise O04ContinuationValidationError(
+            "O04 first-continuation must preserve exactly one correction attempt"
+        )
+    attempt = attempts[0]
+    raw_record = attempt.get("raw_response") if isinstance(attempt, dict) else None
+    if (
+        not isinstance(attempt, dict)
+        or not isinstance(raw_record, dict)
+        or attempt.get("stage") != "correction"
+        or attempt.get("role") != "author"
+        or attempt.get("dispatch_index") != 1
+        or attempt.get("correction_index") != 1
+        or attempt.get("accepted_plan_sha256") != O04_ACCEPTED_PLAN_SHA256
+        or raw_record.get("sha256")
+        != "120f026ace8521d0ece377daf9b073b602df04b015b4f333c1521b6eee50d511"
+        or attempt.get("candidate_sha256")
+        != "f374565bef6fe20e4f8863a0f75c6f869b074aadb8d38cef9ff29124e81c9e4e"
+    ):
+        raise O04ContinuationValidationError(
+            "O04 first-continuation corrected candidate pin is not exact"
+        )
+    corrected = prior.get("corrected_candidate")
+    if (
+        not isinstance(corrected, dict)
+        or corrected.get("candidate_sha256")
+        != "f374565bef6fe20e4f8863a0f75c6f869b074aadb8d38cef9ff29124e81c9e4e"
+        or corrected.get("raw_sha256")
+        != "120f026ace8521d0ece377daf9b073b602df04b015b4f333c1521b6eee50d511"
+        or corrected.get("metadata_sha256")
+        != "3d7a8d2952d2c5d178e77b49045c8123792a24ba059816c7dd7f873e1343ef88"
+        or corrected.get("python_sha256")
+        != "a60e3d463ae6ac0facba26a6cd50b2506c6a1eea4fa683853a4f5c63677b5d61"
+    ):
+        raise O04ContinuationValidationError("O04 first-continuation candidate digests differ")
+    deterministic = attempt.get("deterministic_checks")
+    if deterministic != {"all_passed": True, "artifact_findings": []}:
+        raise O04ContinuationValidationError(
+            "O04 first-continuation deterministic result is not an exact pass"
+        )
+    records = attempt.get("detector_controls")
+    if (
+        not isinstance(records, list)
+        or len(records) != len(_O04_CONTROL_NAMES)
+        or tuple(item.get("name") for item in records) != _O04_CONTROL_NAMES
+        or _o04_control_status_counts(records)
+        != {"passed": 7, "failed": 3, "runtime_failure": 1}
+    ):
+        raise O04ContinuationValidationError(
+            "O04 first-continuation controls are not the recorded 7/3/1 outcome"
+        )
+    preservation_result = (
+        preservation.get("result") if isinstance(preservation, dict) else None
+    )
+    if (
+        not isinstance(preservation, dict)
+        or not isinstance(preservation_result, dict)
+        or preservation.get("append_only") is not True
+        or preservation_result.get("prior_continuation_authorities_unchanged") is not True
+        or preservation_result.get("continuation_inputs_unchanged") is not True
+    ):
+        raise O04ContinuationValidationError(
+            "O04 first-continuation preservation chain is not exact"
+        )
+    prior_entries = preservation.get("continuation_inputs", [])
+    if not any(
+        isinstance(item, dict)
+        and item.get("path")
+        == "evidence/o04-correction-continuation-20260921/continuation-evidence.json"
+        and item.get("sha256") == O04_PRIOR_CONTINUATION_EVIDENCE_SHA256
+        for item in prior_entries
+    ):
+        raise O04ContinuationValidationError(
+            "O04 first-continuation evidence is not pinned by preservation"
+        )
+    raw = _o04_decode_response(attempt, "O04 first-continuation corrected response")
+    if _sha256(raw) != corrected["raw_sha256"]:
+        raise O04ContinuationValidationError(
+            "O04 first-continuation raw response digest differs"
+        )
+    try:
+        parsed = parse_call2_response(raw)
+    except (Call2FramingError, UnicodeDecodeError, ValueError) as exc:
+        raise O04ContinuationValidationError(
+            "O04 first-continuation candidate cannot be parsed"
+        ) from exc
+    if (
+        _mapping_sha256(parsed.metadata) != corrected["metadata_sha256"]
+        or _sha256(parsed.python_bytes) != corrected["python_sha256"]
+        or _sha256(
+            _canonical_json(parsed.metadata).encode("utf-8") + b"\0" + parsed.python_bytes
+        )
+        != corrected["candidate_sha256"]
+    ):
+        raise O04ContinuationValidationError(
+            "O04 first-continuation candidate member digests differ"
+        )
+    source_hashes = deepcopy(artifact.authority.get("source_hashes", {}))
+    authority = deepcopy(artifact.authority)
+    authority.update(
+        {
+            "saved_candidate_sha256": O04_SAVED_CANDIDATE_SHA256,
+            "prior_continuation": {
+                "path": str(continuation_path),
+                "sha256": O04_PRIOR_CONTINUATION_EVIDENCE_SHA256,
+            },
+            "prior_delivery_report": {
+                "path": str(delivery_report_path),
+                "sha256": O04_PRIOR_DELIVERY_REPORT_SHA256,
+            },
+            "prior_preservation": {
+                "path": str(preservation_path),
+                "sha256": O04_PRIOR_PRESERVATION_SHA256,
+            },
+            "source_hashes": source_hashes,
+        }
+    )
+    refinement_controls = {
+        "eligible": True,
+        "records": deepcopy(records),
+        "findings": [
+            finding.to_dict()
+            for finding in _o04_prior_control_findings({"records": records})
+        ],
+        "runtime": {
+            "engine": "docker",
+            "image": "python:3.12-slim",
+            "network": "none",
+            "read_only": True,
+        },
+    }
+    return replace(
+        artifact,
+        candidate_raw=raw,
+        candidate_sha256=corrected["candidate_sha256"],
+        parsed=parsed,
+        historical_control_results=refinement_controls,
+        authority=authority,
+    )
+
+
+def _prepare_o04_refinement_continuation(
+    *,
+    failure_sidecar: str | Path,
+    mismatch_proof: str | Path,
+    prior_continuation_evidence: str | Path,
+    prior_delivery_report: str | Path,
+    prior_preservation: str | Path,
+    package_dir: str | Path,
+    task_id: str = O04_REFINEMENT_CONTINUATION_TASK_ID,
+    evidence_path: str | Path | None = None,
+    expected_failure_sidecar_sha256: str = O04_FAILURE_SIDECAR_SHA256,
+    expected_mismatch_proof_sha256: str = O04_MISMATCH_PROOF_SHA256,
+    expected_candidate_sha256: str = O04_SAVED_CANDIDATE_SHA256,
+    expected_plan_sha256: str = O04_ACCEPTED_PLAN_SHA256,
+    aggregate_spent: int = O04_REFINEMENT_AGGREGATE_SPENT,
+    aggregate_limit: int = MAX_AUTHORING_REQUESTS,
+    task_limit: int = O04_REFINEMENT_TASK_LIMIT + 6,
+    prior_author_correction_spend: int = O04_REFINEMENT_PRIOR_AUTHOR_SPEND,
+    prior_review_spend: int = O04_REFINEMENT_PRIOR_REVIEW_SPEND,
+) -> O04RefinementContinuation:
+    if not isinstance(task_id, str) or not task_id.strip():
+        raise O04ContinuationValidationError("refinement task_id must be nonblank")
+    for name, value in (
+        ("aggregate_spent", aggregate_spent),
+        ("aggregate_limit", aggregate_limit),
+        ("task_limit", task_limit),
+        ("prior_author_correction_spend", prior_author_correction_spend),
+        ("prior_review_spend", prior_review_spend),
+    ):
+        try:
+            _validate_nonnegative_integer(name, value)
+        except ValueError as exc:
+            raise O04ContinuationValidationError(str(exc)) from exc
+    if (
+        prior_author_correction_spend != O04_REFINEMENT_PRIOR_AUTHOR_SPEND
+        or prior_review_spend != O04_REFINEMENT_PRIOR_REVIEW_SPEND
+    ):
+        raise O04ContinuationValidationError(
+            "sealed O04 refinement must seed factual spend as 5 author/correction and 1 review"
+        )
+    if aggregate_spent != O04_REFINEMENT_AGGREGATE_SPENT:
+        raise O04ContinuationValidationError(
+            "sealed O04 refinement aggregate spend must start at 17"
+        )
+    if aggregate_limit < aggregate_spent + 4 or task_limit < 10:
+        raise O04ContinuationValidationError(
+            "O04 refinement budget must retain four new request slots"
+        )
+    old = _prepare_o04_correction_continuation(
+        failure_sidecar=failure_sidecar,
+        mismatch_proof=mismatch_proof,
+        package_dir=package_dir,
+        task_id=task_id,
+        evidence_path=evidence_path,
+        expected_failure_sidecar_sha256=expected_failure_sidecar_sha256,
+        expected_mismatch_proof_sha256=expected_mismatch_proof_sha256,
+        expected_candidate_sha256=expected_candidate_sha256,
+        expected_plan_sha256=expected_plan_sha256,
+        aggregate_spent=16,
+        aggregate_limit=aggregate_limit,
+        task_limit=7,
+        prior_author_correction_spend=4,
+        prior_review_spend=1,
+    )
+    continuation_path = Path(prior_continuation_evidence)
+    report_path = Path(prior_delivery_report)
+    preservation_path = Path(prior_preservation)
+    artifact = _o04_validate_refinement_prior(
+        continuation_path=continuation_path,
+        delivery_report_path=report_path,
+        preservation_path=preservation_path,
+        artifact=old.artifact,
+    )
+    destination = Path(package_dir)
+    output_evidence = (
+        Path(evidence_path)
+        if evidence_path is not None
+        else _o04_default_evidence_path(destination, task_id)
+    )
+    if output_evidence.exists():
+        raise O04ContinuationValidationError(
+            "O04 refinement evidence path already contains a terminal run"
+        )
+    return O04RefinementContinuation(
+        artifact=artifact,
+        package_dir=destination,
+        task_id=task_id,
+        evidence_path=output_evidence,
+        prior_continuation_evidence=continuation_path,
+        prior_delivery_report=report_path,
+        prior_preservation=preservation_path,
+        prior_author_correction_spend=prior_author_correction_spend,
+        prior_review_spend=prior_review_spend,
+        aggregate_spent=aggregate_spent,
+        aggregate_limit=aggregate_limit,
+        task_limit=task_limit,
+    )
+
+
+def prepare_o04_refinement_continuation(
+    *,
+    failure_sidecar: str | Path,
+    mismatch_proof: str | Path,
+    prior_continuation_evidence: str | Path | None = None,
+    prior_delivery_report: str | Path | None = None,
+    prior_preservation: str | Path | None = None,
+    package_dir: str | Path,
+    task_id: str = O04_REFINEMENT_CONTINUATION_TASK_ID,
+    evidence_path: str | Path | None = None,
+    expected_failure_sidecar_sha256: str = O04_FAILURE_SIDECAR_SHA256,
+    expected_mismatch_proof_sha256: str = O04_MISMATCH_PROOF_SHA256,
+    expected_candidate_sha256: str = O04_SAVED_CANDIDATE_SHA256,
+    expected_plan_sha256: str = O04_ACCEPTED_PLAN_SHA256,
+    aggregate_spent: int = O04_REFINEMENT_AGGREGATE_SPENT,
+    aggregate_limit: int = MAX_AUTHORING_REQUESTS,
+    task_limit: int = O04_REFINEMENT_TASK_LIMIT + 6,
+    prior_author_correction_spend: int = O04_REFINEMENT_PRIOR_AUTHOR_SPEND,
+    prior_review_spend: int = O04_REFINEMENT_PRIOR_REVIEW_SPEND,
+) -> O04RefinementContinuation:
+    """Prepare the sealed O04 refinement without constructing a transport."""
+
+    paths = _o04_refinement_authority_paths(Path(mismatch_proof))
+    try:
+        return _prepare_o04_refinement_continuation(
+            failure_sidecar=failure_sidecar,
+            mismatch_proof=mismatch_proof,
+            prior_continuation_evidence=(
+                prior_continuation_evidence or paths["prior_continuation_evidence"]
+            ),
+            prior_delivery_report=prior_delivery_report or paths["prior_delivery_report"],
+            prior_preservation=prior_preservation or paths["prior_preservation"],
+            package_dir=package_dir,
+            task_id=task_id,
+            evidence_path=evidence_path,
+            expected_failure_sidecar_sha256=expected_failure_sidecar_sha256,
+            expected_mismatch_proof_sha256=expected_mismatch_proof_sha256,
+            expected_candidate_sha256=expected_candidate_sha256,
+            expected_plan_sha256=expected_plan_sha256,
+            aggregate_spent=aggregate_spent,
+            aggregate_limit=aggregate_limit,
+            task_limit=task_limit,
+            prior_author_correction_spend=prior_author_correction_spend,
+            prior_review_spend=prior_review_spend,
+        )
+    except O04ContinuationValidationError:
+        raise
+    except (
+        ContinuationValidationError,
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise O04ContinuationValidationError(str(exc)) from exc
+
+
+def run_o04_refinement_continuation(
+    *,
+    failure_sidecar: str | Path,
+    mismatch_proof: str | Path,
+    package_dir: str | Path,
+    transport_factory: Callable[[], AuthoringTransport],
+    prior_continuation_evidence: str | Path | None = None,
+    prior_delivery_report: str | Path | None = None,
+    prior_preservation: str | Path | None = None,
+    task_id: str = O04_REFINEMENT_CONTINUATION_TASK_ID,
+    evidence_path: str | Path | None = None,
+    expected_failure_sidecar_sha256: str = O04_FAILURE_SIDECAR_SHA256,
+    expected_mismatch_proof_sha256: str = O04_MISMATCH_PROOF_SHA256,
+    expected_candidate_sha256: str = O04_SAVED_CANDIDATE_SHA256,
+    expected_plan_sha256: str = O04_ACCEPTED_PLAN_SHA256,
+    aggregate_spent: int = O04_REFINEMENT_AGGREGATE_SPENT,
+    aggregate_limit: int = MAX_AUTHORING_REQUESTS,
+    task_limit: int = O04_REFINEMENT_TASK_LIMIT + 6,
+) -> O04ContinuationResult:
+    """Run the sealed O04 refinement or persist a typed preflight stop."""
+
+    destination = Path(package_dir)
+    output_evidence = (
+        Path(evidence_path)
+        if evidence_path is not None
+        else _o04_default_evidence_path(destination, task_id)
+    )
+    if output_evidence.exists():
+        try:
+            existing = load_failure_evidence(output_evidence)
+        except ValueError:
+            existing = {}
+        finding = Finding(
+            "continuation_already_completed",
+            "refinement evidence already exists; a second run is not permitted",
+            "continuation",
+        )
+        return O04ContinuationResult(
+            status="continuation_already_completed",
+            task_id=task_id,
+            findings=[finding],
+            failure_evidence_path=output_evidence,
+            budget=deepcopy(existing.get("budget", {})),
+            preflight=deepcopy(existing.get("preflight", {})),
+            accepted_plan=deepcopy(existing.get("accepted_plan", {})),
+            accepted_plan_sha256=existing.get("accepted_plan_sha256", ""),
+            corrected_candidate_sha256=existing.get("corrected_candidate_sha256", ""),
+            thinking_choice=deepcopy(existing.get("thinking_choice", {})),
+        )
+    try:
+        continuation = prepare_o04_refinement_continuation(
+            failure_sidecar=failure_sidecar,
+            mismatch_proof=mismatch_proof,
+            prior_continuation_evidence=prior_continuation_evidence,
+            prior_delivery_report=prior_delivery_report,
+            prior_preservation=prior_preservation,
+            package_dir=destination,
+            task_id=task_id,
+            evidence_path=output_evidence,
+            expected_failure_sidecar_sha256=expected_failure_sidecar_sha256,
+            expected_mismatch_proof_sha256=expected_mismatch_proof_sha256,
+            expected_candidate_sha256=expected_candidate_sha256,
+            expected_plan_sha256=expected_plan_sha256,
+            aggregate_spent=aggregate_spent,
+            aggregate_limit=aggregate_limit,
+            task_limit=task_limit,
+        )
+    except O04ContinuationValidationError as exc:
+        finding = Finding("preflight_authority", str(exc), "preflight")
+        evidence = new_failure_evidence(task_id, destination)
+        evidence.update(
+            {
+                "continuation_schema": _O04_REFINEMENT_SCHEMA,
+                "continuation_mode": _O04_REFINEMENT_CONTINUATION_MODE,
+                "status": "preflight_defect",
+                "terminal_status": "preflight_defect",
+                "preflight": {"status": "failed", "finding": finding.to_dict()},
+                "findings": [finding.to_dict()],
+                "thinking_choice": {
+                    "status": "fixed",
+                    "extra_body": deepcopy(O04_REFINEMENT_THINKING_EXTRA_BODY),
+                    "field": "chat_template_kwargs.enable_thinking",
+                    "value": False,
+                },
+                "budget": {
+                    "prior_author_correction_spent": O04_REFINEMENT_PRIOR_AUTHOR_SPEND,
+                    "prior_review_spend": O04_REFINEMENT_PRIOR_REVIEW_SPEND,
+                    "refinement_correction_spent": 0,
+                    "refinement_review_spent": 0,
+                    "aggregate_spent": aggregate_spent,
+                    "aggregate_limit": aggregate_limit,
+                },
+                "review_status": {"plan": "unverified", "artifact": "preflight_defect"},
+                "attempts": [],
+                "candidate_attempts": [],
+                "ledger": [],
+                "reviews": [],
+            }
+        )
+        path = _write_o04_continuation_evidence(output_evidence, evidence)
+        return O04ContinuationResult(
+            status="preflight_defect",
+            task_id=task_id,
+            findings=[finding],
+            failure_evidence_path=path,
+            budget=deepcopy(evidence["budget"]),
+            preflight=deepcopy(evidence["preflight"]),
+            thinking_choice=deepcopy(evidence["thinking_choice"]),
+        )
+    return continuation.run(transport_factory=transport_factory)
+
+
 def prepare_o04_correction_continuation(
     *,
     failure_sidecar: str | Path,
@@ -2618,7 +4079,327 @@ def _o04_dispatch_record(
     return {"ledger": ledger, "attempt": attempt}
 
 
-def _build_o04_correction_packet(artifact: O04SavedArtifact) -> PromptPacket:
+def _o04_control_status_counts(records: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {"passed": 0, "failed": 0, "runtime_failure": 0}
+    for record in records:
+        status = record.get("status")
+        if status in counts:
+            counts[status] += 1
+    return counts
+
+
+def _o04_prior_control_findings(results: dict[str, Any]) -> list[Finding]:
+    """Reconstruct the exact actionable findings from a saved control run."""
+
+    records = results.get("records", []) if isinstance(results, dict) else []
+    findings: list[Finding] = []
+    for record in records:
+        if not isinstance(record, dict) or record.get("status") == "passed":
+            continue
+        name = record.get("name", "unknown")
+        status = record.get("status", "failed")
+        failure = record.get("failure") or "control did not pass"
+        expected = record.get("expected_outcome")
+        observed = record.get("observed_outcome")
+        code = (
+            "detector_control_runtime_failure"
+            if status == "runtime_failure"
+            else "detector_control_failure"
+        )
+        findings.append(
+            Finding(
+                code,
+                (
+                    f"unchanged control {name!r} expected {expected!r} but "
+                    f"observed {observed!r}: {failure}"
+                ),
+                f"detector_controls.{name}",
+            )
+        )
+    return findings
+
+
+def _o04_control_findings(
+    findings: list[dict[str, Any]],
+    records: list[dict[str, Any]],
+) -> list[Finding]:
+    """Keep provider findings beside exact non-passing result rows."""
+
+    converted = [
+        Finding(
+            str(item.get("code", "detector_control_failure")),
+            str(item.get("detail", "detector control did not pass")),
+            str(item.get("path", "detector_controls")),
+        )
+        for item in findings
+        if isinstance(item, dict)
+    ]
+    exact_rows = _o04_prior_control_findings({"records": records})
+    if not converted:
+        return exact_rows
+    return [*converted, *exact_rows]
+
+
+def _refinement_dispatch_controls(transport: AuthoringTransport) -> dict[str, Any]:
+    controls = _o04_review_controls(transport)
+    controls["extra_body"] = deepcopy(O04_REFINEMENT_THINKING_EXTRA_BODY)
+    return controls
+
+
+def _refinement_transport_is_fixed(transport: AuthoringTransport) -> bool:
+    return getattr(transport, "extra_body", None) == O04_REFINEMENT_THINKING_EXTRA_BODY
+
+
+def _configure_refinement_transport(transport: AuthoringTransport) -> None:
+    """Apply the fixed thinking-off option without replacing transport behavior."""
+
+    extra_body = getattr(transport, "extra_body", None)
+    if extra_body is None:
+        transport.extra_body = deepcopy(O04_REFINEMENT_THINKING_EXTRA_BODY)
+        return
+    if extra_body != O04_REFINEMENT_THINKING_EXTRA_BODY:
+        raise ValueError("refinement transport extra_body must disable thinking explicitly")
+
+
+def _persist_refinement_response(
+    record: dict[str, dict[str, Any]],
+    *,
+    raw: bytes,
+    usage: dict[str, Any] | None,
+    controls: dict[str, Any],
+    dispatch_index: int,
+) -> None:
+    """Persist raw provider bytes before any parser or validator runs."""
+
+    record["attempt"]["raw_response"] = raw_response_record(raw)
+    record["attempt"]["usage"] = metadata_record(
+        usage if usage else None,
+        unavailable_reason="provider_did_not_report_usage",
+    )
+    record["attempt"]["controls"] = metadata_record(
+        controls,
+        unavailable_reason="controls_not_recorded",
+    )
+    record["ledger"]["controls"] = deepcopy(controls)
+    record["ledger"]["raw_response_key"] = f"dispatch:{dispatch_index}"
+    record["attempt"]["raw_response_key"] = f"dispatch:{dispatch_index}"
+
+
+def _record_refinement_transport_failure(
+    record: dict[str, dict[str, Any]],
+    *,
+    detail: str,
+    elapsed_ms: float,
+) -> None:
+    record["ledger"]["error"] = detail
+    record["attempt"]["raw_response"] = raw_response_record(b"", reason="provider_failure")
+    record["attempt"]["usage"] = metadata_record(
+        None,
+        unavailable_reason="provider_failure",
+    )
+    record["attempt"]["failure"] = {
+        "phase": "invocation",
+        "code": "transport_failure",
+        "detail": detail,
+        "elapsed_ms": elapsed_ms,
+    }
+
+
+def _record_refinement_findings(
+    record: dict[str, dict[str, Any]],
+    findings: list[Finding],
+) -> None:
+    payload = [finding.to_dict() for finding in findings]
+    record["ledger"]["findings"] = deepcopy(payload)
+    record["attempt"]["findings"] = deepcopy(payload)
+
+
+def _o04_refinement_dispatch_record(
+    *,
+    packet: PromptPacket,
+    task_id: str,
+    dispatch_index: int,
+    role: str,
+    correction_index: int,
+    artifact: O04SavedArtifact,
+    controls: dict[str, Any],
+    candidate_sha256: str,
+    budget: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    record = _o04_dispatch_record(
+        packet=packet,
+        task_id=task_id,
+        dispatch_index=dispatch_index,
+        role=role,
+        correction_index=correction_index,
+        artifact=artifact,
+        controls=controls,
+        candidate_sha256=candidate_sha256,
+    )
+    record["ledger"]["policy"] = _o04_refinement_policy(
+        reviewer_profile=controls.get("review_model_profile")
+    )
+    record["attempt"]["policy"] = deepcopy(record["ledger"]["policy"])
+    record["ledger"]["attempt_index"] = dispatch_index
+    record["ledger"]["stage_attempt_index"] = (
+        correction_index if packet.stage == "correction" else 1
+    )
+    record["attempt"]["attempt_index"] = dispatch_index
+    record["attempt"]["stage_attempt_index"] = record["ledger"]["stage_attempt_index"]
+    record["ledger"]["budget_before_dispatch"] = deepcopy(budget)
+    record["attempt"]["budget_before_dispatch"] = deepcopy(budget)
+    record["ledger"]["thinking_choice"] = deepcopy(O04_REFINEMENT_THINKING_EXTRA_BODY)
+    record["attempt"]["thinking_choice"] = deepcopy(O04_REFINEMENT_THINKING_EXTRA_BODY)
+    return record
+
+
+def _o04_refinement_budget_snapshot(
+    budget: AuthoringBudget,
+    task_id: str,
+    *,
+    prior_author: int,
+    prior_review: int,
+    correction_spent: int,
+    review_spent: int,
+) -> dict[str, Any]:
+    snapshot = budget.snapshot(task_id)
+    snapshot.update(
+        {
+            "prior_author_correction_spent": prior_author,
+            "prior_review_spent": prior_review,
+            "historical_author_correction_spent": 4,
+            "historical_review_spent": 1,
+            "first_continuation_correction_spent": 1,
+            "first_continuation_review_spent": 0,
+            "refinement_correction_spent": correction_spent,
+            "refinement_review_spent": review_spent,
+            "refinement_correction_limit": O04_REFINEMENT_CORRECTION_LIMIT,
+            "refinement_review_limit": O04_REFINEMENT_REVIEW_LIMIT,
+            "continuation_correction_spent": correction_spent,
+            "continuation_review_spent": review_spent,
+            "continuation_correction_limit": O04_REFINEMENT_CORRECTION_LIMIT,
+            "continuation_review_limit": O04_REFINEMENT_REVIEW_LIMIT,
+            "historical_allowance_reopened": False,
+            "first_continuation_allowance_expired": True,
+            "aggregate_new_spent": snapshot["aggregate_spent"],
+            "aggregate_new_limit": snapshot["aggregate_limit"],
+            "aggregate_combined_spent": 39 + snapshot["aggregate_spent"],
+            "aggregate_combined_limit": 71,
+        }
+    )
+    return snapshot
+
+
+def _o04_refinement_policy(*, reviewer_profile: Any) -> dict[str, Any]:
+    return {
+        "plan_max_corrections": 0,
+        "artifact_max_corrections": O04_REFINEMENT_CORRECTION_LIMIT,
+        "review_plan": False,
+        "review_artifact": True,
+        "review_model_profile": reviewer_profile,
+        "fresh_artifact_authoring": False,
+        "automatic_retry": False,
+        "max_retries": 0,
+        "sealed": True,
+        "thinking_choice": deepcopy(O04_REFINEMENT_THINKING_EXTRA_BODY),
+    }
+
+
+def _new_o04_refinement_evidence(
+    *,
+    task_id: str,
+    package_dir: Path,
+    artifact: O04SavedArtifact,
+    budget: dict[str, Any],
+    preflight: dict[str, Any],
+    thinking_choice: dict[str, Any],
+    prior_continuation_evidence: Path,
+    prior_delivery_report: Path,
+    prior_preservation: Path,
+) -> dict[str, Any]:
+    evidence = new_failure_evidence(task_id, package_dir)
+    evidence.update(
+        {
+            "continuation_schema": _O04_REFINEMENT_SCHEMA,
+            "continuation_mode": _O04_REFINEMENT_CONTINUATION_MODE,
+            "status": "in_progress",
+            "preflight": deepcopy(preflight),
+            "thinking_choice": deepcopy(thinking_choice),
+            "authority": {
+                "failure_sidecar": str(artifact.failure_sidecar),
+                "failure_sidecar_sha256": artifact.failure_sidecar_sha256,
+                "mismatch_proof": str(artifact.mismatch_proof),
+                "mismatch_proof_sha256": artifact.mismatch_proof_sha256,
+                "saved_candidate_sha256": O04_SAVED_CANDIDATE_SHA256,
+                "prior_candidate_sha256": artifact.candidate_sha256,
+                "prior_raw_response_sha256": _sha256(artifact.candidate_raw),
+                "prior_metadata_sha256": _mapping_sha256(artifact.parsed.metadata),
+                "prior_python_sha256": _sha256(artifact.parsed.python_bytes),
+                "accepted_plan_sha256": _mapping_sha256(artifact.plan),
+                "accepted_plan": {
+                    "canonical_sha256": _mapping_sha256(artifact.plan),
+                    "raw_response_sha256": _sha256(artifact.plan_response_raw),
+                    "raw_response_bytes": len(artifact.plan_response_raw),
+                },
+                "original_inputs": deepcopy(artifact.authority["original_inputs"]),
+                "input_pins": deepcopy(artifact.authority["input_pins"]),
+                "source_hashes": deepcopy(artifact.authority["source_hashes"]),
+                "runtime_contract_sha256": _mapping_sha256(artifact.runtime_contract),
+                "supported_packet_paths": list(artifact.authority["supported_packet_paths"]),
+                "incompatible_saved_reads": list(artifact.authority["incompatible_saved_reads"]),
+                "deterministic_results": deepcopy(artifact.deterministic_results),
+                "historical_control_results": deepcopy(artifact.historical_control_results),
+                "prior_control_results": deepcopy(artifact.historical_control_results),
+                "runtime_contract": {
+                    "canonical_sha256": _mapping_sha256(artifact.runtime_contract),
+                    "raw_file_sha256": O04_RUNTIME_CONTRACT_FILE_SHA256,
+                },
+                "control_fixture_sha256": O04_CONTROL_FIXTURES_SHA256,
+                "plan_review": deepcopy(artifact.plan_review),
+                "prior_continuation_evidence": {
+                    "path": str(prior_continuation_evidence),
+                    "sha256": _sha256(prior_continuation_evidence.read_bytes()),
+                },
+                "prior_delivery_report": {
+                    "path": str(prior_delivery_report),
+                    "sha256": _sha256(prior_delivery_report.read_bytes()),
+                },
+                "prior_preservation": {
+                    "path": str(prior_preservation),
+                    "sha256": _sha256(prior_preservation.read_bytes()),
+                },
+            },
+            "allowances": {
+                "historical_author_correction": "4/4",
+                "historical_review": "1/4",
+                "first_continuation_correction": "1/1 expired",
+                "first_continuation_review": "0/1 expired",
+                "refinement_correction": "0/2",
+                "refinement_review": "0/2",
+                "plan_authoring": False,
+                "plan_correction": False,
+                "plan_review": False,
+                "fresh_artifact_authoring": False,
+                "automatic_retry": False,
+            },
+            "budget": deepcopy(budget),
+            "review_status": {"plan": "accepted", "artifact": "pending"},
+            "attempts": [],
+            "candidate_attempts": [],
+            "ledger": [],
+            "reviews": [],
+            "findings": [],
+        }
+    )
+    return evidence
+
+
+def _build_o04_correction_packet(
+    artifact: O04SavedArtifact,
+    *,
+    findings: list[Finding] | None = None,
+    control_results: dict[str, Any] | None = None,
+) -> PromptPacket:
     """Render the exact O04 correction context without replacement source."""
 
     original_context = {
@@ -2652,15 +4433,19 @@ def _build_o04_correction_packet(artifact: O04SavedArtifact) -> PromptPacket:
             "control_fixture_sha256": O04_CONTROL_FIXTURES_SHA256,
         },
     }
-    historical_findings = [
-        Finding(
-            record.get("code", "detector_control_runtime_failure"),
-            record.get("detail", "saved detector failed an unchanged control"),
-            record.get("path", f"detector_controls.{record.get('name', 'unknown')}"),
-        )
-        for record in artifact.historical_control_results.get("findings", [])
-        if isinstance(record, dict)
-    ]
+    historical_findings = (
+        list(findings)
+        if findings is not None
+        else [
+            Finding(
+                record.get("code", "detector_control_runtime_failure"),
+                record.get("detail", "saved detector failed an unchanged control"),
+                record.get("path", f"detector_controls.{record.get('name', 'unknown')}"),
+            )
+            for record in artifact.historical_control_results.get("findings", [])
+            if isinstance(record, dict)
+        ]
+    )
     historical_findings.append(
         Finding(
             "detector_packet_contract",
@@ -2691,6 +4476,9 @@ def _build_o04_correction_packet(artifact: O04SavedArtifact) -> PromptPacket:
             "judge.outcome",
         ],
         "failed_controls": deepcopy(artifact.historical_control_results),
+        "current_control_results": deepcopy(control_results)
+        if control_results is not None
+        else deepcopy(artifact.historical_control_results),
         "mismatch_proof_sha256": artifact.mismatch_proof_sha256,
     }
     assert_no_prompt_secrets(correction_context)
@@ -3212,6 +5000,7 @@ class ScriptedAuthoringTransport:
                 "system": packet.system,
                 "user": packet.user,
                 "payload": packet.payload,
+                "extra_body": deepcopy(getattr(self, "extra_body", None)),
             }
         )
         if not self.responses:
@@ -3234,11 +5023,13 @@ class PrivateModelAuthoringTransport:
         api_key: str,
         model: str,
         temperature: float = 0.0,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         from openai import OpenAI
 
         self.model = model
         self.temperature = temperature
+        self.extra_body = deepcopy(extra_body) if extra_body is not None else None
         self._client = OpenAI(
             base_url=base_url,
             api_key=api_key,
@@ -3246,14 +5037,17 @@ class PrivateModelAuthoringTransport:
         )
 
     def complete(self, packet: PromptPacket) -> TransportResponse:
-        response = self._client.chat.completions.create(
-            model=self.model,
-            temperature=self.temperature,
-            messages=[
+        request: dict[str, Any] = {
+            "model": self.model,
+            "temperature": self.temperature,
+            "messages": [
                 {"role": "system", "content": packet.system},
                 {"role": "user", "content": packet.user},
             ],
-        )
+        }
+        if self.extra_body is not None:
+            request["extra_body"] = deepcopy(self.extra_body)
+        response = self._client.chat.completions.create(**request)
         content = response.choices[0].message.content or ""
         usage = _model_dump(response.usage)
         return TransportResponse(
@@ -12619,6 +14413,7 @@ __all__ = [
     "A03_UNAVAILABLE_HISTORICAL_SLOTS",
     "O04_ACCEPTED_PLAN_SHA256",
     "O04_CONTINUATION_TASK_ID",
+    "O04_REFINEMENT_CONTINUATION_TASK_ID",
     "O04_CONTROL_FIXTURES_SHA256",
     "O04_FAILURE_SIDECAR_SHA256",
     "O04_MISMATCH_PROOF_SHA256",
@@ -12647,6 +14442,7 @@ __all__ = [
     "O04ContinuationValidationError",
     "O04ContinuationResult",
     "O04CorrectionContinuation",
+    "O04RefinementContinuation",
     "O04SavedArtifact",
     "Call2FramingError",
     "Finding",
@@ -12695,7 +14491,9 @@ __all__ = [
     "neutral_artifact_plan",
     "prepare_saved_plan_continuation",
     "prepare_o04_correction_continuation",
+    "prepare_o04_refinement_continuation",
     "run_o04_correction_continuation",
+    "run_o04_refinement_continuation",
     "scan_for_secrets",
     "scan_for_prompt_secrets",
     "scan_prompt_duplicates",

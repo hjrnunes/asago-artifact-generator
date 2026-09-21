@@ -104,6 +104,20 @@ deterministic checks and controls gate one review, and only review `accept`
 reaches existing immutable package assembly; every other outcome writes
 terminal evidence without a package.
 
+The `prepare_o04_refinement_continuation(...)` /
+`O04RefinementContinuation.run(...)` seam extends that sealed path from the
+first continuation's corrected candidate. It verifies the first-continuation
+report and preservation chain, seeds factual O04 spend at 5
+author/correction and 1 review, and keeps the expired first-continuation
+allowances separate. The refinement grants one shared allowance of at most two
+corrections and two artifact reviews. Every request uses the latest candidate,
+persists raw bytes before validation, records per-attempt findings and budget
+state, and sends `chat_template_kwargs.enable_thinking=false` through the
+existing transport's additive `extra_body`. Deterministic checks and all
+eleven unchanged controls gate review; transport failures, blocked or
+unavailable reviews, and exhausted allowances stop without retry. Only
+`accept` assembles the immutable package.
+
 The `generate` command remains a read-only compatibility path for historical
 scenario YAMLs. New work uses producer `run`, consumer `author`, consumer
 `check`, and frozen downstream execution.
