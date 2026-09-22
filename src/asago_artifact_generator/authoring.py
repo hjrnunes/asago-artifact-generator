@@ -322,7 +322,7 @@ _O04_REFERENCE_RESOLUTION_SCHEMA = "o04-reference-resolution-continuation-v1"
 O04_REFERENCE_RESOLUTION_THINKING_EXTRA_BODY = {
     "chat_template_kwargs": {"enable_thinking": False}
 }
-O04_REFERENCE_RESOLUTION_MODEL = "gemma4-oc"
+O04_REFERENCE_RESOLUTION_PROFILE_ALIAS = "gemma4-oc"
 O04_REFERENCE_RESOLUTION_OWNER_GUIDANCE = (
     "When required evidence is absent or a supplied reference cannot resolve, "
     "explain the missing path in `reason`. Do not copy that nonexistent path "
@@ -2794,7 +2794,7 @@ class O04ReferenceResolutionContinuation(O04RefinementContinuation):
         policy["thinking_choice"] = deepcopy(
             O04_REFERENCE_RESOLUTION_THINKING_EXTRA_BODY
         )
-        policy["model"] = O04_REFERENCE_RESOLUTION_MODEL
+        policy["profile_name"] = O04_REFERENCE_RESOLUTION_PROFILE_ALIAS
         return policy
 
     def _build_correction_packet(
@@ -3259,10 +3259,8 @@ class O04ReferenceResolutionContinuation(O04RefinementContinuation):
         transport = super()._construct_transport(transport_factory, evidence, budget)
         if transport is None:
             return None
-        model = getattr(transport, "model", None)
-        if model is None:
-            transport.model = O04_REFERENCE_RESOLUTION_MODEL
-        elif model != O04_REFERENCE_RESOLUTION_MODEL:
+        profile_name = getattr(transport, "profile_name", None)
+        if profile_name != O04_REFERENCE_RESOLUTION_PROFILE_ALIAS:
             self._finish(
                 evidence,
                 budget,
@@ -3270,8 +3268,9 @@ class O04ReferenceResolutionContinuation(O04RefinementContinuation):
                 [
                     Finding(
                         "model_profile",
-                        "O04 reference-resolution transport must use gemma4-oc",
-                        "transport.model",
+                        "O04 reference-resolution transport must attest profile "
+                        "alias gemma4-oc",
+                        "transport.profile_name",
                     )
                 ],
             )
@@ -7704,7 +7703,11 @@ def _o04_review_controls(
         "max_retries": 0,
     }
     model = getattr(transport, "model", None)
-    if isinstance(model, str) and model.strip():
+    if (
+        getattr(transport, "profile_name", None) is None
+        and isinstance(model, str)
+        and model.strip()
+    ):
         controls["model"] = model
     if isinstance(supplied, dict):
         controls.update(_safe_metadata(supplied))
@@ -8205,7 +8208,7 @@ def _o04_reference_resolution_policy(*, reviewer_profile: Any) -> dict[str, Any]
         "review_plan": False,
         "review_artifact": True,
         "review_model_profile": reviewer_profile,
-        "model": O04_REFERENCE_RESOLUTION_MODEL,
+        "profile_name": O04_REFERENCE_RESOLUTION_PROFILE_ALIAS,
         "fresh_artifact_authoring": False,
         "automatic_retry": False,
         "max_retries": 0,
@@ -8996,12 +8999,14 @@ class PrivateModelAuthoringTransport:
         base_url: str,
         api_key: str,
         model: str,
+        profile_name: str | None = None,
         temperature: float = 0.0,
         extra_body: dict[str, Any] | None = None,
     ) -> None:
         from openai import OpenAI
 
         self.model = model
+        self.profile_name = profile_name
         self.temperature = temperature
         self.extra_body = deepcopy(extra_body) if extra_body is not None else None
         self._client = OpenAI(
@@ -18443,7 +18448,7 @@ __all__ = [
     "O04_REFERENCE_RESOLUTION_CORRECTION_LIMIT",
     "O04_REFERENCE_RESOLUTION_REVIEW_LIMIT",
     "O04_REFERENCE_RESOLUTION_THINKING_EXTRA_BODY",
-    "O04_REFERENCE_RESOLUTION_MODEL",
+    "O04_REFERENCE_RESOLUTION_PROFILE_ALIAS",
     "MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK",
     "MAX_REVIEW_REQUESTS_PER_TASK",
     "AuthoringBudget",

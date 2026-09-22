@@ -10,11 +10,13 @@ import pytest
 import asago_artifact_generator.authoring as authoring
 from asago_artifact_generator.authoring import (
     O04ContinuationValidationError,
+    PrivateModelAuthoringTransport,
     ScriptedAuthoringTransport,
     build_control_cases,
     parse_call2_response,
     prepare_o04_reference_resolution_continuation,
 )
+from asago_artifact_generator.profiles import load_authoring_profile
 
 MISSION_ROOT = Path(
     "/Users/hjrnunes/.factory/missions/"
@@ -219,6 +221,16 @@ def _prepared(
     )
 
 
+def _profile_scripted_transport(responses: list[object]) -> ScriptedAuthoringTransport:
+    transport = ScriptedAuthoringTransport(responses)
+    transport.profile_name = "gemma4-oc"
+    return transport
+
+
+def _opaque_wire_model() -> str:
+    return "opaque-wire-model"
+
+
 def _passing_controls(plan: dict, metadata: dict, inventory: dict) -> list[dict]:
     return [
         {
@@ -327,6 +339,80 @@ def test_reference_resolution_preserves_zero_attempt_historical_evidence(
     assert after == before
 
 
+def test_reference_resolution_accepts_named_profile_attestation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profiles_file = tmp_path / "profiles.yaml"
+    profiles_file.write_text(
+        (
+            "gemma4-oc:\n"
+            "  base_url: https://profile.example.invalid/v1\n"
+            "  api_key: synthetic-profile-key\n"
+            "  model: opaque-wire-model\n"
+        ),
+        encoding="utf-8",
+    )
+    profile = load_authoring_profile(profiles_file, "gemma4-oc")
+
+    captured_request: dict[str, object] = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs: object) -> object:
+            captured_request.update(kwargs)
+            raise TimeoutError("offline transport fixture")
+
+    class FakeOpenAI:
+        def __init__(self, **_: object) -> None:
+            self.chat = type("Chat", (), {})()
+            self.chat.completions = FakeCompletions()
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    transport = PrivateModelAuthoringTransport(
+        base_url=profile.base_url,
+        api_key=profile.api_key,
+        model=profile.model,
+        profile_name=profile.name,
+    )
+    result = _prepared(tmp_path).run(transport_factory=lambda: transport)
+
+    assert result.status == "transport_failure"
+    assert transport.profile_name == "gemma4-oc"
+    assert transport.model == profile.model
+    assert transport.model != transport.profile_name
+    assert captured_request["model"] == profile.model
+    evidence = result.failure_evidence_path.read_text(encoding="utf-8")
+    assert profile.model not in evidence
+
+
+@pytest.mark.parametrize("profile_name", [None, "other-public-profile"])
+def test_reference_resolution_rejects_missing_or_wrong_profile_attestation(
+    tmp_path: Path,
+    profile_name: str | None,
+) -> None:
+    transport = _profile_scripted_transport([b"unexpected response"])
+    wire_model = _opaque_wire_model()
+    transport.model = wire_model
+    if profile_name is None:
+        del transport.profile_name
+    else:
+        transport.profile_name = profile_name
+
+    result = _prepared(tmp_path).run(transport_factory=lambda: transport)
+
+    assert result.status == "preflight_defect"
+    assert result.findings[0].code == "model_profile"
+    assert result.findings[0].path == "transport.profile_name"
+    assert transport.requests == []
+    assert transport.model == wire_model
+    evidence = json.loads(result.failure_evidence_path.read_text(encoding="utf-8"))
+    assert evidence["attempts"] == []
+    assert evidence["ledger"] == []
+    assert evidence["reviews"] == []
+    assert evidence["budget"]["reference_resolution_correction_spent"] == 0
+    assert wire_model not in json.dumps(evidence)
+
+
 @pytest.mark.parametrize(
     "pin_name",
     [
@@ -367,7 +453,7 @@ def test_reference_resolution_rejects_tampered_authority_before_transport(
 def test_reference_resolution_packet_has_exact_feedback_and_owner_distinction(
     tmp_path: Path,
 ) -> None:
-    transport = ScriptedAuthoringTransport([TimeoutError("provider unavailable")])
+    transport = _profile_scripted_transport([TimeoutError("provider unavailable")])
     result = _prepared(tmp_path).run(transport_factory=lambda: transport)
 
     assert result.status == "transport_failure"
@@ -401,7 +487,7 @@ def test_reference_resolution_persists_raw_before_parse_and_never_retries(
     tmp_path: Path,
 ) -> None:
     raw = b"not a two-block artifact"
-    transport = ScriptedAuthoringTransport([raw])
+    transport = _profile_scripted_transport([raw])
 
     result = _prepared(tmp_path).run(transport_factory=lambda: transport)
 
@@ -440,7 +526,7 @@ def test_reference_resolution_controls_gate_review(
 
     monkeypatch.setattr(authoring, "run_detector_controls", failed_controls)
     result = _prepared(tmp_path).run(
-        transport_factory=lambda: ScriptedAuthoringTransport(
+        transport_factory=lambda: _profile_scripted_transport(
             [_correction_response()]
         )
     )
@@ -463,7 +549,7 @@ def test_reference_resolution_accept_only_reaches_all_new_ceilings(
             _passing_controls(kwargs["plan"], kwargs["metadata"], kwargs["inventory"]),
         ),
     )
-    transport = ScriptedAuthoringTransport(
+    transport = _profile_scripted_transport(
         [_correction_response(), _review_response("accept")]
     )
 
@@ -510,7 +596,7 @@ def test_reference_resolution_review_non_accept_is_terminal(
             _passing_controls(kwargs["plan"], kwargs["metadata"], kwargs["inventory"]),
         ),
     )
-    transport = ScriptedAuthoringTransport([_correction_response(), response])
+    transport = _profile_scripted_transport([_correction_response(), response])
 
     result = _prepared(tmp_path).run(transport_factory=lambda: transport)
 

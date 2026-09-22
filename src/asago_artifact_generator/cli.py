@@ -339,10 +339,15 @@ def author(
             str(exc),
             param_hint="--profile/--profiles-file" if profile is not None else "--profile",
         ) from None
+    transport_options: dict[str, object] = {
+        "base_url": connection.base_url,
+        "api_key": connection.api_key,
+        "model": connection.model,
+    }
+    if profile is not None:
+        transport_options["profile_name"] = connection.name
     transport = PrivateModelAuthoringTransport(
-        base_url=connection.base_url,
-        api_key=connection.api_key,
-        model=connection.model,
+        **transport_options,
     )
     package_dir = output_dir / stable_task_id
     result = AuthoringOrchestrator(

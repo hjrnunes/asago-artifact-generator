@@ -165,6 +165,7 @@ def test_author_cli_passes_profile_values_directly_to_transport(
     assert captured["base_url"] == values["base_url"]
     assert captured["api_key"] == values["api_key"]
     assert captured["model"] == values["model"]
+    assert captured["profile_name"] == "gemma4-oc"
     assert values["api_key"] not in result.output
     assert values["base_url"] not in result.output
 
