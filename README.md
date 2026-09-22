@@ -276,11 +276,11 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
 - `authoring-call1-v4` renders the plan author context while preserving the
   existing 11-field plan response.
 - `authoring-plan-review-v2` reviews a fresh source-derived plan context.
-- `authoring-call2-v4` renders the immutable accepted plan and preserves the
+- `authoring-call2-v5` renders the immutable accepted plan and preserves the
   two-block JSON-metadata-plus-Python response.
-- `authoring-artifact-review-v2` reviews the exact metadata, detector bytes,
+- `authoring-artifact-review-v3` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v4` renders only the failed stage format and all
+- `authoring-correction-v5` renders only the failed stage format and all
   current findings.
 
 Author and reviewer prompts receive the original scenario, supplied facts,

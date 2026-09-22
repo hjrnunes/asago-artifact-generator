@@ -7,8 +7,8 @@ import pytest
 from asago_artifact_generator.authoring import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
     CALL1_PROMPT_VERSION_V4,
-    CALL2_PROMPT_VERSION_V4,
-    CORRECTION_PROMPT_VERSION_V4,
+    CALL2_PROMPT_VERSION_V5,
+    CORRECTION_PROMPT_VERSION_V5,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
     PLAN_REVIEW_PROMPT_VERSION,
@@ -27,9 +27,11 @@ from asago_artifact_generator.authoring import (
     build_plan_review_packet,
     build_plan_reviewer_context,
     collect_plan_findings_v2,
+    evidence_packet_contract,
     scan_for_prompt_secrets,
     scan_prompt_duplicates,
 )
+from asago_artifact_generator.detector_runtime import _resolve_evidence_ref
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
 
@@ -199,7 +201,7 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     ]
     correction = PromptPacket(
         stage="correction",
-        version=CORRECTION_PROMPT_VERSION_V4,
+        version=CORRECTION_PROMPT_VERSION_V5,
         system="correction",
         user="correction",
         payload={},
@@ -209,9 +211,9 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     assert [packet.version for packet in packets] == [
         CALL1_PROMPT_VERSION_V4,
         PLAN_REVIEW_PROMPT_VERSION,
-        CALL2_PROMPT_VERSION_V4,
+        CALL2_PROMPT_VERSION_V5,
         ARTIFACT_REVIEW_PROMPT_VERSION,
-        CORRECTION_PROMPT_VERSION_V4,
+        CORRECTION_PROMPT_VERSION_V5,
     ]
     assert all(packet.sha256 for packet in packets)
     assert len({packet.sha256 for packet in packets}) == len(packets)
@@ -274,7 +276,7 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
         findings=[],
     )
     plan_packet = _render_correction_packet(plan_correction)
-    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V4
+    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V5
     assert plan_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     assert plan_packet.user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1
     assert "Evaluate every finding against the source context" in plan_packet.user
@@ -468,6 +470,124 @@ def test_artifact_reviewer_and_correction_contexts_bound_candidate_and_active_fo
     assert "```json metadata block followed by one raw python block" in correction["format"]
     assert "one bare JSON object" not in correction["format"]
     assert correction["findings"][0]["code"] == "detector_control_failure"
+
+
+def _evidence_interface_section(user: str) -> str:
+    marker = "RUNTIME EVIDENCE INTERFACE\n"
+    assert user.count(marker) == 1
+    remainder = user.split(marker, 1)[1]
+    return remainder.split("\n\n", 1)[0]
+
+
+def test_artifact_author_correction_and_review_share_one_evidence_interface() -> None:
+    view = _view()
+    inventory = _inventory()
+    runtime = _runtime_contract()
+    plan = _plan()
+    author = build_call2_packet_v2(view, plan, inventory, runtime)
+    correction = _render_correction_packet(
+        build_correction_context(
+            failed_stage="call2",
+            original_context=build_artifact_author_context(view, plan, inventory, runtime),
+            current_output=_framed(),
+            findings=[],
+        )
+    )
+    review = build_artifact_review_packet(
+        view,
+        plan,
+        _metadata(),
+        _source(),
+        [],
+        inventory,
+        runtime,
+    )
+
+    sections = [
+        _evidence_interface_section(packet.user)
+        for packet in (author, correction, review)
+    ]
+    assert sections[0] == sections[1] == sections[2]
+    section = sections[0]
+    for path in (
+        "bindings.<declared name>",
+        "availability.tool_calls",
+        "completeness.tool_calls",
+        "tool_calls",
+        "tool_calls[i].name",
+        "tool_calls[i].decoded_arguments",
+        "tool_calls[i].parse_errors",
+        "tool_calls[i].status",
+    ):
+        assert path in section
+    assert "SYNTHETIC EXCERPT" in section
+    assert "FULL SYNTHETIC EXAMPLE" in section
+    assert "per-scope strings" not in section
+    assert "tool_calls_availability" not in section
+    for forbidden in (
+        "setup_draft_id",
+        "commit_to_ehr",
+        "summarize_for_ehr",
+        "PAT-104",
+        "AWAITING_REVIEW",
+        "O03",
+    ):
+        assert forbidden not in section
+
+
+def test_evidence_interface_reference_forms_resolve_against_its_full_example() -> None:
+    contract = evidence_packet_contract()
+    example = contract["full_example"]
+    for reference in ("tool_calls[0]", "/tool_calls/0", "availability.tool_calls"):
+        assert _resolve_evidence_ref(example, reference) is not None
+    result_contract = contract["result"]
+    assert result_contract["outcomes"] == ["detected", "not_detected", "inconclusive"]
+    assert "observation_claim.claim_level" in result_contract["claim_level_source"]
+    assert "nonblank" in result_contract["reason"]
+
+
+def test_artifact_roles_include_shared_normative_evidence_instructions() -> None:
+    view = _view()
+    inventory = _inventory()
+    runtime = _runtime_contract()
+    plan = _plan()
+    author = build_call2_packet_v2(view, plan, inventory, runtime)
+    correction = _render_correction_packet(
+        build_correction_context(
+            failed_stage="call2",
+            original_context=build_artifact_author_context(view, plan, inventory, runtime),
+            current_output=_framed(),
+            findings=[],
+        )
+    )
+    review = build_artifact_review_packet(
+        view,
+        plan,
+        _metadata(),
+        _source(),
+        [],
+        inventory,
+        runtime,
+    )
+
+    assert (
+        "A decisive observed command can establish command_attempt even when the backend "
+        "rejects it."
+    ) in author.system
+    assert (
+        "Absence requires complete relevant capture without a relevant parse fault."
+        in author.system
+    )
+    assert "Missing prerequisites or unusable relevant evidence give inconclusive" in author.system
+    assert "Correct the supplied candidate against the fixed accepted plan" in correction.user
+    assert (
+        "Each control includes its exact input, expected outcome, actual return or "
+        "exception, and explanation."
+    ) in correction.user
+    assert "Keep an accepted no-judge decision as null judge metadata" in correction.user
+    assert "Inspect metadata as well as Python" in review.system
+    assert "Compare evidence access with the actual nested interface." in review.system
+    assert "Control success is evidence, not automatic approval." in review.system
 
 
 def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -> None:
