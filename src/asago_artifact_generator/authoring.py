@@ -8782,7 +8782,16 @@ def _correction_detector_feedback_view(value: Any) -> Any:
             continue
         actual = item.get("actual_result")
         if actual is None and isinstance(item.get("error"), str):
-            actual = {"exception": item["error"]}
+            outcome_class = item.get("outcome_class")
+            error = item["error"]
+            if "timeout" in error.casefold():
+                actual = {"timeout": error}
+            elif outcome_class == "detector_exception":
+                actual = {"exception": error}
+            elif outcome_class == "invalid_returned_result":
+                actual = {"invalid_result": error}
+            else:
+                actual = {"pre_result_failure": error}
         rendered.append(
             {
                 "name": item.get("name"),
@@ -8806,17 +8815,40 @@ def _compact_feedback_explanation(item: dict[str, Any]) -> str:
 
     outcome_class = item.get("outcome_class")
     error = item.get("error")
-    if isinstance(error, str) and error:
-        return (
-            f"{outcome_class}: detector raised an exception"
-            if outcome_class
-            else "detector raised an exception"
-        )
+    actual_result = item.get("actual_result")
+    actual_outcome = item.get("actual_outcome")
+    if not isinstance(actual_outcome, str) and isinstance(actual_result, dict):
+        actual_outcome = actual_result.get("outcome")
+    expected_outcome = item.get("expected_outcome")
+    actual_claim_level = item.get("actual_claim_level")
+    if not isinstance(actual_claim_level, str) and isinstance(actual_result, dict):
+        actual_claim_level = actual_result.get("claim_level")
+    expected_claim_level = item.get("expected_claim_level")
+    if outcome_class == "structurally_valid_wrong_outcome":
+        if actual_outcome != expected_outcome:
+            return (
+                f"returned outcome {actual_outcome!r}; "
+                f"expected outcome {expected_outcome!r}"
+            )
+        if actual_claim_level != expected_claim_level:
+            return (
+                f"returned claim level {actual_claim_level!r}; "
+                f"expected claim level {expected_claim_level!r}"
+            )
+        return "returned result differs from the expected control result"
+    if isinstance(error, str) and "timeout" in error.casefold():
+        return "detector timed out before returning a result"
+    if outcome_class == "detector_exception":
+        return "detector raised an exception before returning a result"
+    if outcome_class == "invalid_returned_result":
+        return "returned result was rejected by runtime validation"
+    if outcome_class == "container/evaluator_failure_before_result":
+        return "container or evaluator failed before exposing a result"
+    runtime_explanation = item.get("runtime_contract_explanation")
+    if isinstance(runtime_explanation, str) and runtime_explanation:
+        return runtime_explanation
     return (
-        f"{outcome_class}: returned outcome or claim level differs from the expected "
-        "control result"
-        if outcome_class
-        else "returned result differs from the expected control result"
+        "returned outcome or claim level differs from the expected control result"
     )
 
 

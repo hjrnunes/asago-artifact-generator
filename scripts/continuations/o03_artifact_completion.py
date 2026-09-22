@@ -232,7 +232,14 @@ def ensure_dispatch_slot_available(ledger: Any, slot: str) -> None:
 
     if slot not in {"correction", "review"}:
         raise ValueError(f"unsupported dispatch slot: {slot}")
-    records = ledger.get("ledger", []) if isinstance(ledger, dict) else ledger
+    if isinstance(ledger, dict):
+        records = []
+        for key in ("ledger", "dispatches", "prior_dispatches"):
+            value = ledger.get(key)
+            if isinstance(value, list):
+                records.extend(value)
+    else:
+        records = ledger
     if not isinstance(records, list):
         raise ValueError("evidence ledger must be a list")
     for record in records:
@@ -248,6 +255,52 @@ def ensure_dispatch_slot_available(ledger: Any, slot: str) -> None:
         )
         if spent:
             raise DispatchSlotSpent(f"{slot} dispatch slot is already recorded as spent")
+
+
+def _dry_run_directories(root: Path) -> list[Path]:
+    return sorted(path for path in root.glob("O03-live-*-artifact-completion") if path.is_dir())
+
+
+def load_dispatch_ledger(ledger_path: str | Path | None = None) -> dict[str, Any]:
+    """Combine dispatch records from every artifact-completion dry-run directory."""
+
+    requested = Path(ledger_path) if ledger_path is not None else RUNS_ROOT
+    if requested.is_file():
+        parent = requested.parent
+        root = (
+            parent.parent
+            if parent.name.startswith("O03-live-") and parent.name.endswith("-artifact-completion")
+            else parent
+        )
+    else:
+        root = requested
+    directories = _dry_run_directories(root)
+    dispatches: list[dict[str, Any]] = []
+    source_ledgers: list[str] = []
+    for directory in directories:
+        path = directory / "ledger.json"
+        if not path.is_file():
+            continue
+        try:
+            record = _read_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        source_ledgers.append(str(path))
+        entries = record.get("dispatches", [])
+        if isinstance(entries, list):
+            dispatches.extend(entry for entry in entries if isinstance(entry, dict))
+    return {
+        "schema_version": "authoring-dispatch-ledger-v1",
+        "dry_run_directories": [str(path) for path in directories],
+        "source_ledgers": source_ledgers,
+        "latest_dry_run_directory": (
+            str(Path(source_ledgers[-1]).parent) if source_ledgers else None
+        ),
+        "model_requests": sum(
+            1 for dispatch in dispatches if dispatch.get("status") not in {"not_run", "skipped"}
+        ),
+        "dispatches": dispatches,
+    }
 
 
 def dispatch_correction(ledger: Any) -> None:
@@ -490,10 +543,21 @@ def run_dry_run(output_dir: str | Path | None = None) -> Path:
 
     reconciliation = reconcile_budget()
     historical = _historical_judge_failures(candidate_info["historical_attempt"])
+    previous_ledger = load_dispatch_ledger(RUNS_ROOT)
     ledger = {
         "schema_version": "authoring-dispatch-ledger-v1",
         "model_requests": 0,
         "dispatches": [],
+        "prior_dispatches": previous_ledger["dispatches"],
+        "dry_run_directories": previous_ledger["dry_run_directories"],
+        "source_ledgers": previous_ledger["source_ledgers"],
+        "latest_dry_run_directory": str(output),
+        "latest_request": {
+            "system": str(output / "correction.system.txt"),
+            "user": str(output / "correction.user.txt"),
+            "rendered": str(output / "rendered-correction.json"),
+        },
+        "guard_scope": "all O03 artifact-completion dry-run directories",
         "note": "offline dry-run; dispatch-correction and dispatch-review were not run",
     }
 
@@ -560,6 +624,7 @@ def run_dry_run(output_dir: str | Path | None = None) -> Path:
             "schema_version": "o03-artifact-completion-dry-run-v1",
             "status": "passed",
             "output_dir": str(output),
+            "latest_request": ledger["latest_request"],
             "accepted_plan_sha256": ACCEPTED_PLAN_SHA256,
             "saved_candidate_sha256": SAVED_CANDIDATE_SHA256,
             "fixture_sha256": fixture_sha256,
@@ -594,9 +659,7 @@ def main(argv: list[str] | None = None) -> int:
         output = run_dry_run(args.output_dir)
         print(output)
         return 0
-    ledger: Any = []
-    if args.ledger is not None:
-        ledger = _read_json(args.ledger)
+    ledger: Any = load_dispatch_ledger(args.ledger)
     try:
         if args.dispatch_correction:
             dispatch_correction(ledger)

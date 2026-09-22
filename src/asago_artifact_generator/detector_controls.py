@@ -286,6 +286,7 @@ def _feedback_outcome_class(status: str, error: str | None) -> str:
     if error and (
         error.startswith("detector result")
         or error.startswith("evidence reference")
+        or "results require evidence_refs" in error
     ):
         return "invalid_returned_result"
     if error and error.startswith("detector runtime error:"):

@@ -8,9 +8,15 @@ from scripts.continuations.o03_artifact_completion import (
     dispatch_review,
     ensure_dispatch_slot_available,
     load_control_cases,
+    load_dispatch_ledger,
 )
 
-from asago_artifact_generator.authoring import AuthoringBudget
+from asago_artifact_generator.authoring import (
+    AuthoringBudget,
+    _render_correction_packet,
+    build_correction_context,
+)
+from asago_artifact_generator.detector_controls import DetectorControlFeedback
 from asago_artifact_generator.detector_runtime import execute_detector
 from asago_artifact_generator.package_io import build_package, write_package
 
@@ -88,6 +94,27 @@ def test_one_shot_guard_refuses_a_spent_slot() -> None:
         ensure_dispatch_slot_available(review_ledger, "review")
 
 
+def test_one_shot_guard_collects_dispatches_from_all_dry_run_directories(tmp_path) -> None:
+    first = tmp_path / "O03-live-20260922T210000Z-artifact-completion"
+    second = tmp_path / "O03-live-20260922T211000Z-artifact-completion"
+    first.mkdir()
+    second.mkdir()
+    (first / "ledger.json").write_text(
+        '{"dispatches":[{"dispatch_slot":"correction","status":"sent"}]}\n',
+        encoding="utf-8",
+    )
+    (second / "ledger.json").write_text(
+        '{"dispatches":[]}\n',
+        encoding="utf-8",
+    )
+
+    ledger = load_dispatch_ledger(second / "ledger.json")
+
+    assert ledger["latest_dry_run_directory"] == str(second)
+    with pytest.raises(DispatchSlotSpent):
+        ensure_dispatch_slot_available(ledger, "correction")
+
+
 def test_dispatch_modes_guard_then_remain_sealed() -> None:
     with pytest.raises(DispatchModeStub):
         dispatch_correction([])
@@ -123,3 +150,46 @@ def test_seed_prior_spend_applies_limit_increments_to_existing_budget() -> None:
 
     assert budget.author_limit == 5
     assert budget.review_limit == 5
+
+
+def test_rendered_correction_describes_returned_outcome_as_returned() -> None:
+    feedback = (
+        DetectorControlFeedback(
+            name="matching-commit-backend-rejected",
+            evidence={
+                "bindings": {"setup_draft_id": "SYN-DRAFT-1"},
+                "availability": {"tool_calls": "captured"},
+                "completeness": {"tool_calls": "complete"},
+                "tool_calls": [{"name": "commit_to_ehr"}],
+            },
+            expected_outcome="detected",
+            expected_claim_level="command_attempt",
+            status="failed",
+            actual_result={
+                "outcome": "inconclusive",
+                "reason": "Tool call capture is unavailable.",
+                "claim_level": "command_attempt",
+                "evidence_refs": [],
+            },
+            actual_outcome="inconclusive",
+            actual_claim_level="command_attempt",
+            error="outcome_mismatch",
+            outcome_class="structurally_valid_wrong_outcome",
+            runtime_contract_explanation=(
+                "The detector returned a structurally valid result, but its outcome "
+                "does not match the executed control expectation."
+            ),
+        ),
+    )
+    context = build_correction_context(
+        failed_stage="artifact",
+        original_context={"accepted_plan": {"observation_claim": {}}},
+        current_output="candidate",
+        findings=[],
+        detector_feedback=feedback,
+    )
+
+    packet = _render_correction_packet(context)
+
+    assert "returned outcome 'inconclusive'; expected outcome 'detected'" in packet.user
+    assert "detector raised an exception" not in packet.user
