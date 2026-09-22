@@ -273,7 +273,7 @@ O04_REFERENCE_RESOLUTION_CONTINUATION_TASK_ID = (
     "O04-reference-resolution-20260922"
 )
 O04_REFERENCE_RESOLUTION_EVIDENCE_ROOT = (
-    "evidence/o04-reference-resolution-20260922"
+    "evidence/o04-reference-resolution-live-20260922"
 )
 O04_REFERENCE_RESOLUTION_READINESS_ROOT = (
     "evidence/o04-reference-resolution-readiness-20260922"
@@ -6756,6 +6756,23 @@ def _o04_validate_reference_resolution_prior(
     )
 
 
+def _validate_o04_reference_resolution_readiness_root(path: Path) -> None:
+    if not path.is_dir():
+        raise O04ContinuationValidationError(
+            "O04 reference-resolution readiness root must be an existing valid directory"
+        )
+    try:
+        populated = any(entry.is_file() for entry in path.iterdir())
+    except OSError as exc:
+        raise O04ContinuationValidationError(
+            "O04 reference-resolution readiness root is not readable"
+        ) from exc
+    if not populated:
+        raise O04ContinuationValidationError(
+            "O04 reference-resolution readiness root must be populated"
+        )
+
+
 def _prepare_o04_reference_resolution_continuation(
     *,
     failure_sidecar: str | Path,
@@ -6856,10 +6873,10 @@ def _prepare_o04_reference_resolution_continuation(
             "O04 reference-resolution package, evidence, readiness, and delivery "
             "roots must use the fresh sealed names"
         )
+    _validate_o04_reference_resolution_readiness_root(readiness)
     for path, label in (
         (destination, "package"),
-        (output_evidence, "evidence"),
-        (readiness, "readiness"),
+        (output_evidence.parent, "evidence"),
         (delivery, "delivery"),
     ):
         if path.exists():

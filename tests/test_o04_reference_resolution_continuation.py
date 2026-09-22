@@ -53,8 +53,20 @@ PACKAGE_RELATIVE = Path("runs/authoring") / TASK_ID
 EVIDENCE_RELATIVE = Path("evidence") / "o04-reference-resolution-20260922" / (
     "continuation-evidence.json"
 )
+LIVE_EVIDENCE_RELATIVE = (
+    Path("evidence")
+    / "o04-reference-resolution-live-20260922"
+    / "continuation-evidence.json"
+)
 READINESS_RELATIVE = Path("evidence") / "o04-reference-resolution-readiness-20260922"
 DELIVERY_RELATIVE = Path("evidence") / "o04-reference-resolution-delivery-20260922"
+PRESERVED_ZERO_ATTEMPT_EVIDENCE = (
+    MISSION_ROOT
+    / "evidence/o04-reference-resolution-20260922/continuation-evidence.json"
+)
+PRESERVED_ZERO_ATTEMPT_SHA256 = (
+    "908420645411856cb339af667108878430463e62568dccd373f1942d82318fbb"
+)
 
 PRIOR_EVIDENCE_SHA256 = (
     "0560f60a9d00f23aad1345556b3956dc03fd742d9a87b77263bd5d3959d6aee8"
@@ -158,7 +170,28 @@ def _review_response(decision: str = "accept") -> bytes:
     ).encode()
 
 
-def _prepared(tmp_path: Path):
+def _populate_readiness_root(tmp_path: Path) -> Path:
+    readiness_root = tmp_path / READINESS_RELATIVE
+    readiness_root.mkdir(parents=True, exist_ok=True)
+    (readiness_root / "readiness.json").write_text(
+        '{"decision":"GO_FOR_ORCHESTRATOR_REVIEW_ONLY"}\n',
+        encoding="utf-8",
+    )
+    (readiness_root / "readiness-report.md").write_text(
+        "offline readiness authority\n",
+        encoding="utf-8",
+    )
+    return readiness_root
+
+
+def _prepared(
+    tmp_path: Path,
+    *,
+    readiness_root: Path | None = None,
+    evidence_path: Path | None = None,
+):
+    if readiness_root is None:
+        readiness_root = _populate_readiness_root(tmp_path)
     return prepare_o04_reference_resolution_continuation(
         failure_sidecar=FAILURE_SIDECAR,
         mismatch_proof=MISMATCH_PROOF,
@@ -167,8 +200,8 @@ def _prepared(tmp_path: Path):
         prior_accounting=PRIOR_ACCOUNTING,
         prior_attempt_reconciliation=PRIOR_RECONCILIATION,
         package_dir=tmp_path / PACKAGE_RELATIVE,
-        evidence_path=tmp_path / EVIDENCE_RELATIVE,
-        readiness_root=tmp_path / READINESS_RELATIVE,
+        evidence_path=evidence_path or tmp_path / LIVE_EVIDENCE_RELATIVE,
+        readiness_root=readiness_root,
         delivery_root=tmp_path / DELIVERY_RELATIVE,
         expected_failure_sidecar_sha256=FAILURE_SIDECAR_SHA256,
         expected_mismatch_proof_sha256=MISMATCH_PROOF_SHA256,
@@ -221,6 +254,77 @@ def test_reference_resolution_seals_candidate_authority_and_budget(tmp_path: Pat
     assert continuation.task_limit == 12
     assert continuation.continuation_author_limit == 1
     assert continuation.continuation_review_limit == 1
+
+
+def test_reference_resolution_requires_populated_readiness_authority(
+    tmp_path: Path,
+) -> None:
+    continuation = _prepared(tmp_path)
+
+    assert continuation.readiness_root == tmp_path / READINESS_RELATIVE
+    assert continuation.readiness_root.is_dir()
+    assert any(continuation.readiness_root.iterdir())
+
+
+@pytest.mark.parametrize("state", ["missing", "empty", "file"])
+def test_reference_resolution_rejects_missing_or_invalid_readiness(
+    tmp_path: Path,
+    state: str,
+) -> None:
+    readiness_root = tmp_path / READINESS_RELATIVE
+    if state == "empty":
+        readiness_root.mkdir(parents=True)
+    elif state == "file":
+        readiness_root.parent.mkdir(parents=True)
+        readiness_root.write_text("not a readiness root\n", encoding="utf-8")
+
+    with pytest.raises(
+        O04ContinuationValidationError,
+        match=r"readiness.*(required|valid|populated)",
+    ):
+        _prepared(tmp_path, readiness_root=readiness_root)
+
+
+def test_reference_resolution_rejects_occupied_fresh_live_evidence(
+    tmp_path: Path,
+) -> None:
+    _populate_readiness_root(tmp_path)
+    live_root = tmp_path / LIVE_EVIDENCE_RELATIVE
+    live_root.mkdir(parents=True)
+
+    with pytest.raises(O04ContinuationValidationError, match="evidence"):
+        _prepared(tmp_path)
+
+
+def test_reference_resolution_rejects_occupied_package_root(tmp_path: Path) -> None:
+    _populate_readiness_root(tmp_path)
+    package_root = tmp_path / PACKAGE_RELATIVE
+    package_root.mkdir(parents=True)
+
+    with pytest.raises(O04ContinuationValidationError, match="package"):
+        _prepared(tmp_path)
+
+
+def test_reference_resolution_rejects_occupied_delivery_root(tmp_path: Path) -> None:
+    _populate_readiness_root(tmp_path)
+    delivery_root = tmp_path / DELIVERY_RELATIVE
+    delivery_root.mkdir(parents=True)
+
+    with pytest.raises(O04ContinuationValidationError, match="delivery"):
+        _prepared(tmp_path)
+
+
+def test_reference_resolution_preserves_zero_attempt_historical_evidence(
+    tmp_path: Path,
+) -> None:
+    before = hashlib.sha256(PRESERVED_ZERO_ATTEMPT_EVIDENCE.read_bytes()).hexdigest()
+    assert before == PRESERVED_ZERO_ATTEMPT_SHA256
+
+    with pytest.raises(O04ContinuationValidationError, match="fresh sealed names"):
+        _prepared(tmp_path, evidence_path=PRESERVED_ZERO_ATTEMPT_EVIDENCE)
+
+    after = hashlib.sha256(PRESERVED_ZERO_ATTEMPT_EVIDENCE.read_bytes()).hexdigest()
+    assert after == before
 
 
 @pytest.mark.parametrize(
