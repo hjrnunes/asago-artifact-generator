@@ -6,6 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from asago_artifact_generator.authoring import (
+    PLAN_FIELD_MEANINGS,
     AuthoringOrchestrator,
     AuthoringPolicy,
     ScriptedAuthoringTransport,
@@ -186,6 +187,10 @@ def test_exact_saved_review_reuse_skips_plan_review_dispatch(tmp_path: Path) -> 
 
     assert prepared.decision.mode == "call2_only"
     assert prepared.decision.review_reused is True
+    assert prepared.call2_packet is not None
+    assert prepared.call2_packet.user.count(PLAN_FIELD_MEANINGS) == 1
+    assert prepared.plan_review_packet is not None
+    assert prepared.plan_review_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     transport = ScriptedAuthoringTransport([_framed()])
     result = prepared.run(
         transport_factory=lambda: transport,
@@ -199,6 +204,44 @@ def test_exact_saved_review_reuse_skips_plan_review_dispatch(tmp_path: Path) -> 
     assert result.package is not None
     continuation = result.package.manifest.authoring["continuation"]
     assert continuation["review_reuse"]["plan"] == "reused"
+
+
+def test_saved_continuation_correction_keeps_shared_meanings_in_dispatched_packet(
+    tmp_path: Path,
+) -> None:
+    view = _view()
+    inventory = _inventory()
+    runtime = _runtime_contract()
+    plan = _plan()
+    provenance = _provenance(plan, view, inventory, runtime)
+    prepared = prepare_saved_plan_continuation_v2(
+        saved_plan=plan,
+        input_view=view,
+        inventory=inventory,
+        runtime_contract=runtime,
+        provenance=provenance,
+        meaning_review={
+            "status": "passed",
+            "meaning_sha256": provenance["meaning_sha256"],
+        },
+        policy=AuthoringPolicy(
+            artifact_max_corrections=1,
+            review_plan=False,
+            review_artifact=False,
+        ),
+    )
+
+    transport = ScriptedAuthoringTransport([b"not a Call 2 response", _framed()])
+    result = prepared.run(
+        transport_factory=lambda: transport,
+        package_dir=tmp_path / "continued-correction",
+        task_id="saved-correction-guidance",
+    )
+
+    assert result.status == "accepted"
+    correction_requests = [item for item in transport.requests if item["stage"] == "correction"]
+    assert len(correction_requests) == 1
+    assert correction_requests[0]["user"].count(PLAN_FIELD_MEANINGS) == 1
 
 
 def test_saved_review_mismatch_dispatches_fresh_review_without_call1(tmp_path: Path) -> None:

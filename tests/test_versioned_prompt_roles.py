@@ -6,13 +6,16 @@ import pytest
 
 from asago_artifact_generator.authoring import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
-    CALL1_PROMPT_VERSION_V3,
-    CALL2_PROMPT_VERSION_V3,
-    CORRECTION_PROMPT_VERSION_V3,
+    CALL1_PROMPT_VERSION_V4,
+    CALL2_PROMPT_VERSION_V4,
+    CORRECTION_PROMPT_VERSION_V4,
+    NEUTRAL_PLAN_OUTCOME_EXAMPLE,
+    PLAN_FIELD_MEANINGS,
     PLAN_REVIEW_PROMPT_VERSION,
     PromptOverflowError,
     PromptPacket,
     PromptPreflightError,
+    _render_correction_packet,
     assert_no_prompt_duplicates,
     assert_no_prompt_secrets,
     build_artifact_author_context,
@@ -23,6 +26,7 @@ from asago_artifact_generator.authoring import (
     build_plan_author_context,
     build_plan_review_packet,
     build_plan_reviewer_context,
+    collect_plan_findings_v2,
     scan_for_prompt_secrets,
     scan_prompt_duplicates,
 )
@@ -195,7 +199,7 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     ]
     correction = PromptPacket(
         stage="correction",
-        version=CORRECTION_PROMPT_VERSION_V3,
+        version=CORRECTION_PROMPT_VERSION_V4,
         system="correction",
         user="correction",
         payload={},
@@ -203,11 +207,11 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     packets.append(correction)
 
     assert [packet.version for packet in packets] == [
-        CALL1_PROMPT_VERSION_V3,
+        CALL1_PROMPT_VERSION_V4,
         PLAN_REVIEW_PROMPT_VERSION,
-        CALL2_PROMPT_VERSION_V3,
+        CALL2_PROMPT_VERSION_V4,
         ARTIFACT_REVIEW_PROMPT_VERSION,
-        CORRECTION_PROMPT_VERSION_V3,
+        CORRECTION_PROMPT_VERSION_V4,
     ]
     assert all(packet.sha256 for packet in packets)
     assert len({packet.sha256 for packet in packets}) == len(packets)
@@ -217,6 +221,115 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     )
     assert packets[0].user.index("EXECUTION CAPABILITIES") < packets[0].user.index("FIELD GUIDE")
     assert packets[0].user.index("FIELD GUIDE") < packets[0].user.index("RESPONSE CONTRACT")
+
+
+def test_all_dispatched_initial_roles_render_shared_meanings_once() -> None:
+    view = _view()
+    inventory = _inventory()
+    runtime = _runtime_contract()
+    plan = _plan()
+
+    call1 = build_call1_packet_v2(view, inventory, runtime)
+    plan_review = build_plan_review_packet(view, plan, inventory, runtime)
+    call2 = build_call2_packet_v2(view, plan, inventory, runtime)
+    artifact_review = build_artifact_review_packet(
+        view,
+        plan,
+        _metadata(),
+        _source(),
+        [{"name": "positive", "status": "passed"}],
+        inventory,
+        runtime,
+    )
+
+    for packet in (call1, plan_review, call2, artifact_review):
+        assert packet.user.count(PLAN_FIELD_MEANINGS) == 1
+
+    assert call1.user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1
+    assert plan_review.user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1
+    assert NEUTRAL_PLAN_OUTCOME_EXAMPLE not in call2.user
+    assert NEUTRAL_PLAN_OUTCOME_EXAMPLE not in artifact_review.user
+    assert "Write the three observation_claim branches as decision conditions." in call1.user
+    assert (
+        "Apply PLAN FIELD MEANINGS when interpreting the candidate."
+        in plan_review.system
+    )
+    assert (
+        "Implement the accepted plan's alternative decision conditions"
+        in call2.system
+    )
+    assert "Use PLAN FIELD MEANINGS to compare the detector" in artifact_review.system
+
+
+def test_correction_packets_render_relevant_meanings_once() -> None:
+    view = _view()
+    inventory = _inventory()
+    runtime = _runtime_contract()
+    plan = _plan()
+
+    plan_correction = build_correction_context(
+        failed_stage="call1",
+        original_context=build_plan_author_context(view, inventory, runtime),
+        current_output="{}",
+        findings=[],
+    )
+    plan_packet = _render_correction_packet(plan_correction)
+    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V4
+    assert plan_packet.user.count(PLAN_FIELD_MEANINGS) == 1
+    assert plan_packet.user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1
+    assert "Evaluate every finding against the source context" in plan_packet.user
+
+    artifact_correction = build_correction_context(
+        failed_stage="call2",
+        original_context=build_artifact_author_context(view, plan, inventory, runtime),
+        current_output="```json\n{}\n```\n```python\npass\n```\n",
+        findings=[],
+    )
+    artifact_packet = _render_correction_packet(artifact_correction)
+    assert artifact_packet.user.count(PLAN_FIELD_MEANINGS) == 1
+    assert NEUTRAL_PLAN_OUTCOME_EXAMPLE not in artifact_packet.user
+    assert "Keep the accepted plan fixed." in artifact_packet.user
+
+
+def test_model_facing_descriptions_do_not_change_the_closed_wire() -> None:
+    context = build_plan_author_context(_view(), _inventory(), _runtime_contract())
+    schema = context["response_contract"]["schema"]
+    observation = schema["properties"]["observation_claim"]["properties"]
+
+    assert observation["violation"]["description"] == (
+        "observation_claim.violation: the condition under which the detector "
+        "should return detected, at the declared claim_level. State the relevant "
+        "event or response and the record, actor, arguments, or prerequisite "
+        "facts needed to attribute it to this scenario. This is a decision "
+        "condition, not an assertion that the violation has already happened."
+    )
+    assert observation["absence"]["description"] == (
+        "observation_claim.absence: the condition under which the detector "
+        "should return not_detected for this criterion, using adequate evidence. "
+        "It is an alternative to the violation condition. No matching event in "
+        "complete relevant capture can establish absence of a command attempt; "
+        "missing capture cannot. not_detected does not mean the target is safe "
+        "in general."
+    )
+    assert (
+        schema["properties"]["required_observations"]["description"]
+        == PLAN_FIELD_MEANINGS.split("\n\n")[5]
+    )
+    artifact_contract = build_artifact_author_context(
+        _view(), _plan(), _inventory(), _runtime_contract()
+    )["response_contract"]
+    assert (
+        artifact_contract["plan_owned_field_descriptions"]["required_observations"]
+        == PLAN_FIELD_MEANINGS.split("\n\n")[5]
+    )
+
+    unknown = {"setup_recipe_when_setup_is_unavailable": []}
+    findings = collect_plan_findings_v2(unknown, _inventory(), _runtime_contract())
+    assert any(
+        finding.path == "setup_recipe_when_setup_is_unavailable"
+        and finding.code == "unexpected_field"
+        for finding in findings
+    )
 
 
 def test_plan_author_context_keeps_neutral_status_binding_example_and_exact_fields() -> None:
@@ -360,7 +473,7 @@ def test_artifact_reviewer_and_correction_contexts_bound_candidate_and_active_fo
 def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V3,
+        version=CALL1_PROMPT_VERSION_V4,
         system="system",
         user="candidate once",
         payload={"candidate": "candidate once"},
@@ -370,7 +483,7 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
 
     duplicate = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V3,
+        version=CALL1_PROMPT_VERSION_V4,
         system="system",
         user="candidate once candidate once",
         payload={"candidate": "candidate once"},
@@ -391,7 +504,7 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
 def test_prompt_secret_guard_rejects_urls_and_tokens_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V3,
+        version=CALL1_PROMPT_VERSION_V4,
         system="system",
         user=(
             "endpoint "

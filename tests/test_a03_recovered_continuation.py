@@ -159,7 +159,7 @@ def test_accept_package_carries_exact_candidate_and_review_evidence(tmp_path: Pa
         "fc8f4245dfd8ddcdb0609d2af681759b3ebd70d60649bb9a1139c9a88af807ed"
     )
     assert len(reviews["artifact"]["original_input_pins"]) == 10
-    assert reviews["artifact"]["prompt_version"] == "authoring-artifact-review-v1"
+    assert reviews["artifact"]["prompt_version"] == "authoring-artifact-review-v2"
     assert reviews["artifact"]["effective_controls"]["max_retries"] == 0
     assert reviews["artifact"]["candidate_bytes_sha256"] == CANDIDATE_SHA256
     assert reviews["artifact"]["raw_response_sha256"] == hashlib.sha256(

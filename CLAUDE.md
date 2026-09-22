@@ -42,11 +42,11 @@ Named-profile loading also passes the non-secret `profile_name` separately from
 the base URL, API key, and provider wire model.
 
 Prompt roles are versioned independently from the response wire:
-`authoring-call1-v3`, `authoring-plan-review-v1`,
-`authoring-call2-v3`, `authoring-artifact-review-v1`, and
-`authoring-correction-v3`. Each rendered packet exposes a SHA-256 hash and
+`authoring-call1-v4`, `authoring-plan-review-v2`,
+`authoring-call2-v4`, `authoring-artifact-review-v2`, and
+`authoring-correction-v4`. Each rendered packet exposes a SHA-256 hash and
 dispatch evidence records the role, version, hash, raw response, controls,
-findings, and review status. The v3 author prompts keep the v2 11-field plan
+findings, and review status. The v4 author prompts keep the v2 11-field plan
 and two-block artifact contracts unchanged.
 
 Build reviewer contexts from the original scenario and supplied facts,

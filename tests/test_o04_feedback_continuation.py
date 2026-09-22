@@ -604,7 +604,7 @@ def test_feedback_epoch_has_no_forbidden_dispatch_or_readiness_probe(
     ]
     assert all(
         request["version"]
-        in {"authoring-correction-v3", "authoring-artifact-review-v1"}
+        in {"authoring-correction-v4", "authoring-artifact-review-v2"}
         for request in transport.requests
     )
     assert result.budget["provider_readiness_reads"] == 0
