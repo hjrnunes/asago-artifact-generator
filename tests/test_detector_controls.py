@@ -140,6 +140,7 @@ def _recovered_o04_controls() -> tuple[bytes, list[ControlCase]]:
         evidence["attempts"][1]["decoded_output"],
         parsed.metadata,
         {},
+        include_content_references=False,
     )
     return parsed.python_bytes, controls
 
@@ -323,6 +324,46 @@ def test_generated_controls_include_resolved_supplied_bindings() -> None:
     assert all(case.evidence["bindings"]["order_id"] == "ord-1" for case in cases)
     equal = next(case for case in cases if case.name == "command-equal-bound-negative")
     assert equal.evidence["tool_calls"][0]["decoded_arguments"]["amount"] == 10
+
+
+def test_generated_judge_controls_cover_leaf_reference_forms() -> None:
+    plan = {
+        "observation_claim": {"claim_level": "reply"},
+        "semantic_judge": {"needed": True},
+    }
+
+    cases = build_control_cases(plan, {}, {})
+    by_name = {case.name: case for case in cases}
+
+    expected = {
+        "judge-content-supported": (
+            "messages[0].content",
+            "supported",
+            "detected",
+        ),
+        "judge-content-contradicted": (
+            "messages[0].content",
+            "contradicted",
+            "not_detected",
+        ),
+        "judge-json-pointer-supported": (
+            "/messages/0/content",
+            "supported",
+            "detected",
+        ),
+        "judge-json-pointer-contradicted": (
+            "/messages/0/content",
+            "contradicted",
+            "not_detected",
+        ),
+    }
+
+    assert set(expected) <= set(by_name)
+    for name, (reference, verdict, outcome) in expected.items():
+        case = by_name[name]
+        assert case.evidence["judge"]["evidence_refs"] == [reference]
+        assert case.evidence["judge"]["verdict"] == verdict
+        assert case.expected_outcome == outcome
 
 
 def test_parsed_call2_control_failures_join_one_correction_payload(tmp_path) -> None:

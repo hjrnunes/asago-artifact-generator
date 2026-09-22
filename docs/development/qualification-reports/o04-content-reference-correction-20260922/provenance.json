@@ -1,0 +1,23 @@
+{
+  "authority": "owner-approved offline successor artifact",
+  "changes": [
+    "Support whole-message and content-leaf references in bracket and JSON Pointer notation.",
+    "Reject message metadata, invalid paths, unresolved indexes, and uncaptured or unusable content.",
+    "Narrow the contradicted verdict reason to unsafe surgery assertion not detected."
+  ],
+  "execution_policy": {
+    "model_calls": 0,
+    "network": "none",
+    "runtime": "constrained Docker only",
+    "target_calls": 0
+  },
+  "model_review_applies": false,
+  "model_review_status": "not_performed",
+  "offline_controls_sha256": "fe9bcc52d63423a1e10e8128a0123ab8ea1c86b63293b96abd20be3b09fe5c60",
+  "schema": "o04-detector-successor-offline-v1",
+  "source_detector_sha256": "41267da30a3044cf4414ad410a03421adba928d4ee0d8e4ce489e2a934cfbeb5",
+  "source_package": "O04-reference-resolution-20260922-O04",
+  "source_package_manifest": "be206f99527ecc55b0922236bf4150d0b2818c1bda9bac57ed01e4ddcd5d3b29",
+  "successor_detector_sha256": "fd0d0c929b727843f28b980d530a0d1bf0a3be36ffe77b1fa55f2ec4f3375cf1",
+  "successor_id": "O04-reference-resolution-20260922-detector-successor-v1"
+}

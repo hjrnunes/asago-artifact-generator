@@ -4501,7 +4501,9 @@ def _prepare_o04_correction_continuation(
         or len(historical_controls.get("records", [])) != 11
     ):
         raise O04ContinuationValidationError("O04 historical control outcomes differ")
-    control_cases = tuple(build_control_cases(plan, parsed.metadata, inventory))
+    control_cases = tuple(
+        build_control_cases(plan, parsed.metadata, inventory, include_content_references=False)
+    )
     fixture_bytes = _canonical_json(
         [
             {
@@ -6043,7 +6045,12 @@ def _prepare_o04_feedback_continuation(
     latest_parsed = terminal_authority["parsed"]
     latest_raw = terminal_authority["raw"]
     latest_cases = tuple(
-        build_control_cases(old.artifact.plan, latest_parsed.metadata, old.artifact.inventory)
+        build_control_cases(
+            old.artifact.plan,
+            latest_parsed.metadata,
+            old.artifact.inventory,
+            include_content_references=False,
+        )
     )
     authority = deepcopy(old.artifact.authority)
     authority.update(
@@ -6699,7 +6706,12 @@ def _o04_validate_reference_resolution_prior(
         }
     )
     control_cases = tuple(
-        build_control_cases(artifact.plan, parsed.metadata, artifact.inventory)
+        build_control_cases(
+            artifact.plan,
+            parsed.metadata,
+            artifact.inventory,
+            include_content_references=False,
+        )
     )
     fixture_bytes = _canonical_json(
         [

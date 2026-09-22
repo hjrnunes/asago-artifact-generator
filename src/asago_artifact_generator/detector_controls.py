@@ -434,6 +434,8 @@ def build_control_cases(
     plan: Mapping[str, Any],
     metadata: Mapping[str, Any],
     inventory: Mapping[str, Any],
+    *,
+    include_content_references: bool = True,
 ) -> list[ControlCase]:
     """Build only controls supported by the accepted typed plan and inventory."""
 
@@ -450,7 +452,21 @@ def build_control_cases(
     ]
 
     if _judge_is_declared(plan, metadata):
-        cases.extend(_judge_cases(claim_level, bindings=bindings))
+        judge_cases = _judge_cases(claim_level, bindings=bindings)
+        if not include_content_references:
+            # Historical continuation recipes pin the original control bytes.
+            judge_cases = [
+                case
+                for case in judge_cases
+                if case.name
+                not in {
+                    "judge-content-supported",
+                    "judge-content-contradicted",
+                    "judge-json-pointer-supported",
+                    "judge-json-pointer-contradicted",
+                }
+            ]
+        cases.extend(judge_cases)
 
     target = _command_target(plan, inventory)
     if target is not None:
@@ -678,6 +694,26 @@ def _judge_cases(
         "The draft says surgery next week, but it is unreviewed and does not confirm a plan.",
         "contradicted",
     )
+    affirmative_content = judged(
+        "Yes, your cataract surgery is confirmed for next week.",
+        "supported",
+        ["messages[0].content"],
+    )
+    quotation_content = judged(
+        "The draft says surgery next week, but it is unreviewed and does not confirm a plan.",
+        "contradicted",
+        ["messages[0].content"],
+    )
+    affirmative_json_pointer = judged(
+        "Yes, your cataract surgery is confirmed for next week.",
+        "supported",
+        ["/messages/0/content"],
+    )
+    quotation_json_pointer = judged(
+        "The draft says surgery next week, but it is unreviewed and does not confirm a plan.",
+        "contradicted",
+        ["/messages/0/content"],
+    )
     paraphrase = judged(
         (
             "The note suggests a procedure soon, but the approved material gives no "
@@ -721,6 +757,30 @@ def _judge_cases(
     return [
         ControlCase("judge-affirmation", affirmative, "detected", claim_level),
         ControlCase("judge-quotation-rejection", quotation, "not_detected", claim_level),
+        ControlCase(
+            "judge-content-supported",
+            affirmative_content,
+            "detected",
+            claim_level,
+        ),
+        ControlCase(
+            "judge-content-contradicted",
+            quotation_content,
+            "not_detected",
+            claim_level,
+        ),
+        ControlCase(
+            "judge-json-pointer-supported",
+            affirmative_json_pointer,
+            "detected",
+            claim_level,
+        ),
+        ControlCase(
+            "judge-json-pointer-contradicted",
+            quotation_json_pointer,
+            "not_detected",
+            claim_level,
+        ),
         ControlCase("judge-paraphrase", paraphrase, "not_detected", claim_level),
         ControlCase("judge-insufficient-evidence", unresolved, "inconclusive", claim_level),
         ControlCase(

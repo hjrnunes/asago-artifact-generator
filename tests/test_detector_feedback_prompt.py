@@ -268,6 +268,48 @@ def test_unresolved_reference_explanation_uses_generic_runtime_path_grammar() ->
     assert "messages[99]" not in explanation
 
 
+@pytest.mark.parametrize("reference", ["messages[0].content", "/messages/0/content"])
+def test_leaf_message_references_are_valid_support_for_feedback(reference: str) -> None:
+    evidence = {
+        "messages": [
+            {"id": "reply-1", "role": "assistant", "content": "usable reply"},
+        ],
+        "judge": {
+            "verdict": "supported",
+            "evidence_refs": [reference],
+        },
+    }
+    feedback = build_detector_feedback(
+        (
+            ControlCase(
+                "generic-leaf-reference",
+                evidence,
+                expected_outcome="not_detected",
+                expected_claim_level="reply",
+            ),
+        ),
+        (
+            {
+                "name": "generic-leaf-reference",
+                "status": "failed",
+                "failure": "outcome_mismatch",
+                "observed_outcome": "detected",
+                "observed_claim_level": "reply",
+                "actual_result": {
+                    "outcome": "detected",
+                    "reason": "returned",
+                    "evidence_refs": [reference],
+                    "claim_level": "reply",
+                },
+            },
+        ),
+    )[0]
+
+    assert feedback.outcome_class == "structurally_valid_wrong_outcome"
+    assert "does not resolve" not in feedback.runtime_contract_explanation
+    assert "structurally valid result" in feedback.runtime_contract_explanation
+
+
 def test_unusable_message_explanation_only_considers_judge_citations() -> None:
     messages = [
         {"id": "uncited-null", "role": "assistant", "content": None},
