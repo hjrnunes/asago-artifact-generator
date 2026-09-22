@@ -71,6 +71,28 @@ def test_numeric_nested_token_detail_maps_are_allowed() -> None:
     assert _package(authoring=metadata).manifest.authoring == metadata
 
 
+def test_recorded_model_control_metadata_is_allowed() -> None:
+    metadata = {
+        "ledger": [
+            {
+                "controls": {
+                    "context_window_tokens": 32_768,
+                    "max_completion_tokens": 8_192,
+                },
+                "review": {
+                    "effective_controls": {
+                        "context_window_tokens": 32_768,
+                        "max_completion_tokens": 8_192,
+                    }
+                },
+            }
+        ]
+    }
+
+    assert_no_secrets({"authoring": metadata})
+    assert _package(authoring=metadata).manifest.authoring == metadata
+
+
 @pytest.mark.parametrize(
     "metadata",
     [
@@ -116,6 +138,8 @@ def test_numeric_nested_token_detail_maps_are_allowed() -> None:
         {"usage": {1: 1}},
         {"usage": "not-a-list"},
         {"usage": [{"availability": "available", "value": {"prompt_tokens": True}}]},
+        {"max_completion_tokens_extra": 8_192},
+        {"context_window_tokens_extra": 32_768},
         {"auth_token": "secret"},
         {"auth": "secret"},
         {"session_token": "secret"},

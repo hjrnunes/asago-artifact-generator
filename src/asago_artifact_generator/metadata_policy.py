@@ -17,6 +17,12 @@ _SECRET_KEY_MARKERS = (
     "token",
 )
 _SECRET_KEY_PREFIXES = ("auth", "session", "access", "bearer")
+_NON_SECRET_CONTROL_KEYS = frozenset(
+    {
+        "context_window_tokens",
+        "max_completion_tokens",
+    }
+)
 _PROMPT_SECRET_KEY_MARKERS = _SECRET_KEY_MARKERS + ("bearer",)
 _PROMPT_SECRET_KEY_PREFIXES = ("auth", "access", "bearer")
 _PROMPT_STRUCTURAL_SUFFIXES = frozenset(
@@ -58,6 +64,9 @@ def secret_metadata_paths(value: Any, path: str = "") -> list[str]:
     token-detail maps. A record may contain the subset reported by a provider,
     but it must contain at least one counter. The exception never applies to
     any other metadata field or to secret-bearing names inside a detail map.
+    The exact ``context_window_tokens`` and ``max_completion_tokens`` keys are
+    also allowed because the authoring transport records them as non-secret
+    request controls.
     """
 
     return _walk(value, path)
@@ -83,7 +92,9 @@ def _walk(value: Any, path: str) -> list[str]:
             if key == "usage":
                 violations.extend(_validate_usage(item, child_path))
                 continue
-            if not isinstance(key, str) or _looks_secret_key(key):
+            if not isinstance(key, str) or (
+                key not in _NON_SECRET_CONTROL_KEYS and _looks_secret_key(key)
+            ):
                 violations.append(child_path)
             violations.extend(_walk(item, child_path))
         return violations
