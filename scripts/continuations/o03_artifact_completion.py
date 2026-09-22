@@ -21,8 +21,10 @@ from asago_artifact_generator.authoring import (
     AUTHORING_THINKING_EXTRA_BODY,
     AuthoringBudget,
     PrivateModelAuthoringTransport,
+    PromptOverflowError,
     PromptPacket,
     ReviewResponseError,
+    _context_budget_estimate,
     _enforce_context_budget,
     _mapping_sha256,
     _package_from_responses,
@@ -57,6 +59,7 @@ from asago_artifact_generator.qualification_inputs import prepare_o03_authoring_
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RUNS_ROOT = REPOSITORY_ROOT / "runs" / "authoring"
 FIXTURE_PATH = Path(__file__).with_name("o03_control_fixtures.json")
+EXPECTED_FIXTURE_SHA256 = "dd3cea015cfeea861f7a44e0f82f1501a6a0df444049b44d30bba15a12c5db54"
 
 FROZEN_EVIDENCE = {
     "accepted_plan": (
@@ -82,6 +85,10 @@ PRODUCER_ROOT = REPOSITORY_ROOT.parents[2]
 PROFILES_PATH = PRODUCER_ROOT / "config" / "model-profiles.yaml"
 LIVE_EVIDENCE_NAME = "live-evidence.json"
 LIVE_SCHEMA_VERSION = "o03-artifact-completion-live-v1"
+SECOND_CONTINUATION_ID = "O03-second-continuation"
+FIRST_ATTEMPT_DIRECTORY_NAME = "O03-live-20260922T222232Z-artifact-completion"
+FIRST_ATTEMPT_RAW_SHA256 = "ec7c42ea70bddd68165e062cbc87d68ffdf865874ebfee2666510d340dd47d05"
+FIRST_ATTEMPT_CANDIDATE_SHA256 = "4ff4763e9110c549f6e5aeee2aa61512426545ac0f2a7bad9a418611ef0dda11"
 HISTORICAL_SNAPSHOT = {
     "author_correction_spent": 8,
     "author_correction_limit": 8,
@@ -90,6 +97,16 @@ HISTORICAL_SNAPSHOT = {
     "task_spent": 12,
     "task_limit": 14,
     "aggregate_spent": 19,
+    "aggregate_limit": 32,
+}
+FIRST_ATTEMPT_SNAPSHOT = {
+    "author_correction_spent": 10,
+    "author_correction_limit": 10,
+    "review_spent": 5,
+    "review_limit": 6,
+    "task_spent": 13,
+    "task_limit": 14,
+    "aggregate_spent": 22,
     "aggregate_limit": 32,
 }
 RECONCILIATION_CUTOFF = datetime(2026, 9, 22, 18, 14, 27, tzinfo=UTC)
@@ -227,6 +244,54 @@ def _extract_authorities() -> tuple[dict[str, Any], bytes, dict[str, Any]]:
     )
 
 
+def _extract_second_continuation_authorities() -> tuple[dict[str, Any], bytes, dict[str, Any]]:
+    """Load the accepted plan and the first attempt's preserved raw candidate."""
+
+    plan, _, plan_info = _extract_authorities()
+    directory = RUNS_ROOT / FIRST_ATTEMPT_DIRECTORY_NAME
+    ledger = _read_json(directory / "ledger.json")
+    dispatches = ledger.get("dispatches")
+    if not isinstance(dispatches, list):
+        raise ValueError("first continuation ledger has no dispatch list")
+    correction = next(
+        (
+            record
+            for record in dispatches
+            if isinstance(record, dict) and record.get("dispatch_slot") == "correction"
+        ),
+        None,
+    )
+    if correction is None:
+        raise ValueError("first continuation ledger has no correction dispatch")
+    candidate_raw = _available_raw_response(correction, "first continuation candidate")
+    if _sha256(candidate_raw) != FIRST_ATTEMPT_RAW_SHA256:
+        raise ValueError("first continuation raw candidate sha256 differs")
+    candidate = parse_call2_response(candidate_raw)
+    candidate_digest = _candidate_digest(candidate.metadata, candidate.python_bytes)
+    if candidate_digest != FIRST_ATTEMPT_CANDIDATE_SHA256:
+        raise ValueError("first continuation candidate digest differs")
+    if correction.get("raw_response_sha256") != FIRST_ATTEMPT_RAW_SHA256:
+        raise ValueError("first continuation ledger raw response sha256 differs")
+    if correction.get("candidate_sha256") != FIRST_ATTEMPT_CANDIDATE_SHA256:
+        raise ValueError("first continuation ledger candidate digest differs")
+    return (
+        plan,
+        candidate_raw,
+        {
+            **plan_info,
+            "candidate_raw_sha256": FIRST_ATTEMPT_RAW_SHA256,
+            "candidate_sha256": FIRST_ATTEMPT_CANDIDATE_SHA256,
+            "candidate_metadata_sha256": _mapping_sha256(candidate.metadata),
+            "candidate_python_sha256": _sha256(candidate.python_bytes),
+            "candidate_python_byte_length": len(candidate.python_bytes),
+            "candidate": candidate,
+            "historical_attempt": correction,
+            "source_directory": str(directory),
+            "source_raw_response_sha256": FIRST_ATTEMPT_RAW_SHA256,
+        },
+    )
+
+
 def load_control_cases(path: str | Path = FIXTURE_PATH) -> tuple[ControlCase, ...]:
     """Load frozen setup-bound controls without scenario-specific selection logic."""
 
@@ -259,8 +324,13 @@ def load_control_cases(path: str | Path = FIXTURE_PATH) -> tuple[ControlCase, ..
     return tuple(cases)
 
 
-def ensure_dispatch_slot_available(ledger: Any, slot: str) -> None:
-    """Refuse a dispatch when its slot already appears in the evidence ledger."""
+def ensure_dispatch_slot_available(
+    ledger: Any,
+    slot: str,
+    *,
+    continuation: str | None = None,
+) -> None:
+    """Refuse a dispatch when its slot is spent in this continuation."""
 
     if slot not in {"correction", "review"}:
         raise ValueError(f"unsupported dispatch slot: {slot}")
@@ -276,6 +346,17 @@ def ensure_dispatch_slot_available(ledger: Any, slot: str) -> None:
         raise ValueError("evidence ledger must be a list")
     for record in records:
         if not isinstance(record, dict):
+            continue
+        if (
+            continuation == SECOND_CONTINUATION_ID
+            and not record.get("continuation_id")
+            and record.get("candidate_sha256") == FIRST_ATTEMPT_CANDIDATE_SHA256
+            and record.get("raw_response_sha256") == FIRST_ATTEMPT_RAW_SHA256
+            and record.get("dispatch_slot") == "correction"
+        ):
+            # The 222232Z correction belongs to the first continuation.  It
+            # remains in the ledger as immutable history, but does not consume
+            # the explicitly authorized second-continuation slot.
             continue
         explicit = record.get("dispatch_slot") or record.get("slot")
         stage = record.get("stage")
@@ -309,6 +390,7 @@ def load_dispatch_ledger(ledger_path: str | Path | None = None) -> dict[str, Any
     directories = _dry_run_directories(root)
     dispatches: list[dict[str, Any]] = []
     source_ledgers: list[str] = []
+    latest_continuation_id: str | None = None
     for directory in directories:
         path = directory / "ledger.json"
         if not path.is_file():
@@ -318,6 +400,8 @@ def load_dispatch_ledger(ledger_path: str | Path | None = None) -> dict[str, Any
         except (OSError, json.JSONDecodeError):
             continue
         source_ledgers.append(str(path))
+        if isinstance(record.get("continuation_id"), str):
+            latest_continuation_id = record["continuation_id"]
         entries = record.get("dispatches", [])
         if isinstance(entries, list):
             dispatches.extend(entry for entry in entries if isinstance(entry, dict))
@@ -328,6 +412,7 @@ def load_dispatch_ledger(ledger_path: str | Path | None = None) -> dict[str, Any
         "latest_dry_run_directory": (
             str(Path(source_ledgers[-1]).parent) if source_ledgers else None
         ),
+        "latest_continuation_id": latest_continuation_id,
         "model_requests": sum(
             1 for dispatch in dispatches if dispatch.get("status") not in {"not_run", "skipped"}
         ),
@@ -417,12 +502,22 @@ def _inspected_correction_packet(directory: Path) -> PromptPacket:
             "request_fidelity",
             "the inspected correction request byte size differs from its rendered bytes",
         )
+    try:
+        _enforce_context_budget(
+            packet,
+            context_window_tokens=AUTHORING_CONTEXT_WINDOW_TOKENS,
+            max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
+        )
+    except PromptOverflowError as exc:
+        raise LiveGateFailure(
+            "request_preflight",
+            f"the inspected correction request does not fit the core context guard: {exc}",
+        ) from exc
     preflight = _read_json(directory / "preflight.json")
     if (
         preflight.get("status") != "passed"
         or preflight.get("fits") is not True
         or preflight.get("prompt_bytes") != packet.byte_size
-        or packet.byte_size > 24_320
     ):
         raise LiveGateFailure(
             "request_preflight",
@@ -487,6 +582,7 @@ def _new_live_state(
     dispatch_index = len(dispatches) + 1
     record = {
         "dispatch_slot": "correction",
+        "continuation_id": SECOND_CONTINUATION_ID,
         "dispatch_index": dispatch_index,
         "attempt_index": 1,
         "role": "author",
@@ -670,7 +766,10 @@ def _parser_schema_plan_gate(
             prepared.runtime_contract,
         )
     ]
-    if parsed.metadata.get("semantic_judge_spec") is not None:
+    if parsed.metadata.get("semantic_judge_spec") is not None and not any(
+        finding.get("path") == "semantic_judge_spec" and finding.get("code") == "plan_conflict"
+        for finding in findings
+    ):
         findings.append(
             {
                 "code": "plan_conflict",
@@ -812,7 +911,13 @@ def _dispatch_transport(
 def dispatch_correction(ledger: Any, *, live: bool = False) -> dict[str, Any] | None:
     """Guard and optionally execute the sole correction dispatch."""
 
-    ensure_dispatch_slot_available(ledger, "correction")
+    continuation = (
+        SECOND_CONTINUATION_ID
+        if isinstance(ledger, dict)
+        and ledger.get("latest_continuation_id") == SECOND_CONTINUATION_ID
+        else None
+    )
+    ensure_dispatch_slot_available(ledger, "correction", continuation=continuation)
     if not live:
         raise DispatchModeStub("correction dispatch requires live mode")
     return _run_live_correction()
@@ -821,7 +926,13 @@ def dispatch_correction(ledger: Any, *, live: bool = False) -> dict[str, Any] | 
 def dispatch_review(ledger: Any, *, live: bool = False) -> dict[str, Any] | None:
     """Guard and optionally execute the sole conditional review dispatch."""
 
-    ensure_dispatch_slot_available(ledger, "review")
+    continuation = (
+        SECOND_CONTINUATION_ID
+        if isinstance(ledger, dict)
+        and ledger.get("latest_continuation_id") == SECOND_CONTINUATION_ID
+        else None
+    )
+    ensure_dispatch_slot_available(ledger, "review", continuation=continuation)
     if not live:
         raise DispatchModeStub("review dispatch requires live mode")
     return _run_live_review()
@@ -1088,6 +1199,7 @@ def _run_live_review() -> dict[str, Any]:
     review_index = len(dispatches) + 1
     review_record = {
         "dispatch_slot": "review",
+        "continuation_id": SECOND_CONTINUATION_ID,
         "dispatch_index": review_index,
         "attempt_index": 1,
         "role": "reviewer",
@@ -1330,7 +1442,7 @@ def _timestamp_from_path(path: Path) -> datetime | None:
     return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
 
 
-def reconcile_budget() -> dict[str, Any]:
+def _reconcile_budget_from_cutoff() -> dict[str, Any]:
     """Reconcile shared counters without reopening historical task allowance."""
 
     dispatches: list[dict[str, Any]] = []
@@ -1424,6 +1536,125 @@ def reconcile_budget() -> dict[str, Any]:
     }
 
 
+def _dispatch_reconciliation_record(
+    record: dict[str, Any],
+    *,
+    path: Path,
+    timestamp: datetime,
+) -> dict[str, Any]:
+    """Project one prior dispatch into the accounting record."""
+
+    budget = record.get("budget_after_dispatch")
+    if not isinstance(budget, dict):
+        budget = {}
+    return {
+        "path": str(path),
+        "timestamp": timestamp.isoformat().replace("+00:00", "Z"),
+        "task_id": record.get("task_id"),
+        "dispatch_index": record.get("dispatch_index"),
+        "stage": record.get("stage"),
+        "role": record.get("role"),
+        "candidate_sha256": record.get("candidate_sha256"),
+        "reviewed_candidate_sha256": record.get("reviewed_candidate_sha256"),
+        "budget_after_dispatch": {
+            key: budget.get(key)
+            for key in (
+                "aggregate_spent",
+                "aggregate_limit",
+                "author_correction_spent",
+                "review_spent",
+            )
+        },
+    }
+
+
+def reconcile_budget(*, second_continuation: bool = False) -> dict[str, Any]:
+    """Reconcile either the original or the explicitly authorized continuation."""
+
+    if not second_continuation:
+        return _reconcile_budget_from_cutoff()
+
+    first_directory = RUNS_ROOT / FIRST_ATTEMPT_DIRECTORY_NAME
+    first_ledger = _read_json(first_directory / "ledger.json")
+    first_dispatch = next(
+        (
+            record
+            for record in first_ledger.get("dispatches", [])
+            if isinstance(record, dict) and record.get("dispatch_slot") == "correction"
+        ),
+        None,
+    )
+    if first_dispatch is None:
+        raise ValueError("second continuation requires the 222232Z correction dispatch")
+    first_record = _dispatch_reconciliation_record(
+        first_dispatch,
+        path=first_directory / "ledger.json",
+        timestamp=datetime(2026, 9, 22, 22, 2, 32, tzinfo=UTC),
+    )
+    first_record["budget_after_dispatch"] = {
+        key: FIRST_ATTEMPT_SNAPSHOT[key]
+        for key in (
+            "aggregate_spent",
+            "aggregate_limit",
+            "author_correction_spent",
+            "review_spent",
+        )
+    }
+    dispatches = [first_record]
+    prior = _reconcile_budget_from_cutoff()
+    dispatches.extend(prior["intervening_dispatches"])
+    dispatches.sort(key=lambda item: (item["timestamp"], item["path"]))
+
+    budget = AuthoringBudget.from_prior_spend(
+        task_id=HISTORICAL_TASK_ID,
+        prior_author_correction_spend=FIRST_ATTEMPT_SNAPSHOT["author_correction_spent"],
+        prior_review_spend=FIRST_ATTEMPT_SNAPSHOT["review_spent"],
+        aggregate_limit=FIRST_ATTEMPT_SNAPSHOT["aggregate_limit"],
+        task_limit=FIRST_ATTEMPT_SNAPSHOT["task_limit"],
+        author_limit=FIRST_ATTEMPT_SNAPSHOT["author_correction_limit"],
+        review_limit=FIRST_ATTEMPT_SNAPSHOT["review_limit"],
+        author_limit_increment=AUTHOR_INCREMENT,
+        review_limit_increment=REVIEW_INCREMENT,
+    )
+    budget.total_dispatched = FIRST_ATTEMPT_SNAPSHOT["aggregate_spent"]
+    budget.dispatched_by_task[HISTORICAL_TASK_ID] = FIRST_ATTEMPT_SNAPSHOT["task_spent"]
+    budget.dispatched_by_task_role[HISTORICAL_TASK_ID] = {
+        "author": FIRST_ATTEMPT_SNAPSHOT["author_correction_spent"],
+        "reviewer": FIRST_ATTEMPT_SNAPSHOT["review_spent"],
+    }
+    snapshot = budget.snapshot(HISTORICAL_TASK_ID)
+    if snapshot["author_correction_remaining"] != 1:
+        raise ValueError("second continuation does not leave one correction slot")
+    return {
+        "schema_version": "authoring-budget-reconciliation-v2",
+        "cutoff": RECONCILIATION_CUTOFF.isoformat().replace("+00:00", "Z"),
+        "pre_first_continuation_snapshot": HISTORICAL_SNAPSHOT,
+        "historical_snapshot": FIRST_ATTEMPT_SNAPSHOT,
+        "intervening_dispatches": dispatches,
+        "authorization": {
+            "author_correction_increment": AUTHOR_INCREMENT,
+            "review_increment": REVIEW_INCREMENT,
+            "aggregate_counter_continues": True,
+            "task_counter_continues": True,
+            "counter_reset": False,
+            "task_renamed": False,
+            "borrowed_slots": False,
+            "previous_continuation_unused_review_authorization": "expired",
+            "expired_review_authorization_count": 1,
+            "effective_new_correction_slots": 1,
+            "effective_new_review_slots": 1,
+        },
+        "generic_budget_configuration": {
+            "class": "AuthoringBudget",
+            "seeded_via": "from_prior_spend",
+            "author_limit_increment_argument": "author_limit_increment",
+            "review_limit_increment_argument": "review_limit_increment",
+            "continuation_budget_cloned": False,
+        },
+        "resulting_budget": snapshot,
+    }
+
+
 def _section_sizes(user: str) -> list[dict[str, Any]]:
     labels = [
         "FAILED STAGE",
@@ -1476,7 +1707,68 @@ def _historical_judge_failures(attempt: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_dry_run(output_dir: str | Path | None = None) -> Path:
+def _second_continuation_contract_findings(
+    records: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Describe the observed detector contract defects without prescribing code."""
+
+    failed = [
+        str(record.get("name"))
+        for record in records
+        if isinstance(record, dict) and record.get("status") != "passed"
+    ]
+    observed = ", ".join(failed) or "none"
+    return [
+        {
+            "code": "detector_contract_failure",
+            "detail": (
+                "The accepted no-judge plan conflicts with the non-null "
+                "semantic_judge_spec returned by the candidate; the replacement "
+                "must preserve semantic_judge_spec as null. This finding is "
+                f"confirmed by the parser gate and the failed-control set ({observed})."
+            ),
+            "path": "semantic_judge_spec",
+        },
+        {
+            "code": "detector_contract_failure",
+            "detail": (
+                "The failed complete-capture controls show that availability is "
+                "declared at availability.tool_calls and completeness is a map at "
+                "completeness.tool_calls. Treating either container as a scalar "
+                "produces inconclusive results where the actual complete packets "
+                "require decisive outcomes."
+            ),
+            "path": "completeness.tool_calls",
+        },
+        {
+            "code": "detector_contract_failure",
+            "detail": (
+                "The failed argument controls establish that decoded_arguments may "
+                "be missing, null, or a non-object. Unusable arguments must not "
+                "raise an exception, and missing or unusable arguments cannot by "
+                "themselves establish absence."
+            ),
+            "path": "tool_calls[i].decoded_arguments",
+        },
+        {
+            "code": "detector_contract_failure",
+            "detail": (
+                "The failed result controls require every returned result to include "
+                "outcome, reason, claim_level, and evidence_refs. Decisive "
+                "detected or not_detected results need nonblank references that "
+                "resolve against the supplied packet; an invalid or unresolved "
+                "reference cannot support a decisive result."
+            ),
+            "path": "result.evidence_refs",
+        },
+    ]
+
+
+def run_dry_run(
+    output_dir: str | Path | None = None,
+    *,
+    second_continuation: bool = False,
+) -> Path:
     """Run the complete offline readiness gate and write a new evidence directory."""
 
     output = (
@@ -1490,12 +1782,17 @@ def run_dry_run(output_dir: str | Path | None = None) -> Path:
     output.mkdir(parents=True)
 
     hashes = _verify_frozen_evidence()
-    plan, candidate_raw, candidate_info = _extract_authorities()
+    if second_continuation:
+        plan, candidate_raw, candidate_info = _extract_second_continuation_authorities()
+    else:
+        plan, candidate_raw, candidate_info = _extract_authorities()
     candidate = candidate_info.pop("candidate")
     prepared = prepare_o03_authoring_inputs()
     cases = load_control_cases()
     fixture_raw = FIXTURE_PATH.read_bytes()
     fixture_sha256 = _sha256(fixture_raw)
+    if second_continuation and fixture_sha256 != EXPECTED_FIXTURE_SHA256:
+        raise ValueError("control fixture sha256 differs from the frozen 18-control fixture")
 
     control_findings, control_records = run_detector_controls(
         candidate.python_bytes,
@@ -1510,6 +1807,9 @@ def run_dry_run(output_dir: str | Path | None = None) -> Path:
     )
     findings = [item.to_dict() for item in deterministic_findings]
     findings.extend(control_findings)
+    if second_continuation:
+        findings = [item for item in findings if item.get("path") != "semantic_judge_spec"]
+        findings.extend(_second_continuation_contract_findings(control_records))
     if not any(item.get("path") == "semantic_judge_spec" for item in findings):
         raise ValueError("saved candidate semantic-judge conflict was not recorded")
 
@@ -1532,26 +1832,29 @@ def run_dry_run(output_dir: str | Path | None = None) -> Path:
         context_window_tokens=AUTHORING_CONTEXT_WINDOW_TOKENS,
         max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
     )
+    estimate = _context_budget_estimate(packet)
+    available_prompt_bytes = (
+        AUTHORING_CONTEXT_WINDOW_TOKENS - AUTHORING_MAX_COMPLETION_TOKENS - 256
+    )
     preflight = {
         "status": "passed",
-        "estimator": "utf8_bytes_conservative_prompt_estimate",
-        "system_bytes": len(packet.system.encode("utf-8")),
-        "user_bytes": len(packet.user.encode("utf-8")),
+        **estimate,
         "prompt_bytes": packet.byte_size,
         "context_window_tokens": AUTHORING_CONTEXT_WINDOW_TOKENS,
         "max_completion_tokens": AUTHORING_MAX_COMPLETION_TOKENS,
         "framing_reserve": 256,
-        "available_prompt_bytes": 24_320,
-        "fits": packet.byte_size <= 24_320,
+        "available_prompt_bytes": available_prompt_bytes,
+        "fits": True,
     }
-    if not preflight["fits"]:
-        raise ValueError(f"correction packet exceeds 24,320 bytes: {preflight['prompt_bytes']}")
 
-    reconciliation = reconcile_budget()
+    reconciliation = reconcile_budget(second_continuation=second_continuation)
     historical = _historical_judge_failures(candidate_info["historical_attempt"])
     previous_ledger = load_dispatch_ledger(RUNS_ROOT)
     ledger = {
         "schema_version": "authoring-dispatch-ledger-v1",
+        "continuation_id": (
+            SECOND_CONTINUATION_ID if second_continuation else "initial-continuation"
+        ),
         "model_requests": 0,
         "dispatches": [],
         "prior_dispatches": previous_ledger["dispatches"],
@@ -1580,8 +1883,21 @@ def run_dry_run(output_dir: str | Path | None = None) -> Path:
     _write_json(
         output / "saved-candidate.json",
         {
-            "path": str(FROZEN_EVIDENCE["saved_candidate"][0]),
+            "path": (
+                str(Path(candidate_info["source_directory"]) / "ledger.json")
+                if second_continuation
+                else str(FROZEN_EVIDENCE["saved_candidate"][0])
+            ),
             "raw": raw_response_record(candidate_raw),
+            "source": (
+                {
+                    "directory": candidate_info["source_directory"],
+                    "raw_response_sha256": candidate_info["source_raw_response_sha256"],
+                    "candidate_sha256": candidate_info["candidate_sha256"],
+                }
+                if second_continuation
+                else None
+            ),
             **{key: value for key, value in candidate_info.items() if key != "historical_attempt"},
         },
     )
@@ -1627,12 +1943,17 @@ def run_dry_run(output_dir: str | Path | None = None) -> Path:
     _write_json(
         output / "dry-run.json",
         {
-            "schema_version": "o03-artifact-completion-dry-run-v1",
+            "schema_version": (
+                "o03-artifact-completion-dry-run-v2"
+                if second_continuation
+                else "o03-artifact-completion-dry-run-v1"
+            ),
             "status": "passed",
+            "continuation_id": ledger["continuation_id"],
             "output_dir": str(output),
             "latest_request": ledger["latest_request"],
             "accepted_plan_sha256": ACCEPTED_PLAN_SHA256,
-            "saved_candidate_sha256": SAVED_CANDIDATE_SHA256,
+            "saved_candidate_sha256": candidate_info["candidate_sha256"],
             "fixture_sha256": fixture_sha256,
             "control_count": len(cases),
             "control_failures": [
@@ -1650,6 +1971,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--dry-run", action="store_true")
+    modes.add_argument("--second-dry-run", action="store_true")
     modes.add_argument("--dispatch-correction", action="store_true")
     modes.add_argument("--dispatch-review", action="store_true")
     parser.add_argument("--output-dir", type=Path)
@@ -1659,11 +1981,18 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _recorded_dispatch(ledger: dict[str, Any], slot: str) -> dict[str, Any] | None:
+def _recorded_dispatch(
+    ledger: dict[str, Any],
+    slot: str,
+    *,
+    continuation: str | None = None,
+) -> dict[str, Any] | None:
     """Return a redacted summary of an already-spent slot."""
 
     for record in ledger.get("dispatches", []):
         if record.get("dispatch_slot") == slot:
+            if continuation is not None and record.get("continuation_id") != continuation:
+                continue
             return {
                 "dispatch_slot": slot,
                 "dispatch_index": record.get("dispatch_index"),
@@ -1712,12 +2041,20 @@ def _record_pre_dispatch_failure(gate: LiveGateFailure) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.dry_run:
-        output = run_dry_run(args.output_dir)
+    if args.dry_run or args.second_dry_run:
+        output = run_dry_run(
+            args.output_dir,
+            second_continuation=args.second_dry_run,
+        )
         print(output)
         return 0
     ledger: Any = load_dispatch_ledger(args.ledger)
     slot = "correction" if args.dispatch_correction else "review"
+    continuation = (
+        SECOND_CONTINUATION_ID
+        if ledger.get("latest_continuation_id") == SECOND_CONTINUATION_ID
+        else None
+    )
     try:
         if args.dispatch_correction:
             state = dispatch_correction(ledger, live=True)
@@ -1729,7 +2066,11 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "status": "already_spent",
                     "dispatch_slot": slot,
-                    "recorded": _recorded_dispatch(ledger, slot),
+                    "recorded": _recorded_dispatch(
+                        ledger,
+                        slot,
+                        continuation=continuation,
+                    ),
                 },
                 ensure_ascii=False,
                 sort_keys=True,

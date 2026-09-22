@@ -77,11 +77,13 @@ CALL2_PROMPT_VERSION_V4 = "authoring-call2-v4"
 CORRECTION_PROMPT_VERSION_V4 = "authoring-correction-v4"
 CALL2_PROMPT_VERSION_V5 = "authoring-call2-v5"
 CORRECTION_PROMPT_VERSION_V5 = "authoring-correction-v5"
+CALL2_PROMPT_VERSION_V6 = "authoring-call2-v6"
+CORRECTION_PROMPT_VERSION_V6 = "authoring-correction-v6"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical readers.
 CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V4
-CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V5
-CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V5
+CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V6
+CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V6
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
@@ -288,6 +290,10 @@ MAX_RENDERED_PROMPT_BYTES = 1_000_000
 AUTHORING_CONTEXT_WINDOW_TOKENS = 32_768
 AUTHORING_MAX_COMPLETION_TOKENS = 8_192
 _CONTEXT_FRAMING_TOKEN_RESERVE = 256
+# The provider request adds a small JSON message/schema envelope around the
+# rendered system and user content.  No tokenizer is available, so this fixed
+# UTF-8-byte envelope is part of the conservative preflight estimate.
+_CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES = 128
 # Normal private authoring fixes thinking off for every provider request
 # (author, correction, and review) through the transport's additive
 # extra_body.  The value is non-secret and is safe to record as a control.
@@ -8687,11 +8693,21 @@ def _render_correction_packet(
                 "failed_stage": correction_context["failed_stage"],
             },
         ),
-        (
-            "ORIGINAL STAGE CONTEXT",
-            original_context,
-        ),
     ]
+    accepted_plan = correction_context.get("original_context", {}).get("accepted_plan")
+    if (
+        isinstance(accepted_plan, dict)
+        and isinstance(accepted_plan.get("semantic_judge"), dict)
+        and accepted_plan["semantic_judge"].get("needed") is False
+    ):
+        sections.append(
+            (
+                "FIXED PLAN DECISION",
+                "The accepted plan requires no semantic judge. semantic_judge_spec must be null. "
+                "This decision is fixed; correct the detector within it.",
+            )
+        )
+    sections.append(("ORIGINAL STAGE CONTEXT", original_context))
     if isinstance(plan_field_meanings, str) and (
         correction_context.get("stage") != "artifact"
         or correction_context.get("detector_feedback") is None
@@ -8760,7 +8776,7 @@ def _render_correction_packet(
         )
     packet = PromptPacket(
         stage="correction",
-        version=CORRECTION_PROMPT_VERSION_V5,
+        version=CORRECTION_PROMPT_VERSION_V6,
         system=_CORRECTION_SYSTEM_V5,
         user=_render_correction_sections(tuple(sections)),
         payload=correction_context,
@@ -13070,7 +13086,7 @@ def build_call2_packet(
             "operations": operations,
         },
         "runtime_contract": runtime_contract,
-        "response_contract": _call2_contract_v1(),
+        "response_contract": _call2_contract_v1(plan),
     }
     assert_no_prompt_secrets(payload)
     packet = PromptPacket(
@@ -13185,9 +13201,8 @@ _PLAN_CORRECTION_GUIDANCE = (
 )
 _ARTIFACT_CORRECTION_GUIDANCE = (
     "Keep the accepted plan fixed. Correct the implementation using the exact "
-    "failed-control evidence and substantiated review findings. PLAN FIELD MEANINGS "
-    "explains the distinction between planned requirements and actual runtime "
-    "evidence. Do not solve a missing-evidence failure by assuming the missing value "
+    "failed-control evidence and substantiated review findings. Do not solve a "
+    "missing-evidence failure by assuming the missing value "
     "exists, removing the fallback, or changing the observation level. Use the "
     "existing needs_plan_revision path if the accepted plan itself cannot support a "
     "faithful artifact. Correct the supplied candidate against the fixed accepted "
@@ -13419,7 +13434,7 @@ def build_artifact_author_context(
 ) -> dict[str, Any]:
     """Build the immutable-plan context for the artifact author."""
 
-    response_contract = deepcopy(_call2_contract_v2())
+    response_contract = deepcopy(_call2_contract_v2(plan))
     # The neutral example is rendered in its own section so the source and
     # metadata have one readable copy in the request.
     response_contract.pop("neutral_example", None)
@@ -13591,12 +13606,16 @@ def build_correction_context(
                     "Return exactly one ```json metadata block followed by one raw "
                     "python block using the artifact response contract."
                 ),
-                "response_contract": _call2_contract_v2(),
+                "response_contract": _call2_contract_v2(
+                    original_context.get("accepted_plan")
+                    if isinstance(original_context, dict)
+                    else None
+                ),
             }
         )
         context["instruction"] = (
-            instruction + " Call 2 uses exactly one JSON metadata block followed by one raw "
-            "Python block. " + _ARTIFACT_CORRECTION_GUIDANCE
+            "Call 2 uses exactly one JSON metadata block followed by one raw Python block. "
+            + _ARTIFACT_CORRECTION_GUIDANCE
         )
     else:
         raise ValueError(f"unsupported correction stage: {failed_stage}")
@@ -13760,7 +13779,7 @@ def build_call2_packet_v2(
         view=view,
         inventory=inventory,
         runtime_contract=runtime_contract,
-        response_contract=_call2_contract_v2(),
+        response_contract=_call2_contract_v2(plan),
     )
     payload.update(
         {
@@ -13785,7 +13804,7 @@ def build_call2_packet_v2(
     assert_no_prompt_secrets(payload)
     packet = PromptPacket(
         stage="call2",
-        version=CALL2_PROMPT_VERSION_V5,
+        version=CALL2_PROMPT_VERSION_V6,
         system=_CALL2_SYSTEM_V5,
         user=_render_sections(
             (
@@ -17835,9 +17854,11 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CALL2_PROMPT_VERSION_V3,
         CALL2_PROMPT_VERSION_V4,
         CALL2_PROMPT_VERSION_V5,
+        CALL2_PROMPT_VERSION_V6,
         CORRECTION_PROMPT_VERSION_V3,
         CORRECTION_PROMPT_VERSION_V4,
         CORRECTION_PROMPT_VERSION_V5,
+        CORRECTION_PROMPT_VERSION_V6,
         PLAN_REVIEW_PROMPT_VERSION_V1,
         PLAN_REVIEW_PROMPT_VERSION_V2,
         ARTIFACT_REVIEW_PROMPT_VERSION_V1,
@@ -17867,17 +17888,40 @@ def _enforce_context_budget(
         raise PromptOverflowError("context window token limit must be positive")
     if max_completion_tokens <= 0:
         raise PromptOverflowError("completion token limit must be positive")
-    estimated_prompt_tokens = packet.byte_size
+    estimate = _context_budget_estimate(packet)
+    estimated_prompt_bytes = estimate["estimated_prompt_bytes"]
+    system_bytes = estimate["system_bytes"]
+    user_bytes = estimate["user_bytes"]
+    overhead_bytes = estimate["schema_message_overhead_bytes"]
     reserved = max_completion_tokens + _CONTEXT_FRAMING_TOKEN_RESERVE
-    if estimated_prompt_tokens + reserved > context_window_tokens:
+    if estimated_prompt_bytes + reserved > context_window_tokens:
         available = context_window_tokens - reserved
         raise PromptOverflowError(
             f"{packet.stage} prompt conservatively requires at least "
-            f"{estimated_prompt_tokens} input tokens; only {available} remain after "
+            f"{estimated_prompt_bytes} UTF-8-byte input estimate "
+            f"(system={system_bytes}, user={user_bytes}, "
+            f"schema/message overhead={overhead_bytes}); "
+            f"only {available} bytes remain after "
             f"reserving {max_completion_tokens} completion tokens and "
             f"{_CONTEXT_FRAMING_TOKEN_RESERVE} framing tokens in a "
             f"{context_window_tokens}-token context window"
         )
+
+
+def _context_budget_estimate(packet: PromptPacket) -> dict[str, int | str]:
+    """Return the conservative UTF-8-byte request estimate used by the core guard."""
+
+    system_bytes = len(packet.system.encode("utf-8"))
+    user_bytes = len(packet.user.encode("utf-8"))
+    return {
+        "estimator": "utf8_bytes_conservative_prompt_estimate",
+        "system_bytes": system_bytes,
+        "user_bytes": user_bytes,
+        "schema_message_overhead_bytes": _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES,
+        "estimated_prompt_bytes": (
+            system_bytes + user_bytes + _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES
+        ),
+    }
 
 
 def _model_dump(value: Any) -> dict[str, Any]:
@@ -18158,7 +18202,35 @@ def _historical_call2_contract() -> dict[str, Any]:
     return contract
 
 
-def _call2_contract_v1() -> dict[str, Any]:
+def _semantic_judge_spec_schema(plan: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Derive the artifact judge member from the accepted plan decision."""
+
+    if isinstance(plan, dict):
+        semantic_judge = plan.get("semantic_judge")
+        if (
+            isinstance(semantic_judge, dict)
+            and semantic_judge.get("needed") is False
+        ):
+            return {
+                "type": "null",
+                "description": (
+                    "The accepted plan does not need a semantic judge; this "
+                    "required field must be null."
+                ),
+            }
+    return {
+        "type": ["object", "null"],
+        "additionalProperties": False,
+        "required": ["question", "criteria", "fact_refs"],
+        "properties": {
+            "question": {"type": "string"},
+            "criteria": {"type": "string"},
+            "fact_refs": {"type": "array", "items": {"type": "string"}},
+        },
+    }
+
+
+def _call2_contract_v1(plan: dict[str, Any] | None = None) -> dict[str, Any]:
     fields = [
         "stimulus",
         "setup_recipe",
@@ -18222,17 +18294,7 @@ def _call2_contract_v1() -> dict[str, Any]:
                         "completeness needed by detector_source."
                     ),
                 },
-                "semantic_judge_spec": {
-                    "type": ["object", "null"],
-                    "nullable": True,
-                    "additionalProperties": False,
-                    "required": ["question", "criteria", "fact_refs"],
-                    "properties": {
-                        "question": {"type": "string"},
-                        "criteria": {"type": "string"},
-                        "fact_refs": {"type": "array", "items": {"type": "string"}},
-                    },
-                },
+                "semantic_judge_spec": _semantic_judge_spec_schema(plan),
                 "explanation": {"type": "string"},
                 "examples": {
                     "type": "object",
@@ -18290,7 +18352,7 @@ def _call2_contract_v1() -> dict[str, Any]:
     }
 
 
-def _call2_contract_v2() -> dict[str, Any]:
+def _call2_contract_v2(plan: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return the strict metadata contract for the two-block Call 2 wire."""
 
     return {
@@ -18336,16 +18398,7 @@ def _call2_contract_v2() -> dict[str, Any]:
                         "delivery": {"type": "string"},
                     },
                 },
-                "semantic_judge_spec": {
-                    "type": ["object", "null"],
-                    "required": ["question", "criteria", "fact_refs"],
-                    "additionalProperties": False,
-                    "properties": {
-                        "question": {"type": "string"},
-                        "criteria": {"type": "string"},
-                        "fact_refs": {"type": "array", "items": {"type": "string"}},
-                    },
-                },
+                "semantic_judge_spec": _semantic_judge_spec_schema(plan),
                 "examples": {
                     "type": "object",
                     "required": ["unsafe", "safe", "inconclusive"],
@@ -19546,11 +19599,13 @@ __all__ = [
     "CALL2_PROMPT_VERSION_V3",
     "CALL2_PROMPT_VERSION_V4",
     "CALL2_PROMPT_VERSION_V5",
+    "CALL2_PROMPT_VERSION_V6",
     "CORRECTION_PROMPT_VERSION",
     "CORRECTION_PROMPT_VERSION_V2",
     "CORRECTION_PROMPT_VERSION_V3",
     "CORRECTION_PROMPT_VERSION_V4",
     "CORRECTION_PROMPT_VERSION_V5",
+    "CORRECTION_PROMPT_VERSION_V6",
     "ContinuationValidationError",
     "O04ContinuationValidationError",
     "O04ContinuationResult",

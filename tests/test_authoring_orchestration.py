@@ -202,7 +202,12 @@ def test_rendered_contracts_expose_complete_validator_shapes_and_empty_permissio
     )
     call2_schema = call2.payload["response_contract"]["schema"]
     assert call2_schema["properties"]["detector_source"]["type"] == "string"
-    assert call2_schema["properties"]["semantic_judge_spec"]["nullable"] is True
+    assert call2_schema["properties"]["semantic_judge_spec"] == {
+        "type": "null",
+        "description": (
+            "The accepted plan does not need a semantic judge; this required field must be null."
+        ),
+    }
     assert call2.payload["response_contract"]["detector_result"]["outcomes"] == [
         "detected",
         "not_detected",
