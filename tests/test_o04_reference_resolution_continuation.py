@@ -57,7 +57,7 @@ EVIDENCE_RELATIVE = Path("evidence") / "o04-reference-resolution-20260922" / (
 )
 LIVE_EVIDENCE_RELATIVE = (
     Path("evidence")
-    / "o04-reference-resolution-live-20260922"
+    / "o04-reference-resolution-live-20260922b"
     / "continuation-evidence.json"
 )
 READINESS_RELATIVE = Path("evidence") / "o04-reference-resolution-readiness-20260922"
@@ -306,6 +306,37 @@ def test_reference_resolution_rejects_occupied_fresh_live_evidence(
 
     with pytest.raises(O04ContinuationValidationError, match="evidence"):
         _prepared(tmp_path)
+
+
+def test_reference_resolution_uses_third_live_root_and_rejects_historical_second(
+    tmp_path: Path,
+) -> None:
+    _populate_readiness_root(tmp_path)
+    third_live_evidence = (
+        tmp_path
+        / "evidence"
+        / "o04-reference-resolution-live-20260922b"
+        / "continuation-evidence.json"
+    )
+
+    continuation = _prepared(tmp_path, evidence_path=third_live_evidence)
+
+    assert continuation.evidence_path == third_live_evidence
+
+    second_live_evidence = (
+        tmp_path
+        / "evidence"
+        / "o04-reference-resolution-live-20260922"
+        / "continuation-evidence.json"
+    )
+    second_live_evidence.parent.mkdir(parents=True)
+    second_live_evidence.write_bytes(b"preserved historical evidence\n")
+    before = second_live_evidence.read_bytes()
+
+    with pytest.raises(O04ContinuationValidationError, match="fresh sealed names"):
+        _prepared(tmp_path, evidence_path=second_live_evidence)
+
+    assert second_live_evidence.read_bytes() == before
 
 
 def test_reference_resolution_rejects_occupied_package_root(tmp_path: Path) -> None:

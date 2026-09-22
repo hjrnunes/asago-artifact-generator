@@ -38,6 +38,8 @@ and endpoint values stay in memory and never enter shell output, prompts,
 ledgers, packages, or failure evidence. Without `--profile`, environment-only
 configuration still works when it supplies a real API key; missing credentials
 fail before dispatch.
+Named-profile loading also passes the non-secret `profile_name` separately from
+the base URL, API key, and provider wire model.
 
 Prompt roles are versioned independently from the response wire:
 `authoring-call1-v3`, `authoring-plan-review-v1`,

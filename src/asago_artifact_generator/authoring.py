@@ -273,7 +273,7 @@ O04_REFERENCE_RESOLUTION_CONTINUATION_TASK_ID = (
     "O04-reference-resolution-20260922"
 )
 O04_REFERENCE_RESOLUTION_EVIDENCE_ROOT = (
-    "evidence/o04-reference-resolution-live-20260922"
+    "evidence/o04-reference-resolution-live-20260922b"
 )
 O04_REFERENCE_RESOLUTION_READINESS_ROOT = (
     "evidence/o04-reference-resolution-readiness-20260922"
