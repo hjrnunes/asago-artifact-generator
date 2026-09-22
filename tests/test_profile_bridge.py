@@ -166,6 +166,9 @@ def test_author_cli_passes_profile_values_directly_to_transport(
     assert captured["api_key"] == values["api_key"]
     assert captured["model"] == values["model"]
     assert captured["profile_name"] == "gemma4-oc"
+    assert captured["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert captured["context_window_tokens"] == 32_768
+    assert captured["max_completion_tokens"] == 8_192
     assert values["api_key"] not in result.output
     assert values["base_url"] not in result.output
 
@@ -236,6 +239,9 @@ def test_author_cli_keeps_real_environment_only_configuration_compatible(
         "base_url": "https://environment.example.invalid/v1",
         "api_key": "environment-secret-value",
         "model": "environment-model",
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+        "context_window_tokens": 32_768,
+        "max_completion_tokens": 8_192,
     }
     assert "environment-secret-value" not in result.output
 

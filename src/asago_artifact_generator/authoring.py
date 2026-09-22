@@ -282,6 +282,13 @@ MAX_REQUESTS_PER_TASK = 8
 MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK = 4
 MAX_REVIEW_REQUESTS_PER_TASK = 4
 MAX_RENDERED_PROMPT_BYTES = 1_000_000
+AUTHORING_CONTEXT_WINDOW_TOKENS = 32_768
+AUTHORING_MAX_COMPLETION_TOKENS = 8_192
+_CONTEXT_FRAMING_TOKEN_RESERVE = 256
+# Normal private authoring fixes thinking off for every provider request
+# (author, correction, and review) through the transport's additive
+# extra_body.  The value is non-secret and is safe to record as a control.
+AUTHORING_THINKING_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
 A03_AGGREGATE_LIMIT = 31
 A03_HISTORICAL_REQUESTS = 23
 A03_NEW_REQUESTS = 8
@@ -855,6 +862,7 @@ class TransportResponse:
     raw: bytes
     usage: dict[str, Any] | None = None
     controls: dict[str, Any] | None = None
+    response_capture: dict[str, Any] | None = None
 
 
 @dataclass
@@ -1469,7 +1477,7 @@ class O04RefinementContinuation:
             started = time.monotonic()
             try:
                 response = transport.complete(correction_packet)
-                raw, usage, supplied_controls = _response_parts(response)
+                raw, usage, supplied_controls, response_capture = _response_parts(response)
                 if not isinstance(raw, bytes):
                     raise TypeError("artifact-correction response bytes are invalid")
             except Exception as exc:
@@ -1501,6 +1509,7 @@ class O04RefinementContinuation:
                 usage=usage,
                 controls=controls,
                 dispatch_index=dispatch_index,
+                response_capture=response_capture,
             )
             raw_responses[f"dispatch:{dispatch_index}"] = raw
             evidence["budget"] = self._budget_snapshot_for(
@@ -1603,12 +1612,15 @@ class O04RefinementContinuation:
                 )
                 controls_result = []
                 control_findings = [finding.to_dict()]
-            controls_result = list(controls_result)
-            candidate_cases = build_control_cases_for_runtime_contract(
-                candidate.runtime_contract,
-                candidate.plan,
-                parsed.metadata,
-                candidate.inventory,
+            controls_result = _o04_authoritative_control_records(list(controls_result))
+            control_findings = _o04_authoritative_control_findings(control_findings)
+            candidate_cases = tuple(
+                build_control_cases(
+                    candidate.plan,
+                    parsed.metadata,
+                    candidate.inventory,
+                    include_content_references=False,
+                )
             )
             candidate_feedback = build_detector_feedback(candidate_cases, controls_result)
             controls_ok, shape_finding = _o04_controls_match_authority(
@@ -1824,9 +1836,12 @@ class O04RefinementContinuation:
             started = time.monotonic()
             try:
                 review_response = transport.complete(review_packet)
-                review_raw, review_usage, review_supplied_controls = _response_parts(
-                    review_response
-                )
+                (
+                    review_raw,
+                    review_usage,
+                    review_supplied_controls,
+                    review_response_capture,
+                ) = _response_parts(review_response)
                 if not isinstance(review_raw, bytes):
                     raise TypeError("artifact-review response bytes are invalid")
             except Exception as exc:
@@ -1869,6 +1884,7 @@ class O04RefinementContinuation:
                 usage=review_usage,
                 controls=review_controls,
                 dispatch_index=dispatch_index,
+                response_capture=review_response_capture,
             )
             raw_responses[f"dispatch:{dispatch_index}"] = review_raw
             evidence["reviews"][-1].update(
@@ -3593,7 +3609,7 @@ class O04CorrectionContinuation:
         started = time.monotonic()
         try:
             response = transport.complete(packet)
-            raw, usage, controls = _response_parts(response)
+            raw, usage, controls, response_capture = _response_parts(response)
             if not isinstance(raw, bytes):
                 raise TypeError("artifact-correction response bytes are invalid")
         except Exception as exc:
@@ -3624,6 +3640,9 @@ class O04CorrectionContinuation:
             usage if usage else None,
             unavailable_reason="provider_did_not_report_usage",
         )
+        if response_capture is not None:
+            correction_record["attempt"]["response_capture"] = deepcopy(response_capture)
+            correction_record["ledger"]["response_capture"] = deepcopy(response_capture)
         correction_record["attempt"]["controls"] = metadata_record(
             correction_record["ledger"]["controls"],
             unavailable_reason="controls_not_recorded",
@@ -3735,6 +3754,8 @@ class O04CorrectionContinuation:
                 corrected_sha256=corrected_sha256,
                 accepted_plan=self.artifact.plan,
             )
+        controls = _o04_authoritative_control_records(list(controls))
+        control_findings = _o04_authoritative_control_findings(control_findings)
         corrected_control_findings = [
             Finding(item["code"], item["detail"], item.get("path", ""))
             for item in control_findings
@@ -3834,7 +3855,9 @@ class O04CorrectionContinuation:
         started = time.monotonic()
         try:
             review_response = transport.complete(review_packet)
-            review_raw, review_usage, review_controls = _response_parts(review_response)
+            review_raw, review_usage, review_controls, review_response_capture = _response_parts(
+                review_response
+            )
             if not isinstance(review_raw, bytes):
                 raise TypeError("artifact-review response bytes are invalid")
         except Exception as exc:
@@ -3871,6 +3894,13 @@ class O04CorrectionContinuation:
             review_usage if review_usage else None,
             unavailable_reason="provider_did_not_report_usage",
         )
+        if review_response_capture is not None:
+            review_record_data["attempt"]["response_capture"] = deepcopy(
+                review_response_capture
+            )
+            review_record_data["ledger"]["response_capture"] = deepcopy(
+                review_response_capture
+            )
         review_record_data["attempt"]["controls"] = metadata_record(
             review_controls_effective,
             unavailable_reason="controls_not_recorded",
@@ -8271,6 +8301,7 @@ def _persist_refinement_response(
     usage: dict[str, Any] | None,
     controls: dict[str, Any],
     dispatch_index: int,
+    response_capture: dict[str, Any] | None = None,
 ) -> None:
     """Persist raw provider bytes before any parser or validator runs."""
 
@@ -8283,6 +8314,9 @@ def _persist_refinement_response(
         controls,
         unavailable_reason="controls_not_recorded",
     )
+    if response_capture is not None:
+        record["attempt"]["response_capture"] = deepcopy(response_capture)
+        record["ledger"]["response_capture"] = deepcopy(response_capture)
     record["ledger"]["controls"] = deepcopy(controls)
     record["ledger"]["raw_response_key"] = f"dispatch:{dispatch_index}"
     record["attempt"]["raw_response_key"] = f"dispatch:{dispatch_index}"
@@ -8830,6 +8864,38 @@ def _o04_controls_match_authority(
     return True, None
 
 
+def _o04_authoritative_control_records(
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Project generic control output onto the sealed eleven-case authority."""
+
+    by_name = {
+        record.get("name"): record
+        for record in records
+        if isinstance(record, dict) and isinstance(record.get("name"), str)
+    }
+    if not all(name in by_name for name in _O04_CONTROL_NAMES):
+        return records
+    return [by_name[name] for name in _O04_CONTROL_NAMES]
+
+
+def _o04_authoritative_control_findings(
+    findings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Discard only extra generic-case findings outside the sealed authority."""
+
+    authoritative = set(_O04_CONTROL_NAMES)
+    retained: list[dict[str, Any]] = []
+    for finding in findings:
+        path = finding.get("path") if isinstance(finding, dict) else None
+        if isinstance(path, str) and path.startswith("detector_controls."):
+            name = path.removeprefix("detector_controls.")
+            if name not in authoritative:
+                continue
+        retained.append(finding)
+    return retained
+
+
 @dataclass(frozen=True)
 class A03RecoveredArtifact:
     """Hash-sealed recovered A03 candidate and its source authority."""
@@ -9221,13 +9287,44 @@ class PrivateModelAuthoringTransport:
         profile_name: str | None = None,
         temperature: float = 0.0,
         extra_body: dict[str, Any] | None = None,
+        max_completion_tokens: int | None = None,
+        context_window_tokens: int | None = None,
     ) -> None:
         from openai import OpenAI
 
+        if (
+            max_completion_tokens is not None
+            and (
+                isinstance(max_completion_tokens, bool)
+                or not isinstance(max_completion_tokens, int)
+                or max_completion_tokens <= 0
+            )
+        ):
+            raise ValueError("max_completion_tokens must be a positive integer when provided")
+        if (
+            context_window_tokens is not None
+            and (
+                isinstance(context_window_tokens, bool)
+                or not isinstance(context_window_tokens, int)
+                or context_window_tokens <= 0
+            )
+        ):
+            raise ValueError("context_window_tokens must be a positive integer when provided")
+        if (
+            context_window_tokens is not None
+            and max_completion_tokens is not None
+            and max_completion_tokens + _CONTEXT_FRAMING_TOKEN_RESERVE
+            >= context_window_tokens
+        ):
+            raise ValueError(
+                "max_completion_tokens leaves no room for the prompt in the context window"
+            )
         self.model = model
         self.profile_name = profile_name
         self.temperature = temperature
         self.extra_body = deepcopy(extra_body) if extra_body is not None else None
+        self.max_completion_tokens = max_completion_tokens
+        self.context_window_tokens = context_window_tokens
         self._client = OpenAI(
             base_url=base_url,
             api_key=api_key,
@@ -9235,6 +9332,15 @@ class PrivateModelAuthoringTransport:
         )
 
     def complete(self, packet: PromptPacket) -> TransportResponse:
+        if (
+            self.context_window_tokens is not None
+            and self.max_completion_tokens is not None
+        ):
+            _enforce_context_budget(
+                packet,
+                context_window_tokens=self.context_window_tokens,
+                max_completion_tokens=self.max_completion_tokens,
+            )
         request: dict[str, Any] = {
             "model": self.model,
             "temperature": self.temperature,
@@ -9245,13 +9351,33 @@ class PrivateModelAuthoringTransport:
         }
         if self.extra_body is not None:
             request["extra_body"] = deepcopy(self.extra_body)
+        if self.max_completion_tokens is not None:
+            request["max_completion_tokens"] = self.max_completion_tokens
         response = self._client.chat.completions.create(**request)
-        content = response.choices[0].message.content or ""
-        usage = _model_dump(response.usage)
+        choice = response.choices[0]
+        message = choice.message
+        content = _provider_field(message, "content")
+        if content is _MISSING or content is None:
+            raw = b""
+        elif isinstance(content, str):
+            raw = content.encode("utf-8")
+        else:
+            raw = b""
+        usage = _model_dump(getattr(response, "usage", None))
+        controls = {
+            "temperature": self.temperature,
+            "max_retries": 0,
+            "extra_body": deepcopy(self.extra_body),
+        }
+        if self.max_completion_tokens is not None:
+            controls["max_completion_tokens"] = self.max_completion_tokens
+        if self.context_window_tokens is not None:
+            controls["context_window_tokens"] = self.context_window_tokens
         return TransportResponse(
-            raw=content.encode("utf-8"),
+            raw=raw,
             usage=usage,
-            controls={"temperature": self.temperature, "max_retries": 0},
+            controls=controls,
+            response_capture=_provider_response_capture(choice, message),
         )
 
 
@@ -9994,7 +10120,7 @@ class AuthoringOrchestrator:
                 finding=finding,
             )
             return None, [finding], b""
-        raw, usage, controls = _response_parts(response)
+        raw, usage, controls, response_capture = _response_parts(response)
         self._raw_responses[stage] = raw
         record = self._ledger[-1]
         raw_key = f"dispatch:{record['dispatch_index']}"
@@ -10002,7 +10128,9 @@ class AuthoringOrchestrator:
         record["raw_response_key"] = raw_key
         _set_record_usage(record, usage)
         record["controls"] = _safe_metadata(controls or {"max_retries": 0})
-        self._record_available_response(raw, usage, controls)
+        if response_capture is not None:
+            record["response_capture"] = deepcopy(response_capture)
+        self._record_available_response(raw, usage, controls, response_capture)
         try:
             decoded, transformation = _decode_json_response(raw)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -10077,7 +10205,7 @@ class AuthoringOrchestrator:
                 elapsed_ms=(time.monotonic() - started) * 1000,
             )
             return None, [finding], b""
-        raw, usage, controls = _response_parts(response)
+        raw, usage, controls, response_capture = _response_parts(response)
         self._raw_responses[stage] = raw
         record = self._ledger[-1]
         raw_key = f"dispatch:{record['dispatch_index']}"
@@ -10085,7 +10213,9 @@ class AuthoringOrchestrator:
         record["raw_response_key"] = raw_key
         _set_record_usage(record, usage)
         record["controls"] = _safe_metadata(controls or {"max_retries": 0})
-        self._record_available_response(raw, usage, controls)
+        if response_capture is not None:
+            record["response_capture"] = deepcopy(response_capture)
+        self._record_available_response(raw, usage, controls, response_capture)
         try:
             if stage == "call2":
                 decoded: Any = parse_call2_response(raw)
@@ -10275,12 +10405,14 @@ class AuthoringOrchestrator:
             ]
         self._persist_failure_evidence()
         response = self.transport.complete(packet)
-        raw, usage, controls = _response_parts(response)
+        raw, usage, controls, response_capture = _response_parts(response)
         raw_key = f"dispatch:{dispatch_index}"
         self._raw_responses[raw_key] = raw
         record["raw_response_key"] = raw_key
         _set_record_usage(record, usage)
         record["controls"] = _safe_metadata(controls or {"max_retries": 0})
+        if response_capture is not None:
+            record["response_capture"] = deepcopy(response_capture)
         attempt = self._failure_attempt()
         attempt["raw_response"] = raw_response_record(raw)
         attempt["usage"] = metadata_record(
@@ -10291,6 +10423,8 @@ class AuthoringOrchestrator:
             controls or {"max_retries": 0},
             unavailable_reason="controls_not_recorded",
         )
+        if response_capture is not None:
+            attempt["response_capture"] = deepcopy(response_capture)
         self._persist_failure_evidence()
         return response
 
@@ -10352,20 +10486,22 @@ class AuthoringOrchestrator:
                 elapsed_ms=(time.monotonic() - started) * 1000,
             )
             return None
-        raw, usage, controls = _response_parts(response)
+        raw, usage, controls, response_capture = _response_parts(response)
         raw_key = f"dispatch:{self._ledger[-1]['dispatch_index']}"
         self._raw_responses[raw_key] = raw
         self._raw_responses["correction"] = raw
         self._ledger[-1]["raw_response_key"] = raw_key
         _set_record_usage(self._ledger[-1], usage)
         self._ledger[-1]["controls"] = _safe_metadata(controls or {"max_retries": 0})
+        if response_capture is not None:
+            self._ledger[-1]["response_capture"] = deepcopy(response_capture)
         self._ledger[-1]["failed_stage"] = failed_stage
         self._failure_attempt()["failed_stage"] = failed_stage
         self._failure_attempt()["failed_response"] = raw_response_record(
             failed_response,
             reason="not_returned" if not failed_response else None,
         )
-        self._record_available_response(raw, usage, controls)
+        self._record_available_response(raw, usage, controls, response_capture)
         self._persist_failure_evidence()
         self._ledger[-1]["failed_response"] = exact_response
         try:
@@ -10517,20 +10653,22 @@ class AuthoringOrchestrator:
                 elapsed_ms=(time.monotonic() - started) * 1000,
             )
             return None
-        raw, usage, controls = _response_parts(response)
+        raw, usage, controls, response_capture = _response_parts(response)
         raw_key = f"dispatch:{self._ledger[-1]['dispatch_index']}"
         self._raw_responses[raw_key] = raw
         self._raw_responses["correction"] = raw
         self._ledger[-1]["raw_response_key"] = raw_key
         _set_record_usage(self._ledger[-1], usage)
         self._ledger[-1]["controls"] = _safe_metadata(controls or {"max_retries": 0})
+        if response_capture is not None:
+            self._ledger[-1]["response_capture"] = deepcopy(response_capture)
         self._ledger[-1]["failed_stage"] = failed_stage
         self._failure_attempt()["failed_stage"] = failed_stage
         self._failure_attempt()["failed_response"] = raw_response_record(
             failed_response,
             reason="not_returned" if not failed_response else None,
         )
-        self._record_available_response(raw, usage, controls)
+        self._record_available_response(raw, usage, controls, response_capture)
         try:
             if failed_stage == "call2":
                 parsed = parse_call2_response(raw)
@@ -11177,7 +11315,7 @@ class AuthoringOrchestrator:
                 decision="",
                 stop=_StageStop("review_unavailable", (finding,)),
             )
-        raw, usage, controls = _response_parts(response)
+        raw, usage, controls, response_capture = _response_parts(response)
         record = self._ledger[-1]
         raw_key = f"dispatch:{record['dispatch_index']}"
         self._raw_responses[raw_key] = raw
@@ -11186,18 +11324,27 @@ class AuthoringOrchestrator:
         _set_record_usage(record, usage)
         effective_controls = self._review_controls(controls)
         record["controls"] = effective_controls
+        if response_capture is not None:
+            record["response_capture"] = deepcopy(response_capture)
         input_digest, candidate_digest = _review_packet_digests(packet)
         record["reviewed_input_sha256"] = input_digest
         record["reviewed_candidate_sha256"] = candidate_digest
         record["candidate_bytes_sha256"] = candidate_digest
         self._failure_attempt()["reviewed_input_sha256"] = input_digest
         self._failure_attempt()["reviewed_candidate_sha256"] = candidate_digest
+        if response_capture is not None:
+            self._failure_attempt()["response_capture"] = deepcopy(response_capture)
         self._set_review_evidence(
             status="pending",
             effective_controls=effective_controls,
             packet=packet,
         )
-        self._record_available_response(raw, usage, effective_controls)
+        self._record_available_response(
+            raw,
+            usage,
+            effective_controls,
+            response_capture,
+        )
         try:
             review = parse_review_response(raw)
         except ReviewResponseError as exc:
@@ -11439,6 +11586,7 @@ class AuthoringOrchestrator:
         raw: bytes,
         usage: dict[str, Any] | None,
         controls: dict[str, Any] | None,
+        response_capture: dict[str, Any] | None = None,
     ) -> None:
         attempt = self._failure_attempt()
         attempt["raw_response"] = raw_response_record(raw)
@@ -11450,6 +11598,8 @@ class AuthoringOrchestrator:
             controls or {"max_retries": 0},
             unavailable_reason="controls_not_recorded",
         )
+        if response_capture is not None:
+            attempt["response_capture"] = deepcopy(response_capture)
         self._persist_failure_evidence()
 
     def _record_unavailable_response(
@@ -11710,7 +11860,7 @@ class _A03ReviewOrchestrator:
             return self._finish("transport_failure", [finding])
 
         try:
-            raw, usage, controls = _response_parts(response)
+            raw, usage, controls, response_capture = _response_parts(response)
             if not isinstance(raw, bytes):
                 raise TypeError("artifact-review response bytes are invalid")
         except (TypeError, ValueError) as exc:
@@ -11742,7 +11892,11 @@ class _A03ReviewOrchestrator:
         _set_record_usage(record, usage)
         effective_controls = _a03_review_controls(self.transport, controls)
         record["controls"] = effective_controls
+        if response_capture is not None:
+            record["response_capture"] = deepcopy(response_capture)
         review_record["effective_controls"] = effective_controls
+        if response_capture is not None:
+            review_record["response_capture"] = deepcopy(response_capture)
         record["review"]["effective_controls"] = effective_controls
         self.evidence["attempts"][-1]["raw_response"] = raw_response_record(raw)
         self.evidence["attempts"][-1]["usage"] = metadata_record(
@@ -11753,6 +11907,10 @@ class _A03ReviewOrchestrator:
             effective_controls,
             unavailable_reason="controls_not_recorded",
         )
+        if response_capture is not None:
+            self.evidence["attempts"][-1]["response_capture"] = deepcopy(
+                response_capture
+            )
         self.evidence["attempts"][-1]["raw_response_key"] = "dispatch:1"
         self.evidence["attempts"][-1]["review"] = deepcopy(review_record)
         self._persist()
@@ -12821,6 +12979,7 @@ def _neutral_status_binding_example(
     """Return one resolver-checked status binding example."""
 
     permitted = runtime_contract.get("setup_permissions", [])
+    references = _inventory_references(inventory)
     for operation in inventory.get("operations", []):
         if not isinstance(operation, dict):
             continue
@@ -12841,8 +13000,15 @@ def _neutral_status_binding_example(
             "source_kind": "setup_output",
             "source_ref": f"setup:{name}",
             "selector": "result.status",
-            "consumers": ["prerequisites.*"],
+            "consumers": ["prerequisites.setup_status"],
             "on_missing": "stop",
+        }
+        prerequisite = {
+            "name": "setup_ready",
+            "check": f"The {name} operation returned a ready result.",
+            "evidence_refs": [f"operation:{name}"],
+            "binding": "setup_status",
+            "equals": "READY",
         }
         try:
             validate_bindings(
@@ -12852,21 +13018,17 @@ def _neutral_status_binding_example(
             )
         except BindingValidationError:
             continue
+        if any(ref not in references for ref in prerequisite["evidence_refs"]):
+            continue
         return {
             "runtime_bindings": [binding],
-            "prerequisites": [
-                {
-                    "name": "setup_ready",
-                    "check": f"The {name} operation returned a ready result.",
-                    "evidence_refs": [f"setup:{name}"],
-                    "binding": "setup_status",
-                    "equals": "READY",
-                }
-            ],
+            "prerequisites": [prerequisite],
             "label": "case-permitted operation example",
             "explanation": (
-                "The binding name setup_status names the resolved value. "
-                "The equals value READY is a literal status, not another binding."
+                "The binding name setup_status is a plain name with no prefix. "
+                "source_ref keeps setup:<operation> as the binding source, while "
+                "the prerequisite cites operation:<operation> as evidence. The "
+                "equals value READY is a literal status, not another binding."
             ),
         }
     return {
@@ -12910,30 +13072,72 @@ def build_plan_author_context(
         },
         "field_guide": {
             "binding_meanings": {
-                "source_ref": ("The supplied fact or setup operation result that owns the value."),
+                "source_ref": (
+                    "The supplied fact or setup operation result that owns the "
+                    "value, written as facts:<ref> or setup:<operation>. It is "
+                    "a binding source, not an evidence citation."
+                ),
                 "selector": (
                     "The documented path that extracts one value from the source result."
                 ),
-                "name": "The declared binding name used by downstream resolution.",
-                "consumers": ("The closed destination paths that receive the resolved binding."),
-                "binding": ("A prerequisite reference to a declared runtime binding name."),
+                "name": (
+                    "The declared plain binding name used by downstream "
+                    "resolution, with no namespace prefix and no braces."
+                ),
+                "consumers": (
+                    "The closed destination paths that receive the resolved "
+                    "binding; no undeclared destination is writable."
+                ),
+                "binding": (
+                    "A prerequisite reference to a declared runtime binding, "
+                    "written as the plain binding name, never as a source_ref "
+                    "or evidence citation."
+                ),
                 "equals": (
                     "A literal equals value to compare after resolution, never the "
                     "name of another binding."
                 ),
                 "assumptions": ("Facts accepted as static context rather than executable checks."),
                 "evidence_refs": (
-                    "References to supplied facts or operation evidence used by a check."
+                    "Evidence citations used by a check: operation:<name> for a "
+                    "documented operation, or a plain fact or source handle from "
+                    "evidence_references. They never name bindings and never "
+                    "use the setup: source form."
                 ),
                 "detector_criteria": (
                     "The bounded observation and missing-evidence rule the detector "
                     "must apply to the supplied evidence."
                 ),
             },
+            "reference_forms": {
+                "evidence_citation": (
+                    "operation:<name> or a plain fact or source handle, used "
+                    "only inside evidence_refs"
+                ),
+                "setup_binding_source": (
+                    "setup:<operation> or facts:<ref>, used only inside the "
+                    "source_ref of one runtime binding"
+                ),
+                "plain_binding_name": (
+                    "the declared name alone, such as draft_id, used inside the "
+                    "binding name field and a prerequisite binding reference"
+                ),
+                "closed_consumer": (
+                    "a closed destination path inside consumers, such as "
+                    "prerequisites.<binding name> or stimulus.user_text"
+                ),
+                "slot": (
+                    "{{binding_name}} inside stimulus text; downstream "
+                    "substitution fills it from the declared runtime binding "
+                    "of that plain name"
+                ),
+            },
             "neutral_binding_example": _neutral_status_binding_example(
                 inventory, runtime_contract
             ),
         },
+        "plan_field_meanings": PLAN_FIELD_MEANINGS,
+        "neutral_outcome_example": NEUTRAL_PLAN_OUTCOME_EXAMPLE,
         "response_contract": {
             **response_contract,
             "example_response": neutral_artifact_plan_v2(),
@@ -17058,15 +17262,84 @@ def _package_review_records(
     }
 
 
+_MISSING = object()
+
+
+def _provider_field(value: Any, name: str) -> Any:
+    """Read a returned provider field without adding fields to the request."""
+
+    if isinstance(value, dict):
+        return value[name] if name in value else _MISSING
+    return getattr(value, name, _MISSING)
+
+
+def _captured_text_field(value: Any) -> dict[str, Any]:
+    """Classify text content without collapsing absent, null, and empty values."""
+
+    if value is _MISSING:
+        return {"state": "absent"}
+    if value is None:
+        return {"state": "null"}
+    if value == "":
+        return {"state": "empty", "content": ""}
+    if isinstance(value, str):
+        return {"state": "text", "content": value}
+    return {"state": "non_text", "value_type": type(value).__name__}
+
+
+def _captured_scalar_field(value: Any) -> dict[str, Any]:
+    """Classify optional scalar response metadata without inference."""
+
+    if value is _MISSING:
+        return {"state": "absent"}
+    if value is None:
+        return {"state": "null"}
+    return {"state": "value", "value": value}
+
+
+def _provider_response_capture(choice: Any, message: Any) -> dict[str, Any]:
+    """Keep provider response fields separate from final-answer parsing."""
+
+    reasoning_field = _MISSING
+    reasoning_source = None
+    for field_name in ("reasoning_content", "reasoning"):
+        value = _provider_field(message, field_name)
+        if value is not _MISSING:
+            reasoning_field = value
+            reasoning_source = field_name
+            break
+    reasoning = _captured_text_field(reasoning_field)
+    if reasoning_source is not None:
+        reasoning["source_field"] = reasoning_source
+    return {
+        "schema_version": "authoring-response-capture-v1",
+        "final_answer": _captured_text_field(_provider_field(message, "content")),
+        "reasoning": reasoning,
+        "finish_reason": _captured_scalar_field(
+            _provider_field(choice, "finish_reason")
+        ),
+    }
+
+
 def _response_parts(
     response: TransportResponse | str | bytes,
-) -> tuple[bytes, dict[str, Any] | None, dict[str, Any] | None]:
+) -> tuple[
+    bytes,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+]:
     if isinstance(response, TransportResponse):
-        return response.raw, response.usage, response.controls
+        return (
+            response.raw,
+            response.usage,
+            response.controls,
+            response.response_capture,
+        )
     if isinstance(response, str):
-        return response.encode("utf-8"), None, {"max_retries": 0}
+        return response.encode("utf-8"), None, {"max_retries": 0}, None
     if isinstance(response, bytes):
-        return response, None, {"max_retries": 0}
+        return response, None, {"max_retries": 0}, None
     raise TypeError("authoring transport returned an unsupported response")
 
 
@@ -17285,6 +17558,31 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         raise PromptOverflowError(
             f"{packet.stage} prompt is {rendered} bytes; limit is {maximum}; "
             "supply an explicitly scoped input package"
+        )
+
+
+def _enforce_context_budget(
+    packet: PromptPacket,
+    *,
+    context_window_tokens: int,
+    max_completion_tokens: int,
+) -> None:
+    """Reject a prompt before dispatch when a conservative context bound fails."""
+
+    if context_window_tokens <= 0:
+        raise PromptOverflowError("context window token limit must be positive")
+    if max_completion_tokens <= 0:
+        raise PromptOverflowError("completion token limit must be positive")
+    estimated_prompt_tokens = packet.byte_size
+    reserved = max_completion_tokens + _CONTEXT_FRAMING_TOKEN_RESERVE
+    if estimated_prompt_tokens + reserved > context_window_tokens:
+        available = context_window_tokens - reserved
+        raise PromptOverflowError(
+            f"{packet.stage} prompt conservatively requires at least "
+            f"{estimated_prompt_tokens} input tokens; only {available} remain after "
+            f"reserving {max_completion_tokens} completion tokens and "
+            f"{_CONTEXT_FRAMING_TOKEN_RESERVE} framing tokens in a "
+            f"{context_window_tokens}-token context window"
         )
 
 

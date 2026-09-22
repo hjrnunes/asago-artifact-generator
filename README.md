@@ -52,6 +52,12 @@ them directly to the private transport. It does not extract profile values
 through a shell or print them. Credentials and endpoint values stay out of
 prompts, ledgers, packages, and failure evidence. A missing profile or required
 field stops before dispatch.
+Every `author` request (author, correction, and review) sends
+`chat_template_kwargs.enable_thinking=false` through the transport's additive
+`extra_body`, records the non-secret controls, and keeps `max_retries=0`.
+Configured live requests reserve a 32,768-token context window and an 8,192-token
+completion limit. A conservative prompt estimate fails before provider
+dispatch when the prompt plus those reservations cannot fit.
 If you omit `--profile`, existing environment-only configuration remains
 supported when it provides a real API key; an absent key fails closed instead
 of using a placeholder credential.
@@ -287,11 +293,17 @@ records the role, version, UTF-8 prompt hash, raw response, controls, findings,
 and terminal review status.
 
 The plan field guide distinguishes `source_ref`, `selector`, binding `name`,
-`consumers`, prerequisite `binding`, and literal `equals`. Its neutral example
+`consumers`, prerequisite `binding`, and literal `equals`, and its reference
+forms separate evidence citations (`operation:<name>` and plain fact handles)
+from setup binding sources (`setup:<operation>`), plain binding names, closed
+consumers, and `{{binding_name}}` stimulus slots. Its neutral example
 uses a case-permitted status operation when one is supplied; otherwise it is a
 labeled generic illustration with no operation, binding, or prerequisite.
 Review statuses remain visible as `accepted`, `not_requested`, `revise`,
 `blocked`, or `review_unavailable`.
+Provider capture keeps final-answer state, reasoning state and content, and
+finish reason separate. Absent, null, empty, text, and non-text final content
+remain distinct, and reasoning is never parsed as the final answer.
 
 The producer owns scenario meaning. From the producer repository root, run the
 normal producer command and then hand the resulting `scenario-handoff-v1`

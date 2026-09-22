@@ -39,7 +39,13 @@ ledgers, packages, or failure evidence. Without `--profile`, environment-only
 configuration still works when it supplies a real API key; missing credentials
 fail before dispatch.
 Named-profile loading also passes the non-secret `profile_name` separately from
-the base URL, API key, and provider wire model.
+the base URL, API key, and provider wire model. Normal private authoring sends
+`chat_template_kwargs.enable_thinking=false` through the existing transport
+`extra_body` for every author, correction, and review request, preserving
+`max_retries=0` and non-secret recorded controls.
+Configured live requests reserve a 32,768-token context window and an 8,192-token
+completion limit; a conservative prompt estimate fails before provider dispatch
+when the prompt cannot fit both reservations.
 
 Prompt roles are versioned independently from the response wire:
 `authoring-call1-v4`, `authoring-plan-review-v2`,
@@ -58,7 +64,14 @@ show only the active plan or artifact format and all current findings.
 Overflow, endpoint/credential values, and bounded duplicate candidate forms
 fail before dispatch. The neutral plan example uses a case-permitted status
 binding when supplied operations provide one; otherwise it is a labeled
-generic illustration with no operation, binding, or prerequisite.
+generic illustration with no operation, binding, or prerequisite. Its
+prerequisite cites `operation:<name>` evidence while the binding source keeps
+`setup:<name>`, and the field guide separates evidence citations, setup
+binding sources, plain binding names, closed consumers, and
+`{{binding_name}}` slots.
+Provider capture keeps final-answer state, reasoning state and content, and
+finish reason separate; absent, null, empty, text, and non-text final content
+remain distinct.
 
 For fresh or resumed runs, pass explicit caller-owned prior spend with
 `--prior-author-correction-spend` and `--prior-review-spend`; use `0` for both

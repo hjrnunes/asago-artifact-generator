@@ -6,9 +6,11 @@ from pathlib import Path
 
 from asago_artifact_generator.authoring import (
     build_plan_author_context,
+    collect_plan_findings_v2,
     prepare_saved_plan_continuation_v2,
 )
 from asago_artifact_generator.qualification_inputs import (
+    prepare_o03_authoring_inputs,
     prepare_o04_authoring_inputs,
     prepare_scn030_authoring_inputs,
 )
@@ -105,6 +107,188 @@ def test_neutral_status_example_is_generic_when_no_case_setup_is_permitted() -> 
     assert example["runtime_bindings"] == []
     assert example["prerequisites"] == []
     assert "summarize_for_ehr" not in json.dumps(example)
+
+
+def _o03_binding_example_fragment() -> dict[str, object]:
+    return {
+        "runtime_bindings": [
+            {
+                "name": "setup_status",
+                "expected_type": "string",
+                "source_kind": "setup_output",
+                "source_ref": "setup:summarize_for_ehr",
+                "selector": "result.status",
+                "consumers": ["prerequisites.setup_status"],
+                "on_missing": "stop",
+            }
+        ],
+        "prerequisites": [
+            {
+                "name": "setup_ready",
+                "check": "The summarize_for_ehr operation returned a ready result.",
+                "evidence_refs": ["operation:summarize_for_ehr"],
+                "binding": "setup_status",
+                "equals": "READY",
+            }
+        ],
+    }
+
+
+def _prerequisite_findings(findings: list) -> list[str]:
+    # The legacy and canonical validators can both report the same reference
+    # defect, so collapse the duplicate code:path pairs before comparing.
+    codes = {
+        f"{finding.code}:{finding.path}"
+        for finding in findings
+        if finding.code in {"unknown_reference", "consumer_mismatch", "undeclared_slot"}
+    }
+    return sorted(codes)
+
+
+def test_o03_preparation_pins_prepared_draft_source_and_setup_permission() -> None:
+    prepared = prepare_o03_authoring_inputs()
+
+    assert prepared.input_view.scenario_id == "O03"
+    assert prepared.runtime_contract["setup_permissions"] == ["summarize_for_ehr"]
+    assert prepared.runtime_contract["authoring_transports"]["judge"] == "unavailable"
+    assert prepared.inventory["schema_version"] == "miniocciai-o03-inventory-v1"
+    summarize = next(
+        operation
+        for operation in prepared.inventory["operations"]
+        if operation["name"] == "summarize_for_ehr"
+    )
+    assert summarize["result_schema"]["properties"]["draft_id"] == {"type": "string"}
+    assert summarize["result_schema"]["properties"]["patient_id"] == {"type": "string"}
+    assert summarize["result_schema"]["properties"]["status"] == {"type": "string"}
+    commit = next(
+        operation
+        for operation in prepared.inventory["operations"]
+        if operation["name"] == "commit_to_ehr"
+    )
+    assert commit["arguments"]["properties"] == {
+        "patient_id": {"type": "string"},
+        "draft_id": {"type": "string"},
+    }
+    # Live draft identity comes from the permitted setup result, never from
+    # the offline fixture; the fixture stays inside the pinned source files.
+    assert "operation_results" not in prepared.inventory
+    assert "DFT-GOLD-001" not in json.dumps(prepared.inventory, sort_keys=True)
+    assert prepared.input_view.source_digests["prepared_draft_state"]
+    assert prepared.input_view.source_digests["source_evidence"]
+    assert sorted(prepared.authoring_input_pins["authority_digests"]) == [
+        "gold_cases",
+        "prepared_draft_state",
+        "source_evidence",
+    ]
+
+
+def test_o03_and_scn030_rendered_guidance_distinguishes_reference_forms() -> None:
+    prepared = prepare_o03_authoring_inputs()
+    context = build_plan_author_context(
+        prepared.input_view,
+        prepared.inventory,
+        prepared.runtime_contract,
+    )
+    guide = context["field_guide"]
+    example = guide["neutral_binding_example"]
+
+    assert set(guide["reference_forms"]) == {
+        "evidence_citation",
+        "setup_binding_source",
+        "plain_binding_name",
+        "closed_consumer",
+        "slot",
+    }
+    assert "{{binding_name}}" in guide["reference_forms"]["slot"]
+    assert "operation:<name>" in guide["binding_meanings"]["evidence_refs"]
+    assert "setup:<operation>" in guide["binding_meanings"]["source_ref"]
+    binding = example["runtime_bindings"][0]
+    assert binding["name"] == "setup_status"
+    assert binding["source_ref"] == "setup:summarize_for_ehr"
+    assert binding["consumers"] == ["prerequisites.setup_status"]
+    assert example["prerequisites"][0]["evidence_refs"] == ["operation:summarize_for_ehr"]
+    assert example["prerequisites"][0]["binding"] == "setup_status"
+    scenario = json.dumps(context["task"]["scenario"], sort_keys=True)
+    assert "attempted review bypass" in scenario
+    assert "not proof of a committed EHR record" in scenario
+    assert "setup:commit_to_ehr" not in json.dumps(context, sort_keys=True)
+
+    scn030 = prepare_scn030_authoring_inputs()
+    scn030_context = build_plan_author_context(
+        scn030.input_view,
+        scn030.inventory,
+        scn030.runtime_contract,
+    )
+    scn030_example = scn030_context["field_guide"]["neutral_binding_example"]
+    assert scn030_example["runtime_bindings"][0]["source_ref"] == "setup:lookup_order"
+    assert scn030_example["prerequisites"][0]["evidence_refs"] == ["operation:lookup_order"]
+
+
+def test_corrected_example_forms_pass_the_plan_validator_while_stale_forms_fail() -> None:
+    prepared = prepare_o03_authoring_inputs()
+    corrected = _o03_binding_example_fragment()
+    stale = {
+        "runtime_bindings": corrected["runtime_bindings"],
+        "prerequisites": [
+            {
+                **corrected["prerequisites"][0],
+                "evidence_refs": ["setup:summarize_for_ehr"],
+            }
+        ],
+    }
+    open_consumer = {
+        "runtime_bindings": [
+            {**corrected["runtime_bindings"][0], "consumers": ["prerequisites.*"]}
+        ],
+        "prerequisites": corrected["prerequisites"],
+    }
+
+    corrected_findings = collect_plan_findings_v2(
+        corrected, prepared.inventory, prepared.runtime_contract
+    )
+    stale_findings = collect_plan_findings_v2(stale, prepared.inventory, prepared.runtime_contract)
+    open_findings = collect_plan_findings_v2(
+        open_consumer, prepared.inventory, prepared.runtime_contract
+    )
+
+    assert _prerequisite_findings(corrected_findings) == []
+    assert _prerequisite_findings(stale_findings) == [
+        "unknown_reference:prerequisites[0].evidence_refs[0]"
+    ]
+    assert _prerequisite_findings(open_findings) == ["consumer_mismatch:prerequisites[0].binding"]
+
+
+def test_saved_plan_with_stale_setup_evidence_citation_is_rejected() -> None:
+    prepared = prepare_o03_authoring_inputs()
+    plan: dict[str, object] = {
+        "runtime_bindings": _o03_binding_example_fragment()["runtime_bindings"],
+        "prerequisites": [
+            {
+                "name": "setup_ready",
+                "check": "The summarize_for_ehr operation returned a ready result.",
+                "evidence_refs": ["setup:summarize_for_ehr"],
+                "binding": "setup_status",
+                "equals": "READY",
+            }
+        ],
+    }
+    provenance = prepared.provenance(plan)
+
+    continuation = prepare_saved_plan_continuation_v2(
+        saved_plan=plan,
+        input_view=prepared.input_view,
+        inventory=prepared.inventory,
+        runtime_contract=prepared.runtime_contract,
+        provenance=provenance,
+    )
+
+    assert continuation.decision.mode == "fresh_call1"
+    assert any(
+        finding.code == "unknown_reference"
+        and finding.path == "prerequisites[0].evidence_refs[0]"
+        and "setup:summarize_for_ehr" in finding.detail
+        for finding in continuation.decision.findings
+    )
 
 
 def test_continuation_rejects_stale_refreshed_authoring_input_pins() -> None:

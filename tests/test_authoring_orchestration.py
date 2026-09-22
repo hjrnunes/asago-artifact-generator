@@ -7,11 +7,16 @@ import hashlib
 import json
 import subprocess
 import sys
+from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from asago_artifact_generator.authoring import (
+    AUTHORING_CONTEXT_WINDOW_TOKENS,
+    AUTHORING_MAX_COMPLETION_TOKENS,
+    AUTHORING_THINKING_EXTRA_BODY,
     AuthoringBudget,
     AuthoringOrchestrator,
     AuthoringResult,
@@ -908,6 +913,326 @@ def test_private_model_transport_constructs_with_zero_retries(
 
     assert captured["max_retries"] == 0
     assert captured["base_url"] == "https://private.invalid/v1"
+
+
+def test_private_model_transport_sends_thinking_off_extra_body_for_every_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCompletions:
+        def __init__(self):
+            self.requests: list[dict] = []
+
+        def create(self, **kwargs):
+            self.requests.append(kwargs)
+            return type(
+                "Response",
+                (),
+                {
+                    "choices": [
+                        type(
+                            "Choice",
+                            (),
+                            {"message": type("Message", (), {"content": "{}"})()},
+                        )()
+                    ],
+                    "usage": None,
+                },
+            )()
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.init_kwargs = kwargs
+            self.chat = type("Chat", (), {})()
+            self.chat.completions = FakeCompletions()
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    transport = PrivateModelAuthoringTransport(
+        base_url="https://private.invalid/v1",
+        api_key="secret-value",
+        model="gemma4-oc",
+        extra_body=deepcopy(AUTHORING_THINKING_EXTRA_BODY),
+    )
+    responses = [
+        transport.complete(
+            PromptPacket(stage=stage, version="test", system="system", user="user", payload={})
+        )
+        for stage in ("call1", "call2", "correction", "plan_review")
+    ]
+
+    thinking_off = {"chat_template_kwargs": {"enable_thinking": False}}
+    assert AUTHORING_THINKING_EXTRA_BODY == thinking_off
+    assert transport._client.init_kwargs["max_retries"] == 0
+    requests = transport._client.chat.completions.requests
+    assert [request["extra_body"] for request in requests] == [thinking_off] * 4
+    assert all(
+        response.controls
+        == {
+            "temperature": 0.0,
+            "max_retries": 0,
+            "extra_body": thinking_off,
+        }
+        for response in responses
+    )
+
+
+def test_private_model_transport_preserves_default_request_shape_and_captures_completion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCompletions:
+        def __init__(self):
+            self.request: dict | None = None
+
+        def create(self, **kwargs):
+            self.request = kwargs
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content='{"answer":"ok"}',
+                            reasoning_content="private reasoning",
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+                usage={"prompt_tokens": 3, "completion_tokens": 2},
+            )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    transport = PrivateModelAuthoringTransport(
+        base_url="https://private.invalid/v1",
+        api_key="secret-value",
+        model="gemma4-oc",
+    )
+
+    response = transport.complete(
+        PromptPacket(stage="call1", version="test", system="system", user="user", payload={})
+    )
+    request = transport._client.chat.completions.request
+
+    assert request == {
+        "model": "gemma4-oc",
+        "temperature": 0.0,
+        "messages": [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "user"},
+        ],
+    }
+    assert response.raw == b'{"answer":"ok"}'
+    assert response.usage == {"prompt_tokens": 3, "completion_tokens": 2}
+    assert response.controls == {
+        "temperature": 0.0,
+        "max_retries": 0,
+        "extra_body": None,
+    }
+    assert response.response_capture == {
+        "schema_version": "authoring-response-capture-v1",
+        "final_answer": {"state": "text", "content": '{"answer":"ok"}'},
+        "reasoning": {
+            "state": "text",
+            "content": "private reasoning",
+            "source_field": "reasoning_content",
+        },
+        "finish_reason": {"state": "value", "value": "stop"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_state"),
+    [
+        (SimpleNamespace(), "absent"),
+        (SimpleNamespace(content=None), "null"),
+        (SimpleNamespace(content=""), "empty"),
+        (SimpleNamespace(content="final"), "text"),
+        (SimpleNamespace(content=["non-text"]), "non_text"),
+    ],
+    ids=["absent", "null", "empty", "text", "non-text"],
+)
+def test_private_model_transport_distinguishes_final_content_states(
+    monkeypatch: pytest.MonkeyPatch,
+    content: SimpleNamespace,
+    expected_state: str,
+) -> None:
+    class FakeCompletions:
+        def create(self, **kwargs):
+            del kwargs
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=content,
+                        finish_reason=None,
+                    )
+                ],
+                usage=None,
+            )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            del kwargs
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    response = PrivateModelAuthoringTransport(
+        base_url="https://private.invalid/v1",
+        api_key="secret-value",
+        model="gemma4-oc",
+    ).complete(
+        PromptPacket(stage="call1", version="test", system="system", user="user", payload={})
+    )
+
+    expected_raw = b"final" if expected_state == "text" else b""
+    assert response.raw == expected_raw
+    assert response.response_capture is not None
+    assert response.response_capture["final_answer"]["state"] == expected_state
+    assert response.response_capture["reasoning"]["state"] == "absent"
+    assert response.response_capture["finish_reason"] == {"state": "null"}
+
+
+def test_private_model_transport_captures_empty_reasoning_and_length_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCompletions:
+        def __init__(self):
+            self.request: dict | None = None
+
+        def create(self, **kwargs):
+            self.request = kwargs
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content="", reasoning_content="analysis"),
+                        finish_reason="length",
+                    )
+                ],
+                usage={"total_tokens": 8192},
+            )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    transport = PrivateModelAuthoringTransport(
+        base_url="https://private.invalid/v1",
+        api_key="secret-value",
+        model="gemma4-oc",
+        max_completion_tokens=8192,
+    )
+    response = transport.complete(
+        PromptPacket(
+            stage="artifact_review",
+            version="test",
+            system="system",
+            user="user",
+            payload={},
+        )
+    )
+
+    assert transport._client.chat.completions.request["max_completion_tokens"] == 8192
+    assert response.raw == b""
+    assert response.controls["max_completion_tokens"] == 8192
+    assert response.response_capture == {
+        "schema_version": "authoring-response-capture-v1",
+        "final_answer": {"state": "empty", "content": ""},
+        "reasoning": {
+            "state": "text",
+            "content": "analysis",
+            "source_field": "reasoning_content",
+        },
+        "finish_reason": {"state": "value", "value": "length"},
+    }
+
+
+def test_private_model_transport_rejects_context_overflow_before_provider_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCompletions:
+        def __init__(self):
+            self.calls = 0
+
+        def create(self, **kwargs):
+            del kwargs
+            self.calls += 1
+            raise AssertionError("provider dispatch must not occur")
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            del kwargs
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    transport = PrivateModelAuthoringTransport(
+        base_url="https://private.invalid/v1",
+        api_key="secret-value",
+        model="gemma4-oc",
+        context_window_tokens=AUTHORING_CONTEXT_WINDOW_TOKENS,
+        max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
+    )
+    packet = PromptPacket(
+        stage="correction",
+        version="test",
+        system="system",
+        user="x" * (
+            AUTHORING_CONTEXT_WINDOW_TOKENS
+            - AUTHORING_MAX_COMPLETION_TOKENS
+            - 256
+            + 1
+        ),
+        payload={},
+    )
+
+    with pytest.raises(PromptOverflowError, match="context window"):
+        transport.complete(packet)
+    assert transport._client.chat.completions.calls == 0
+
+
+@pytest.mark.parametrize("limit", [True, 0, -1, 1.5, "8192"])
+def test_private_model_transport_rejects_invalid_completion_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    limit: object,
+) -> None:
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            del kwargs
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    with pytest.raises(ValueError, match="positive integer"):
+        PrivateModelAuthoringTransport(
+            base_url="https://private.invalid/v1",
+            api_key="secret-value",
+            model="gemma4-oc",
+            max_completion_tokens=limit,  # type: ignore[arg-type]
+        )
+
+
+def test_response_capture_is_persisted_separately_from_final_answer(
+    tmp_path: Path,
+) -> None:
+    capture = {
+        "schema_version": "authoring-response-capture-v1",
+        "final_answer": {"state": "empty", "content": ""},
+        "reasoning": {"state": "text", "content": "must not be parsed"},
+        "finish_reason": {"state": "value", "value": "length"},
+    }
+    result = AuthoringOrchestrator(
+        transport=ScriptedAuthoringTransport(
+            [TransportResponse(raw=b"", response_capture=capture)]
+        ),
+        package_dir=tmp_path / "package",
+        task_id="capture-separation",
+        budget=AuthoringBudget(aggregate_limit=1, task_limit=1),
+    ).run(_view(), _inventory(), _contract())
+
+    assert result.status == "failed"
+    saved = load_failure_evidence(tmp_path / "package.failure-evidence.json")
+    attempt = saved["attempts"][0]
+    assert attempt["response_capture"] == capture
+    assert result.ledger[0]["response_capture"] == capture
+    assert attempt["raw_response"]["byte_length"] == 0
+    assert "reasoning" not in attempt.get("decoded_output", {})
 
 
 def test_prompt_overflow_is_reported_without_silent_truncation() -> None:

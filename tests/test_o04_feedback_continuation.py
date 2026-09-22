@@ -231,7 +231,9 @@ def _passing_controls(plan: dict, metadata: dict, inventory: dict) -> list[dict]
                 "read_only": True,
             },
         }
-        for case in build_control_cases(plan, metadata, inventory)
+        for case in build_control_cases(
+            plan, metadata, inventory, include_content_references=False
+        )
     ]
 
 
