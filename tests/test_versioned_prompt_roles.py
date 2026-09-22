@@ -590,6 +590,59 @@ def test_artifact_roles_include_shared_normative_evidence_instructions() -> None
     assert "Control success is evidence, not automatic approval." in review.system
 
 
+def test_o03_correction_packet_deduplicates_required_source_and_fits_context_budget() -> None:
+    import base64
+    from pathlib import Path
+
+    from asago_artifact_generator.authoring import parse_call2_response
+    from asago_artifact_generator.qualification_inputs import prepare_o03_authoring_inputs
+
+    root = Path("runs/authoring")
+    plan_record = json.loads(
+        (
+            root
+            / "O03-live-20260922T175415Z-exact-plan-correction.failure-evidence.json"
+        ).read_text(encoding="utf-8")
+    )
+    candidate_record = json.loads(
+        (
+            root
+            / "O03-live-20260922T181427Z-artifact-correction.failure-evidence.json"
+        ).read_text(encoding="utf-8")
+    )
+    plan = plan_record["attempts"][0]["decoded_output"]
+    candidate = base64.b64decode(
+        candidate_record["attempts"][0]["raw_response"]["base64"]
+    )
+    prepared = prepare_o03_authoring_inputs()
+    correction = build_correction_context(
+        failed_stage="call2",
+        original_context=build_artifact_author_context(
+            prepared.input_view,
+            plan,
+            prepared.inventory,
+            prepared.runtime_contract,
+        ),
+        current_output=candidate,
+        findings=[
+            {
+                "code": "plan_conflict",
+                "detail": "semantic judge specification differs from accepted plan decision",
+                "path": "semantic_judge_spec",
+            }
+        ],
+    )
+
+    packet = _render_correction_packet(correction)
+
+    assert packet.byte_size <= 24_320
+    assert packet.user.count("RESPONSE CONTRACT\n") == 1
+    assert packet.user.count("CURRENT OUTPUT\n") == 1
+    assert packet.user.count("RUNTIME EVIDENCE INTERFACE\n") == 1
+    assert "OUTPUT CONTRACT AND ONE RUNNABLE NEUTRAL EXAMPLE" not in packet.user
+    assert packet.user.count(parse_call2_response(candidate).python_source) == 1
+
+
 def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",

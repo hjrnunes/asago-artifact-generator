@@ -927,6 +927,8 @@ class AuthoringBudget:
         task_limit: int = MAX_REQUESTS_PER_TASK,
         author_limit: int = MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK,
         review_limit: int = MAX_REVIEW_REQUESTS_PER_TASK,
+        author_limit_increment: int = 0,
+        review_limit_increment: int = 0,
     ) -> AuthoringBudget:
         """Create a guard seeded with caller-supplied spend for one task."""
 
@@ -937,12 +939,14 @@ class AuthoringBudget:
             prior_author_correction_spend,
         )
         _validate_nonnegative_integer("prior_review_spend", prior_review_spend)
+        _validate_nonnegative_integer("author_limit_increment", author_limit_increment)
+        _validate_nonnegative_integer("review_limit_increment", review_limit_increment)
         total = prior_author_correction_spend + prior_review_spend
         return cls(
             aggregate_limit=aggregate_limit,
             task_limit=task_limit,
-            author_limit=author_limit,
-            review_limit=review_limit,
+            author_limit=author_limit + author_limit_increment,
+            review_limit=review_limit + review_limit_increment,
             total_dispatched=total,
             dispatched_by_task={task_id: total},
             dispatched_by_task_role={
@@ -959,6 +963,8 @@ class AuthoringBudget:
         task_id: str,
         prior_author_correction_spend: int = 0,
         prior_review_spend: int = 0,
+        author_limit_increment: int = 0,
+        review_limit_increment: int = 0,
     ) -> None:
         """Add caller-supplied prior spend before the first dispatch."""
 
@@ -970,6 +976,8 @@ class AuthoringBudget:
             task_limit=self.task_limit,
             author_limit=self.author_limit,
             review_limit=self.review_limit,
+            author_limit_increment=author_limit_increment,
+            review_limit_increment=review_limit_increment,
         )
         self.total_dispatched += seeded.total_dispatched
         self.dispatched_by_task[task_id] = (
@@ -978,6 +986,8 @@ class AuthoringBudget:
         current_roles = self.dispatched_by_task_role.setdefault(task_id, {})
         for role, count in seeded.dispatched_by_task_role[task_id].items():
             current_roles[role] = current_roles.get(role, 0) + count
+        self.author_limit = seeded.author_limit
+        self.review_limit = seeded.review_limit
 
     def reserve(self, task_id: str, *, role: str = "author") -> int:
         if role not in {"author", "reviewer"}:
@@ -8682,7 +8692,10 @@ def _render_correction_packet(
             original_context,
         ),
     ]
-    if isinstance(plan_field_meanings, str):
+    if isinstance(plan_field_meanings, str) and (
+        correction_context.get("stage") != "artifact"
+        or correction_context.get("detector_feedback") is None
+    ):
         sections.append(("PLAN FIELD MEANINGS", plan_field_meanings))
     if isinstance(neutral_outcome_example, str):
         sections.append(("NEUTRAL OUTCOME EXAMPLE", neutral_outcome_example))
@@ -8702,19 +8715,29 @@ def _render_correction_packet(
                 "RESPONSE CONTRACT",
                 (
                     _artifact_response_contract_for_prompt(
-                        correction_context["response_contract"]
+                        correction_context["response_contract"],
+                        correction=True,
                     )
                     if correction_context.get("stage") == "artifact"
                     else correction_context["response_contract"]
                 ),
             ),
-            ("CURRENT OUTPUT", correction_context["current_output"]),
-            ("CURRENT FINDINGS", correction_context["findings"]),
+            (
+                "CURRENT OUTPUT",
+                _correction_current_output_view(
+                    correction_context["current_output"],
+                    artifact=correction_context.get("stage") == "artifact",
+                ),
+            ),
+            ("CURRENT FINDINGS", _correction_findings_view(correction_context["findings"])),
         )
     )
     if correction_context.get("detector_feedback") is not None:
         sections.append(
-            ("DETECTOR CONTROL FEEDBACK", correction_context["detector_feedback"])
+            (
+                "DETECTOR CONTROL FEEDBACK",
+                _correction_detector_feedback_view(correction_context["detector_feedback"]),
+            )
         )
     if authority is not None:
         sections.append((authority_title, _correction_prompt_authority(authority)))
@@ -8739,14 +8762,102 @@ def _render_correction_packet(
         stage="correction",
         version=CORRECTION_PROMPT_VERSION_V5,
         system=_CORRECTION_SYSTEM_V5,
-        user=_render_sections(tuple(sections)),
+        user=_render_correction_sections(tuple(sections)),
         payload=correction_context,
     )
     return packet
 
 
+def _correction_detector_feedback_view(value: Any) -> Any:
+    """Render exact failed control inputs/results without redundant wrappers."""
+
+    if not isinstance(value, dict):
+        return value
+    failed = value.get("failed_controls")
+    if not isinstance(failed, list):
+        return value
+    rendered: list[dict[str, Any]] = []
+    for item in failed:
+        if not isinstance(item, dict):
+            continue
+        actual = item.get("actual_result")
+        if actual is None and isinstance(item.get("error"), str):
+            actual = {"exception": item["error"]}
+        rendered.append(
+            {
+                "name": item.get("name"),
+                "input": item.get("evidence"),
+                "expected": {
+                    "outcome": item.get("expected_outcome"),
+                    "claim_level": item.get("expected_claim_level"),
+                },
+                "actual": actual,
+                "explanation": _compact_feedback_explanation(item),
+            }
+        )
+    return {
+        "failed_controls": rendered,
+        "correction_guidance": value.get("correction_guidance"),
+    }
+
+
+def _compact_feedback_explanation(item: dict[str, Any]) -> str:
+    """Keep each feedback explanation explicit without repeating result fields."""
+
+    outcome_class = item.get("outcome_class")
+    error = item.get("error")
+    if isinstance(error, str) and error:
+        return (
+            f"{outcome_class}: detector raised an exception"
+            if outcome_class
+            else "detector raised an exception"
+        )
+    return (
+        f"{outcome_class}: returned outcome or claim level differs from the expected "
+        "control result"
+        if outcome_class
+        else "returned result differs from the expected control result"
+    )
+
+
+def _correction_findings_view(value: Any) -> Any:
+    """Avoid repeating full control details beside exact feedback packets."""
+
+    if not isinstance(value, list):
+        return value
+    result: list[Any] = []
+    for item in value:
+        if not isinstance(item, dict):
+            result.append(item)
+            continue
+        path = item.get("path", "")
+        if isinstance(path, str) and path.startswith("detector_controls."):
+            continue
+        else:
+            result.append(item)
+    return result
+
+
+def _correction_current_output_view(value: Any, *, artifact: bool) -> Any:
+    """Canonicalize artifact framing while retaining exact metadata and source."""
+
+    if not artifact or not isinstance(value, str):
+        return value
+    try:
+        parsed = parse_call2_response(value.encode("utf-8"))
+    except (Call2FramingError, UnicodeDecodeError, ValueError):
+        return value
+    return (
+        "```json\n"
+        + _canonical_json(parsed.metadata)
+        + "\n```\n```python\n"
+        + parsed.python_source
+        + "```\n"
+    )
+
+
 def _correction_prompt_context(context: dict[str, Any]) -> dict[str, Any]:
-    """Avoid rendering runtime capabilities twice beside the runtime contract."""
+    """Keep correction context authoritative without replaying authoring payloads."""
 
     result = deepcopy(context)
     authoritative = result.get("authoritative_context")
@@ -8755,11 +8866,52 @@ def _correction_prompt_context(context: dict[str, Any]) -> dict[str, Any]:
         if isinstance(interface.get("runtime_contract"), dict):
             authoritative.pop("runtime_capabilities", None)
         interface.pop("evidence_packet", None)
+        _scope_correction_authoritative_context(
+            authoritative,
+            result.get("accepted_plan"),
+        )
     response_contract = result.get("response_contract")
     if isinstance(response_contract, dict):
         response_contract.pop("evidence_packet", None)
+        response_contract.pop("neutral_example", None)
     result.pop("evidence_packet_interface", None)
+    result.pop("runtime_evidence_interface", None)
+    result.pop("response_contract", None)
+    result.pop("neutral_example", None)
     return result
+
+
+def _scope_correction_authoritative_context(
+    authoritative: dict[str, Any],
+    accepted_plan: Any,
+) -> None:
+    """Drop source records unrelated to the fixed correction plan."""
+
+    if not isinstance(accepted_plan, dict):
+        return
+    plan_text = _canonical_json(accepted_plan)
+    operations = authoritative.get("operations")
+    if isinstance(operations, list):
+        authoritative["operations"] = [
+            value
+            for value in operations
+            if isinstance(value, dict)
+            and isinstance(value.get("name"), str)
+            and value["name"] in plan_text
+        ]
+    authoritative.pop("facts", None)
+    authoritative.pop("source_handles", None)
+    authoritative.pop("runtime_capabilities", None)
+    operations = authoritative.get("operations")
+    if isinstance(operations, list):
+        authoritative["operations"] = [
+            {
+                "name": item.get("name"),
+                "description": item.get("description"),
+            }
+            for item in operations
+            if isinstance(item, dict)
+        ]
 
 
 def _correction_prompt_authority(authority: dict[str, Any]) -> dict[str, Any]:
@@ -13474,11 +13626,41 @@ def _render_sections(sections: tuple[tuple[str, Any], ...]) -> str:
     return "\n".join(rendered).rstrip() + "\n"
 
 
-def _artifact_response_contract_for_prompt(contract: dict[str, Any]) -> dict[str, Any]:
+def _render_correction_sections(sections: tuple[tuple[str, Any], ...]) -> str:
+    """Render correction sections compactly while preserving each value exactly."""
+
+    rendered: list[str] = []
+    for title, value in sections:
+        rendered.append(title)
+        rendered.append(
+            value
+            if isinstance(value, str)
+            else json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        )
+        rendered.append("")
+    return "\n".join(rendered).rstrip() + "\n"
+
+
+def _artifact_response_contract_for_prompt(
+    contract: dict[str, Any],
+    *,
+    correction: bool = False,
+) -> dict[str, Any]:
     """Keep the packet contract in its dedicated interface section only."""
 
     result = deepcopy(contract)
     result.pop("evidence_packet", None)
+    result.pop("neutral_example", None)
+    if correction:
+        for key in (
+            "semantic_judging",
+            "plan_owned_field_descriptions",
+            "detector_interface",
+            "detector_source",
+            "interface_version",
+            "plan_owned_fields",
+        ):
+            result.pop(key, None)
     return result
 
 
@@ -18852,10 +19034,19 @@ def evidence_packet_contract() -> dict[str, Any]:
 def _render_evidence_packet_interface() -> str:
     """Render one stable model-facing copy of the maintained packet contract."""
 
+    contract = evidence_packet_contract()
+    prompt_contract = {
+        "paths": contract["paths"],
+        "synthetic_excerpt": contract["synthetic_excerpt"],
+        "full_example_label": contract["full_example_label"],
+        "full_example": contract["full_example"],
+        "result": contract["result"],
+        "semantics": contract["semantics"],
+    }
     return json.dumps(
-        evidence_packet_contract(),
+        prompt_contract,
         ensure_ascii=False,
-        indent=2,
+        separators=(",", ":"),
         sort_keys=True,
     )
 

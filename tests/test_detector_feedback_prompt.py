@@ -404,8 +404,8 @@ def test_shared_feedback_section_renders_failed_inputs_once_and_passes_compactly
     assert text.count("DETECTOR CONTROL FEEDBACK") == 1
     assert text.count("correction_guidance") == 1
     assert text.count('"messages[99]"') == 1
-    assert text.count('"evidence_refs": "messages[0]"') == 1
-    assert text.count('"content": null') == 1
+    assert text.count('"evidence_refs":["messages[0]"]') == 1
+    assert text.count('"content":null') == 1
     error_counts = {
         item.error: sum(
             other.status != "passed" and other.error == item.error
@@ -421,7 +421,8 @@ def test_shared_feedback_section_renders_failed_inputs_once_and_passes_compactly
     assert all("evidence" not in item for item in section["passing_controls"])
 
     assert artifact.candidate_sha256 == FINAL_CANDIDATE_SHA256
-    assert packet.user.count(artifact.candidate_raw.decode("utf-8")) == 1
+    parsed_candidate = parse_call2_response(artifact.candidate_raw)
+    assert packet.user.count(parsed_candidate.python_source) == 1
     assert packet.user.count('"accepted_plan":') == 1
     assert packet.payload["original_context"]["accepted_plan"] == artifact.plan
     assert packet.user.count(ACCEPTED_PLAN_SHA256) == 1
