@@ -114,6 +114,36 @@ actual failing control evidence, and the run terminates when the correction
 allowance is exhausted. Without the option, orchestration and rendered prompt
 bytes stay unchanged.
 
+### Owner-supplied scope
+
+Prepared inputs can optionally set `InputView.owner_scope` to keep owner-provided
+scenario premises and evaluation instructions separate from verified inventory
+facts and policy data:
+
+```python
+from dataclasses import replace
+
+view = replace(
+    view,
+    owner_scope={
+        "scenario_premises": [
+            {"text": "A caller-supplied premise.", "source": "scope-spec.md"}
+        ],
+        "evaluation_instructions": [
+            {"text": "Evaluate only the captured result.", "source": "scope-spec.md"}
+        ],
+    },
+)
+```
+
+Each category contains `{text, source}` items. A non-empty block renders in its
+own `SOURCE CONTEXT — OWNER-SUPPLIED SCOPE` section in plan authoring, plan
+review, artifact authoring, artifact review, and corrections. The section labels
+the material as owner-supplied, gives each item's category and source, and says
+that the material is not an observed target fact or runtime evidence. The generic
+plan field guide explains this boundary only when the block is present. An absent
+or empty block leaves rendered request bytes unchanged.
+
 ### Cross-run budget guard
 
 The caller owns spend reconciliation across separate `author` processes. Pass

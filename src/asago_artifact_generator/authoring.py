@@ -8435,6 +8435,7 @@ def _render_correction_packet(
     original_context = _correction_prompt_context(correction_context["original_context"])
     plan_field_meanings = original_context.pop("plan_field_meanings", None)
     neutral_outcome_example = original_context.pop("neutral_outcome_example", None)
+    owner_scope = original_context.pop("owner_scope", None)
     observation_guide = original_context.pop(
         "observation_guide", correction_context.get("observation_guide")
     )
@@ -8480,6 +8481,8 @@ def _render_correction_packet(
             )
         )
     sections.append(("ORIGINAL STAGE CONTEXT", original_context))
+    if owner_scope is not None:
+        sections.append((_OWNER_SCOPE_SECTION_TITLE, owner_scope))
     supplied_stage_context = correction_context.get("supplied_stage_context")
     if supplied_stage_context is not None:
         sections.append(("SUPPLIED STAGE CONTEXT", supplied_stage_context))
@@ -13027,6 +13030,71 @@ def _authoritative_context(
     }
 
 
+_OWNER_SCOPE_SECTION_TITLE = "SOURCE CONTEXT — OWNER-SUPPLIED SCOPE (NOT OBSERVED TARGET FACTS)"
+
+
+def _owner_scope_section(view: InputView) -> dict[str, Any] | None:
+    """Validate and label optional owner-supplied premise and instruction text."""
+
+    raw_scope = view.owner_scope
+    if raw_scope is None:
+        return None
+    if not isinstance(raw_scope, dict):
+        raise ValueError("owner_scope must be a mapping")
+    allowed_categories = ("scenario_premises", "evaluation_instructions")
+    unknown_categories = set(raw_scope) - set(allowed_categories)
+    if unknown_categories:
+        raise ValueError(f"owner_scope has unsupported categories: {sorted(unknown_categories)}")
+
+    categories: dict[str, list[dict[str, str]]] = {}
+    for category in allowed_categories:
+        items = raw_scope.get(category, [])
+        if not isinstance(items, (list, tuple)):
+            raise ValueError(f"owner_scope.{category} must be a sequence")
+        if not items:
+            continue
+        normalized_items: list[dict[str, str]] = []
+        for index, item in enumerate(items):
+            if not isinstance(item, dict) or set(item) != {"text", "source"}:
+                raise ValueError(
+                    f"owner_scope.{category}[{index}] must contain exactly text and source"
+                )
+            text, source = item["text"], item["source"]
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError(f"owner_scope.{category}[{index}].text must be nonblank")
+            if not isinstance(source, str) or not source.strip():
+                raise ValueError(f"owner_scope.{category}[{index}].source must be nonblank")
+            normalized_items.append({"text": text, "source": source})
+        categories[category] = normalized_items
+    if not categories:
+        return None
+    return {
+        "classification": (
+            "This is owner-supplied context, separate from verified inventory facts "
+            "and policy data. It is not an observed target fact or runtime evidence."
+        ),
+        **categories,
+    }
+
+
+def _include_owner_scope(context: dict[str, Any], view: InputView) -> dict[str, Any]:
+    """Add non-empty owner scope outside the verified source context."""
+
+    owner_scope = _owner_scope_section(view)
+    if owner_scope is not None:
+        context["owner_scope"] = owner_scope
+    return context
+
+
+def _owner_scope_prompt_sections(context: dict[str, Any]) -> tuple[tuple[str, Any], ...]:
+    """Return the separate source-context section when owner scope is present."""
+
+    owner_scope = context.get("owner_scope")
+    if owner_scope is None:
+        return ()
+    return ((_OWNER_SCOPE_SECTION_TITLE, owner_scope),)
+
+
 _PLAN_AUTHOR_GUIDANCE = (
     "Write the three observation_claim branches as decision conditions. Prefer "
     'explicit conditional wording, such as "Return inconclusive if required capture '
@@ -13225,7 +13293,7 @@ def build_plan_author_context(
     """Build the source-derived context for the plan author role."""
 
     response_contract = _call1_contract_v2()
-    return {
+    context = {
         "task": {
             "instruction": (
                 "Design one target-free experiment for the supplied scenario. "
@@ -13316,6 +13384,16 @@ def build_plan_author_context(
             "example_response": neutral_artifact_plan_v2(),
         },
     }
+    owner_scope = _owner_scope_section(view)
+    if owner_scope is not None:
+        context["field_guide"]["owner_supplied_scope"] = (
+            "The SOURCE CONTEXT — OWNER-SUPPLIED SCOPE section contains owner-supplied "
+            "scenario_premises and evaluation_instructions with their sources. "
+            "Keep this material distinct from verified inventory facts and policy "
+            "data; it is not an observed target fact or runtime evidence."
+        )
+        context["owner_scope"] = owner_scope
+    return context
 
 
 def build_plan_reviewer_context(
@@ -13326,7 +13404,7 @@ def build_plan_reviewer_context(
 ) -> dict[str, Any]:
     """Build a fresh authoritative context for the plan reviewer."""
 
-    return {
+    context = {
         "original_scenario": _original_scenario_context(view),
         "authoritative_context": _authoritative_context(view, inventory, runtime_contract),
         "plan_field_meanings": PLAN_FIELD_MEANINGS,
@@ -13345,6 +13423,7 @@ def build_plan_reviewer_context(
         },
         "acceptance_examples": _review_acceptance_examples(),
     }
+    return _include_owner_scope(context, view)
 
 
 def build_artifact_author_context(
@@ -13359,7 +13438,7 @@ def build_artifact_author_context(
     # The neutral example is rendered in its own section so the source and
     # metadata have one readable copy in the request.
     response_contract.pop("neutral_example", None)
-    return {
+    context = {
         "original_scenario": _original_scenario_context(view),
         "authoritative_context": _authoritative_context(view, inventory, runtime_contract),
         "plan_field_meanings": PLAN_FIELD_MEANINGS,
@@ -13380,6 +13459,7 @@ def build_artifact_author_context(
             "label": "illustrative neutral example, not provider output",
         },
     }
+    return _include_owner_scope(context, view)
 
 
 def _plan_claim_level(plan: Any) -> str | None:
@@ -13481,7 +13561,7 @@ def build_artifact_reviewer_context(
         if isinstance(judge_spec, dict) and isinstance(judge_spec.get("fact_refs"), list)
         else []
     )
-    return {
+    context = {
         "original_scenario": _original_scenario_context(view),
         "authoritative_context": _authoritative_context(view, inventory, runtime_contract),
         "plan_field_meanings": PLAN_FIELD_MEANINGS,
@@ -13522,6 +13602,7 @@ def build_artifact_reviewer_context(
         },
         "acceptance_examples": _review_acceptance_examples(),
     }
+    return _include_owner_scope(context, view)
 
 
 def build_correction_context(
@@ -13760,6 +13841,8 @@ def build_call1_packet_v2(
             "neutral_outcome_example": context["neutral_outcome_example"],
         }
     )
+    if "owner_scope" in context:
+        payload["owner_scope"] = context["owner_scope"]
     assert_no_prompt_secrets(payload)
     packet = PromptPacket(
         stage="call1",
@@ -13769,6 +13852,9 @@ def build_call1_packet_v2(
             (
                 ("TASK", context["task"]),
                 ("SOURCE CONTEXT", context["source_context"]),
+            )
+            + _owner_scope_prompt_sections(context)
+            + (
                 ("EXECUTION CAPABILITIES", context["execution_capabilities"]),
                 ("FIELD GUIDE", context["field_guide"]),
                 ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
@@ -13821,6 +13907,8 @@ def build_call2_packet_v2(
             "plan_field_meanings": context["plan_field_meanings"],
         }
     )
+    if "owner_scope" in context:
+        payload["owner_scope"] = context["owner_scope"]
     assert_no_prompt_secrets(payload)
     packet = PromptPacket(
         stage="call2",
@@ -13835,6 +13923,9 @@ def build_call2_packet_v2(
                         "authoritative_context": context["authoritative_context"],
                     },
                 ),
+            )
+            + _owner_scope_prompt_sections(context)
+            + (
                 ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
                 ("ACCEPTED PLAN — immutable", context["accepted_plan"]),
                 ("OBSERVATION DECISION GUIDE", context["observation_guide"]),
@@ -13925,6 +14016,9 @@ def build_plan_review_packet(
             (
                 ("ORIGINAL SCENARIO", context["original_scenario"]),
                 ("AUTHORITATIVE CONTEXT", context["authoritative_context"]),
+            )
+            + _owner_scope_prompt_sections(context)
+            + (
                 ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
                 ("NEUTRAL OUTCOME EXAMPLE", context["neutral_outcome_example"]),
                 ("CANDIDATE PLAN", context["candidate_plan"]),
@@ -13981,6 +14075,7 @@ def build_artifact_review_packet(
                 "authoritative_context": context["authoritative_context"],
             },
         ),
+        *_owner_scope_prompt_sections(context),
         ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
         ("ACCEPTED PLAN", context["accepted_plan"]),
     ]

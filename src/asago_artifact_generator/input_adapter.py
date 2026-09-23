@@ -78,6 +78,7 @@ class InputView:
     reference_label: str | None = None
     reference_id: str | None = None
     benchmark_context: dict[str, Any] = field(default_factory=dict)
+    owner_scope: dict[str, list[dict[str, str]]] | None = None
 
     @property
     def source_sha256(self) -> str:
