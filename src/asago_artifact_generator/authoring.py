@@ -14,7 +14,7 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -30,6 +30,7 @@ from .bindings import (
     validate_bindings,
 )
 from .detector_controls import (
+    ControlCase,
     DetectorControlFeedback,
     build_control_cases,
     build_control_cases_for_runtime_contract,
@@ -9478,6 +9479,43 @@ class _ReviewOutcome:
     raw: bytes = b""
 
 
+# Caller-supplied extra detector-control cases: either a static sequence of
+# ControlCase objects or a provider callable that receives the current
+# candidate plan and metadata and returns the extra cases for that candidate.
+SuppliedControlCases = (
+    Sequence[ControlCase] | Callable[[Mapping[str, Any], Mapping[str, Any]], Sequence[ControlCase]]
+)
+
+
+def _validate_supplied_control_cases(
+    supplied_control_cases: SuppliedControlCases,
+) -> SuppliedControlCases:
+    """Validate the static supplied-control form eagerly; providers self-report."""
+
+    if callable(supplied_control_cases):
+        return supplied_control_cases
+    if isinstance(supplied_control_cases, (str, bytes)) or not isinstance(
+        supplied_control_cases, Sequence
+    ):
+        raise ValueError(
+            "supplied_control_cases must be ControlCase instances or a callable that returns them"
+        )
+    for case in supplied_control_cases:
+        if not isinstance(case, ControlCase):
+            raise ValueError("supplied_control_cases must contain only ControlCase instances")
+    return supplied_control_cases
+
+
+def _mark_control_origins(
+    results: list[dict[str, Any]],
+    normal_count: int,
+) -> None:
+    """Label each combined control result with its mechanical or supplied origin."""
+
+    for index, record in enumerate(results):
+        record["origin"] = "normal" if index < normal_count else "supplied"
+
+
 class AuthoringOrchestrator:
     """Run target-free authoring with legacy or stage-local correction policy.
 
@@ -9505,6 +9543,7 @@ class AuthoringOrchestrator:
         review_plan: bool | None = None,
         review_artifact: bool | None = None,
         no_correction: bool = False,
+        supplied_control_cases: SuppliedControlCases | None = None,
     ) -> None:
         if getattr(transport, "max_retries", None) != 0:
             raise ValueError("authoring transport must set max_retries=0")
@@ -9512,6 +9551,8 @@ class AuthoringOrchestrator:
             raise ValueError("correction_allowed must be a boolean")
         if wire_version not in {"v1", "v2"}:
             raise ValueError("wire_version must be 'v1' or 'v2'")
+        if supplied_control_cases is not None:
+            _validate_supplied_control_cases(supplied_control_cases)
         direct_policy_options = (
             plan_max_corrections is not None
             or artifact_max_corrections is not None
@@ -9600,6 +9641,9 @@ class AuthoringOrchestrator:
         self._saved_plan_review_packet: PromptPacket | None = None
         self._last_controls: list[dict[str, Any]] | None = None
         self._last_detector_feedback: tuple[DetectorControlFeedback, ...] = ()
+        self._supplied_control_cases = (
+            None if supplied_control_cases is None else supplied_control_cases
+        )
         self._raw_responses: dict[str, bytes] = {}
         self._decoded_responses: dict[str, Any] = {}
         self._prompt_packets: dict[str, PromptPacket] = {}
@@ -10116,21 +10160,28 @@ class AuthoringOrchestrator:
     ) -> list[Finding]:
         """Run finite controls before correction or package publication."""
 
-        raw_findings, controls = run_detector_controls(
-            parsed.python_bytes,
-            plan=plan,
-            metadata=parsed.metadata,
-            inventory=inventory,
-            runtime_contract=runtime_contract,
-        )
-        self._last_controls = controls
-        cases = build_control_cases_for_runtime_contract(
+        normal_cases = build_control_cases_for_runtime_contract(
             runtime_contract,
             plan,
             parsed.metadata,
             inventory,
         )
-        self._last_detector_feedback = build_detector_feedback(cases, controls)
+        supplied_cases = self._resolve_supplied_control_cases(plan, parsed.metadata)
+        raw_findings, controls = run_detector_controls(
+            parsed.python_bytes,
+            cases=[*normal_cases, *supplied_cases],
+            plan=plan,
+            metadata=parsed.metadata,
+            inventory=inventory,
+            runtime_contract=runtime_contract,
+        )
+        if self._supplied_control_cases is not None:
+            _mark_control_origins(controls, len(normal_cases))
+        self._last_controls = controls
+        self._last_detector_feedback = build_detector_feedback(
+            [*normal_cases, *supplied_cases],
+            controls,
+        )
         if self._ledger:
             self._ledger[-1]["detector_controls"] = controls
         if self._failure_evidence.get("attempts"):
@@ -10150,6 +10201,30 @@ class AuthoringOrchestrator:
             return [*findings, *control_findings]
         self._persist_failure_evidence()
         return findings
+
+    def _resolve_supplied_control_cases(
+        self,
+        plan: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> tuple[ControlCase, ...]:
+        """Resolve the caller's supplied-control hook for one candidate.
+
+        A provider callable receives the current candidate plan and metadata so
+        the caller can mechanically remap candidate-local names and dynamic
+        record IDs into its case evidence.
+        """
+
+        hook = self._supplied_control_cases
+        if hook is None:
+            return ()
+        resolved = hook(plan, metadata) if callable(hook) else hook
+        if isinstance(resolved, (str, bytes)) or not isinstance(resolved, Sequence):
+            raise ValueError("supplied_control_cases must resolve to ControlCase instances")
+        cases = tuple(resolved)
+        for case in cases:
+            if not isinstance(case, ControlCase):
+                raise ValueError("supplied_control_cases must resolve to ControlCase instances")
+        return cases
 
     @staticmethod
     def _parse_candidate_for_controls(raw: bytes) -> ParsedCall2Response | None:
@@ -19587,6 +19662,7 @@ __all__ = [
     "AuthoringPolicy",
     "AuthoringResult",
     "ArtifactValidationError",
+    "SuppliedControlCases",
     "artifact_observation_guide",
     "ARTIFACT_REVIEW_PROMPT_VERSION",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V4",

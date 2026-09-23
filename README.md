@@ -98,6 +98,22 @@ contradictory reviewer responses and reviewer transport failures produce
 with no automatic retry. An explicit caller, per-task, or aggregate budget cap
 stops the run before the next dispatch.
 
+### Supplied detector-control cases
+
+Callers can add extra detector controls to the artifact stage with the
+`supplied_control_cases` option on `AuthoringOrchestrator`. Pass either a
+sequence of `ControlCase` objects or a callable that receives the current
+candidate plan and metadata and returns the extra cases for that candidate,
+so you can mechanically remap candidate-local binding names and dynamic record
+IDs into the case evidence. The orchestrator runs the supplied cases together
+with the mechanically derived controls in one isolated control execution and
+labels every control result with `origin: normal` or `origin: supplied`. A
+failing supplied control is an ordinary artifact-stage finding: it consumes
+the existing single artifact correction, the correction packet carries the
+actual failing control evidence, and the run terminates when the correction
+allowance is exhausted. Without the option, orchestration and rendered prompt
+bytes stay unchanged.
+
 ### Cross-run budget guard
 
 The caller owns spend reconciliation across separate `author` processes. Pass
