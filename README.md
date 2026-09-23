@@ -144,6 +144,31 @@ that the material is not an observed target fact or runtime evidence. The generi
 plan field guide explains this boundary only when the block is present. An absent
 or empty block leaves rendered request bytes unchanged.
 
+### Fresh five-case authoring trial
+
+The reusable trial caller reads the frozen input index and validates every
+source, control file, and prepared input before it constructs a transport.
+Render and inspect all five exact Call 1 requests without provider contact:
+
+```bash
+uv run python -m scripts.fresh_trial.run_fresh_authoring_trial \
+  --run-dir /absolute/path/to/fresh-consumer-five-case-<timestamp> \
+  --render-only
+```
+
+Only run the frozen batch after the input index, controls, request renderings,
+and `frozen-policy.json` are finalized. The explicit `--live` flag uses the
+`gemma4-oc` profile, records every call's timing, and persists the shared
+40/8/4/4 request budget. A case with existing dispatch or evidence is never
+retried; a transport outage stops the batch and marks remaining cases
+unattempted.
+
+```bash
+uv run python -m scripts.fresh_trial.run_fresh_authoring_trial \
+  --run-dir /absolute/path/to/fresh-consumer-five-case-<timestamp> \
+  --live
+```
+
 ### Cross-run budget guard
 
 The caller owns spend reconciliation across separate `author` processes. Pass
