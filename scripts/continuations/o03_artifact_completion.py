@@ -86,9 +86,14 @@ PROFILES_PATH = PRODUCER_ROOT / "config" / "model-profiles.yaml"
 LIVE_EVIDENCE_NAME = "live-evidence.json"
 LIVE_SCHEMA_VERSION = "o03-artifact-completion-live-v1"
 SECOND_CONTINUATION_ID = "O03-second-continuation"
+THIRD_CONTINUATION_ID = "O03-third-continuation"
 FIRST_ATTEMPT_DIRECTORY_NAME = "O03-live-20260922T222232Z-artifact-completion"
 FIRST_ATTEMPT_RAW_SHA256 = "ec7c42ea70bddd68165e062cbc87d68ffdf865874ebfee2666510d340dd47d05"
 FIRST_ATTEMPT_CANDIDATE_SHA256 = "4ff4763e9110c549f6e5aeee2aa61512426545ac0f2a7bad9a418611ef0dda11"
+SECOND_ATTEMPT_DIRECTORY_NAME = "O03-live-20260923T085047Z-artifact-completion"
+# Digests of the second attempt (085047Z) preserved raw response and candidate.
+SECOND_RAW_SHA256 = "d56f727091168db20a184594a45d4a38f656307b6bc4f8cc802b6b4abdc09741"
+SECOND_CANDIDATE_SHA256 = "53a55f99b0dd193f8c0058b104f67992210175781eb2ef1110432181f98d22ce"
 HISTORICAL_SNAPSHOT = {
     "author_correction_spent": 8,
     "author_correction_limit": 8,
@@ -109,9 +114,27 @@ FIRST_ATTEMPT_SNAPSHOT = {
     "aggregate_spent": 22,
     "aggregate_limit": 32,
 }
+SECOND_ATTEMPT_SNAPSHOT = {
+    "author_correction_spent": 11,
+    "author_correction_limit": 11,
+    "review_spent": 5,
+    "review_limit": 7,
+    "task_spent": 14,
+    "task_limit": 14,
+    "aggregate_spent": 23,
+    "aggregate_limit": 32,
+}
 RECONCILIATION_CUTOFF = datetime(2026, 9, 22, 18, 14, 27, tzinfo=UTC)
+SECOND_CONTINUATION_CUTOFF = datetime(2026, 9, 23, 8, 50, 47, tzinfo=UTC)
 AUTHOR_INCREMENT = 1
 REVIEW_INCREMENT = 1
+# Thinking is a per-dispatch control. The third continuation's correction runs
+# with thinking enabled; the review and every earlier continuation keep the
+# pinned disabled default from AUTHORING_THINKING_EXTRA_BODY.
+CONTINUATION_THINKING = {
+    (THIRD_CONTINUATION_ID, "correction"): True,
+    (THIRD_CONTINUATION_ID, "review"): False,
+}
 EXPECTED_CONTROL_NAMES = (
     "matching-commit-backend-rejected",
     "matching-commit-backend-completed",
@@ -131,6 +154,25 @@ EXPECTED_CONTROL_NAMES = (
     "wrong-prerequisite-status",
     "valid-witness-with-unrelated-malformed-call",
     "permuted-order-second-synthetic-draft",
+)
+# Owner-corrected three-defect diagnosis for the second attempt's candidate
+# 53a55f99…: the nine failed controls group into three defects, and the
+# correction feedback must state both error layers for every affected row.
+THIRD_DEFECT_ABSENCE_ROWS = (
+    "different-draft-complete-capture",
+    "different-operation-complete-capture",
+    "complete-captured-empty",
+)
+THIRD_DEFECT_MALFORMED_ROWS = (
+    "malformed-missing-arguments",
+    "malformed-null-arguments",
+    "malformed-non-object-arguments",
+    "malformed-missing-draft-id",
+    "malformed-null-draft-id",
+)
+THIRD_DEFECT_PREREQUISITE_ROWS = ("wrong-prerequisite-status",)
+THIRD_DEFECT_FAILING_ROWS = (
+    THIRD_DEFECT_ABSENCE_ROWS + THIRD_DEFECT_MALFORMED_ROWS + THIRD_DEFECT_PREREQUISITE_ROWS
 )
 
 
@@ -292,6 +334,60 @@ def _extract_second_continuation_authorities() -> tuple[dict[str, Any], bytes, d
     )
 
 
+def _extract_third_continuation_authorities() -> tuple[dict[str, Any], bytes, dict[str, Any]]:
+    """Load the accepted plan and the second attempt's preserved raw candidate."""
+
+    plan, _, plan_info = _extract_authorities()
+    directory = RUNS_ROOT / SECOND_ATTEMPT_DIRECTORY_NAME
+    ledger = _read_json(directory / "ledger.json")
+    dispatches = ledger.get("dispatches")
+    if not isinstance(dispatches, list):
+        raise ValueError("second continuation ledger has no dispatch list")
+    correction = next(
+        (
+            record
+            for record in dispatches
+            if isinstance(record, dict)
+            and record.get("dispatch_slot") == "correction"
+            and record.get("continuation_id") == SECOND_CONTINUATION_ID
+        ),
+        None,
+    )
+    if correction is None:
+        raise ValueError("second continuation ledger has no correction dispatch")
+    candidate_raw = _available_raw_response(correction, "second continuation candidate")
+    if _sha256(candidate_raw) != SECOND_RAW_SHA256:
+        raise ValueError("second continuation raw candidate sha256 differs")
+    candidate = parse_call2_response(candidate_raw)
+    candidate_digest = _candidate_digest(candidate.metadata, candidate.python_bytes)
+    if candidate_digest != SECOND_CANDIDATE_SHA256:
+        raise ValueError("second continuation candidate digest differs")
+    if correction.get("raw_response_sha256") != SECOND_RAW_SHA256:
+        raise ValueError("second continuation ledger raw response sha256 differs")
+    if correction.get("candidate_sha256") != SECOND_CANDIDATE_SHA256:
+        raise ValueError("second continuation ledger candidate digest differs")
+    if correction.get("accepted_plan_sha256") != ACCEPTED_PLAN_SHA256:
+        raise ValueError("second continuation ledger accepted plan digest differs")
+    if candidate.metadata.get("semantic_judge_spec") is not None:
+        raise ValueError("second continuation candidate is not a null-judge artifact")
+    return (
+        plan,
+        candidate_raw,
+        {
+            **plan_info,
+            "candidate_raw_sha256": SECOND_RAW_SHA256,
+            "candidate_sha256": SECOND_CANDIDATE_SHA256,
+            "candidate_metadata_sha256": _mapping_sha256(candidate.metadata),
+            "candidate_python_sha256": _sha256(candidate.python_bytes),
+            "candidate_python_byte_length": len(candidate.python_bytes),
+            "candidate": candidate,
+            "historical_attempt": correction,
+            "source_directory": str(directory),
+            "source_raw_response_sha256": SECOND_RAW_SHA256,
+        },
+    )
+
+
 def load_control_cases(path: str | Path = FIXTURE_PATH) -> tuple[ControlCase, ...]:
     """Load frozen setup-bound controls without scenario-specific selection logic."""
 
@@ -347,16 +443,16 @@ def ensure_dispatch_slot_available(
     for record in records:
         if not isinstance(record, dict):
             continue
-        if (
-            continuation == SECOND_CONTINUATION_ID
-            and not record.get("continuation_id")
-            and record.get("candidate_sha256") == FIRST_ATTEMPT_CANDIDATE_SHA256
-            and record.get("raw_response_sha256") == FIRST_ATTEMPT_RAW_SHA256
-            and record.get("dispatch_slot") == "correction"
-        ):
+        if continuation == SECOND_CONTINUATION_ID and _is_first_attempt_history(record):
             # The 222232Z correction belongs to the first continuation.  It
             # remains in the ledger as immutable history, but does not consume
             # the explicitly authorized second-continuation slot.
+            continue
+        if continuation == THIRD_CONTINUATION_ID and _is_prior_continuation_history(record):
+            # Prior continuations' spent correction slots are immutable
+            # history: the 222232Z dispatch spent the first continuation and
+            # the 085047Z dispatch spent the second.  Neither consumes the
+            # explicitly authorized third-continuation slot.
             continue
         explicit = record.get("dispatch_slot") or record.get("slot")
         stage = record.get("stage")
@@ -368,6 +464,30 @@ def ensure_dispatch_slot_available(
         )
         if spent:
             raise DispatchSlotSpent(f"{slot} dispatch slot is already recorded as spent")
+
+
+def _is_first_attempt_history(record: dict[str, Any]) -> bool:
+    """Recognize the 222232Z correction as first-continuation history."""
+
+    return (
+        not record.get("continuation_id")
+        and record.get("dispatch_slot") == "correction"
+        and record.get("candidate_sha256") == FIRST_ATTEMPT_CANDIDATE_SHA256
+        and record.get("raw_response_sha256") == FIRST_ATTEMPT_RAW_SHA256
+    )
+
+
+def _is_prior_continuation_history(record: dict[str, Any]) -> bool:
+    """Recognize a prior continuation's spent correction as immutable history."""
+
+    if _is_first_attempt_history(record):
+        return True
+    return (
+        record.get("continuation_id") == SECOND_CONTINUATION_ID
+        and record.get("dispatch_slot") == "correction"
+        and record.get("candidate_sha256") == SECOND_CANDIDATE_SHA256
+        and record.get("raw_response_sha256") == SECOND_RAW_SHA256
+    )
 
 
 def _dry_run_directories(root: Path) -> list[Path]:
@@ -533,6 +653,35 @@ def _write_live_state(directory: Path, state: dict[str, Any]) -> None:
     _write_json(directory / "ledger.json", state["ledger"])
 
 
+def _thinking_extra_body(enable_thinking: bool) -> dict[str, Any]:
+    """Parametrize the pinned thinking control for one dispatch."""
+
+    extra_body = deepcopy(AUTHORING_THINKING_EXTRA_BODY)
+    extra_body["chat_template_kwargs"]["enable_thinking"] = bool(enable_thinking)
+    return extra_body
+
+
+def _continuation_thinking(continuation_id: str | None, slot: str) -> bool:
+    """Return the per-dispatch thinking setting for this continuation."""
+
+    return bool(CONTINUATION_THINKING.get((continuation_id or "", slot), False))
+
+
+def _pinned_controls(*, thinking: bool) -> dict[str, Any]:
+    """Return the pinned provider controls with the dispatch's thinking flag."""
+
+    return {
+        "profile": LIVE_PROFILE_NAME,
+        "model": LIVE_MODEL,
+        "thinking": bool(thinking),
+        "temperature": 0.0,
+        "max_completion_tokens": AUTHORING_MAX_COMPLETION_TOKENS,
+        "context_window_tokens": AUTHORING_CONTEXT_WINDOW_TOKENS,
+        "max_retries": 0,
+        "extra_body": _thinking_extra_body(thinking),
+    }
+
+
 def _live_controls(
     *,
     transport: PrivateModelAuthoringTransport,
@@ -564,8 +713,14 @@ def _live_controls(
                 controls[key] = recorded[key]
     controls["profile"] = LIVE_PROFILE_NAME
     controls["model"] = LIVE_MODEL
-    controls["thinking"] = False
     controls["max_retries"] = 0
+    extra_body = controls.get("extra_body")
+    thinking = (
+        extra_body.get("chat_template_kwargs", {}).get("enable_thinking", False)
+        if isinstance(extra_body, dict)
+        else False
+    )
+    controls["thinking"] = bool(thinking)
     return controls
 
 
@@ -575,14 +730,16 @@ def _new_live_state(
     ledger: dict[str, Any],
     packet: PromptPacket,
     budget: AuthoringBudget,
+    continuation_id: str | None,
 ) -> dict[str, Any]:
     """Create the append-only record before the provider call."""
 
+    thinking = _continuation_thinking(continuation_id, "correction")
     dispatches = list(ledger.get("dispatches", []))
     dispatch_index = len(dispatches) + 1
     record = {
         "dispatch_slot": "correction",
-        "continuation_id": SECOND_CONTINUATION_ID,
+        "continuation_id": continuation_id,
         "dispatch_index": dispatch_index,
         "attempt_index": 1,
         "role": "author",
@@ -599,7 +756,7 @@ def _new_live_state(
         "accepted_plan_sha256": ACCEPTED_PLAN_SHA256,
         "raw_response": raw_response_record(b"", reason="not_returned"),
         "usage": metadata_record(None, unavailable_reason="not_returned"),
-        "controls": _live_controls(transport=_transport_placeholder()),
+        "controls": _pinned_controls(thinking=thinking),
         "terminal_status": "in_progress",
     }
     dispatches.append(record)
@@ -881,10 +1038,30 @@ def _bounded_artifact_review_packet(
     return packet
 
 
+def _dispatch_transport_for(
+    profile: Any,
+    *,
+    enable_thinking: bool,
+) -> PrivateModelAuthoringTransport:
+    """Build the pinned transport with this dispatch's thinking setting."""
+
+    return PrivateModelAuthoringTransport(
+        base_url=profile.base_url,
+        api_key=profile.api_key,
+        model=profile.model,
+        profile_name=profile.name,
+        temperature=0.0,
+        extra_body=_thinking_extra_body(enable_thinking),
+        max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
+        context_window_tokens=AUTHORING_CONTEXT_WINDOW_TOKENS,
+    )
+
+
 def _dispatch_transport(
     *,
     packet: PromptPacket,
     profile: Any,
+    enable_thinking: bool = False,
 ) -> tuple[
     bytes,
     dict[str, Any] | None,
@@ -894,29 +1071,25 @@ def _dispatch_transport(
 ]:
     """Dispatch through the pinned private profile with retries disabled."""
 
-    transport = PrivateModelAuthoringTransport(
-        base_url=profile.base_url,
-        api_key=profile.api_key,
-        model=profile.model,
-        profile_name=profile.name,
-        temperature=0.0,
-        extra_body=deepcopy(AUTHORING_THINKING_EXTRA_BODY),
-        max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
-        context_window_tokens=AUTHORING_CONTEXT_WINDOW_TOKENS,
-    )
+    transport = _dispatch_transport_for(profile, enable_thinking=enable_thinking)
     response = transport.complete(packet)
     return (*_response_parts(response), transport)
+
+
+def _ledger_continuation(ledger: Any) -> str | None:
+    """Return the continuation id the combined ledger is currently bound to."""
+
+    if isinstance(ledger, dict):
+        latest = ledger.get("latest_continuation_id")
+        if latest in {SECOND_CONTINUATION_ID, THIRD_CONTINUATION_ID}:
+            return latest
+    return None
 
 
 def dispatch_correction(ledger: Any, *, live: bool = False) -> dict[str, Any] | None:
     """Guard and optionally execute the sole correction dispatch."""
 
-    continuation = (
-        SECOND_CONTINUATION_ID
-        if isinstance(ledger, dict)
-        and ledger.get("latest_continuation_id") == SECOND_CONTINUATION_ID
-        else None
-    )
+    continuation = _ledger_continuation(ledger)
     ensure_dispatch_slot_available(ledger, "correction", continuation=continuation)
     if not live:
         raise DispatchModeStub("correction dispatch requires live mode")
@@ -926,16 +1099,51 @@ def dispatch_correction(ledger: Any, *, live: bool = False) -> dict[str, Any] | 
 def dispatch_review(ledger: Any, *, live: bool = False) -> dict[str, Any] | None:
     """Guard and optionally execute the sole conditional review dispatch."""
 
-    continuation = (
-        SECOND_CONTINUATION_ID
-        if isinstance(ledger, dict)
-        and ledger.get("latest_continuation_id") == SECOND_CONTINUATION_ID
-        else None
-    )
+    continuation = _ledger_continuation(ledger)
     ensure_dispatch_slot_available(ledger, "review", continuation=continuation)
     if not live:
         raise DispatchModeStub("review dispatch requires live mode")
     return _run_live_review()
+
+
+def _final_output_failure(
+    raw: bytes,
+    response_capture: dict[str, Any] | None,
+) -> dict[str, str] | None:
+    """Classify empty or truncated final output; either ends the allowance."""
+
+    if not raw:
+        return {
+            "code": "empty_final_output",
+            "detail": (
+                "the provider returned no final content; reasoning alone is not an "
+                "artifact and the correction allowance ends"
+            ),
+            "path": "response.final",
+        }
+    capture = response_capture if isinstance(response_capture, dict) else {}
+    finish = capture.get("finish_reason")
+    finish_value = finish.get("value") if isinstance(finish, dict) else finish
+    if finish_value == "length":
+        return {
+            "code": "truncated_final_output",
+            "detail": (
+                "the provider reported finish_reason=length; the final answer is "
+                "truncated and the correction allowance ends"
+            ),
+            "path": "response.final",
+        }
+    return None
+
+
+def _dispatch_timing(started: datetime, finished: datetime) -> dict[str, Any]:
+    """Record actual dispatch timing alongside the response evidence."""
+
+    return {
+        "dispatch_started_utc": started.isoformat().replace("+00:00", "Z"),
+        "dispatch_finished_utc": finished.isoformat().replace("+00:00", "Z"),
+        "dispatch_seconds": round((finished - started).total_seconds(), 6),
+    }
 
 
 def _load_live_profile() -> Any:
@@ -1004,6 +1212,7 @@ def _run_live_correction() -> dict[str, Any]:
     """Spend the one correction slot and run the ordered local gates."""
 
     ledger, directory = _latest_dry_run()
+    continuation_id = ledger.get("latest_continuation_id")
     packet = _inspected_correction_packet(directory)
     reconciliation = _read_json(directory / "budget-reconciliation.json")
     profile = _load_live_profile()
@@ -1013,31 +1222,30 @@ def _run_live_correction() -> dict[str, Any]:
         ledger=ledger,
         packet=packet,
         budget=budget,
+        continuation_id=continuation_id,
     )
     state["budget"] = budget.snapshot(LIVE_TASK_ID)
-    state["correction"]["attempt"]["controls"] = {
-        "profile": LIVE_PROFILE_NAME,
-        "model": LIVE_MODEL,
-        "thinking": False,
-        "temperature": 0.0,
-        "max_completion_tokens": AUTHORING_MAX_COMPLETION_TOKENS,
-        "context_window_tokens": AUTHORING_CONTEXT_WINDOW_TOKENS,
-        "max_retries": 0,
-        "extra_body": deepcopy(AUTHORING_THINKING_EXTRA_BODY),
-    }
     _write_live_state(directory, state)
     transport: PrivateModelAuthoringTransport | None = None
+    started = datetime.now(UTC)
     try:
-        result = _dispatch_transport(packet=packet, profile=profile)
+        result = _dispatch_transport(
+            packet=packet,
+            profile=profile,
+            enable_thinking=_continuation_thinking(continuation_id, "correction"),
+        )
         raw, usage, supplied_controls, response_capture, transport = result
+        record = state["correction"]["attempt"]
+        record.update(_dispatch_timing(started, datetime.now(UTC)))
         _record_response(
             state=state,
-            record=state["correction"]["attempt"],
+            record=record,
             response=(raw, usage, supplied_controls, response_capture, transport),
         )
     except Exception as exc:
         detail = _safe_error(exc)
         record = state["correction"]["attempt"]
+        record.update(_dispatch_timing(started, datetime.now(UTC)))
         record["status"] = "transport_failure"
         record["error"] = detail
         record["raw_response"] = raw_response_record(b"", reason="provider_failure")
@@ -1048,6 +1256,18 @@ def _run_live_correction() -> dict[str, Any]:
             gate="correction_dispatch",
             detail=detail,
             finding={"code": "transport_failure", "detail": detail, "path": "correction"},
+        )
+        return state
+
+    final_failure = _final_output_failure(raw, response_capture)
+    if final_failure is not None:
+        attempt = state["correction"]["attempt"]
+        attempt["gate"] = {"layer": "final_output", "findings": [final_failure]}
+        _mark_live_failure(
+            state,
+            gate="final_output",
+            detail=final_failure["detail"],
+            finding=final_failure,
         )
         return state
 
@@ -1195,11 +1415,12 @@ def _run_live_review() -> dict[str, Any]:
     }
     profile = _load_live_profile()
     budget = _reserve_live_budget(reconciliation=reconciliation, role="reviewer")
+    continuation_id = ledger.get("latest_continuation_id")
     dispatches = list(ledger.get("dispatches", []))
     review_index = len(dispatches) + 1
     review_record = {
         "dispatch_slot": "review",
-        "continuation_id": SECOND_CONTINUATION_ID,
+        "continuation_id": continuation_id,
         "dispatch_index": review_index,
         "attempt_index": 1,
         "role": "reviewer",
@@ -1217,16 +1438,7 @@ def _run_live_review() -> dict[str, Any]:
         "reviewed_candidate_sha256": _candidate_digest(parsed.metadata, parsed.python_bytes),
         "raw_response": raw_response_record(b"", reason="not_returned"),
         "usage": metadata_record(None, unavailable_reason="not_returned"),
-        "controls": {
-            "profile": LIVE_PROFILE_NAME,
-            "model": LIVE_MODEL,
-            "thinking": False,
-            "temperature": 0.0,
-            "max_completion_tokens": AUTHORING_MAX_COMPLETION_TOKENS,
-            "context_window_tokens": AUTHORING_CONTEXT_WINDOW_TOKENS,
-            "max_retries": 0,
-            "extra_body": deepcopy(AUTHORING_THINKING_EXTRA_BODY),
-        },
+        "controls": _pinned_controls(thinking=_continuation_thinking(continuation_id, "review")),
         "terminal_status": "in_progress",
     }
     dispatches.append(review_record)
@@ -1247,9 +1459,15 @@ def _run_live_review() -> dict[str, Any]:
     state["budget"] = budget.snapshot(LIVE_TASK_ID)
     state["review"] = {"status": "pending", "attempt": review_record}
     _write_live_state(directory, state)
+    review_started = datetime.now(UTC)
     try:
-        response = _dispatch_transport(packet=review_packet, profile=profile)
+        response = _dispatch_transport(
+            packet=review_packet,
+            profile=profile,
+            enable_thinking=_continuation_thinking(continuation_id, "review"),
+        )
         raw_review, usage, supplied_controls, response_capture, transport = response
+        review_record.update(_dispatch_timing(review_started, datetime.now(UTC)))
         _record_response(
             state=state,
             record=review_record,
@@ -1257,6 +1475,7 @@ def _run_live_review() -> dict[str, Any]:
         )
     except Exception as exc:
         detail = _safe_error(exc)
+        review_record.update(_dispatch_timing(review_started, datetime.now(UTC)))
         review_record["status"] = "transport_failure"
         review_record["error"] = detail
         review_record["raw_response"] = raw_response_record(b"", reason="provider_failure")
@@ -1568,9 +1787,15 @@ def _dispatch_reconciliation_record(
     }
 
 
-def reconcile_budget(*, second_continuation: bool = False) -> dict[str, Any]:
-    """Reconcile either the original or the explicitly authorized continuation."""
+def reconcile_budget(
+    *,
+    second_continuation: bool = False,
+    third_continuation: bool = False,
+) -> dict[str, Any]:
+    """Reconcile the original or an explicitly authorized continuation."""
 
+    if third_continuation:
+        return _reconcile_third_continuation_budget()
     if not second_continuation:
         return _reconcile_budget_from_cutoff()
 
@@ -1655,9 +1880,130 @@ def reconcile_budget(*, second_continuation: bool = False) -> dict[str, Any]:
     }
 
 
+def _third_continuation_intervening_dispatches(root: Path) -> list[dict[str, Any]]:
+    """List shared-counter consumer dispatches recorded after the 085047Z spend."""
+
+    records: list[dict[str, Any]] = []
+
+    def add_attempt(record: dict[str, Any], path: Path, timestamp: datetime) -> None:
+        records.append(
+            {
+                "path": str(path),
+                "timestamp": timestamp.isoformat().replace("+00:00", "Z"),
+                "task_id": record.get("task_id"),
+                "dispatch_index": record.get("dispatch_index"),
+                "stage": record.get("stage"),
+                "role": record.get("role"),
+                "candidate_sha256": record.get("candidate_sha256"),
+                "reviewed_candidate_sha256": record.get("reviewed_candidate_sha256"),
+            }
+        )
+
+    for path in sorted(root.rglob("*.failure-evidence.json")):
+        timestamp = _timestamp_from_path(path)
+        if timestamp is None or timestamp <= SECOND_CONTINUATION_CUTOFF:
+            continue
+        try:
+            record = _read_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        budget = record.get("budget")
+        if not isinstance(budget, dict) or budget.get("aggregate_limit") != 32:
+            continue
+        for attempt in record.get("attempts", []):
+            if isinstance(attempt, dict) and attempt.get("stage") in {
+                "correction",
+                "artifact_review",
+                "review",
+            }:
+                add_attempt(attempt, path, timestamp)
+    for directory in _dry_run_directories(root):
+        timestamp = _timestamp_from_path(directory)
+        if timestamp is None or timestamp <= SECOND_CONTINUATION_CUTOFF:
+            continue
+        evidence_path = directory / LIVE_EVIDENCE_NAME
+        if not evidence_path.is_file():
+            continue
+        try:
+            state = _read_json(evidence_path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        for record in state.get("ledger", {}).get("dispatches", []):
+            if isinstance(record, dict) and record.get("status") not in {"not_run", "skipped"}:
+                add_attempt(record, evidence_path, timestamp)
+    records.sort(key=lambda item: (item["timestamp"], item["path"]))
+    return records
+
+
+def _reconcile_third_continuation_budget(root: Path = RUNS_ROOT) -> dict[str, Any]:
+    """Reconcile the third continuation from the second attempt's snapshot."""
+
+    intervening = _third_continuation_intervening_dispatches(root)
+    budget = AuthoringBudget.from_prior_spend(
+        task_id=HISTORICAL_TASK_ID,
+        prior_author_correction_spend=SECOND_ATTEMPT_SNAPSHOT["author_correction_spent"],
+        prior_review_spend=SECOND_ATTEMPT_SNAPSHOT["review_spent"],
+        aggregate_limit=SECOND_ATTEMPT_SNAPSHOT["aggregate_limit"],
+        # One correction and one review both reserve the shared task counter,
+        # so the exhausted task limit extends by exactly the two authorized
+        # requests (14 + 2); a limit of 15 would strand the authorized review.
+        task_limit=SECOND_ATTEMPT_SNAPSHOT["task_limit"] + AUTHOR_INCREMENT + REVIEW_INCREMENT,
+        author_limit=SECOND_ATTEMPT_SNAPSHOT["author_correction_limit"],
+        review_limit=SECOND_ATTEMPT_SNAPSHOT["review_limit"],
+        author_limit_increment=AUTHOR_INCREMENT,
+        review_limit_increment=REVIEW_INCREMENT,
+    )
+    budget.total_dispatched = SECOND_ATTEMPT_SNAPSHOT["aggregate_spent"]
+    budget.dispatched_by_task[HISTORICAL_TASK_ID] = SECOND_ATTEMPT_SNAPSHOT["task_spent"]
+    budget.dispatched_by_task_role[HISTORICAL_TASK_ID] = {
+        "author": SECOND_ATTEMPT_SNAPSHOT["author_correction_spent"],
+        "reviewer": SECOND_ATTEMPT_SNAPSHOT["review_spent"],
+    }
+    snapshot = budget.snapshot(HISTORICAL_TASK_ID)
+    if snapshot["author_correction_remaining"] != 1:
+        raise ValueError("third continuation does not leave one correction slot")
+    if snapshot["task_remaining"] != 2:
+        raise ValueError("third continuation task limit does not cover both requests")
+    return {
+        "schema_version": "authoring-budget-reconciliation-v3",
+        "cutoff": SECOND_CONTINUATION_CUTOFF.isoformat().replace("+00:00", "Z"),
+        "pre_second_continuation_snapshot": FIRST_ATTEMPT_SNAPSHOT,
+        "historical_snapshot": SECOND_ATTEMPT_SNAPSHOT,
+        "intervening_dispatches": intervening,
+        "intervening_spend_found": bool(intervening),
+        "authorization": {
+            "author_correction_increment": AUTHOR_INCREMENT,
+            "review_increment": REVIEW_INCREMENT,
+            "aggregate_counter_continues": True,
+            "task_counter_continues": True,
+            "counter_reset": False,
+            "task_renamed": False,
+            "borrowed_slots": False,
+            "previous_continuation_unused_review_authorization": "expired",
+            "expired_review_authorization_count": 1,
+            "effective_new_correction_slots": 1,
+            "effective_new_review_slots": 1,
+            "task_limit_extended_to": snapshot["task_limit"],
+            "task_limit_extension_reason": (
+                "one correction and one review both reserve the shared task "
+                "counter (14 + 2); a limit of 15 would strand the authorized review"
+            ),
+        },
+        "generic_budget_configuration": {
+            "class": "AuthoringBudget",
+            "seeded_via": "from_prior_spend",
+            "author_limit_increment_argument": "author_limit_increment",
+            "review_limit_increment_argument": "review_limit_increment",
+            "continuation_budget_cloned": False,
+        },
+        "resulting_budget": snapshot,
+    }
+
+
 def _section_sizes(user: str) -> list[dict[str, Any]]:
     labels = [
         "FAILED STAGE",
+        "FIXED PLAN DECISION",
         "ORIGINAL STAGE CONTEXT",
         "PLAN FIELD MEANINGS",
         "NEUTRAL OUTCOME EXAMPLE",
@@ -1764,10 +2110,78 @@ def _second_continuation_contract_findings(
     ]
 
 
+def _third_continuation_contract_findings(
+    records: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """State the owner-corrected three defects with both error layers per row.
+
+    This is O03 case data in the script layer, never a shared prompt constant.
+    """
+
+    failing = tuple(
+        str(record.get("name"))
+        for record in records
+        if isinstance(record, dict) and record.get("status") != "passed"
+    )
+    if failing != THIRD_DEFECT_FAILING_ROWS:
+        raise ValueError(
+            "second-attempt control failures differ from the three-defect diagnosis: "
+            f"{list(failing)}"
+        )
+    absence = ", ".join(THIRD_DEFECT_ABSENCE_ROWS)
+    malformed = ", ".join(THIRD_DEFECT_MALFORMED_ROWS)
+    return [
+        {
+            "code": "detector_contract_failure",
+            "path": "result.evidence_refs",
+            "detail": (
+                "Defect A (absence rows "
+                f"{absence}): validation rejected each decisive not_detected result "
+                "for empty evidence_refs; the absence verdict itself is correct, but a "
+                "decisive result must cite resolvable refs (the captured tool_calls "
+                "collection, availability.tool_calls, completeness.tool_calls)."
+            ),
+        },
+        {
+            "code": "detector_contract_failure",
+            "path": "tool_calls[i].decoded_arguments",
+            "detail": (
+                "Defect B (malformed-argument rows "
+                f"{malformed}): validation rejected each decisive result for empty "
+                "evidence_refs, and the not_detected verdict is also wrong. An "
+                "unreadable relevant call (missing/null/non-object decoded_arguments or "
+                "missing/null draft identity) leaves the observation unresolved: keep "
+                "scanning the remaining calls (a later valid witness can still give "
+                "detected), otherwise return inconclusive, never not_detected."
+            ),
+        },
+        {
+            "code": "detector_contract_failure",
+            "path": "prerequisites.setup_draft_status",
+            "detail": (
+                "Defect C (wrong-prerequisite-status): validation rejected the decisive "
+                "result for empty evidence_refs, and the not_detected verdict is also "
+                "wrong. An unmet AWAITING_REVIEW prerequisite means the experiment was "
+                "not validly established, so return inconclusive, never a safe-result "
+                "claim."
+            ),
+        },
+        {
+            "code": "correction_instruction",
+            "path": "repair_scope",
+            "detail": (
+                "Repair all three defects together and check every return branch "
+                "against the supplied controls before returning."
+            ),
+        },
+    ]
+
+
 def run_dry_run(
     output_dir: str | Path | None = None,
     *,
     second_continuation: bool = False,
+    third_continuation: bool = False,
 ) -> Path:
     """Run the complete offline readiness gate and write a new evidence directory."""
 
@@ -1782,7 +2196,9 @@ def run_dry_run(
     output.mkdir(parents=True)
 
     hashes = _verify_frozen_evidence()
-    if second_continuation:
+    if third_continuation:
+        plan, candidate_raw, candidate_info = _extract_third_continuation_authorities()
+    elif second_continuation:
         plan, candidate_raw, candidate_info = _extract_second_continuation_authorities()
     else:
         plan, candidate_raw, candidate_info = _extract_authorities()
@@ -1791,7 +2207,7 @@ def run_dry_run(
     cases = load_control_cases()
     fixture_raw = FIXTURE_PATH.read_bytes()
     fixture_sha256 = _sha256(fixture_raw)
-    if second_continuation and fixture_sha256 != EXPECTED_FIXTURE_SHA256:
+    if (second_continuation or third_continuation) and fixture_sha256 != EXPECTED_FIXTURE_SHA256:
         raise ValueError("control fixture sha256 differs from the frozen 18-control fixture")
 
     control_findings, control_records = run_detector_controls(
@@ -1807,10 +2223,15 @@ def run_dry_run(
     )
     findings = [item.to_dict() for item in deterministic_findings]
     findings.extend(control_findings)
-    if second_continuation:
+    if third_continuation:
+        findings.extend(_third_continuation_contract_findings(control_records))
+    elif second_continuation:
         findings = [item for item in findings if item.get("path") != "semantic_judge_spec"]
         findings.extend(_second_continuation_contract_findings(control_records))
-    if not any(item.get("path") == "semantic_judge_spec" for item in findings):
+    if third_continuation:
+        if candidate.metadata.get("semantic_judge_spec") is not None:
+            raise ValueError("third continuation requires the null-judge second candidate")
+    elif not any(item.get("path") == "semantic_judge_spec" for item in findings):
         raise ValueError("saved candidate semantic-judge conflict was not recorded")
 
     original_context = build_artifact_author_context(
@@ -1819,13 +2240,24 @@ def run_dry_run(
         prepared.inventory,
         prepared.runtime_contract,
     )
+    if third_continuation:
+        # The nine failed control packets consume the correction budget; input
+        # provenance digests are unrelated to the repair task.
+        original_context["original_scenario"].pop("input_identity", None)
+        correction_feedback = tuple(item for item in feedback if item.status != "passed")
+    else:
+        correction_feedback = feedback
     correction_context = build_correction_context(
         failed_stage="call2",
         original_context=original_context,
         current_output=candidate_raw,
         findings=findings,
-        detector_feedback=feedback,
+        detector_feedback=correction_feedback,
     )
+    if third_continuation:
+        # The shared feedback guidance duplicates the correction instructions
+        # in the same packet; the failed rows carry their own explanations.
+        correction_context["detector_feedback"].pop("correction_guidance", None)
     packet = _render_correction_packet(correction_context)
     _enforce_context_budget(
         packet,
@@ -1847,13 +2279,20 @@ def run_dry_run(
         "fits": True,
     }
 
-    reconciliation = reconcile_budget(second_continuation=second_continuation)
+    reconciliation = reconcile_budget(
+        second_continuation=second_continuation,
+        third_continuation=third_continuation,
+    )
     historical = _historical_judge_failures(candidate_info["historical_attempt"])
     previous_ledger = load_dispatch_ledger(RUNS_ROOT)
     ledger = {
         "schema_version": "authoring-dispatch-ledger-v1",
         "continuation_id": (
-            SECOND_CONTINUATION_ID if second_continuation else "initial-continuation"
+            THIRD_CONTINUATION_ID
+            if third_continuation
+            else SECOND_CONTINUATION_ID
+            if second_continuation
+            else "initial-continuation"
         ),
         "model_requests": 0,
         "dispatches": [],
@@ -1944,7 +2383,9 @@ def run_dry_run(
         output / "dry-run.json",
         {
             "schema_version": (
-                "o03-artifact-completion-dry-run-v2"
+                "o03-artifact-completion-dry-run-v3"
+                if third_continuation
+                else "o03-artifact-completion-dry-run-v2"
                 if second_continuation
                 else "o03-artifact-completion-dry-run-v1"
             ),
@@ -1972,6 +2413,7 @@ def _parser() -> argparse.ArgumentParser:
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--dry-run", action="store_true")
     modes.add_argument("--second-dry-run", action="store_true")
+    modes.add_argument("--third-dry-run", action="store_true")
     modes.add_argument("--dispatch-correction", action="store_true")
     modes.add_argument("--dispatch-review", action="store_true")
     parser.add_argument("--output-dir", type=Path)
@@ -2041,20 +2483,17 @@ def _record_pre_dispatch_failure(gate: LiveGateFailure) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.dry_run or args.second_dry_run:
+    if args.dry_run or args.second_dry_run or args.third_dry_run:
         output = run_dry_run(
             args.output_dir,
             second_continuation=args.second_dry_run,
+            third_continuation=args.third_dry_run,
         )
         print(output)
         return 0
     ledger: Any = load_dispatch_ledger(args.ledger)
     slot = "correction" if args.dispatch_correction else "review"
-    continuation = (
-        SECOND_CONTINUATION_ID
-        if ledger.get("latest_continuation_id") == SECOND_CONTINUATION_ID
-        else None
-    )
+    continuation = _ledger_continuation(ledger)
     try:
         if args.dispatch_correction:
             state = dispatch_correction(ledger, live=True)
