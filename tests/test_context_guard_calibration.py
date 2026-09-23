@@ -15,6 +15,7 @@ from asago_artifact_generator.authoring import (
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
     CONTEXT_GUARD_CALIBRATION,
+    MAX_RENDERED_PROMPT_BYTES,
     AuthoringBudget,
     AuthoringOrchestrator,
     AuthoringPolicy,
@@ -181,7 +182,7 @@ def test_call1_overflow_is_case_local_and_does_not_spend_a_dispatch(tmp_path: Pa
     assert status["cases"]["G07"]["status"] == "prompt_overflow"
     assert status["cases"]["G07"]["reason"] == "prompt_overflow"
     assert status["cases"]["G07"]["prompt_overflow"]["estimated_prompt_tokens"] > 24_320
-    assert status["cases"]["G07"]["prompt_overflow"]["remaining_input_budget"] == 24_320
+    assert status["cases"]["G07"]["prompt_overflow"]["remaining_input_budget_estimate"] == 24_320
     assert status["cases"]["A03"]["status"] == "accepted"
     assert all(status["cases"][case_id]["status"] == "accepted" for case_id in CASE_ORDER[1:])
 
@@ -196,6 +197,57 @@ def test_call1_overflow_is_case_local_and_does_not_spend_a_dispatch(tmp_path: Pa
     assert budget.total_dispatched == 16
     assert len(transport.requests) == 16
     assert all(reservation["task_id"] != "G07" for reservation in budget.reservations)
+    saved_budget = json.loads(
+        (run_dir / "authoring" / "budget-ledger.json").read_text(encoding="utf-8")
+    )
+    assert saved_budget["total_dispatched"] == 16
+    assert all(reservation["task_id"] != "G07" for reservation in saved_budget["reservations"])
+
+
+def test_rendered_prompt_size_overflow_reports_estimates_and_is_case_local(
+    tmp_path: Path,
+) -> None:
+    cases = list(_case_inputs())
+    oversized_view = replace(
+        cases[0].input_view,
+        gherkin_text="x" * MAX_RENDERED_PROMPT_BYTES,
+    )
+    cases[0] = replace(cases[0], input_view=oversized_view)
+    run_dir = tmp_path / "fresh-consumer-five-case-20260923T000012Z"
+    run_dir.mkdir()
+    budget = PersistedAuthoringBudget.load(run_dir / "authoring" / "budget-ledger.json")
+    transport = _ContextGuardedScriptedTransport(_successful_responses(4))
+
+    status = run_authoring_batch(
+        run_dir,
+        cases=cases,
+        budget=budget,
+        transport_factory=lambda: transport,
+        raw_evidence_root=tmp_path / "raw",
+    )
+
+    assert status["status"] == "completed"
+    assert status["cases"]["G07"]["status"] == "prompt_overflow"
+    overflow = status["cases"]["G07"]["prompt_overflow"]
+    assert overflow["estimated_prompt_tokens"] > 24_320
+    assert overflow["remaining_input_budget_estimate"] == 24_320
+    assert status["cases"]["A03"]["status"] == "accepted"
+    assert all(status["cases"][case_id]["status"] == "accepted" for case_id in CASE_ORDER[1:])
+    assert budget.dispatched_by_task.get("G07", 0) == 0
+    assert budget.total_dispatched == 16
+    assert len(transport.requests) == 16
+
+    receipt = json.loads(
+        (run_dir / "authoring" / "G07" / "case-receipt.json").read_text(encoding="utf-8")
+    )
+    assert receipt["status"] == "prompt_overflow"
+    assert receipt["reason"] == "prompt_overflow"
+    assert receipt["terminal_stage"] == "call1"
+    assert receipt["prompt_overflow"] == overflow
+    detail = receipt["findings_summary"][0]["detail"]
+    assert "estimated_prompt_tokens=" in detail
+    assert "remaining_input_budget_estimate=" in detail
+    assert receipt["dispatch_count"] == 0
     saved_budget = json.loads(
         (run_dir / "authoring" / "budget-ledger.json").read_text(encoding="utf-8")
     )
@@ -237,7 +289,7 @@ def test_later_correction_overflow_is_case_local_and_does_not_spend_correction_d
     assert receipt["terminal_stage"] == "correction"
     assert receipt["reason"] == "prompt_overflow"
     assert receipt["dispatch_count"] == 3
-    assert receipt["prompt_overflow"]["remaining_input_budget"] == 24_320
+    assert receipt["prompt_overflow"]["remaining_input_budget_estimate"] == 24_320
     assert [request["stage"] for request in transport.requests[:4]] == [
         "call1",
         "plan_review",
@@ -289,7 +341,7 @@ def test_later_correction_overflow_does_not_spend_author_dispatch(tmp_path: Path
     assert overflow.path == "correction"
     assert "correction prompt" in overflow.detail
     assert overflow.details["estimated_prompt_tokens"] > 24_320
-    assert overflow.details["remaining_input_budget"] == 24_320
+    assert overflow.details["remaining_input_budget_estimate"] == 24_320
     assert (
         f"estimated_prompt_tokens={overflow.details['estimated_prompt_tokens']}" in overflow.detail
     )

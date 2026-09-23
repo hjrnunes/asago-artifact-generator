@@ -172,8 +172,15 @@ def build_detector_feedback(
     cases: Sequence[ControlCase],
     results: Sequence[ControlResult | Mapping[str, Any]],
 ) -> tuple[DetectorControlFeedback, ...]:
-    """Pair executed cases with their existing evaluator results."""
+    """Pair executed cases with their existing evaluator results.
 
+    Evaluator results preserve input order. Use that identity when case names
+    collide, since indexing duplicate names would discard earlier results.
+    """
+
+    duplicate_names = len({case.name for case in cases}) != len(cases)
+    if duplicate_names and len(results) != len(cases):
+        raise ValueError("duplicate control names require one result per case")
     result_by_name = {
         result.name: result for result in results if isinstance(result, ControlResult)
     }
@@ -183,11 +190,21 @@ def build_detector_feedback(
         if isinstance(result, Mapping) and isinstance(result.get("name"), str)
     }
     feedback: list[DetectorControlFeedback] = []
-    for case in cases:
-        result_object = result_by_name.get(case.name)
-        result = (
-            result_object.as_dict() if result_object is not None else result_dicts.get(case.name)
-        )
+    for index, case in enumerate(cases):
+        if duplicate_names:
+            paired_result = results[index]
+            result = (
+                paired_result.as_dict()
+                if isinstance(paired_result, ControlResult)
+                else paired_result
+            )
+        else:
+            result_object = result_by_name.get(case.name)
+            result = (
+                result_object.as_dict()
+                if result_object is not None
+                else result_dicts.get(case.name)
+            )
         result = result if isinstance(result, Mapping) else {}
         status = result.get("status")
         status = status if isinstance(status, str) else "runtime_failure"

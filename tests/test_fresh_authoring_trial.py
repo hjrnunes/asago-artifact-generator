@@ -549,6 +549,137 @@ def test_render_only_writes_exact_call1_bytes_without_transport_construction(
         assert rendered["user_sha256"] == sha256(user_bytes).hexdigest()
 
 
+def test_render_only_preserves_outage_stop_and_live_never_dispatches_again(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "trial"
+    _write_all_inputs_index(run_dir, monkeypatch)
+    cases = trial.load_trial_case_inputs(run_dir)
+    run_trial(run_dir, mode="render-only")
+
+    budget = PersistedAuthoringBudget.load(run_dir / "authoring" / "budget-ledger.json")
+    failed_transport = ScriptedAuthoringTransport([TimeoutError("provider unavailable")])
+    outage_status = run_authoring_batch(
+        run_dir,
+        cases=cases,
+        budget=budget,
+        transport_factory=lambda: failed_transport,
+        raw_evidence_root=tmp_path / "raw",
+    )
+    assert outage_status["outage_stopped"] is True
+    assert len(failed_transport.requests) == 1
+    assert budget.total_dispatched == 1
+
+    rendered_index = run_dir / "rendered-requests" / "index.json"
+    policy = {
+        "digests": {
+            "input_index_sha256": sha256((run_dir / "input-index.json").read_bytes()).hexdigest(),
+            "rendered_requests_index_sha256": sha256(rendered_index.read_bytes()).hexdigest(),
+            "controls": {
+                case_id: sha256(
+                    (run_dir / "controls" / f"{case_id}.json").read_bytes()
+                ).hexdigest()
+                for case_id in CASE_ORDER
+            },
+        }
+    }
+    (run_dir / "frozen-policy.json").write_text(json.dumps(policy), encoding="utf-8")
+
+    def snapshot_run_dir() -> dict[Path, bytes]:
+        return {
+            path.relative_to(run_dir): path.read_bytes()
+            for path in run_dir.rglob("*")
+            if path.is_file()
+        }
+
+    before_render_only = snapshot_run_dir()
+    render_only_exit = trial.main(["--run-dir", str(run_dir), "--render-only"])
+    assert render_only_exit == 1
+    assert snapshot_run_dir() == before_render_only
+
+    live_transport_factories: list[object] = []
+    resumed_status = run_trial(
+        run_dir,
+        mode="live",
+        input_loader=lambda _root: cases,
+        transport_factory=lambda: live_transport_factories.append(object()),
+        raw_evidence_root=tmp_path / "raw",
+    )
+
+    assert resumed_status["status"] == "outage_stopped"
+    assert resumed_status["outage_stopped"] is True
+    assert live_transport_factories == []
+    assert len(failed_transport.requests) == 1
+    assert budget.total_dispatched == 1
+    reloaded_budget = PersistedAuthoringBudget.load(run_dir / "authoring" / "budget-ledger.json")
+    assert reloaded_budget.total_dispatched == 1
+
+
+def test_render_only_refuses_budget_reservation_without_writing(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "trial"
+    _write_all_inputs_index(run_dir, monkeypatch)
+    budget = PersistedAuthoringBudget.load(run_dir / "authoring" / "budget-ledger.json")
+    budget.reserve("G07", role="author")
+    before = {
+        path.relative_to(run_dir): path.read_bytes()
+        for path in run_dir.rglob("*")
+        if path.is_file()
+    }
+
+    with pytest.raises(TrialInputError, match="budget ledger.*live reservations"):
+        run_trial(run_dir, mode="render-only")
+
+    after = {
+        path.relative_to(run_dir): path.read_bytes()
+        for path in run_dir.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
+    assert not (run_dir / "rendered-requests").exists()
+
+
+def test_render_only_refuses_batch_status_with_live_dispatch_without_writing(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "trial"
+    _write_all_inputs_index(run_dir, monkeypatch)
+    (run_dir / "authoring").mkdir()
+    batch_status = {
+        "schema_version": "fresh-five-case-batch-status-v1",
+        "run_dir": str(run_dir.resolve()),
+        "status": "completed",
+        "live_dispatch_enabled": False,
+        "outage_stopped": False,
+        "aggregate_dispatched": 1,
+        "cases": {},
+    }
+    (run_dir / "authoring" / "batch-status.json").write_text(
+        json.dumps(batch_status),
+        encoding="utf-8",
+    )
+    before = {
+        path.relative_to(run_dir): path.read_bytes()
+        for path in run_dir.rglob("*")
+        if path.is_file()
+    }
+
+    exit_code = trial.main(["--run-dir", str(run_dir), "--render-only"])
+
+    after = {
+        path.relative_to(run_dir): path.read_bytes()
+        for path in run_dir.rglob("*")
+        if path.is_file()
+    }
+    assert exit_code == 1
+    assert after == before
+    assert not (run_dir / "rendered-requests").exists()
+
+
 def test_validation_failure_ends_one_case_and_next_case_runs(tmp_path) -> None:
     responses = [b"{}", b"{}"] + _successful_responses(4)
 

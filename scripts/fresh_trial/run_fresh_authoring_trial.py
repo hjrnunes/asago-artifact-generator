@@ -122,6 +122,8 @@ def run_trial(
         raise ValueError("mode must be 'render-only' or 'live'")
     if not root.is_dir():
         raise TrialInputError(f"run directory does not exist: {root}")
+    if mode == "render-only":
+        _refuse_render_only_with_live_state(root)
     authoring_root = root / "authoring"
     authoring_root.mkdir(parents=True, exist_ok=True)
 
@@ -165,6 +167,51 @@ def run_trial(
         orchestrator_factory=orchestrator_factory,
         raw_evidence_root=evidence_root,
     )
+
+
+def _refuse_render_only_with_live_state(run_dir: Path) -> None:
+    """Keep rendering from replacing a batch status or ledger used for live work."""
+
+    authoring_root = run_dir / "authoring"
+    status_path = authoring_root / "batch-status.json"
+    if status_path.exists():
+        if not status_path.is_file():
+            raise TrialInputError("render-only refuses because batch status is not a file")
+        status = _load_batch_status(status_path, run_dir)
+        aggregate_dispatched = status.get("aggregate_dispatched", 0)
+        case_statuses = status["cases"].values()
+        has_nonrendered_case_state = any(
+            not isinstance(case_status, dict) or case_status.get("status") != "rendered"
+            for case_status in case_statuses
+        )
+        if (
+            status.get("status") not in {None, "rendered_only"}
+            or status.get("outage_stopped")
+            or status.get("live_dispatch_enabled")
+            or has_nonrendered_case_state
+            or not isinstance(aggregate_dispatched, int)
+            or isinstance(aggregate_dispatched, bool)
+            or aggregate_dispatched != 0
+        ):
+            raise TrialInputError(
+                "render-only refuses because the batch status contains live state"
+            )
+
+    budget_path = authoring_root / "budget-ledger.json"
+    if budget_path.exists():
+        if not budget_path.is_file():
+            raise TrialInputError("render-only refuses because budget ledger is not a file")
+        try:
+            budget = PersistedAuthoringBudget.load(budget_path)
+        except (OSError, UnicodeDecodeError, TypeError, ValueError) as exc:
+            raise TrialInputError(
+                "render-only refuses because it cannot validate the live budget ledger"
+            ) from exc
+        if budget.total_dispatched or budget.reservations:
+            raise TrialInputError(
+                "render-only refuses because the budget ledger contains live reservations "
+                "or dispatches"
+            )
 
 
 def run_authoring_batch(

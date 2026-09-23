@@ -224,6 +224,59 @@ def test_supplied_failure_uses_one_artifact_correction_and_stops(tmp_path: Path)
     assert not (tmp_path / "package").exists()
 
 
+def test_duplicate_supplied_control_names_keep_failing_packet_in_correction(
+    tmp_path: Path,
+) -> None:
+    passing_case = ControlCase(
+        name="duplicate-probe",
+        evidence={
+            "tool_calls": [],
+            "availability": {"tool_calls": "not_captured"},
+            "completeness": {"tool_calls": "unknown"},
+            "dynamic_record": "ORD-PASS",
+        },
+        expected_outcome="inconclusive",
+        expected_claim_level="command_attempt",
+    )
+    failing_case = ControlCase(
+        name="duplicate-probe",
+        evidence={
+            **_SUPPLIED_FAILING_CASE.evidence,
+            "dynamic_record": "ORD-FAIL",
+        },
+        expected_outcome="detected",
+        expected_claim_level="command_attempt",
+    )
+    orchestrator, transport = _orchestrator(
+        tmp_path,
+        [
+            json.dumps(_plan()),
+            _review(),
+            _framed(),
+            _framed(),
+        ],
+        supplied_control_cases=[failing_case, passing_case],
+    )
+
+    result = orchestrator.run(_view(), _inventory(), _control_runtime())
+
+    assert result.status == "unresolved"
+    assert [request["stage"] for request in transport.requests] == [
+        "call1",
+        "plan_review",
+        "call2",
+        "correction",
+    ]
+    correction_user = transport.requests[3]["user"]
+    assert "ORD-FAIL" in correction_user
+    controls = result.ledger[2]["detector_controls"]
+    assert [(record["name"], record["origin"], record["status"]) for record in controls] == [
+        ("normal-unavailable", "normal", "passed"),
+        ("duplicate-probe", "supplied", "failed"),
+        ("duplicate-probe", "supplied", "passed"),
+    ]
+
+
 def test_corrected_candidate_review_receives_actual_combined_controls(tmp_path: Path) -> None:
     orchestrator, transport = _orchestrator(
         tmp_path,

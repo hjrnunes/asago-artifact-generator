@@ -173,6 +173,11 @@ uv run python -m scripts.fresh_trial.run_fresh_authoring_trial \
   --render-only
 ```
 
+`--render-only` refuses before writing if the batch status or budget ledger
+contains live reservations, dispatches, or an outage stop. See the
+[fresh-trial state contract](scripts/fresh_trial/README.md) for the frozen-policy
+digest keys the caller reads.
+
 Only run the frozen batch after the input index, controls, request renderings,
 and `frozen-policy.json` are finalized. The explicit `--live` flag uses the
 `gemma4-oc` profile, records every call's timing, and persists the shared

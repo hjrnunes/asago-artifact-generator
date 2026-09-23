@@ -667,12 +667,20 @@ def _prompt_overflow_finding(exc: PromptOverflowError, stage: str) -> Finding:
         key: value
         for key, value in (
             ("estimated_prompt_tokens", exc.estimated_prompt_tokens),
-            ("remaining_input_budget", exc.remaining_input_budget),
+            ("remaining_input_budget_estimate", exc.remaining_input_budget),
             ("model_facing_utf8_bytes", exc.total_model_facing_utf8_bytes),
         )
         if value is not None
     }
     return Finding("prompt_overflow", str(exc), stage, details)
+
+
+def _prompt_preflight_finding(exc: PromptPreflightError, stage: str) -> Finding:
+    """Keep size and calibrated context rejections on one terminal path."""
+
+    if isinstance(exc, PromptOverflowError):
+        return _prompt_overflow_finding(exc, stage)
+    return Finding("prompt_preflight", str(exc), stage)
 
 
 @dataclass(frozen=True)
@@ -9766,10 +9774,7 @@ class AuthoringOrchestrator:
         try:
             call1 = build_call1_packet(view, inventory, runtime_contract)
         except PromptPreflightError as exc:
-            code = (
-                "context_overflow" if isinstance(exc, PromptOverflowError) else "prompt_preflight"
-            )
-            return self._result("failed", None, [Finding(code, str(exc), "call1")])
+            return self._result("failed", None, [_prompt_preflight_finding(exc, "call1")])
         plan, findings, raw = self._request_and_validate(
             call1,
             lambda decoded: collect_plan_findings(decoded, inventory, runtime_contract),
@@ -9804,10 +9809,7 @@ class AuthoringOrchestrator:
         try:
             call2 = build_call2_packet(view, plan, inventory, runtime_contract)
         except PromptPreflightError as exc:
-            code = (
-                "context_overflow" if isinstance(exc, PromptOverflowError) else "prompt_preflight"
-            )
-            return self._result("failed", plan, [Finding(code, str(exc), "call2")])
+            return self._result("failed", plan, [_prompt_preflight_finding(exc, "call2")])
         artifact, findings, raw = self._request_and_validate(
             call2,
             lambda decoded: collect_artifact_findings(
@@ -10103,10 +10105,7 @@ class AuthoringOrchestrator:
         try:
             call1 = build_call1_packet_v2(view, inventory, runtime_contract)
         except PromptPreflightError as exc:
-            code = (
-                "context_overflow" if isinstance(exc, PromptOverflowError) else "prompt_preflight"
-            )
-            return self._result("failed", None, [Finding(code, str(exc), "call1")])
+            return self._result("failed", None, [_prompt_preflight_finding(exc, "call1")])
         plan, findings, raw = self._request_and_validate_v2(
             call1,
             lambda decoded: collect_plan_findings_v2(decoded, inventory, runtime_contract),
@@ -10141,10 +10140,7 @@ class AuthoringOrchestrator:
         try:
             call2 = build_call2_packet_v2(view, plan, inventory, runtime_contract)
         except PromptPreflightError as exc:
-            code = (
-                "context_overflow" if isinstance(exc, PromptOverflowError) else "prompt_preflight"
-            )
-            return self._result("failed", plan, [Finding(code, str(exc), "call2")])
+            return self._result("failed", plan, [_prompt_preflight_finding(exc, "call2")])
         parsed, findings, raw = self._request_and_validate_v2(
             call2,
             lambda decoded: collect_artifact_findings_v2(
@@ -10899,10 +10895,7 @@ class AuthoringOrchestrator:
         try:
             _enforce_prompt_size(packet, MAX_RENDERED_PROMPT_BYTES)
         except PromptPreflightError as exc:
-            code = (
-                "context_overflow" if isinstance(exc, PromptOverflowError) else "prompt_preflight"
-            )
-            finding = Finding(code, str(exc), failed_stage)
+            finding = _prompt_preflight_finding(exc, "correction")
             self._findings.append(finding)
             self._failure_evidence["findings"].append(finding.to_dict())
             self._persist_failure_evidence()
@@ -11297,10 +11290,9 @@ class AuthoringOrchestrator:
         try:
             packet = build_call1_packet_v2(view, inventory, runtime_contract)
         except PromptPreflightError as exc:
-            code = (
-                "context_overflow" if isinstance(exc, PromptOverflowError) else "prompt_preflight"
-            )
-            return _StageStop("failed", (Finding(code, str(exc), "call1"),))
+            finding = _prompt_preflight_finding(exc, "call1")
+            status = "prompt_overflow" if finding.code == "prompt_overflow" else "failed"
+            return _StageStop(status, (finding,))
 
         def collector(decoded: Any) -> list[Finding]:
             return collect_plan_findings_v2(decoded, inventory, runtime_contract)
@@ -11367,12 +11359,9 @@ class AuthoringOrchestrator:
                     view, candidate, inventory, runtime_contract
                 )
             except PromptPreflightError as exc:
-                code = (
-                    "context_overflow"
-                    if isinstance(exc, PromptOverflowError)
-                    else "prompt_preflight"
-                )
-                return _StageStop("failed", (Finding(code, str(exc), "plan_review"),))
+                finding = _prompt_preflight_finding(exc, "plan_review")
+                status = "prompt_overflow" if finding.code == "prompt_overflow" else "failed"
+                return _StageStop(status, (finding,))
             outcome = self._semantic_review("plan", review_packet)
             if outcome.stop is not None:
                 return outcome.stop
@@ -11402,10 +11391,9 @@ class AuthoringOrchestrator:
         try:
             packet = build_call2_packet_v2(view, plan, inventory, runtime_contract)
         except PromptPreflightError as exc:
-            code = (
-                "context_overflow" if isinstance(exc, PromptOverflowError) else "prompt_preflight"
-            )
-            return _StageStop("failed", (Finding(code, str(exc), "call2"),))
+            finding = _prompt_preflight_finding(exc, "call2")
+            status = "prompt_overflow" if finding.code == "prompt_overflow" else "failed"
+            return _StageStop(status, (finding,))
 
         def collector(decoded: Any) -> list[Finding]:
             return collect_artifact_findings_v2(decoded, plan, inventory, runtime_contract)
@@ -11502,12 +11490,9 @@ class AuthoringOrchestrator:
                     runtime_contract,
                 )
             except PromptPreflightError as exc:
-                code = (
-                    "context_overflow"
-                    if isinstance(exc, PromptOverflowError)
-                    else "prompt_preflight"
-                )
-                return _StageStop("failed", (Finding(code, str(exc), "artifact_review"),))
+                finding = _prompt_preflight_finding(exc, "artifact_review")
+                status = "prompt_overflow" if finding.code == "prompt_overflow" else "failed"
+                return _StageStop(status, (finding,))
             outcome = self._semantic_review("artifact", review_packet)
             if outcome.stop is not None:
                 return outcome.stop
@@ -18154,9 +18139,21 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         raise PromptOverflowError("prompt size limit must be positive")
     rendered = len(packet.system.encode("utf-8")) + len(packet.user.encode("utf-8"))
     if rendered > maximum:
+        estimate = _context_budget_estimate(packet)
+        remaining_input_budget_estimate = (
+            AUTHORING_CONTEXT_WINDOW_TOKENS
+            - AUTHORING_MAX_COMPLETION_TOKENS
+            - _CONTEXT_FRAMING_TOKEN_RESERVE
+        )
         raise PromptOverflowError(
-            f"{packet.stage} prompt is {rendered} bytes; limit is {maximum}; "
-            "supply an explicitly scoped input package"
+            f"{packet.stage} prompt exceeds the rendered-prompt byte limit: "
+            f"rendered_bytes={rendered}, limit_bytes={maximum}, "
+            f"estimated_prompt_tokens={estimate['estimated_prompt_tokens']}, "
+            f"remaining_input_budget_estimate={remaining_input_budget_estimate}; "
+            "supply an explicitly scoped input package",
+            estimated_prompt_tokens=estimate["estimated_prompt_tokens"],
+            remaining_input_budget=remaining_input_budget_estimate,
+            total_model_facing_utf8_bytes=estimate["model_facing_utf8_bytes"],
         )
 
 
@@ -18181,7 +18178,7 @@ def _enforce_context_budget(
         raise PromptOverflowError(
             f"{packet.stage} prompt exceeds the context window: "
             f"estimated_prompt_tokens={estimated_prompt_tokens}, "
-            f"remaining_input_budget={remaining_input_budget}, "
+            f"remaining_input_budget_estimate={remaining_input_budget}, "
             f"model-facing UTF-8-byte input estimate={model_facing_utf8_bytes}; "
             f"input budget excludes {max_completion_tokens} completion tokens and "
             f"{_CONTEXT_FRAMING_TOKEN_RESERVE} framing tokens in a "

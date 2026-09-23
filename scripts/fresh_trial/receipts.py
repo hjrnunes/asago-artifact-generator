@@ -29,6 +29,12 @@ CONSUMER_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _read_frozen_policy(run_dir: Path) -> dict[str, Any]:
+    """Load policy pinned by ``digests.input_index_sha256``.
+
+    Live validation also requires ``digests.rendered_requests_index_sha256``
+    and ``digests.controls`` keyed by all five case IDs.
+    """
+
     policy_path = run_dir / "frozen-policy.json"
     try:
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
