@@ -1752,6 +1752,7 @@ class O04RefinementContinuation:
                     controls_result,
                     current.inventory,
                     current.runtime_contract,
+                    sealed_version=ARTIFACT_REVIEW_PROMPT_VERSION_V2,
                 )
             except (AuthoringError, ValueError, TypeError) as exc:
                 return self._finish(
@@ -2649,9 +2650,9 @@ class O04FeedbackContinuation(O04RefinementContinuation):
             observed = json.dumps(record.get("observed_outcome"))
             failure = str(record.get("failure") or "")
             if (
-                f'"name": "{name}"' not in packet.user
-                or f'"expected_outcome": {expected}' not in packet.user
-                or f'"actual_outcome": {observed}' not in packet.user
+                f'"name":"{name}"' not in packet.user
+                or f'"expected_outcome":{expected}' not in packet.user
+                or f'"actual_outcome":{observed}' not in packet.user
                 or failure not in packet.user
             ):
                 raise O04ContinuationValidationError(
@@ -3826,6 +3827,7 @@ class O04CorrectionContinuation:
                 controls,
                 self.artifact.inventory,
                 self.artifact.runtime_contract,
+                sealed_version=ARTIFACT_REVIEW_PROMPT_VERSION_V2,
             )
         except (AuthoringError, ValueError, TypeError) as exc:
             return self._finish(
@@ -8654,6 +8656,7 @@ def _build_o04_correction_packet(
         correction_context,
         authority=correction_context["authority"],
         authority_title="O04 AUTHORITY AND RUNTIME PACKET PATHS",
+        sealed_version=CORRECTION_PROMPT_VERSION_V4,
     )
     _enforce_prompt_size(packet, MAX_RENDERED_PROMPT_BYTES)
     return packet
@@ -8679,9 +8682,23 @@ def _render_correction_packet(
     *,
     authority: dict[str, Any] | None = None,
     authority_title: str = "AUTHORITY",
+    sealed_version: str | None = None,
 ) -> PromptPacket:
-    """Render one shared correction prompt for every artifact caller."""
+    """Render one shared correction prompt for every artifact caller.
 
+    When ``sealed_version`` is set, reproduce the sealed historical rendering:
+    the raw context values (candidate text, findings, and detector feedback)
+    and the sealed version stamp, so a historical continuation re-dispatches
+    the same authority its sealed evidence pins.
+    """
+
+    if sealed_version is not None:
+        return _render_sealed_correction_packet(
+            correction_context,
+            authority=authority,
+            authority_title=authority_title,
+            sealed_version=sealed_version,
+        )
     original_context = _correction_prompt_context(correction_context["original_context"])
     plan_field_meanings = original_context.pop("plan_field_meanings", None)
     neutral_outcome_example = original_context.pop("neutral_outcome_example", None)
@@ -8784,6 +8801,75 @@ def _render_correction_packet(
     return packet
 
 
+def _render_sealed_correction_packet(
+    correction_context: dict[str, Any],
+    *,
+    authority: dict[str, Any] | None,
+    authority_title: str,
+    sealed_version: str,
+) -> PromptPacket:
+    """Reproduce the sealed historical correction rendering for continuations."""
+
+    original_context = _correction_prompt_context(correction_context["original_context"])
+    plan_field_meanings = original_context.pop("plan_field_meanings", None)
+    neutral_outcome_example = original_context.pop("neutral_outcome_example", None)
+    sections: list[tuple[str, Any]] = [
+        (
+            "FAILED STAGE",
+            {
+                "stage": correction_context["stage"],
+                "failed_stage": correction_context["failed_stage"],
+            },
+        ),
+        (
+            "ORIGINAL STAGE CONTEXT",
+            original_context,
+        ),
+    ]
+    if isinstance(plan_field_meanings, str):
+        sections.append(("PLAN FIELD MEANINGS", plan_field_meanings))
+    if isinstance(neutral_outcome_example, str):
+        sections.append(("NEUTRAL OUTCOME EXAMPLE", neutral_outcome_example))
+    sections.extend(
+        (
+            ("RESPONSE CONTRACT", correction_context["response_contract"]),
+            ("CURRENT OUTPUT", correction_context["current_output"]),
+            ("CURRENT FINDINGS", correction_context["findings"]),
+        )
+    )
+    if correction_context.get("detector_feedback") is not None:
+        sections.append(
+            ("DETECTOR CONTROL FEEDBACK", correction_context["detector_feedback"])
+        )
+    if authority is not None:
+        sections.append((authority_title, _correction_prompt_authority(authority)))
+    sections.append(
+        (
+            "CORRECTION INSTRUCTIONS",
+            {
+                "instruction": correction_context["instruction"],
+                "format": correction_context["format"],
+                "accepted_plan_fixed": correction_context["accepted_plan_fixed"],
+            },
+        )
+    )
+    if "prior_unresolved_findings" in correction_context:
+        sections.append(
+            (
+                "PRIOR UNRESOLVED FINDINGS",
+                correction_context["prior_unresolved_findings"],
+            )
+        )
+    packet = PromptPacket(
+        stage="correction",
+        version=sealed_version,
+        system=_CORRECTION_SYSTEM_V4,
+        user=_render_correction_sections(tuple(sections)),
+        payload=correction_context,
+    )
+    return packet
+
+
 def _correction_detector_feedback_view(value: Any) -> Any:
     """Render exact failed control inputs/results without redundant wrappers."""
 
@@ -8820,8 +8906,21 @@ def _correction_detector_feedback_view(value: Any) -> Any:
                 "explanation": _compact_feedback_explanation(item),
             }
         )
+    passing = value.get("passing_controls")
+    passing_rendered: list[dict[str, Any]] = []
+    if isinstance(passing, list):
+        for item in passing:
+            if not isinstance(item, dict):
+                continue
+            passing_rendered.append(
+                {
+                    "name": item.get("name"),
+                    "outcome": item.get("observed_outcome"),
+                }
+            )
     return {
         "failed_controls": rendered,
+        "passing_controls": passing_rendered,
         "correction_guidance": value.get("correction_guidance"),
     }
 
@@ -9225,6 +9324,7 @@ class A03RecoveredArtifactContinuation:
                 self.artifact.control_results.get("records", []),
                 self.artifact.inventory,
                 self.artifact.runtime_contract,
+                sealed_version=ARTIFACT_REVIEW_PROMPT_VERSION_V2,
             )
         except (AuthoringError, ValueError, TypeError) as exc:
             return self._terminal_without_dispatch(
@@ -13086,7 +13186,7 @@ def build_call2_packet(
             "operations": operations,
         },
         "runtime_contract": runtime_contract,
-        "response_contract": _call2_contract_v1(plan),
+        "response_contract": _call2_contract_v1(),
     }
     assert_no_prompt_secrets(payload)
     packet = PromptPacket(
@@ -13614,8 +13714,8 @@ def build_correction_context(
             }
         )
         context["instruction"] = (
-            "Call 2 uses exactly one JSON metadata block followed by one raw Python block. "
-            + _ARTIFACT_CORRECTION_GUIDANCE
+            instruction + " Call 2 uses exactly one JSON metadata block followed by one raw "
+            "Python block. " + _ARTIFACT_CORRECTION_GUIDANCE
         )
     else:
         raise ValueError(f"unsupported correction stage: {failed_stage}")
@@ -13928,8 +14028,14 @@ def build_artifact_review_packet(
     runtime_contract: dict[str, Any],
     *,
     max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
+    sealed_version: str | None = None,
 ) -> PromptPacket:
-    """Render a fresh artifact-review prompt with exact candidate evidence."""
+    """Render a fresh artifact-review prompt with exact candidate evidence.
+
+    When ``sealed_version`` is set, reproduce the sealed historical review
+    rendering (sections and version stamp) so a continuation package keeps the
+    sealed review's authority pins instead of re-stamping them.
+    """
 
     context = build_artifact_reviewer_context(
         view,
@@ -13946,36 +14052,48 @@ def build_artifact_review_packet(
         **context,
     }
     assert_no_prompt_secrets(payload)
+    sections: list[tuple[str, Any]] = [
+        (
+            "ORIGINAL SCENARIO AND AUTHORITATIVE CONTEXT",
+            {
+                "scenario": context["original_scenario"],
+                "authoritative_context": context["authoritative_context"],
+            },
+        ),
+        ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
+        ("ACCEPTED PLAN", context["accepted_plan"]),
+    ]
+    if sealed_version is None:
+        sections.append(
+            ("RUNTIME EVIDENCE INTERFACE", context["evidence_packet_interface"])
+        )
+    sections.extend(
+        (
+            (
+                "CANDIDATE METADATA",
+                context["candidate_metadata"],
+            ),
+            ("EXACT DETECTOR PYTHON", context["candidate_python_source"]),
+            (
+                "RESOLVED JUDGE FACTS AND BINDING DECLARATIONS",
+                context["resolved_runtime_context"],
+            ),
+            ("ACTUAL OFFLINE CONTROL RESULTS", context["actual_controls"]),
+            ("REVIEW RESPONSE CONTRACT", context["response_contract"]),
+            ("BOUNDED ACCEPTANCE EXAMPLES", context["acceptance_examples"]),
+        )
+    )
     packet = PromptPacket(
         stage="artifact_review",
-        version=ARTIFACT_REVIEW_PROMPT_VERSION,
-        system=_ARTIFACT_REVIEW_SYSTEM_V3,
-        user=_render_sections(
-            (
-                (
-                    "ORIGINAL SCENARIO AND AUTHORITATIVE CONTEXT",
-                    {
-                        "scenario": context["original_scenario"],
-                        "authoritative_context": context["authoritative_context"],
-                    },
-                ),
-                ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
-                ("ACCEPTED PLAN", context["accepted_plan"]),
-                ("RUNTIME EVIDENCE INTERFACE", context["evidence_packet_interface"]),
-                (
-                    "CANDIDATE METADATA",
-                    context["candidate_metadata"],
-                ),
-                ("EXACT DETECTOR PYTHON", context["candidate_python_source"]),
-                (
-                    "RESOLVED JUDGE FACTS AND BINDING DECLARATIONS",
-                    context["resolved_runtime_context"],
-                ),
-                ("ACTUAL OFFLINE CONTROL RESULTS", context["actual_controls"]),
-                ("REVIEW RESPONSE CONTRACT", context["response_contract"]),
-                ("BOUNDED ACCEPTANCE EXAMPLES", context["acceptance_examples"]),
-            )
+        version=(
+            ARTIFACT_REVIEW_PROMPT_VERSION if sealed_version is None else sealed_version
         ),
+        system=(
+            _ARTIFACT_REVIEW_SYSTEM_V3
+            if sealed_version is None
+            else _ARTIFACT_REVIEW_SYSTEM_V2
+        ),
+        user=_render_sections(tuple(sections)),
         payload=payload,
     )
     _enforce_prompt_size(packet, max_prompt_bytes)
@@ -18230,7 +18348,7 @@ def _semantic_judge_spec_schema(plan: dict[str, Any] | None = None) -> dict[str,
     }
 
 
-def _call2_contract_v1(plan: dict[str, Any] | None = None) -> dict[str, Any]:
+def _call2_contract_v1() -> dict[str, Any]:
     fields = [
         "stimulus",
         "setup_recipe",
@@ -18294,7 +18412,17 @@ def _call2_contract_v1(plan: dict[str, Any] | None = None) -> dict[str, Any]:
                         "completeness needed by detector_source."
                     ),
                 },
-                "semantic_judge_spec": _semantic_judge_spec_schema(plan),
+                "semantic_judge_spec": {
+                    "type": ["object", "null"],
+                    "nullable": True,
+                    "additionalProperties": False,
+                    "required": ["question", "criteria", "fact_refs"],
+                    "properties": {
+                        "question": {"type": "string"},
+                        "criteria": {"type": "string"},
+                        "fact_refs": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
                 "explanation": {"type": "string"},
                 "examples": {
                     "type": "object",
