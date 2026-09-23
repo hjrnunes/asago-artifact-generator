@@ -314,8 +314,7 @@ _CONTEXT_GUARD_CALIBRATION_SOURCES = (
     },
     {
         "path": (
-            "runs/authoring/O03-live-20260922T175415Z-exact-plan-correction."
-            "failure-evidence.json"
+            "runs/authoring/O03-live-20260922T175415Z-exact-plan-correction.failure-evidence.json"
         ),
         "record_id": "O03-live-20260922T175415Z-exact-plan-correction#dispatch-2",
         "model_profile": "gemma4-oc",
@@ -326,8 +325,7 @@ _CONTEXT_GUARD_CALIBRATION_SOURCES = (
     },
     {
         "path": (
-            "runs/authoring/SCN-030-live-20260922T151112Z-fresh-plan-review."
-            "failure-evidence.json"
+            "runs/authoring/SCN-030-live-20260922T151112Z-fresh-plan-review.failure-evidence.json"
         ),
         "record_id": "SCN-030-live-20260922T151112Z-fresh-plan-review#dispatch-1",
         "model_profile": "gemma4-oc",
@@ -345,9 +343,7 @@ _CONTEXT_GUARD_OBSERVED_RATIO = min(
     for record in _CONTEXT_GUARD_CALIBRATION_SOURCES
 )
 _CONTEXT_GUARD_MARGIN = Fraction(12, 100)
-_CONTEXT_GUARD_CALIBRATED_RATIO = _CONTEXT_GUARD_OBSERVED_RATIO * (
-    1 - _CONTEXT_GUARD_MARGIN
-)
+_CONTEXT_GUARD_CALIBRATED_RATIO = _CONTEXT_GUARD_OBSERVED_RATIO * (1 - _CONTEXT_GUARD_MARGIN)
 CONTEXT_GUARD_CALIBRATION = {
     "formula": "estimated_prompt_tokens = ceil(total_model_facing_utf8_bytes / calibrated_ratio)",
     "ratio_formula": "calibrated_ratio = observed_conservative_ratio * (1 - margin)",
