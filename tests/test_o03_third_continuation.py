@@ -138,7 +138,12 @@ def test_second_continuation_guard_still_skips_only_first_attempt() -> None:
         ensure_dispatch_slot_available(ledger, "correction", continuation=SECOND_CONTINUATION_ID)
 
 
-def test_third_continuation_reconciliation_extends_exhausted_limits() -> None:
+def test_third_continuation_reconciliation_extends_exhausted_limits(monkeypatch) -> None:
+    from scripts.continuations import o03_artifact_completion as script
+
+    # Pin this historical 085047Z snapshot test; later prompt-reviewed requests
+    # are tested against their own continuation ledger and must not rewrite it.
+    monkeypatch.setattr(script, "_third_continuation_intervening_dispatches", lambda root: [])
     reconciliation = reconcile_budget(third_continuation=True)
 
     assert reconciliation["historical_snapshot"] == {

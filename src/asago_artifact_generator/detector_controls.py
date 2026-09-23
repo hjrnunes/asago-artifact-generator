@@ -10,6 +10,7 @@ scenario-specific verdict from source text.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
@@ -174,9 +175,7 @@ def build_detector_feedback(
     """Pair executed cases with their existing evaluator results."""
 
     result_by_name = {
-        result.name: result
-        for result in results
-        if isinstance(result, ControlResult)
+        result.name: result for result in results if isinstance(result, ControlResult)
     }
     result_dicts = {
         result.get("name"): result
@@ -187,9 +186,7 @@ def build_detector_feedback(
     for case in cases:
         result_object = result_by_name.get(case.name)
         result = (
-            result_object.as_dict()
-            if result_object is not None
-            else result_dicts.get(case.name)
+            result_object.as_dict() if result_object is not None else result_dicts.get(case.name)
         )
         result = result if isinstance(result, Mapping) else {}
         status = result.get("status")
@@ -197,15 +194,11 @@ def build_detector_feedback(
         error = result.get("failure")
         error = error if isinstance(error, str) else None
         actual_result = result.get("actual_result")
-        actual_result = (
-            dict(actual_result) if isinstance(actual_result, Mapping) else None
-        )
+        actual_result = dict(actual_result) if isinstance(actual_result, Mapping) else None
         actual_outcome = result.get("observed_outcome")
         actual_outcome = actual_outcome if isinstance(actual_outcome, str) else None
         actual_claim_level = result.get("observed_claim_level")
-        actual_claim_level = (
-            actual_claim_level if isinstance(actual_claim_level, str) else None
-        )
+        actual_claim_level = actual_claim_level if isinstance(actual_claim_level, str) else None
         outcome_class = _feedback_outcome_class(status, error)
         feedback.append(
             DetectorControlFeedback(
@@ -259,10 +252,7 @@ def _copy_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
     """Copy nested case evidence without retaining mutable evaluator input."""
 
     if isinstance(value, dict):
-        return {
-            key: _copy_value(item)
-            for key, item in value.items()
-        }
+        return {key: _copy_value(item) for key, item in value.items()}
     return {str(key): _copy_value(item) for key, item in value.items()}
 
 
@@ -324,11 +314,7 @@ def _feedback_explanation(
         error=error,
     )
     if unresolved_reference is not None:
-        absent_judge = (
-            " This is an absent judge path."
-            if unresolved_reference == "judge"
-            else ""
-        )
+        absent_judge = " This is an absent judge path." if unresolved_reference == "judge" else ""
         return (
             f"The supplied evidence reference {unresolved_reference!r} does not resolve "
             f"in the supplied evidence packet.{absent_judge} returned-reference validation "
@@ -350,6 +336,14 @@ def _feedback_explanation(
             f"inconclusive {claim_boundary} boundary."
         )
     if outcome_class == "invalid_returned_result":
+        if actual_result is not None:
+            return (
+                "The evaluator rejected the detector's returned result. The actual_result "
+                "is the unvalidated object captured from isolated execution, not an accepted "
+                "verdict. Compare its outcome with the expected outcome as well as fixing "
+                "the reported result-contract error; fixing references alone may leave "
+                "an incorrect outcome."
+            )
         return (
             "The evaluator rejected the detector's returned result before exposing a "
             "validated result. Keep the actual result unavailable and preserve the "
@@ -408,9 +402,7 @@ def _first_cited_unusable_reference(
             continue
         if isinstance(resolved, Mapping) and resolved.get("content") is None:
             return reference
-        if resolved is None and (
-            reference.endswith(".content") or reference.endswith("/content")
-        ):
+        if resolved is None and (reference.endswith(".content") or reference.endswith("/content")):
             return reference
     return None
 
@@ -539,6 +531,7 @@ def _control_result(case: ControlCase, execution: DetectorExecution) -> ControlR
             observed_claim_level=None,
             failure=execution.failure or execution.status,
             runtime=runtime,
+            actual_result=_invalid_raw_return(execution),
         )
     observed_outcome = execution.result.get("outcome")
     observed_claim_level = execution.result.get("claim_level")
@@ -576,6 +569,21 @@ def _control_result(case: ControlCase, execution: DetectorExecution) -> ControlR
         runtime=runtime,
         actual_result=dict(execution.result),
     )
+
+
+def _invalid_raw_return(execution: DetectorExecution) -> dict[str, Any] | None:
+    """Retain a rejected return as diagnostic data without accepting its verdict."""
+
+    if _feedback_outcome_class("runtime_failure", execution.failure) != "invalid_returned_result":
+        return None
+    try:
+        message = json.loads(execution.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(message, dict) or message.get("status") != "ok":
+        return None
+    value = message.get("result")
+    return dict(value) if isinstance(value, dict) else None
 
 
 def _control_runtime(execution: DetectorExecution) -> dict[str, Any]:

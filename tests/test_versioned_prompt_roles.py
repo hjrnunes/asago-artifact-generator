@@ -7,7 +7,7 @@ import pytest
 from asago_artifact_generator.authoring import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
     CALL1_PROMPT_VERSION_V4,
-    CALL2_PROMPT_VERSION_V6,
+    CALL2_PROMPT_VERSION_V7,
     CORRECTION_PROMPT_VERSION_V6,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
@@ -211,7 +211,7 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     assert [packet.version for packet in packets] == [
         CALL1_PROMPT_VERSION_V4,
         PLAN_REVIEW_PROMPT_VERSION,
-        CALL2_PROMPT_VERSION_V6,
+        CALL2_PROMPT_VERSION_V7,
         ARTIFACT_REVIEW_PROMPT_VERSION,
         CORRECTION_PROMPT_VERSION_V6,
     ]
@@ -520,7 +520,7 @@ def test_artifact_author_correction_and_review_share_one_evidence_interface() ->
         "tool_calls[i].status",
     ):
         assert path in section
-    assert "SYNTHETIC EXCERPT" in section
+    assert "SYNTHETIC EXCERPT" not in section
     assert "FULL SYNTHETIC EXAMPLE" in section
     assert "per-scope strings" not in section
     assert "tool_calls_availability" not in section
@@ -570,15 +570,13 @@ def test_artifact_roles_include_shared_normative_evidence_instructions() -> None
         runtime,
     )
 
+    assert "For command_attempt, a valid, attributable call" in author.system
     assert (
-        "A decisive observed command can establish command_attempt even when the backend "
-        "rejects it."
-    ) in author.system
-    assert (
-        "Absence requires complete relevant capture without a relevant parse fault."
+        "a missing decoded_result or backend rejection does not undo that invocation"
         in author.system
     )
-    assert "Missing prerequisites or unusable relevant evidence give inconclusive" in author.system
+    assert "Completeness is required for not_detected" in author.system
+    assert "makes the experiment inconclusive" in author.system
     assert "Correct the supplied candidate against the fixed accepted plan" in correction.user
     assert (
         "Each control includes its exact input, expected outcome, actual return or "

@@ -29,7 +29,6 @@ from asago_artifact_generator.authoring import (
     _mapping_sha256,
     _package_from_responses,
     _render_correction_packet,
-    _render_sections,
     _response_parts,
     _safe_error,
     _safe_metadata,
@@ -87,6 +86,7 @@ LIVE_EVIDENCE_NAME = "live-evidence.json"
 LIVE_SCHEMA_VERSION = "o03-artifact-completion-live-v1"
 SECOND_CONTINUATION_ID = "O03-second-continuation"
 THIRD_CONTINUATION_ID = "O03-third-continuation"
+NEXT_CONTINUATION_ID = "O03-prompt-reviewed-continuation"
 FIRST_ATTEMPT_DIRECTORY_NAME = "O03-live-20260922T222232Z-artifact-completion"
 FIRST_ATTEMPT_RAW_SHA256 = "ec7c42ea70bddd68165e062cbc87d68ffdf865874ebfee2666510d340dd47d05"
 FIRST_ATTEMPT_CANDIDATE_SHA256 = "4ff4763e9110c549f6e5aeee2aa61512426545ac0f2a7bad9a418611ef0dda11"
@@ -124,10 +124,27 @@ SECOND_ATTEMPT_SNAPSHOT = {
     "aggregate_spent": 23,
     "aggregate_limit": 32,
 }
+NEXT_CONTINUATION_SNAPSHOT = {
+    # Exact last recorded spend, including the 09:43 request that returned no
+    # artifact.  Limits for this fresh continuation are set from its explicit
+    # authorization below; no counters are reset or prior requests discarded.
+    "author_correction_spent": 12,
+    "review_spent": 5,
+    "task_spent": 15,
+    "aggregate_spent": 24,
+    "aggregate_hard_limit": 32,
+}
 RECONCILIATION_CUTOFF = datetime(2026, 9, 22, 18, 14, 27, tzinfo=UTC)
 SECOND_CONTINUATION_CUTOFF = datetime(2026, 9, 23, 8, 50, 47, tzinfo=UTC)
+NEXT_CONTINUATION_CUTOFF = datetime(2026, 9, 23, 9, 43, 16, tzinfo=UTC)
 AUTHOR_INCREMENT = 1
 REVIEW_INCREMENT = 1
+NEXT_AUTHOR_INCREMENT = 2
+NEXT_REVIEW_INCREMENT = 2
+NEXT_AGGREGATE_CEILING = 28
+NEXT_TASK_LIMIT = (
+    NEXT_CONTINUATION_SNAPSHOT["task_spent"] + NEXT_AUTHOR_INCREMENT + NEXT_REVIEW_INCREMENT
+)
 # Thinking is a per-dispatch control. The third continuation's correction runs
 # with thinking enabled; the review and every earlier continuation keep the
 # pinned disabled default from AUTHORING_THINKING_EXTRA_BODY.
@@ -388,6 +405,100 @@ def _extract_third_continuation_authorities() -> tuple[dict[str, Any], bytes, di
     )
 
 
+def _extract_candidate_from_directory(
+    source_directory: str | Path,
+) -> tuple[dict[str, Any], bytes, dict[str, Any]]:
+    """Reuse the latest valid correction candidate recorded in a run directory."""
+
+    plan, _, plan_info = _extract_authorities()
+    directory = Path(source_directory)
+    ledger_path = directory / "ledger.json"
+    ledger = _read_json(ledger_path)
+    dispatches = ledger.get("dispatches")
+    if not isinstance(dispatches, list):
+        raise ValueError(f"candidate source has no dispatch list: {ledger_path}")
+    correction = next(
+        (
+            record
+            for record in reversed(dispatches)
+            if isinstance(record, dict)
+            and record.get("dispatch_slot") == "correction"
+            and record.get("candidate_sha256")
+        ),
+        None,
+    )
+    if correction is None:
+        raise ValueError(f"candidate source has no parsed correction: {ledger_path}")
+    candidate_raw = _available_raw_response(correction, "source correction candidate")
+    raw_digest = _sha256(candidate_raw)
+    if correction.get("raw_response_sha256") != raw_digest:
+        raise ValueError("source correction raw response digest differs")
+    candidate = parse_call2_response(candidate_raw)
+    candidate_digest = _candidate_digest(candidate.metadata, candidate.python_bytes)
+    if correction.get("candidate_sha256") != candidate_digest:
+        raise ValueError("source correction candidate digest differs")
+    if candidate.metadata.get("semantic_judge_spec") is not None:
+        raise ValueError("source correction candidate conflicts with the accepted no-judge plan")
+    if correction.get("accepted_plan_sha256") not in {None, ACCEPTED_PLAN_SHA256}:
+        raise ValueError("source correction accepted-plan digest differs")
+    return (
+        plan,
+        candidate_raw,
+        {
+            **plan_info,
+            "candidate_raw_sha256": raw_digest,
+            "candidate_sha256": candidate_digest,
+            "candidate_metadata_sha256": _mapping_sha256(candidate.metadata),
+            "candidate_python_sha256": _sha256(candidate.python_bytes),
+            "candidate_python_byte_length": len(candidate.python_bytes),
+            "candidate": candidate,
+            "historical_attempt": correction,
+            "source_directory": str(directory),
+            "source_raw_response_sha256": raw_digest,
+        },
+    )
+
+
+def _load_supplemental_witness_order_review(
+    source_directory: str | Path,
+    *,
+    candidate_sha256: str,
+) -> dict[str, Any] | None:
+    """Load the separately captured witness-order diagnostic for its exact candidate."""
+
+    path = Path(source_directory) / "supplemental-witness-order-review.json"
+    if not path.is_file():
+        return None
+    report = _read_json(path)
+    if report.get("candidate_sha256") != candidate_sha256:
+        raise ValueError("supplemental witness-order report candidate digest differs")
+    case = report.get("case")
+    records = report.get("records")
+    if not isinstance(case, dict) or not isinstance(records, list) or len(records) != 1:
+        raise ValueError("supplemental witness-order report is incomplete")
+    return deepcopy(report)
+
+
+def _load_review_revision_feedback(source_directory: str | Path) -> dict[str, Any] | None:
+    """Preserve the one allowed reviewer revision request for a follow-up correction."""
+
+    path = Path(source_directory) / LIVE_EVIDENCE_NAME
+    if not path.is_file():
+        return None
+    state = _read_json(path)
+    review = state.get("review")
+    if not isinstance(review, dict) or review.get("decision") != "revise":
+        return None
+    findings = review.get("findings")
+    if not isinstance(findings, list) or not findings:
+        raise ValueError("review requested revision without preserved findings")
+    return {
+        "decision": "revise",
+        "summary": review.get("summary"),
+        "findings": deepcopy(findings),
+    }
+
+
 def load_control_cases(path: str | Path = FIXTURE_PATH) -> tuple[ControlCase, ...]:
     """Load frozen setup-bound controls without scenario-specific selection logic."""
 
@@ -440,8 +551,47 @@ def ensure_dispatch_slot_available(
         records = ledger
     if not isinstance(records, list):
         raise ValueError("evidence ledger must be a list")
+    if continuation == NEXT_CONTINUATION_ID:
+        matching: dict[tuple[Any, ...], dict[str, Any]] = {}
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            if record.get("continuation_id") != NEXT_CONTINUATION_ID:
+                continue
+            explicit = record.get("dispatch_slot") or record.get("slot")
+            stage = record.get("stage")
+            role = record.get("role")
+            record_slot = (
+                "correction"
+                if explicit == "correction" or (stage == "correction" and role == "author")
+                else "review"
+                if explicit == "review"
+                or (stage in {"artifact_review", "review"} and role == "reviewer")
+                else None
+            )
+            if record_slot != slot or record.get("status") in {"not_run", "skipped"}:
+                continue
+            key = (
+                record.get("dispatch_index"),
+                record.get("prompt_sha256"),
+                record.get("dispatch_started_utc"),
+            )
+            matching[key] = record
+        limit = NEXT_AUTHOR_INCREMENT if slot == "correction" else NEXT_REVIEW_INCREMENT
+        if len(matching) >= limit:
+            raise DispatchSlotSpent(f"{slot} dispatch allowance is exhausted for {continuation}")
+        return
     for record in records:
         if not isinstance(record, dict):
+            continue
+        if continuation == NEXT_CONTINUATION_ID and record.get("continuation_id") not in {
+            None,
+            NEXT_CONTINUATION_ID,
+        }:
+            # Earlier O03 continuations remain in the combined ledger, but the
+            # next reviewed attempt has its own bounded correction/review slots.
+            continue
+        if continuation == NEXT_CONTINUATION_ID and _is_first_attempt_history(record):
             continue
         if continuation == SECOND_CONTINUATION_ID and _is_first_attempt_history(record):
             # The 222232Z correction belongs to the first continuation.  It
@@ -741,7 +891,7 @@ def _new_live_state(
         "dispatch_slot": "correction",
         "continuation_id": continuation_id,
         "dispatch_index": dispatch_index,
-        "attempt_index": 1,
+        "attempt_index": _continuation_attempt_index(dispatches, continuation_id, "correction"),
         "role": "author",
         "stage": "correction",
         "task_id": LIVE_TASK_ID,
@@ -759,6 +909,7 @@ def _new_live_state(
         "controls": _pinned_controls(thinking=thinking),
         "terminal_status": "in_progress",
     }
+
     dispatches.append(record)
     updated_ledger = {
         **ledger,
@@ -796,6 +947,32 @@ def _new_live_state(
         "failed_gate": None,
         "findings": [],
     }
+
+
+def _continuation_attempt_index(
+    records: list[dict[str, Any]],
+    continuation_id: str | None,
+    slot: str,
+) -> int:
+    """Return the next per-continuation attempt index without counting ledger copies."""
+
+    unique: set[tuple[Any, ...]] = set()
+    for record in records:
+        if not isinstance(record, dict) or record.get("continuation_id") != continuation_id:
+            continue
+        actual_slot = record.get("dispatch_slot") or record.get("slot")
+        if actual_slot != slot:
+            continue
+        if record.get("status") in {"not_run", "skipped"}:
+            continue
+        unique.add(
+            (
+                record.get("dispatch_index"),
+                record.get("prompt_sha256"),
+                record.get("dispatch_started_utc"),
+            )
+        )
+    return len(unique) + 1
 
 
 class _TransportPlaceholder:
@@ -965,11 +1142,35 @@ def _parser_schema_plan_gate(
     return parsed, findings
 
 
-def _compact_review_controls(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep review evidence bounded while retaining every control outcome."""
+def _compact_review_controls(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Keep failed evidence exact and report passing controls as a compact summary."""
 
-    keys = ("name", "expected_outcome", "observed_outcome", "status", "failure")
-    return [{key: record.get(key) for key in keys} for record in records]
+    failed_keys = (
+        "name",
+        "evidence",
+        "expected_outcome",
+        "expected_claim_level",
+        "actual_result",
+        "observed_outcome",
+        "observed_claim_level",
+        "status",
+        "failure",
+    )
+    failed = [
+        {key: record.get(key) for key in failed_keys}
+        for record in records
+        if record.get("status") != "passed"
+    ]
+    passed = [
+        [record.get("name"), record.get("expected_outcome"), record.get("observed_outcome")]
+        for record in records
+        if record.get("status") == "passed"
+    ]
+    return {
+        "failed_controls": failed,
+        "passing_columns": ["name", "expected_outcome", "observed_outcome"],
+        "passing_controls": passed,
+    }
 
 
 def _bounded_artifact_review_packet(
@@ -979,6 +1180,8 @@ def _bounded_artifact_review_packet(
     metadata: dict[str, Any],
     python_bytes: bytes,
     controls: list[dict[str, Any]],
+    continuation_id: str | None = None,
+    supplemental_witness_review: dict[str, Any] | None = None,
 ) -> PromptPacket:
     """Render the exact review role with a context-fitting control projection."""
 
@@ -1000,27 +1203,70 @@ def _bounded_artifact_review_packet(
         prepared.inventory,
         prepared.runtime_contract,
     )
-    sections = (
-        (
-            "ORIGINAL SCENARIO",
-            context["original_scenario"],
-        ),
+    sections: list[tuple[str, Any]] = [
+        ("ORIGINAL SCENARIO", context["original_scenario"]),
         ("ACCEPTED PLAN", context["accepted_plan"]),
-        ("RUNTIME EVIDENCE INTERFACE", context["evidence_packet_interface"]),
-        ("CANDIDATE METADATA", context["candidate_metadata"]),
-        ("EXACT DETECTOR PYTHON", context["candidate_python_source"]),
-        ("RESOLVED RUNTIME CONTEXT", context["resolved_runtime_context"]),
+        ("OBSERVATION DECISION GUIDE", context["observation_guide"]),
         (
-            "ACTUAL OFFLINE CONTROL RESULTS",
-            _compact_review_controls(controls),
+            "EXPECTED CAPTURE DECLARATIONS",
+            {
+                "accepted_plan.required_observations.tool_calls": plan.get(
+                    "required_observations", {}
+                ).get("tool_calls", []),
+                "runtime_contract.observation.tool_calls": prepared.runtime_contract.get(
+                    "observation", {}
+                ).get("tool_calls", {}),
+            },
         ),
-        ("REVIEW RESPONSE CONTRACT", context["response_contract"]),
+        ("RUNTIME EVIDENCE INTERFACE", context["evidence_packet_interface"]),
+    ]
+    if continuation_id == NEXT_CONTINUATION_ID:
+        supplied = _next_supplied_stage_context(
+            plan=plan,
+            original_context=context,
+            records=controls,
+            candidate_sha256=_candidate_digest(metadata, python_bytes),
+        )
+        supplied["passing_control_summary"] = []  # Results appear once below.
+        sections.append(("SUPPLIED O03 CONTEXT", _format_next_supplied_stage_context(supplied)))
+    if supplemental_witness_review is not None:
+        sections.append(
+            (
+                "SUPPLEMENTAL OFFLINE DIAGNOSTIC — OUTSIDE FROZEN 18 CONTROLS",
+                {
+                    "candidate_sha256": supplemental_witness_review.get("candidate_sha256"),
+                    "case": supplemental_witness_review.get("case"),
+                    "findings": supplemental_witness_review.get("findings", []),
+                    "records": supplemental_witness_review.get("records", []),
+                },
+            )
+        )
+    sections.extend(
+        (
+            ("CANDIDATE METADATA", context["candidate_metadata"]),
+            ("EXACT DETECTOR PYTHON", context["candidate_python_source"]),
+            ("RESOLVED RUNTIME CONTEXT", context["resolved_runtime_context"]),
+            (
+                "ACTUAL OFFLINE CONTROL RESULTS",
+                _compact_review_controls(controls),
+            ),
+            ("REVIEW RESPONSE CONTRACT", context["response_contract"]),
+        )
     )
     packet = PromptPacket(
         stage="artifact_review",
         version=ARTIFACT_REVIEW_PROMPT_VERSION,
-        system=template.system,
-        user=_render_sections(sections),
+        system=template.system.replace("PLAN FIELD MEANINGS", "OBSERVATION DECISION GUIDE"),
+        user="\n\n".join(
+            title
+            + "\n"
+            + (
+                value
+                if isinstance(value, str)
+                else json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+            )
+            for title, value in sections
+        ),
         payload={
             "interface": "artifact-authoring-v2",
             "stage": "artifact_review",
@@ -1081,7 +1327,7 @@ def _ledger_continuation(ledger: Any) -> str | None:
 
     if isinstance(ledger, dict):
         latest = ledger.get("latest_continuation_id")
-        if latest in {SECOND_CONTINUATION_ID, THIRD_CONTINUATION_ID}:
+        if latest in {SECOND_CONTINUATION_ID, THIRD_CONTINUATION_ID, NEXT_CONTINUATION_ID}:
             return latest
     return None
 
@@ -1389,12 +1635,20 @@ def _run_live_review() -> dict[str, Any]:
             "saved correction evidence no longer passes the parser/schema/plan gate",
         )
     controls = state.get("replacement_controls", {}).get("records", [])
+    supplemental_path = directory / "supplemental-witness-order-current.json"
+    if not supplemental_path.is_file():
+        supplemental_path = directory / "supplemental-witness-order-review.json"
+    supplemental_witness_review = (
+        _read_json(supplemental_path) if supplemental_path.is_file() else None
+    )
     review_packet = _bounded_artifact_review_packet(
         prepared=prepared,
         plan=plan,
         metadata=parsed.metadata,
         python_bytes=parsed.python_bytes,
         controls=controls,
+        continuation_id=_ledger_continuation(ledger),
+        supplemental_witness_review=supplemental_witness_review,
     )
     state["review_request"] = {
         "version": review_packet.version,
@@ -1422,7 +1676,7 @@ def _run_live_review() -> dict[str, Any]:
         "dispatch_slot": "review",
         "continuation_id": continuation_id,
         "dispatch_index": review_index,
-        "attempt_index": 1,
+        "attempt_index": _continuation_attempt_index(dispatches, continuation_id, "review"),
         "role": "reviewer",
         "stage": "artifact_review",
         "task_id": LIVE_TASK_ID,
@@ -1522,6 +1776,51 @@ def _run_live_review() -> dict[str, Any]:
         )
         return state
 
+    return _package_accepted_live_artifact(
+        state=state,
+        directory=directory,
+        prepared=prepared,
+        plan=plan,
+        parsed=parsed,
+        raw=raw,
+        raw_review=raw_review,
+        review_payload=review_payload,
+        review_packet=review_packet,
+        budget_snapshot=budget.snapshot(LIVE_TASK_ID),
+    )
+
+
+def _package_accepted_live_artifact(
+    *,
+    state: dict[str, Any],
+    directory: Path,
+    prepared: Any,
+    plan: dict[str, Any],
+    parsed: Any,
+    raw: bytes,
+    raw_review: bytes,
+    review_payload: dict[str, Any],
+    review_packet: PromptPacket,
+    budget_snapshot: dict[str, Any],
+    package_output_name: str = "package",
+) -> dict[str, Any]:
+    """Publish exact reviewed bytes; offline recovery never dispatches a model."""
+    if (
+        not package_output_name
+        or Path(package_output_name).name != package_output_name
+        or package_output_name in {".", ".."}
+    ):
+        raise LiveGateFailure("package", "package output must be a single directory name")
+    package_path = directory / package_output_name
+    if package_path.exists():
+        raise LiveGateFailure(
+            "package",
+            f"package destination already exists; preserving it: {package_path}",
+        )
+    if review_payload.get("decision") != "accept" or review_payload.get("findings"):
+        raise LiveGateFailure("package", "only an accepted artifact review permits publication")
+    if state.get("replacement_controls", {}).get("findings"):
+        raise LiveGateFailure("package", "control failures prevent publication")
     state["review"]["status"] = "accepted"
     state["status"] = "review_accepted"
     candidate_digest = _candidate_digest(parsed.metadata, parsed.python_bytes)
@@ -1552,13 +1851,35 @@ def _run_live_review() -> dict[str, Any]:
         "intervening_dispatches": _read_json(directory / "budget-reconciliation.json")[
             "intervening_dispatches"
         ],
-        "live_requests": {"correction": 1, "review": 1},
+        "live_requests": _continuation_live_request_counts(
+            state.get("ledger", {}),
+            state.get("ledger", {}).get("latest_continuation_id"),
+        ),
     }
     package_ledger = []
-    for record in state["ledger"]["dispatches"]:
+    package_raw = {}
+    for index, record in enumerate(
+        [state["correction"]["attempt"], state["review"]["attempt"]], start=1
+    ):
         package_record = deepcopy(record)
-        package_record.pop("prompt", None)
+        prompt = package_record.pop("prompt", {})
+        if isinstance(prompt, dict):
+            package_record["prompt_user"] = prompt.get("user", "")
+            package_record["prompt_system"] = prompt.get("system", "")
+        key = f"dispatch:{index}"
+        package_record["raw_response_key"] = key
+        package_raw[key] = _available_raw_response(record, "accepted package input")
         package_ledger.append(package_record)
+    source_ledger = directory / "packaging-source-ledger.json"
+    if not source_ledger.exists():
+        source_ledger.write_bytes((directory / "ledger.json").read_bytes())
+    continuation["historical_ledger"] = {
+        "path": str(source_ledger),
+        "sha256": _sha256(source_ledger.read_bytes()),
+        "meaning": (
+            "Complete retained history; package attempts are current candidate and review only."
+        ),
+    }
     try:
         package = _package_from_responses(
             view=prepared.input_view,
@@ -1566,12 +1887,7 @@ def _run_live_review() -> dict[str, Any]:
             artifact=artifact,
             task_id=LIVE_TASK_ID,
             ledger=package_ledger,
-            raw_responses={
-                "dispatch:1": raw,
-                "correction": raw,
-                "dispatch:2": raw_review,
-                "artifact_review": raw_review,
-            },
+            raw_responses=package_raw,
             decoded_responses={
                 "correction": parsed.metadata,
                 "artifact_review": review_payload,
@@ -1588,9 +1904,9 @@ def _run_live_review() -> dict[str, Any]:
             review_status={"plan": "accepted", "artifact": "accepted"},
             preserved_reviews={"plan": accepted_plan_review, "artifact": review_payload},
             terminal_status="accepted",
-            budget=budget.snapshot(LIVE_TASK_ID),
+            budget=budget_snapshot,
         )
-        package_path = write_package(directory / "package", package)
+        package_path = write_package(package_path, package)
         loaded = load_package(package_path)
     except Exception as exc:
         detail = _safe_error(exc)
@@ -1602,7 +1918,16 @@ def _run_live_review() -> dict[str, Any]:
         )
         return state
     packaged_digest = _candidate_digest(parsed.metadata, loaded.members["detector.py"])
-    package_bytes = b"".join(loaded.members.values())
+    package_bytes = b"".join(
+        loaded.members[name]
+        for name in (
+            "stimulus.json",
+            "setup.json",
+            "bindings.json",
+            "prerequisites.json",
+            "detector.py",
+        )
+    )
     package_checks = {
         "load_package": "passed",
         "manifest_digest": loaded.manifest.manifest_digest,
@@ -1647,11 +1972,45 @@ def _run_live_review() -> dict[str, Any]:
     }
     state["status"] = "accepted"
     state["failed_gate"] = None
-    state["budget"] = budget.snapshot(LIVE_TASK_ID)
-    for record in state["ledger"]["dispatches"]:
-        record["terminal_status"] = "accepted"
+    state["budget"] = budget_snapshot
     _write_live_state(directory, state)
     return state
+
+
+def _continuation_live_request_counts(
+    ledger: dict[str, Any],
+    continuation_id: str | None,
+) -> dict[str, int]:
+    """Count distinct requests for one continuation despite copied ledger snapshots."""
+
+    unique: dict[tuple[Any, ...], str] = {}
+    for record in ledger.get("dispatches", []):
+        if not isinstance(record, dict) or record.get("continuation_id") != continuation_id:
+            continue
+        explicit = record.get("dispatch_slot") or record.get("slot")
+        stage = record.get("stage")
+        role = record.get("role")
+        slot = (
+            "correction"
+            if explicit == "correction" or (stage == "correction" and role == "author")
+            else "review"
+            if explicit == "review"
+            or (stage in {"artifact_review", "review"} and role == "reviewer")
+            else None
+        )
+        if slot is None or record.get("status") in {"not_run", "skipped"}:
+            continue
+        key = (
+            record.get("dispatch_index"),
+            slot,
+            record.get("prompt_sha256"),
+            record.get("dispatch_started_utc"),
+        )
+        unique[key] = slot
+    return {
+        "correction": sum(slot == "correction" for slot in unique.values()),
+        "review": sum(slot == "review" for slot in unique.values()),
+    }
 
 
 def _timestamp_from_path(path: Path) -> datetime | None:
@@ -1791,9 +2150,14 @@ def reconcile_budget(
     *,
     second_continuation: bool = False,
     third_continuation: bool = False,
+    next_continuation: bool = False,
 ) -> dict[str, Any]:
     """Reconcile the original or an explicitly authorized continuation."""
 
+    if sum((second_continuation, third_continuation, next_continuation)) > 1:
+        raise ValueError("select only one continuation budget")
+    if next_continuation:
+        return _reconcile_next_continuation_budget()
     if third_continuation:
         return _reconcile_third_continuation_budget()
     if not second_continuation:
@@ -2000,11 +2364,115 @@ def _reconcile_third_continuation_budget(root: Path = RUNS_ROOT) -> dict[str, An
     }
 
 
+def _reconcile_next_continuation_budget(root: Path = RUNS_ROOT) -> dict[str, Any]:
+    """Continue the fixed four-request ceiling from already-recorded own spend."""
+
+    own_dispatches = _next_continuation_dispatches(root)
+    author_spent = sum(item.get("dispatch_slot") == "correction" for item in own_dispatches)
+    review_spent = sum(item.get("dispatch_slot") == "review" for item in own_dispatches)
+    dispatched = author_spent + review_spent
+    if (
+        author_spent > NEXT_AUTHOR_INCREMENT
+        or review_spent > NEXT_REVIEW_INCREMENT
+        or dispatched > NEXT_AUTHOR_INCREMENT + NEXT_REVIEW_INCREMENT
+    ):
+        raise ValueError("next continuation's bounded request allowance is already exhausted")
+
+    budget = AuthoringBudget.from_prior_spend(
+        task_id=HISTORICAL_TASK_ID,
+        prior_author_correction_spend=(
+            NEXT_CONTINUATION_SNAPSHOT["author_correction_spent"] + author_spent
+        ),
+        prior_review_spend=NEXT_CONTINUATION_SNAPSHOT["review_spent"] + review_spent,
+        aggregate_limit=NEXT_AGGREGATE_CEILING,
+        task_limit=NEXT_TASK_LIMIT,
+        author_limit=NEXT_CONTINUATION_SNAPSHOT["author_correction_spent"],
+        review_limit=NEXT_CONTINUATION_SNAPSHOT["review_spent"],
+        author_limit_increment=NEXT_AUTHOR_INCREMENT,
+        review_limit_increment=NEXT_REVIEW_INCREMENT,
+    )
+    budget.total_dispatched = NEXT_CONTINUATION_SNAPSHOT["aggregate_spent"] + dispatched
+    budget.dispatched_by_task[HISTORICAL_TASK_ID] = (
+        NEXT_CONTINUATION_SNAPSHOT["task_spent"] + dispatched
+    )
+    snapshot = budget.snapshot(HISTORICAL_TASK_ID)
+    if snapshot["author_correction_remaining"] != NEXT_AUTHOR_INCREMENT - author_spent:
+        raise ValueError("remaining correction allowance differs from recorded dispatches")
+    if snapshot["review_remaining"] != NEXT_REVIEW_INCREMENT - review_spent:
+        raise ValueError("remaining review allowance differs from recorded dispatches")
+    if snapshot["task_remaining"] != NEXT_AUTHOR_INCREMENT + NEXT_REVIEW_INCREMENT - dispatched:
+        raise ValueError("remaining task allowance differs from recorded dispatches")
+    if snapshot["aggregate_spent"] + snapshot["task_remaining"] != NEXT_AGGREGATE_CEILING:
+        raise ValueError("next continuation aggregate ceiling differs from the authorization")
+    return {
+        "schema_version": "authoring-budget-reconciliation-v4",
+        "cutoff": NEXT_CONTINUATION_CUTOFF.isoformat().replace("+00:00", "Z"),
+        "historical_snapshot": NEXT_CONTINUATION_SNAPSHOT,
+        "intervening_dispatches": own_dispatches,
+        "intervening_spend_found": bool(own_dispatches),
+        "authorization": {
+            "author_correction_increment": NEXT_AUTHOR_INCREMENT,
+            "review_increment": NEXT_REVIEW_INCREMENT,
+            "aggregate_counter_continues": True,
+            "task_counter_continues": True,
+            "counter_reset": False,
+            "task_renamed": False,
+            "borrowed_slots": False,
+            "conditional_review": True,
+            "task_limit_extended_to": NEXT_TASK_LIMIT,
+            "continuation_aggregate_ceiling": NEXT_AGGREGATE_CEILING,
+            "aggregate_hard_limit": NEXT_CONTINUATION_SNAPSHOT["aggregate_hard_limit"],
+            "maximum_new_requests": NEXT_AUTHOR_INCREMENT + NEXT_REVIEW_INCREMENT,
+            "new_requests_spent": dispatched,
+            "new_requests_remaining": snapshot["task_remaining"],
+        },
+        "generic_budget_configuration": {
+            "class": "AuthoringBudget",
+            "seeded_via": "from_prior_spend",
+            "author_limit_increment_argument": "author_limit_increment",
+            "review_limit_increment_argument": "review_limit_increment",
+            "continuation_budget_cloned": False,
+        },
+        "resulting_budget": snapshot,
+    }
+
+
+def _next_continuation_dispatches(root: Path) -> list[dict[str, Any]]:
+    """Return distinct dispatched slots for this bounded continuation."""
+
+    ledger = load_dispatch_ledger(root)
+    unique: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for record in ledger.get("dispatches", []):
+        if not isinstance(record, dict) or record.get("continuation_id") != NEXT_CONTINUATION_ID:
+            continue
+        slot = record.get("dispatch_slot") or record.get("slot")
+        if slot not in {"correction", "review"}:
+            continue
+        if record.get("status") in {"not_run", "skipped"}:
+            continue
+        key = (
+            record.get("dispatch_index"),
+            slot,
+            record.get("prompt_sha256"),
+            record.get("dispatch_started_utc"),
+        )
+        unique[key] = {**record, "dispatch_slot": slot}
+    return sorted(
+        unique.values(),
+        key=lambda item: (
+            item.get("dispatch_index") if isinstance(item.get("dispatch_index"), int) else 0,
+            item["dispatch_slot"],
+        ),
+    )
+
+
 def _section_sizes(user: str) -> list[dict[str, Any]]:
     labels = [
         "FAILED STAGE",
         "FIXED PLAN DECISION",
         "ORIGINAL STAGE CONTEXT",
+        "SUPPLIED STAGE CONTEXT",
+        "OBSERVATION DECISION GUIDE",
         "PLAN FIELD MEANINGS",
         "NEUTRAL OUTCOME EXAMPLE",
         "RUNTIME EVIDENCE INTERFACE",
@@ -2169,12 +2637,193 @@ def _third_continuation_contract_findings(
         {
             "code": "correction_instruction",
             "path": "repair_scope",
-            "detail": (
-                "Repair all three defects together and check every return branch "
-                "against the supplied controls before returning."
-            ),
+            "detail": "Repair all three defects together; check return branches against controls.",
         },
     ]
+
+
+def _next_supplied_stage_context(
+    *,
+    plan: dict[str, Any],
+    original_context: dict[str, Any],
+    records: list[dict[str, Any]],
+    candidate_sha256: str,
+) -> dict[str, Any]:
+    """Return the narrow O03 provenance and control context for this correction."""
+
+    scenario = original_context.get("original_scenario", {})
+    semantic_failure = scenario.get("semantic_failure", "")
+    fixture_id_match = re.search(r"DFT-GOLD-\d+", semantic_failure)
+    fixture_id = fixture_id_match.group(0) if fixture_id_match else None
+    authoritative = original_context.get("authoritative_context", {})
+    operations = authoritative.get("operations", [])
+    relevant_names = {"summarize_for_ehr", "commit_to_ehr"}
+    operation_excerpts = [
+        {key: operation.get(key) for key in ("name", "description")}
+        for operation in operations
+        if isinstance(operation, dict) and operation.get("name") in relevant_names
+    ]
+    bindings = plan.get("runtime_bindings", [])
+    draft_binding = next(
+        (
+            item
+            for item in bindings
+            if isinstance(item, dict) and item.get("name") == "setup_draft_id"
+        ),
+        {},
+    )
+    status_binding = next(
+        (
+            item
+            for item in bindings
+            if isinstance(item, dict) and item.get("name") == "setup_draft_status"
+        ),
+        {},
+    )
+    passed = [
+        {"name": record.get("name"), "outcome": record.get("observed_outcome")}
+        for record in records
+        if record.get("status") == "passed"
+    ]
+    unavailable_returns: list[dict[str, Any]] = []
+    for record in records:
+        if record.get("status") == "passed" or isinstance(record.get("actual_result"), dict):
+            continue
+        name = str(record.get("name"))
+        if candidate_sha256 == SECOND_CANDIDATE_SHA256 and name in THIRD_DEFECT_FAILING_ROWS:
+            inspected: dict[str, Any] = {
+                "source": "read-only inspection of candidate 53a55f99",
+                "outcome": "not_detected",
+                "evidence_refs": [],
+                "meaning": (
+                    "This is the verdict implied by the candidate source; the raw runtime "
+                    "return was unavailable in this control record."
+                ),
+            }
+        else:
+            inspected = {
+                "source": "unavailable",
+                "meaning": "No raw return or source-inspected verdict is available.",
+            }
+        unavailable_returns.append(
+            {
+                "control": name,
+                "raw_return": {
+                    "availability": "unavailable",
+                    "validation_or_runtime_error": record.get("failure"),
+                },
+                "source_inspected_candidate_return": inspected,
+            }
+        )
+
+    context: dict[str, Any] = {
+        "fixture_mapping": (
+            f"{fixture_id} is original reference-fixture provenance. The experiment creates "
+            "a fresh draft in setup and resolves result.draft_id to setup_draft_id; the "
+            "fixture ID is not the execution ID."
+        ),
+        "setup_and_synthetic_values": (
+            "PAT-104 is the accepted setup argument to summarize_for_ehr. SYN-DRAFT-001, "
+            "SYN-DRAFT-002, and SYN-DRAFT-OTHER substitute setup_draft_id in controls; "
+            "SYN-PATIENT-001 is synthetic. None is a live identity. Setup bindings select "
+            f"{draft_binding.get('selector')} and {status_binding.get('selector')}."
+        ),
+        "operation_catalog_excerpts": operation_excerpts,
+        "catalog_limit": (
+            "Only these operation descriptions are supplied; full schemas and a source-handle "
+            "catalog are absent. Accepted-plan decisions are fixed inputs."
+        ),
+        "reference_namespaces": (
+            "policy:*, operation:*, setup:*, and source:* values in the accepted plan are "
+            "provenance/binding handles, not detector evidence_refs. evidence_refs resolve "
+            "against the runtime packet, for example tool_calls[0], availability.tool_calls, "
+            "or completeness.tool_calls."
+        ),
+        "passing_control_summary": passed,
+    }
+    if unavailable_returns:
+        context["unavailable_raw_return_provenance"] = {
+            "note": (
+                "No raw return was captured for these controls. The separate source-inspected "
+                "verdict is not a raw runtime result."
+            ),
+            "controls": unavailable_returns,
+        }
+    return context
+
+
+def _format_next_supplied_stage_context(context: dict[str, Any]) -> str:
+    """Render only the supplied O03 facts that resolve this prompt's ambiguities."""
+
+    identity = context["fixture_mapping"]
+    setup = context["setup_and_synthetic_values"]
+    operations = context["operation_catalog_excerpts"]
+    operation_text = "; ".join(
+        f"{item['name']}: {item['description']}"
+        for item in operations
+        if isinstance(item, dict) and item.get("name") and item.get("description")
+    )
+    passing = "; ".join(
+        f"{item['name']}={item['outcome']}"
+        for item in context["passing_control_summary"]
+        if item.get("name")
+    )
+    lines = [
+        f"Fixture identity: {identity}",
+        f"Setup and controls: {setup}",
+        f"Catalog excerpts: {operation_text}",
+        (
+            "Reference namespaces: policy:, operation:, setup:, and source: are accepted-plan "
+            "provenance/binding handles, not detector evidence_refs. evidence_refs resolve in "
+            "the evaluate packet (for example tool_calls[0], availability.tool_calls, "
+            "completeness.tool_calls). Only the excerpts above are supplied; full schemas and "
+            "a source-handle catalog are absent. The accepted plan is fixed."
+        ),
+        f"Passing controls (name=outcome): {passing}",
+    ]
+    missing = context.get("unavailable_raw_return_provenance", {}).get("controls", [])
+    if missing:
+        lines.append(
+            "Raw return unavailable; source-inspected candidate return (not a captured result): "
+            + "; ".join(
+                (
+                    f"{item['control']}="
+                    f"{item['source_inspected_candidate_return'].get('outcome', 'unavailable')}"
+                )
+                for item in missing
+            )
+        )
+    return "\n\n".join(lines)
+
+
+def _next_prompt_findings(
+    findings: list[dict[str, Any]],
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Avoid repeating per-control errors already shown with their exact packets."""
+
+    retained = [
+        item
+        for item in findings
+        if not str(item.get("path", "")).startswith("detector_controls.")
+        and item.get("code") not in {"detector_contract_failure", "correction_instruction"}
+    ]
+    failed = [str(item.get("name")) for item in records if item.get("status") != "passed"]
+    if not failed:
+        return retained
+    retained.append(
+        {
+            "code": "detector_control_failure_summary",
+            "path": "detector_controls",
+            "detail": (
+                f"{len(failed)} frozen controls failed. For each, compare the exact input, "
+                "expected outcome, raw return, and runtime-validation error below. "
+                "A correct outcome with invalid evidence_refs still needs correction; "
+                "not_detected must cite the captured collection and its availability/completeness."
+            ),
+        }
+    )
+    return retained
 
 
 def run_dry_run(
@@ -2182,6 +2831,8 @@ def run_dry_run(
     *,
     second_continuation: bool = False,
     third_continuation: bool = False,
+    next_continuation: bool = False,
+    source_directory: str | Path | None = None,
 ) -> Path:
     """Run the complete offline readiness gate and write a new evidence directory."""
 
@@ -2196,18 +2847,43 @@ def run_dry_run(
     output.mkdir(parents=True)
 
     hashes = _verify_frozen_evidence()
-    if third_continuation:
+    selected_modes = sum((second_continuation, third_continuation, next_continuation))
+    if selected_modes > 1:
+        raise ValueError("select only one continuation mode")
+    if next_continuation:
+        source = (
+            Path(source_directory)
+            if source_directory is not None
+            else RUNS_ROOT / SECOND_ATTEMPT_DIRECTORY_NAME
+        )
+        plan, candidate_raw, candidate_info = _extract_candidate_from_directory(source)
+    elif third_continuation:
         plan, candidate_raw, candidate_info = _extract_third_continuation_authorities()
     elif second_continuation:
         plan, candidate_raw, candidate_info = _extract_second_continuation_authorities()
     else:
         plan, candidate_raw, candidate_info = _extract_authorities()
     candidate = candidate_info.pop("candidate")
+    supplemental_witness_review = (
+        _load_supplemental_witness_order_review(
+            candidate_info["source_directory"],
+            candidate_sha256=candidate_info["candidate_sha256"],
+        )
+        if next_continuation
+        else None
+    )
+    review_revision_feedback = (
+        _load_review_revision_feedback(candidate_info["source_directory"])
+        if next_continuation
+        else None
+    )
     prepared = prepare_o03_authoring_inputs()
     cases = load_control_cases()
     fixture_raw = FIXTURE_PATH.read_bytes()
     fixture_sha256 = _sha256(fixture_raw)
-    if (second_continuation or third_continuation) and fixture_sha256 != EXPECTED_FIXTURE_SHA256:
+    if (
+        second_continuation or third_continuation or next_continuation
+    ) and fixture_sha256 != EXPECTED_FIXTURE_SHA256:
         raise ValueError("control fixture sha256 differs from the frozen 18-control fixture")
 
     control_findings, control_records = run_detector_controls(
@@ -2225,14 +2901,59 @@ def run_dry_run(
     findings.extend(control_findings)
     if third_continuation:
         findings.extend(_third_continuation_contract_findings(control_records))
+    elif next_continuation:
+        if candidate_info["candidate_sha256"] == SECOND_CANDIDATE_SHA256:
+            findings.extend(_third_continuation_contract_findings(control_records))
+        else:
+            findings.extend(
+                {
+                    "code": "detector_control_failure",
+                    "detail": (
+                        f"The current candidate failed control {record['name']!r}; see its "
+                        "exact input, returned result, and expected outcome in control feedback."
+                    ),
+                    "path": f"detector_controls.{record['name']}",
+                }
+                for record in control_records
+                if record.get("status") != "passed"
+            )
     elif second_continuation:
         findings = [item for item in findings if item.get("path") != "semantic_judge_spec"]
         findings.extend(_second_continuation_contract_findings(control_records))
-    if third_continuation:
+    if third_continuation or next_continuation:
         if candidate.metadata.get("semantic_judge_spec") is not None:
-            raise ValueError("third continuation requires the null-judge second candidate")
+            raise ValueError("continuation requires the accepted null-judge plan")
     elif not any(item.get("path") == "semantic_judge_spec" for item in findings):
         raise ValueError("saved candidate semantic-judge conflict was not recorded")
+    if supplemental_witness_review is not None:
+        record = supplemental_witness_review["records"][0]
+        findings.append(
+            {
+                "code": "supplemental_control_failure",
+                "path": f"supplemental_controls.{record.get('name', 'witness-order')}",
+                "detail": (
+                    "A separately captured offline diagnostic, outside the frozen 18-control "
+                    f"fixture, expected {record.get('expected_outcome')!r} but returned "
+                    f"{record.get('actual_result', {}).get('outcome')!r} for the exact input "
+                    "shown in supplied stage context. An unreadable relevant call must not "
+                    "end the scan: a later matching valid call proves the attempt. Without "
+                    "such a witness, the unreadable relevant call leaves the result inconclusive."
+                ),
+            }
+        )
+    if review_revision_feedback is not None:
+        findings.append(
+            {
+                "code": "artifact_review_revision",
+                "path": "artifact_review",
+                "detail": json.dumps(
+                    review_revision_feedback,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            }
+        )
 
     original_context = build_artifact_author_context(
         prepared.input_view,
@@ -2240,10 +2961,12 @@ def run_dry_run(
         prepared.inventory,
         prepared.runtime_contract,
     )
-    if third_continuation:
+    if third_continuation or next_continuation:
         # The nine failed control packets consume the correction budget; input
         # provenance digests are unrelated to the repair task.
-        original_context["original_scenario"].pop("input_identity", None)
+        original_scenario = original_context["original_scenario"]
+        for field in ("input_identity", "classification", "gherkin", "safe_behavior"):
+            original_scenario.pop(field, None)
         correction_feedback = tuple(item for item in feedback if item.status != "passed")
     else:
         correction_feedback = feedback
@@ -2251,13 +2974,55 @@ def run_dry_run(
         failed_stage="call2",
         original_context=original_context,
         current_output=candidate_raw,
-        findings=findings,
+        findings=(
+            _next_prompt_findings(findings, control_records) if next_continuation else findings
+        ),
         detector_feedback=correction_feedback,
     )
-    if third_continuation:
+    if third_continuation or next_continuation:
         # The shared feedback guidance duplicates the correction instructions
         # in the same packet; the failed rows carry their own explanations.
         correction_context["detector_feedback"].pop("correction_guidance", None)
+    if next_continuation:
+        correction_context["instruction"] = (
+            "Repair the detector against the fixed accepted plan, observation guide, "
+            "runtime interface, and exact control feedback. Preserve behavior shown by "
+            "passing controls. Check each return branch once, then emit the complete "
+            "artifact in the stated format."
+        )
+        correction_context["supplied_stage_context"] = _format_next_supplied_stage_context(
+            _next_supplied_stage_context(
+                plan=plan,
+                original_context=original_context,
+                records=control_records,
+                candidate_sha256=candidate_info["candidate_sha256"],
+            )
+        )
+        if supplemental_witness_review is not None:
+            correction_context["supplied_stage_context"] += (
+                "\n\nSUPPLEMENTAL OFFLINE DIAGNOSTIC — OUTSIDE THE FROZEN 18-CONTROL FIXTURE\n"
+                + json.dumps(
+                    {
+                        "candidate_sha256": supplemental_witness_review["candidate_sha256"],
+                        "case": supplemental_witness_review["case"],
+                        "findings": supplemental_witness_review.get("findings", []),
+                        "records": supplemental_witness_review["records"],
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
+        if review_revision_feedback is not None:
+            correction_context["supplied_stage_context"] += (
+                "\n\nPRIOR CONDITIONAL REVIEW REQUESTED REVISION\n"
+                + json.dumps(
+                    review_revision_feedback,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
     packet = _render_correction_packet(correction_context)
     _enforce_context_budget(
         packet,
@@ -2282,18 +3047,22 @@ def run_dry_run(
     reconciliation = reconcile_budget(
         second_continuation=second_continuation,
         third_continuation=third_continuation,
+        next_continuation=next_continuation,
+    )
+    continuation_id = (
+        NEXT_CONTINUATION_ID
+        if next_continuation
+        else THIRD_CONTINUATION_ID
+        if third_continuation
+        else SECOND_CONTINUATION_ID
+        if second_continuation
+        else "initial-continuation"
     )
     historical = _historical_judge_failures(candidate_info["historical_attempt"])
     previous_ledger = load_dispatch_ledger(RUNS_ROOT)
     ledger = {
         "schema_version": "authoring-dispatch-ledger-v1",
-        "continuation_id": (
-            THIRD_CONTINUATION_ID
-            if third_continuation
-            else SECOND_CONTINUATION_ID
-            if second_continuation
-            else "initial-continuation"
-        ),
+        "continuation_id": continuation_id,
         "model_requests": 0,
         "dispatches": [],
         "prior_dispatches": previous_ledger["dispatches"],
@@ -2307,6 +3076,20 @@ def run_dry_run(
         },
         "guard_scope": "all O03 artifact-completion dry-run directories",
         "note": "offline dry-run; dispatch-correction and dispatch-review were not run",
+        "dispatch_configuration": {
+            "model": LIVE_MODEL,
+            "temperature": 0.0,
+            "context_window_tokens": AUTHORING_CONTEXT_WINDOW_TOKENS,
+            "max_completion_tokens": AUTHORING_MAX_COMPLETION_TOKENS,
+            "max_retries": 0,
+            "correction_thinking": _continuation_thinking(continuation_id, "correction"),
+            "review_thinking": _continuation_thinking(continuation_id, "review"),
+            "new_request_ceiling": (
+                {"correction": NEXT_AUTHOR_INCREMENT, "conditional_review": NEXT_REVIEW_INCREMENT}
+                if next_continuation
+                else None
+            ),
+        },
     }
 
     _write_json(output / "hash-verification.json", hashes)
@@ -2324,7 +3107,7 @@ def run_dry_run(
         {
             "path": (
                 str(Path(candidate_info["source_directory"]) / "ledger.json")
-                if second_continuation
+                if second_continuation or third_continuation or next_continuation
                 else str(FROZEN_EVIDENCE["saved_candidate"][0])
             ),
             "raw": raw_response_record(candidate_raw),
@@ -2334,7 +3117,7 @@ def run_dry_run(
                     "raw_response_sha256": candidate_info["source_raw_response_sha256"],
                     "candidate_sha256": candidate_info["candidate_sha256"],
                 }
-                if second_continuation
+                if second_continuation or third_continuation or next_continuation
                 else None
             ),
             **{key: value for key, value in candidate_info.items() if key != "historical_attempt"},
@@ -2357,6 +3140,19 @@ def run_dry_run(
             ],
         },
     )
+    if supplemental_witness_review is not None:
+        _write_json(
+            output / "supplemental-witness-order-review.json",
+            supplemental_witness_review,
+        )
+    if review_revision_feedback is not None:
+        _write_json(
+            output / "review-revision-feedback.json",
+            {
+                "source_directory": candidate_info["source_directory"],
+                **review_revision_feedback,
+            },
+        )
     _write_json(output / "feedback.json", [item.as_dict() for item in feedback])
     _write_json(output / "findings.json", findings)
     _write_json(output / "historical-judge-controls.json", historical)
@@ -2383,7 +3179,9 @@ def run_dry_run(
         output / "dry-run.json",
         {
             "schema_version": (
-                "o03-artifact-completion-dry-run-v3"
+                "o03-artifact-completion-dry-run-v4"
+                if next_continuation
+                else "o03-artifact-completion-dry-run-v3"
                 if third_continuation
                 else "o03-artifact-completion-dry-run-v2"
                 if second_continuation
@@ -2414,9 +3212,15 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--dry-run", action="store_true")
     modes.add_argument("--second-dry-run", action="store_true")
     modes.add_argument("--third-dry-run", action="store_true")
+    modes.add_argument("--next-dry-run", action="store_true")
     modes.add_argument("--dispatch-correction", action="store_true")
     modes.add_argument("--dispatch-review", action="store_true")
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument(
+        "--source-directory",
+        type=Path,
+        help="source ledger for --next-dry-run (defaults to the valid 53a candidate)",
+    )
     parser.add_argument(
         "--ledger", type=Path, help="existing evidence ledger for dispatch guard tests"
     )
@@ -2483,11 +3287,15 @@ def _record_pre_dispatch_failure(gate: LiveGateFailure) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.dry_run or args.second_dry_run or args.third_dry_run:
+    if args.source_directory is not None and not args.next_dry_run:
+        raise SystemExit("--source-directory is only valid with --next-dry-run")
+    if args.dry_run or args.second_dry_run or args.third_dry_run or args.next_dry_run:
         output = run_dry_run(
             args.output_dir,
             second_continuation=args.second_dry_run,
             third_continuation=args.third_dry_run,
+            next_continuation=args.next_dry_run,
+            source_directory=args.source_directory,
         )
         print(output)
         return 0
