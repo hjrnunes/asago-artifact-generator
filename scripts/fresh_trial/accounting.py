@@ -197,6 +197,14 @@ class TimedAuthoringTransport:
         self.model = getattr(transport, "model", None)
         self.profile_name = getattr(transport, "profile_name", None)
 
+    def preflight_context_budget(self, packet: PromptPacket) -> dict[str, Any] | None:
+        """Forward a configured context preflight without reserving a dispatch."""
+
+        preflight = getattr(self.transport, "preflight_context_budget", None)
+        if not callable(preflight):
+            return None
+        return preflight(packet)
+
     def complete(self, packet: PromptPacket) -> TransportResponse | str | bytes:
         """Forward the same packet object and append one flushed timing record."""
 

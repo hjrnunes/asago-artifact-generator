@@ -297,6 +297,15 @@ def _case_receipt(
     package = getattr(result, "package", None)
     manifest = getattr(package, "manifest", None)
     package_path = getattr(result, "package_path", None)
+    prompt_overflow = next(
+        (
+            copy.deepcopy(finding.get("details"))
+            for finding in findings
+            if finding.get("code") == "prompt_overflow"
+            and isinstance(finding.get("details"), dict)
+        ),
+        None,
+    )
     terminal_stage = (
         findings[-1].get("path") if findings else (ledger[-1].get("stage") if ledger else None)
     )
@@ -333,6 +342,7 @@ def _case_receipt(
         "raw_evidence_dir": str(raw_evidence_dir),
         "failure_evidence_path": str(failure_path) if failure_path else None,
         "dispatch_count": len(ledger),
+        **({"prompt_overflow": prompt_overflow} if prompt_overflow is not None else {}),
     }
 
 

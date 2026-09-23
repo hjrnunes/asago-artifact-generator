@@ -1175,18 +1175,15 @@ def test_private_model_transport_rejects_context_overflow_before_provider_dispat
         stage="correction",
         version="test",
         system="system",
-        user="x" * (
-            AUTHORING_CONTEXT_WINDOW_TOKENS
-            - AUTHORING_MAX_COMPLETION_TOKENS
-            - 256
-            + 1
-        ),
+        user="x" * 84_719,
         payload={},
     )
 
-    with pytest.raises(PromptOverflowError, match="context window"):
+    with pytest.raises(PromptOverflowError, match="context window") as overflow:
         transport.complete(packet)
     assert transport._client.chat.completions.calls == 0
+    assert overflow.value.estimated_prompt_tokens == 24_321
+    assert overflow.value.remaining_input_budget == 24_320
 
 
 @pytest.mark.parametrize("limit", [True, 0, -1, 1.5, "8192"])

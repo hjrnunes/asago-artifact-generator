@@ -56,8 +56,25 @@ Every `author` request (author, correction, and review) sends
 `chat_template_kwargs.enable_thinking=false` through the transport's additive
 `extra_body`, records the non-secret controls, and keeps `max_retries=0`.
 Configured live requests reserve a 32,768-token context window and an 8,192-token
-completion limit. A conservative prompt estimate fails before provider
-dispatch when the prompt plus those reservations cannot fit.
+completion limit, plus the existing 256-token framing reserve. The guard
+estimates prompt tokens as the ceiling of all model-facing system and user
+UTF-8 bytes, including correction feedback and the 128-byte schema/message
+allowance, divided by a calibrated bytes-per-token ratio. It applies the same
+estimate to authoring, review, and correction requests and rejects an overflow
+before reserving a dispatch. The estimate must fit the remaining 24,320-token
+input budget.
+
+The calibration uses the minimum ratio from three saved
+`authoring-plan-review-v2` requests on the `gemma4-oc` profile and
+`gemma-4-26b-a4b-it` model: 3.964777680907 bytes per provider-reported prompt
+token. A 12% margin lowers the ratio to 3.489004359198 bytes per estimated
+token. The saved record paths, dispatch IDs, byte totals, and provider-reported
+prompt-token values live in
+`src/asago_artifact_generator/authoring.py` as `CONTEXT_GUARD_CALIBRATION`.
+Every guard result labels the value `estimated_prompt_tokens`; provider usage
+remains separate. A rejected prompt returns `prompt_overflow`, spends no
+provider request or author/reviewer dispatch, and stays case-local in the
+five-case caller.
 If you omit `--profile`, existing environment-only configuration remains
 supported when it provides a real API key; an absent key fails closed instead
 of using a placeholder credential.
@@ -579,8 +596,9 @@ discovery, or runtime-judge transport. An essential unresolved requirement
 produces a retained `*.blocked.json` plan and no package. The package contains
 the model-authored detector source, user-only stimulus, exact runtime-binding
 declarations, observations, explanation, examples, and digest-bound evidence.
-Prompt sizes are measured from the rendered UTF-8 system and user bytes; token
-counts are not estimated. Use `build_neutral_artifact_package` and the public
+The context guard estimates prompt tokens from the rendered UTF-8 system and
+user bytes using the calibration described above; it does not report estimated
+values as provider usage. Use `build_neutral_artifact_package` and the public
 `check` command for the neutral evidence-interface example before reviewing
 model-authored output.
 New v2 executable prerequisites use exactly `name`, `check`, `evidence_refs`,

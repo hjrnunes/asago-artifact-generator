@@ -354,6 +354,8 @@ def run_authoring_batch(
         )
         _write_case_receipt(receipt_path, receipt)
         _set_case_status(status, case_id, result.status, reason=receipt.get("reason"))
+        if result.status == "prompt_overflow" and isinstance(receipt.get("prompt_overflow"), dict):
+            status["cases"][case_id]["prompt_overflow"] = copy.deepcopy(receipt["prompt_overflow"])
         if _is_transport_outage(result):
             status["outage_stopped"] = True
             stopped_reason = "transport_outage"

@@ -12,11 +12,13 @@ import ast
 import base64
 import hashlib
 import json
+import math
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -293,9 +295,67 @@ AUTHORING_CONTEXT_WINDOW_TOKENS = 32_768
 AUTHORING_MAX_COMPLETION_TOKENS = 8_192
 _CONTEXT_FRAMING_TOKEN_RESERVE = 256
 # The provider request adds a small JSON message/schema envelope around the
-# rendered system and user content.  No tokenizer is available, so this fixed
-# UTF-8-byte envelope is part of the conservative preflight estimate.
+# rendered system and user content. This fixed UTF-8-byte allowance and the
+# separate framing-token reserve stay in every context estimate.
 _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES = 128
+# Calibrate from saved v2 plan-review requests on the gemma4-oc endpoint. Each
+# record uses only provider-reported prompt_tokens and the same system+user+128
+# byte measurement as the guard. The minimum bytes/token ratio is conservative;
+# a 12% margin lowers it further so the resulting token estimate rounds up.
+_CONTEXT_GUARD_CALIBRATION_SOURCES = (
+    {
+        "path": "runs/authoring/O03-live-20260922T151027Z-fresh-plan-review.failure-evidence.json",
+        "record_id": "O03-live-20260922T151027Z-fresh-plan-review#dispatch-1",
+        "model_profile": "gemma4-oc",
+        "model": "gemma-4-26b-a4b-it",
+        "prompt_version": "authoring-plan-review-v2",
+        "model_facing_utf8_bytes": 22_738,
+        "provider_reported_prompt_tokens": 5_735,
+    },
+    {
+        "path": (
+            "runs/authoring/O03-live-20260922T175415Z-exact-plan-correction."
+            "failure-evidence.json"
+        ),
+        "record_id": "O03-live-20260922T175415Z-exact-plan-correction#dispatch-2",
+        "model_profile": "gemma4-oc",
+        "model": "gemma-4-26b-a4b-it",
+        "prompt_version": "authoring-plan-review-v2",
+        "model_facing_utf8_bytes": 22_847,
+        "provider_reported_prompt_tokens": 5_758,
+    },
+    {
+        "path": (
+            "runs/authoring/SCN-030-live-20260922T151112Z-fresh-plan-review."
+            "failure-evidence.json"
+        ),
+        "record_id": "SCN-030-live-20260922T151112Z-fresh-plan-review#dispatch-1",
+        "model_profile": "gemma4-oc",
+        "model": "gemma-4-26b-a4b-it",
+        "prompt_version": "authoring-plan-review-v2",
+        "model_facing_utf8_bytes": 27_462,
+        "provider_reported_prompt_tokens": 6_695,
+    },
+)
+_CONTEXT_GUARD_OBSERVED_RATIO = min(
+    Fraction(
+        record["model_facing_utf8_bytes"],
+        record["provider_reported_prompt_tokens"],
+    )
+    for record in _CONTEXT_GUARD_CALIBRATION_SOURCES
+)
+_CONTEXT_GUARD_MARGIN = Fraction(12, 100)
+_CONTEXT_GUARD_CALIBRATED_RATIO = _CONTEXT_GUARD_OBSERVED_RATIO * (
+    1 - _CONTEXT_GUARD_MARGIN
+)
+CONTEXT_GUARD_CALIBRATION = {
+    "formula": "estimated_prompt_tokens = ceil(total_model_facing_utf8_bytes / calibrated_ratio)",
+    "ratio_formula": "calibrated_ratio = observed_conservative_ratio * (1 - margin)",
+    "sources": _CONTEXT_GUARD_CALIBRATION_SOURCES,
+    "observed_conservative_bytes_per_token": float(_CONTEXT_GUARD_OBSERVED_RATIO),
+    "margin": float(_CONTEXT_GUARD_MARGIN),
+    "calibrated_bytes_per_token": float(_CONTEXT_GUARD_CALIBRATED_RATIO),
+}
 # Normal private authoring fixes thinking off for every provider request
 # (author, correction, and review) through the transport's additive
 # extra_body.  The value is non-secret and is safe to record as a control.
@@ -556,6 +616,19 @@ class PromptPreflightError(AuthoringError):
 class PromptOverflowError(PromptPreflightError):
     """Raised before dispatch when a complete prompt exceeds its explicit bound."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        estimated_prompt_tokens: int | None = None,
+        remaining_input_budget: int | None = None,
+        total_model_facing_utf8_bytes: int | None = None,
+    ) -> None:
+        self.estimated_prompt_tokens = estimated_prompt_tokens
+        self.remaining_input_budget = remaining_input_budget
+        self.total_model_facing_utf8_bytes = total_model_facing_utf8_bytes
+        super().__init__(message)
+
 
 class ContinuationValidationError(AuthoringError):
     """Raised when a saved-plan continuation cannot reproduce pinned history."""
@@ -576,12 +649,30 @@ class Finding:
     code: str
     detail: str
     path: str = ""
+    details: dict[str, Any] = field(default_factory=dict, compare=False, hash=False)
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         result = {"code": self.code, "detail": self.detail}
         if self.path:
             result["path"] = self.path
+        if self.details:
+            result["details"] = deepcopy(self.details)
         return result
+
+
+def _prompt_overflow_finding(exc: PromptOverflowError, stage: str) -> Finding:
+    """Retain the calibrated estimate and remaining input budget as data."""
+
+    details = {
+        key: value
+        for key, value in (
+            ("estimated_prompt_tokens", exc.estimated_prompt_tokens),
+            ("remaining_input_budget", exc.remaining_input_budget),
+            ("model_facing_utf8_bytes", exc.total_model_facing_utf8_bytes),
+        )
+        if value is not None
+    }
+    return Finding("prompt_overflow", str(exc), stage, details)
 
 
 @dataclass(frozen=True)
@@ -9418,12 +9509,7 @@ class PrivateModelAuthoringTransport:
         )
 
     def complete(self, packet: PromptPacket) -> TransportResponse:
-        if self.context_window_tokens is not None and self.max_completion_tokens is not None:
-            _enforce_context_budget(
-                packet,
-                context_window_tokens=self.context_window_tokens,
-                max_completion_tokens=self.max_completion_tokens,
-            )
+        self.preflight_context_budget(packet)
         request: dict[str, Any] = {
             "model": self.model,
             "temperature": self.temperature,
@@ -9461,6 +9547,19 @@ class PrivateModelAuthoringTransport:
             usage=usage,
             controls=controls,
             response_capture=_provider_response_capture(choice, message),
+        )
+
+    def preflight_context_budget(
+        self, packet: PromptPacket
+    ) -> dict[str, int | float | str] | None:
+        """Expose the guard so orchestration can reject before reserving budget."""
+
+        if self.context_window_tokens is None or self.max_completion_tokens is None:
+            return None
+        return _enforce_context_budget(
+            packet,
+            context_window_tokens=self.context_window_tokens,
+            max_completion_tokens=self.max_completion_tokens,
         )
 
 
@@ -10245,7 +10344,8 @@ class AuthoringOrchestrator:
             self.correction_allowed
             and bool(findings)
             and not any(
-                finding.code in {"transport_failure", "budget_exhausted"} for finding in findings
+                finding.code in {"transport_failure", "budget_exhausted", "prompt_overflow"}
+                for finding in findings
             )
         )
 
@@ -10258,6 +10358,12 @@ class AuthoringOrchestrator:
         self._prompt_packets[stage] = packet
         try:
             response = self._dispatch(packet)
+        except PromptOverflowError as exc:
+            finding = _prompt_overflow_finding(exc, stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            return None, [finding], b""
         except BudgetExceeded as exc:
             # Budget stops happen before dispatch: no ledger record exists to
             # annotate, and no stage attempt was created for this request.
@@ -10342,6 +10448,12 @@ class AuthoringOrchestrator:
         started = time.monotonic()
         try:
             response = self._dispatch(packet)
+        except PromptOverflowError as exc:
+            finding = _prompt_overflow_finding(exc, stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            return None, [finding], b""
         except BudgetExceeded as exc:
             # Budget stops happen before dispatch: no ledger record exists to
             # annotate, and no stage attempt was created for this request.
@@ -10445,6 +10557,11 @@ class AuthoringOrchestrator:
         return validation_value, [], raw
 
     def _dispatch(self, packet: PromptPacket) -> TransportResponse | str | bytes:
+        # Reject an over-budget request before reserving an author/reviewer slot.
+        self._dispatch_recorded = False
+        context_preflight = getattr(self.transport, "preflight_context_budget", None)
+        if callable(context_preflight):
+            context_preflight(packet)
         # Reserve before creating any ledger or evidence record: a budget stop
         # happens before dispatch, so it leaves no dispatch event behind.
         role = "reviewer" if packet.stage in _REVIEW_STAGES else "author"
@@ -10623,6 +10740,12 @@ class AuthoringOrchestrator:
         started = time.monotonic()
         try:
             response = self._dispatch(packet)
+        except PromptOverflowError as exc:
+            finding = _prompt_overflow_finding(exc, packet.stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            return None
         except BudgetExceeded as exc:
             # Budget stops happen before dispatch: no ledger record or stage
             # attempt exists for the refused correction request.
@@ -10788,6 +10911,12 @@ class AuthoringOrchestrator:
         started = time.monotonic()
         try:
             response = self._dispatch(packet)
+        except PromptOverflowError as exc:
+            finding = _prompt_overflow_finding(exc, packet.stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            return None
         except BudgetExceeded as exc:
             # Budget stops happen before dispatch: no ledger record or stage
             # attempt exists for the refused correction request.
@@ -11426,6 +11555,16 @@ class AuthoringOrchestrator:
         started = time.monotonic()
         try:
             response = self._dispatch(packet)
+        except PromptOverflowError as exc:
+            finding = _prompt_overflow_finding(exc, packet.stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            self._review_status[review_key] = "prompt_overflow"
+            return _ReviewOutcome(
+                decision="",
+                stop=_StageStop("prompt_overflow", (finding,)),
+            )
         except BudgetExceeded as exc:
             # Budget stops happen before dispatch: no ledger record or stage
             # attempt exists for the refused review request.
@@ -11576,10 +11715,20 @@ class AuthoringOrchestrator:
             finding
             for finding in findings
             if finding.code
-            in {"transport_failure", "budget_exhausted", "correction_dispatch_failed"}
+            in {
+                "transport_failure",
+                "budget_exhausted",
+                "correction_dispatch_failed",
+                "prompt_overflow",
+            }
         ]
         if not stop_findings:
             return None
+        if any(finding.code == "prompt_overflow" for finding in stop_findings):
+            return _StageStop(
+                "prompt_overflow",
+                tuple(finding for finding in stop_findings if finding.code == "prompt_overflow"),
+            )
         if any(finding.code == "budget_exhausted" for finding in stop_findings):
             return _StageStop(
                 "budget_exhausted",
@@ -11705,6 +11854,8 @@ class AuthoringOrchestrator:
         plan: dict[str, Any] | None,
         findings: list[Finding],
     ) -> AuthoringResult:
+        if any(finding.code == "prompt_overflow" for finding in findings):
+            status = "prompt_overflow"
         return AuthoringResult(
             status=status,
             task_id=self.task_id,
@@ -18014,45 +18165,57 @@ def _enforce_context_budget(
     *,
     context_window_tokens: int,
     max_completion_tokens: int,
-) -> None:
-    """Reject a prompt before dispatch when a conservative context bound fails."""
+) -> dict[str, int | float | str]:
+    """Estimate model-facing prompt tokens and reject before dispatch if needed."""
 
     if context_window_tokens <= 0:
         raise PromptOverflowError("context window token limit must be positive")
     if max_completion_tokens <= 0:
         raise PromptOverflowError("completion token limit must be positive")
     estimate = _context_budget_estimate(packet)
-    estimated_prompt_bytes = estimate["estimated_prompt_bytes"]
-    system_bytes = estimate["system_bytes"]
-    user_bytes = estimate["user_bytes"]
-    overhead_bytes = estimate["schema_message_overhead_bytes"]
+    estimated_prompt_tokens = estimate["estimated_prompt_tokens"]
+    model_facing_utf8_bytes = estimate["model_facing_utf8_bytes"]
     reserved = max_completion_tokens + _CONTEXT_FRAMING_TOKEN_RESERVE
-    if estimated_prompt_bytes + reserved > context_window_tokens:
-        available = context_window_tokens - reserved
+    remaining_input_budget = context_window_tokens - reserved
+    if estimated_prompt_tokens > remaining_input_budget:
         raise PromptOverflowError(
-            f"{packet.stage} prompt conservatively requires at least "
-            f"{estimated_prompt_bytes} UTF-8-byte input estimate "
-            f"(system={system_bytes}, user={user_bytes}, "
-            f"schema/message overhead={overhead_bytes}); "
-            f"only {available} bytes remain after "
-            f"reserving {max_completion_tokens} completion tokens and "
+            f"{packet.stage} prompt exceeds the context window: "
+            f"estimated_prompt_tokens={estimated_prompt_tokens}, "
+            f"remaining_input_budget={remaining_input_budget}, "
+            f"model-facing UTF-8-byte input estimate={model_facing_utf8_bytes}; "
+            f"input budget excludes {max_completion_tokens} completion tokens and "
             f"{_CONTEXT_FRAMING_TOKEN_RESERVE} framing tokens in a "
-            f"{context_window_tokens}-token context window"
+            f"{context_window_tokens}-token context window",
+            estimated_prompt_tokens=estimated_prompt_tokens,
+            remaining_input_budget=remaining_input_budget,
+            total_model_facing_utf8_bytes=model_facing_utf8_bytes,
         )
+    return estimate
 
 
-def _context_budget_estimate(packet: PromptPacket) -> dict[str, int | str]:
-    """Return the conservative UTF-8-byte request estimate used by the core guard."""
+def _context_budget_estimate(packet: PromptPacket) -> dict[str, int | float | str]:
+    """Return a conservative token estimate from every model-facing UTF-8 byte."""
 
-    system_bytes = len(packet.system.encode("utf-8"))
-    user_bytes = len(packet.user.encode("utf-8"))
+    system_utf8_bytes = len(packet.system.encode("utf-8"))
+    user_utf8_bytes = len(packet.user.encode("utf-8"))
+    model_facing_utf8_bytes = (
+        system_utf8_bytes + user_utf8_bytes + _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES
+    )
     return {
+        # Keep the byte fields for saved continuation readers. Token estimates
+        # use the explicit estimate suffix and calibrated ratio below.
         "estimator": "utf8_bytes_conservative_prompt_estimate",
-        "system_bytes": system_bytes,
-        "user_bytes": user_bytes,
+        "system_bytes": system_utf8_bytes,
+        "user_bytes": user_utf8_bytes,
         "schema_message_overhead_bytes": _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES,
-        "estimated_prompt_bytes": (
-            system_bytes + user_bytes + _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES
+        "estimated_prompt_bytes": model_facing_utf8_bytes,
+        "system_utf8_bytes": system_utf8_bytes,
+        "user_utf8_bytes": user_utf8_bytes,
+        "schema_message_overhead_utf8_bytes": _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES,
+        "model_facing_utf8_bytes": model_facing_utf8_bytes,
+        "calibrated_bytes_per_token_estimate": float(_CONTEXT_GUARD_CALIBRATED_RATIO),
+        "estimated_prompt_tokens": math.ceil(
+            Fraction(model_facing_utf8_bytes, 1) / _CONTEXT_GUARD_CALIBRATED_RATIO
         ),
     }
 
