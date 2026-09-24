@@ -87,11 +87,12 @@ CALL2_PROMPT_VERSION_V7 = "authoring-call2-v7"
 CORRECTION_PROMPT_VERSION_V7 = "authoring-correction-v7"
 CALL2_PROMPT_VERSION_V8 = "authoring-call2-v8"
 CORRECTION_PROMPT_VERSION_V8 = "authoring-correction-v8"
+CORRECTION_PROMPT_VERSION_V9 = "authoring-correction-v9"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical readers.
 CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V5
 CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V8
-CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V8
+CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V9
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
@@ -8685,6 +8686,7 @@ def _render_correction_packet(
                 evidence_interface,
             )
         )
+    binding_repair_options = _binding_repair_options_for_correction(correction_context)
     sections.extend(
         (
             (
@@ -8708,6 +8710,22 @@ def _render_correction_packet(
             ("CURRENT FINDINGS", _correction_findings_view(correction_context["findings"])),
         )
     )
+    if binding_repair_options is not None:
+        sections.append(
+            (
+                "BINDING REPAIR OPTION FIELDS",
+                {
+                    "description": binding_repair_options["description"],
+                    "field_descriptions": binding_repair_options["field_descriptions"],
+                },
+            )
+        )
+        sections.append(
+            (
+                "BINDING REPAIR OPTIONS",
+                {"options": binding_repair_options["options"]},
+            )
+        )
     if correction_context.get("detector_feedback") is not None:
         sections.append(
             (
@@ -8735,6 +8753,8 @@ def _render_correction_packet(
             )
         )
     payload = deepcopy(correction_context)
+    if binding_repair_options is not None:
+        payload["binding_repair_options"] = binding_repair_options
     payload.pop("legacy_evidence_interface", None)
     legacy_plan_interface = payload.pop("legacy_plan_interface", False) is True
     packet = PromptPacket(
@@ -8749,7 +8769,7 @@ def _render_correction_packet(
             else (
                 CORRECTION_PROMPT_VERSION_V6
                 if legacy_plan_interface
-                else CORRECTION_PROMPT_VERSION_V8
+                else CORRECTION_PROMPT_VERSION_V9
             )
         ),
         system=_CORRECTION_SYSTEM_V5,
@@ -9026,6 +9046,486 @@ def _correction_prompt_authority(authority: dict[str, Any]) -> dict[str, Any]:
     result.pop("failed_controls", None)
     result.pop("current_control_results", None)
     return result
+
+
+_BINDING_REPAIR_SELECTOR_LIMIT = 40
+_BINDING_SELECTOR_FINDING_PATH = re.compile(r"^runtime_bindings\[(\d+)\]\.selector$")
+_UNKNOWN_BINDING_FINDING_PATH = re.compile(r"^prerequisites\[(\d+)\]\.binding$")
+_BINDING_REPAIR_OPTIONS_DESCRIPTION = (
+    "binding_repair_options is deterministic, source-derived assistance for binding "
+    "findings. It is prompt context, not a new response field and not a recommended "
+    "repair. Each option lists the exact source, selector, declaration, or consumer "
+    "choices that the current validator accepts; choose among them using the scenario "
+    "meaning and preserve supported content. If no listed option fits the scenario, "
+    "the RESPONSE CONTRACT empty_value_guidance entries still apply. An equals value "
+    "remains a JSON literal and still requires a declared binding."
+)
+_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS = {
+    "description": (
+        "Explains that this object is deterministic correction context, not a response "
+        "field or a recommended repair."
+    ),
+    "field_descriptions": (
+        "Maps each binding_repair_options field name to its model-facing meaning."
+    ),
+    "options": ("One deterministic entry for each binding-related finding that can be assisted."),
+    "code": "The existing finding code; it does not change the finding or validation rules.",
+    "path": "The exact existing finding path in the candidate plan.",
+    "kind": ("The repair category: selector, unknown_binding, or consumer_mismatch."),
+    "binding_name": "The candidate runtime binding or prerequisite binding name.",
+    "expected_type": (
+        "The candidate binding expected_type used for selector compatibility checks."
+    ),
+    "source_kind": ("The candidate binding source kind: supplied_input or setup_output."),
+    "source_ref": "The candidate binding source_ref, when one is present.",
+    "resolved_source": (
+        "Whether source_kind and source_ref resolve to a documented source under the "
+        "current inventory and runtime contract."
+    ),
+    "source_schema_type": (
+        "The JSON type at the resolved source root, when the source schema declares one."
+    ),
+    "documented_selectors": (
+        "A path-to-JSON-type mapping. Paths are the exact documented selectors accepted "
+        "by the current selector validator, rooted at value for supplied_input or result "
+        "for setup_output."
+    ),
+    "matching_expected_type": (
+        "The documented selector paths whose JSON types are compatible with "
+        "expected_type; integer is compatible with expected number."
+    ),
+    "no_matching_selector_note": (
+        "Explicitly states that no enumerated documented selector produces the "
+        "candidate expected type."
+    ),
+    "available_source_ref_forms": (
+        "The valid facts:<ref> and permitted setup:<operation> source_ref forms when "
+        "the candidate source does not resolve."
+    ),
+    "available_source_ref_forms_truncated": (
+        "Whether the available source_ref form list was capped at the deterministic "
+        "enumeration limit."
+    ),
+    "declared_binding_names": (
+        "The currently declared runtime binding names, sorted deterministically; an "
+        "empty list means no bindings are declared."
+    ),
+    "declared_binding_names_truncated": (
+        "Whether the declared binding name list was capped at the deterministic enumeration limit."
+    ),
+    "declaration_requirement": (
+        "The exact requirement for repairing unknown_binding: a runtime_bindings entry "
+        "with the named binding whose consumers include prerequisites.<name>."
+    ),
+    "evidence_ref_sources": (
+        "For each evidence_refs entry that exactly names a supplied fact, the "
+        "corresponding facts:<ref> source and its documented selectors and JSON types."
+    ),
+    "evidence_ref_sources_truncated": (
+        "Whether the supplied fact source list was capped at the deterministic enumeration limit."
+    ),
+    "evidence_ref": "The supplied fact reference copied from the prerequisite evidence_refs.",
+    "required_consumer": ("The exact consumer path that the binding declaration must include."),
+    "consumer_requirement": (
+        "The exact action needed to repair consumer_mismatch without changing the consumer rule."
+    ),
+    "truncated": (
+        "Whether the selector mapping was capped at the deterministic enumeration limit."
+    ),
+    "truncation_note": (
+        "An explicit note when a deterministic enumeration exceeds 40 entries and "
+        "only the first 40 sorted entries are shown."
+    ),
+}
+
+
+def _correction_plan_candidate(correction_context: dict[str, Any]) -> dict[str, Any] | None:
+    """Decode the failed plan only for deterministic correction assistance."""
+
+    candidate = correction_context.get("current_output")
+    if isinstance(candidate, dict):
+        return deepcopy(candidate)
+    if not isinstance(candidate, str) or not candidate.strip():
+        return None
+    try:
+        decoded, _ = _decode_v2_json_response(candidate.encode("utf-8"))
+    except (Call1FramingError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+        return None
+    return decoded if isinstance(decoded, dict) else None
+
+
+def _correction_binding_inputs(
+    correction_context: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Recover the source inventory and runtime contract from the author context."""
+
+    original_context = correction_context.get("original_context")
+    if not isinstance(original_context, dict):
+        return {}, {}
+    source_context = original_context.get("source_context")
+    if not isinstance(source_context, dict):
+        source_context = original_context.get("authoritative_context")
+    if not isinstance(source_context, dict):
+        source_context = {}
+    inventory = {
+        "facts": deepcopy(source_context.get("facts", [])),
+        "operations": deepcopy(source_context.get("operations", [])),
+    }
+    execution_capabilities = original_context.get("execution_capabilities")
+    runtime_contract = (
+        execution_capabilities.get("runtime_contract")
+        if isinstance(execution_capabilities, dict)
+        else None
+    )
+    if not isinstance(runtime_contract, dict):
+        runtime_contract = source_context.get("runtime_capabilities")
+    return inventory, deepcopy(runtime_contract) if isinstance(runtime_contract, dict) else {}
+
+
+def _documented_binding_selectors(
+    schema: dict[str, Any],
+    *,
+    root: str,
+    limit: int = _BINDING_REPAIR_SELECTOR_LIMIT,
+) -> tuple[dict[str, str], bool]:
+    """Enumerate the selectors accepted by ``_binding_selector_type``."""
+
+    discovered: dict[str, str] = {}
+
+    def visit(current: Any, path: str) -> None:
+        if len(discovered) >= limit:
+            return
+        if not isinstance(current, dict):
+            return
+        current_type = current.get("type")
+        if not isinstance(current_type, str):
+            return
+        discovered[path] = current_type
+        if current_type == "object":
+            properties = current.get("properties")
+            if isinstance(properties, dict):
+                for property_name in sorted(properties):
+                    visit(properties[property_name], f"{path}.{property_name}")
+        elif current_type == "array":
+            visit(current.get("items"), f"{path}.items")
+
+    visit(schema, root)
+    has_more = False
+
+    def count_paths(current: Any) -> int:
+        if not isinstance(current, dict) or not isinstance(current.get("type"), str):
+            return 0
+        count = 1
+        if current["type"] == "object" and isinstance(current.get("properties"), dict):
+            count += sum(
+                count_paths(current.get("properties", {}).get(name))
+                for name in current["properties"]
+            )
+        elif current["type"] == "array":
+            count += count_paths(current.get("items"))
+        return count
+
+    has_more = count_paths(schema) > limit
+    return discovered, has_more
+
+
+def _available_binding_source_refs(
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> tuple[list[str], bool]:
+    """Return valid source_ref forms in stable lexical order."""
+
+    source_refs = {
+        f"facts:{fact['ref']}"
+        for fact in inventory.get("facts", [])
+        if (
+            isinstance(fact, dict)
+            and isinstance(fact.get("ref"), str)
+            and fact["ref"]
+            and isinstance(fact.get("schema"), dict)
+        )
+    }
+    permitted = runtime_contract.get("setup_permissions", [])
+    permitted_names = set(permitted) if isinstance(permitted, list) else set()
+    source_refs.update(
+        f"setup:{operation['name']}"
+        for operation in inventory.get("operations", [])
+        if (
+            isinstance(operation, dict)
+            and isinstance(operation.get("name"), str)
+            and operation["name"] in permitted_names
+            and isinstance(operation.get("result_schema"), dict)
+        )
+    )
+    ordered = sorted(source_refs)
+    return ordered[:_BINDING_REPAIR_SELECTOR_LIMIT], len(ordered) > _BINDING_REPAIR_SELECTOR_LIMIT
+
+
+def _repair_truncation_note(label: str) -> str:
+    return (
+        f"{label} enumeration truncated after {_BINDING_REPAIR_SELECTOR_LIMIT} entries; "
+        f"only the first {_BINDING_REPAIR_SELECTOR_LIMIT} sorted entries are shown."
+    )
+
+
+def _repair_selector_option(
+    finding: Finding | dict[str, Any],
+    binding: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> dict[str, Any]:
+    """Build selector repair choices from the exact source schema."""
+
+    code = finding.code if isinstance(finding, Finding) else finding.get("code")
+    path = finding.path if isinstance(finding, Finding) else finding.get("path", "")
+    name = binding.get("name")
+    source_kind = binding.get("source_kind")
+    source_ref = binding.get("source_ref")
+    expected_type = binding.get("expected_type")
+    option: dict[str, Any] = {
+        "code": code,
+        "path": path,
+        "kind": "selector",
+        "binding_name": name,
+        "expected_type": expected_type,
+        "source_kind": source_kind,
+        "source_ref": source_ref,
+    }
+    schema = None
+    if isinstance(source_kind, str) and isinstance(source_ref, str):
+        schema, _ = _binding_source_schema(
+            source_kind,
+            source_ref,
+            inventory,
+            runtime_contract,
+            name,
+        )
+    if schema is None:
+        available_sources, available_sources_truncated = _available_binding_source_refs(
+            inventory, runtime_contract
+        )
+        option.update(
+            {
+                "resolved_source": False,
+                "available_source_ref_forms": available_sources,
+                "available_source_ref_forms_truncated": available_sources_truncated,
+            }
+        )
+        if available_sources_truncated:
+            option["truncation_note"] = _repair_truncation_note("source_ref form")
+        return option
+
+    root = "value" if source_kind == "supplied_input" else "result"
+    selectors, truncated = _documented_binding_selectors(schema, root=root)
+    matching = [
+        selector
+        for selector, actual_type in selectors.items()
+        if isinstance(expected_type, str)
+        and expected_type in CLOSED_TYPES
+        and _binding_types_compatible(actual_type, expected_type)
+    ]
+    option.update(
+        {
+            "resolved_source": True,
+            "source_schema_type": schema.get("type"),
+            "documented_selectors": selectors,
+            "matching_expected_type": matching,
+            "truncated": truncated,
+        }
+    )
+    if truncated:
+        option["truncation_note"] = (
+            "Documented selector enumeration truncated after "
+            f"{_BINDING_REPAIR_SELECTOR_LIMIT} selectors; only the first "
+            f"{_BINDING_REPAIR_SELECTOR_LIMIT} sorted paths are shown."
+        )
+    if not matching:
+        option["no_matching_selector_note"] = (
+            f"No documented selector of source {source_ref} yields expected_type {expected_type}."
+        )
+    return option
+
+
+def _supplied_fact_selector_source(
+    reference: str,
+    inventory: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return one evidence fact's selector choices, if it is bindable."""
+
+    fact = next(
+        (
+            item
+            for item in inventory.get("facts", [])
+            if isinstance(item, dict) and item.get("ref") == reference
+        ),
+        None,
+    )
+    if not isinstance(fact, dict) or not isinstance(fact.get("schema"), dict):
+        return None
+    selectors, truncated = _documented_binding_selectors(fact["schema"], root="value")
+    result: dict[str, Any] = {
+        "evidence_ref": reference,
+        "source_kind": "supplied_input",
+        "source_ref": f"facts:{reference}",
+        "source_schema_type": fact["schema"].get("type"),
+        "documented_selectors": selectors,
+        "truncated": truncated,
+    }
+    if truncated:
+        result["truncation_note"] = (
+            "Documented selector enumeration truncated after "
+            f"{_BINDING_REPAIR_SELECTOR_LIMIT} selectors; only the first "
+            f"{_BINDING_REPAIR_SELECTOR_LIMIT} sorted paths are shown."
+        )
+    return result
+
+
+def _repair_unknown_binding_option(
+    finding: Finding | dict[str, Any],
+    prerequisite: dict[str, Any],
+    candidate: dict[str, Any],
+    inventory: dict[str, Any],
+) -> dict[str, Any]:
+    """Build declaration and evidence-source choices for an unknown binding."""
+
+    code = finding.code if isinstance(finding, Finding) else finding.get("code")
+    path = finding.path if isinstance(finding, Finding) else finding.get("path", "")
+    name = prerequisite.get("binding")
+    declared_bindings = candidate.get("runtime_bindings", [])
+    all_declared_names = sorted(
+        {
+            item.get("name")
+            for item in declared_bindings
+            if isinstance(item, dict) and isinstance(item.get("name"), str)
+        }
+    )
+    declared_names = all_declared_names[:_BINDING_REPAIR_SELECTOR_LIMIT]
+    declared_names_truncated = len(all_declared_names) > _BINDING_REPAIR_SELECTOR_LIMIT
+    evidence_sources: list[dict[str, Any]] = []
+    evidence_refs = prerequisite.get("evidence_refs", [])
+    if isinstance(evidence_refs, list):
+        for reference in sorted({ref for ref in evidence_refs if isinstance(ref, str)}):
+            source = _supplied_fact_selector_source(reference, inventory)
+            if source is not None:
+                evidence_sources.append(source)
+    evidence_sources_truncated = len(evidence_sources) > _BINDING_REPAIR_SELECTOR_LIMIT
+    option = {
+        "code": code,
+        "path": path,
+        "kind": "unknown_binding",
+        "binding_name": name,
+        "declared_binding_names": declared_names,
+        "declared_binding_names_truncated": declared_names_truncated,
+        "declaration_requirement": (
+            f'Add a runtime_bindings entry with name "{name}" whose consumers '
+            f'include "prerequisites.{name}".'
+        ),
+        "evidence_ref_sources": evidence_sources[:_BINDING_REPAIR_SELECTOR_LIMIT],
+        "evidence_ref_sources_truncated": evidence_sources_truncated,
+    }
+    if declared_names_truncated or evidence_sources_truncated:
+        labels = []
+        if declared_names_truncated:
+            labels.append("binding name")
+        if evidence_sources_truncated:
+            labels.append("supplied fact source")
+        option["truncation_note"] = _repair_truncation_note(" and ".join(labels))
+    return option
+
+
+def _repair_consumer_mismatch_option(
+    finding: Finding | dict[str, Any],
+    prerequisite: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the exact consumer repair for one prerequisite binding."""
+
+    code = finding.code if isinstance(finding, Finding) else finding.get("code")
+    path = finding.path if isinstance(finding, Finding) else finding.get("path", "")
+    name = prerequisite.get("binding")
+    consumer = f"prerequisites.{name}"
+    return {
+        "code": code,
+        "path": path,
+        "kind": "consumer_mismatch",
+        "binding_name": name,
+        "required_consumer": consumer,
+        "consumer_requirement": (
+            f'Add "{consumer}" to the consumers list of the "{name}" runtime binding.'
+        ),
+    }
+
+
+def _binding_repair_options_for_correction(
+    correction_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Compute generic repair choices from the failed plan at render time."""
+
+    if correction_context.get("stage") != "plan":
+        return None
+    if correction_context.get("legacy_plan_interface") is True:
+        return None
+    candidate = _correction_plan_candidate(correction_context)
+    inventory, runtime_contract = _correction_binding_inputs(correction_context)
+    options: list[dict[str, Any]] = []
+    findings = correction_context.get("findings", [])
+    if candidate is not None and isinstance(findings, list):
+        bindings = candidate.get("runtime_bindings", [])
+        prerequisites = candidate.get("prerequisites", [])
+        for finding in findings:
+            code = finding.code if isinstance(finding, Finding) else finding.get("code")
+            path = finding.path if isinstance(finding, Finding) else finding.get("path", "")
+            selector_match = (
+                _BINDING_SELECTOR_FINDING_PATH.fullmatch(path) if isinstance(path, str) else None
+            )
+            prerequisite_match = (
+                _UNKNOWN_BINDING_FINDING_PATH.fullmatch(path) if isinstance(path, str) else None
+            )
+            if selector_match and isinstance(bindings, list):
+                index = int(selector_match.group(1))
+                if index < len(bindings) and isinstance(bindings[index], dict):
+                    options.append(
+                        _repair_selector_option(
+                            finding,
+                            bindings[index],
+                            inventory,
+                            runtime_contract,
+                        )
+                    )
+            elif (
+                prerequisite_match
+                and code in {"unknown_binding", "consumer_mismatch"}
+                and isinstance(prerequisites, list)
+            ):
+                index = int(prerequisite_match.group(1))
+                if index < len(prerequisites) and isinstance(prerequisites[index], dict):
+                    if code == "unknown_binding":
+                        options.append(
+                            _repair_unknown_binding_option(
+                                finding,
+                                prerequisites[index],
+                                candidate,
+                                inventory,
+                            )
+                        )
+                    else:
+                        options.append(
+                            _repair_consumer_mismatch_option(finding, prerequisites[index])
+                        )
+    deduplicated: list[dict[str, Any]] = []
+    seen: set[tuple[Any, Any]] = set()
+    for option in options:
+        key = (option.get("kind"), option.get("path"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduplicated.append(option)
+    if not deduplicated:
+        return None
+    return {
+        "description": _BINDING_REPAIR_OPTIONS_DESCRIPTION,
+        "field_descriptions": deepcopy(_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS),
+        "options": deduplicated,
+    }
 
 
 def _o04_meaning_findings(
@@ -18625,6 +19125,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CORRECTION_PROMPT_VERSION_V6,
         CORRECTION_PROMPT_VERSION_V7,
         CORRECTION_PROMPT_VERSION_V8,
+        CORRECTION_PROMPT_VERSION_V9,
         PLAN_REVIEW_PROMPT_VERSION_V1,
         PLAN_REVIEW_PROMPT_VERSION_V2,
         ARTIFACT_REVIEW_PROMPT_VERSION_V1,
@@ -20759,6 +21260,7 @@ __all__ = [
     "CORRECTION_PROMPT_VERSION_V6",
     "CORRECTION_PROMPT_VERSION_V7",
     "CORRECTION_PROMPT_VERSION_V8",
+    "CORRECTION_PROMPT_VERSION_V9",
     "ContinuationValidationError",
     "O04ContinuationValidationError",
     "O04ContinuationResult",
