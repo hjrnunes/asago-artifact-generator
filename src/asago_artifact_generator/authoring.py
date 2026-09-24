@@ -88,11 +88,12 @@ CORRECTION_PROMPT_VERSION_V7 = "authoring-correction-v7"
 CALL2_PROMPT_VERSION_V8 = "authoring-call2-v8"
 CORRECTION_PROMPT_VERSION_V8 = "authoring-correction-v8"
 CORRECTION_PROMPT_VERSION_V9 = "authoring-correction-v9"
+CORRECTION_PROMPT_VERSION_V10 = "authoring-correction-v10"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical readers.
 CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V5
 CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V8
-CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V9
+CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V10
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
@@ -8530,6 +8531,7 @@ def _render_correction_packet(
     authority: dict[str, Any] | None = None,
     authority_title: str = "AUTHORITY",
     sealed_version: str | None = None,
+    legacy_v9: bool = False,
 ) -> PromptPacket:
     """Render one shared correction prompt for every artifact caller.
 
@@ -8537,6 +8539,9 @@ def _render_correction_packet(
     the raw context values (candidate text, findings, and detector feedback)
     and the sealed version stamp, so a historical continuation re-dispatches
     the same authority its sealed evidence pins.
+
+    ``legacy_v9`` reproduces the v9 plan correction option builder while keeping
+    the current sectioned correction renderer.
     """
 
     if sealed_version is not None:
@@ -8687,7 +8692,10 @@ def _render_correction_packet(
                 evidence_interface,
             )
         )
-    binding_repair_options = _binding_repair_options_for_correction(correction_context)
+    binding_repair_options = _binding_repair_options_for_correction(
+        correction_context,
+        legacy_v9=legacy_v9,
+    )
     sections.extend(
         (
             (
@@ -8770,7 +8778,7 @@ def _render_correction_packet(
             else (
                 CORRECTION_PROMPT_VERSION_V6
                 if legacy_plan_interface
-                else CORRECTION_PROMPT_VERSION_V9
+                else (CORRECTION_PROMPT_VERSION_V9 if legacy_v9 else CORRECTION_PROMPT_VERSION_V10)
             )
         ),
         system=_CORRECTION_SYSTEM_V5,
@@ -9051,6 +9059,8 @@ def _correction_prompt_authority(authority: dict[str, Any]) -> dict[str, Any]:
 
 _BINDING_REPAIR_SELECTOR_LIMIT = 40
 _BINDING_SELECTOR_FINDING_PATH = re.compile(r"^runtime_bindings\[(\d+)\]\.selector$")
+_BINDING_SOURCE_REF_FINDING_PATH = re.compile(r"^runtime_bindings\[(\d+)\]\.source_ref$")
+_BINDING_SOURCE_KIND_FINDING_PATH = re.compile(r"^runtime_bindings\[(\d+)\]\.source_kind$")
 _UNKNOWN_BINDING_FINDING_PATH = re.compile(r"^prerequisites\[(\d+)\]\.binding$")
 _BINDING_REPAIR_OPTIONS_DESCRIPTION = (
     "binding_repair_options is deterministic, source-derived assistance for binding "
@@ -9061,7 +9071,7 @@ _BINDING_REPAIR_OPTIONS_DESCRIPTION = (
     "the RESPONSE CONTRACT empty_value_guidance entries still apply. An equals value "
     "remains a JSON literal and still requires a declared binding."
 )
-_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS = {
+_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V9 = {
     "description": (
         "Explains that this object is deterministic correction context, not a response "
         "field or a recommended repair."
@@ -9136,6 +9146,41 @@ _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS = {
     "truncation_note": (
         "An explicit note when a deterministic enumeration exceeds 40 entries and "
         "only the first 40 sorted entries are shown."
+    ),
+}
+_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS = {
+    # v10 lists unresolved sources in source options, never as bare source_ref forms.
+    **{
+        name: meaning
+        for name, meaning in _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V9.items()
+        if name not in {"available_source_ref_forms", "available_source_ref_forms_truncated"}
+    },
+    "findings": (
+        "The grouped existing finding code and exact path entries for this binding, "
+        "in finding order."
+    ),
+    "kind": ("The repair category: source, selector, unknown_binding, or consumer_mismatch."),
+    "referenced_fact_sources": (
+        "Bindable supplied fact sources that the candidate plan cites by exact "
+        "facts:<ref> or <ref> value, with their documented selectors."
+    ),
+    "referenced_fact_sources_truncated": (
+        "Whether the referenced supplied fact source list was capped at 40 entries."
+    ),
+    "permitted_setup_sources": (
+        "Bindable setup operation results permitted by the runtime contract, with "
+        "result-rooted documented selectors; an empty list means no setup operation "
+        "is permitted."
+    ),
+    "permitted_setup_sources_truncated": (
+        "Whether the permitted setup source list was capped at 40 entries."
+    ),
+    "other_fact_source_refs": (
+        "Bindable supplied fact source names not cited by exact reference in the "
+        "candidate plan, sorted and capped at 40."
+    ),
+    "other_fact_source_refs_truncated": (
+        "Whether the other supplied fact source name list was capped at 40 entries."
     ),
 }
 
@@ -9317,14 +9362,11 @@ def _repair_selector_option(
         return option
 
     root = "value" if source_kind == "supplied_input" else "result"
-    selectors, truncated = _documented_binding_selectors(schema, root=root)
-    matching = [
-        selector
-        for selector, actual_type in selectors.items()
-        if isinstance(expected_type, str)
-        and expected_type in CLOSED_TYPES
-        and _binding_types_compatible(actual_type, expected_type)
-    ]
+    selectors, matching, truncated = _binding_selector_details(
+        schema,
+        root=root,
+        expected_type=expected_type,
+    )
     option.update(
         {
             "resolved_source": True,
@@ -9347,6 +9389,25 @@ def _repair_selector_option(
     return option
 
 
+def _binding_selector_details(
+    schema: dict[str, Any],
+    *,
+    root: str,
+    expected_type: Any,
+) -> tuple[dict[str, str], list[str], bool]:
+    """Return documented selectors and those compatible with one expected type."""
+
+    selectors, truncated = _documented_binding_selectors(schema, root=root)
+    matching = [
+        selector
+        for selector, actual_type in selectors.items()
+        if isinstance(expected_type, str)
+        and expected_type in CLOSED_TYPES
+        and _binding_types_compatible(actual_type, expected_type)
+    ]
+    return selectors, matching, truncated
+
+
 def _supplied_fact_selector_source(
     reference: str,
     inventory: dict[str, Any],
@@ -9363,7 +9424,11 @@ def _supplied_fact_selector_source(
     )
     if not isinstance(fact, dict) or not isinstance(fact.get("schema"), dict):
         return None
-    selectors, truncated = _documented_binding_selectors(fact["schema"], root="value")
+    selectors, _, truncated = _binding_selector_details(
+        fact["schema"],
+        root="value",
+        expected_type=None,
+    )
     result: dict[str, Any] = {
         "evidence_ref": reference,
         "source_kind": "supplied_input",
@@ -9456,10 +9521,188 @@ def _repair_consumer_mismatch_option(
     }
 
 
-def _binding_repair_options_for_correction(
+def _repair_source_entry(
+    *,
+    source_kind: str,
+    source_ref: str,
+    schema: dict[str, Any],
+    expected_type: Any,
+) -> dict[str, Any]:
+    """Build one source choice with selectors rooted at its source result."""
+
+    root = "value" if source_kind == "supplied_input" else "result"
+    selectors, matching, truncated = _binding_selector_details(
+        schema,
+        root=root,
+        expected_type=expected_type,
+    )
+    entry: dict[str, Any] = {
+        "source_kind": source_kind,
+        "source_ref": source_ref,
+        "source_schema_type": schema.get("type"),
+        "documented_selectors": selectors,
+        "matching_expected_type": matching,
+        "truncated": truncated,
+    }
+    if truncated:
+        entry["truncation_note"] = (
+            "Documented selector enumeration truncated after "
+            f"{_BINDING_REPAIR_SELECTOR_LIMIT} selectors; only the first "
+            f"{_BINDING_REPAIR_SELECTOR_LIMIT} sorted paths are shown."
+        )
+    return entry
+
+
+def _candidate_string_values(candidate: dict[str, Any]) -> set[str]:
+    """Return every string value in a candidate plan for exact citation checks."""
+
+    values: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+        elif isinstance(value, str):
+            values.add(value)
+
+    visit(candidate)
+    return values
+
+
+def _repair_source_option(
+    findings: list[Finding | dict[str, Any]],
+    binding: dict[str, Any],
+    candidate: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> dict[str, Any]:
+    """Build merged source repair choices for one runtime binding."""
+
+    source_kind = binding.get("source_kind")
+    source_ref = binding.get("source_ref")
+    binding_name = binding.get("name")
+    expected_type = binding.get("expected_type")
+    resolved_schema: dict[str, Any] | None = None
+    if isinstance(source_kind, str) and isinstance(source_ref, str):
+        resolved_schema, _ = _binding_source_schema(
+            source_kind,
+            source_ref,
+            inventory,
+            runtime_contract,
+            binding_name,
+        )
+
+    cited_values = _candidate_string_values(candidate)
+    referenced_fact_sources: list[dict[str, Any]] = []
+    other_fact_source_refs: list[str] = []
+    for fact in sorted(
+        (
+            item
+            for item in inventory.get("facts", [])
+            if (
+                isinstance(item, dict)
+                and isinstance(item.get("ref"), str)
+                and item["ref"]
+                and isinstance(item.get("schema"), dict)
+            )
+        ),
+        key=lambda item: item["ref"],
+    ):
+        reference = fact["ref"]
+        if reference in cited_values or f"facts:{reference}" in cited_values:
+            referenced_fact_sources.append(
+                _repair_source_entry(
+                    source_kind="supplied_input",
+                    source_ref=f"facts:{reference}",
+                    schema=fact["schema"],
+                    expected_type=expected_type,
+                )
+            )
+        else:
+            other_fact_source_refs.append(f"facts:{reference}")
+
+    permitted_names = {
+        operation
+        for operation in runtime_contract.get("setup_permissions", [])
+        if isinstance(operation, str)
+    }
+    permitted_setup_sources: list[dict[str, Any]] = []
+    seen_operations: set[str] = set()
+    for operation in sorted(
+        (
+            item
+            for item in inventory.get("operations", [])
+            if (
+                isinstance(item, dict)
+                and isinstance(item.get("name"), str)
+                and item["name"] in permitted_names
+                and isinstance(item.get("result_schema"), dict)
+            )
+        ),
+        key=lambda item: item["name"],
+    ):
+        operation_name = operation["name"]
+        if operation_name in seen_operations:
+            continue
+        seen_operations.add(operation_name)
+        permitted_setup_sources.append(
+            _repair_source_entry(
+                source_kind="setup_output",
+                source_ref=f"setup:{operation_name}",
+                schema=operation["result_schema"],
+                expected_type=expected_type,
+            )
+        )
+
+    referenced_fact_sources_truncated = (
+        len(referenced_fact_sources) > _BINDING_REPAIR_SELECTOR_LIMIT
+    )
+    permitted_setup_sources_truncated = (
+        len(permitted_setup_sources) > _BINDING_REPAIR_SELECTOR_LIMIT
+    )
+    other_fact_source_refs_truncated = len(other_fact_source_refs) > _BINDING_REPAIR_SELECTOR_LIMIT
+    option: dict[str, Any] = {
+        "kind": "source",
+        "findings": [
+            {
+                "code": (finding.code if isinstance(finding, Finding) else finding.get("code")),
+                "path": (
+                    finding.path if isinstance(finding, Finding) else finding.get("path", "")
+                ),
+            }
+            for finding in findings
+        ],
+        "binding_name": binding_name,
+        "expected_type": expected_type,
+        "source_kind": source_kind,
+        "source_ref": source_ref,
+        "resolved_source": resolved_schema is not None,
+        "referenced_fact_sources": referenced_fact_sources[:_BINDING_REPAIR_SELECTOR_LIMIT],
+        "referenced_fact_sources_truncated": referenced_fact_sources_truncated,
+        "permitted_setup_sources": permitted_setup_sources[:_BINDING_REPAIR_SELECTOR_LIMIT],
+        "permitted_setup_sources_truncated": permitted_setup_sources_truncated,
+        "other_fact_source_refs": other_fact_source_refs[:_BINDING_REPAIR_SELECTOR_LIMIT],
+        "other_fact_source_refs_truncated": other_fact_source_refs_truncated,
+    }
+    truncated_labels = []
+    if referenced_fact_sources_truncated:
+        truncated_labels.append("referenced fact source")
+    if permitted_setup_sources_truncated:
+        truncated_labels.append("permitted setup source")
+    if other_fact_source_refs_truncated:
+        truncated_labels.append("other fact source")
+    if truncated_labels:
+        option["truncation_note"] = _repair_truncation_note(" and ".join(truncated_labels))
+    return option
+
+
+def _binding_repair_options_for_correction_v9(
     correction_context: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """Compute generic repair choices from the failed plan at render time."""
+    """Compute the authoring-correction-v9 repair choices unchanged."""
 
     if correction_context.get("stage") != "plan":
         return None
@@ -9516,6 +9759,141 @@ def _binding_repair_options_for_correction(
     seen: set[tuple[Any, Any]] = set()
     for option in options:
         key = (option.get("kind"), option.get("path"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduplicated.append(option)
+    if not deduplicated:
+        return None
+    return {
+        "description": _BINDING_REPAIR_OPTIONS_DESCRIPTION,
+        "field_descriptions": deepcopy(_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V9),
+        "options": deduplicated,
+    }
+
+
+def _binding_repair_options_for_correction(
+    correction_context: dict[str, Any],
+    *,
+    legacy_v9: bool = False,
+) -> dict[str, Any] | None:
+    """Compute v10 repair choices, or reproduce the v9 choices when requested."""
+
+    if legacy_v9:
+        return _binding_repair_options_for_correction_v9(correction_context)
+    if correction_context.get("stage") != "plan":
+        return None
+    if correction_context.get("legacy_plan_interface") is True:
+        return None
+    candidate = _correction_plan_candidate(correction_context)
+    inventory, runtime_contract = _correction_binding_inputs(correction_context)
+    options: list[dict[str, Any]] = []
+    findings = correction_context.get("findings", [])
+    if candidate is not None and isinstance(findings, list):
+        bindings = candidate.get("runtime_bindings", [])
+        prerequisites = candidate.get("prerequisites", [])
+        binding_findings: dict[int, dict[str, list[Finding | dict[str, Any]]]] = {}
+        binding_finding_order: dict[int, list[Finding | dict[str, Any]]] = {}
+        for finding in findings:
+            path = finding.path if isinstance(finding, Finding) else finding.get("path", "")
+            if not isinstance(path, str):
+                continue
+            for field_name, pattern in (
+                ("source_ref", _BINDING_SOURCE_REF_FINDING_PATH),
+                ("source_kind", _BINDING_SOURCE_KIND_FINDING_PATH),
+                ("selector", _BINDING_SELECTOR_FINDING_PATH),
+            ):
+                match = pattern.fullmatch(path)
+                if match:
+                    index = int(match.group(1))
+                    binding_findings.setdefault(index, {}).setdefault(field_name, []).append(
+                        finding
+                    )
+                    binding_finding_order.setdefault(index, []).append(finding)
+                    break
+
+        if isinstance(bindings, list):
+            for index, grouped in binding_findings.items():
+                if index >= len(bindings) or not isinstance(bindings[index], dict):
+                    continue
+                binding = bindings[index]
+                source_findings = grouped.get("source_ref", []) + grouped.get("source_kind", [])
+                selector_findings = grouped.get("selector", [])
+                source_schema = None
+                source_kind = binding.get("source_kind")
+                source_ref = binding.get("source_ref")
+                name = binding.get("name")
+                if isinstance(source_kind, str) and isinstance(source_ref, str):
+                    source_schema, _ = _binding_source_schema(
+                        source_kind,
+                        source_ref,
+                        inventory,
+                        runtime_contract,
+                        name,
+                    )
+                if source_findings or source_schema is None:
+                    options.append(
+                        _repair_source_option(
+                            binding_finding_order[index],
+                            binding,
+                            candidate,
+                            inventory,
+                            runtime_contract,
+                        )
+                    )
+                elif selector_findings:
+                    options.append(
+                        _repair_selector_option(
+                            selector_findings[0],
+                            binding,
+                            inventory,
+                            runtime_contract,
+                        )
+                    )
+
+        if isinstance(prerequisites, list):
+            for finding in findings:
+                code = finding.code if isinstance(finding, Finding) else finding.get("code")
+                path = finding.path if isinstance(finding, Finding) else finding.get("path", "")
+                prerequisite_match = (
+                    _UNKNOWN_BINDING_FINDING_PATH.fullmatch(path)
+                    if isinstance(path, str)
+                    else None
+                )
+                if not prerequisite_match or code not in {"unknown_binding", "consumer_mismatch"}:
+                    continue
+                index = int(prerequisite_match.group(1))
+                if index >= len(prerequisites) or not isinstance(prerequisites[index], dict):
+                    continue
+                if code == "unknown_binding":
+                    options.append(
+                        _repair_unknown_binding_option(
+                            finding,
+                            prerequisites[index],
+                            candidate,
+                            inventory,
+                        )
+                    )
+                else:
+                    options.append(
+                        _repair_consumer_mismatch_option(
+                            finding,
+                            prerequisites[index],
+                        )
+                    )
+
+    deduplicated: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for option in options:
+        if option.get("kind") == "source":
+            findings_key = tuple(
+                (item.get("code"), item.get("path"))
+                for item in option.get("findings", [])
+                if isinstance(item, dict)
+            )
+            key = (option.get("kind"), option.get("binding_name"), findings_key)
+        else:
+            key = (option.get("kind"), option.get("path"))
         if key in seen:
             continue
         seen.add(key)
@@ -19223,6 +19601,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CORRECTION_PROMPT_VERSION_V7,
         CORRECTION_PROMPT_VERSION_V8,
         CORRECTION_PROMPT_VERSION_V9,
+        CORRECTION_PROMPT_VERSION_V10,
         PLAN_REVIEW_PROMPT_VERSION_V1,
         PLAN_REVIEW_PROMPT_VERSION_V2,
         PLAN_REVIEW_PROMPT_VERSION_V3,
@@ -21364,6 +21743,7 @@ __all__ = [
     "CORRECTION_PROMPT_VERSION_V7",
     "CORRECTION_PROMPT_VERSION_V8",
     "CORRECTION_PROMPT_VERSION_V9",
+    "CORRECTION_PROMPT_VERSION_V10",
     "ContinuationValidationError",
     "O04ContinuationValidationError",
     "O04ContinuationResult",

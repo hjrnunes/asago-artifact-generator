@@ -23,7 +23,7 @@ from asago_artifact_generator.authoring import (
     CALL2_PROMPT_VERSION_V8,
     CONTEXT_GUARD_CALIBRATION,
     CORRECTION_PROMPT_VERSION_V8,
-    CORRECTION_PROMPT_VERSION_V9,
+    CORRECTION_PROMPT_VERSION_V10,
     PLAN_REVIEW_PROMPT_VERSION,
     _context_budget_estimate,
     build_call1_packet_v2,
@@ -460,7 +460,7 @@ def _current_prompt_versions() -> dict[str, str]:
     return {
         "call1": CALL1_PROMPT_VERSION_V5,
         "call2": CALL2_PROMPT_VERSION_V8,
-        "plan_correction": CORRECTION_PROMPT_VERSION_V9,
+        "plan_correction": CORRECTION_PROMPT_VERSION_V10,
         "artifact_correction": CORRECTION_PROMPT_VERSION_V8,
         "plan_review": PLAN_REVIEW_PROMPT_VERSION,
         "artifact_review": ARTIFACT_REVIEW_PROMPT_VERSION,
