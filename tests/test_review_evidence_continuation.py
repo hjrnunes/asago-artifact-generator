@@ -7,6 +7,8 @@ from pathlib import Path
 
 from asago_artifact_generator.authoring import (
     PLAN_FIELD_MEANINGS,
+    PLAN_REVIEW_PROMPT_VERSION_V2,
+    PLAN_REVIEW_PROMPT_VERSION_V3,
     AuthoringOrchestrator,
     AuthoringPolicy,
     ScriptedAuthoringTransport,
@@ -51,6 +53,67 @@ def _provenance(plan: dict, view, inventory: dict, runtime: dict) -> dict[str, s
         "meaning_sha256": hashlib.sha256(canonical(meaning)).hexdigest(),
         "wire_version": "v2",
     }
+
+
+def _accepted_review_evidence(packet, plan: dict) -> dict:
+    input_digest = hashlib.sha256(
+        json.dumps(
+            {
+                "version": packet.version,
+                "system": packet.system,
+                "payload": {
+                    key: value for key, value in packet.payload.items() if key != "candidate_plan"
+                },
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    candidate_digest = hashlib.sha256(
+        json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    review_evidence = {
+        "stage": "plan",
+        "status": "accepted",
+        "decision": "accept",
+        "summary": "scripted accepted authority",
+        "prompt_version": packet.version,
+        "prompt_sha256": packet.sha256,
+        "reviewed_input_sha256": input_digest,
+        "reviewed_candidate_sha256": candidate_digest,
+        "candidate_bytes_sha256": candidate_digest,
+        "effective_controls": {
+            "review_model_profile": None,
+            "temperature": 0,
+            "max_retries": 0,
+        },
+        "contract_sha256": hashlib.sha256(
+            json.dumps(
+                packet.payload["response_contract"],
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest(),
+    }
+    review_evidence["configuration_sha256"] = hashlib.sha256(
+        json.dumps(
+            {
+                "controls": review_evidence["effective_controls"],
+                "policy": {
+                    "plan_max_corrections": 1,
+                    "artifact_max_corrections": 1,
+                    "review_plan": True,
+                    "review_artifact": False,
+                    "review_model_profile": None,
+                    "review_temperature": 0,
+                    "max_retries": 0,
+                },
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    return review_evidence
 
 
 def test_package_round_trip_preserves_review_evidence_and_terminal_failure_sidecar(
@@ -116,65 +179,7 @@ def test_exact_saved_review_reuse_skips_plan_review_dispatch(tmp_path: Path) -> 
     runtime = _runtime_contract()
     plan = _plan()
     review_packet = build_plan_review_packet(view, plan, inventory, runtime)
-    input_digest = hashlib.sha256(
-        json.dumps(
-            {
-                "version": review_packet.version,
-                "system": review_packet.system,
-                "payload": {
-                    key: value
-                    for key, value in review_packet.payload.items()
-                    if key != "candidate_plan"
-                },
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-    ).hexdigest()
-    candidate_digest = hashlib.sha256(
-        json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-    review_evidence = {
-        "stage": "plan",
-        "status": "accepted",
-        "decision": "accept",
-        "summary": "scripted accepted authority",
-        "prompt_version": review_packet.version,
-        "prompt_sha256": review_packet.sha256,
-        "reviewed_input_sha256": input_digest,
-        "reviewed_candidate_sha256": candidate_digest,
-        "candidate_bytes_sha256": candidate_digest,
-        "effective_controls": {
-            "review_model_profile": None,
-            "temperature": 0,
-            "max_retries": 0,
-        },
-        "contract_sha256": hashlib.sha256(
-            json.dumps(
-                review_packet.payload["response_contract"],
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode()
-        ).hexdigest(),
-    }
-    review_evidence["configuration_sha256"] = hashlib.sha256(
-        json.dumps(
-            {
-                "controls": review_evidence["effective_controls"],
-                "policy": {
-                    "plan_max_corrections": 1,
-                    "artifact_max_corrections": 1,
-                    "review_plan": True,
-                    "review_artifact": False,
-                    "review_model_profile": None,
-                    "review_temperature": 0,
-                    "max_retries": 0,
-                },
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-    ).hexdigest()
+    review_evidence = _accepted_review_evidence(review_packet, plan)
     prepared = prepare_saved_plan_continuation_v2(
         saved_plan=plan,
         input_view=view,
@@ -191,6 +196,7 @@ def test_exact_saved_review_reuse_skips_plan_review_dispatch(tmp_path: Path) -> 
     assert prepared.call2_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     assert prepared.plan_review_packet is not None
     assert prepared.plan_review_packet.user.count(PLAN_FIELD_MEANINGS) == 1
+    assert prepared.plan_review_packet.version == PLAN_REVIEW_PROMPT_VERSION_V3
     transport = ScriptedAuthoringTransport([_framed()])
     result = prepared.run(
         transport_factory=lambda: transport,
@@ -204,6 +210,44 @@ def test_exact_saved_review_reuse_skips_plan_review_dispatch(tmp_path: Path) -> 
     assert result.package is not None
     continuation = result.package.manifest.authoring["continuation"]
     assert continuation["review_reuse"]["plan"] == "reused"
+
+
+def test_accepted_v2_saved_review_reuse_keeps_sealed_packet(tmp_path: Path) -> None:
+    view = _view()
+    inventory = _inventory()
+    runtime = _runtime_contract()
+    plan = _plan()
+    v2_packet = build_plan_review_packet(
+        view,
+        plan,
+        inventory,
+        runtime,
+        sealed_version=PLAN_REVIEW_PROMPT_VERSION_V2,
+    )
+    review_evidence = _accepted_review_evidence(v2_packet, plan)
+    prepared = prepare_saved_plan_continuation_v2(
+        saved_plan=plan,
+        input_view=view,
+        inventory=inventory,
+        runtime_contract=runtime,
+        provenance=_provenance(plan, view, inventory, runtime),
+        review_evidence=review_evidence,
+        policy=AuthoringPolicy(review_artifact=False),
+    )
+
+    assert prepared.decision.mode == "call2_only"
+    assert prepared.decision.review_reused is True
+    assert prepared.plan_review_packet is not None
+    assert prepared.plan_review_packet.version == PLAN_REVIEW_PROMPT_VERSION_V2
+    transport = ScriptedAuthoringTransport([_framed()])
+    result = prepared.run(
+        transport_factory=lambda: transport,
+        package_dir=tmp_path / "continued-v2",
+        task_id="saved-review-v2-reuse",
+    )
+
+    assert result.status == "accepted"
+    assert [request["stage"] for request in transport.requests] == ["call2"]
 
 
 def test_saved_continuation_correction_keeps_shared_meanings_in_dispatched_packet(
@@ -284,6 +328,48 @@ def test_saved_review_mismatch_dispatches_fresh_review_without_call1(tmp_path: P
     assert result.status == "accepted"
     assert [request["stage"] for request in transport.requests] == ["plan_review", "call2"]
     assert result.review_reuse == {"plan": "fresh_dispatch", "artifact": "not_requested"}
+
+
+def test_mismatched_v2_saved_review_dispatches_fresh_v3_review(tmp_path: Path) -> None:
+    view = _view()
+    inventory = _inventory()
+    runtime = _runtime_contract()
+    plan = _plan()
+    v2_packet = build_plan_review_packet(
+        view,
+        plan,
+        inventory,
+        runtime,
+        sealed_version=PLAN_REVIEW_PROMPT_VERSION_V2,
+    )
+    review_evidence = _accepted_review_evidence(v2_packet, plan)
+    review_evidence["prompt_sha256"] = "0" * 64
+    prepared = prepare_saved_plan_continuation_v2(
+        saved_plan=plan,
+        input_view=view,
+        inventory=inventory,
+        runtime_contract=runtime,
+        provenance=_provenance(plan, view, inventory, runtime),
+        review_evidence=review_evidence,
+        policy=AuthoringPolicy(review_artifact=False),
+    )
+
+    assert prepared.decision.mode == "call2_only_review"
+    assert prepared.decision.review_reused is False
+    assert prepared.plan_review_packet is not None
+    assert prepared.plan_review_packet.version == PLAN_REVIEW_PROMPT_VERSION_V3
+    transport = ScriptedAuthoringTransport([_review(), _framed()])
+    result = prepared.run(
+        transport_factory=lambda: transport,
+        package_dir=tmp_path / "fresh-v3-review",
+        task_id="saved-review-v2-refresh",
+    )
+
+    assert result.status == "accepted"
+    assert [request["stage"] for request in transport.requests] == ["plan_review", "call2"]
+    plan_review_request = transport.requests[0]
+    assert plan_review_request["version"] == PLAN_REVIEW_PROMPT_VERSION_V3
+    assert "BINDING AND SETUP RULES" in plan_review_request["user"]
 
 
 def test_invalid_recovered_plan_never_becomes_preaccepted_authority(tmp_path: Path) -> None:

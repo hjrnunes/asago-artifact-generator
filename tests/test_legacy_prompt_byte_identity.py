@@ -10,6 +10,7 @@ from asago_artifact_generator.authoring import (
     ARTIFACT_REVIEW_PROMPT_VERSION_V4,
     CALL1_PROMPT_VERSION_V4,
     CORRECTION_PROMPT_VERSION_V6,
+    PLAN_REVIEW_PROMPT_VERSION_V2,
     _render_correction_packet,
     _render_evidence_packet_interface,
     artifact_observation_guide,
@@ -18,6 +19,7 @@ from asago_artifact_generator.authoring import (
     build_call1_packet_v2,
     build_correction_context,
     build_plan_author_context,
+    build_plan_review_packet,
     evidence_packet_contract,
 )
 from asago_artifact_generator.detector_controls import DetectorControlFeedback
@@ -57,6 +59,8 @@ _LEGACY_CONTRACT_DIGEST = "afce7f1f4f7723729ec0a0949e63cc67bad377ac76dd412a042a4
 _LEGACY_V2_PROMPT_DIGESTS = {
     "call1": "c2fec4bd57fe3d5b7e5748465dad428d66041f2b2b22f3aacf0a67ea7dcbc448",
     "plan_correction": "b6856f885f71e07a9198b6554dfe88fc9a7b605297b14afabb45b39fa608d14c",
+    "plan_review_system": "51f7b176b0b7153978051489154f33a897e4f18144f5f8b54a271a8d208372bd",
+    "plan_review_user": "7cef9754e34c0abb17c811089dd795abced42a48f7c737808834bf9d25b00884",
 }
 
 
@@ -232,3 +236,17 @@ def test_legacy_v2_plan_correction_matches_head_before_contract_hazards() -> Non
 
     assert packet.version == CORRECTION_PROMPT_VERSION_V6
     assert _prompt_digest(packet) == _LEGACY_V2_PROMPT_DIGESTS["plan_correction"]
+
+
+def test_legacy_v2_plan_review_matches_head_before_v3_rules() -> None:
+    packet = build_plan_review_packet(
+        _view(),
+        _plan(),
+        _inventory(),
+        _runtime_contract(),
+        sealed_version=PLAN_REVIEW_PROMPT_VERSION_V2,
+    )
+
+    assert packet.version == PLAN_REVIEW_PROMPT_VERSION_V2
+    assert _digest(packet.system) == _LEGACY_V2_PROMPT_DIGESTS["plan_review_system"]
+    assert _digest(packet.user) == _LEGACY_V2_PROMPT_DIGESTS["plan_review_user"]

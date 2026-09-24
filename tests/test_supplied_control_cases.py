@@ -331,7 +331,7 @@ def test_supplied_control_case_form_is_validated(tmp_path: Path) -> None:
 # without the supplied-controls hook.
 _EXPECTED_NO_HOOK_DIGESTS = {
     "call1": "5100693134d3ec1d299f168b1754768e9517c2392332727c62627f526aa3f8ca",
-    "plan_review": "b304a27043090312499faef6748574c60308c361a48643a58618c42ecd4c5a45",
+    "plan_review": "f7385220621f0cc41b3d398867c927cbe289f65b78b1e30ef774a6f9b2624608",
     "call2": "1ebf934bc202a5aacb48d5484a458d7d4994eac8ddcb2ca3fff053b8ca5c2c38",
     "artifact_review": "de5796a242ac7735f43506977de5ef53d87050f7982f22db6c1934aeec21ad80",
     "correction": "872bc37f642744673f56c4d7b1c2a2e0d491d581e59405bcc548fda1076c2d78",
