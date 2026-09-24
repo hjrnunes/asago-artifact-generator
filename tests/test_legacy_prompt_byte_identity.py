@@ -9,8 +9,11 @@ import pytest
 from asago_artifact_generator.authoring import (
     ARTIFACT_REVIEW_PROMPT_VERSION_V4,
     CALL1_PROMPT_VERSION_V4,
+    CALL1_PROMPT_VERSION_V5,
     CORRECTION_PROMPT_VERSION_V6,
+    CORRECTION_PROMPT_VERSION_V10,
     PLAN_REVIEW_PROMPT_VERSION_V2,
+    PLAN_REVIEW_PROMPT_VERSION_V3,
     _render_correction_packet,
     _render_evidence_packet_interface,
     artifact_observation_guide,
@@ -61,6 +64,12 @@ _LEGACY_V2_PROMPT_DIGESTS = {
     "plan_correction": "b6856f885f71e07a9198b6554dfe88fc9a7b605297b14afabb45b39fa608d14c",
     "plan_review_system": "51f7b176b0b7153978051489154f33a897e4f18144f5f8b54a271a8d208372bd",
     "plan_review_user": "7cef9754e34c0abb17c811089dd795abced42a48f7c737808834bf9d25b00884",
+}
+
+_LEGACY_CURRENT_ROLE_DIGESTS = {
+    "call1_v5": "d938d5e37faa45d14e73e68a5b9c6e68238e04cd1d6af33a7c98d5e83d62f033",
+    "plan_correction_v10": "a1c968d5373de5631301c8c44ea92879f05b41f3cbd0c25dcc8fa820453a7706",
+    "plan_review_v3": "552385760d74b4f484196c52939af366d569ecd97dadd8381aeb89139e75f46b",
 }
 
 
@@ -250,3 +259,45 @@ def test_legacy_v2_plan_review_matches_head_before_v3_rules() -> None:
     assert packet.version == PLAN_REVIEW_PROMPT_VERSION_V2
     assert _digest(packet.system) == _LEGACY_V2_PROMPT_DIGESTS["plan_review_system"]
     assert _digest(packet.user) == _LEGACY_V2_PROMPT_DIGESTS["plan_review_user"]
+
+
+def test_legacy_current_call1_v5_matches_head_before_binding_contract_change() -> None:
+    packet = build_call1_packet_v2(
+        _view(),
+        _inventory(),
+        _runtime_contract(),
+        legacy_binding_contract=True,
+    )
+
+    assert packet.version == CALL1_PROMPT_VERSION_V5
+    assert _prompt_digest(packet) == _LEGACY_CURRENT_ROLE_DIGESTS["call1_v5"]
+
+
+def test_legacy_current_plan_correction_v10_matches_head_before_binding_contract_change() -> None:
+    context = build_correction_context(
+        failed_stage="call1",
+        original_context=build_plan_author_context(
+            _view(),
+            _inventory(),
+            _runtime_contract(),
+        ),
+        current_output="{}",
+        findings=[],
+    )
+    packet = _render_correction_packet(context, legacy_v10=True)
+
+    assert packet.version == CORRECTION_PROMPT_VERSION_V10
+    assert _prompt_digest(packet) == _LEGACY_CURRENT_ROLE_DIGESTS["plan_correction_v10"]
+
+
+def test_legacy_current_plan_review_v3_matches_head_before_binding_contract_change() -> None:
+    packet = build_plan_review_packet(
+        _view(),
+        _plan(),
+        _inventory(),
+        _runtime_contract(),
+        sealed_version=PLAN_REVIEW_PROMPT_VERSION_V3,
+    )
+
+    assert packet.version == PLAN_REVIEW_PROMPT_VERSION_V3
+    assert _prompt_digest(packet) == _LEGACY_CURRENT_ROLE_DIGESTS["plan_review_v3"]

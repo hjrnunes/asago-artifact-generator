@@ -77,6 +77,7 @@ CALL2_PROMPT_VERSION_V3 = "authoring-call2-v3"
 CORRECTION_PROMPT_VERSION_V3 = "authoring-correction-v3"
 CALL1_PROMPT_VERSION_V5 = "authoring-call1-v5"
 CALL1_PROMPT_VERSION_V4 = "authoring-call1-v4"
+CALL1_PROMPT_VERSION_V6 = "authoring-call1-v6"
 CALL2_PROMPT_VERSION_V4 = "authoring-call2-v4"
 CORRECTION_PROMPT_VERSION_V4 = "authoring-correction-v4"
 CALL2_PROMPT_VERSION_V5 = "authoring-call2-v5"
@@ -89,11 +90,12 @@ CALL2_PROMPT_VERSION_V8 = "authoring-call2-v8"
 CORRECTION_PROMPT_VERSION_V8 = "authoring-correction-v8"
 CORRECTION_PROMPT_VERSION_V9 = "authoring-correction-v9"
 CORRECTION_PROMPT_VERSION_V10 = "authoring-correction-v10"
+CORRECTION_PROMPT_VERSION_V11 = "authoring-correction-v11"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical readers.
-CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V5
+CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V6
 CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V8
-CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V10
+CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V11
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
@@ -101,11 +103,12 @@ PLAN_REVIEW_PROMPT_VERSION_V1 = "authoring-plan-review-v1"
 ARTIFACT_REVIEW_PROMPT_VERSION_V1 = "authoring-artifact-review-v1"
 PLAN_REVIEW_PROMPT_VERSION_V2 = "authoring-plan-review-v2"
 PLAN_REVIEW_PROMPT_VERSION_V3 = "authoring-plan-review-v3"
+PLAN_REVIEW_PROMPT_VERSION_V4 = "authoring-plan-review-v4"
 ARTIFACT_REVIEW_PROMPT_VERSION_V3 = "authoring-artifact-review-v3"
 ARTIFACT_REVIEW_PROMPT_VERSION_V2 = "authoring-artifact-review-v2"
 ARTIFACT_REVIEW_PROMPT_VERSION_V4 = "authoring-artifact-review-v4"
 ARTIFACT_REVIEW_PROMPT_VERSION_V5 = "authoring-artifact-review-v5"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V3
+PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V4
 ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V5
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 
@@ -8532,6 +8535,7 @@ def _render_correction_packet(
     authority_title: str = "AUTHORITY",
     sealed_version: str | None = None,
     legacy_v9: bool = False,
+    legacy_v10: bool = False,
 ) -> PromptPacket:
     """Render one shared correction prompt for every artifact caller.
 
@@ -8541,7 +8545,8 @@ def _render_correction_packet(
     the same authority its sealed evidence pins.
 
     ``legacy_v9`` reproduces the v9 plan correction option builder while keeping
-    the current sectioned correction renderer.
+    the current sectioned correction renderer. ``legacy_v10`` reproduces the v10
+    plan correction contract while keeping the current v2 prerequisite shape.
     """
 
     if sealed_version is not None:
@@ -8551,6 +8556,11 @@ def _render_correction_packet(
             authority_title=authority_title,
             sealed_version=sealed_version,
         )
+    if legacy_v9 or legacy_v10:
+        if correction_context.get("stage") != "plan":
+            raise ValueError("legacy correction versions are only valid for plan corrections")
+        correction_context = deepcopy(correction_context)
+        correction_context["response_contract"] = _call1_contract_v2(legacy_binding_contract=True)
     legacy_interface = correction_context.get("legacy_evidence_interface") is True
     source_original_context = correction_context.get("original_context")
     fact_ref_guidance = (
@@ -8778,7 +8788,15 @@ def _render_correction_packet(
             else (
                 CORRECTION_PROMPT_VERSION_V6
                 if legacy_plan_interface
-                else (CORRECTION_PROMPT_VERSION_V9 if legacy_v9 else CORRECTION_PROMPT_VERSION_V10)
+                else (
+                    CORRECTION_PROMPT_VERSION_V9
+                    if legacy_v9
+                    else (
+                        CORRECTION_PROMPT_VERSION_V10
+                        if legacy_v10
+                        else CORRECTION_PROMPT_VERSION_V11
+                    )
+                )
             )
         ),
         system=_CORRECTION_SYSTEM_V5,
@@ -14589,10 +14607,16 @@ def build_plan_author_context(
     runtime_contract: dict[str, Any],
     *,
     legacy_interface: bool = False,
+    legacy_binding_contract: bool | None = None,
 ) -> dict[str, Any]:
     """Build the source-derived context for the plan author role."""
 
-    response_contract = _call1_contract_v2(legacy=legacy_interface)
+    if legacy_binding_contract is None:
+        legacy_binding_contract = legacy_interface
+    response_contract = _call1_contract_v2(
+        legacy=legacy_interface,
+        legacy_binding_contract=legacy_binding_contract,
+    )
     context = {
         "task": {
             "instruction": (
@@ -14701,6 +14725,8 @@ def build_plan_reviewer_context(
     plan: dict[str, Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    *,
+    legacy_binding_contract: bool = False,
 ) -> dict[str, Any]:
     """Build a fresh authoritative context for the plan reviewer."""
 
@@ -14709,7 +14735,7 @@ def build_plan_reviewer_context(
         "authoritative_context": _authoritative_context(view, inventory, runtime_contract),
         "plan_field_meanings": PLAN_FIELD_MEANINGS,
         "binding_and_setup_rules": {
-            "binding_contract": _binding_contract(),
+            "binding_contract": _binding_contract(legacy=legacy_binding_contract),
             "setup_permissions_explanation": _SETUP_PERMISSION_EXPLANATION,
         },
         "neutral_outcome_example": NEUTRAL_PLAN_OUTCOME_EXAMPLE,
@@ -15306,6 +15332,7 @@ def build_call1_packet_v2(
     *,
     max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
     legacy: bool = False,
+    legacy_binding_contract: bool | None = None,
 ) -> PromptPacket:
     """Render the v3 plan-author prompt over the unchanged v2 response wire."""
 
@@ -15313,13 +15340,17 @@ def build_call1_packet_v2(
         view=view,
         inventory=inventory,
         runtime_contract=runtime_contract,
-        response_contract=_call1_contract_v2(legacy=legacy),
+        response_contract=_call1_contract_v2(
+            legacy=legacy,
+            legacy_binding_contract=legacy_binding_contract,
+        ),
     )
     context = build_plan_author_context(
         view,
         inventory,
         runtime_contract,
         legacy_interface=legacy,
+        legacy_binding_contract=legacy_binding_contract,
     )
     payload.update(
         {
@@ -15336,7 +15367,11 @@ def build_call1_packet_v2(
     assert_no_prompt_secrets(payload)
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V4 if legacy else CALL1_PROMPT_VERSION_V5,
+        version=(
+            CALL1_PROMPT_VERSION_V4
+            if legacy
+            else (CALL1_PROMPT_VERSION_V5 if legacy_binding_contract else CALL1_PROMPT_VERSION_V6)
+        ),
         system=_CALL1_SYSTEM_V3,
         user=_render_sections(
             (
@@ -15507,14 +15542,22 @@ def build_plan_review_packet(
     v2 rendering without the v3-only reviewer guidance.
     """
 
-    context = build_plan_reviewer_context(view, plan, inventory, runtime_contract)
     if sealed_version not in {
         None,
         PLAN_REVIEW_PROMPT_VERSION_V2,
         PLAN_REVIEW_PROMPT_VERSION_V3,
+        PLAN_REVIEW_PROMPT_VERSION_V4,
     }:
         raise ValueError(f"unsupported plan-review prompt version: {sealed_version}")
     legacy = sealed_version == PLAN_REVIEW_PROMPT_VERSION_V2
+    context = build_plan_reviewer_context(
+        view,
+        plan,
+        inventory,
+        runtime_contract,
+        legacy_binding_contract=sealed_version
+        in {PLAN_REVIEW_PROMPT_VERSION_V2, PLAN_REVIEW_PROMPT_VERSION_V3},
+    )
     if legacy:
         context["mechanical_check_summary"] = _plan_mechanical_check_summary(legacy=True)
         context.pop("binding_and_setup_rules", None)
@@ -18578,17 +18621,21 @@ def prepare_saved_plan_continuation_v2(
             runtime_contract,
         )
         review_packet_for_reuse = plan_review_packet
-        if (
-            isinstance(review_evidence, dict)
-            and review_evidence.get("prompt_version") == PLAN_REVIEW_PROMPT_VERSION_V2
-        ):
-            # An accepted v2 review remains valid authority for an unchanged plan.
+        sealed_review_version = (
+            review_evidence.get("prompt_version")
+            if isinstance(review_evidence, dict)
+            and review_evidence.get("prompt_version")
+            in {PLAN_REVIEW_PROMPT_VERSION_V2, PLAN_REVIEW_PROMPT_VERSION_V3}
+            else None
+        )
+        if sealed_review_version is not None:
+            # Accepted v2 and v3 reviews remain valid authority for an unchanged plan.
             review_packet_for_reuse = build_plan_review_packet(
                 input_view,
                 saved_plan,
                 inventory,
                 runtime_contract,
-                sealed_version=PLAN_REVIEW_PROMPT_VERSION_V2,
+                sealed_version=sealed_review_version,
             )
         if review_evidence is not None and _saved_review_matches(
             review_evidence,
@@ -19588,6 +19635,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CALL1_PROMPT_VERSION_V3,
         CALL1_PROMPT_VERSION_V4,
         CALL1_PROMPT_VERSION_V5,
+        CALL1_PROMPT_VERSION_V6,
         CALL2_PROMPT_VERSION_V3,
         CALL2_PROMPT_VERSION_V4,
         CALL2_PROMPT_VERSION_V5,
@@ -19602,9 +19650,11 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CORRECTION_PROMPT_VERSION_V8,
         CORRECTION_PROMPT_VERSION_V9,
         CORRECTION_PROMPT_VERSION_V10,
+        CORRECTION_PROMPT_VERSION_V11,
         PLAN_REVIEW_PROMPT_VERSION_V1,
         PLAN_REVIEW_PROMPT_VERSION_V2,
         PLAN_REVIEW_PROMPT_VERSION_V3,
+        PLAN_REVIEW_PROMPT_VERSION_V4,
         ARTIFACT_REVIEW_PROMPT_VERSION_V1,
         ARTIFACT_REVIEW_PROMPT_VERSION_V2,
         ARTIFACT_REVIEW_PROMPT_VERSION_V3,
@@ -19819,7 +19869,7 @@ def _call1_contract_v1() -> dict[str, Any]:
                     },
                 },
                 "setup_recipe": _setup_recipe_schema(),
-                "runtime_bindings": _binding_list_schema(),
+                "runtime_bindings": _binding_list_schema(legacy=True),
                 "prerequisites": _prerequisite_schema(),
                 "stimulus_approach": {
                     "type": "object",
@@ -19861,9 +19911,9 @@ def _call1_contract_v1() -> dict[str, Any]:
                 },
             },
         },
-        "binding_declaration": _binding_contract(),
-        "selector_rule": _binding_contract()["selector_rule"],
-        "consumer_rule": _binding_contract()["consumer_rule"],
+        "binding_declaration": _binding_contract(legacy=True),
+        "selector_rule": _binding_contract(legacy=True)["selector_rule"],
+        "consumer_rule": _binding_contract(legacy=True)["consumer_rule"],
         "empty_shapes": {
             "setup_recipe_when_setup_is_unavailable": [],
             "runtime_bindings_when_no_runtime_values_are_needed": [],
@@ -19880,10 +19930,23 @@ def _call1_contract_v1() -> dict[str, Any]:
     }
 
 
-def _call1_contract_v2(*, legacy: bool = False) -> dict[str, Any]:
+def _call1_contract_v2(
+    *,
+    legacy: bool = False,
+    legacy_binding_contract: bool | None = None,
+) -> dict[str, Any]:
     """Return the closed root for the current model-facing plan wire."""
 
     contract = json.loads(_canonical_json(_call1_contract_v1()))
+    if legacy_binding_contract is None:
+        legacy_binding_contract = legacy
+    binding_contract = _binding_contract(legacy=legacy_binding_contract)
+    contract["binding_declaration"] = binding_contract
+    contract["selector_rule"] = binding_contract["selector_rule"]
+    contract["consumer_rule"] = binding_contract["consumer_rule"]
+    contract["schema"]["properties"]["runtime_bindings"] = _binding_list_schema(
+        legacy=legacy_binding_contract
+    )
     fields = [
         "interpretation",
         "selected_evidence",
@@ -20115,7 +20178,7 @@ def _call2_contract_v1() -> dict[str, Any]:
                     },
                 },
                 "setup_recipe": _setup_recipe_schema(),
-                "runtime_bindings": _binding_list_schema(),
+                "runtime_bindings": _binding_list_schema(legacy=True),
                 "prerequisites": _prerequisite_schema(),
                 "detector_source": {
                     "type": "string",
@@ -20164,9 +20227,9 @@ def _call2_contract_v1() -> dict[str, Any]:
                 },
             },
         },
-        "binding_declaration": _binding_contract(),
-        "selector_rule": _binding_contract()["selector_rule"],
-        "consumer_rule": _binding_contract()["consumer_rule"],
+        "binding_declaration": _binding_contract(legacy=True),
+        "selector_rule": _binding_contract(legacy=True)["selector_rule"],
+        "consumer_rule": _binding_contract(legacy=True)["consumer_rule"],
         "empty_shapes": {
             "setup_recipe_when_setup_is_unavailable": [],
             "runtime_bindings_when_no_runtime_values_are_needed": [],
@@ -20354,7 +20417,7 @@ def validate_neutral_example() -> list[Finding]:
     ]
 
 
-def _binding_contract() -> dict[str, Any]:
+def _binding_contract(*, legacy: bool = False) -> dict[str, Any]:
     setup_output_example = {
         "name": "setup_status",
         "expected_type": "string",
@@ -20373,7 +20436,7 @@ def _binding_contract() -> dict[str, Any]:
         "consumers": ["stimulus.user_text"],
         "on_missing": "stop",
     }
-    return {
+    contract = {
         "required": [
             "name",
             "expected_type",
@@ -20427,10 +20490,32 @@ def _binding_contract() -> dict[str, Any]:
             "setup_output": setup_output_example,
         },
     }
+    if not legacy:
+        contract["source_kind_meanings"] = {
+            "supplied_input": (
+                "The value comes from a supplied environment inventory fact named by "
+                "source_ref facts:<ref>; selector paths start at value. supplied_input "
+                "does not mean the user message, the stimulus, or the scenario input payload."
+            ),
+            "setup_output": (
+                "The value comes from the result of a setup operation named by source_ref "
+                "setup:<operation>, which must be listed in runtime_contract.setup_permissions; "
+                "selector paths start at result."
+            ),
+        }
+        contract["applicability"] = (
+            "runtime_bindings is [] (an empty list) only when no consumer needs a bound "
+            "value: no stimulus placeholder, prerequisite, detector value, or setup argument "
+            "uses one. Every prerequisite needs a declared binding. Filling a "
+            "{{binding_name}} stimulus placeholder from a declared binding is a valid "
+            "substitution, not circular; do not add a binding that only copies concrete "
+            "stimulus text back into the stimulus."
+        )
+    return contract
 
 
-def _binding_list_schema() -> dict[str, Any]:
-    contract = _binding_contract()
+def _binding_list_schema(*, legacy: bool = False) -> dict[str, Any]:
+    contract = _binding_contract(legacy=legacy)
     properties = {
         "name": {"type": "string"},
         "expected_type": contract["expected_type"],
@@ -21726,6 +21811,7 @@ __all__ = [
     "CALL1_PROMPT_VERSION_V3",
     "CALL1_PROMPT_VERSION_V4",
     "CALL1_PROMPT_VERSION_V5",
+    "CALL1_PROMPT_VERSION_V6",
     "CALL2_PROMPT_VERSION",
     "CALL2_PROMPT_VERSION_V2",
     "CALL2_PROMPT_VERSION_V3",
@@ -21744,6 +21830,7 @@ __all__ = [
     "CORRECTION_PROMPT_VERSION_V8",
     "CORRECTION_PROMPT_VERSION_V9",
     "CORRECTION_PROMPT_VERSION_V10",
+    "CORRECTION_PROMPT_VERSION_V11",
     "ContinuationValidationError",
     "O04ContinuationValidationError",
     "O04ContinuationResult",
@@ -21759,6 +21846,7 @@ __all__ = [
     "PLAN_REVIEW_PROMPT_VERSION_V1",
     "PLAN_REVIEW_PROMPT_VERSION_V2",
     "PLAN_REVIEW_PROMPT_VERSION_V3",
+    "PLAN_REVIEW_PROMPT_VERSION_V4",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V1",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V2",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V3",

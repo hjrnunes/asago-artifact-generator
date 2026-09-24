@@ -117,11 +117,11 @@ def test_legacy_v9_render_matches_head_2097438() -> None:
     assert packet.sha256 == "e6138aa08a8ec5b868cdd08c9f6d025db9b54fdadac96ef50cab4588c69be4be"
 
 
-def test_v10_without_binding_options_preserves_v9_prompt_bytes() -> None:
+def test_legacy_v10_without_binding_options_preserves_v9_prompt_bytes() -> None:
     context = _context(_candidate(), _inventory(), _runtime_contract(), [])
 
     v9 = _render_correction_packet(context, legacy_v9=True)
-    v10 = _render_correction_packet(context)
+    v10 = _render_correction_packet(context, legacy_v10=True)
 
     assert v9.version == CORRECTION_PROMPT_VERSION_V9
     assert v10.version != v9.version

@@ -19,11 +19,11 @@ from asago_artifact_generator.authoring import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
-    CALL1_PROMPT_VERSION_V5,
+    CALL1_PROMPT_VERSION_V6,
     CALL2_PROMPT_VERSION_V8,
     CONTEXT_GUARD_CALIBRATION,
     CORRECTION_PROMPT_VERSION_V8,
-    CORRECTION_PROMPT_VERSION_V10,
+    CORRECTION_PROMPT_VERSION_V11,
     PLAN_REVIEW_PROMPT_VERSION,
     _context_budget_estimate,
     build_call1_packet_v2,
@@ -458,9 +458,9 @@ def _control_set_digest(control_digests: dict[str, str]) -> str:
 
 def _current_prompt_versions() -> dict[str, str]:
     return {
-        "call1": CALL1_PROMPT_VERSION_V5,
+        "call1": CALL1_PROMPT_VERSION_V6,
         "call2": CALL2_PROMPT_VERSION_V8,
-        "plan_correction": CORRECTION_PROMPT_VERSION_V10,
+        "plan_correction": CORRECTION_PROMPT_VERSION_V11,
         "artifact_correction": CORRECTION_PROMPT_VERSION_V8,
         "plan_review": PLAN_REVIEW_PROMPT_VERSION,
         "artifact_review": ARTIFACT_REVIEW_PROMPT_VERSION,

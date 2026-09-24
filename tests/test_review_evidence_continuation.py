@@ -9,6 +9,7 @@ from asago_artifact_generator.authoring import (
     PLAN_FIELD_MEANINGS,
     PLAN_REVIEW_PROMPT_VERSION_V2,
     PLAN_REVIEW_PROMPT_VERSION_V3,
+    PLAN_REVIEW_PROMPT_VERSION_V4,
     AuthoringOrchestrator,
     AuthoringPolicy,
     ScriptedAuthoringTransport,
@@ -196,7 +197,7 @@ def test_exact_saved_review_reuse_skips_plan_review_dispatch(tmp_path: Path) -> 
     assert prepared.call2_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     assert prepared.plan_review_packet is not None
     assert prepared.plan_review_packet.user.count(PLAN_FIELD_MEANINGS) == 1
-    assert prepared.plan_review_packet.version == PLAN_REVIEW_PROMPT_VERSION_V3
+    assert prepared.plan_review_packet.version == PLAN_REVIEW_PROMPT_VERSION_V4
     transport = ScriptedAuthoringTransport([_framed()])
     result = prepared.run(
         transport_factory=lambda: transport,
@@ -244,6 +245,44 @@ def test_accepted_v2_saved_review_reuse_keeps_sealed_packet(tmp_path: Path) -> N
         transport_factory=lambda: transport,
         package_dir=tmp_path / "continued-v2",
         task_id="saved-review-v2-reuse",
+    )
+
+    assert result.status == "accepted"
+    assert [request["stage"] for request in transport.requests] == ["call2"]
+
+
+def test_accepted_v3_saved_review_reuse_keeps_sealed_packet(tmp_path: Path) -> None:
+    view = _view()
+    inventory = _inventory()
+    runtime = _runtime_contract()
+    plan = _plan()
+    v3_packet = build_plan_review_packet(
+        view,
+        plan,
+        inventory,
+        runtime,
+        sealed_version=PLAN_REVIEW_PROMPT_VERSION_V3,
+    )
+    review_evidence = _accepted_review_evidence(v3_packet, plan)
+    prepared = prepare_saved_plan_continuation_v2(
+        saved_plan=plan,
+        input_view=view,
+        inventory=inventory,
+        runtime_contract=runtime,
+        provenance=_provenance(plan, view, inventory, runtime),
+        review_evidence=review_evidence,
+        policy=AuthoringPolicy(review_artifact=False),
+    )
+
+    assert prepared.decision.mode == "call2_only"
+    assert prepared.decision.review_reused is True
+    assert prepared.plan_review_packet is not None
+    assert prepared.plan_review_packet.version == PLAN_REVIEW_PROMPT_VERSION_V3
+    transport = ScriptedAuthoringTransport([_framed()])
+    result = prepared.run(
+        transport_factory=lambda: transport,
+        package_dir=tmp_path / "continued-v3",
+        task_id="saved-review-v3-reuse",
     )
 
     assert result.status == "accepted"
@@ -357,7 +396,7 @@ def test_mismatched_v2_saved_review_dispatches_fresh_v3_review(tmp_path: Path) -
     assert prepared.decision.mode == "call2_only_review"
     assert prepared.decision.review_reused is False
     assert prepared.plan_review_packet is not None
-    assert prepared.plan_review_packet.version == PLAN_REVIEW_PROMPT_VERSION_V3
+    assert prepared.plan_review_packet.version == PLAN_REVIEW_PROMPT_VERSION_V4
     transport = ScriptedAuthoringTransport([_review(), _framed()])
     result = prepared.run(
         transport_factory=lambda: transport,
@@ -368,7 +407,7 @@ def test_mismatched_v2_saved_review_dispatches_fresh_v3_review(tmp_path: Path) -
     assert result.status == "accepted"
     assert [request["stage"] for request in transport.requests] == ["plan_review", "call2"]
     plan_review_request = transport.requests[0]
-    assert plan_review_request["version"] == PLAN_REVIEW_PROMPT_VERSION_V3
+    assert plan_review_request["version"] == PLAN_REVIEW_PROMPT_VERSION_V4
     assert "BINDING AND SETUP RULES" in plan_review_request["user"]
 
 
