@@ -178,6 +178,11 @@ contains live reservations, dispatches, or an outage stop. See the
 [fresh-trial state contract](scripts/fresh_trial/README.md) for the frozen-policy
 digest keys the caller reads.
 
+For dispatch reconciliation, compare the per-case authoring ledgers and
+failure-evidence sidecars with `budget-ledger.json` and `call-timings.jsonl`.
+Treat a conflicting `batch-status.json` transport flag as a metadata defect,
+not as evidence that no dispatch occurred.
+
 Only run the frozen batch after the input index, controls, request renderings,
 and `frozen-policy.json` are finalized. The explicit `--live` flag uses the
 `gemma4-oc` profile, records every call's timing, and persists the shared
