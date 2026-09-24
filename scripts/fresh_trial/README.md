@@ -44,3 +44,47 @@ guard produce the case-local `prompt_overflow` result before dispatch. The
 finding reports `estimated_prompt_tokens`,
 `remaining_input_budget_estimate`, and the model-facing UTF-8 byte estimate.
 These values are estimates, not provider-reported token usage.
+
+## Reproducible freeze preparation
+
+`freeze_trial.py` creates a new run directory from the previous freeze without
+writing to the previous directory. It verifies the previous input loader and
+control digests, copies relative handoff sources and exact control bytes,
+regenerates only the G07/A03 fact schemas with
+`qualification_inputs._schema`, updates the derived inventory pins, and records
+the current consumer and downstream revisions. Dirty worktrees are recorded in
+the policy and must be resolved or explicitly reviewed before a real live run.
+
+Create the real freeze with a fresh, nonexistent run directory:
+
+```bash
+uv run python -m scripts.fresh_trial.freeze_trial \
+  --create \
+  --previous-freeze /absolute/path/to/previous-freeze \
+  --run-dir /absolute/path/to/fresh-consumer-five-case-<timestamp> \
+  --consumer-root /absolute/path/to/asago-artifact-generator \
+  --downstream-root /absolute/path/to/asago-scenario-generator
+```
+
+Render Call 1 without constructing a transport, then pin the rendered-request
+index digest in `frozen-policy.json`:
+
+```bash
+uv run python -m scripts.fresh_trial.run_fresh_authoring_trial \
+  --run-dir /absolute/path/to/fresh-consumer-five-case-<timestamp> \
+  --render-only
+uv run python -m scripts.fresh_trial.freeze_trial \
+  --finalize-renderings \
+  --run-dir /absolute/path/to/fresh-consumer-five-case-<timestamp>
+```
+
+Read all five saved requests and complete the specification's request
+inspection and route-compatibility checks before using `--live`.
+
+Each new policy replaces prior refreeze keys with one `previous_freeze` record.
+That record preserves the previous freeze digests, saved authoring spend, and
+the exact saved execution outcome without copying `superseded/` paths. The
+policy also rehashes the specification, measures the listed loopback ports, and
+records whether route compatibility was verified against the current downstream
+revision. A live run still requires an immediate local port check and explicit
+owner approval for the new freeze's separate allowance.
