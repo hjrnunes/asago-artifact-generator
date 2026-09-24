@@ -63,8 +63,15 @@ uv run python -m scripts.fresh_trial.freeze_trial \
   --previous-freeze /absolute/path/to/previous-freeze \
   --run-dir /absolute/path/to/fresh-consumer-five-case-<timestamp> \
   --consumer-root /absolute/path/to/asago-artifact-generator \
-  --downstream-root /absolute/path/to/asago-scenario-generator
+  --downstream-root /absolute/path/to/asago-scenario-generator \
+  --route-compatibility /absolute/path/to/route-compatibility.json
 ```
+
+`--route-compatibility` is optional. When supplied, the freeze validates the
+JSON object and its `verified_against.downstream_head` field before creating the
+run directory, then copies the exact source bytes and records their source path,
+digest, verified downstream revision, and any consumer revision mismatch. When
+omitted, the freeze carries the previous route file as before.
 
 Render Call 1 without constructing a transport, then pin the rendered-request
 index digest in `frozen-policy.json`:

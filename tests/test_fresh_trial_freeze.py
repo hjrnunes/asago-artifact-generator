@@ -60,6 +60,23 @@ def _make_freeze(tmp_path: Path) -> Path:
     return run_dir
 
 
+def _write_route_compatibility(
+    path: Path,
+    *,
+    downstream_head: str,
+    consumer_head: str | None = None,
+) -> bytes:
+    route = json.loads((PREVIOUS_FREEZE / "route-compatibility.json").read_bytes())
+    route["verified_against"]["downstream_head"] = downstream_head
+    if consumer_head is None:
+        route["verified_against"].pop("consumer_head", None)
+    else:
+        route["verified_against"]["consumer_head"] = consumer_head
+    data = json.dumps(route, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    path.write_bytes(data)
+    return data
+
+
 def test_schema_regeneration_changes_only_fact_schemas() -> None:
     inventory = {
         "schema_version": "test",
@@ -252,6 +269,102 @@ def test_new_policy_refreshes_spec_ports_and_route_metadata(tmp_path) -> None:
     assert route["previous_method"] == previous_route["method"]
     assert route["status"] == "requires_revalidation"
     assert route["source_revision_at_freeze"] != route["previous_verified_downstream_head"]
+
+
+def test_default_route_path_preserves_previous_route_bytes(tmp_path) -> None:
+    run_dir = _make_freeze(tmp_path)
+    previous_bytes = (PREVIOUS_FREEZE / "route-compatibility.json").read_bytes()
+    route_bytes = (run_dir / "route-compatibility.json").read_bytes()
+    policy_route = _read_frozen_policy(run_dir)["route_compatibility"]
+
+    assert route_bytes == previous_bytes
+    assert policy_route["sha256"] == sha256(previous_bytes).hexdigest()
+    assert "source_path" not in policy_route
+
+
+def test_supplied_route_is_copied_byte_for_byte_and_digest_is_recorded(tmp_path) -> None:
+    baseline = _make_freeze(tmp_path / "baseline")
+    current_downstream = _read_frozen_policy(baseline)["source_revision"]["downstream_head"]
+    source = tmp_path / "supplied-route.json"
+    source_bytes = _write_route_compatibility(
+        source,
+        downstream_head=current_downstream,
+    )
+
+    run_dir = tmp_path / "supplied-freeze"
+    create_freeze(
+        PREVIOUS_FREEZE,
+        run_dir,
+        consumer_root=Path(__file__).parents[1],
+        downstream_root=PREVIOUS_FREEZE.parents[2],
+        route_compatibility=source,
+    )
+
+    policy = _read_frozen_policy(run_dir)
+    route = policy["route_compatibility"]
+    assert (run_dir / "route-compatibility.json").read_bytes() == source_bytes
+    assert route["source_path"] == str(source.resolve())
+    assert route["sha256"] == sha256(source_bytes).hexdigest()
+    assert route["verified_downstream_head"] == current_downstream
+    assert route["previous_verified_downstream_head"]
+    assert route["status"] == "verified_at_current_downstream_head"
+
+
+def test_supplied_route_requires_revalidation_when_downstream_differs(tmp_path) -> None:
+    source = tmp_path / "supplied-route.json"
+    _write_route_compatibility(source, downstream_head="0" * 40)
+    run_dir = tmp_path / "supplied-freeze"
+
+    create_freeze(
+        PREVIOUS_FREEZE,
+        run_dir,
+        consumer_root=Path(__file__).parents[1],
+        downstream_root=PREVIOUS_FREEZE.parents[2],
+        route_compatibility=source,
+    )
+
+    route = _read_frozen_policy(run_dir)["route_compatibility"]
+    assert route["verified_downstream_head"] == "0" * 40
+    assert route["status"] == "requires_revalidation"
+
+
+def test_supplied_route_records_consumer_revision_mismatch(tmp_path) -> None:
+    source = tmp_path / "supplied-route.json"
+    _write_route_compatibility(
+        source,
+        downstream_head="0" * 40,
+        consumer_head="f" * 40,
+    )
+    run_dir = tmp_path / "supplied-freeze"
+
+    create_freeze(
+        PREVIOUS_FREEZE,
+        run_dir,
+        consumer_root=Path(__file__).parents[1],
+        downstream_root=PREVIOUS_FREEZE.parents[2],
+        route_compatibility=source,
+    )
+
+    route = _read_frozen_policy(run_dir)["route_compatibility"]
+    assert route["verified_consumer_head"] == "f" * 40
+    assert route["consumer_revision_mismatch"] is True
+
+
+def test_invalid_supplied_route_is_rejected_before_run_directory_creation(tmp_path) -> None:
+    source = tmp_path / "invalid-route.json"
+    source.write_bytes(b'{"verified_against":')
+    run_dir = tmp_path / "supplied-freeze"
+
+    with pytest.raises(ValueError, match="supplied route compatibility"):
+        create_freeze(
+            PREVIOUS_FREEZE,
+            run_dir,
+            consumer_root=Path(__file__).parents[1],
+            downstream_root=PREVIOUS_FREEZE.parents[2],
+            route_compatibility=source,
+        )
+
+    assert not run_dir.exists()
 
 
 def _saved_source_digests(path: Path, case_id: str) -> dict:

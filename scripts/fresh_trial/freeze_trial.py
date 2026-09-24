@@ -322,6 +322,69 @@ def _previous_route_verification(
     }
 
 
+def _validate_supplied_route_compatibility(
+    route_file: dict[str, Any],
+    path: Path,
+) -> dict[str, Any]:
+    verified_against = route_file.get("verified_against")
+    if not isinstance(verified_against, dict):
+        raise TrialInputError(f"supplied route compatibility lacks verified_against: {path}")
+    verified_head = verified_against.get("downstream_head")
+    if not isinstance(verified_head, str) or not verified_head.strip():
+        raise TrialInputError(
+            f"supplied route compatibility does not name its verified downstream revision: {path}"
+        )
+    for field in ("method", "rechecked_at"):
+        value = route_file.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise TrialInputError(f"supplied route compatibility lacks required {field}: {path}")
+    return {
+        "verified_against": copy.deepcopy(verified_against),
+        "verified_downstream_head": verified_head,
+    }
+
+
+def _read_supplied_route_compatibility(
+    raw_path: str | Path,
+) -> tuple[Path, bytes, dict[str, Any]]:
+    path = Path(raw_path).expanduser()
+    try:
+        resolved = path.resolve()
+        data = resolved.read_bytes()
+    except (OSError, RuntimeError) as exc:
+        raise TrialInputError(f"supplied route compatibility is unavailable: {path}") from exc
+    try:
+        route_file = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise TrialInputError(f"supplied route compatibility is invalid JSON: {resolved}") from exc
+    if not isinstance(route_file, dict):
+        raise TrialInputError(f"supplied route compatibility must be an object: {resolved}")
+    _validate_supplied_route_compatibility(route_file, resolved)
+    _supplied_consumer_revision(route_file, resolved)
+    return resolved, data, route_file
+
+
+def _supplied_consumer_revision(route_file: dict[str, Any], path: Path) -> str | None:
+    """Return an optional consumer revision named by a route evidence file."""
+
+    verified_against = route_file["verified_against"]
+    containers = (verified_against, route_file)
+    for container in containers:
+        for key in ("consumer_head", "consumer_revision"):
+            if key not in container:
+                continue
+            value = container[key]
+            if isinstance(value, str) and value.strip():
+                return value
+            if isinstance(value, dict):
+                for nested_key in ("head", "revision"):
+                    nested_value = value.get(nested_key)
+                    if isinstance(nested_value, str) and nested_value.strip():
+                        return nested_value
+            raise TrialInputError(f"supplied route compatibility has an invalid {key}: {path}")
+    return None
+
+
 def _resolve_previous_source(previous_root: Path, raw_path: str) -> tuple[Path, bytes]:
     path = Path(raw_path)
     resolved = path if path.is_absolute() else previous_root / path
@@ -472,6 +535,7 @@ def _prepare_policy(
     downstream_root: Path,
     transformation_notes: dict[str, Any],
     call1_estimates: dict[str, dict[str, Any]],
+    supplied_route: tuple[Path, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     policy = copy.deepcopy(previous_policy)
     previous_freeze = _previous_freeze_record(previous_root, previous_policy)
@@ -522,12 +586,41 @@ def _prepare_policy(
     route["previous_verified_against"] = previous_route["verified_against"]
     route["previous_rechecked_at"] = previous_route["rechecked_at"]
     route["previous_method"] = previous_route["method"]
-    route["status"] = (
-        "requires_revalidation"
-        if route["previous_verified_downstream_head"]
-        != policy["source_revision"]["downstream_head"]
-        else "verified_at_current_downstream_head"
-    )
+    if supplied_route is None:
+        route["status"] = (
+            "requires_revalidation"
+            if route["previous_verified_downstream_head"]
+            != policy["source_revision"]["downstream_head"]
+            else "verified_at_current_downstream_head"
+        )
+    else:
+        supplied_path, supplied_file = supplied_route
+        supplied_verification = _validate_supplied_route_compatibility(
+            supplied_file,
+            supplied_path,
+        )
+        route["source_path"] = str(supplied_path)
+        route["verified_against"] = supplied_verification["verified_against"]
+        route["verified_downstream_head"] = supplied_verification["verified_downstream_head"]
+        for key in ("method", "rechecked_at"):
+            if key in supplied_file:
+                route[key] = copy.deepcopy(supplied_file[key])
+            else:
+                route.pop(key, None)
+        supplied_consumer_head = _supplied_consumer_revision(supplied_file, supplied_path)
+        if supplied_consumer_head is None:
+            route.pop("verified_consumer_head", None)
+            route.pop("consumer_revision_mismatch", None)
+        else:
+            route["verified_consumer_head"] = supplied_consumer_head
+            route["consumer_revision_mismatch"] = (
+                supplied_consumer_head != policy["source_revision"]["consumer_head"]
+            )
+        route["status"] = (
+            "verified_at_current_downstream_head"
+            if route["verified_downstream_head"] == policy["source_revision"]["downstream_head"]
+            else "requires_revalidation"
+        )
     policy["route_compatibility"] = route
 
     old_allowances = policy.get("allowances")
@@ -836,6 +929,7 @@ def create_freeze(
     *,
     consumer_root: str | Path | None = None,
     downstream_root: str | Path | None = None,
+    route_compatibility: str | Path | None = None,
 ) -> dict[str, Any]:
     """Create a new freeze without overwriting either freeze directory."""
 
@@ -868,6 +962,10 @@ def create_freeze(
         )
     else:
         downstream_path = Path(downstream_root).expanduser().resolve()
+
+    supplied_route: tuple[Path, bytes, dict[str, Any]] | None = None
+    if route_compatibility is not None:
+        supplied_route = _read_supplied_route_compatibility(route_compatibility)
 
     index, transformations, files_to_copy = _prepare_index(
         previous_index,
@@ -903,12 +1001,18 @@ def create_freeze(
         for case_id, data in control_bytes.items():
             _write_bytes_atomic(new_root / "controls" / f"{case_id}.json", data)
 
-        previous_route = previous_root / "route-compatibility.json"
-        if previous_route.is_file():
-            _write_bytes_atomic(
-                new_root / "route-compatibility.json",
-                previous_route.read_bytes(),
-            )
+        if supplied_route is not None:
+            route_path, route_bytes, route_file = supplied_route
+            _write_bytes_atomic(new_root / "route-compatibility.json", route_bytes)
+            policy_route_source = (route_path, route_file)
+        else:
+            previous_route = previous_root / "route-compatibility.json"
+            if previous_route.is_file():
+                _write_bytes_atomic(
+                    new_root / "route-compatibility.json",
+                    previous_route.read_bytes(),
+                )
+            policy_route_source = None
 
         policy = _prepare_policy(
             previous_policy,
@@ -920,6 +1024,7 @@ def create_freeze(
             downstream_root=downstream_path,
             transformation_notes=transformations,
             call1_estimates=_call1_estimates(tuple(load_trial_case_inputs(new_root))),
+            supplied_route=policy_route_source,
         )
         _write_json_atomic(new_root / "frozen-policy.json", policy)
         load_trial_case_inputs(new_root)
@@ -1137,6 +1242,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-dir", required=True, type=Path)
     parser.add_argument("--consumer-root", type=Path)
     parser.add_argument("--downstream-root", type=Path)
+    parser.add_argument(
+        "--route-compatibility",
+        type=Path,
+        help="Use and copy a validated route-compatibility JSON file.",
+    )
     return parser
 
 
@@ -1151,6 +1261,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.run_dir,
                 consumer_root=args.consumer_root,
                 downstream_root=args.downstream_root,
+                route_compatibility=args.route_compatibility,
             )
         else:
             result = finalize_renderings(args.run_dir)
