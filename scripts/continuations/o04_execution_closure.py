@@ -18,7 +18,7 @@ ROOT = CONSUMER_ROOT.parents[2]
 sys.path.insert(0, str(CONSUMER_ROOT / "src"))
 
 from asago_artifact_generator.authoring import (  # noqa: E402
-    ARTIFACT_REVIEW_PROMPT_VERSION,
+    ARTIFACT_REVIEW_PROMPT_VERSION_V4,
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_INTERFACE_VERSION_V2,
     AUTHORING_MAX_COMPLETION_TOKENS,
@@ -492,7 +492,14 @@ def _compact_artifact_review_packet(
     """Render a scoped O04 view of the generic review payload without changing it."""
 
     generic = build_artifact_review_packet(
-        view, plan, metadata, detector, controls, inventory, runtime_contract
+        view,
+        plan,
+        metadata,
+        detector,
+        controls,
+        inventory,
+        runtime_contract,
+        sealed_version=ARTIFACT_REVIEW_PROMPT_VERSION_V4,
     )
     context = generic.payload
     authority = deepcopy(context["authoritative_context"])
@@ -694,7 +701,7 @@ def prepare_artifact_review() -> dict[str, Any]:
     packet = _compact_artifact_review_packet(
         view, plan, metadata, detector, controls, inventory, runtime_contract
     )
-    if packet.version != ARTIFACT_REVIEW_PROMPT_VERSION:
+    if packet.version != ARTIFACT_REVIEW_PROMPT_VERSION_V4:
         raise ValueError(f"unexpected artifact-review prompt version: {packet.version}")
     max_completion = 2048
     _enforce_context_budget(

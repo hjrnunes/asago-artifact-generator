@@ -7,7 +7,7 @@ import pytest
 from asago_artifact_generator.authoring import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
     CALL1_PROMPT_VERSION_V4,
-    CALL2_PROMPT_VERSION_V7,
+    CALL2_PROMPT_VERSION_V8,
     CORRECTION_PROMPT_VERSION_V6,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
@@ -211,7 +211,7 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     assert [packet.version for packet in packets] == [
         CALL1_PROMPT_VERSION_V4,
         PLAN_REVIEW_PROMPT_VERSION,
-        CALL2_PROMPT_VERSION_V7,
+        CALL2_PROMPT_VERSION_V8,
         ARTIFACT_REVIEW_PROMPT_VERSION,
         CORRECTION_PROMPT_VERSION_V6,
     ]

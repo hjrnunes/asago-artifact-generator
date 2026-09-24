@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from asago_artifact_generator.authoring import (
-    ARTIFACT_REVIEW_PROMPT_VERSION,
+    ARTIFACT_REVIEW_PROMPT_VERSION_V4,
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
     AUTHORING_THINKING_EXTRA_BODY,
@@ -1193,6 +1193,7 @@ def _bounded_artifact_review_packet(
         controls,
         prepared.inventory,
         prepared.runtime_contract,
+        legacy_interface=True,
     )
     template = build_artifact_review_packet(
         prepared.input_view,
@@ -1202,6 +1203,7 @@ def _bounded_artifact_review_packet(
         [],
         prepared.inventory,
         prepared.runtime_contract,
+        sealed_version=ARTIFACT_REVIEW_PROMPT_VERSION_V4,
     )
     sections: list[tuple[str, Any]] = [
         ("ORIGINAL SCENARIO", context["original_scenario"]),
@@ -1255,7 +1257,7 @@ def _bounded_artifact_review_packet(
     )
     packet = PromptPacket(
         stage="artifact_review",
-        version=ARTIFACT_REVIEW_PROMPT_VERSION,
+        version=ARTIFACT_REVIEW_PROMPT_VERSION_V4,
         system=template.system.replace("PLAN FIELD MEANINGS", "OBSERVATION DECISION GUIDE"),
         user="\n\n".join(
             title
@@ -2960,6 +2962,7 @@ def run_dry_run(
         plan,
         prepared.inventory,
         prepared.runtime_contract,
+        legacy_interface=True,
     )
     if third_continuation or next_continuation:
         # The nine failed control packets consume the correction budget; input
@@ -2978,6 +2981,7 @@ def run_dry_run(
             _next_prompt_findings(findings, control_records) if next_continuation else findings
         ),
         detector_feedback=correction_feedback,
+        legacy_interface=True,
     )
     if third_continuation or next_continuation:
         # The shared feedback guidance duplicates the correction instructions

@@ -326,15 +326,15 @@ def test_supplied_control_case_form_is_validated(tmp_path: Path) -> None:
         orchestrator.run(_view(), _inventory(), _control_runtime())
 
 
-# Digests of (system + "\x00" + user) rendered at base revision
-# 2770b9655587d984fb57f94989409fd63837f8ca without the supplied-controls hook.
+# Digests of (system + "\x00" + user) rendered for the current prompt contracts
+# without the supplied-controls hook.
 _EXPECTED_NO_HOOK_DIGESTS = {
     "call1": "673a5cad445ae2c46eca36b1ea7fb6945d774e5b6f9824fe0aaf1da610402895",
     "plan_review": "b304a27043090312499faef6748574c60308c361a48643a58618c42ecd4c5a45",
-    "call2": "5a9e0767547c1243e69dace45b195ded909b668c5da3eb3abad33b6e79644470",
-    "artifact_review": "521f715284f13cb0e6ef019493fa28db9d2e2eaa4b4f506bb9ebface4e3123ed",
-    "correction": "045bede8a7294a8772e6f92aac7314afa310b978eb44ab4b8e8a17f2c6118e3a",
-    "artifact_review_direct": ("5ff067b30ee5e5522a261aa9d00b7c98203a6a3bec98a37ac925673153df2af1"),
+    "call2": "1ebf934bc202a5aacb48d5484a458d7d4994eac8ddcb2ca3fff053b8ca5c2c38",
+    "artifact_review": "de5796a242ac7735f43506977de5ef53d87050f7982f22db6c1934aeec21ad80",
+    "correction": "872bc37f642744673f56c4d7b1c2a2e0d491d581e59405bcc548fda1076c2d78",
+    "artifact_review_direct": ("33e5443440409e1cc29c902fbb82fc16f93f932fa135f14b81dd042b9e7dd496"),
 }
 
 
