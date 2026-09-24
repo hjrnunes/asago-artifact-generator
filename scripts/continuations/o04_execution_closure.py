@@ -235,7 +235,12 @@ def prepare() -> dict[str, Any]:
     old_plan = _read_json(source.members["plan.json"])
     inventory = inputs["inventory"]
     runtime_contract = inputs["runtime_contract"]
-    plan_findings = collect_plan_findings_v2(plan, inventory, runtime_contract)
+    plan_findings = collect_plan_findings_v2(
+        plan,
+        inventory,
+        runtime_contract,
+        legacy=True,
+    )
     if plan_findings:
         raise ValueError(
             f"candidate plan failed v2 checks: {[x.to_dict() for x in plan_findings]}"
@@ -682,7 +687,13 @@ def prepare_artifact_review() -> dict[str, Any]:
     runtime_contract = inputs["runtime_contract"]
     framing = b"```json\n" + _json_bytes(metadata) + b"```\n```python\n" + detector + b"```\n"
     parsed = parse_call2_response(framing)
-    artifact_findings = collect_artifact_findings_v2(parsed, plan, inventory, runtime_contract)
+    artifact_findings = collect_artifact_findings_v2(
+        parsed,
+        plan,
+        inventory,
+        runtime_contract,
+        legacy=True,
+    )
     if artifact_findings:
         raise ValueError(
             f"candidate artifact failed v2 checks: {[x.to_dict() for x in artifact_findings]}"
@@ -1031,7 +1042,13 @@ def package_accepted() -> dict[str, Any]:
     runtime_contract = inputs["runtime_contract"]
     framing = (RUN_ROOT / "candidate-artifact.raw").read_bytes()
     parsed = parse_call2_response(framing)
-    findings = collect_artifact_findings_v2(parsed, plan, inventory, runtime_contract)
+    findings = collect_artifact_findings_v2(
+        parsed,
+        plan,
+        inventory,
+        runtime_contract,
+        legacy=True,
+    )
     if findings:
         raise ValueError(
             f"candidate artifact failed v2 checks at packaging: {[x.to_dict() for x in findings]}"

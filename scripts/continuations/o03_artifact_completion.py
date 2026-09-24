@@ -1098,6 +1098,7 @@ def _parser_schema_plan_gate(
             plan,
             prepared.inventory,
             prepared.runtime_contract,
+            legacy=True,
         )
     ]
     if parsed.metadata.get("semantic_judge_spec") is not None and not any(
@@ -2898,6 +2899,7 @@ def run_dry_run(
         plan,
         prepared.inventory,
         prepared.runtime_contract,
+        legacy=True,
     )
     findings = [item.to_dict() for item in deterministic_findings]
     findings.extend(control_findings)

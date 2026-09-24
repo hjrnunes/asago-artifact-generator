@@ -30,13 +30,16 @@ from tests.test_versioned_prompt_roles import (
 
 _OWNER_SCOPE_LABEL = "OWNER-SUPPLIED SCOPE (NOT OBSERVED TARGET FACTS)"
 # SHA-256 of system + NUL + user bytes captured for these prompt contracts.
-_BASE_REVISION = "authoring-call2-v8 / authoring-correction-v8 / authoring-artifact-review-v5"
+_BASE_REVISION = (
+    "authoring-call1-v5 / authoring-call2-v8 / authoring-correction-v8 / "
+    "authoring-artifact-review-v5"
+)
 _BASE_STAGE_DIGESTS = {
-    "call1": "c2fec4bd57fe3d5b7e5748465dad428d66041f2b2b22f3aacf0a67ea7dcbc448",
+    "call1": "d938d5e37faa45d14e73e68a5b9c6e68238e04cd1d6af33a7c98d5e83d62f033",
     "plan_review": "638bdd7828a07f5953b12b64312dacd5476e3221a4dc7d9a1de33a08c375cdb1",
     "call2": "4769aed1680afc11a72c7b28f29e6dd2745661e31e3807d00c646abb9dcd40d3",
     "artifact_review": "86b01f84ff78afea875fc2801e29926f7357c02520a12db0be540d175a7cce47",
-    "plan_correction": "b6856f885f71e07a9198b6554dfe88fc9a7b605297b14afabb45b39fa608d14c",
+    "plan_correction": "a1c968d5373de5631301c8c44ea92879f05b41f3cbd0c25dcc8fa820453a7706",
     "artifact_correction": "4f8cc5cdffade35da6ba483038a15d091829ff8b0bb7b22505141cc8773bf6d4",
 }
 _OWNER_SCOPE = {

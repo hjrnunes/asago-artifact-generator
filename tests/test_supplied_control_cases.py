@@ -4,8 +4,8 @@ The hook adds caller-supplied `ControlCase` objects (static or resolved from
 the current candidate plan and metadata) to the mechanically derived controls.
 One combined `run_detector_controls` invocation runs both origins, results
 carry `origin: normal|supplied`, and supplied failures reuse the existing
-single artifact correction.  Without the hook, rendered prompt bytes stay
-identical to the base revision.
+single artifact correction. Without the hook, rendered prompt bytes remain
+deterministic and match the pinned current contracts.
 """
 
 from __future__ import annotations
@@ -330,7 +330,7 @@ def test_supplied_control_case_form_is_validated(tmp_path: Path) -> None:
 # Digests of (system + "\x00" + user) rendered for the current prompt contracts
 # without the supplied-controls hook.
 _EXPECTED_NO_HOOK_DIGESTS = {
-    "call1": "673a5cad445ae2c46eca36b1ea7fb6945d774e5b6f9824fe0aaf1da610402895",
+    "call1": "5100693134d3ec1d299f168b1754768e9517c2392332727c62627f526aa3f8ca",
     "plan_review": "b304a27043090312499faef6748574c60308c361a48643a58618c42ecd4c5a45",
     "call2": "1ebf934bc202a5aacb48d5484a458d7d4994eac8ddcb2ca3fff053b8ca5c2c38",
     "artifact_review": "de5796a242ac7735f43506977de5ef53d87050f7982f22db6c1934aeec21ad80",

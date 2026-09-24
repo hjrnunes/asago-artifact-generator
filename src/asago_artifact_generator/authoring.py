@@ -75,6 +75,7 @@ AUTHORING_INTERFACE_VERSION_V2 = "artifact-authoring-v2"
 CALL1_PROMPT_VERSION_V3 = "authoring-call1-v3"
 CALL2_PROMPT_VERSION_V3 = "authoring-call2-v3"
 CORRECTION_PROMPT_VERSION_V3 = "authoring-correction-v3"
+CALL1_PROMPT_VERSION_V5 = "authoring-call1-v5"
 CALL1_PROMPT_VERSION_V4 = "authoring-call1-v4"
 CALL2_PROMPT_VERSION_V4 = "authoring-call2-v4"
 CORRECTION_PROMPT_VERSION_V4 = "authoring-correction-v4"
@@ -88,7 +89,7 @@ CALL2_PROMPT_VERSION_V8 = "authoring-call2-v8"
 CORRECTION_PROMPT_VERSION_V8 = "authoring-correction-v8"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical readers.
-CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V4
+CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V5
 CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V8
 CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V8
 # Semantic-review roles.  Each review is a separate provider request recorded
@@ -1598,6 +1599,7 @@ class O04RefinementContinuation:
                 candidate.plan,
                 candidate.inventory,
                 candidate.runtime_contract,
+                legacy=True,
             )
             deterministic_findings.extend(
                 _o04_meaning_findings(parsed.metadata, candidate.plan, candidate.inventory)
@@ -3672,6 +3674,7 @@ class O04CorrectionContinuation:
             self.artifact.plan,
             self.artifact.inventory,
             self.artifact.runtime_contract,
+            legacy=True,
         )
         meaning_findings = _o04_meaning_findings(
             parsed.metadata,
@@ -4686,12 +4689,18 @@ def _prepare_o04_correction_continuation(
     if saved_runtime != runtime_contract:
         raise O04ContinuationValidationError("O04 saved runtime contract differs")
     _o04_validate_facts(inventory)
-    plan_findings = collect_plan_findings_v2(plan, inventory, runtime_contract)
+    plan_findings = collect_plan_findings_v2(
+        plan,
+        inventory,
+        runtime_contract,
+        legacy=True,
+    )
     artifact_findings = collect_artifact_findings_v2(
         parsed,
         plan,
         inventory,
         runtime_contract,
+        legacy=True,
     )
     deterministic = candidate_evaluation.get("deterministic_checks")
     expected_deterministic = {
@@ -8726,6 +8735,7 @@ def _render_correction_packet(
         )
     payload = deepcopy(correction_context)
     payload.pop("legacy_evidence_interface", None)
+    legacy_plan_interface = payload.pop("legacy_plan_interface", False) is True
     packet = PromptPacket(
         stage="correction",
         version=(
@@ -8735,7 +8745,11 @@ def _render_correction_packet(
                 else CORRECTION_PROMPT_VERSION_V8
             )
             if correction_context.get("stage") == "artifact"
-            else CORRECTION_PROMPT_VERSION_V6
+            else (
+                CORRECTION_PROMPT_VERSION_V6
+                if legacy_plan_interface
+                else CORRECTION_PROMPT_VERSION_V8
+            )
         ),
         system=_CORRECTION_SYSTEM_V5,
         user=_render_correction_sections(tuple(sections)),
@@ -12896,7 +12910,12 @@ def _prepare_a03_recovered_continuation(
         raise A03ContinuationValidationError("A03 operation inventory hash does not match")
     if _sha256(runtime_path.read_bytes()) != runtime_pin.get("sha256"):
         raise A03ContinuationValidationError("A03 runtime contract hash does not match")
-    plan_findings = collect_plan_findings_v2(plan, inventory, runtime_contract)
+    plan_findings = collect_plan_findings_v2(
+        plan,
+        inventory,
+        runtime_contract,
+        legacy=True,
+    )
     if plan_findings:
         raise A03ContinuationValidationError(
             f"accepted A03 plan fails deterministic checks: {plan_findings[0].detail}"
@@ -12921,7 +12940,13 @@ def _prepare_a03_recovered_continuation(
         raise A03ContinuationValidationError(
             "recovered A03 artifact cannot be parsed by the current Call 2 parser"
         ) from exc
-    artifact_findings = collect_artifact_findings_v2(parsed, plan, inventory, runtime_contract)
+    artifact_findings = collect_artifact_findings_v2(
+        parsed,
+        plan,
+        inventory,
+        runtime_contract,
+        legacy=True,
+    )
     deterministic = candidate_evaluation.get("deterministic_checks")
     if not isinstance(deterministic, dict):
         raise A03ContinuationValidationError("recorded deterministic A03 results are malformed")
@@ -13592,10 +13617,12 @@ def build_plan_author_context(
     view: InputView,
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    *,
+    legacy_interface: bool = False,
 ) -> dict[str, Any]:
     """Build the source-derived context for the plan author role."""
 
-    response_contract = _call1_contract_v2()
+    response_contract = _call1_contract_v2(legacy=legacy_interface)
     context = {
         "task": {
             "instruction": (
@@ -14177,9 +14204,11 @@ def build_correction_context(
                     "Return one complete plan replacement as one bare JSON object or "
                     "exactly one lowercase ```json fenced JSON object."
                 ),
-                "response_contract": _call1_contract_v2(),
+                "response_contract": _call1_contract_v2(legacy=legacy_interface),
             }
         )
+        if legacy_interface:
+            context["legacy_plan_interface"] = True
         context["instruction"] = (
             instruction + " Call 1 uses one bare JSON object or exactly one lowercase ```json "
             "fenced JSON object. " + _PLAN_CORRECTION_GUIDANCE
@@ -14308,6 +14337,7 @@ def build_call1_packet_v2(
     runtime_contract: dict[str, Any],
     *,
     max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
+    legacy: bool = False,
 ) -> PromptPacket:
     """Render the v3 plan-author prompt over the unchanged v2 response wire."""
 
@@ -14315,9 +14345,14 @@ def build_call1_packet_v2(
         view=view,
         inventory=inventory,
         runtime_contract=runtime_contract,
-        response_contract=_call1_contract_v2(),
+        response_contract=_call1_contract_v2(legacy=legacy),
     )
-    context = build_plan_author_context(view, inventory, runtime_contract)
+    context = build_plan_author_context(
+        view,
+        inventory,
+        runtime_contract,
+        legacy_interface=legacy,
+    )
     payload.update(
         {
             "task": context["task"],
@@ -14333,7 +14368,7 @@ def build_call1_packet_v2(
     assert_no_prompt_secrets(payload)
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V4,
+        version=CALL1_PROMPT_VERSION_V4 if legacy else CALL1_PROMPT_VERSION_V5,
         system=_CALL1_SYSTEM_V3,
         user=_render_sections(
             (
@@ -14497,7 +14532,7 @@ def build_plan_review_packet(
     *,
     max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
 ) -> PromptPacket:
-    """Render a fresh, source-derived plan-review prompt."""
+    """Render a fresh source-derived plan-review prompt."""
 
     context = build_plan_reviewer_context(view, plan, inventory, runtime_contract)
     payload = {
@@ -15100,6 +15135,8 @@ def collect_plan_findings_v2(
     plan: Any,
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    *,
+    legacy: bool = False,
 ) -> list[Finding]:
     """Validate a v2 plan while retaining the historical v1 validator."""
 
@@ -15107,8 +15144,9 @@ def collect_plan_findings_v2(
         plan,
         inventory,
         runtime_contract,
-        _call1_contract_v2(),
+        _call1_contract_v2(legacy=legacy),
         wire_version="v2",
+        legacy=legacy,
     )
 
 
@@ -15117,6 +15155,8 @@ def collect_artifact_findings_v2(
     plan: dict[str, Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    *,
+    legacy: bool = False,
 ) -> list[Finding]:
     """Validate v2 metadata and its plan-owned context."""
 
@@ -15234,6 +15274,7 @@ def collect_artifact_findings_v2(
                 declared_bindings,
                 plan.get("runtime_bindings"),
                 safe_behavior=_plan_safe_behavior(plan),
+                legacy=legacy,
             )
         )
     return findings
@@ -15246,6 +15287,7 @@ def _collect_plan_findings_with_contract(
     contract: dict[str, Any],
     *,
     wire_version: str,
+    legacy: bool = False,
 ) -> list[Finding]:
     """Run the existing validator with a version-specific root contract."""
 
@@ -15334,6 +15376,27 @@ def _collect_plan_findings_with_contract(
             and finding.code == "missing_field"
         )
     ]
+    if not legacy:
+        unresolved = plan.get("unresolved_requirements")
+        if isinstance(unresolved, list):
+            for index, item in enumerate(unresolved):
+                if (
+                    isinstance(item, dict)
+                    and item.get("essential") is True
+                    and item.get("obtainable_via_setup") is False
+                    and item.get("source_kind") == "setup_output"
+                ):
+                    findings.append(
+                        Finding(
+                            "unobtainable_essential_requirement",
+                            (
+                                "an essential requirement that cannot be obtained blocks "
+                                "the plan; a requirement that is not needed for the "
+                                "experiment is not essential"
+                            ),
+                            f"unresolved_requirements[{index}]",
+                        )
+                    )
     declared_bindings = _declared_binding_names(plan.get("runtime_bindings"))
     prerequisites = plan.get("prerequisites")
     if isinstance(prerequisites, list):
@@ -15344,6 +15407,7 @@ def _collect_plan_findings_with_contract(
                 declared_bindings,
                 plan.get("runtime_bindings"),
                 safe_behavior=_plan_safe_behavior(plan),
+                legacy=legacy,
             )
         )
     return findings
@@ -16833,6 +16897,7 @@ def _collect_canonical_prerequisite_findings(
     runtime_bindings: Any,
     *,
     safe_behavior: str | None = None,
+    legacy: bool = False,
 ) -> list[Finding]:
     """Validate the closed prerequisite form used by the v2 plan wire."""
 
@@ -16910,6 +16975,27 @@ def _collect_canonical_prerequisite_findings(
                     f"{path}.equals",
                 )
             )
+        expected_types = _declared_binding_expected_types(runtime_bindings)
+        expected_type = expected_types.get(binding) if isinstance(binding, str) else None
+        if (
+            not legacy
+            and expected_type in CLOSED_TYPES
+            and "equals" in prerequisite
+            and prerequisite["equals"] is not None
+            and _is_json_value(prerequisite["equals"])
+        ):
+            equals_type = _json_value_type(prerequisite["equals"])
+            if not _binding_types_compatible(equals_type, expected_type):
+                findings.append(
+                    Finding(
+                        "prerequisite_type_mismatch",
+                        (
+                            f"prerequisite binding {binding} has expected_type "
+                            f"{expected_type}, but equals has JSON type {equals_type}"
+                        ),
+                        f"{path}.equals",
+                    )
+                )
         evidence_refs = prerequisite.get("evidence_refs")
         if isinstance(evidence_refs, list):
             for ref_index, ref in enumerate(evidence_refs):
@@ -17000,6 +17086,20 @@ def _declared_binding_names(runtime_bindings: Any) -> set[str]:
         item["name"]
         for item in runtime_bindings
         if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+
+
+def _declared_binding_expected_types(runtime_bindings: Any) -> dict[str, str]:
+    if not isinstance(runtime_bindings, list):
+        return {}
+    return {
+        item["name"]: item["expected_type"]
+        for item in runtime_bindings
+        if (
+            isinstance(item, dict)
+            and isinstance(item.get("name"), str)
+            and isinstance(item.get("expected_type"), str)
+        )
     }
 
 
@@ -17398,7 +17498,12 @@ def prepare_saved_plan_continuation_v2(
                 "provenance.wire_version",
             )
         )
-    plan_findings = collect_plan_findings_v2(saved_plan, inventory, runtime_contract)
+    plan_findings = collect_plan_findings_v2(
+        saved_plan,
+        inventory,
+        runtime_contract,
+        legacy=True,
+    )
     findings.extend(plan_findings)
     meaning_digest = _plan_meaning_digest(saved_plan)
     if provenance.get("meaning_sha256") != meaning_digest:
@@ -18480,6 +18585,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
     if packet.version in {
         CALL1_PROMPT_VERSION_V3,
         CALL1_PROMPT_VERSION_V4,
+        CALL1_PROMPT_VERSION_V5,
         CALL2_PROMPT_VERSION_V3,
         CALL2_PROMPT_VERSION_V4,
         CALL2_PROMPT_VERSION_V5,
@@ -18611,6 +18717,24 @@ def _is_json_value(value: Any) -> bool:
     if isinstance(value, dict):
         return all(isinstance(key, str) and _is_json_value(item) for key, item in value.items())
     return False
+
+
+def _json_value_type(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return type(value).__name__
 
 
 def _matches_schema_type(value: Any, schema_type: str) -> bool:
@@ -18751,7 +18875,7 @@ def _call1_contract_v1() -> dict[str, Any]:
     }
 
 
-def _call1_contract_v2() -> dict[str, Any]:
+def _call1_contract_v2(*, legacy: bool = False) -> dict[str, Any]:
     """Return the closed root for the current model-facing plan wire."""
 
     contract = json.loads(_canonical_json(_call1_contract_v1()))
@@ -18787,7 +18911,9 @@ def _call1_contract_v2() -> dict[str, Any]:
         "type": "object",
         "description": _PLAN_FIELD_MEANING_TEXT["required_observations"],
     }
-    contract["schema"]["properties"]["prerequisites"] = _canonical_prerequisite_schema()
+    contract["schema"]["properties"]["prerequisites"] = _canonical_prerequisite_schema(
+        legacy=legacy
+    )
     contract["interface_version"] = AUTHORING_INTERFACE_VERSION_V2
     contract["rules"] = [
         "Return exactly these root fields; do not add fields or generate IDs/digests.",
@@ -18813,6 +18939,39 @@ def _call1_contract_v2() -> dict[str, Any]:
             "malformed JSON",
         ],
     }
+    if not legacy:
+        contract.pop("empty_shapes", None)
+        contract["empty_value_guidance"] = [
+            {
+                "field": "setup_recipe",
+                "value": [],
+                "when": "setup is unavailable or no permitted setup operation is needed",
+            },
+            {
+                "field": "runtime_bindings",
+                "value": [],
+                "when": "the experiment needs no runtime-resolved values",
+            },
+            {
+                "field": "runtime_bindings",
+                "value": [],
+                "when": "the stimulus is already concrete and needs no setup-derived value",
+            },
+            {
+                "field": "prerequisites",
+                "value": [],
+                "when": "no executable starting condition is required",
+            },
+            {
+                "field": "unresolved_requirements",
+                "value": [],
+                "when": "all requirements needed for the experiment are resolved",
+            },
+        ]
+        contract["empty_value_guidance_note"] = (
+            "Each entry names an existing response field and the value to use in the "
+            "stated situation. The entries are not additional response fields."
+        )
     return contract
 
 
@@ -19346,7 +19505,7 @@ def _prerequisite_schema() -> dict[str, Any]:
     }
 
 
-def _canonical_prerequisite_schema() -> dict[str, Any]:
+def _canonical_prerequisite_schema(*, legacy: bool = False) -> dict[str, Any]:
     """Return the closed executable prerequisite schema for the v2 wire."""
 
     return {
@@ -19357,7 +19516,20 @@ def _canonical_prerequisite_schema() -> dict[str, Any]:
             "additionalProperties": False,
             "properties": {
                 "name": {"type": "string"},
-                "check": {"type": "string"},
+                "check": {
+                    "type": "string",
+                    **(
+                        {}
+                        if legacy
+                        else {
+                            "description": (
+                                "A short human-readable description of the starting "
+                                "condition. The check is not evaluated; downstream "
+                                "compares the declared binding's resolved value to equals."
+                            )
+                        }
+                    ),
+                },
                 "evidence_refs": {"type": "array", "items": {"type": "string"}},
                 "binding": {
                     "type": "string",
@@ -20543,6 +20715,7 @@ __all__ = [
     "CALL1_PROMPT_VERSION_V2",
     "CALL1_PROMPT_VERSION_V3",
     "CALL1_PROMPT_VERSION_V4",
+    "CALL1_PROMPT_VERSION_V5",
     "CALL2_PROMPT_VERSION",
     "CALL2_PROMPT_VERSION_V2",
     "CALL2_PROMPT_VERSION_V3",

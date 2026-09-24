@@ -8,12 +8,16 @@ import pytest
 
 from asago_artifact_generator.authoring import (
     ARTIFACT_REVIEW_PROMPT_VERSION_V4,
+    CALL1_PROMPT_VERSION_V4,
+    CORRECTION_PROMPT_VERSION_V6,
     _render_correction_packet,
     _render_evidence_packet_interface,
     artifact_observation_guide,
     build_artifact_author_context,
     build_artifact_review_packet,
+    build_call1_packet_v2,
     build_correction_context,
+    build_plan_author_context,
     evidence_packet_contract,
 )
 from asago_artifact_generator.detector_controls import DetectorControlFeedback
@@ -49,6 +53,11 @@ _LEGACY_PROMPT_DIGESTS = {
 }
 
 _LEGACY_CONTRACT_DIGEST = "afce7f1f4f7723729ec0a0949e63cc67bad377ac76dd412a042a460327507882"
+
+_LEGACY_V2_PROMPT_DIGESTS = {
+    "call1": "c2fec4bd57fe3d5b7e5748465dad428d66041f2b2b22f3aacf0a67ea7dcbc448",
+    "plan_correction": "b6856f885f71e07a9198b6554dfe88fc9a7b605297b14afabb45b39fa608d14c",
+}
 
 
 def _digest(value: str | bytes) -> str:
@@ -192,3 +201,34 @@ def test_legacy_artifact_correction_matches_base_f433560(
     packet = _render_correction_packet(correction)
 
     assert _prompt_digest(packet) == _LEGACY_PROMPT_DIGESTS[f"correction:{name}"]
+
+
+def test_legacy_v2_call1_matches_head_before_contract_hazards() -> None:
+    packet = build_call1_packet_v2(
+        _view(),
+        _inventory(),
+        _runtime_contract(),
+        legacy=True,
+    )
+
+    assert packet.version == CALL1_PROMPT_VERSION_V4
+    assert _prompt_digest(packet) == _LEGACY_V2_PROMPT_DIGESTS["call1"]
+
+
+def test_legacy_v2_plan_correction_matches_head_before_contract_hazards() -> None:
+    context = build_correction_context(
+        failed_stage="call1",
+        original_context=build_plan_author_context(
+            _view(),
+            _inventory(),
+            _runtime_contract(),
+            legacy_interface=True,
+        ),
+        current_output="{}",
+        findings=[],
+        legacy_interface=True,
+    )
+    packet = _render_correction_packet(context)
+
+    assert packet.version == CORRECTION_PROMPT_VERSION_V6
+    assert _prompt_digest(packet) == _LEGACY_V2_PROMPT_DIGESTS["plan_correction"]
