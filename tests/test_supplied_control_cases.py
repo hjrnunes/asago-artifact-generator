@@ -157,6 +157,7 @@ def test_control_case_provider_receives_candidate_plan_and_metadata(tmp_path: Pa
                     "tool_calls": [],
                     "availability": {"tool_calls": "not_captured"},
                     "completeness": {"tool_calls": "unknown"},
+                    "provider_probe": True,
                 },
                 expected_outcome="inconclusive",
                 expected_claim_level="command_attempt",

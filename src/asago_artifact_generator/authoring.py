@@ -9697,6 +9697,60 @@ def _mark_control_origins(
         record["origin"] = "normal" if index < normal_count else "supplied"
 
 
+def _deduplicate_control_cases(
+    normal_cases: Sequence[ControlCase],
+    supplied_cases: Sequence[ControlCase],
+) -> tuple[tuple[ControlCase, ...], dict[str, Any]]:
+    """Drop supplied cases that exactly duplicate generated expectations."""
+
+    generated = tuple(normal_cases)
+    supplied = tuple(supplied_cases)
+    selected = list(generated)
+    duplicates_dropped: list[dict[str, str]] = []
+    conflicts: list[dict[str, str]] = []
+    generated_by_evidence: dict[str, list[ControlCase]] = {}
+    for case in generated:
+        evidence_key = _canonical_json(case.evidence)
+        generated_by_evidence.setdefault(evidence_key, []).append(case)
+
+    for supplied_case in supplied:
+        evidence_key = _canonical_json(supplied_case.evidence)
+        matching_generated = generated_by_evidence.get(evidence_key, [])
+        exact_matches = [
+            case
+            for case in matching_generated
+            if (
+                case.expected_outcome == supplied_case.expected_outcome
+                and case.expected_claim_level == supplied_case.expected_claim_level
+            )
+        ]
+        if exact_matches:
+            duplicates_dropped.append(
+                {
+                    "supplied_name": supplied_case.name,
+                    "generated_name": exact_matches[0].name,
+                }
+            )
+            continue
+        for generated_case in matching_generated:
+            conflicts.append(
+                {
+                    "supplied_name": supplied_case.name,
+                    "generated_name": generated_case.name,
+                    "reason": "same_evidence_different_expectation",
+                }
+            )
+        selected.append(supplied_case)
+
+    return tuple(selected), {
+        "generated_count": len(generated),
+        "supplied_count": len(supplied),
+        "executed_count": len(selected),
+        "duplicates_dropped": duplicates_dropped,
+        "conflicts": conflicts,
+    }
+
+
 class AuthoringOrchestrator:
     """Run target-free authoring with legacy or stage-local correction policy.
 
@@ -10336,9 +10390,10 @@ class AuthoringOrchestrator:
             inventory,
         )
         supplied_cases = self._resolve_supplied_control_cases(plan, parsed.metadata)
+        cases, deduplication = _deduplicate_control_cases(normal_cases, supplied_cases)
         raw_findings, controls = run_detector_controls(
             parsed.python_bytes,
-            cases=[*normal_cases, *supplied_cases],
+            cases=cases,
             plan=plan,
             metadata=parsed.metadata,
             inventory=inventory,
@@ -10348,13 +10403,15 @@ class AuthoringOrchestrator:
             _mark_control_origins(controls, len(normal_cases))
         self._last_controls = controls
         self._last_detector_feedback = build_detector_feedback(
-            [*normal_cases, *supplied_cases],
+            cases,
             controls,
         )
         if self._ledger:
             self._ledger[-1]["detector_controls"] = controls
+            self._ledger[-1]["control_deduplication"] = deepcopy(deduplication)
         if self._failure_evidence.get("attempts"):
             self._failure_attempt()["detector_controls"] = controls
+            self._failure_attempt()["control_deduplication"] = deepcopy(deduplication)
         control_findings = [
             Finding(item["code"], item["detail"], item.get("path", "")) for item in raw_findings
         ]
@@ -10922,8 +10979,11 @@ class AuthoringOrchestrator:
         """Replace one failed v2 response in its original stage format.
 
         With ``stage_allowance`` the caller owns the stage-local allowance
-        decision and the shared legacy guard is bypassed; without one the
-        historical single shared-correction boolean applies.
+        decision and the shared legacy guard is bypassed. In that mode, a
+        syntactically valid candidate is returned with its validation findings
+        so the caller can run controls before deciding whether to correct again.
+        Without one, the historical single shared-correction boolean and
+        fail-fast behavior apply.
         """
 
         if stage_allowance is None:
@@ -11060,6 +11120,8 @@ class AuthoringOrchestrator:
                 ]
                 self._findings.extend(replacement_findings)
                 self._record_failures(replacement_findings)
+                if stage_allowance is not None:
+                    return validation_value, replacement_findings, raw
                 return None
         except (Call1FramingError, Call2FramingError) as exc:
             self._ledger[-1]["framing_findings"] = [finding.to_dict() for finding in exc.findings]
@@ -11260,23 +11322,43 @@ class AuthoringOrchestrator:
                     )
                 findings = list(self._semantic_finding_objects(outcome, "plan"))
                 correction_packet = build_call1_packet_v2(view, inventory, runtime_contract)
-                replacement = self._correction_v2(
-                    failed_stage="call1",
-                    failed_packet=correction_packet,
-                    failed_response=_canonical_json(current_plan).encode("utf-8"),
-                    findings=findings,
-                    view=view,
-                    inventory=inventory,
-                    runtime_contract=runtime_contract,
-                    stage_allowance="plan",
-                )
-                if replacement is None or not isinstance(replacement[0], dict):
-                    return self._policy_result(
-                        "unresolved",
-                        current_plan,
-                        tuple(self._findings or findings),
+                failed_response = _canonical_json(current_plan).encode("utf-8")
+                while True:
+                    replacement = self._correction_v2(
+                        failed_stage="call1",
+                        failed_packet=correction_packet,
+                        failed_response=failed_response,
+                        findings=findings,
+                        view=view,
+                        inventory=inventory,
+                        runtime_contract=runtime_contract,
+                        stage_allowance="plan",
                     )
-                current_plan = replacement[0]
+                    if replacement is None or not isinstance(replacement[0], dict):
+                        return self._policy_result(
+                            "unresolved",
+                            current_plan,
+                            tuple(self._findings or findings),
+                        )
+                    corrected_plan, correction_findings, failed_response = replacement
+                    if correction_findings:
+                        if not self._consume_allowance("plan"):
+                            return self._policy_result(
+                                "unresolved",
+                                current_plan,
+                                [
+                                    *correction_findings,
+                                    Finding(
+                                        "correction_limit_exhausted",
+                                        "plan correction allowance is exhausted",
+                                        "plan",
+                                    ),
+                                ],
+                            )
+                        findings = list(correction_findings)
+                        continue
+                    current_plan = corrected_plan
+                    break
                 self._decoded_responses["call1"] = current_plan
                 review_packet = build_plan_review_packet(
                     view, current_plan, inventory, runtime_contract
@@ -11414,8 +11496,13 @@ class AuthoringOrchestrator:
                         if stop is not None:
                             return stop
                         return _StageStop("unresolved", tuple(self._findings or pending))
-                    candidate, _correction_findings, raw = corrected
-                    pending = None
+                    candidate, correction_findings, raw = corrected
+                    if correction_findings:
+                        pending = list(correction_findings)
+                        candidate = None
+                        continue
+                    else:
+                        pending = None
             assert candidate is not None
             if _is_blocked_plan(candidate):
                 _persist_blocked_plan(self.package_dir, candidate)
@@ -11529,21 +11616,30 @@ class AuthoringOrchestrator:
                         if stop is not None:
                             return stop
                         return _StageStop("unresolved", tuple(self._findings or pending))
-                    parsed, _correction_findings, raw = correction
-                    control_findings = self._run_detector_controls(
-                        parsed,
+                    corrected_candidate, correction_findings, raw = correction
+                    if not isinstance(corrected_candidate, ParsedCall2Response):
+                        stop = self._stop_for_author_findings(list(self._findings))
+                        if stop is not None:
+                            return stop
+                        return _StageStop(
+                            "unresolved",
+                            tuple(self._findings or correction_findings),
+                        )
+                    pending = self._run_detector_controls(
+                        corrected_candidate,
                         plan,
                         inventory,
                         runtime_contract,
-                        [],
+                        list(correction_findings),
                     )
-                    if control_findings:
-                        # The corrected bytes failed their own controls; treat
-                        # the findings like any other mechanical failure of
-                        # this stage.
-                        pending = control_findings
+                    if pending:
+                        # A corrected candidate can fail deterministic checks,
+                        # controls, or both. Keep every finding and use the
+                        # latest candidate/control feedback for the next
+                        # correction while allowance remains.
                         parsed = None
                         continue
+                    parsed = corrected_candidate
             assert parsed is not None
             if not policy.review_artifact:
                 self._review_status["artifact"] = "not_requested"
