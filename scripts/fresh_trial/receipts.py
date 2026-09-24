@@ -312,9 +312,54 @@ def _case_receipt(
         ),
         None,
     )
-    terminal_stage = (
-        findings[-1].get("path") if findings else (ledger[-1].get("stage") if ledger else None)
+    stage_names = {"call1", "call2", "correction", "plan_review", "artifact_review"}
+    terminal_stage = next(
+        (
+            finding.get("path")
+            for finding in reversed(findings)
+            if finding.get("code") in {"prompt_overflow", "budget_exhausted"}
+            and finding.get("path") in stage_names
+        ),
+        None,
     )
+    if terminal_stage is None and ledger:
+        last_stage = ledger[-1].get("stage")
+        terminal_stage = last_stage if last_stage in stage_names else None
+    model_identity_indexes: dict[tuple[str | None, str | None, str | None], int] = {}
+    model_identities: list[dict[str, Any]] = []
+    for record in ledger:
+        identity = record.get("model_identity")
+        if not isinstance(identity, dict):
+            identity = {}
+        profile_alias = identity.get("profile_alias")
+        if not isinstance(profile_alias, str):
+            profile_alias = None
+        requested_model = identity.get("requested_model")
+        if not isinstance(requested_model, str):
+            requested_model = None
+        returned_record = identity.get("returned_model")
+        returned_model = (
+            returned_record.get("value")
+            if isinstance(returned_record, dict)
+            and returned_record.get("availability") == "available"
+            else None
+        )
+        if not isinstance(returned_model, str):
+            returned_model = None
+        key = (profile_alias, requested_model, returned_model)
+        identity_index = model_identity_indexes.get(key)
+        if identity_index is not None:
+            model_identities[identity_index]["dispatches"] += 1
+        else:
+            model_identity_indexes[key] = len(model_identities)
+            model_identities.append(
+                {
+                    "profile_alias": profile_alias,
+                    "requested_model": requested_model,
+                    "returned_model": returned_model,
+                    "dispatches": 1,
+                }
+            )
     failure_path = getattr(result, "failure_evidence_path", None)
     return {
         "schema_version": _CASE_RECEIPT_SCHEMA_VERSION,
@@ -322,7 +367,9 @@ def _case_receipt(
         "status": getattr(result, "status", "unknown"),
         "terminal_stage": terminal_stage,
         "reason": findings[0].get("code") if findings else getattr(result, "status", None),
+        "reason_path": findings[0].get("path") if findings else None,
         "findings_summary": findings,
+        "model_identities": model_identities,
         "prompt_versions_and_digests": prompt_records,
         "role_counts": role_counts,
         "tokens": tokens,

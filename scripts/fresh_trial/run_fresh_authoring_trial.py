@@ -263,6 +263,7 @@ def run_authoring_batch(
             "status": "running",
             "live_dispatch_enabled": True,
             "outage_stopped": False,
+            "transport_constructed": False,
             "started_at": status.get("started_at", _utc_now()),
             "updated_at": _utc_now(),
         }
@@ -320,9 +321,17 @@ def run_authoring_batch(
         status["active_case"] = case_id
         status["updated_at"] = _utc_now()
         _write_json_atomic(status_path, status)
+        transport_factory_failed = False
         try:
             if shared_transport is None:
-                shared_transport = transport_factory()
+                try:
+                    shared_transport = transport_factory()
+                except Exception:
+                    transport_factory_failed = True
+                    raise
+                status["transport_constructed"] = True
+                status["updated_at"] = _utc_now()
+                _write_json_atomic(status_path, status)
             timed_transport = TimedAuthoringTransport(
                 shared_transport,
                 timings_path=authoring_root / "call-timings.jsonl",
@@ -359,7 +368,7 @@ def run_authoring_batch(
             )
         except Exception as exc:
             failure_code = (
-                "transport_construction_failed" if budget.total_dispatched == 0 else "caller_error"
+                "transport_construction_failed" if transport_factory_failed else "caller_error"
             )
             receipt = {
                 "schema_version": _CASE_RECEIPT_SCHEMA_VERSION,
@@ -382,14 +391,37 @@ def run_authoring_batch(
                 _set_case_status(status, later_id, "unattempted", reason=stopped_reason)
             break
 
+        ledger = list(getattr(result, "ledger", []))
+        raw_responses = getattr(result, "raw_responses", {})
+        if not isinstance(raw_responses, Mapping):
+            raw_responses = {}
         _write_json_atomic(
             case_raw_dir / "authoring" / "ledger.json",
             {
                 "schema_version": "fresh-five-case-authoring-ledger-v1",
                 "task_id": case_id,
-                "ledger": list(getattr(result, "ledger", [])),
+                "ledger": ledger,
             },
         )
+        authoring_raw_dir = (case_raw_dir / "authoring").resolve()
+        for record in ledger:
+            raw_response_key = record.get("raw_response_key")
+            raw_response_path = record.get("raw_response")
+            if not isinstance(raw_response_path, str):
+                continue
+            destination = (case_raw_dir / raw_response_path).resolve()
+            try:
+                destination.relative_to(authoring_raw_dir)
+            except ValueError as exc:
+                raise TrialInputError(
+                    f"raw response path escapes authoring evidence directory: {raw_response_path}"
+                ) from exc
+            raw_response = (
+                raw_responses.get(raw_response_key) if isinstance(raw_response_key, str) else None
+            )
+            if raw_response is None:
+                continue
+            _write_bytes_atomic(destination, raw_response)
         receipt = _case_receipt(
             case_id,
             result,

@@ -903,6 +903,7 @@ class TransportResponse:
     usage: dict[str, Any] | None = None
     controls: dict[str, Any] | None = None
     response_capture: dict[str, Any] | None = None
+    provider_model: str | None = None
 
 
 @dataclass
@@ -9618,6 +9619,9 @@ class PrivateModelAuthoringTransport:
         response = self._client.chat.completions.create(**request)
         choice = response.choices[0]
         message = choice.message
+        provider_model = getattr(response, "model", None)
+        if not isinstance(provider_model, str) or not provider_model.strip():
+            provider_model = None
         content = _provider_field(message, "content")
         if content is _MISSING or content is None:
             raw = b""
@@ -9640,6 +9644,7 @@ class PrivateModelAuthoringTransport:
             usage=usage,
             controls=controls,
             response_capture=_provider_response_capture(choice, message),
+            provider_model=provider_model,
         )
 
     def preflight_context_budget(
@@ -10730,6 +10735,17 @@ class AuthoringOrchestrator:
             if packet.stage == "correction"
             else 0
         )
+        profile_alias = getattr(self.transport, "profile_name", None)
+        if not isinstance(profile_alias, str) or not profile_alias.strip():
+            profile_alias = None
+        requested_model = getattr(self.transport, "model", None)
+        if not isinstance(requested_model, str) or not requested_model.strip():
+            requested_model = None
+        model_identity = {
+            "profile_alias": profile_alias,
+            "requested_model": requested_model,
+            "returned_model": metadata_record(None, unavailable_reason="not_returned"),
+        }
         policy_record = (
             self._effective_policy_record()
             if self.policy is not None
@@ -10754,7 +10770,8 @@ class AuthoringOrchestrator:
             "prompt_user": packet.user,
             "controls": {"max_retries": 0},
             "policy": deepcopy(policy_record),
-            "raw_response": f"authoring/{dispatch_index}-{packet.stage}.raw",
+            "raw_response": f"authoring/{len(self._ledger) + 1:02d}-{packet.stage}.raw",
+            "model_identity": model_identity,
             "terminal_status": "in_progress",
         }
         if packet.stage in _REVIEW_STAGES:
@@ -10803,6 +10820,7 @@ class AuthoringOrchestrator:
                     {"max_retries": 0},
                     unavailable_reason="controls_not_recorded",
                 ),
+                "model_identity": deepcopy(model_identity),
                 "raw_response": raw_response_record(b"", reason="not_returned"),
                 "usage": metadata_record(None, unavailable_reason="not_returned"),
                 "findings": [],
@@ -10817,6 +10835,15 @@ class AuthoringOrchestrator:
             ]
         self._persist_failure_evidence()
         response = self.transport.complete(packet)
+        provider_model = (
+            response.provider_model if isinstance(response, TransportResponse) else None
+        )
+        returned_model = metadata_record(
+            provider_model,
+            unavailable_reason="provider_did_not_report_model",
+        )
+        record["model_identity"]["returned_model"] = returned_model
+        self._failure_attempt()["model_identity"]["returned_model"] = deepcopy(returned_model)
         raw, usage, controls, response_capture = _response_parts(response)
         raw_key = f"dispatch:{dispatch_index}"
         self._raw_responses[raw_key] = raw
