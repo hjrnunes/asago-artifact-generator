@@ -241,6 +241,7 @@ def test_legacy_current_plan_correction_v10_matches_head_before_binding_contract
             _view(),
             _inventory(),
             _runtime_contract(),
+            legacy_binding_contract=True,
         ),
         current_output="{}",
         findings=[],

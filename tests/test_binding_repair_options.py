@@ -24,6 +24,7 @@ def _context(
     findings: list[Finding],
     *,
     legacy: bool = False,
+    legacy_binding_contract: bool | None = None,
 ):
     return build_correction_context(
         failed_stage="call1",
@@ -32,6 +33,7 @@ def _context(
             inventory,
             runtime_contract,
             legacy_interface=legacy,
+            legacy_binding_contract=legacy_binding_contract,
         ),
         current_output=json.dumps(candidate),
         findings=findings,
@@ -107,6 +109,7 @@ def test_legacy_v9_render_matches_head_2097438() -> None:
                     "runtime_bindings[0].selector",
                 ),
             ],
+            legacy_binding_contract=True,
         ),
         legacy_v9=True,
     )
@@ -119,7 +122,13 @@ def test_legacy_v9_render_matches_head_2097438() -> None:
 
 
 def test_legacy_v10_without_binding_options_preserves_v9_prompt_bytes() -> None:
-    context = _context(_candidate(), _inventory(), _runtime_contract(), [])
+    context = _context(
+        _candidate(),
+        _inventory(),
+        _runtime_contract(),
+        [],
+        legacy_binding_contract=True,
+    )
 
     v9 = _render_correction_packet(context, legacy_v9=True)
     v10 = _render_correction_packet(context, legacy_v10=True)
