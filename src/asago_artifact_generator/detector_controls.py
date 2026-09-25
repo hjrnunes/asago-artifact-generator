@@ -444,8 +444,6 @@ def build_control_cases(
     plan: Mapping[str, Any],
     metadata: Mapping[str, Any],
     inventory: Mapping[str, Any],
-    *,
-    include_content_references: bool = True,
 ) -> list[ControlCase]:
     """Build only controls supported by the accepted typed plan and inventory."""
 
@@ -463,19 +461,6 @@ def build_control_cases(
 
     if _judge_is_declared(plan, metadata):
         judge_cases = _judge_cases(claim_level, bindings=bindings)
-        if not include_content_references:
-            # Historical continuation recipes pin the original control bytes.
-            judge_cases = [
-                case
-                for case in judge_cases
-                if case.name
-                not in {
-                    "judge-content-supported",
-                    "judge-content-contradicted",
-                    "judge-json-pointer-supported",
-                    "judge-json-pointer-contradicted",
-                }
-            ]
         cases.extend(judge_cases)
 
     target = _command_target(plan, inventory)

@@ -734,18 +734,20 @@ def test_legacy_plan_correction_does_not_render_binding_options() -> None:
 
 
 def test_static_repair_fields_are_case_independent_and_separate_from_options() -> None:
-    a03_packet = _unknown_binding_packet("a03_binding")
-    g07_packet = _unknown_binding_packet("g07_binding")
+    first_packet = _unknown_binding_packet("first_binding")
+    second_packet = _unknown_binding_packet("second_binding")
 
-    a03_fields = _section(a03_packet, "BINDING REPAIR OPTION FIELDS", "BINDING REPAIR OPTIONS")
-    g07_fields = _section(g07_packet, "BINDING REPAIR OPTION FIELDS", "BINDING REPAIR OPTIONS")
-    assert a03_fields == g07_fields
-    assert "a03_binding" not in a03_fields
-    assert "g07_binding" not in g07_fields
+    first_fields = _section(first_packet, "BINDING REPAIR OPTION FIELDS", "BINDING REPAIR OPTIONS")
+    second_fields = _section(
+        second_packet, "BINDING REPAIR OPTION FIELDS", "BINDING REPAIR OPTIONS"
+    )
+    assert first_fields == second_fields
+    assert "first_binding" not in first_fields
+    assert "second_binding" not in second_fields
 
-    a03_options = _section(a03_packet, "BINDING REPAIR OPTIONS", "CORRECTION INSTRUCTIONS")
-    assert '"description"' not in a03_options
-    assert '"field_descriptions"' not in a03_options
+    options = _section(first_packet, "BINDING REPAIR OPTIONS", "CORRECTION INSTRUCTIONS")
+    assert '"description"' not in options
+    assert '"field_descriptions"' not in options
 
 
 def test_duplicate_findings_produce_one_option_per_kind_and_path() -> None:

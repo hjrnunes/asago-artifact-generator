@@ -341,7 +341,7 @@ def _reference_classification_view(source: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_comparison_inputs(view: InputView) -> dict[str, Any]:
-    """Return sealed answer-bearing evidence for offline comparison only."""
+    """Return answer-bearing evidence for offline comparison only."""
 
     return {
         "source_snapshot": {

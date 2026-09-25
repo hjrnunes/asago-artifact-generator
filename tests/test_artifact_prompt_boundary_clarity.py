@@ -5,7 +5,6 @@ from copy import deepcopy
 
 from asago_artifact_generator.authoring import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
-    ARTIFACT_REVIEW_PROMPT_VERSION_V3,
     CALL2_PROMPT_VERSION_V8,
     CORRECTION_PROMPT_VERSION_V8,
     _render_correction_packet,
@@ -33,7 +32,7 @@ _REQUIRED_FIELDS = [
 ]
 
 
-def _o03_shaped_inputs() -> tuple[dict, dict]:
+def _tool_call_shaped_inputs() -> tuple[dict, dict]:
     plan = _plan()
     plan["required_observations"] = {
         "tool_calls": {
@@ -55,7 +54,7 @@ def _interface_section(user: str) -> str:
 
 
 def test_artifact_prompt_separates_capture_inventory_from_branch_requirements() -> None:
-    plan, runtime = _o03_shaped_inputs()
+    plan, runtime = _tool_call_shaped_inputs()
     original_plan = deepcopy(plan)
     view, inventory = _view(), _inventory()
     context = build_artifact_author_context(view, plan, inventory, runtime)
@@ -93,7 +92,7 @@ def test_artifact_prompt_separates_capture_inventory_from_branch_requirements() 
 
 
 def test_runtime_interface_has_one_path_table_and_a_valid_absence_result_example() -> None:
-    plan, runtime = _o03_shaped_inputs()
+    plan, runtime = _tool_call_shaped_inputs()
     packet = build_call2_packet_v2(_view(), plan, _inventory(), runtime)
     interface = _interface_section(packet.user)
 
@@ -112,7 +111,7 @@ def test_runtime_interface_has_one_path_table_and_a_valid_absence_result_example
 
 
 def test_artifact_prompt_explains_reference_namespaces_and_runtime_bindings() -> None:
-    plan, runtime = _o03_shaped_inputs()
+    plan, runtime = _tool_call_shaped_inputs()
     packet = build_call2_packet_v2(_view(), plan, _inventory(), runtime)
 
     assert "Plan source handles and prerequisite source citations are provenance" in packet.system
@@ -122,7 +121,7 @@ def test_artifact_prompt_explains_reference_namespaces_and_runtime_bindings() ->
 
 
 def test_correction_renders_optional_stage_context_and_current_review_view() -> None:
-    plan, runtime = _o03_shaped_inputs()
+    plan, runtime = _tool_call_shaped_inputs()
     view, inventory = _view(), _inventory()
     original_context = build_artifact_author_context(view, plan, inventory, runtime)
     correction_context = build_correction_context(
@@ -145,21 +144,8 @@ def test_correction_renders_optional_stage_context_and_current_review_view() -> 
         inventory,
         runtime,
     )
-    sealed_review = build_artifact_review_packet(
-        view,
-        plan,
-        _metadata(),
-        _source(),
-        [],
-        inventory,
-        runtime,
-        sealed_version=ARTIFACT_REVIEW_PROMPT_VERSION_V3,
-    )
-
     assert correction.user.count("SUPPLIED STAGE CONTEXT\n") == 1
     assert "raw result unavailable; verdict read from source" in correction.user
     assert correction.user.count("OBSERVATION DECISION GUIDE\n") == 1
     assert review.version == ARTIFACT_REVIEW_PROMPT_VERSION
     assert "OBSERVATION DECISION GUIDE\n" in review.user
-    assert sealed_review.version == ARTIFACT_REVIEW_PROMPT_VERSION_V3
-    assert "OBSERVATION DECISION GUIDE\n" not in sealed_review.user

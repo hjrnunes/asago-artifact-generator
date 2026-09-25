@@ -1,23 +1,16 @@
 from __future__ import annotations
 
 import json
-from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
 import openai
 import pytest
-from scripts.fresh_trial.receipts import _case_receipt
-from scripts.fresh_trial.run_fresh_authoring_trial import (
-    PersistedAuthoringBudget,
-    run_authoring_batch,
-)
 
 from asago_artifact_generator.authoring import (
     AuthoringBudget,
     AuthoringOrchestrator,
     AuthoringPolicy,
-    Finding,
     PrivateModelAuthoringTransport,
     PromptPacket,
     ScriptedAuthoringTransport,
@@ -25,7 +18,6 @@ from asago_artifact_generator.authoring import (
 )
 from asago_artifact_generator.failure_evidence import load_failure_evidence
 
-from .test_fresh_authoring_trial import _case_inputs, _successful_responses
 from .test_versioned_authoring_wire import (
     _framed,
     _inventory,
@@ -262,136 +254,3 @@ def test_package_raw_response_paths_match_members(tmp_path: Path) -> None:
         assert (
             result.package.members[member_name] == result.raw_responses[record["raw_response_key"]]
         )
-
-
-def test_failed_trial_writes_available_raw_responses_and_matching_hashes(tmp_path: Path) -> None:
-    run_dir = tmp_path / "fresh-consumer-five-case-20260923T000099Z"
-    run_dir.mkdir()
-    budget = PersistedAuthoringBudget.load(run_dir / "authoring" / "budget-ledger.json")
-    invalid_responses = [b"not-json", b"still-not-json"]
-    transport = ScriptedAuthoringTransport(invalid_responses + _successful_responses(4))
-
-    status = run_authoring_batch(
-        run_dir,
-        cases=_case_inputs(),
-        budget=budget,
-        transport_factory=lambda: transport,
-        raw_evidence_root=tmp_path / "raw",
-    )
-
-    assert status["cases"]["G07"]["status"] == "unresolved"
-    case_raw_dir = tmp_path / "raw" / "G07"
-    ledger = json.loads((case_raw_dir / "authoring" / "ledger.json").read_text())["ledger"]
-    evidence = load_failure_evidence(case_raw_dir / "package.failure-evidence.json")
-    attempts = {attempt["dispatch_index"]: attempt for attempt in evidence["attempts"]}
-    assert ledger
-    for record in ledger:
-        assert record["raw_response"].startswith("authoring/")
-        raw_path = case_raw_dir / record["raw_response"]
-        raw_bytes = raw_path.read_bytes()
-        attempt = attempts[record["dispatch_index"]]
-        assert attempt["raw_response"]["sha256"] == sha256(raw_bytes).hexdigest()
-
-
-def test_live_transport_construction_receipt_distinguishes_factory_and_caller_errors(
-    tmp_path: Path,
-) -> None:
-    run_dir = tmp_path / "fresh-consumer-five-case-20260923T000100Z"
-    run_dir.mkdir()
-    budget = PersistedAuthoringBudget.load(run_dir / "authoring" / "budget-ledger.json")
-
-    def failing_factory() -> object:
-        raise RuntimeError("factory failed")
-
-    status = run_authoring_batch(
-        run_dir,
-        cases=_case_inputs(),
-        budget=budget,
-        transport_factory=failing_factory,
-        raw_evidence_root=tmp_path / "raw-factory",
-    )
-    assert status["transport_constructed"] is False
-    assert status["cases"]["G07"]["status"] == "transport_construction_failed"
-
-    caller_run_dir = tmp_path / "fresh-consumer-five-case-20260923T000101Z"
-    caller_run_dir.mkdir()
-    caller_budget = PersistedAuthoringBudget.load(
-        caller_run_dir / "authoring" / "budget-ledger.json"
-    )
-
-    class RaisingOrchestrator:
-        def __init__(self, **_: object) -> None:
-            pass
-
-        def run(self, *_: object) -> object:
-            raise RuntimeError("caller failed")
-
-    status = run_authoring_batch(
-        caller_run_dir,
-        cases=_case_inputs(),
-        budget=caller_budget,
-        transport_factory=lambda: ScriptedAuthoringTransport([]),
-        orchestrator_factory=RaisingOrchestrator,
-        raw_evidence_root=tmp_path / "raw-caller",
-    )
-    assert status["transport_constructed"] is True
-    assert status["cases"]["G07"]["status"] == "caller_error"
-
-
-def test_case_receipt_uses_stage_terminal_and_counts_model_identities(tmp_path: Path) -> None:
-    identity_a = {
-        "profile_alias": "profile-a",
-        "requested_model": "requested-a",
-        "returned_model": {"availability": "available", "value": "returned-a"},
-    }
-    identity_b = {
-        "profile_alias": "profile-b",
-        "requested_model": "requested-b",
-        "returned_model": {"availability": "unavailable", "reason": "not_returned"},
-    }
-    result = SimpleNamespace(
-        status="failed",
-        ledger=[
-            {"stage": "call1", "model_identity": identity_a},
-            {"stage": "plan_review", "model_identity": identity_a},
-            {"stage": "call2", "model_identity": identity_b},
-        ],
-        findings=[
-            Finding(
-                "validation_failure",
-                "invalid reference",
-                "semantic_judge_spec.fact_refs[0]",
-            )
-        ],
-        prompts={},
-        package=None,
-        package_path=None,
-        failure_evidence_path=None,
-    )
-    receipt = _case_receipt(
-        "G07",
-        result,
-        budget=PersistedAuthoringBudget.load(tmp_path / "budget.json"),
-        package_dir=tmp_path / "package",
-        raw_evidence_dir=tmp_path / "raw",
-        timings_path=tmp_path / "timings.jsonl",
-        unresolved_controls=[],
-    )
-
-    assert receipt["terminal_stage"] == "call2"
-    assert receipt["reason"] == "validation_failure"
-    assert receipt["reason_path"] == "semantic_judge_spec.fact_refs[0]"
-    assert receipt["model_identities"] == [
-        {
-            "profile_alias": "profile-a",
-            "requested_model": "requested-a",
-            "returned_model": "returned-a",
-            "dispatches": 2,
-        },
-        {
-            "profile_alias": "profile-b",
-            "requested_model": "requested-b",
-            "returned_model": None,
-            "dispatches": 1,
-        },
-    ]

@@ -64,17 +64,14 @@ estimate to authoring, review, and correction requests and rejects an overflow
 before reserving a dispatch. The estimate must fit the remaining 24,320-token
 input budget.
 
-The calibration uses the minimum ratio from three saved
-`authoring-plan-review-v2` requests on the `gemma4-oc` profile and
-`gemma-4-26b-a4b-it` model: 3.964777680907 bytes per provider-reported prompt
-token. A 12% margin lowers the ratio to 3.489004359198 bytes per estimated
-token. The saved record paths, dispatch IDs, byte totals, and provider-reported
-prompt-token values live in
-`src/asago_artifact_generator/authoring.py` as `CONTEXT_GUARD_CALIBRATION`.
+The calibration uses three approved provider measurements: 3.964777680907
+bytes per provider-reported prompt token. A 12% margin lowers the ratio to
+3.489004359198 bytes per estimated token. The measurement values live in
+`src/asago_artifact_generator/authoring.py` as
+`CONTEXT_GUARD_CALIBRATION`; the authoring path does not read saved runs.
 Every guard result labels the value `estimated_prompt_tokens`; provider usage
-remains separate. A rejected prompt returns `prompt_overflow`, spends no
-provider request or author/reviewer dispatch, and stays case-local in the
-five-case caller.
+remains separate. A rejected prompt returns `prompt_overflow` and spends no
+provider request or author/reviewer dispatch.
 If you omit `--profile`, existing environment-only configuration remains
 supported when it provides a real API key; an absent key fails closed instead
 of using a placeholder credential.
@@ -160,212 +157,6 @@ the material as owner-supplied, gives each item's category and source, and says
 that the material is not an observed target fact or runtime evidence. The generic
 plan field guide explains this boundary only when the block is present. An absent
 or empty block leaves rendered request bytes unchanged.
-
-### Fresh five-case authoring trial
-
-The reusable trial caller reads the frozen input index and validates every
-source, control file, and prepared input before it constructs a transport.
-Render and inspect all five exact Call 1 requests without provider contact:
-
-```bash
-uv run python -m scripts.fresh_trial.run_fresh_authoring_trial \
-  --run-dir /absolute/path/to/fresh-consumer-five-case-<timestamp> \
-  --render-only
-```
-
-`--render-only` refuses before writing if the batch status or budget ledger
-contains live reservations, dispatches, or an outage stop. See the
-[fresh-trial state contract](scripts/fresh_trial/README.md) for the frozen-policy
-digest keys the caller reads.
-
-For dispatch reconciliation, compare the per-case authoring ledgers and
-failure-evidence sidecars with `budget-ledger.json` and `call-timings.jsonl`.
-Treat a conflicting `batch-status.json` transport flag as a metadata defect,
-not as evidence that no dispatch occurred.
-
-Only run the frozen batch after the input index, controls, request renderings,
-and `frozen-policy.json` are finalized. The explicit `--live` flag uses the
-`gemma4-oc` profile, records every call's timing, and persists the shared
-40/8/4/4 request budget. A case with existing dispatch or evidence is never
-retried; a transport outage stops the batch and marks remaining cases
-unattempted.
-
-```bash
-uv run python -m scripts.fresh_trial.run_fresh_authoring_trial \
-  --run-dir /absolute/path/to/fresh-consumer-five-case-<timestamp> \
-  --live
-```
-
-### Cross-run budget guard
-
-The caller owns spend reconciliation across separate `author` processes. Pass
-both prior per-case counters on every resumed run:
-
-```bash
-uv run asago-artifact-generator author <input.json> \
-  --inventory <inventory.json> \
-  --runtime-contract <runtime-contract.json> \
-  --output-dir runs/authoring/<case-id> \
-  --task-id <case-id> \
-  --prior-author-correction-spend <count> \
-  --prior-review-spend <count>
-```
-
-Use `0` for each counter on a fresh case. The consumer does not discover
-mission ledgers, inspect targets, or infer prior spend. The guard seeds the
-caller-supplied counters before the first dispatch and enforces the per-case
-limits of four author/correction requests, four review requests, and eight
-combined requests, alongside the aggregate authoring limit of 32. If a cap is
-already exhausted, the run records typed `budget_exhausted` evidence and
-contacts no provider. For example, a resumed case with prior author/correction
-spend of `1` has only three author/correction dispatches remaining.
-
-### Sealed A03 artifact-review continuation
-
-The recovered A03 candidate has a separate consumer-owned Python seam. Prepare
-it from the current-mission recovery sidecar and an empty package destination,
-then run the returned continuation with a caller-owned transport factory:
-
-```python
-continuation = prepare_a03_recovered_continuation(
-    recovery_sidecar="/absolute/path/to/recovery-candidates.json",
-    package_dir="/absolute/path/to/new-package",
-    task_id="A03-recovered-artifact-review",
-)
-result = continuation.run(transport_factory=transport_factory)
-```
-
-Preparation verifies the sidecar, accepted plan, every original-input pin,
-the recovered candidate bytes, deterministic results, isolated Docker control
-results, preserved 5/4 author/correction spend breach, and failed
-`VAL-LIVE-003` authority before constructing a transport. The seam carries
-forward 5 author/correction and 1 review request, constructs no author or
-correction request, and permits one artifact-review dispatch with
-`max_retries=0`. `accept` alone enters immutable package assembly. `revise`,
-`blocked`, `review_unavailable`, transport failure, budget exhaustion, and
-preflight defects write terminal continuation evidence and produce no package.
-The same prepared continuation cannot run twice.
-
-### Sealed O04 correction-first continuation
-
-The O04 continuation owns one saved-artifact correction and one conditional
-artifact review. Prepare it from the pinned historical failure sidecar and
-offline mismatch proof, then supply a caller-owned scripted or private
-transport:
-
-```python
-continuation = prepare_o04_correction_continuation(
-    failure_sidecar="/absolute/path/to/O04.failure-evidence.json",
-    mismatch_proof="/absolute/path/to/mismatch-evidence.json",
-    package_dir="/absolute/path/to/new-package",
-    task_id="O04-corrected-artifact-continuation",
-)
-result = continuation.run(transport_factory=transport_factory)
-```
-
-Preparation verifies the original PAT-104 and approved-education facts,
-accepted plan and review, exact saved metadata/Python, runtime contract,
-unchanged eleven controls and outcomes, and the completed mismatch proof
-before constructing a transport. It records historical spend as 4
-author/correction and 1 review, then adds a separate 1/1 correction and
-conditional 1/1 review allowance. The seam constructs no plan or fresh
-artifact request, permits no retry, and excludes the test-owned conformant
-detector from the correction prompt. The prompt names the supported
-`availability.messages`, `completeness.messages`, and `judge.verdict` paths
-alongside each incompatible saved read.
-
-The corrected candidate must pass the existing deterministic checks and all
-eleven constrained Docker controls before one artifact review is dispatched.
-Only an `accept` review reaches immutable package assembly. Correction,
-control, review, transport, package, and preflight non-pass outcomes are
-terminal and write continuation evidence without a package. This consumer
-seam remains target-free; downstream owns any later MiniOcciAI execution.
-
-### O04 artifact-refinement continuation
-
-The refinement continuation extends the sealed O04 seam from the first
-continuation's corrected candidate. Prepare it with the same historical
-sidecar and mismatch proof plus the first-continuation evidence chain:
-
-```python
-continuation = prepare_o04_refinement_continuation(
-    failure_sidecar="/absolute/path/to/O04.failure-evidence.json",
-    mismatch_proof="/absolute/path/to/mismatch-evidence.json",
-    prior_continuation_evidence="/absolute/path/to/continuation-evidence.json",
-    prior_delivery_report="/absolute/path/to/o04-continuation-report.md",
-    prior_preservation="/absolute/path/to/preservation-digests.json",
-    package_dir="/absolute/path/to/new-package",
-)
-result = continuation.run(transport_factory=transport_factory)
-```
-
-Preparation pins the first-continuation report, preservation record, raw
-response, semantic candidate, metadata, Python block, accepted plan, and
-recorded seven-pass/three-fail/one-runtime control result. The seam seeds
-factual O04 spend at 5 author/correction and 1 review, keeps the first
-continuation's one-call allowances expired, and grants one shared allowance
-of two corrections plus two artifact reviews. Review remains gated by every
-deterministic check and all eleven unchanged controls. Each attempt persists
-its raw response and evidence before validation, and each request records the
-fixed `chat_template_kwargs.enable_thinking=false` transport option. A
-correction or review transport failure is terminal and never retries.
-Only an accepted review assembles a package; every other outcome leaves the
-package path absent.
-
-### O04 provider-recovery restart
-
-The provider-recovery restart is a new sealed seam, not a retry of the
-expired refinement. Use `prepare_o04_refinement_restart_continuation(...)` or
-`run_o04_refinement_restart_continuation(...)` with a fresh task ID, evidence
-path, and package path:
-
-```python
-continuation = prepare_o04_refinement_restart_continuation(
-    failure_sidecar="/absolute/path/to/O04.failure-evidence.json",
-    mismatch_proof="/absolute/path/to/mismatch-evidence.json",
-    terminal_refinement_evidence="/absolute/path/to/continuation-evidence.json",
-    terminal_delivery_report="/absolute/path/to/report.md",
-    terminal_accounting="/absolute/path/to/accounting.json",
-    package_dir="/absolute/path/to/fresh-package",
-)
-result = continuation.run(transport_factory=transport_factory)
-```
-
-Preparation verifies the terminal refinement evidence, delivery report, and
-accounting pins:
-
-- `continuation-evidence.json`:
-  `61f8aa1e7e23f7f5921dc8b04f0bf69d4eaecd316a48e4d88fdff6adfa4b801e`
-- `report.md`:
-  `c8f50d35612059b5465d71d020c48cc3a0c35e19bb903db34fe1ca4bbaf17b37`
-- `accounting.json`:
-  `58ef7361edf9fcec591090850bb533291bd9183bf9dd80033e19a453ebc7cf0c`
-
-The pinned run is a terminal transport failure with one consumed correction,
-no candidate, review, package, or execution. The restart starts from candidate
-`f374565b...9e4e`, seeds 6 author/correction requests and 1 review at aggregate
-18, and enforces task limit 11. Its fresh shared allowance is at most two
-corrections and two exact-candidate reviews; historical, first-continuation,
-and prior-refinement allowances remain expired.
-
-The durable readiness record describes one authenticated, non-generative
-models-surface read: HTTP 200, configured model discoverable, and 534.6 ms.
-The restart records that fact without probing again or persisting endpoint,
-credential, header, body, or model-list data.
-
-Every dispatch persists raw bytes before validation, sends
-`chat_template_kwargs.enable_thinking=false` through `extra_body`, and uses
-zero automatic retries. Review remains gated by deterministic checks and all
-eleven unchanged controls. A transport failure consumes its role slot and
-stops the restart without dispatching the other slot. Only review `accept`
-assembles the immutable package. The prior 2,501-byte outage response
-(`0ccdd3b4f240a05716e9dd3e8a7c28afa2b37c5d77a85fb6dc5a644f3b01a2e4`)
-remains transport evidence and is never candidate input or output.
-
-`author` writes an immutable package or durable failure evidence. `check` runs
-only the supplied evidence through the packaged detector in the constrained
-offline harness. Neither command starts a target, setup service, discovery
-transport, or semantic judge.
 
 ### Versioned prompt roles and evidence
 
@@ -570,15 +361,6 @@ vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and
 record SHA-256 source pins. Use `snapshot_input` or `snapshot_inputs` before
 authoring when a supplied reference source must be copied into a run-local,
 hash-addressed snapshot. These functions only read the source.
-
-The consumer also exposes deterministic qualification preparation through
-`prepare_o04_authoring_inputs` and `prepare_scn030_authoring_inputs`. These
-helpers derive target-free facts, typed operations, runtime permissions, and
-`authoring-input-pins-v1` from approved local sources. O04 includes only the
-approved cataract education authority. SCN-030 preserves its selected handoff
-pins and adds the typed `lookup_order` eligibility result. Pass the returned
-`authoring_input_pins` to saved-plan continuation validation when reusing a
-plan.
 
 The consumer-owned `artifact-package-v1` contract lives in
 `contracts/artifact-package/`. `package_io.write_package` writes a complete

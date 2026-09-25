@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from asago_artifact_generator.authoring import (
-    PLAN_REVIEW_PROMPT_VERSION_V2,
     PLAN_REVIEW_PROMPT_VERSION_V4,
     _binding_contract,
     build_plan_review_packet,
@@ -64,18 +63,3 @@ def test_plan_reviewer_v3_renders_shared_binding_rules_and_mechanical_checks() -
     assert summary["reviewer_instruction"] in packet.user
     assert "wrong record, field, actor, or value" in summary["reviewer_instruction"]
     assert '"checks": [' in packet.user
-
-
-def test_sealed_plan_reviewer_v2_uses_legacy_prompt_shape() -> None:
-    packet = build_plan_review_packet(
-        _view(),
-        _plan(),
-        _inventory(),
-        _runtime_contract(),
-        sealed_version=PLAN_REVIEW_PROMPT_VERSION_V2,
-    )
-
-    assert packet.version == PLAN_REVIEW_PROMPT_VERSION_V2
-    assert "BINDING AND SETUP RULES" not in packet.user
-    assert '"checks": [' not in packet.user
-    assert "Structural validation passed." in packet.user

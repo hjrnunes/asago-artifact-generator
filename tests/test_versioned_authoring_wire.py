@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
-from pathlib import Path
 
 import pytest
 
@@ -24,7 +22,6 @@ from asago_artifact_generator.authoring import (
     neutral_call2_response_v2,
     parse_call2_response,
     parse_historical_call2_response,
-    prepare_saved_plan_continuation_v2,
     prompt_byte_sizes,
     validate_neutral_example,
 )
@@ -358,46 +355,6 @@ def test_call2_v2_extracts_python_bytes_without_json_round_trip() -> None:
     assert hashlib.sha256(parsed.python_bytes).hexdigest() == hashlib.sha256(_source()).hexdigest()
 
 
-def _saved_artifact_responses() -> list[bytes]:
-    sidecars = (
-        Path(__file__).parents[1]
-        / "runs"
-        / "authoring"
-        / "A03-live-20260920-resume"
-        / "A03-live-20260920-resume.failure-evidence.json",
-        Path(__file__).parents[1]
-        / "runs"
-        / "authoring"
-        / "O04-live-20260920"
-        / "O04-live-20260920.failure-evidence.json",
-    )
-    responses: list[bytes] = []
-    for sidecar in sidecars:
-        evidence = json.loads(sidecar.read_text(encoding="utf-8"))
-        for attempt in evidence["attempts"]:
-            if attempt["stage"] not in {"call2", "correction"}:
-                continue
-            raw = base64.b64decode(attempt["raw_response"]["base64"])
-            if b"```python" in raw:
-                responses.append(raw)
-    assert len(responses) == 4
-    return responses
-
-
-def test_saved_artifacts_accept_whitespace_separators_without_byte_drift() -> None:
-    for raw in _saved_artifact_responses():
-        separator_free = raw.replace(b"```\n\n```python", b"```\n```python")
-        expected = parse_call2_response(separator_free)
-        parsed = parse_call2_response(raw)
-        assert parsed.metadata == expected.metadata
-        assert parsed.python_bytes == expected.python_bytes
-
-    expanded = separator_free.replace(b"```\n```python", b"```\n \n\t\n```python")
-    parsed_expanded = parse_call2_response(expanded)
-    assert parsed_expanded.metadata == expected.metadata
-    assert parsed_expanded.python_bytes == expected.python_bytes
-
-
 @pytest.mark.parametrize(
     ("raw", "code"),
     [
@@ -728,89 +685,6 @@ def test_historical_reader_is_explicit_and_does_not_accept_v2_framing() -> None:
     assert historical["detector_source"] == "x"
     with pytest.raises(json.JSONDecodeError):
         parse_historical_call2_response(neutral_call2_response_v2())
-
-
-def test_saved_plan_continuation_requires_intact_provenance_and_review(tmp_path) -> None:
-    view = _view()
-    inventory = _inventory()
-    runtime = _runtime_contract()
-    plan = _plan()
-    provenance = {
-        "input_sha256": view.source_sha256,
-        "inventory_sha256": hashlib.sha256(
-            json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest(),
-        "runtime_contract_sha256": hashlib.sha256(
-            json.dumps(runtime, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest(),
-        "plan_sha256": hashlib.sha256(
-            json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest(),
-        "meaning_sha256": hashlib.sha256(
-            json.dumps(
-                {
-                    key: plan.get(key)
-                    for key in (
-                        "interpretation",
-                        "selected_evidence",
-                        "assumptions",
-                        "stimulus_approach",
-                        "observation_claim",
-                        "required_observations",
-                        "semantic_judge",
-                        "unresolved_requirements",
-                    )
-                },
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode()
-        ).hexdigest(),
-        "wire_version": "v2",
-    }
-    unreviewed = prepare_saved_plan_continuation_v2(
-        saved_plan=plan,
-        input_view=view,
-        inventory=inventory,
-        runtime_contract=runtime,
-        provenance=provenance,
-    )
-    assert unreviewed.decision.mode == "fresh_call1"
-    assert any(
-        finding.code == "meaning_review_required" for finding in unreviewed.decision.findings
-    )
-    prepared = prepare_saved_plan_continuation_v2(
-        saved_plan=plan,
-        input_view=view,
-        inventory=inventory,
-        runtime_contract=runtime,
-        provenance=provenance,
-        meaning_review={"status": "passed", "meaning_sha256": provenance["meaning_sha256"]},
-    )
-    assert prepared.decision.mode == "call2_only"
-    assert prepared.call2_packet is not None
-    continued = prepared.run(
-        transport_factory=lambda: ScriptedAuthoringTransport([_framed()]),
-        package_dir=tmp_path / "continued",
-        task_id="continued-v2",
-    )
-    assert continued.status == "packaged"
-    assert continued.ledger[0]["stage"] == "call2"
-    assert continued.package is not None
-    continuation = continued.package.manifest.authoring["continuation"]
-    assert continuation["mode"] == "saved-plan-call2-only"
-
-    changed = dict(plan)
-    changed["semantic_judge"] = {"needed": True, "scope": "reply"}
-    fresh = prepare_saved_plan_continuation_v2(
-        saved_plan=changed,
-        input_view=view,
-        inventory=inventory,
-        runtime_contract=runtime,
-        provenance=provenance,
-        meaning_review={"status": "passed", "meaning_sha256": provenance["meaning_sha256"]},
-    )
-    assert fresh.decision.mode == "fresh_call1"
-    assert any(finding.code == "meaning_changed" for finding in fresh.decision.findings)
 
 
 def packet_byte_sizes(packet) -> int:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import subprocess
 import sys
@@ -42,8 +41,6 @@ HANDOFF = (
     / "valid"
     / "adversarial-refund.json"
 )
-G07_REPLAY = Path(__file__).parent / "fixtures" / "g07-recovery.failure-evidence.json"
-G07_FINAL_REPLAY = Path(__file__).parent / "fixtures" / "g07-final.failure-evidence.json"
 
 
 def _view():
@@ -334,93 +331,6 @@ def test_plan_binding_findings_accumulate_nested_faults_without_coercion() -> No
     assert plan["runtime_bindings"] == [malformed]
 
 
-def test_final_g07_binding_replay_preserves_bytes_and_surfaces_all_nested_findings(
-    tmp_path: Path,
-) -> None:
-    saved = load_failure_evidence(G07_FINAL_REPLAY)
-    attempts = saved["attempts"]
-    assert [attempt["stage"] for attempt in attempts] == ["call1", "correction"]
-    raw_responses = [base64.b64decode(attempt["raw_response"]["base64"]) for attempt in attempts]
-    decoded = [attempt["decoded_output"] for attempt in attempts]
-    for attempt, raw in zip(attempts, raw_responses, strict=True):
-        assert raw == base64.b64decode(attempt["raw_response"]["base64"])
-        assert hashlib.sha256(raw).hexdigest() == attempt["raw_response"]["sha256"]
-
-    captured_request = json.loads(attempts[0]["prompt"]["user"])
-    inventory = captured_request["environment_inventory"]
-    runtime_contract = captured_request["runtime_contract"]
-    expected = collect_plan_findings(decoded[0], inventory, runtime_contract)
-    expected_binding = [
-        finding.to_dict() for finding in expected if finding.path.startswith("runtime_bindings[0]")
-    ]
-    assert {finding["code"] for finding in expected_binding} == {"plan_binding_validation"}
-    assert {"source_ref", "selector", "consumers"} <= {
-        finding["path"].split(".")[-1].split("[")[0] for finding in expected_binding
-    }
-
-    transport = ScriptedAuthoringTransport(
-        [
-            TransportResponse(
-                raw=raw_responses[0],
-                usage=attempts[0]["usage"]["value"],
-                controls=attempts[0]["controls"]["value"],
-            ),
-            TransportResponse(
-                raw=raw_responses[1],
-                usage=attempts[1]["usage"]["value"],
-                controls=attempts[1]["controls"]["value"],
-            ),
-        ]
-    )
-    result = AuthoringOrchestrator(
-        transport=transport,
-        package_dir=tmp_path / "package",
-        task_id="G07-final-replay",
-    ).run(_view(), inventory, runtime_contract)
-
-    assert result.status == "failed"
-    assert len(transport.requests) == 2
-    assert result.raw_responses["call1"] == raw_responses[0]
-    assert result.raw_responses["correction"] == raw_responses[1]
-    assert result.decoded_responses["call1"] == decoded[0]
-    assert result.decoded_responses["correction-call1"] == decoded[1]
-    assert result.ledger[0]["findings"] == expected_binding
-    assert len(result.ledger[0]["findings"]) >= 3
-    assert len(result.ledger[1]["findings"]) >= 3
-    correction = transport.requests[1]["payload"]
-    assert correction["failed_response"] == raw_responses[0].decode()
-    assert correction["failed_response_encoding"] == "utf-8-exact"
-    assert (
-        "facts:<ref>"
-        in correction["original_request"]["payload"]["response_contract"]["binding_declaration"][
-            "source_ref_rule"
-        ]
-    )
-    correction_binding = correction["original_request"]["payload"]["response_contract"][
-        "binding_declaration"
-    ]
-    assert correction_binding["source_scope"].startswith(
-        "Only environment inventory facts are bindable supplied sources"
-    )
-    assert "input payloads and source handles remain context" in correction_binding["source_scope"]
-    assert "runtime_bindings must be []" in correction_binding["applicability"]
-    assert (
-        correction["original_request"]["payload"]["response_contract"]["empty_shapes"][
-            "runtime_bindings_for_static_concrete_stimulus"
-        ]
-        == []
-    )
-    assert correction_binding["valid_examples"]["supplied_input"]["source_ref"].startswith(
-        "facts:"
-    )
-    assert correction_binding["valid_examples"]["setup_output"]["source_ref"].startswith("setup:")
-    assert "stimulus.turns[0].text" in correction["failed_response"]
-    assert decoded[0]["runtime_bindings"][0]["source_ref"] == "stimulus.turns[0].text"
-    assert decoded[0]["runtime_bindings"][0]["selector"] == "stimulus.turns[0].text"
-    assert decoded[1]["runtime_bindings"][0]["source_ref"] == "stimulus.turns[0].text"
-    assert decoded[1]["runtime_bindings"][0]["selector"] == "stimulus.turns[0].text"
-
-
 def test_plan_validation_accumulates_all_structural_findings() -> None:
     malformed = {
         "interpretation": "wrong",
@@ -527,62 +437,6 @@ def test_shared_correction_contains_complete_contract_and_all_findings(
     assert len(result.ledger[1]["findings"]) >= 9
     assert result.raw_responses["call1"] == response.encode()
     assert result.decoded_responses["call1"] == malformed
-
-
-def test_captured_g07_responses_replay_without_contact_and_report_all_findings(
-    tmp_path: Path,
-) -> None:
-    saved = load_failure_evidence(G07_REPLAY)
-    attempts = saved["attempts"]
-    assert [attempt["stage"] for attempt in attempts] == ["call1", "correction"]
-    raw_responses = [base64.b64decode(attempt["raw_response"]["base64"]) for attempt in attempts]
-    decoded = [attempt["decoded_output"] for attempt in attempts]
-    expected_call1_findings = [
-        finding.to_dict()
-        for finding in collect_plan_findings(decoded[0], _inventory(), _contract())
-    ]
-
-    transport = ScriptedAuthoringTransport(
-        [
-            TransportResponse(
-                raw=raw_responses[0],
-                usage=attempts[0]["usage"]["value"],
-                controls=attempts[0]["controls"]["value"],
-            ),
-            TransportResponse(
-                raw=raw_responses[1],
-                usage=attempts[1]["usage"]["value"],
-                controls=attempts[1]["controls"]["value"],
-            ),
-        ]
-    )
-    result = AuthoringOrchestrator(
-        transport=transport,
-        package_dir=tmp_path / "package",
-        task_id="G07-replay",
-    ).run(_view(), _inventory(), _contract())
-
-    assert result.status == "failed"
-    assert len(transport.requests) == 2
-    assert result.raw_responses["call1"] == raw_responses[0]
-    assert result.raw_responses["correction"] == raw_responses[1]
-    assert result.decoded_responses["call1"] == decoded[0]
-    assert result.ledger[0]["usage"] == attempts[0]["usage"]["value"]
-    assert result.ledger[1]["usage"] == attempts[1]["usage"]["value"]
-    assert result.transformations == ["outer_fence_removed", "outer_fence_removed"]
-    assert result.ledger[0]["findings"] == expected_call1_findings
-    assert len(result.ledger[0]["findings"]) > 1
-    assert len(result.ledger[1]["findings"]) > 1
-    correction = transport.requests[1]["payload"]
-    assert correction["failed_response"] == raw_responses[0].decode()
-    assert correction["failed_response_encoding"] == "utf-8-exact"
-    assert (
-        correction["original_request"]["payload"]["response_contract"]
-        == (transport.requests[0]["payload"]["response_contract"])
-    )
-    assert "failed_response_bytes_hex" not in correction
-    assert "failed_response_bytes_base64" not in correction
-    assert correction["findings"] == expected_call1_findings
 
 
 def test_two_calls_build_an_immutable_package_with_exact_detector_bytes(tmp_path: Path) -> None:

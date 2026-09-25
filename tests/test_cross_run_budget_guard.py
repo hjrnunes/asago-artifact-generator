@@ -24,8 +24,8 @@ from .test_versioned_authoring_wire import (
 )
 
 
-def test_a03_resume_seed_stops_before_fourth_in_run_author_request(tmp_path: Path) -> None:
-    """One preserved A03 author request leaves only three author slots."""
+def test_prior_author_seed_stops_before_fourth_in_run_author_request(tmp_path: Path) -> None:
+    """One prior author request leaves only three author slots."""
 
     transport = ScriptedAuthoringTransport(
         [
@@ -38,8 +38,8 @@ def test_a03_resume_seed_stops_before_fourth_in_run_author_request(tmp_path: Pat
 
     result = AuthoringOrchestrator(
         transport=transport,
-        package_dir=tmp_path / "a03-resume",
-        task_id="A03-live-20260920-resume",
+        package_dir=tmp_path / "prior-author-resume",
+        task_id="prior-author-resume",
         wire_version="v2",
         policy=AuthoringPolicy(),
         prior_author_correction_spend=1,
@@ -69,7 +69,7 @@ def test_prior_author_spend_at_case_cap_stops_before_first_dispatch(tmp_path: Pa
     result = AuthoringOrchestrator(
         transport=transport,
         package_dir=tmp_path / "exhausted",
-        task_id="O03",
+        task_id="author-exhausted",
         wire_version="v2",
         policy=AuthoringPolicy(),
         prior_author_correction_spend=4,
@@ -95,7 +95,7 @@ def test_prior_review_spend_at_case_cap_stops_before_review_dispatch(tmp_path: P
     result = AuthoringOrchestrator(
         transport=transport,
         package_dir=tmp_path / "review-exhausted",
-        task_id="O03",
+        task_id="review-exhausted",
         wire_version="v2",
         policy=AuthoringPolicy(),
         prior_author_correction_spend=0,
@@ -119,7 +119,7 @@ def test_aggregate_budget_exhaustion_is_typed_and_pre_dispatch(tmp_path: Path) -
     result = AuthoringOrchestrator(
         transport=transport,
         package_dir=tmp_path / "aggregate-exhausted",
-        task_id="O03",
+        task_id="aggregate-exhausted",
         wire_version="v2",
         policy=AuthoringPolicy(),
         budget=budget,

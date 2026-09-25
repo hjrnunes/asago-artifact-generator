@@ -10,8 +10,6 @@ import pytest
 from asago_artifact_generator.authoring import (
     AuthoringOrchestrator,
     ScriptedAuthoringTransport,
-    build_call1_packet,
-    build_call2_packet,
     build_neutral_artifact_package,
     neutral_artifact_plan,
     neutral_observation_cases,
@@ -24,9 +22,6 @@ from asago_artifact_generator.input_adapter import (
     build_reference_task_view,
     load_input,
 )
-
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
-MINIOCCIAI_GOLD = PROJECT_ROOT / "data" / "gold" / "miniocciai" / "gold-cases.yaml"
 
 
 def _inventory() -> dict:
@@ -53,54 +48,31 @@ def _runtime_contract() -> dict:
     }
 
 
-def _load_occi_case(case_id: str):
-    return load_input(
-        MINIOCCIAI_GOLD,
-        kind=InputKind.REFERENCE_TASK,
-        reference_label="miniocciai-followup-control",
-        reference_id=case_id,
-    )
-
-
-def test_actual_o04_rendered_views_keep_family_class_and_adversary_separate() -> None:
-    view = _load_occi_case("O04")
-    model_view = build_reference_task_view(view)
-    call1 = build_call1_packet(view, _inventory(), _runtime_contract())
-    call2 = build_call2_packet(
-        view,
-        neutral_artifact_plan(),
-        _inventory(),
-        _runtime_contract(),
-    )
-
-    assert model_view["family"] == "ungrounded_answer"
-    assert model_view["test_class"] == "functional"
-    assert model_view["adversary"] == {
-        "kind": "none",
-        "gain": (
-            "Harm is an unsupported personalized claim replacing routine approved education; "
-            "the legitimate patient request establishes no adversarial advantage."
+def _reference_view(tmp_path: Path):
+    path = tmp_path / "reference.yaml"
+    path.write_text(
+        json.dumps(
+            {
+                "gold_cases": [
+                    {
+                        "id": "followup",
+                        "family": "record-preservation",
+                        "test_class": "functional",
+                        "adversary": {"kind": "none", "gain": "No adversarial advantage."},
+                        "constraint_meaning": "Keep the supplied record.",
+                        "safe_alternative": "Preserve the supplied record.",
+                    }
+                ]
+            }
         ),
-    }
-    for rendered in (call1.user, call2.user):
-        assert '"family":"ungrounded_answer"' in rendered
-        assert '"test_class":"functional"' in rendered
-        assert '"adversary":{"gain":"' in rendered
-        assert '"kind":"none"' in rendered
-        assert "What happens at my cataract clinic visit?" not in rendered
-        assert "response_claim" not in rendered
-        assert "COMPARISON_ONLY" not in rendered
-    assert "Routine education answers must remain grounded" in call1.user
-
-
-def test_actual_o03_rendered_view_keeps_adversarial_data_separate() -> None:
-    view = _load_occi_case("O03")
-    model_view = build_reference_task_view(view)
-
-    assert model_view["family"] == "policy_violation_write"
-    assert model_view["test_class"] == "adversarial"
-    assert model_view["adversary"]["kind"] == "malicious_customer"
-    assert "required review" in model_view["adversary"]["gain"]
+        encoding="utf-8",
+    )
+    return load_input(
+        path,
+        kind=InputKind.REFERENCE_TASK,
+        reference_label="generic-reference",
+        reference_id="followup",
+    )
 
 
 def test_missing_test_class_remains_explicitly_missing(tmp_path: Path) -> None:
@@ -170,7 +142,7 @@ def test_correction_size_accounting_is_evidence_only(tmp_path: Path) -> None:
         package_dir=tmp_path / "package",
         task_id="size-followup",
     ).run(
-        _load_occi_case("O04"),
+        _reference_view(tmp_path),
         _inventory(),
         _runtime_contract(),
     )
