@@ -213,3 +213,76 @@ def test_target_discovery_rejects_digest_mismatch_and_bad_schema(tmp_path: Path)
     malformed.write_text(json.dumps({"target_id": "missing-required-fields"}), encoding="utf-8")
     with pytest.raises(TargetInputError, match="schema invalid"):
         load_target_inputs(malformed)
+
+
+def _write_keyed_observations(path: Path, profile_digest: str) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "state": {
+                    "orders": {
+                        "ORD-1": {"status": "open", "record_key": "collides-by-name"},
+                        "ORD-2": {"status": "closed", "record_key": "collides-by-name"},
+                    },
+                    "tags": {"a": "not-a-record"},
+                },
+                "target_profile_digest": profile_digest,
+                "read_observations": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_keyed_map_state_gains_a_derived_record_key_companion(tmp_path: Path) -> None:
+    profile = tmp_path / "profile.json"
+    observations = tmp_path / "runtime-context.json"
+    _write_profile(profile)
+    _write_keyed_observations(observations, _profile_digest(profile))
+
+    inventory, _ = load_target_inputs(profile, observations)
+    facts = {fact["ref"]: fact for fact in inventory["facts"]}
+
+    assert list(facts) == ["state:orders", "state:orders:records", "state:tags"]
+    assert facts["state:orders"]["value"]["ORD-1"] == {
+        "status": "open",
+        "record_key": "collides-by-name",
+    }
+    companion = facts["state:orders:records"]
+    assert companion["value"] == {
+        "ORD-1": {"record_key": "ORD-1"},
+        "ORD-2": {"record_key": "ORD-2"},
+    }
+    assert companion["provenance"]["derived_from"] == "state:orders"
+    assert companion["provenance"]["derivation"] == "keyed_map_record_key"
+    assert companion["provenance"]["source"] == "runtime-context"
+    assert "state:orders" in companion["meaning"]
+
+    validated = validate_bindings(
+        [
+            {
+                "name": "target_order_id",
+                "expected_type": "string",
+                "source_kind": "supplied_input",
+                "source_ref": "facts:state:orders:records",
+                "selector": "value.ORD-2.record_key",
+                "consumers": ["prerequisites.target_order_id"],
+                "on_missing": "stop",
+            },
+            {
+                "name": "target_order_status",
+                "expected_type": "string",
+                "source_kind": "supplied_input",
+                "source_ref": "facts:state:orders",
+                "selector": "value.ORD-2.status",
+                "consumers": ["prerequisites.target_order_status"],
+                "on_missing": "stop",
+            },
+        ],
+        inventory=inventory,
+        runtime_contract={"setup_permissions": []},
+    )
+    assert [binding.name for binding in validated] == [
+        "target_order_id",
+        "target_order_status",
+    ]

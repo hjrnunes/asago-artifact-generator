@@ -10553,7 +10553,11 @@ def _binding_contract(*, legacy: bool = False) -> dict[str, Any]:
             "selector performs value extraction: it extracts one value through an exact "
             "documented dot path rooted at value for supplied_input or result for "
             "setup_output. value alone selects the whole fact value; value.<key> "
-            "descends one documented schema property. Inferred field names are invalid"
+            "descends one documented schema property. For a fact that is a keyed map "
+            "of records, value.<record key>.<field> selects one record field; the "
+            "record key itself is selected from the derived fact <fact ref>:records "
+            "as value.<record key>.record_key, when that fact is listed. Inferred "
+            "field names are invalid"
         )
         contract["consumer_rule"] = (
             "consumers is a non-empty list of closed destination paths that receive the "

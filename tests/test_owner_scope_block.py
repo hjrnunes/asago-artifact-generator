@@ -35,11 +35,11 @@ _BASE_REVISION = (
     "authoring-plan-review-v5 / authoring-artifact-review-v5"
 )
 _BASE_STAGE_DIGESTS = {
-    "call1": "d8d500e7e4b0a31443b975350dff15cae2a676aec3ab81b24922217982416d28",
-    "plan_review": "58e17f2a98ac65e4cf2a8e41cbde256660bda0d129de654153354ed26e6a851a",
+    "call1": "32b3142ad3bb588c569c19857fe14b9d639de9222541476fdc2a989bac4543ee",
+    "plan_review": "87a1f608d42c2f0e04fb3783faa10d639d748605d0ea23634a678bdc296a0889",
     "call2": "020035aa1f7ba41170e8d38b5469f9890368d14053ec11440c167bb7029511ae",
     "artifact_review": "194b0dfc09360a0af82f91221d84f37699c928b6f79f90f449029a7ce44e741b",
-    "plan_correction": "0898d469062ef959c6964e64ae431912265f77d8324e924d29cdd3441f3492b6",
+    "plan_correction": "7b3019ce5023d888a6e44e40da8e14b49b63788ed38ef6f5caa5c9534c9fa7e6",
     "artifact_correction": "ecabb1c52957cce7ccf2a1802d5fcec3db37295d2324f3429bdf9f83f6b0af3e",
 }
 _OWNER_SCOPE = {

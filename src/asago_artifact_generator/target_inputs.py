@@ -200,16 +200,21 @@ def _facts(
     state = {
         key: value for key, value in observations.get("state", {}).items() if key != "audit_log"
     }
+    state_refs = {f"state:{key}" for key in state}
     for key in sorted(state):
+        ref = f"state:{key}"
         facts.append(
             {
-                "ref": f"state:{key}",
+                "ref": ref,
                 "value": deepcopy(state[key]),
                 "schema": _infer_schema(state[key]),
                 "provenance": deepcopy(provenance_base),
                 "meaning": "Captured target state at discovery time.",
             }
         )
+        companion = _keyed_records_fact(ref, state[key], provenance_base, state_refs)
+        if companion is not None:
+            facts.append(companion)
 
     read_observations = observations.get("read_observations", [])
     for index, observation in enumerate(read_observations):
@@ -232,6 +237,51 @@ def _facts(
             }
         )
     return facts
+
+
+KEYED_RECORDS_SUFFIX = ":records"
+_RECORD_KEY_FIELD = "record_key"
+
+
+def _keyed_records_fact(
+    ref: str,
+    value: Any,
+    provenance_base: dict[str, Any],
+    existing_refs: set[str],
+) -> dict[str, Any] | None:
+    """Return a derived fact that exposes each keyed-map record key as a field.
+
+    A captured map such as ``{"ORD-1": {...}}`` documents its records only
+    under their keys, so no selector can yield the key itself as a string.
+    The companion maps each key to ``{"record_key": key}``; record fields stay
+    selectable only through the unchanged original fact, which also keeps the
+    companion small in rendered prompts.
+    """
+
+    if not isinstance(value, dict) or not value:
+        return None
+    if not all(isinstance(record, dict) for record in value.values()):
+        return None
+    companion_ref = f"{ref}{KEYED_RECORDS_SUFFIX}"
+    if companion_ref in existing_refs:
+        return None
+    records = {key: {_RECORD_KEY_FIELD: key} for key in value}
+    return {
+        "ref": companion_ref,
+        "value": records,
+        "schema": _infer_schema(records),
+        "provenance": {
+            **deepcopy(provenance_base),
+            "derived_from": ref,
+            "derivation": "keyed_map_record_key",
+            "key_field": _RECORD_KEY_FIELD,
+        },
+        "meaning": (
+            f"Derived from {ref}: each record key of {ref} as a string, selected with "
+            f"value.<key>.{_RECORD_KEY_FIELD}. Record fields remain selectable only "
+            f"from {ref} with value.<key>.<field>."
+        ),
+    }
 
 
 def _infer_schema(value: Any) -> dict[str, Any]:
