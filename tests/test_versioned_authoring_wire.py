@@ -19,6 +19,7 @@ from asago_artifact_generator.authoring import (
     build_call2_packet_v2,
     build_neutral_artifact_package,
     collect_plan_findings_v2,
+    neutral_artifact_response_without_source,
     neutral_call2_response_v2,
     parse_call2_response,
     parse_historical_call2_response,
@@ -355,6 +356,20 @@ def test_call2_v2_extracts_python_bytes_without_json_round_trip() -> None:
     assert hashlib.sha256(parsed.python_bytes).hexdigest() == hashlib.sha256(_source()).hexdigest()
 
 
+def test_saved_artifacts_accept_whitespace_separators_without_byte_drift() -> None:
+    raw_variants = [
+        _framed().replace(b"```\n```python", b"```\n\n```python", 1),
+        _framed(),
+        _framed().replace(b"```\n```python", b"```\n \n\t\n```python", 1),
+    ]
+    expected = parse_call2_response(raw_variants[0])
+
+    for raw in raw_variants:
+        parsed = parse_call2_response(raw)
+        assert parsed.metadata == expected.metadata
+        assert parsed.python_bytes == expected.python_bytes
+
+
 @pytest.mark.parametrize(
     ("raw", "code"),
     [
@@ -678,6 +693,12 @@ def test_neutral_v2_example_uses_real_framing_and_package_check(tmp_path) -> Non
     assert json.loads(destination.joinpath("checks.json").read_text())["interface"] == (
         AUTHORING_INTERFACE_VERSION_V2
     )
+
+
+def test_neutral_artifact_response_without_source_matches_v2_metadata() -> None:
+    parsed = parse_call2_response(neutral_call2_response_v2())
+
+    assert parsed.metadata == neutral_artifact_response_without_source()
 
 
 def test_historical_reader_is_explicit_and_does_not_accept_v2_framing() -> None:

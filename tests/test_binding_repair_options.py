@@ -8,6 +8,7 @@ from asago_artifact_generator.authoring import (
     CORRECTION_PROMPT_VERSION_V6,
     CORRECTION_PROMPT_VERSION_V9,
     Finding,
+    _binding_selector_type,
     _render_correction_packet,
     build_correction_context,
     build_plan_author_context,
@@ -748,6 +749,21 @@ def test_static_repair_fields_are_case_independent_and_separate_from_options() -
     options = _section(first_packet, "BINDING REPAIR OPTIONS", "CORRECTION INSTRUCTIONS")
     assert '"description"' not in options
     assert '"field_descriptions"' not in options
+
+
+def test_binding_selector_type_resolves_nested_schema_paths() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "order": {
+                "type": "object",
+                "properties": {"amount": {"type": "number"}},
+            }
+        },
+    }
+
+    assert _binding_selector_type(schema, "value.order.amount") == "number"
+    assert _binding_selector_type(schema, "value.order.missing") is None
 
 
 def test_duplicate_findings_produce_one_option_per_kind_and_path() -> None:
