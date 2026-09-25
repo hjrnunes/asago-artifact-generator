@@ -1,10 +1,4 @@
-"""Source-pinned, target-free input adapters for artifact authoring.
-
-The producer handoff is the semantic authority.  Native scenario YAML and
-labeled reference tasks are development adapters; neither adapter changes the
-meaning of the supplied source.  This module deliberately returns plain,
-deterministic views so authoring code cannot accidentally reach a target.
-"""
+"""Source-pinned, target-free scenario-handoff input adapter."""
 
 from __future__ import annotations
 
@@ -14,14 +8,12 @@ import re
 import tempfile
 import unicodedata
 from copy import deepcopy
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 import yaml
-
-from .extract import behavior_spec_text
 
 _HANDOFF_SCHEMA_VERSION = "scenario-handoff-v1"
 _HANDOFF_DIGEST_DOMAIN = "scenario-handoff-v1"
@@ -29,19 +21,13 @@ _HANDOFF_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "scenario-ha
 
 
 class InputKind(StrEnum):
-    """The three supported design-time input representations."""
+    """The supported design-time input representation."""
 
     SCENARIO_HANDOFF_V1 = "scenario-handoff-v1"
-    NATIVE_SEMANTIC_YAML = "native-semantic-yaml"
-    REFERENCE_TASK = "reference-task"
 
 
 class InputSourceError(ValueError):
     """Raised when an input or its vendored contract is not trustworthy."""
-
-
-class ReferenceClassificationConflictError(InputSourceError):
-    """Raised when supplied reference-task classifications contradict."""
 
 
 @dataclass(frozen=True)
@@ -75,9 +61,6 @@ class InputView:
     gherkin_text: str
     gherkin_bytes: bytes
     source_digests: dict[str, str] = field(default_factory=dict)
-    reference_label: str | None = None
-    reference_id: str | None = None
-    benchmark_context: dict[str, Any] = field(default_factory=dict)
     owner_scope: dict[str, list[dict[str, str]]] | None = None
 
     @property
@@ -151,12 +134,9 @@ def load_input(
     *,
     kind: InputKind | str | None = None,
     input_kind: InputKind | str | None = None,
-    reference_label: str | None = None,
-    reference_id: str | None = None,
-    benchmark_source_path: str | Path | None = None,
     snapshot_dir: str | Path | None = None,
 ) -> InputView:
-    """Load one approved input and produce a source-pinned authoring view."""
+    """Load one producer scenario handoff and produce a source-pinned view."""
 
     path = Path(source_path)
     try:
@@ -179,245 +159,27 @@ def load_input(
     selected_kind = explicit_kind or alternate_kind or _infer_kind(path, source_bytes)
     if selected_kind is InputKind.SCENARIO_HANDOFF_V1:
         return _handoff_view(path, source_bytes, source)
-    if selected_kind is InputKind.NATIVE_SEMANTIC_YAML:
-        return _native_view(path, source_bytes, source)
-    if selected_kind is InputKind.REFERENCE_TASK:
-        view = _reference_view(
-            path,
-            source_bytes,
-            source,
-            reference_label=reference_label,
-            reference_id=reference_id,
-        )
-        if benchmark_source_path is not None:
-            benchmark_bytes = _read_source(Path(benchmark_source_path))
-            benchmark_context = _benchmark_context(
-                benchmark_bytes,
-                reference_id=view.reference_id or view.scenario_id,
-            )
-            view = replace(
-                view,
-                source_digests={
-                    **view.source_digests,
-                    "benchmark": _sha256(benchmark_bytes),
-                },
-                benchmark_context=benchmark_context,
-            )
-        return view
     raise InputSourceError(f"unsupported input kind: {selected_kind}")
 
 
-def build_reference_task_view(view: InputView) -> dict[str, Any]:
-    """Project a reference task into meaning-bearing model-facing context.
+def build_scenario_handoff_view(view: InputView) -> dict[str, Any]:
+    """Project the producer handoff into meaning-bearing model context."""
 
-    The projection intentionally has no answer-shaped stimulus, oracle
-    implementation, scoring hint, verdict, or whole source payload.  Those
-    values remain available through :func:`build_comparison_inputs` for
-    offline comparison and provenance, never through an authoring prompt.
-    Native handoffs retain their producer-owned narrative and Gherkin rather
-    than passing through this reference-specific projection.
-    """
-
-    if view.kind is not InputKind.REFERENCE_TASK:
-        return {
-            "kind": view.kind.value,
-            "scenario_id": view.scenario_id,
-            "narrative": deepcopy(view.narrative),
-            "gherkin": view.gherkin_text,
-            "semantic_failure_condition": _handoff_failure_condition(view.payload),
-            "safe_alternative": view.payload.get("safe_alternative", ""),
-            "supplied_facts": _handoff_facts(view.payload),
-            "environment_documentation": _handoff_environment(view.payload),
-            "source_references": dict(view.source_digests),
-        }
-
-    source = view.payload
-    if not isinstance(source, dict):
-        raise InputSourceError("reference task payload must be an object")
-    oracle = source.get("oracle") if isinstance(source.get("oracle"), dict) else {}
-    benchmark_oracle = (
-        view.benchmark_context.get("oracle")
-        if isinstance(view.benchmark_context.get("oracle"), dict)
-        else {}
-    )
-    failure = source.get("constraint_meaning")
-    unsafe_when = benchmark_oracle.get("unsafe_when", oracle.get("unsafe_when", ""))
-    if not isinstance(failure, str) or not failure.strip():
-        failure = unsafe_when
-    elif isinstance(unsafe_when, str) and unsafe_when.strip():
-        failure = f"{failure} {unsafe_when}"
-    safe = source.get("safe_alternative")
-    if safe is None:
-        safe = source.get("safe_behaviors")
-    if safe is None:
-        safe = oracle.get("safe_behaviors", [])
-    if benchmark_oracle.get("safe_behaviors"):
-        safe = benchmark_oracle["safe_behaviors"]
-    facts: list[Any] = []
-    for key in ("facts", "state_facts", "policy_facts"):
-        supplied = source.get(key)
-        if isinstance(supplied, dict):
-            facts.append(deepcopy(supplied))
-        elif isinstance(supplied, list):
-            facts.extend(deepcopy(supplied))
-    benchmark = _reference_benchmark_view(source)
-    benchmark.update(
-        {
-            key: deepcopy(value)
-            for key, value in view.benchmark_context.items()
-            if key in {"benchmark_version", "record_conditions"}
-        }
-    )
-    classification = _reference_classification_view(source)
     return {
         "kind": view.kind.value,
         "scenario_id": view.scenario_id,
-        **classification,
-        "title": source.get("title", ""),
-        "semantic_failure_condition": failure,
-        "safe_alternative": deepcopy(safe),
-        "supplied_facts": deepcopy(facts),
-        "relevant_policy_meaning": deepcopy(source.get("constraint_meaning", "")),
-        "benchmark_interpretation": benchmark,
+        "narrative": deepcopy(view.narrative),
+        "gherkin": view.gherkin_text,
+        "semantic_failure_condition": view.payload.get("semantic_failure_criterion", ""),
+        "safe_alternative": view.payload.get("safe_alternative", ""),
+        "supplied_facts": deepcopy(view.payload.get("sourced_facts", [])),
         "environment_documentation": {
-            "target_environment": source.get("target_environment"),
-            "documented_operations": deepcopy(source.get("documented_operations", [])),
-            "supported_observations": deepcopy(source.get("supported_observations", [])),
+            "documented_operations": deepcopy(view.payload.get("documented_operations", [])),
+            "governing_rules": deepcopy(view.payload.get("governing_rules", [])),
+            "assumptions_and_unknowns": deepcopy(view.payload.get("assumptions_and_unknowns", [])),
         },
         "source_references": dict(view.source_digests),
-        "reference_label": view.reference_label,
     }
-
-
-def _reference_classification_view(source: dict[str, Any]) -> dict[str, Any]:
-    """Preserve supplied classification declarations without inference.
-
-    ``family`` names a scenario family, while ``test_class`` and
-    ``adversary.kind`` describe independent supplied declarations.  The
-    optional ``kind`` field is accepted only as a legacy classification
-    declaration so a contradictory pair is rejected instead of silently
-    preferred.
-    """
-
-    family = source.get("family")
-    test_class = source.get("test_class")
-    legacy_kind = source.get("kind")
-    adversary_value = source.get("adversary")
-    adversary = deepcopy(adversary_value) if isinstance(adversary_value, dict) else None
-    declarations: list[tuple[str, str]] = []
-    if isinstance(test_class, str) and test_class in {"functional", "adversarial"}:
-        declarations.append(("test_class", test_class))
-    if isinstance(legacy_kind, str) and legacy_kind in {"functional", "adversarial"}:
-        declarations.append(("kind", legacy_kind))
-    adversary_kind = adversary.get("kind") if adversary else None
-    if isinstance(adversary_kind, str) and isinstance(test_class, str):
-        adversary_class = "functional" if adversary_kind == "none" else "adversarial"
-        if test_class in {"functional", "adversarial"} and test_class != adversary_class:
-            raise ReferenceClassificationConflictError(
-                "classification_conflict: test_class contradicts adversary.kind "
-                f"(test_class={test_class}, adversary.kind={adversary_kind})"
-            )
-    if isinstance(adversary_kind, str) and isinstance(legacy_kind, str):
-        adversary_class = "functional" if adversary_kind == "none" else "adversarial"
-        if legacy_kind in {"functional", "adversarial"} and legacy_kind != adversary_class:
-            raise ReferenceClassificationConflictError(
-                "classification_conflict: kind contradicts adversary.kind "
-                f"(kind={legacy_kind}, adversary.kind={adversary_kind})"
-            )
-    declared_classes = {value for _, value in declarations}
-    if len(declared_classes) > 1:
-        details = ", ".join(f"{name}={value}" for name, value in declarations)
-        raise ReferenceClassificationConflictError(
-            f"classification_conflict: contradictory supplied declarations ({details})"
-        )
-    return {
-        "family": deepcopy(family) if family is not None else None,
-        "family_availability": "supplied" if family is not None else "missing",
-        "test_class": deepcopy(test_class) if test_class is not None else None,
-        "test_class_availability": "supplied" if test_class is not None else "missing",
-        "adversary": adversary,
-        "adversary_availability": "supplied" if adversary is not None else "missing",
-    }
-
-
-def build_comparison_inputs(view: InputView) -> dict[str, Any]:
-    """Return answer-bearing evidence for offline comparison only."""
-
-    return {
-        "source_snapshot": {
-            "path": view.source.source_path,
-            "sha256": view.source.sha256,
-            "length": view.source.length,
-        },
-        "source_digests": dict(view.source_digests),
-        "complete_source": deepcopy(view.payload),
-        "stimulus": deepcopy(view.payload.get("stimulus")),
-        "oracle": deepcopy(view.payload.get("oracle")),
-        "scoring_hints": deepcopy(
-            view.payload.get("scoring_hints", view.payload.get("scoring_hint"))
-        ),
-        "verdicts": deepcopy(view.payload.get("verdicts", view.payload.get("verdict"))),
-    }
-
-
-def _handoff_failure_condition(payload: dict[str, Any]) -> Any:
-    return payload.get("semantic_failure_criterion", "")
-
-
-def _handoff_facts(payload: dict[str, Any]) -> list[Any]:
-    facts = payload.get("sourced_facts", [])
-    return deepcopy(facts) if isinstance(facts, list) else []
-
-
-def _handoff_environment(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "documented_operations": deepcopy(payload.get("documented_operations", [])),
-        "governing_rules": deepcopy(payload.get("governing_rules", [])),
-        "assumptions_and_unknowns": deepcopy(payload.get("assumptions_and_unknowns", [])),
-    }
-
-
-def _reference_benchmark_view(source: dict[str, Any]) -> dict[str, Any]:
-    """Keep benchmark amendments as meaning, not as an answer encoding."""
-
-    result: dict[str, Any] = {}
-    for key in (
-        "benchmark_version",
-        "benchmark_revision",
-        "record_conditions",
-        "eligibility",
-        "ownership",
-        "balance_requirement",
-    ):
-        if key in source:
-            result[key] = deepcopy(source[key])
-    return result
-
-
-def _benchmark_context(source_bytes: bytes, *, reference_id: str) -> dict[str, Any]:
-    """Resolve one benchmark revision into meaning-only reference context."""
-
-    document = yaml.safe_load(source_bytes)
-    if not isinstance(document, dict):
-        raise InputSourceError("benchmark source must be an object")
-    selected = next(
-        (
-            item
-            for item in document.get("cases", [])
-            if isinstance(item, dict) and item.get("gold_id", item.get("id")) == reference_id
-        ),
-        None,
-    )
-    if not isinstance(selected, dict):
-        raise InputSourceError(f"benchmark case is not present: {reference_id}")
-    context: dict[str, Any] = {
-        "benchmark_version": document.get("benchmark_version"),
-    }
-    if isinstance(selected.get("record_conditions"), dict):
-        context["record_conditions"] = deepcopy(selected["record_conditions"])
-    if isinstance(selected.get("oracle"), dict):
-        context["oracle"] = deepcopy(selected["oracle"])
-    return context
 
 
 def _read_source(path: Path) -> bytes:
@@ -485,99 +247,11 @@ def _handoff_view(path: Path, source_bytes: bytes, source: SourceSnapshot) -> In
     )
 
 
-def _native_view(path: Path, source_bytes: bytes, source: SourceSnapshot) -> InputView:
-    payload = _parse_document(path, source_bytes)
-    if not isinstance(payload, dict) or not isinstance(payload.get("scenario_id"), str):
-        raise InputSourceError("native semantic YAML requires a scenario_id")
-    try:
-        gherkin_text = behavior_spec_text(payload.get("behavior_spec", ""))
-    except ValueError as exc:
-        raise InputSourceError(str(exc)) from exc
-    companion = path.with_suffix(".feature")
-    if companion.is_file():
-        gherkin_bytes = _read_source(companion)
-        try:
-            gherkin_text = gherkin_bytes.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise InputSourceError(f"Gherkin companion is not UTF-8: {companion}") from exc
-    else:
-        gherkin_bytes = gherkin_text.encode("utf-8")
-    narrative = payload.get("narrative", {})
-    return InputView(
-        kind=InputKind.NATIVE_SEMANTIC_YAML,
-        scenario_id=payload["scenario_id"],
-        payload=payload,
-        source=source,
-        source_bytes=source_bytes,
-        narrative=narrative,
-        narrative_bytes=(
-            narrative.encode("utf-8") if isinstance(narrative, str) else _canonical_json(narrative)
-        ),
-        gherkin=payload.get("behavior_spec", ""),
-        gherkin_text=gherkin_text,
-        gherkin_bytes=gherkin_bytes,
-        source_digests={
-            "input": source.sha256,
-            "gherkin": _sha256(gherkin_bytes),
-        },
-    )
-
-
-def _reference_view(
-    path: Path,
-    source_bytes: bytes,
-    source: SourceSnapshot,
-    *,
-    reference_label: str | None,
-    reference_id: str | None,
-) -> InputView:
-    document = _parse_document(path, source_bytes)
-    selected = document
-    if isinstance(document, dict) and isinstance(document.get("gold_cases"), list):
-        cases = document["gold_cases"]
-        if reference_id is not None:
-            matches = [
-                item for item in cases if isinstance(item, dict) and item.get("id") == reference_id
-            ]
-            if len(matches) != 1:
-                raise InputSourceError(f"reference task id is not unique: {reference_id}")
-            selected = matches[0]
-        elif len(cases) == 1:
-            selected = cases[0]
-    if not isinstance(selected, dict):
-        raise InputSourceError("reference task must resolve to an object")
-    if reference_id is not None and selected.get("id") != reference_id:
-        raise InputSourceError(f"reference task id is not present: {reference_id}")
-    scenario_id = str(selected.get("id") or reference_id or path.stem)
-    stimulus = selected.get("stimulus") or {}
-    turns = stimulus.get("turns") if isinstance(stimulus, dict) else None
-    gherkin_text = ""
-    if isinstance(selected.get("gherkin_text"), str):
-        gherkin_text = selected["gherkin_text"]
-    return InputView(
-        kind=InputKind.REFERENCE_TASK,
-        scenario_id=scenario_id,
-        payload=selected,
-        source=source,
-        source_bytes=source_bytes,
-        narrative=selected.get("constraint_meaning", ""),
-        narrative_bytes=str(selected.get("constraint_meaning", "")).encode("utf-8"),
-        gherkin=turns or [],
-        gherkin_text=gherkin_text,
-        gherkin_bytes=gherkin_text.encode("utf-8"),
-        source_digests={"input": source.sha256},
-        reference_label=reference_label,
-        reference_id=reference_id or (scenario_id if scenario_id else None),
-    )
-
-
 def _infer_kind(path: Path, source_bytes: bytes) -> InputKind:
     document = _parse_document(path, source_bytes)
     if isinstance(document, dict) and document.get("schema_version") == _HANDOFF_SCHEMA_VERSION:
         return InputKind.SCENARIO_HANDOFF_V1
-    if isinstance(document, dict) and "gold_cases" in document:
-        return InputKind.REFERENCE_TASK
-    return InputKind.NATIVE_SEMANTIC_YAML
+    raise InputSourceError("authoring source must be a producer scenario-handoff-v1 document")
 
 
 def _validate_handoff_kit() -> None:
@@ -782,10 +456,10 @@ def _render_handoff_gherkin(gherkin: dict[str, Any]) -> str:
 
 
 __all__ = [
+    "build_scenario_handoff_view",
     "InputKind",
     "InputSourceError",
     "InputView",
-    "ReferenceClassificationConflictError",
     "SourceSnapshot",
     "load_input",
     "snapshot_input",

@@ -1,0 +1,9 @@
+{
+  "authority": "asago-scenario-generator",
+  "contract": "target-profile",
+  "digest_domain": "execution-target-profile-v1",
+  "files": {
+    "target-profile-v1/schema.json": "b26528d27bbb3725f8bfedea9ca55c4ebae6b73f2d9050648009b06104bf1bb7"
+  },
+  "schema_version": "execution-target-profile-v1"
+}

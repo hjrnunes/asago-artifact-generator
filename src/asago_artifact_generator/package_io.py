@@ -31,7 +31,7 @@ _ALLOWED_MEMBER_NAMES = {
     "examples.json",
 }
 _CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "artifact-package"
-_INPUT_KINDS = {"scenario-handoff-v1", "native-semantic-yaml", "reference-task"}
+_INPUT_KINDS = {"scenario-handoff-v1"}
 
 
 class PackagePathError(ValueError):
@@ -51,7 +51,6 @@ class PackageManifest:
     input_kind: str
     source_digests: dict[str, str]
     members: list[dict[str, Any]]
-    reference_task: dict[str, Any] | None = None
     authoring: dict[str, Any] = field(default_factory=dict)
     detector_interface: str = DETECTOR_INTERFACE_VERSION
     runtime_capabilities: dict[str, Any] = field(default_factory=dict)
@@ -74,8 +73,6 @@ class PackageManifest:
         }
         if self.manifest_digest:
             result["manifest_digest"] = self.manifest_digest
-        if self.reference_task is not None:
-            result["reference_task"] = self.reference_task
         return result
 
 
@@ -94,7 +91,6 @@ def build_package(
     input_kind: str,
     source_digests: dict[str, str],
     members: dict[str, bytes],
-    reference_task: dict[str, Any] | None = None,
     authoring: dict[str, Any] | None = None,
     runtime_capabilities: dict[str, Any] | None = None,
     creation_model: dict[str, Any] | None = None,
@@ -108,7 +104,6 @@ def build_package(
         input_kind=input_kind,
         source_digests=dict(source_digests),
         members=[_member_record(path, value) for path, value in normalized_members.items()],
-        reference_task=reference_task,
         authoring=authoring or {},
         runtime_capabilities=runtime_capabilities or {},
         creation_model=creation_model or {},
@@ -302,7 +297,7 @@ def _manifest_from_dict(value: Any) -> PackageManifest:
         "runtime_capabilities",
         "creation_model",
     }
-    unknown = set(value) - required - {"reference_task", "manifest_digest"}
+    unknown = set(value) - required - {"manifest_digest"}
     missing = required - set(value)
     if unknown or missing:
         raise PackageIntegrityError(
@@ -314,7 +309,6 @@ def _manifest_from_dict(value: Any) -> PackageManifest:
         input_kind=value["input_kind"],
         source_digests=value["source_digests"],
         members=value["members"],
-        reference_task=value.get("reference_task"),
         authoring=value["authoring"],
         detector_interface=value["detector_interface"],
         runtime_capabilities=value["runtime_capabilities"],
@@ -352,7 +346,6 @@ def _validate_manifest_fields(manifest: PackageManifest) -> None:
     ):
         raise PackageIntegrityError("manifest source_digests must contain SHA-256 strings")
     for value in (
-        manifest.reference_task,
         manifest.authoring,
         manifest.runtime_capabilities,
         manifest.creation_model,

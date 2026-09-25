@@ -24,7 +24,7 @@ from .detector_runtime import execute_detector
 from .extract import load_scenario
 from .garak.gen import generate_artifact, list_scenario_files
 from .garak.spec_io import MANIFEST_FILE, runs_dir
-from .input_adapter import InputKind, load_input
+from .input_adapter import InputSourceError, load_input
 from .llm import BASE_URL, MODEL
 from .profiles import (
     ProfileLoadError,
@@ -32,6 +32,7 @@ from .profiles import (
     load_authoring_profile,
 )
 from .reporting import garak_value
+from .target_inputs import TargetInputError, load_target_inputs
 
 app = typer.Typer(
     help="Policy-driven agentic red-teaming artifact generator.",
@@ -175,10 +176,16 @@ def generate(
 
 @app.command()
 def author(
-    source: Annotated[Path, typer.Argument(help="Scenario handoff or semantic input file.")],
-    inventory: Annotated[
+    source: Annotated[
         Path,
-        typer.Option("--inventory", help="Complete supplied operation/fact inventory JSON/YAML."),
+        typer.Argument(help="Producer scenario-handoff-v1 JSON/YAML file."),
+    ],
+    target_profile: Annotated[
+        Path,
+        typer.Option(
+            "--target-profile",
+            help="Producer execution-target-profile-v1 discovery output.",
+        ),
     ],
     runtime_contract: Annotated[
         Path,
@@ -186,22 +193,17 @@ def author(
             "--runtime-contract", help="Supplied target-free runtime contract JSON/YAML."
         ),
     ],
+    target_observations: Annotated[
+        Path | None,
+        typer.Option(
+            "--target-observations",
+            help="Optional producer runtime-context JSON/YAML discovery output.",
+        ),
+    ] = None,
     output_dir: Annotated[
         Path,
         typer.Option("--output-dir", help="Directory receiving the immutable package."),
     ] = Path("runs/authoring"),
-    input_kind: Annotated[
-        InputKind | None,
-        typer.Option("--input-kind", help="Explicit input kind; otherwise infer it."),
-    ] = None,
-    reference_label: Annotated[
-        str | None,
-        typer.Option("--reference-label", help="Optional development-input label."),
-    ] = None,
-    reference_id: Annotated[
-        str | None,
-        typer.Option("--reference-id", help="Optional reference-task identity."),
-    ] = None,
     task_id: Annotated[
         str | None,
         typer.Option("--task-id", help="Stable task identity used in package metadata."),
@@ -296,7 +298,7 @@ def author(
         ),
     ] = 0,
 ) -> None:
-    """Author one target-free immutable detector package with per-stage corrections and reviews."""
+    """Author one immutable package from a producer scenario handoff and discovery output."""
 
     effective_review_profile = (
         review_model_profile if review_model_profile is not None else profile
@@ -312,13 +314,17 @@ def author(
         )
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from None
-    view = load_input(
-        source,
-        kind=input_kind,
-        reference_label=reference_label,
-        reference_id=reference_id,
-    )
-    inventory_data = _load_mapping(inventory, "inventory")
+    try:
+        view = load_input(source)
+    except InputSourceError as exc:
+        raise typer.BadParameter(str(exc), param_hint=str(source)) from None
+    try:
+        inventory_data, discovery_provenance = load_target_inputs(
+            target_profile,
+            target_observations,
+        )
+    except TargetInputError as exc:
+        raise typer.BadParameter(str(exc), param_hint=str(target_profile)) from None
     runtime_data = _load_mapping(runtime_contract, "runtime contract")
     stable_task_id = task_id or view.scenario_id
     try:
@@ -365,6 +371,7 @@ def author(
         policy=policy,
         prior_author_correction_spend=prior_author_correction_spend,
         prior_review_spend=prior_review_spend,
+        discovery_provenance=discovery_provenance,
     ).run(view, inventory_data, runtime_data)
     typer.echo(
         json.dumps(

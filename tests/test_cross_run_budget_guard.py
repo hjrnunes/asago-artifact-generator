@@ -16,6 +16,7 @@ from asago_artifact_generator.authoring import (
 )
 
 from .test_authoring_orchestration import HANDOFF
+from .test_profile_bridge import _inputs as _cli_inputs
 from .test_versioned_authoring_wire import (
     _inventory,
     _plan,
@@ -136,10 +137,7 @@ def test_author_cli_threads_prior_spend_to_orchestrator_without_provider_contact
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    inventory = tmp_path / "inventory.json"
-    inventory.write_text(json.dumps(_inventory()), encoding="utf-8")
-    runtime_contract = tmp_path / "runtime-contract.json"
-    runtime_contract.write_text(json.dumps(_runtime_contract()), encoding="utf-8")
+    target_profile, runtime_contract = _cli_inputs(tmp_path)
     captured: dict[str, object] = {}
 
     class FakeTransport:
@@ -171,8 +169,8 @@ def test_author_cli_threads_prior_spend_to_orchestrator_without_provider_contact
         [
             "author",
             str(HANDOFF),
-            "--inventory",
-            str(inventory),
+            "--target-profile",
+            str(target_profile),
             "--runtime-contract",
             str(runtime_contract),
             "--output-dir",
@@ -193,10 +191,7 @@ def test_author_cli_rejects_negative_prior_spend_before_transport(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    inventory = tmp_path / "inventory.json"
-    inventory.write_text(json.dumps(_inventory()), encoding="utf-8")
-    runtime_contract = tmp_path / "runtime-contract.json"
-    runtime_contract.write_text(json.dumps(_runtime_contract()), encoding="utf-8")
+    target_profile, runtime_contract = _cli_inputs(tmp_path)
     constructed = False
 
     def fail_if_constructed(**_: object) -> object:
@@ -211,8 +206,8 @@ def test_author_cli_rejects_negative_prior_spend_before_transport(
         [
             "author",
             str(HANDOFF),
-            "--inventory",
-            str(inventory),
+            "--target-profile",
+            str(target_profile),
             "--runtime-contract",
             str(runtime_contract),
             "--output-dir",

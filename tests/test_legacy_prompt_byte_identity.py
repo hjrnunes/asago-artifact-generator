@@ -45,21 +45,21 @@ _LEGACY_GUIDE_DIGESTS = {
 }
 
 _LEGACY_PROMPT_DIGESTS = {
-    "author_context": "15dc8535090c18830828626be98635c7a1faf9fbf17d96dcfddd901cf99796b3",
-    "correction:no_feedback": "a04079dddbb5a3e54de78767f63ec6b7b7670cd25c80b34aa64fa4d6634f4fd2",
-    "correction:with_feedback": "649063c887f1b48b2bae08bcdd679a688d190fe26949bd26a582f2b9cc48e58c",
+    "author_context": "c0c27718b23b8c5a66d5fb60fe476561f866b1349fbcb3eb2965eb049b52d10a",
+    "correction:no_feedback": "a5da8175f0bbe65b513bb64aa0f24e2baf31a1c76621a7cc12c96d7ce47b8606",
+    "correction:with_feedback": "19ab8f463b02dc4b46e75cb15c7c493225c5b7c36b43fcc192f4afcbc17be631",
 }
 
 _LEGACY_CONTRACT_DIGEST = "afce7f1f4f7723729ec0a0949e63cc67bad377ac76dd412a042a460327507882"
 
 _LEGACY_V2_PROMPT_DIGESTS = {
-    "call1": "c2fec4bd57fe3d5b7e5748465dad428d66041f2b2b22f3aacf0a67ea7dcbc448",
-    "plan_correction": "b6856f885f71e07a9198b6554dfe88fc9a7b605297b14afabb45b39fa608d14c",
+    "call1": "55e858b48a8e4438ef8be8d77e02a89fca06081be5edcdb0f12ca1305bc34e77",
+    "plan_correction": "4c1c67de29dbdf6d64ee758fcddaf0702baf45257c35b3b8161801cb5c353a08",
 }
 
 _LEGACY_CURRENT_ROLE_DIGESTS = {
-    "call1_v5": "d938d5e37faa45d14e73e68a5b9c6e68238e04cd1d6af33a7c98d5e83d62f033",
-    "plan_correction_v10": "a1c968d5373de5631301c8c44ea92879f05b41f3cbd0c25dcc8fa820453a7706",
+    "call1_v5": "97f23bfb71bfd4b41e76be2ec3d485f466239c7cd31d8305c51607d5ccece732",
+    "plan_correction_v10": "21b70f5468eefdd6241ef706f99520690260a9392312508def929c79af02780b",
 }
 
 

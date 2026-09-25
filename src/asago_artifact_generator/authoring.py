@@ -48,7 +48,7 @@ from .failure_evidence import (
 )
 from .input_adapter import (
     InputView,
-    build_reference_task_view,
+    build_scenario_handoff_view,
 )
 from .metadata_policy import prompt_secret_metadata_paths, secret_metadata_paths
 from .package_io import ArtifactPackage, build_package, write_package
@@ -2579,6 +2579,7 @@ class AuthoringOrchestrator:
         review_artifact: bool | None = None,
         no_correction: bool = False,
         supplied_control_cases: SuppliedControlCases | None = None,
+        discovery_provenance: dict[str, Any] | None = None,
     ) -> None:
         if getattr(transport, "max_retries", None) != 0:
             raise ValueError("authoring transport must set max_retries=0")
@@ -2588,6 +2589,8 @@ class AuthoringOrchestrator:
             raise ValueError("wire_version must be 'v1' or 'v2'")
         if supplied_control_cases is not None:
             _validate_supplied_control_cases(supplied_control_cases)
+        if discovery_provenance is not None and not isinstance(discovery_provenance, dict):
+            raise ValueError("discovery_provenance must be a mapping")
         direct_policy_options = (
             plan_max_corrections is not None
             or artifact_max_corrections is not None
@@ -2632,6 +2635,7 @@ class AuthoringOrchestrator:
         self.transport = transport
         self.package_dir = Path(package_dir)
         self.task_id = task_id
+        self.discovery_provenance = deepcopy(discovery_provenance or {})
         self.policy = policy
         self.review_model_profile = (
             review_model_profile
@@ -2774,6 +2778,7 @@ class AuthoringOrchestrator:
             transformations=self._transformations,
             inventory=inventory,
             runtime_contract=runtime_contract,
+            discovery_provenance=self.discovery_provenance,
         )
         try:
             path = write_package(self.package_dir, package)
@@ -2923,6 +2928,7 @@ class AuthoringOrchestrator:
                 transformations=self._transformations,
                 inventory=inventory,
                 runtime_contract=runtime_contract,
+                discovery_provenance=self.discovery_provenance,
                 detector_bytes=parsed.python_bytes,
                 interface_version=AUTHORING_INTERFACE_VERSION_V2,
             )
@@ -3807,6 +3813,7 @@ class AuthoringOrchestrator:
                 transformations=self._transformations,
                 inventory=inventory,
                 runtime_contract=runtime_contract,
+                discovery_provenance=self.discovery_provenance,
                 detector_bytes=parsed.python_bytes,
                 interface_version=AUTHORING_INTERFACE_VERSION_V2,
                 policy=self._effective_policy_record(),
@@ -6829,34 +6836,24 @@ def _v2_input_projection(view: InputView) -> dict[str, Any]:
         "narrative_bytes_sha256": _sha256(view.narrative_bytes),
         "gherkin_bytes_sha256": _sha256(view.gherkin_bytes),
         "source_digests": dict(view.source_digests),
-        "reference_label": view.reference_label,
-        "reference_id": view.reference_id,
     }
 
 
 def _case_meaning(view: InputView) -> dict[str, Any]:
-    reference = build_reference_task_view(view)
-    classification = {
-        "family": reference.get("family"),
-        "test_class": reference.get("test_class"),
-        "adversary": reference.get("adversary"),
-    }
+    handoff = build_scenario_handoff_view(view)
     return {
         "scenario_id": view.scenario_id,
         "narrative": view.narrative,
         "gherkin": view.gherkin_text,
-        "semantic_failure": reference.get(
-            "semantic_failure_condition",
-            reference.get("safe_alternative", ""),
-        ),
-        "safe_behavior": reference.get("safe_alternative", ""),
+        "semantic_failure": handoff["semantic_failure_condition"],
+        "safe_behavior": handoff["safe_alternative"],
         "observation_level": view.payload.get(
             "observation_level",
             view.payload.get(
                 "observation", "selected by the plan and bounded by runtime evidence"
             ),
         ),
-        "classification": classification,
+        "classification": {"family": None, "test_class": None, "adversary": None},
     }
 
 
@@ -8683,7 +8680,7 @@ def _selected_refs(plan: dict[str, Any], inventory: dict[str, Any]) -> dict[str,
 def _input_view_payload(
     view: InputView,
     *,
-    include_reference_task: bool = True,
+    include_scenario_handoff: bool = True,
 ) -> dict[str, Any]:
     """Build the meaning-preserving model-facing input projection."""
 
@@ -8695,11 +8692,9 @@ def _input_view_payload(
         "gherkin_text": view.gherkin_text,
         "gherkin_bytes_sha256": _sha256(view.gherkin_bytes),
         "source_digests": view.source_digests,
-        "reference_label": view.reference_label,
-        "reference_id": view.reference_id,
     }
-    if include_reference_task:
-        payload["reference_task"] = build_reference_task_view(view)
+    if include_scenario_handoff:
+        payload["scenario_handoff"] = build_scenario_handoff_view(view)
     return payload
 
 
@@ -8715,8 +8710,6 @@ def _source_input_payload(view: InputView) -> dict[str, Any]:
         "gherkin_text": view.gherkin_text,
         "gherkin_bytes_sha256": _sha256(view.gherkin_bytes),
         "source_digests": view.source_digests,
-        "reference_label": view.reference_label,
-        "reference_id": view.reference_id,
     }
 
 
@@ -8733,6 +8726,7 @@ def _package_from_responses(
     transformations: list[str],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    discovery_provenance: dict[str, Any] | None = None,
     detector_bytes: bytes | None = None,
     interface_version: str = AUTHORING_INTERFACE_VERSION,
     policy: dict[str, Any] | None = None,
@@ -8819,6 +8813,7 @@ def _package_from_responses(
                 "model_facing_input": _input_view_payload(view),
                 "source_input": _source_input_payload(view),
                 "inventory": inventory,
+                "discovery_provenance": deepcopy(discovery_provenance or {}),
                 "runtime_contract": runtime_contract,
                 "authoring_input_pins": authoring_input_pins,
             }
@@ -8896,14 +8891,6 @@ def _package_from_responses(
         input_kind=view.kind.value,
         source_digests=view.source_digests or {"input": view.source_sha256},
         members=members,
-        reference_task=(
-            {
-                "label": view.reference_label,
-                "id": view.reference_id,
-            }
-            if view.reference_label or view.reference_id
-            else None
-        ),
         authoring=authoring_summary,
         runtime_capabilities=runtime_contract,
         creation_model=creation_model,
@@ -11068,7 +11055,7 @@ def build_neutral_artifact_package(
         package = build_package(
             package_id="offline-neutral-example-v2",
             scenario_id="neutral-example",
-            input_kind="reference-task",
+            input_kind="scenario-handoff-v1",
             source_digests={"neutral": _sha256(b"neutral-example-v2")},
             members=members,
             authoring={
@@ -11098,7 +11085,7 @@ def build_neutral_artifact_package(
     package = build_package(
         package_id="offline-neutral-example",
         scenario_id="neutral-example",
-        input_kind="reference-task",
+        input_kind="scenario-handoff-v1",
         source_digests={"neutral": _sha256(b"neutral-example-v1")},
         members=members,
         authoring={"status": "scripted-offline-example"},

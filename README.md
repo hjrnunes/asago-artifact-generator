@@ -8,8 +8,9 @@ Run the target-free consumer workflow from this repository root:
 ```bash
 cd <consumer-repo-root>
 uv sync --locked
-uv run asago-artifact-generator author <scenario-handoff-or-input.json> \
-  --inventory <inventory.json> \
+uv run asago-artifact-generator author <scenario-handoff.json> \
+  --target-profile <execution-target-profile.json> \
+  --target-observations <runtime-context.json> \
   --runtime-contract <runtime-contract.json> \
   --output-dir runs/authoring/<case-id>
 uv run asago-artifact-generator check runs/authoring/<case-id>/<case-id> \
@@ -39,8 +40,9 @@ For live private authoring, pass the approved named profile and the producer
 profile file directly to `author`:
 
 ```bash
-uv run asago-artifact-generator author <scenario-handoff-or-input.json> \
-  --inventory <inventory.json> \
+uv run asago-artifact-generator author <scenario-handoff.json> \
+  --target-profile <execution-target-profile.json> \
+  --target-observations <runtime-context.json> \
   --runtime-contract <runtime-contract.json> \
   --output-dir runs/authoring/<case-id> \
   --profile gemma4-oc \
@@ -82,8 +84,9 @@ By default `author` allows one plan correction and one artifact correction and
 enables both semantic reviews. Configure the stages independently:
 
 ```bash
-uv run asago-artifact-generator author <input.json> \
-  --inventory <inventory.json> \
+uv run asago-artifact-generator author <scenario-handoff.json> \
+  --target-profile <execution-target-profile.json> \
+  --target-observations <runtime-context.json> \
   --runtime-contract <runtime-contract.json> \
   --plan-max-corrections 1 \
   --artifact-max-corrections 1 \
@@ -349,18 +352,22 @@ historical scenario YAML compatibility only.
 
 ## Source-pinned artifact foundation
 
-The new authoring path accepts three target-free inputs:
+The authoring path accepts producer-owned discovery outputs and one scenario
+handoff:
 
-- Producer-owned `scenario-handoff-v1` JSON or YAML.
-- Native semantic scenario YAML, including dictionary-shaped
-  `behavior_spec.gherkin_text`.
-- A labeled development reference task.
+- `scenario-handoff-v1` JSON or YAML for scenario meaning.
+- `execution-target-profile-v1` JSON for the observed target inventory.
+- Optional normalized producer `runtime-context.json` for state and read observations.
+- A target-free runtime contract.
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
 vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and
-record SHA-256 source pins. Use `snapshot_input` or `snapshot_inputs` before
-authoring when a supplied reference source must be copied into a run-local,
-hash-addressed snapshot. These functions only read the source.
+record SHA-256 source pins. Use
+`asago_artifact_generator.target_inputs.load_target_inputs` to validate the
+producer profile, verify its semantic digest, map observed tools to
+operations, infer fact schemas, and record discovery provenance. Authoring
+does not accept native semantic scenario files, reference tasks, benchmark
+answers, or hand-built inventories.
 
 The consumer-owned `artifact-package-v1` contract lives in
 `contracts/artifact-package/`. `package_io.write_package` writes a complete
@@ -372,11 +379,12 @@ compatibility path.
 ### Target-free authoring
 
 Use `author` to run the bounded Call 1 plan and Call 2 package sequence. Supply
-the complete inventory and runtime contract as JSON or YAML:
+the scenario handoff, producer discovery profile, and runtime contract:
 
 ```bash
-uv run asago-artifact-generator author scenario.json \
-  --inventory inventory.json \
+uv run asago-artifact-generator author scenario-handoff.json \
+  --target-profile execution-target-profile.json \
+  --target-observations runtime-context.json \
   --runtime-contract runtime-contract.json \
   --output-dir runs/authoring
 ```

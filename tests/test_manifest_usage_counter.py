@@ -15,7 +15,7 @@ def _package(*, authoring: dict) -> object:
     return build_package(
         package_id="usage-policy",
         scenario_id="usage-policy",
-        input_kind="reference-task",
+        input_kind="scenario-handoff-v1",
         source_digests={"input": "a" * 64},
         members={"detector.py": b"source\n"},
         authoring=authoring,

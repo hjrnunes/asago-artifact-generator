@@ -113,9 +113,9 @@ def test_legacy_v9_render_matches_head_2097438() -> None:
 
     assert packet.version == CORRECTION_PROMPT_VERSION_V9
     assert hashlib.sha256((packet.system + "\x00" + packet.user).encode()).hexdigest() == (
-        "4c5a4c9590ee4d3a3b8e5e870b8f29978cec300f946a4e3b99fc494be11a44ec"
+        "e97a8c611b70375c7a0caffc379b8d6c089f9d10d80a43bf4d259c5501fa948f"
     )
-    assert packet.sha256 == "e6138aa08a8ec5b868cdd08c9f6d025db9b54fdadac96ef50cab4588c69be4be"
+    assert packet.sha256 == "73900c4ae0f59e9d30dfbf3b9f64c494145f6a2bae8836c4114af59e31bbad1c"
 
 
 def test_legacy_v10_without_binding_options_preserves_v9_prompt_bytes() -> None:

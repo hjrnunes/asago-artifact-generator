@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,15 +29,46 @@ HANDOFF = (
 
 
 def _inputs(tmp_path: Path) -> tuple[Path, Path]:
-    inventory = tmp_path / "inventory.json"
-    inventory.write_text(
-        json.dumps(
-            {
-                "operations": [],
-                "facts": [],
-                "source_handles": [],
-            }
-        ),
+    profile = tmp_path / "execution-target-profile.json"
+    profile_payload = {
+        "schema_version": "execution-target-profile-v1",
+        "target_id": "synthetic-target",
+        "authorization_scope_id": "synthetic-scope",
+        "basis": "target",
+        "inventory_authority": "observed",
+        "semantic_authority": "inferred",
+        "inventory_completeness": "observed_complete",
+        "source_protocol": "mcp",
+        "source_inventory_digest": "a" * 64,
+        "discovery_provenance": {
+            "scanner_id": "scanner",
+            "interpreter_id": "interpreter",
+            "verifier_id": "verifier",
+        },
+        "inventory": {
+            "schema_version": "mcp-inventory-v1",
+            "target_id": "synthetic-target",
+            "authorization_scope_id": "synthetic-scope",
+            "source_protocol": "mcp",
+            "semantic_digest": "a" * 64,
+            "tools": [],
+        },
+        "resources": [],
+        "interpretations": [],
+        "diagnostics": [],
+    }
+    digest_payload = dict(profile_payload)
+    profile_payload["semantic_digest"] = hashlib.sha256(
+        b"execution-target-profile-v1\0"
+        + json.dumps(
+            digest_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode()
+    ).hexdigest()
+    profile.write_text(
+        json.dumps(profile_payload),
         encoding="utf-8",
     )
     runtime_contract = tmp_path / "runtime-contract.json"
@@ -51,7 +83,7 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path]:
         ),
         encoding="utf-8",
     )
-    return inventory, runtime_contract
+    return profile, runtime_contract
 
 
 def _profile_file(tmp_path: Path, **changes: object) -> tuple[Path, dict[str, str]]:
@@ -71,12 +103,12 @@ def _invoke_author(
     *,
     extra_args: list[str] | None = None,
 ) -> object:
-    inventory, runtime_contract = _inputs(tmp_path)
+    target_profile, runtime_contract = _inputs(tmp_path)
     arguments = [
         "author",
         str(HANDOFF),
-        "--inventory",
-        str(inventory),
+        "--target-profile",
+        str(target_profile),
         "--runtime-contract",
         str(runtime_contract),
         "--output-dir",
@@ -137,10 +169,12 @@ def test_author_cli_passes_profile_values_directly_to_transport(
             captured.update(kwargs)
 
     class FakeOrchestrator:
-        def __init__(self, *, transport: object, **_: object) -> None:
+        def __init__(self, *, transport: object, **kwargs: object) -> None:
             captured["transport"] = transport
+            captured["orchestrator_options"] = kwargs
 
-        def run(self, *_: object) -> SimpleNamespace:
+        def run(self, view: object, inventory: object, runtime: object) -> SimpleNamespace:
+            captured["run_inputs"] = (view, inventory, runtime)
             return SimpleNamespace(
                 status="failed",
                 package_path=None,
@@ -169,6 +203,13 @@ def test_author_cli_passes_profile_values_directly_to_transport(
     assert captured["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
     assert captured["context_window_tokens"] == 32_768
     assert captured["max_completion_tokens"] == 8_192
+    _, inventory, runtime = captured["run_inputs"]
+    assert inventory["operations"] == []
+    assert {handle["ref"] for handle in inventory["source_handles"]} == {"target-profile"}
+    assert captured["orchestrator_options"]["discovery_provenance"]["target_id"] == (
+        "synthetic-target"
+    )
+    assert runtime["delivery"] == ["direct_user_message"]
     assert values["api_key"] not in result.output
     assert values["base_url"] not in result.output
 

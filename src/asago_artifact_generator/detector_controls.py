@@ -511,7 +511,7 @@ def _write_control_package(root: Path, detector_bytes: bytes) -> Path:
     package = build_package(
         package_id=f"detector-controls-{hashlib.sha256(detector_bytes).hexdigest()[:16]}",
         scenario_id="detector-control-fixture",
-        input_kind="reference-task",
+        input_kind="scenario-handoff-v1",
         source_digests={"detector": hashlib.sha256(detector_bytes).hexdigest()},
         members={"detector.py": detector_bytes},
         authoring={"purpose": "offline-detector-controls"},

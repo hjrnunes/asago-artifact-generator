@@ -1,0 +1,878 @@
+{
+  "$defs": {
+    "AttackerInfluence": {
+      "description": "Whether an adversary can influence a target resource.",
+      "enum": [
+        "none",
+        "direct",
+        "indirect",
+        "unknown"
+      ],
+      "title": "AttackerInfluence",
+      "type": "string"
+    },
+    "DiscoveryProvenance": {
+      "additionalProperties": false,
+      "description": "Non-secret identities and prompt pins for one discovery run.",
+      "properties": {
+        "interpreter_id": {
+          "minLength": 1,
+          "title": "Interpreter Id",
+          "type": "string"
+        },
+        "interpreter_prompt_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interpreter Prompt Hash"
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Name"
+        },
+        "model_profile": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Profile"
+        },
+        "scanner_contract_version": {
+          "default": "execution-target-profile-v1",
+          "minLength": 1,
+          "title": "Scanner Contract Version",
+          "type": "string"
+        },
+        "scanner_id": {
+          "minLength": 1,
+          "title": "Scanner Id",
+          "type": "string"
+        },
+        "verifier_id": {
+          "minLength": 1,
+          "title": "Verifier Id",
+          "type": "string"
+        },
+        "verifier_prompt_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verifier Prompt Hash"
+        }
+      },
+      "required": [
+        "scanner_id",
+        "interpreter_id",
+        "verifier_id"
+      ],
+      "title": "DiscoveryProvenance",
+      "type": "object"
+    },
+    "ExecutionResourceKind": {
+      "description": "Platform-neutral kind of semantic resource.",
+      "enum": [
+        "surface",
+        "tool",
+        "integration",
+        "state_store",
+        "agent_channel"
+      ],
+      "title": "ExecutionResourceKind",
+      "type": "string"
+    },
+    "ExecutionSurface": {
+      "description": "Closed semantic surfaces exposed by a target resource.",
+      "enum": [
+        "user_input",
+        "external_content",
+        "conversation_context",
+        "tool_call",
+        "tool_result",
+        "tool_definition",
+        "state_observation",
+        "agent_message",
+        "environment_event"
+      ],
+      "title": "ExecutionSurface",
+      "type": "string"
+    },
+    "InterpreterVerifierAgreement": {
+      "description": "Typed agreement state between the interpretation and verifier passes.",
+      "enum": [
+        "agree",
+        "disagree",
+        "unverified"
+      ],
+      "title": "InterpreterVerifierAgreement",
+      "type": "string"
+    },
+    "InventoryAuthority": {
+      "description": "Authority of the protocol inventory itself.",
+      "enum": [
+        "observed"
+      ],
+      "title": "InventoryAuthority",
+      "type": "string"
+    },
+    "InventoryCompleteness": {
+      "description": "Completeness of a protocol inventory observation.",
+      "enum": [
+        "unknown",
+        "observed_partial",
+        "observed_complete"
+      ],
+      "title": "InventoryCompleteness",
+      "type": "string"
+    },
+    "McpInventoryObservation": {
+      "additionalProperties": false,
+      "description": "Content-addressed normalized result of one MCP ``tools/list``.",
+      "properties": {
+        "authorization_scope_id": {
+          "minLength": 1,
+          "title": "Authorization Scope Id",
+          "type": "string"
+        },
+        "page_count": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Page Count",
+          "type": "integer"
+        },
+        "pagination_complete": {
+          "default": true,
+          "title": "Pagination Complete",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "mcp-inventory-v1",
+          "default": "mcp-inventory-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "semantic_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Semantic Digest"
+        },
+        "source_protocol": {
+          "const": "mcp",
+          "default": "mcp",
+          "title": "Source Protocol",
+          "type": "string"
+        },
+        "target_id": {
+          "minLength": 1,
+          "title": "Target Id",
+          "type": "string"
+        },
+        "tools": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/McpToolObservation"
+          },
+          "title": "Tools",
+          "type": "array"
+        }
+      },
+      "required": [
+        "target_id",
+        "authorization_scope_id"
+      ],
+      "title": "McpInventoryObservation",
+      "type": "object"
+    },
+    "McpToolObservation": {
+      "additionalProperties": false,
+      "description": "Exact, semantic-neutral fields copied from one MCP ``tools/list`` row.",
+      "properties": {
+        "annotations": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Annotations"
+        },
+        "argument_names": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Argument Names",
+          "type": "array"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "input_schema": {
+          "additionalProperties": true,
+          "title": "Input Schema",
+          "type": "object"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "output_schema": {
+          "default": null,
+          "title": "Output Schema"
+        },
+        "source_observation_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Observation Sha256",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "name",
+        "source_observation_sha256",
+        "input_schema"
+      ],
+      "title": "McpToolObservation",
+      "type": "object"
+    },
+    "ProfileBasis": {
+      "description": "The profile describes a real target or an explicit simulation.",
+      "enum": [
+        "target",
+        "simulation"
+      ],
+      "title": "ProfileBasis",
+      "type": "string"
+    },
+    "SemanticAuthority": {
+      "description": "Authority of semantic interpretations attached to an inventory.",
+      "enum": [
+        "inferred",
+        "reviewed"
+      ],
+      "title": "SemanticAuthority",
+      "type": "string"
+    },
+    "SimulationBehavior": {
+      "additionalProperties": false,
+      "description": "Closed deterministic behavior of one simulated resource.",
+      "properties": {
+        "emitted_events": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Emitted Events",
+          "type": "array"
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "title": "Inputs",
+          "type": "object"
+        },
+        "observation_points": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Observation Points",
+          "type": "array"
+        },
+        "outputs": {
+          "additionalProperties": true,
+          "title": "Outputs",
+          "type": "object"
+        },
+        "state_changes": {
+          "additionalProperties": true,
+          "title": "State Changes",
+          "type": "object"
+        }
+      },
+      "title": "SimulationBehavior",
+      "type": "object"
+    },
+    "SourceProtocol": {
+      "description": "Protocol from which an execution target inventory was observed.",
+      "enum": [
+        "mcp",
+        "simulation"
+      ],
+      "title": "SourceProtocol",
+      "type": "string"
+    },
+    "TargetDiscoveryDiagnostic": {
+      "additionalProperties": false,
+      "description": "One retained scanner or interpretation diagnostic.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/TargetDiscoveryDiagnosticCode"
+        },
+        "detail": {
+          "minLength": 1,
+          "title": "Detail",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "severity": {
+          "$ref": "#/$defs/TargetDiscoverySeverity",
+          "default": "error"
+        },
+        "tool_name": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Name"
+        }
+      },
+      "required": [
+        "code",
+        "detail"
+      ],
+      "title": "TargetDiscoveryDiagnostic",
+      "type": "object"
+    },
+    "TargetDiscoveryDiagnosticCode": {
+      "description": "Closed scanner diagnostic vocabulary.",
+      "enum": [
+        "inventory_protocol_failure",
+        "unsupported_protocol",
+        "duplicate_tool_name",
+        "malformed_tool",
+        "malformed_schema",
+        "incomplete_pagination",
+        "interpretation_missing",
+        "interpretation_invalid",
+        "interpretation_unknown_reference",
+        "interpretation_contradictory",
+        "verifier_disagreement",
+        "interpreter_failure",
+        "active_inspection_disabled",
+        "active_inspection_failure"
+      ],
+      "title": "TargetDiscoveryDiagnosticCode",
+      "type": "string"
+    },
+    "TargetDiscoverySeverity": {
+      "description": "Severity of one scanner diagnostic.",
+      "enum": [
+        "warning",
+        "error"
+      ],
+      "title": "TargetDiscoverySeverity",
+      "type": "string"
+    },
+    "TargetInterpretationDisposition": {
+      "description": "Closed interpretation outcome for one observed tool.",
+      "enum": [
+        "supported",
+        "ambiguous",
+        "contradictory",
+        "unresolved"
+      ],
+      "title": "TargetInterpretationDisposition",
+      "type": "string"
+    },
+    "TargetOperationEffect": {
+      "description": "Bounded likely effect vocabulary for an interpreted tool.",
+      "enum": [
+        "read",
+        "create",
+        "update",
+        "delete",
+        "execute",
+        "notify",
+        "escalate",
+        "observe",
+        "unknown"
+      ],
+      "title": "TargetOperationEffect",
+      "type": "string"
+    },
+    "TargetProfileOperation": {
+      "additionalProperties": false,
+      "description": "One exact operation exposed by a target resource.\n\nFor an MCP resource the protocol tool name is the operation identity.  A\nseparate semantic operation label is retained for simulation resources;\nMCP profile validation applies the exact-name rule at the resource/profile\nboundary.  Model output may describe MCP meaning only through\n``TargetSemanticInterpretation``.",
+      "properties": {
+        "argument_names": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Argument Names",
+          "type": "array"
+        },
+        "observable_properties": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Observable Properties",
+          "type": "array"
+        },
+        "operation_id": {
+          "minLength": 1,
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "semantic_operation": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Semantic Operation"
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "title": "TargetProfileOperation",
+      "type": "object"
+    },
+    "TargetProfileResource": {
+      "additionalProperties": false,
+      "description": "One semantic resource in either an MCP or simulation profile.\n\nMCP resources use the populated ``tool_name``/schema fields and exactly\none operation.  Simulation resources retain the original generic resource\nvocabulary and must be paired with ``simulation_behavior`` by the profile\nbranch; they do not need to pretend that an MCP inventory exists.",
+      "properties": {
+        "annotations": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Annotations"
+        },
+        "argument_names": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Argument Names",
+          "type": "array"
+        },
+        "attacker_influence": {
+          "$ref": "#/$defs/AttackerInfluence",
+          "default": "unknown"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "input_schema": {
+          "additionalProperties": true,
+          "title": "Input Schema",
+          "type": "object"
+        },
+        "operations": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TargetProfileOperation"
+          },
+          "title": "Operations",
+          "type": "array"
+        },
+        "output_schema": {
+          "default": null,
+          "title": "Output Schema"
+        },
+        "resource_id": {
+          "minLength": 1,
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_kind": {
+          "$ref": "#/$defs/ExecutionResourceKind",
+          "default": "tool"
+        },
+        "role_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Role Ids",
+          "type": "array"
+        },
+        "simulation_behavior": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimulationBehavior"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "structural_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Structural Refs",
+          "type": "array"
+        },
+        "surfaces": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ExecutionSurface"
+          },
+          "title": "Surfaces",
+          "type": "array"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Id"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "tool_name": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Name"
+        }
+      },
+      "required": [
+        "resource_id",
+        "evidence_refs"
+      ],
+      "title": "TargetProfileResource",
+      "type": "object"
+    },
+    "TargetSemanticInterpretation": {
+      "additionalProperties": false,
+      "description": "Typed, model-assisted interpretation of one observed MCP tool.",
+      "properties": {
+        "disposition": {
+          "$ref": "#/$defs/TargetInterpretationDisposition"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "interpreter_verifier_agreement": {
+          "$ref": "#/$defs/InterpreterVerifierAgreement",
+          "default": "unverified"
+        },
+        "likely_effect": {
+          "$ref": "#/$defs/TargetOperationEffect",
+          "default": "unknown"
+        },
+        "likely_state_effect": {
+          "$ref": "#/$defs/TargetStateEffect",
+          "default": "unknown"
+        },
+        "observer_resource_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Observer Resource Ids",
+          "type": "array"
+        },
+        "rationale": {
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "resource_id": {
+          "minLength": 1,
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "semantic_roles": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Semantic Roles",
+          "type": "array"
+        },
+        "tool_name": {
+          "minLength": 1,
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id",
+        "tool_name",
+        "disposition",
+        "evidence_refs",
+        "rationale"
+      ],
+      "title": "TargetSemanticInterpretation",
+      "type": "object"
+    },
+    "TargetStateEffect": {
+      "description": "Bounded likely state-effect vocabulary for an interpreted tool.",
+      "enum": [
+        "none",
+        "may_change",
+        "changes",
+        "unknown"
+      ],
+      "title": "TargetStateEffect",
+      "type": "string"
+    }
+  },
+  "$id": "execution-target-profile-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Observed MCP target or explicit simulation execution profile.",
+  "properties": {
+    "authorization_scope_id": {
+      "minLength": 1,
+      "title": "Authorization Scope Id",
+      "type": "string"
+    },
+    "basis": {
+      "$ref": "#/$defs/ProfileBasis",
+      "default": "target"
+    },
+    "diagnostics": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/TargetDiscoveryDiagnostic"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+    },
+    "discovery_provenance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DiscoveryProvenance"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "interpretations": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/TargetSemanticInterpretation"
+      },
+      "title": "Interpretations",
+      "type": "array"
+    },
+    "inventory": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/McpInventoryObservation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "inventory_authority": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/InventoryAuthority"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "inventory_completeness": {
+      "$ref": "#/$defs/InventoryCompleteness",
+      "default": "unknown"
+    },
+    "resources": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/TargetProfileResource"
+      },
+      "title": "Resources",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "execution-target-profile-v1",
+      "default": "execution-target-profile-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantic_authority": {
+      "$ref": "#/$defs/SemanticAuthority"
+    },
+    "semantic_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Semantic Digest"
+    },
+    "source_inventory_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Inventory Digest"
+    },
+    "source_protocol": {
+      "$ref": "#/$defs/SourceProtocol"
+    },
+    "target_id": {
+      "minLength": 1,
+      "title": "Target Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "target_id",
+    "authorization_scope_id",
+    "semantic_authority",
+    "source_protocol"
+  ],
+  "title": "ExecutionTargetProfile",
+  "type": "object"
+}

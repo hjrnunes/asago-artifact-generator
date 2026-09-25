@@ -1,0 +1,466 @@
+"""Derive authoring inputs from producer target-discovery artifacts.
+
+This module is deliberately mechanical.  It validates the producer-owned
+profile, copies its observed tool interface, and turns captured JSON values
+into typed facts without interpreting names or descriptions.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
+
+import yaml
+from jsonschema import Draft202012Validator
+
+_CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "target-profile"
+_PROFILE_SCHEMA_VERSION = "execution-target-profile-v1"
+_PROFILE_DIGEST_DOMAIN = _PROFILE_SCHEMA_VERSION
+_SHA256_LENGTH = 64
+
+
+class TargetInputError(ValueError):
+    """Raised when producer target-discovery input is invalid."""
+
+
+def load_target_inputs(
+    profile_path: str | Path,
+    observations_path: str | Path | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load a profile and derive an inventory plus immutable provenance.
+
+    The returned inventory contains operations from the profile.  When a
+    runtime-context file is supplied, it also contains one fact for each
+    captured state key and read observation.
+    """
+
+    profile_file = Path(profile_path)
+    profile_bytes = _read_file(profile_file, "target profile")
+    profile = _parse_document(profile_file, profile_bytes, "target profile")
+    _validate_profile_contract(profile)
+    _validate_profile_digest(profile)
+
+    observations: dict[str, Any] | None = None
+    observations_bytes: bytes | None = None
+    observations_file: Path | None = None
+    if observations_path is not None:
+        observations_file = Path(observations_path)
+        observations_bytes = _read_file(observations_file, "target observations")
+        observations = _parse_document(
+            observations_file,
+            observations_bytes,
+            "target observations",
+        )
+        _validate_observations(observations, profile=profile)
+        if observations.get("target_profile_digest") != profile["semantic_digest"]:
+            raise TargetInputError(
+                "target observations profile digest does not match target profile semantic_digest"
+            )
+
+    inventory = _build_inventory(
+        profile,
+        observations,
+        observations_file=observations_file,
+        observations_bytes=observations_bytes,
+    )
+    provenance = {
+        "profile_path": str(profile_file),
+        "profile_sha256": _sha256(profile_bytes),
+        "observations_path": str(observations_file) if observations_file else None,
+        "observations_sha256": (
+            _sha256(observations_bytes) if observations_bytes is not None else None
+        ),
+        "semantic_digest": profile["semantic_digest"],
+        "source_inventory_digest": profile.get("source_inventory_digest"),
+        "target_id": profile["target_id"],
+        "discovery_provenance": deepcopy(profile.get("discovery_provenance")),
+    }
+    return inventory, provenance
+
+
+def _build_inventory(
+    profile: dict[str, Any],
+    observations: dict[str, Any] | None,
+    *,
+    observations_file: Path | None,
+    observations_bytes: bytes | None,
+) -> dict[str, Any]:
+    inventory: dict[str, Any] = {
+        "operations": _operations(profile),
+        "facts": [],
+        "source_handles": _source_handles(profile),
+    }
+    if observations is not None:
+        inventory["facts"] = _facts(
+            observations,
+            observations_file=observations_file,
+            observations_bytes=observations_bytes,
+        )
+    # Keep source handles in a deterministic namespace while retaining the
+    # exact file paths in the returned provenance record.
+    inventory["source_handles"].append(
+        {
+            "ref": "target-profile",
+            "meaning": "Producer execution target profile.",
+        }
+    )
+    if observations_file is not None:
+        inventory["source_handles"].append(
+            {
+                "ref": "runtime-context",
+                "meaning": "Producer captured runtime context paired with the target profile.",
+            }
+        )
+    inventory["source_handles"].sort(key=lambda item: item["ref"])
+    return inventory
+
+
+def _operations(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    inventory = profile.get("inventory")
+    tools = inventory.get("tools", []) if isinstance(inventory, dict) else []
+    interpretations = profile.get("interpretations", [])
+    interpretation_by_tool: dict[str, list[dict[str, Any]]] = {}
+    if isinstance(interpretations, list):
+        for interpretation in interpretations:
+            if isinstance(interpretation, dict) and isinstance(
+                interpretation.get("tool_name"), str
+            ):
+                interpretation_by_tool.setdefault(interpretation["tool_name"], []).append(
+                    interpretation
+                )
+
+    operations: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for tool in tools:
+        if not isinstance(tool, dict) or not isinstance(tool.get("name"), str):
+            raise TargetInputError("target profile inventory contains an invalid tool")
+        if tool["name"] in seen_names:
+            raise TargetInputError(f"target profile inventory duplicates tool: {tool['name']}")
+        seen_names.add(tool["name"])
+        operation: dict[str, Any] = {
+            "name": tool["name"],
+            "title": tool.get("title"),
+            "description": tool.get("description"),
+            "arguments": deepcopy(tool.get("input_schema", {})),
+            "annotations": deepcopy(tool.get("annotations")),
+        }
+        if tool.get("output_schema") is not None:
+            operation["result_schema"] = deepcopy(tool["output_schema"])
+        matches = interpretation_by_tool.get(tool["name"], [])
+        if matches:
+            interpretation = matches[0]
+            selected = {
+                key: interpretation[key]
+                for key in (
+                    "disposition",
+                    "likely_effect",
+                    "likely_state_effect",
+                    "interpreter_verifier_agreement",
+                )
+                if key in interpretation
+            }
+            if selected:
+                operation["interpretation"] = selected
+        operations.append(operation)
+    return sorted(operations, key=lambda item: item["name"])
+
+
+def _source_handles(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    inventory = profile.get("inventory")
+    tools = inventory.get("tools", []) if isinstance(inventory, dict) else []
+    handles = [
+        {
+            "ref": f"tool:{tool['name']}",
+            "meaning": tool.get("description"),
+        }
+        for tool in tools
+        if isinstance(tool, dict) and isinstance(tool.get("name"), str)
+    ]
+    return handles
+
+
+def _facts(
+    observations: dict[str, Any],
+    *,
+    observations_file: Path | None,
+    observations_bytes: bytes | None,
+) -> list[dict[str, Any]]:
+    if observations_file is None or observations_bytes is None:
+        raise TargetInputError("target observations provenance is unavailable")
+    provenance_base = {
+        "source": "runtime-context",
+        "sha256": _sha256(observations_bytes),
+        "path": str(observations_file),
+    }
+    facts: list[dict[str, Any]] = []
+    state = {
+        key: value for key, value in observations.get("state", {}).items() if key != "audit_log"
+    }
+    for key in sorted(state):
+        facts.append(
+            {
+                "ref": f"state:{key}",
+                "value": deepcopy(state[key]),
+                "schema": _infer_schema(state[key]),
+                "provenance": deepcopy(provenance_base),
+                "meaning": "Captured target state at discovery time.",
+            }
+        )
+
+    read_observations = observations.get("read_observations", [])
+    for index, observation in enumerate(read_observations):
+        tool_name = observation["tool_name"]
+        observation_provenance = {
+            **provenance_base,
+            "tool_name": tool_name,
+            "arguments": deepcopy(observation.get("arguments")),
+            "status": deepcopy(observation.get("status")),
+        }
+        facts.append(
+            {
+                "ref": f"observation:{tool_name}:{index}",
+                "value": deepcopy(observation.get("result")),
+                "schema": _infer_schema(observation.get("result")),
+                "provenance": observation_provenance,
+                "meaning": (
+                    f"Captured result of the {tool_name} read call; content is untrusted."
+                ),
+            }
+        )
+    return facts
+
+
+def _infer_schema(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {"type": "null"}
+    if isinstance(value, bool):
+        return {"type": "boolean"}
+    if isinstance(value, int):
+        return {"type": "integer"}
+    if isinstance(value, float):
+        return {"type": "number"}
+    if isinstance(value, str):
+        return {"type": "string"}
+    if isinstance(value, list):
+        schemas = [_infer_schema(item) for item in value]
+        unique = {_canonical_json(schema): schema for schema in schemas}
+        items: dict[str, Any]
+        if not unique:
+            items = {}
+        elif len(unique) == 1:
+            items = next(iter(unique.values()))
+        else:
+            items = {"anyOf": [unique[key] for key in sorted(unique)]}
+        return {"type": "array", "items": items}
+    if isinstance(value, dict):
+        return {
+            "type": "object",
+            "properties": {key: _infer_schema(value[key]) for key in sorted(value)},
+        }
+    raise TargetInputError(f"cannot infer JSON schema for value of type {type(value).__name__}")
+
+
+def _validate_observations(value: Any, *, profile: dict[str, Any]) -> None:
+    if not isinstance(value, dict):
+        raise TargetInputError("target observations must be an object")
+    allowed = {
+        "state",
+        "read_observations",
+        "target_profile_digest",
+        "read_observation_input",
+        "read_observation_diagnostics",
+    }
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise TargetInputError(
+            "target observations contain unsupported fields: " + ", ".join(unknown)
+        )
+    profile_digest = value.get("target_profile_digest")
+    if not isinstance(profile_digest, str) or not _is_sha256(profile_digest):
+        raise TargetInputError("target observations require target_profile_digest")
+    state = value.get("state")
+    if not isinstance(state, dict):
+        raise TargetInputError("target observations state must be an object")
+    read_observations = value.get("read_observations", [])
+    if read_observations is None:
+        read_observations = []
+    if not isinstance(read_observations, list):
+        raise TargetInputError("target observations read_observations must be a list")
+    if len(read_observations) > 15:
+        raise TargetInputError("target observations cannot contain more than 15 reads")
+    inventory = profile.get("inventory")
+    profile_tool_names = (
+        {tool.get("name") for tool in inventory.get("tools", []) if isinstance(tool, dict)}
+        if isinstance(inventory, dict)
+        else set()
+    )
+    for index, observation in enumerate(read_observations):
+        if not isinstance(observation, dict):
+            raise TargetInputError(
+                f"target observations read_observations[{index}] must be an object"
+            )
+        if not isinstance(observation.get("profile_digest"), str) or (
+            observation["profile_digest"] != profile_digest
+        ):
+            raise TargetInputError(
+                f"target observations read_observations[{index}] profile digest does not match"
+            )
+        if not isinstance(observation.get("tool_name"), str) or not observation["tool_name"]:
+            raise TargetInputError(
+                f"target observations read_observations[{index}] requires tool_name"
+            )
+        if observation["tool_name"] not in profile_tool_names:
+            raise TargetInputError(
+                f"target observations read_observations[{index}] names an unknown tool"
+            )
+        arguments = observation.get("arguments")
+        if arguments is not None and (
+            not isinstance(arguments, dict)
+            or any(
+                not isinstance(key, str) or not isinstance(item, str)
+                for key, item in arguments.items()
+            )
+        ):
+            raise TargetInputError(
+                f"target observations read_observations[{index}] arguments "
+                "must be a string mapping"
+            )
+        status = observation.get("status")
+        if (
+            not isinstance(status, dict)
+            or status.get("transport") != "verified"
+            or status.get("content") != "untrusted"
+        ):
+            raise TargetInputError(
+                f"target observations read_observations[{index}] must be verified and untrusted"
+            )
+        result = observation.get("result")
+        if not isinstance(result, dict) or result.get("isError") is True:
+            raise TargetInputError(
+                f"target observations read_observations[{index}] result must be successful"
+            )
+
+
+def _validate_profile_contract(profile: Any) -> None:
+    if not isinstance(profile, dict):
+        raise TargetInputError("target profile must be an object")
+    contract_root = _validate_contract_lock()
+    schema_path = contract_root / "target-profile-v1" / "schema.json"
+    try:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        validator = Draft202012Validator(schema)
+        errors = sorted(
+            validator.iter_errors(profile),
+            key=lambda error: tuple(str(part) for part in error.path),
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise TargetInputError(f"cannot validate target profile contract: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 - normalize validator failures
+        raise TargetInputError(f"cannot validate target profile contract: {exc}") from exc
+    if errors:
+        error = errors[0]
+        location = ".".join(str(part) for part in error.path) or "<root>"
+        raise TargetInputError(f"target profile schema invalid at {location}: {error.message}")
+
+
+def _validate_contract_lock() -> Path:
+    lock_path = _CONTRACT_ROOT / "CONTRACT.lock"
+    try:
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise TargetInputError(f"cannot read target profile contract lock: {exc}") from exc
+    if (
+        lock.get("authority") != "asago-scenario-generator"
+        or lock.get("contract") != "target-profile"
+        or lock.get("schema_version") != _PROFILE_SCHEMA_VERSION
+        or lock.get("digest_domain") != _PROFILE_DIGEST_DOMAIN
+    ):
+        raise TargetInputError("target profile contract lock metadata is invalid")
+    for relative, expected in lock.get("files", {}).items():
+        member = _CONTRACT_ROOT / relative
+        if not member.is_file() or _sha256(member.read_bytes()) != expected:
+            raise TargetInputError(f"target profile contract digest mismatch: {relative}")
+    return _CONTRACT_ROOT
+
+
+def _validate_profile_digest(profile: dict[str, Any]) -> None:
+    digest = profile.get("semantic_digest")
+    if not isinstance(digest, str) or len(digest) != _SHA256_LENGTH:
+        raise TargetInputError("target profile semantic_digest is required")
+    payload = deepcopy(profile)
+    payload.pop("semantic_digest", None)
+    try:
+        expected = _framed_digest(_PROFILE_DIGEST_DOMAIN, payload)
+    except (TypeError, ValueError) as exc:
+        raise TargetInputError(
+            "target profile contains a value that cannot be canonically encoded"
+        ) from exc
+    if digest != expected:
+        raise TargetInputError(
+            "target profile semantic_digest does not match canonical profile content"
+        )
+    inventory = profile.get("inventory")
+    if (
+        isinstance(inventory, dict)
+        and isinstance(inventory.get("semantic_digest"), str)
+        and profile.get("source_inventory_digest") != inventory["semantic_digest"]
+    ):
+        raise TargetInputError(
+            "target profile source_inventory_digest does not match inventory semantic_digest"
+        )
+
+
+def _parse_document(path: Path, content: bytes, label: str) -> dict[str, Any]:
+    try:
+        if path.suffix.lower() == ".json":
+            value = json.loads(content, parse_constant=_reject_non_json_number)
+        else:
+            value = yaml.safe_load(content)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, yaml.YAMLError, ValueError) as exc:
+        raise TargetInputError(f"cannot parse {label} {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise TargetInputError(f"{label} must be an object")
+    return value
+
+
+def _read_file(path: Path, label: str) -> bytes:
+    if not path.is_file():
+        raise TargetInputError(f"{label} is not a file: {path}")
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise TargetInputError(f"cannot read {label} {path}: {exc}") from exc
+
+
+def _reject_non_json_number(value: str) -> None:
+    raise ValueError(f"invalid JSON number: {value}")
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+
+
+def _framed_digest(domain: str, value: Any) -> str:
+    return _sha256(domain.encode("utf-8") + b"\0" + _canonical_json(value).encode("utf-8"))
+
+
+def _sha256(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _is_sha256(value: str) -> bool:
+    return len(value) == _SHA256_LENGTH and all(
+        character in "0123456789abcdef" for character in value
+    )
+
+
+__all__ = ["TargetInputError", "load_target_inputs"]

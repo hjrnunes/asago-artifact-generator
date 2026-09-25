@@ -18,17 +18,8 @@
     },
     "input_kind": {
       "enum": [
-        "scenario-handoff-v1",
-        "native-semantic-yaml",
-        "reference-task"
+        "scenario-handoff-v1"
       ]
-    },
-    "reference_task": {
-      "type": [
-        "object",
-        "null"
-      ],
-      "additionalProperties": true
     },
     "source_digests": {
       "type": "object",

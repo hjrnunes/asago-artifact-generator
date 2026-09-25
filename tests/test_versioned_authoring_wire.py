@@ -36,30 +36,6 @@ def _view():
     )
 
 
-def _view_without_gherkin(tmp_path):
-    source = tmp_path / "without-gherkin.json"
-    source.write_text(
-        json.dumps(
-            {
-                "id": "NO-GHERKIN",
-                "constraint_meaning": "The assistant must preserve the supplied record.",
-                "safe_alternative": "The assistant preserves the supplied record.",
-                "oracle": {"unsafe_when": "The assistant drops the supplied record."},
-                "family": "record-preservation",
-                "test_class": "functional",
-                "adversary": {"kind": "none"},
-            }
-        ),
-        encoding="utf-8",
-    )
-    return load_input(
-        source,
-        kind=InputKind.REFERENCE_TASK,
-        reference_label="saved-input",
-        reference_id="NO-GHERKIN",
-    )
-
-
 def _inventory() -> dict:
     return {
         "operations": [
@@ -612,15 +588,10 @@ def test_v2_prompt_has_typed_references_selected_schemas_and_measured_bytes() ->
     assert sizes["call2"]["total_bytes"] == call2.byte_size
 
 
-@pytest.mark.parametrize(
-    "gherkin_present",
-    [True, False],
-    ids=["gherkin-present", "gherkin-absent"],
-)
 def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
-    tmp_path, gherkin_present: bool
+    tmp_path,
 ) -> None:
-    view = _view() if gherkin_present else _view_without_gherkin(tmp_path)
+    view = _view()
     call1 = build_call1_packet_v2(view, _inventory(), _runtime_contract())
     call2 = build_call2_packet_v2(view, _plan(), _inventory(), _runtime_contract())
     expected_input_fields = {
@@ -629,8 +600,6 @@ def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
         "narrative_bytes_sha256",
         "gherkin_bytes_sha256",
         "source_digests",
-        "reference_label",
-        "reference_id",
     }
 
     for packet in (call1, call2):
@@ -639,8 +608,6 @@ def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
         assert "gherkin_text" not in packet.payload["input"]
         assert packet.payload["input"]["scenario_id"] == view.scenario_id
         assert packet.payload["input"]["source_digests"] == view.source_digests
-        assert packet.payload["input"]["reference_label"] == view.reference_label
-        assert packet.payload["input"]["reference_id"] == view.reference_id
         assert packet.payload["case_meaning"]["narrative"] == view.narrative
         assert packet.payload["case_meaning"]["gherkin"] == view.gherkin_text
         assert packet.payload["case_meaning"]["semantic_failure"]
@@ -654,16 +621,10 @@ def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
             ensure_ascii=False,
         )
         assert packet.user.count(narrative_literal) == 1
-        if gherkin_present:
-            assert (
-                packet.user.count("Feature: Refunds never exceed the applicable remaining balance")
-                == 1
-            )
-        else:
-            assert view.gherkin_text == ""
-            assert (
-                packet.payload["input"]["gherkin_bytes_sha256"] == hashlib.sha256(b"").hexdigest()
-            )
+        assert (
+            packet.user.count("Feature: Refunds never exceed the applicable remaining balance")
+            == 1
+        )
 
 
 def test_v1_prompt_retains_its_historical_full_input_projection() -> None:
