@@ -5050,8 +5050,15 @@ def _original_scenario_context(view: InputView) -> dict[str, Any]:
 def _neutral_status_binding_example(
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    *,
+    supplied_fact_fallback: bool = False,
 ) -> dict[str, Any]:
-    """Return one resolver-checked status binding example."""
+    """Return one resolver-checked status binding example.
+
+    With ``supplied_fact_fallback``, an input without a usable permitted setup
+    operation gets a resolver-checked example built from a supplied scalar fact
+    instead of an empty illustration.
+    """
 
     permitted = runtime_contract.get("setup_permissions", [])
     references = _inventory_references(inventory)
@@ -5106,6 +5113,10 @@ def _neutral_status_binding_example(
                 "equals value READY is a literal status, not another binding."
             ),
         }
+    if supplied_fact_fallback:
+        example = _supplied_fact_binding_example(inventory, runtime_contract, references)
+        if example is not None:
+            return example
     return {
         "runtime_bindings": [],
         "prerequisites": [],
@@ -5116,6 +5127,74 @@ def _neutral_status_binding_example(
             "or prerequisite; it is not a case-specific setup recipe."
         ),
     }
+
+
+_SCALAR_SCHEMA_TYPES = frozenset({"boolean", "integer", "number", "string"})
+
+
+def _supplied_fact_binding_example(
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    references: set[str],
+) -> dict[str, Any] | None:
+    """Build a binding and prerequisite over the first supplied scalar fact."""
+
+    for fact in sorted(
+        (item for item in inventory.get("facts", []) if isinstance(item, dict)),
+        key=lambda item: str(item.get("ref")),
+    ):
+        ref = fact.get("ref")
+        schema = fact.get("schema")
+        if (
+            not isinstance(ref, str)
+            or not isinstance(schema, dict)
+            or schema.get("type") not in _SCALAR_SCHEMA_TYPES
+            or "value" not in fact
+        ):
+            continue
+        name = re.sub(r"[^A-Za-z0-9_]", "_", ref.rsplit(":", 1)[-1]).strip("_")
+        if not name or not re.match(r"[A-Za-z_]", name):
+            continue
+        binding = {
+            "name": name,
+            "expected_type": schema["type"],
+            "source_kind": "supplied_input",
+            "source_ref": f"facts:{ref}",
+            "selector": "value",
+            "consumers": [f"prerequisites.{name}"],
+            "on_missing": "stop",
+        }
+        prerequisite = {
+            "name": f"{name}_matches_supplied_fact",
+            "check": f"The resolved {name} value equals the supplied fact {ref}.",
+            "evidence_refs": [ref],
+            "binding": name,
+            "equals": deepcopy(fact["value"]),
+        }
+        try:
+            validate_bindings([binding], inventory=inventory, runtime_contract=runtime_contract)
+        except BindingValidationError:
+            continue
+        if _collect_canonical_prerequisite_findings([prerequisite], references, {name}, [binding]):
+            continue
+        return {
+            "runtime_bindings": [binding],
+            "prerequisites": [prerequisite],
+            "label": (
+                "supplied-fact form example; it shows the declaration shape and is not "
+                "a required binding for this scenario"
+            ),
+            "explanation": (
+                f"No permitted setup operation returns a typed status in this input, so "
+                f"this example binds the supplied fact {ref}. The binding name {name} is "
+                f"a plain name with no prefix. source_ref is facts: followed by the "
+                f"complete fact ref; selector value selects the whole fact value. The "
+                f"prerequisite names the binding in binding, and the binding declares "
+                f"the matching consumer prerequisites.{name}. evidence_refs cites the "
+                f"fact ref itself, and equals is a literal value, not another binding."
+            ),
+        }
+    return None
 
 
 def _scenario_provenance_index(view: InputView) -> list[dict[str, Any]]:
@@ -5341,7 +5420,9 @@ def build_plan_author_context(
                 ),
             },
             "neutral_binding_example": _neutral_status_binding_example(
-                inventory, runtime_contract
+                inventory,
+                runtime_contract,
+                supplied_fact_fallback=not legacy_binding_contract,
             ),
         },
         "plan_field_meanings": PLAN_FIELD_MEANINGS,
@@ -10371,6 +10452,44 @@ def _binding_contract(*, legacy: bool = False) -> dict[str, Any]:
             "{{binding_name}} stimulus placeholder from a declared binding is a valid "
             "substitution, not circular; do not add a binding that only copies concrete "
             "stimulus text back into the stimulus."
+        )
+        supplied_input_example = {
+            **supplied_input_example,
+            "source_ref": "facts:<fact ref>",
+            "selector": "value.<documented field path>",
+        }
+        contract["valid_examples"] = {
+            "supplied_input": supplied_input_example,
+            "setup_output": setup_output_example,
+        }
+        contract["valid_example_label"] = (
+            "generic illustrations; replace <fact ref> with a complete "
+            "inventory.facts[].ref, <documented field path> with a path documented by "
+            "that fact's schema, and case_permitted_operation only with an operation "
+            "permitted by the supplied runtime contract"
+        )
+        contract["source_ref_rule"] = (
+            "source_ref identifies the permitted source using exactly facts:<fact ref> "
+            "for supplied_input or setup:<operation> for setup_output. <fact ref> is the "
+            "complete inventory.facts[].ref including its namespace prefix: the fact ref "
+            "state:orders is written facts:state:orders, never facts:orders. source_ref "
+            "is not a stimulus path or a guessed field name"
+        )
+        contract["selector_rule"] = (
+            "selector performs value extraction: it extracts one value through an exact "
+            "documented dot path rooted at value for supplied_input or result for "
+            "setup_output. value alone selects the whole fact value; value.<key> "
+            "descends one documented schema property. Inferred field names are invalid"
+        )
+        contract["consumer_rule"] = (
+            "consumers is a non-empty list of closed destination paths that receive the "
+            "resolved value. Write each entry as exactly one of: stimulus.user_text; "
+            "stimulus.history; prerequisites.<binding name>, where <binding name> is "
+            "this binding's own name (required whenever a prerequisite names this "
+            "binding); detector.<binding name>; or setup.arguments.<argument name>. "
+            "Write the actual name, never a * wildcard. observation_claim, "
+            "required_observations, and other plan fields are not consumers. A consumer "
+            "does not identify the source"
         )
     return contract
 
