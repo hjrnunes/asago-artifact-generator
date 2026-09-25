@@ -68,7 +68,9 @@ UTF-8 bytes, including correction feedback and the 128-byte schema/message
 allowance, divided by a calibrated bytes-per-token ratio. It applies the same
 estimate to authoring, review, and correction requests and rejects an overflow
 before reserving a dispatch. The estimate must fit the remaining 24,320-token
-input budget.
+input budget. Review requests, which think before answering, send a larger
+completion limit: the context window minus that request's prompt estimate and
+the framing reserve, never less than 8,192. Each call records the limit it sent.
 
 The calibration uses three approved provider measurements: 3.964777680907
 bytes per provider-reported prompt token. A 12% margin lowers the ratio to

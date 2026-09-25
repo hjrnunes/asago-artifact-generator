@@ -2473,12 +2473,19 @@ class PrivateModelAuthoringTransport:
         review_extra_body: dict[str, Any] | None = None,
         max_completion_tokens: int | None = None,
         context_window_tokens: int | None = None,
+        review_fill_context: bool = False,
     ) -> None:
         """Create the client.
 
         ``extra_body`` applies to author and correction requests.  When
         ``review_extra_body`` is supplied it replaces ``extra_body`` for
         semantic-review requests; otherwise reviews use ``extra_body`` too.
+
+        With ``review_fill_context``, a semantic-review request's completion
+        limit is the context window minus the conservative prompt estimate and
+        the framing reserve.  The context guard still reserves
+        ``max_completion_tokens``, so a review that passes the guard never
+        receives less than that limit.
         """
 
         from openai import OpenAI
@@ -2510,8 +2517,15 @@ class PrivateModelAuthoringTransport:
         self.review_extra_body = (
             deepcopy(review_extra_body) if review_extra_body is not None else None
         )
+        if review_fill_context and (
+            context_window_tokens is None or max_completion_tokens is None
+        ):
+            raise ValueError(
+                "review_fill_context requires context_window_tokens and max_completion_tokens"
+            )
         self.max_completion_tokens = max_completion_tokens
         self.context_window_tokens = context_window_tokens
+        self.review_fill_context = review_fill_context
         self._client = OpenAI(
             base_url=base_url,
             api_key=api_key,
@@ -2525,9 +2539,24 @@ class PrivateModelAuthoringTransport:
             return deepcopy(self.review_extra_body)
         return deepcopy(self.extra_body) if self.extra_body is not None else None
 
+    def max_completion_tokens_for(self, packet: PromptPacket) -> int | None:
+        """Return the completion limit sent with this packet."""
+
+        if (
+            self.review_fill_context
+            and packet.stage in _REVIEW_STAGES
+            and self.context_window_tokens is not None
+            and self.max_completion_tokens is not None
+        ):
+            estimate = _context_budget_estimate(packet)["estimated_prompt_tokens"]
+            filled = self.context_window_tokens - int(estimate) - _CONTEXT_FRAMING_TOKEN_RESERVE
+            return max(filled, self.max_completion_tokens)
+        return self.max_completion_tokens
+
     def complete(self, packet: PromptPacket) -> TransportResponse:
         self.preflight_context_budget(packet)
         extra_body = self.extra_body_for(packet)
+        max_completion_tokens = self.max_completion_tokens_for(packet)
         request: dict[str, Any] = {
             "model": self.model,
             "temperature": self.temperature,
@@ -2538,8 +2567,8 @@ class PrivateModelAuthoringTransport:
         }
         if extra_body is not None:
             request["extra_body"] = deepcopy(extra_body)
-        if self.max_completion_tokens is not None:
-            request["max_completion_tokens"] = self.max_completion_tokens
+        if max_completion_tokens is not None:
+            request["max_completion_tokens"] = max_completion_tokens
         response = self._client.chat.completions.create(**request)
         choice = response.choices[0]
         message = choice.message
@@ -2559,8 +2588,8 @@ class PrivateModelAuthoringTransport:
             "max_retries": 0,
             "extra_body": extra_body,
         }
-        if self.max_completion_tokens is not None:
-            controls["max_completion_tokens"] = self.max_completion_tokens
+        if max_completion_tokens is not None:
+            controls["max_completion_tokens"] = max_completion_tokens
         if self.context_window_tokens is not None:
             controls["context_window_tokens"] = self.context_window_tokens
         return TransportResponse(

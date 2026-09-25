@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from asago_artifact_generator.authoring import (
+    _CONTEXT_FRAMING_TOKEN_RESERVE,
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
     AUTHORING_THINKING_EXTRA_BODY,
@@ -25,6 +26,7 @@ from asago_artifact_generator.authoring import (
     PromptPacket,
     ScriptedAuthoringTransport,
     TransportResponse,
+    _context_budget_estimate,
     build_call1_packet,
     build_call2_packet,
     collect_artifact_findings,
@@ -883,6 +885,65 @@ def test_private_model_transport_enables_thinking_only_for_review_requests(
     assert review.raw == b'{"decision":"accept"}'
     assert review.response_capture["reasoning"]["content"] == "review reasoning"
     assert b"review reasoning" not in review.raw
+
+
+def test_private_model_transport_fills_remaining_context_for_review_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCompletions:
+        def __init__(self):
+            self.requests: list[dict] = []
+
+        def create(self, **kwargs):
+            self.requests.append(kwargs)
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content="{}"),
+                        finish_reason="stop",
+                    )
+                ],
+                usage=None,
+            )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    transport = PrivateModelAuthoringTransport(
+        base_url="https://private.invalid/v1",
+        api_key="secret-value",
+        model="gemma4-oc",
+        context_window_tokens=32_768,
+        max_completion_tokens=8_192,
+        review_fill_context=True,
+    )
+    user = "x" * 40_000
+    packets = [
+        PromptPacket(stage=stage, version="test", system="system", user=user, payload={})
+        for stage in ("call1", "plan_review", "artifact_review")
+    ]
+    responses = [transport.complete(packet) for packet in packets]
+
+    estimate = _context_budget_estimate(packets[1])["estimated_prompt_tokens"]
+    filled = 32_768 - estimate - _CONTEXT_FRAMING_TOKEN_RESERVE
+    assert filled > 8_192
+    expected = [8_192, filled, filled]
+    requests = transport._client.chat.completions.requests
+    assert [request["max_completion_tokens"] for request in requests] == expected
+    assert [response.controls["max_completion_tokens"] for response in responses] == expected
+    assert all(estimate + limit + _CONTEXT_FRAMING_TOKEN_RESERVE <= 32_768 for limit in expected)
+
+
+def test_private_model_transport_review_fill_context_requires_limits() -> None:
+    with pytest.raises(ValueError, match="review_fill_context requires"):
+        PrivateModelAuthoringTransport(
+            base_url="https://private.invalid/v1",
+            api_key="secret-value",
+            model="gemma4-oc",
+            review_fill_context=True,
+        )
 
 
 def test_private_model_transport_preserves_default_request_shape_and_captures_completion(

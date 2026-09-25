@@ -363,6 +363,7 @@ def author(
         review_extra_body=deepcopy(REVIEW_THINKING_EXTRA_BODY),
         context_window_tokens=AUTHORING_CONTEXT_WINDOW_TOKENS,
         max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
+        review_fill_context=True,
     )
     package_dir = output_dir / stable_task_id
     result = AuthoringOrchestrator(
