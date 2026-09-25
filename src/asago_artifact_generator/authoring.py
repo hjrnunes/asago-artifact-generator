@@ -346,10 +346,12 @@ CONTEXT_GUARD_CALIBRATION = {
     "margin": float(_CONTEXT_GUARD_MARGIN),
     "calibrated_bytes_per_token": float(_CONTEXT_GUARD_CALIBRATED_RATIO),
 }
-# Normal private authoring fixes thinking off for every provider request
-# (author, correction, and review) through the transport's additive
-# extra_body.  The value is non-secret and is safe to record as a control.
+# Normal private authoring sets thinking per role through the transport's
+# additive extra_body: author and correction requests run with thinking off,
+# semantic reviews with thinking on.  The values are non-secret and are
+# recorded as per-call controls.
 AUTHORING_THINKING_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
+REVIEW_THINKING_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": True}}
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*\n?(.*?)\n?\s*```\s*$", re.DOTALL)
 _SLOT_RE = re.compile(r"\{\{([^{}]*)\}\}")
 _PROMPT_URL_RE = re.compile(r"\bhttps?://[^\s\"'<>]+", re.IGNORECASE)
@@ -2469,9 +2471,17 @@ class PrivateModelAuthoringTransport:
         profile_name: str | None = None,
         temperature: float = 0.0,
         extra_body: dict[str, Any] | None = None,
+        review_extra_body: dict[str, Any] | None = None,
         max_completion_tokens: int | None = None,
         context_window_tokens: int | None = None,
     ) -> None:
+        """Create the client.
+
+        ``extra_body`` applies to author and correction requests.  When
+        ``review_extra_body`` is supplied it replaces ``extra_body`` for
+        semantic-review requests; otherwise reviews use ``extra_body`` too.
+        """
+
         from openai import OpenAI
 
         if max_completion_tokens is not None and (
@@ -2498,6 +2508,9 @@ class PrivateModelAuthoringTransport:
         self.profile_name = profile_name
         self.temperature = temperature
         self.extra_body = deepcopy(extra_body) if extra_body is not None else None
+        self.review_extra_body = (
+            deepcopy(review_extra_body) if review_extra_body is not None else None
+        )
         self.max_completion_tokens = max_completion_tokens
         self.context_window_tokens = context_window_tokens
         self._client = OpenAI(
@@ -2506,8 +2519,16 @@ class PrivateModelAuthoringTransport:
             max_retries=0,
         )
 
+    def extra_body_for(self, packet: PromptPacket) -> dict[str, Any] | None:
+        """Return the extra_body controls for this packet's role."""
+
+        if packet.stage in _REVIEW_STAGES and self.review_extra_body is not None:
+            return deepcopy(self.review_extra_body)
+        return deepcopy(self.extra_body) if self.extra_body is not None else None
+
     def complete(self, packet: PromptPacket) -> TransportResponse:
         self.preflight_context_budget(packet)
+        extra_body = self.extra_body_for(packet)
         request: dict[str, Any] = {
             "model": self.model,
             "temperature": self.temperature,
@@ -2516,8 +2537,8 @@ class PrivateModelAuthoringTransport:
                 {"role": "user", "content": packet.user},
             ],
         }
-        if self.extra_body is not None:
-            request["extra_body"] = deepcopy(self.extra_body)
+        if extra_body is not None:
+            request["extra_body"] = deepcopy(extra_body)
         if self.max_completion_tokens is not None:
             request["max_completion_tokens"] = self.max_completion_tokens
         response = self._client.chat.completions.create(**request)
@@ -2537,7 +2558,7 @@ class PrivateModelAuthoringTransport:
         controls = {
             "temperature": self.temperature,
             "max_retries": 0,
-            "extra_body": deepcopy(self.extra_body),
+            "extra_body": extra_body,
         }
         if self.max_completion_tokens is not None:
             controls["max_completion_tokens"] = self.max_completion_tokens

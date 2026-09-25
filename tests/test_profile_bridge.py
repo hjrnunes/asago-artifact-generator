@@ -201,6 +201,7 @@ def test_author_cli_passes_profile_values_directly_to_transport(
     assert captured["model"] == values["model"]
     assert captured["profile_name"] == "gemma4-oc"
     assert captured["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert captured["review_extra_body"] == {"chat_template_kwargs": {"enable_thinking": True}}
     assert captured["context_window_tokens"] == 32_768
     assert captured["max_completion_tokens"] == 8_192
     _, inventory, runtime = captured["run_inputs"]
@@ -281,6 +282,7 @@ def test_author_cli_keeps_real_environment_only_configuration_compatible(
         "api_key": "environment-secret-value",
         "model": "environment-model",
         "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+        "review_extra_body": {"chat_template_kwargs": {"enable_thinking": True}},
         "context_window_tokens": 32_768,
         "max_completion_tokens": 8_192,
     }

@@ -16,6 +16,7 @@ from asago_artifact_generator.authoring import (
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
     AUTHORING_THINKING_EXTRA_BODY,
+    REVIEW_THINKING_EXTRA_BODY,
     AuthoringBudget,
     AuthoringOrchestrator,
     AuthoringResult,
@@ -827,6 +828,61 @@ def test_private_model_transport_sends_thinking_off_extra_body_for_every_request
         }
         for response in responses
     )
+
+
+def test_private_model_transport_enables_thinking_only_for_review_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCompletions:
+        def __init__(self):
+            self.requests: list[dict] = []
+
+        def create(self, **kwargs):
+            self.requests.append(kwargs)
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content='{"decision":"accept"}',
+                            reasoning_content="review reasoning",
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+                usage=None,
+            )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    transport = PrivateModelAuthoringTransport(
+        base_url="https://private.invalid/v1",
+        api_key="secret-value",
+        model="gemma4-oc",
+        extra_body=deepcopy(AUTHORING_THINKING_EXTRA_BODY),
+        review_extra_body=deepcopy(REVIEW_THINKING_EXTRA_BODY),
+    )
+    stages = ("call1", "plan_review", "correction", "call2", "artifact_review")
+    responses = [
+        transport.complete(
+            PromptPacket(stage=stage, version="test", system="system", user="user", payload={})
+        )
+        for stage in stages
+    ]
+
+    thinking_off = {"chat_template_kwargs": {"enable_thinking": False}}
+    thinking_on = {"chat_template_kwargs": {"enable_thinking": True}}
+    assert REVIEW_THINKING_EXTRA_BODY == thinking_on
+    expected = [thinking_off, thinking_on, thinking_off, thinking_off, thinking_on]
+    requests = transport._client.chat.completions.requests
+    assert [request["extra_body"] for request in requests] == expected
+    assert [response.controls["extra_body"] for response in responses] == expected
+    review = responses[1]
+    assert review.raw == b'{"decision":"accept"}'
+    assert review.response_capture["reasoning"]["content"] == "review reasoning"
+    assert b"review reasoning" not in review.raw
 
 
 def test_private_model_transport_preserves_default_request_shape_and_captures_completion(

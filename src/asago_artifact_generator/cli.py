@@ -15,6 +15,7 @@ from .authoring import (
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
     AUTHORING_THINKING_EXTRA_BODY,
+    REVIEW_THINKING_EXTRA_BODY,
     AuthoringBudget,
     AuthoringOrchestrator,
     AuthoringPolicy,
@@ -359,6 +360,7 @@ def author(
     transport = PrivateModelAuthoringTransport(
         **transport_options,
         extra_body=deepcopy(AUTHORING_THINKING_EXTRA_BODY),
+        review_extra_body=deepcopy(REVIEW_THINKING_EXTRA_BODY),
         context_window_tokens=AUTHORING_CONTEXT_WINDOW_TOKENS,
         max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
     )

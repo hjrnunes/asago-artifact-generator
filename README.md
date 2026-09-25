@@ -54,9 +54,13 @@ them directly to the private transport. It does not extract profile values
 through a shell or print them. Credentials and endpoint values stay out of
 prompts, ledgers, packages, and failure evidence. A missing profile or required
 field stops before dispatch.
-Every `author` request (author, correction, and review) sends
-`chat_template_kwargs.enable_thinking=false` through the transport's additive
-`extra_body`, records the non-secret controls, and keeps `max_retries=0`.
+Thinking is a per-role control sent through the transport's additive
+`extra_body`: author and correction requests send
+`chat_template_kwargs.enable_thinking=false`, and plan and artifact review
+requests send `chat_template_kwargs.enable_thinking=true`. Each call records the
+`extra_body` it actually sent among its non-secret controls and keeps
+`max_retries=0`. Only the final message content is parsed; provider reasoning
+stays in the raw response capture and never substitutes for a missing answer.
 Configured live requests reserve a 32,768-token context window and an 8,192-token
 completion limit, plus the existing 256-token framing reserve. The guard
 estimates prompt tokens as the ceiling of all model-facing system and user
