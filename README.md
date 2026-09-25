@@ -55,9 +55,9 @@ through a shell or print them. Credentials and endpoint values stay out of
 prompts, ledgers, packages, and failure evidence. A missing profile or required
 field stops before dispatch.
 Thinking is a per-role control sent through the transport's additive
-`extra_body`: author and correction requests send
-`chat_template_kwargs.enable_thinking=false`, and plan and artifact review
-requests send `chat_template_kwargs.enable_thinking=true`. Each call records the
+`extra_body`. Author, correction, and review requests all send
+`chat_template_kwargs.enable_thinking=false`; with thinking on, reviews looped
+until the completion limit and returned no answer. Each call records the
 `extra_body` it actually sent among its non-secret controls and keeps
 `max_retries=0`. Only the final message content is parsed; provider reasoning
 stays in the raw response capture and never substitutes for a missing answer.
@@ -68,8 +68,7 @@ UTF-8 bytes, including correction feedback and the 128-byte schema/message
 allowance, divided by a calibrated bytes-per-token ratio. It applies the same
 estimate to authoring, review, and correction requests and rejects an overflow
 before reserving a dispatch. The estimate must fit the remaining 24,320-token
-input budget. Review requests, which think before answering, send a larger
-completion limit: the context window minus that request's prompt estimate and
+input budget. Review requests send a larger completion limit: the context window minus that request's prompt estimate and
 the framing reserve, never less than 8,192. Each call records the limit it sent.
 
 The calibration uses three approved provider measurements: 3.964777680907

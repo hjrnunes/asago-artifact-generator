@@ -349,11 +349,12 @@ CONTEXT_GUARD_CALIBRATION = {
     "calibrated_bytes_per_token": float(_CONTEXT_GUARD_CALIBRATED_RATIO),
 }
 # Normal private authoring sets thinking per role through the transport's
-# additive extra_body: author and correction requests run with thinking off,
-# semantic reviews with thinking on.  The values are non-secret and are
-# recorded as per-call controls.
+# additive extra_body.  Every role currently runs with thinking off: with
+# thinking on, gemma-4-26b-a4b-it reviews repeated the same reasoning lines
+# until the completion limit and returned no answer in 11 of 35 scenarios.
+# The values are non-secret and are recorded as per-call controls.
 AUTHORING_THINKING_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
-REVIEW_THINKING_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": True}}
+REVIEW_THINKING_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*\n?(.*?)\n?\s*```\s*$", re.DOTALL)
 _SLOT_RE = re.compile(r"\{\{([^{}]*)\}\}")
 _PROMPT_URL_RE = re.compile(r"\bhttps?://[^\s\"'<>]+", re.IGNORECASE)

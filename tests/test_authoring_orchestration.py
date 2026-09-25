@@ -832,7 +832,7 @@ def test_private_model_transport_sends_thinking_off_extra_body_for_every_request
     )
 
 
-def test_private_model_transport_enables_thinking_only_for_review_requests(
+def test_private_model_transport_applies_review_extra_body_only_to_review_requests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class FakeCompletions:
@@ -864,7 +864,7 @@ def test_private_model_transport_enables_thinking_only_for_review_requests(
         api_key="secret-value",
         model="gemma4-oc",
         extra_body=deepcopy(AUTHORING_THINKING_EXTRA_BODY),
-        review_extra_body=deepcopy(REVIEW_THINKING_EXTRA_BODY),
+        review_extra_body={"chat_template_kwargs": {"enable_thinking": True}},
     )
     stages = ("call1", "plan_review", "correction", "call2", "artifact_review")
     responses = [
@@ -876,7 +876,7 @@ def test_private_model_transport_enables_thinking_only_for_review_requests(
 
     thinking_off = {"chat_template_kwargs": {"enable_thinking": False}}
     thinking_on = {"chat_template_kwargs": {"enable_thinking": True}}
-    assert REVIEW_THINKING_EXTRA_BODY == thinking_on
+    assert REVIEW_THINKING_EXTRA_BODY == thinking_off
     expected = [thinking_off, thinking_on, thinking_off, thinking_off, thinking_on]
     requests = transport._client.chat.completions.requests
     assert [request["extra_body"] for request in requests] == expected
