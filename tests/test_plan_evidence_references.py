@@ -36,9 +36,9 @@ def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
         "source_handles": ["source:case"],
         "operations": ["operation:summarize_for_ehr"],
     }
-    ids = {item["id"]: item["appears_in"] for item in section["provenance_ids"]["ids"]}
-    assert ids["SC-1"] == ["lineage.constraint_ids"]
-    assert ids["CA-1-1"] == ["lineage.control_action_id"]
+    ids = section["provenance_ids"]["ids"]
+    assert ids["SC-1"] == "lineage.constraint_ids"
+    assert ids["CA-1-1"] == "lineage.control_action_id"
     assert "interpretation.source_refs" in section["provenance_ids"]["rule"]
     assert "not valid here" in section["field_rules"]["assumptions[].ref"]
     assert any("assistant_messages" in item for item in section["not_references"])
