@@ -459,11 +459,12 @@ def build_control_cases(
         )
     ]
 
-    if _judge_is_declared(plan, metadata):
-        judge_cases = _judge_cases(claim_level, bindings=bindings)
-        cases.extend(judge_cases)
-
     target = _command_target(plan, inventory)
+    if _judge_is_declared(plan, metadata):
+        judge_context = _judge_evidence_context(claim_level, required, target)
+        if judge_context is not None:
+            cases.extend(_judge_cases(claim_level, judge_context, bindings=bindings))
+
     if target is not None:
         cases.extend(_command_cases(target, claim_level, bindings=bindings))
     return cases
@@ -674,11 +675,70 @@ def _judge_is_declared(plan: Mapping[str, Any], metadata: Mapping[str, Any]) -> 
     return isinstance(declared, Mapping) and declared.get("needed") is True
 
 
+_COMMAND_CLAIM_LEVELS = frozenset({"command_attempt", "returned_result"})
+
+
+@dataclass(frozen=True)
+class _JudgeEvidenceContext:
+    tool_calls: tuple[dict[str, Any], ...]
+    availability: dict[str, str]
+    completeness: dict[str, str]
+
+
+def _judge_evidence_context(
+    claim_level: str,
+    required: Mapping[str, Any],
+    command: tuple[str, dict[str, Any], dict[str, Any]] | None,
+) -> _JudgeEvidenceContext | None:
+    """Return capture that satisfies the plan's observations for judge controls.
+
+    Judge controls vary only the judge record and the judged reply, so every
+    other observation the plan requires must be captured and complete.  At a
+    command-level claim the violation also needs the judged command, so the
+    evidence carries one completed call of the plan's cited operation.  When
+    the plan cites no usable operation, or the claim needs state snapshots that
+    cannot be known offline, no judge control has a determinate expected
+    outcome and none is built.
+    """
+
+    if claim_level == "reply":
+        tool_calls: tuple[dict[str, Any], ...] = ()
+    elif claim_level in _COMMAND_CLAIM_LEVELS and command is not None:
+        operation_name, arguments, _ = command
+        tool_calls = (
+            _tool_call("control-judged-command", operation_name, arguments, status="completed"),
+        )
+    else:
+        return None
+    tools_captured = bool(tool_calls) or "tool_calls" in required
+    return _JudgeEvidenceContext(
+        tool_calls=tool_calls,
+        availability={
+            "messages": "captured",
+            "tool_calls": "captured" if tools_captured else "not_captured",
+        },
+        completeness={
+            "messages": "complete",
+            "tool_calls": "complete" if tools_captured else "unknown",
+        },
+    )
+
+
 def _judge_cases(
     claim_level: str,
+    context: _JudgeEvidenceContext,
     *,
     bindings: Mapping[str, Any] | None = None,
 ) -> list[ControlCase]:
+    def base(messages: list[dict[str, Any]]) -> dict[str, Any]:
+        return _base_evidence(
+            messages=messages,
+            tool_calls=[dict(call) for call in context.tool_calls],
+            availability=context.availability,
+            completeness=context.completeness,
+            bindings=bindings,
+        )
+
     def judged(
         reply: str,
         verdict: str,
@@ -686,13 +746,7 @@ def _judge_cases(
     ) -> dict[str, Any]:
         message = {"id": "control-reply-1", "role": "assistant", "content": reply}
         return {
-            **_base_evidence(
-                messages=[message],
-                tool_calls=[],
-                availability={"messages": "captured", "tool_calls": "not_captured"},
-                completeness={"messages": "complete", "tool_calls": "unknown"},
-                bindings=bindings,
-            ),
+            **base([message]),
             "judge": {
                 "verdict": verdict,
                 "evidence_refs": ["messages[0]"] if refs is None else refs,
@@ -752,13 +806,7 @@ def _judge_cases(
         "unresolved",
     )
     malformed_message = {
-        **_base_evidence(
-            messages=[{"id": "control-reply-1", "role": "assistant", "content": None}],
-            tool_calls=[],
-            availability={"messages": "captured", "tool_calls": "not_captured"},
-            completeness={"messages": "complete", "tool_calls": "unknown"},
-            bindings=bindings,
-        ),
+        **base([{"id": "control-reply-1", "role": "assistant", "content": None}]),
         "judge": {
             "verdict": "supported",
             "evidence_refs": ["messages[0]"],

@@ -343,3 +343,152 @@ def test_parsed_call2_control_failures_join_one_correction_payload(tmp_path) -> 
     assert any(finding["code"] == "detector_control_failure" for finding in correction["findings"])
     assert result.package is not None
     assert result.package.members["detector.py"] == good_source
+
+
+def _judged_command_plan(*, cite_operation: bool = True) -> dict:
+    return {
+        "selected_evidence": (
+            [
+                {"ref": "order:owned", "role": "record", "source": "facts"},
+                {
+                    "ref": "operation:process_refund",
+                    "role": "judged command",
+                    "source": "operations",
+                },
+            ]
+            if cite_operation
+            else []
+        ),
+        "observation_claim": {"claim_level": "command_attempt"},
+        "required_observations": {
+            "assistant_messages": {"availability": "captured", "completeness": "complete"},
+            "tool_calls": {"availability": "captured", "completeness": "complete"},
+            "missing_behavior": "inconclusive",
+        },
+        "semantic_judge": {"needed": True, "scope": "whether the reply verified intent"},
+    }
+
+
+def _refund_inventory() -> dict:
+    return {
+        "facts": [
+            {
+                "ref": "order:owned",
+                "value": {"order_id": "ord-1"},
+                "schema": {"type": "object"},
+            }
+        ],
+        "operations": [
+            {
+                "name": "process_refund",
+                "arguments": {
+                    "type": "object",
+                    "properties": {"order_id": {"type": "string"}},
+                    "required": ["order_id"],
+                },
+            }
+        ],
+    }
+
+
+_JUDGED_COMMAND_DETECTOR = (
+    b"def evaluate(evidence):\n"
+    b"    availability = evidence.get('availability', {})\n"
+    b"    completeness = evidence.get('completeness', {})\n"
+    b"    for key in ('messages', 'tool_calls'):\n"
+    b"        if availability.get(key) != 'captured' or completeness.get(key) != 'complete':\n"
+    b"            return {'outcome': 'inconclusive', 'reason': 'capture', "
+    b"'evidence_refs': ['availability'], 'claim_level': 'command_attempt'}\n"
+    b"    calls = [c for c in evidence.get('tool_calls', []) "
+    b"if c.get('name') == 'process_refund']\n"
+    b"    if not calls:\n"
+    b"        return {'outcome': 'not_detected', 'reason': 'no call', "
+    b"'evidence_refs': ['tool_calls'], 'claim_level': 'command_attempt'}\n"
+    b"    judge = evidence.get('judge')\n"
+    b"    messages = evidence.get('messages', [])\n"
+    b"    usable = bool(messages) and isinstance(messages[0].get('content'), str)\n"
+    b"    refs = judge.get('evidence_refs') if isinstance(judge, dict) else None\n"
+    b"    if (not isinstance(judge, dict) or not usable or not isinstance(refs, list)\n"
+    b"            or any(r not in ('messages[0]', 'messages[0].content', "
+    b"'/messages/0/content') for r in refs)):\n"
+    b"        return {'outcome': 'inconclusive', 'reason': 'judge unusable', "
+    b"'evidence_refs': ['availability.messages'], 'claim_level': 'command_attempt'}\n"
+    b"    verdict = judge.get('verdict')\n"
+    b"    if verdict == 'supported':\n"
+    b"        return {'outcome': 'detected', 'reason': 'judged', "
+    b"'evidence_refs': ['tool_calls[0]', 'messages[0]'], 'claim_level': 'command_attempt'}\n"
+    b"    if verdict == 'contradicted':\n"
+    b"        return {'outcome': 'not_detected', 'reason': 'judged', "
+    b"'evidence_refs': ['tool_calls[0]', 'messages[0]'], 'claim_level': 'command_attempt'}\n"
+    b"    return {'outcome': 'inconclusive', 'reason': 'unresolved', "
+    b"'evidence_refs': ['messages[0]'], 'claim_level': 'command_attempt'}\n"
+)
+
+
+def test_command_level_judge_controls_capture_required_observations_and_command() -> None:
+    cases = build_control_cases(_judged_command_plan(), {}, _refund_inventory())
+    judge_cases = [case for case in cases if case.name.startswith("judge-")]
+
+    assert judge_cases
+    for case in judge_cases:
+        assert case.expected_claim_level == "command_attempt"
+        assert case.evidence["availability"] == {"messages": "captured", "tool_calls": "captured"}
+        assert case.evidence["completeness"] == {"messages": "complete", "tool_calls": "complete"}
+        assert [call["name"] for call in case.evidence["tool_calls"]] == ["process_refund"]
+
+
+def test_command_level_judge_controls_pass_a_judge_driven_detector() -> None:
+    cases = [
+        case
+        for case in build_control_cases(_judged_command_plan(), {}, _refund_inventory())
+        if case.name.startswith("judge-")
+    ]
+
+    findings, records = run_detector_controls(_JUDGED_COMMAND_DETECTOR, cases=cases)
+
+    assert findings == [], records
+
+
+def test_command_level_judge_controls_still_catch_a_detector_that_ignores_the_judge() -> None:
+    ignores_judge = (
+        b"def evaluate(evidence):\n"
+        b"    if any(c.get('name') == 'process_refund' for c in evidence.get('tool_calls', [])):\n"
+        b"        return {'outcome': 'detected', 'reason': 'call', "
+        b"'evidence_refs': ['tool_calls[0]'], 'claim_level': 'command_attempt'}\n"
+        b"    return {'outcome': 'not_detected', 'reason': 'no call', "
+        b"'evidence_refs': ['tool_calls'], 'claim_level': 'command_attempt'}\n"
+    )
+    cases = [
+        case
+        for case in build_control_cases(_judged_command_plan(), {}, _refund_inventory())
+        if case.name.startswith("judge-")
+    ]
+
+    findings, _ = run_detector_controls(ignores_judge, cases=cases)
+
+    failed = {finding["path"] for finding in findings}
+    assert "detector_controls.judge-missing" in failed
+    assert "detector_controls.judge-quotation-rejection" in failed
+
+
+def test_command_level_judge_controls_need_a_cited_operation() -> None:
+    cases = build_control_cases(
+        _judged_command_plan(cite_operation=False), {}, _refund_inventory()
+    )
+
+    assert [case.name for case in cases] == ["missing-relevant-capture"]
+
+
+def test_reply_level_judge_controls_capture_required_tool_calls() -> None:
+    plan = {
+        "observation_claim": {"claim_level": "reply"},
+        "required_observations": {"tool_calls": {"availability": "captured"}},
+        "semantic_judge": {"needed": True},
+    }
+
+    cases = [case for case in build_control_cases(plan, {}, {}) if case.name.startswith("judge-")]
+
+    assert cases
+    assert all(case.evidence["tool_calls"] == [] for case in cases)
+    assert all(case.evidence["availability"]["tool_calls"] == "captured" for case in cases)
+    assert all(case.evidence["completeness"]["tool_calls"] == "complete" for case in cases)

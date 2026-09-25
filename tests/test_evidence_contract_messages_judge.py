@@ -4,7 +4,7 @@ import hashlib
 import json
 
 from asago_artifact_generator.authoring import (
-    CALL2_PROMPT_VERSION_V8,
+    CALL2_PROMPT_VERSION_V9,
     CORRECTION_PROMPT_VERSION_V8,
     _render_correction_packet,
     artifact_observation_guide,
@@ -154,7 +154,7 @@ def test_reply_call2_interface_documents_messages_judge_and_fact_refs() -> None:
     packet = build_call2_packet_v2(_view(), _plan(), _inventory(), _runtime_contract())
     interface = _interface(packet.user)
 
-    assert packet.version == CALL2_PROMPT_VERSION_V8
+    assert packet.version == CALL2_PROMPT_VERSION_V9
     paths = interface["paths"]
     assert {
         "messages",
@@ -208,7 +208,7 @@ def test_command_attempt_interface_omits_message_and_judge_paths() -> None:
     )
     interface = _interface(packet.user)
 
-    assert packet.version == CALL2_PROMPT_VERSION_V8
+    assert packet.version == CALL2_PROMPT_VERSION_V9
     assert not any(
         key.startswith("messages")
         or key.startswith("availability.messages")
@@ -291,7 +291,7 @@ def test_artifact_review_uses_current_interface_version() -> None:
         _runtime_contract(),
     )
 
-    assert packet.version == "authoring-artifact-review-v5"
+    assert packet.version == "authoring-artifact-review-v6"
     interface = _interface(packet.user)
     assert "judge.verdict" in interface["paths"]
 
@@ -429,3 +429,14 @@ def test_detector_using_documented_reply_paths_passes_generated_controls() -> No
     assert findings == []
     assert records
     assert all(record["status"] == "passed" for record in records)
+
+
+def test_judged_call2_interface_documents_missing_judge_result_references() -> None:
+    packet = build_call2_packet_v2(_view(), _plan(), _inventory(), _runtime_contract())
+    judge = _interface(packet.user)["judge"]
+
+    rule = judge["missing_judge_result"]
+    assert "evidence_refs set to []" in rule
+    assert "availability.messages" in rule
+    assert "Never cite judge" in rule
+    assert "tool_calls" in judge["judge_with_other_observations"]

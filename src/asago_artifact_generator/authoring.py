@@ -88,10 +88,11 @@ CORRECTION_PROMPT_VERSION_V10 = "authoring-correction-v10"
 CORRECTION_PROMPT_VERSION_V11 = "authoring-correction-v11"
 CALL1_PROMPT_VERSION_V7 = "authoring-call1-v7"
 CORRECTION_PROMPT_VERSION_V12 = "authoring-correction-v12"
+CALL2_PROMPT_VERSION_V9 = "authoring-call2-v9"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical package readers.
 CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V7
-CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V8
+CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V9
 CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V12
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
@@ -106,8 +107,9 @@ ARTIFACT_REVIEW_PROMPT_VERSION_V2 = "authoring-artifact-review-v2"
 ARTIFACT_REVIEW_PROMPT_VERSION_V4 = "authoring-artifact-review-v4"
 ARTIFACT_REVIEW_PROMPT_VERSION_V5 = "authoring-artifact-review-v5"
 PLAN_REVIEW_PROMPT_VERSION_V5 = "authoring-plan-review-v5"
+ARTIFACT_REVIEW_PROMPT_VERSION_V6 = "authoring-artifact-review-v6"
 PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V5
-ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V5
+ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V6
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 
 _PLAN_FIELD_MEANING_SECTIONS: tuple[tuple[str, str], ...] = (
@@ -6304,7 +6306,7 @@ def build_call2_packet_v2(
     )
     packet = PromptPacket(
         stage="call2",
-        version=CALL2_PROMPT_VERSION_V8,
+        version=CALL2_PROMPT_VERSION_V9,
         system=_CALL2_SYSTEM_V5,
         user=_render_sections(sections),
         payload=payload,
@@ -9674,6 +9676,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CALL2_PROMPT_VERSION_V6,
         CALL2_PROMPT_VERSION_V7,
         CALL2_PROMPT_VERSION_V8,
+        CALL2_PROMPT_VERSION_V9,
         CORRECTION_PROMPT_VERSION_V3,
         CORRECTION_PROMPT_VERSION_V4,
         CORRECTION_PROMPT_VERSION_V5,
@@ -9694,6 +9697,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         ARTIFACT_REVIEW_PROMPT_VERSION_V3,
         ARTIFACT_REVIEW_PROMPT_VERSION_V4,
         ARTIFACT_REVIEW_PROMPT_VERSION_V5,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V6,
     }:
         assert_no_prompt_duplicates(packet)
     if maximum <= 0:
@@ -10900,7 +10904,8 @@ def _evidence_packet_contract() -> dict[str, Any]:
                 "type": "object or absent",
                 "meaning": (
                     "optional separately declared semantic-judge result; missing or "
-                    "unusable judge evidence is inconclusive"
+                    "unusable judge evidence is inconclusive. An absent judge is not a "
+                    "resolvable path, so a result must not cite judge or judge.* then"
                 ),
             },
             "judge.verdict": {
@@ -11010,6 +11015,19 @@ def _evidence_packet_contract() -> dict[str, Any]:
                 "a judge evidence reference does not resolve into messages",
                 "a cited message has null or otherwise unusable content",
             ],
+            "missing_judge_result": (
+                "When evidence has no judge key, return inconclusive with evidence_refs "
+                "set to [] or to paths that exist in the packet, such as "
+                "availability.messages or messages[0]. Never cite judge, judge.verdict, "
+                "or judge.evidence_refs: an absent judge does not resolve and the "
+                "returned-reference validator rejects the result"
+            ),
+            "judge_with_other_observations": (
+                "The judge decides only the natural-language proposition. Every other "
+                "condition in the accepted plan, such as a required captured command at "
+                "a command-level claim, is still checked from tool_calls and the other "
+                "required observations"
+            ),
         },
         "synthetic_excerpt": {
             "label": "SYNTHETIC EXCERPT — interface illustration only",
@@ -11821,6 +11839,7 @@ __all__ = [
     "ARTIFACT_REVIEW_PROMPT_VERSION",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V4",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V5",
+    "ARTIFACT_REVIEW_PROMPT_VERSION_V6",
     "BudgetExceeded",
     "Call1FramingError",
     "CALL1_PROMPT_VERSION",
@@ -11837,6 +11856,7 @@ __all__ = [
     "CALL2_PROMPT_VERSION_V6",
     "CALL2_PROMPT_VERSION_V7",
     "CALL2_PROMPT_VERSION_V8",
+    "CALL2_PROMPT_VERSION_V9",
     "CORRECTION_PROMPT_VERSION",
     "CORRECTION_PROMPT_VERSION_V2",
     "CORRECTION_PROMPT_VERSION_V3",
