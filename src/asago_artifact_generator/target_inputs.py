@@ -66,10 +66,10 @@ def load_target_inputs(
         observations_file=observations_file,
         observations_bytes=observations_bytes,
     )
+    # Record content digests, not local paths: packages must not depend on the
+    # machine or run directory that supplied the discovery files.
     provenance = {
-        "profile_path": str(profile_file),
         "profile_sha256": _sha256(profile_bytes),
-        "observations_path": str(observations_file) if observations_file else None,
         "observations_sha256": (
             _sha256(observations_bytes) if observations_bytes is not None else None
         ),
@@ -193,9 +193,10 @@ def _facts(
     provenance_base = {
         "source": "runtime-context",
         "sha256": _sha256(observations_bytes),
-        "path": str(observations_file),
     }
     facts: list[dict[str, Any]] = []
+    # The producer's runtime-context parser drops ``audit_log`` as capture
+    # telemetry rather than target state; mirror that contract here.
     state = {
         key: value for key, value in observations.get("state", {}).items() if key != "audit_log"
     }
