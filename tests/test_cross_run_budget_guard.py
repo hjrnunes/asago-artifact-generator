@@ -13,6 +13,7 @@ from asago_artifact_generator.authoring import (
     AuthoringOrchestrator,
     AuthoringPolicy,
     ScriptedAuthoringTransport,
+    policy_role_limits,
 )
 
 from .test_authoring_orchestration import HANDOFF
@@ -26,7 +27,7 @@ from .test_versioned_authoring_wire import (
 
 
 def test_prior_author_seed_stops_before_fourth_in_run_author_request(tmp_path: Path) -> None:
-    """One prior author request leaves only three author slots."""
+    """Prior author spend leaves only three in-run author slots."""
 
     transport = ScriptedAuthoringTransport(
         [
@@ -43,7 +44,7 @@ def test_prior_author_seed_stops_before_fourth_in_run_author_request(tmp_path: P
         task_id="prior-author-resume",
         wire_version="v2",
         policy=AuthoringPolicy(),
-        prior_author_correction_spend=1,
+        prior_author_correction_spend=policy_role_limits(AuthoringPolicy())["author"] - 3,
         prior_review_spend=0,
     ).run(_view(), _inventory(), _runtime_contract())
 
@@ -73,7 +74,7 @@ def test_prior_author_spend_at_case_cap_stops_before_first_dispatch(tmp_path: Pa
         task_id="author-exhausted",
         wire_version="v2",
         policy=AuthoringPolicy(),
-        prior_author_correction_spend=4,
+        prior_author_correction_spend=policy_role_limits(AuthoringPolicy())["author"],
         prior_review_spend=0,
     ).run(_view(), _inventory(), _runtime_contract())
 
@@ -100,7 +101,7 @@ def test_prior_review_spend_at_case_cap_stops_before_review_dispatch(tmp_path: P
         wire_version="v2",
         policy=AuthoringPolicy(),
         prior_author_correction_spend=0,
-        prior_review_spend=4,
+        prior_review_spend=policy_role_limits(AuthoringPolicy())["reviewer"],
     ).run(_view(), _inventory(), _runtime_contract())
 
     assert result.status == "budget_exhausted"

@@ -108,7 +108,16 @@ review of a mechanically valid candidate. A reviewer returns one JSON object
 with `decision` (`accept`, `revise`, or `blocked`), a nonblank `summary`, and
 findings with exactly `location`, `problem`, `basis`, and `required_change`;
 the framing rules match Call 1. `revise` feeds a stage correction that repeats
-all checks, controls, and review; `blocked` at the artifact stage stops as
+all checks, controls, and review. Each reviewed stage has one review revision
+that is separate from its correction allowance: a `revise` spends the review
+revision, while mechanical and control findings, including findings on the
+revised candidate, spend the correction allowance. The ledger and failure
+evidence record which allowance each correction spent (`allowance`), the
+remaining `allowances` and `review_revision_allowances`, and the effective
+`plan_max_review_revisions`/`artifact_max_review_revisions`. The default
+per-task budget is the policy's closed worst case, which includes each review
+revision and its review (12 dispatches, at most 6 author and 6 review, with
+default settings); `blocked` at the artifact stage stops as
 `needs_plan_revision` without recursing into plan authoring. Malformed or
 contradictory reviewer responses and reviewer transport failures produce
 `review_unavailable`, never a silent pass, and transport failures stop the run

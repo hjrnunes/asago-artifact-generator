@@ -292,9 +292,14 @@ NEUTRAL_PLAN_OUTCOME_EXAMPLE = "\n\n".join(
         ),
     )
 )
-# New authoring/review dispatches share the approved aggregate ceiling; one
-# task can use the policy's full eight-dispatch worst case.
+# New authoring/review dispatches share the approved aggregate ceiling.  A
+# policy-driven task derives its own per-task and per-role limits from
+# policy_max_dispatches/policy_role_limits; these constants are the defaults for
+# a budget built without a policy.
 MAX_AUTHORING_REQUESTS = 32
+# One revision requested by semantic review per reviewed stage, independent of
+# the stage's mechanical correction allowance.
+REVIEW_REVISION_ALLOWANCE_PER_STAGE = 1
 MAX_REQUESTS_PER_TASK = 8
 MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK = 4
 MAX_REVIEW_REQUESTS_PER_TASK = 4
@@ -960,26 +965,41 @@ class AuthoringPolicy:
         return cls(**kwargs)
 
 
+def _stage_author_dispatches(corrections: int, reviewed: bool) -> int:
+    revisions = REVIEW_REVISION_ALLOWANCE_PER_STAGE if reviewed else 0
+    return corrections + 1 + revisions
+
+
+def policy_role_limits(policy: AuthoringPolicy) -> dict[str, int]:
+    """Return the closed worst-case author and review dispatches for one policy.
+
+    A stage's author responses are its initial attempt, its corrections, and,
+    when the stage is reviewed, its review revisions.  Each author response
+    can cost at most one review.
+    """
+
+    plan_author = _stage_author_dispatches(policy.plan_max_corrections, policy.review_plan)
+    artifact_author = _stage_author_dispatches(
+        policy.artifact_max_corrections, policy.review_artifact
+    )
+    return {
+        "author": plan_author + artifact_author,
+        "reviewer": (plan_author if policy.review_plan else 0)
+        + (artifact_author if policy.review_artifact else 0),
+    }
+
+
 def policy_max_dispatches(policy: AuthoringPolicy) -> int:
     """Return the closed worst-case dispatch count one policy can spend.
 
-    With both reviews enabled a stage costs its corrections plus one initial
-    attempt, and each of those author responses can also cost one review; with
-    a review disabled the stage costs at most ``corrections + 1``.  These are
+    A reviewed stage costs its initial attempt, its corrections, and its
+    review revisions, and each of those author responses can also cost one
+    review; an unreviewed stage costs at most ``corrections + 1``.  These are
     upper bounds used for default budget guards, not spending targets.
     """
 
-    plan_cost = (
-        2 * (policy.plan_max_corrections + 1)
-        if policy.review_plan
-        else policy.plan_max_corrections + 1
-    )
-    artifact_cost = (
-        2 * (policy.artifact_max_corrections + 1)
-        if policy.review_artifact
-        else policy.artifact_max_corrections + 1
-    )
-    return plan_cost + artifact_cost
+    limits = policy_role_limits(policy)
+    return limits["author"] + limits["reviewer"]
 
 
 @dataclass
@@ -1003,6 +1023,7 @@ class AuthoringResult:
     allowances: dict[str, int] = field(default_factory=dict)
     review_reuse: dict[str, str] = field(default_factory=dict)
     budget: dict[str, Any] = field(default_factory=dict)
+    review_revision_allowances: dict[str, int] = field(default_factory=dict)
 
 
 def _render_correction_packet(
@@ -2748,14 +2769,18 @@ class AuthoringOrchestrator:
             # The stage-local default budget covers the policy's own closed
             # worst case; an explicitly supplied budget is honored as an
             # earlier stop and never raised to the policy maximum.
-            budget = (
-                AuthoringBudget(
+            if policy is not None:
+                role_limits = policy_role_limits(policy)
+                budget = AuthoringBudget(
                     aggregate_limit=MAX_AUTHORING_REQUESTS,
                     task_limit=policy_max_dispatches(policy),
+                    author_limit=max(
+                        MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK, role_limits["author"]
+                    ),
+                    review_limit=max(MAX_REVIEW_REQUESTS_PER_TASK, role_limits["reviewer"]),
                 )
-                if policy is not None
-                else AuthoringBudget()
-            )
+            else:
+                budget = AuthoringBudget()
         _validate_nonnegative_integer(
             "prior_author_correction_spend",
             prior_author_correction_spend,
@@ -2776,6 +2801,7 @@ class AuthoringOrchestrator:
         self._dispatch_count = 0
         self._dispatch_recorded = True
         self._allowances: dict[str, int] | None = None
+        self._review_revision_allowances: dict[str, int] | None = None
         self._review_status: dict[str, str] | None = None
         self._review_reuse: dict[str, str] = {}
         self._review_evidence: dict[str, dict[str, Any]] = {}
@@ -3689,6 +3715,7 @@ class AuthoringOrchestrator:
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
         stage_allowance: str | None = None,
+        allowance_kind: str | None = None,
     ) -> tuple[dict[str, Any] | ParsedCall2Response | None, list[Finding], bytes] | None:
         """Replace one failed v2 response in its original stage format.
 
@@ -3697,7 +3724,8 @@ class AuthoringOrchestrator:
         syntactically valid candidate is returned with its validation findings
         so the caller can run controls before deciding whether to correct again.
         Without one, the historical single shared-correction boolean and
-        fail-fast behavior apply.
+        fail-fast behavior apply. ``allowance_kind`` records which stage
+        allowance the caller spent on the dispatched correction.
         """
 
         if stage_allowance is None:
@@ -3786,6 +3814,9 @@ class AuthoringOrchestrator:
             self._ledger[-1]["response_capture"] = deepcopy(response_capture)
         self._ledger[-1]["failed_stage"] = failed_stage
         self._failure_attempt()["failed_stage"] = failed_stage
+        if allowance_kind is not None:
+            self._ledger[-1]["allowance"] = allowance_kind
+            self._failure_attempt()["allowance"] = allowance_kind
         self._failure_attempt()["failed_response"] = raw_response_record(
             failed_response,
             reason="not_returned" if not failed_response else None,
@@ -3899,6 +3930,11 @@ class AuthoringOrchestrator:
             "plan": policy.plan_max_corrections,
             "artifact": policy.artifact_max_corrections,
         }
+        self._review_revision_allowances = {
+            "plan": REVIEW_REVISION_ALLOWANCE_PER_STAGE if policy.review_plan else 0,
+            "artifact": REVIEW_REVISION_ALLOWANCE_PER_STAGE if policy.review_artifact else 0,
+        }
+        self._record_allowances()
         self._review_status = {"plan": "not_requested", "artifact": "not_requested"}
         self._failure_evidence["policy"] = self._effective_policy_record()
         self._failure_evidence["review_status"] = dict(self._review_status)
@@ -3943,7 +3979,7 @@ class AuthoringOrchestrator:
         except Exception as exc:
             return self._policy_result("failed", plan, [Finding("package_write_failed", str(exc))])
         self._failure_evidence["review_status"] = dict(self._review_status)
-        self._failure_evidence["allowances"] = dict(self._allowances)
+        self._record_allowances()
         self._finish_failure_evidence("accepted", [])
         return AuthoringResult(
             status="accepted",
@@ -3960,6 +3996,7 @@ class AuthoringOrchestrator:
             prompts=dict(self._prompt_packets),
             review_status=dict(self._review_status),
             allowances=dict(self._allowances),
+            review_revision_allowances=dict(self._review_revision_allowances or {}),
             review_reuse=dict(self._review_reuse),
             failure_evidence_path=None,
             budget=self.budget.snapshot(self.task_id),
@@ -3994,6 +4031,7 @@ class AuthoringOrchestrator:
 
         candidate: dict[str, Any] | None = None
         pending: list[Finding] | None = None
+        review_driven = False
         raw = b""
         while True:
             if candidate is None:
@@ -4011,18 +4049,19 @@ class AuthoringOrchestrator:
                     stop = self._stop_for_author_findings(pending)
                     if stop is not None:
                         return stop
-                    if not self._consume_allowance("plan"):
+                    if not self._consume_allowance("plan", review_revision=review_driven):
                         return _StageStop(
                             "unresolved",
                             (
                                 *pending,
-                                Finding(
-                                    "correction_limit_exhausted",
-                                    "plan correction allowance is exhausted",
-                                    "plan",
+                                self._allowance_exhausted_finding(
+                                    "plan", review_revision=review_driven
                                 ),
                             ),
                         )
+                    self._record_allowances()
+                    allowance_kind = "review_revision" if review_driven else "correction"
+                    review_driven = False
                     corrected = self._correction_v2(
                         failed_stage="call1",
                         failed_packet=packet,
@@ -4032,6 +4071,7 @@ class AuthoringOrchestrator:
                         inventory=inventory,
                         runtime_contract=runtime_contract,
                         stage_allowance="plan",
+                        allowance_kind=allowance_kind,
                     )
                     if corrected is None:
                         stop = self._stop_for_author_findings(list(self._findings))
@@ -4071,10 +4111,11 @@ class AuthoringOrchestrator:
             if outcome.decision == "blocked":
                 self._review_status["plan"] = "blocked"
                 return _StageStop("blocked", self._semantic_finding_objects(outcome, "plan"))
-            # Semantic revise findings join the same stage correction path as
-            # mechanical findings and consume the same stage allowance.
+            # Semantic revise findings join the stage correction path but spend
+            # the stage's separate review-revision allowance.
             self._review_status["plan"] = "revise"
             pending = self._semantic_finding_objects(outcome, "plan")
+            review_driven = True
             candidate = None
 
     def _artifact_stage_policy(
@@ -4100,6 +4141,7 @@ class AuthoringOrchestrator:
 
         parsed: ParsedCall2Response | None = None
         pending: list[Finding] | None = None
+        review_driven = False
         raw = b""
         while True:
             if parsed is None:
@@ -4131,18 +4173,19 @@ class AuthoringOrchestrator:
                     stop = self._stop_for_author_findings(pending)
                     if stop is not None:
                         return stop
-                    if not self._consume_allowance("artifact"):
+                    if not self._consume_allowance("artifact", review_revision=review_driven):
                         return _StageStop(
                             "unresolved",
                             (
                                 *pending,
-                                Finding(
-                                    "correction_limit_exhausted",
-                                    "artifact correction allowance is exhausted",
-                                    "artifact",
+                                self._allowance_exhausted_finding(
+                                    "artifact", review_revision=review_driven
                                 ),
                             ),
                         )
+                    self._record_allowances()
+                    allowance_kind = "review_revision" if review_driven else "correction"
+                    review_driven = False
                     correction = self._correction_v2(
                         failed_stage="call2",
                         failed_packet=packet,
@@ -4152,6 +4195,7 @@ class AuthoringOrchestrator:
                         inventory=inventory,
                         runtime_contract=runtime_contract,
                         stage_allowance="artifact",
+                        allowance_kind=allowance_kind,
                     )
                     if correction is None:
                         stop = self._stop_for_author_findings(list(self._findings))
@@ -4216,11 +4260,11 @@ class AuthoringOrchestrator:
                     "needs_plan_revision",
                     self._semantic_finding_objects(outcome, "artifact"),
                 )
-            # Semantic revise findings join the same stage correction path as
-            # mechanical and control findings and consume the same stage
-            # allowance.
+            # Semantic revise findings join the stage correction path but spend
+            # the stage's separate review-revision allowance.
             self._review_status["artifact"] = "revise"
             pending = self._semantic_finding_objects(outcome, "artifact")
+            review_driven = True
             parsed = None
 
     @staticmethod
@@ -4392,14 +4436,36 @@ class AuthoringOrchestrator:
             raw=raw,
         )
 
-    def _consume_allowance(self, stage: str) -> bool:
-        """Spend one correction from the named stage's independent allowance."""
+    def _consume_allowance(self, stage: str, *, review_revision: bool = False) -> bool:
+        """Spend one correction from the named stage's independent allowance.
 
-        assert self._allowances is not None
-        if self._allowances[stage] <= 0:
+        A revision requested by a semantic review spends the stage's separate
+        review-revision allowance; every other correction spends the stage
+        correction allowance.
+        """
+
+        allowances = self._review_revision_allowances if review_revision else self._allowances
+        assert allowances is not None
+        if allowances[stage] <= 0:
             return False
-        self._allowances[stage] -= 1
+        allowances[stage] -= 1
         return True
+
+    def _allowance_exhausted_finding(self, stage: str, *, review_revision: bool) -> Finding:
+        kind = "review revision" if review_revision else "correction"
+        return Finding(
+            "correction_limit_exhausted",
+            f"{stage} {kind} allowance is exhausted",
+            stage,
+        )
+
+    def _record_allowances(self) -> None:
+        if self._allowances is not None:
+            self._failure_evidence["allowances"] = dict(self._allowances)
+        if self._review_revision_allowances is not None:
+            self._failure_evidence["review_revision_allowances"] = dict(
+                self._review_revision_allowances
+            )
 
     @staticmethod
     def _stop_for_author_findings(findings: list[Finding]) -> _StageStop | None:
@@ -4447,6 +4513,12 @@ class AuthoringOrchestrator:
         return {
             "plan_max_corrections": policy.plan_max_corrections,
             "artifact_max_corrections": policy.artifact_max_corrections,
+            "plan_max_review_revisions": (
+                REVIEW_REVISION_ALLOWANCE_PER_STAGE if policy.review_plan else 0
+            ),
+            "artifact_max_review_revisions": (
+                REVIEW_REVISION_ALLOWANCE_PER_STAGE if policy.review_artifact else 0
+            ),
             "review_plan": policy.review_plan,
             "review_artifact": policy.review_artifact,
             "review_model_profile": self.review_model_profile,
@@ -4533,11 +4605,13 @@ class AuthoringOrchestrator:
     ) -> AuthoringResult:
         if self._review_status is not None:
             self._failure_evidence["review_status"] = dict(self._review_status)
-        if self._allowances is not None:
-            self._failure_evidence["allowances"] = dict(self._allowances)
+        self._record_allowances()
         result = self._result(status, plan, list(findings))
         result.review_status = dict(self._review_status) if self._review_status else {}
         result.allowances = dict(self._allowances) if self._allowances else {}
+        result.review_revision_allowances = (
+            dict(self._review_revision_allowances) if self._review_revision_allowances else {}
+        )
         result.review_reuse = dict(self._review_reuse)
         result.budget = self.budget.snapshot(self.task_id)
         return result
@@ -11794,6 +11868,7 @@ __all__ = [
     "collect_plan_findings_v2",
     "parse_review_response",
     "policy_max_dispatches",
+    "policy_role_limits",
     "run_detector_controls",
     "load_failure_evidence",
     "neutral_observation_cases",
