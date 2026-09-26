@@ -81,6 +81,7 @@ def test_observation_metadata_reaches_authoring_view(tmp_path: Path) -> None:
                 "observable": True,
                 "claim_level": "reply",
                 "evidence": "assistant_message",
+                "operation_name": "process_refund",
                 "reason": "The live contract captures assistant messages.",
             }
         ],
@@ -122,6 +123,7 @@ def test_observation_metadata_reaches_authoring_view(tmp_path: Path) -> None:
 
     assert view.payload["observation"]["assessment"]["disposition"] == "executable"
     assert view.payload["observation"]["criteria"][0]["claim_level"] == "reply"
+    assert view.payload["observation"]["criteria"][0]["operation_name"] == "process_refund"
     authoring_view = build_scenario_handoff_view(view)
     assert authoring_view["safe_observable_outcome"]["statement"] == (
         "The assistant reply preserves the requested action."

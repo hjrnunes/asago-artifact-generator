@@ -391,6 +391,7 @@ def _validate_observation_metadata(value: Any) -> None:
         "observable",
         "claim_level",
         "evidence",
+        "operation_name",
         "reason",
     }
     required_criterion_keys = {
@@ -421,6 +422,13 @@ def _validate_observation_metadata(value: Any) -> None:
                 raise InputSourceError("observable criterion requires evidence")
         elif criterion.get("claim_level") is not None or criterion.get("evidence") is not None:
             raise InputSourceError("analytical-only criterion must omit claim_level and evidence")
+        operation_name = criterion.get("operation_name")
+        if operation_name is not None and (
+            not isinstance(operation_name, str) or not operation_name.strip()
+        ):
+            raise InputSourceError("observation criterion operation_name is invalid")
+        if not criterion["observable"] and operation_name is not None:
+            raise InputSourceError("analytical-only criterion must omit operation_name")
     assessment = value["assessment"]
     if not isinstance(assessment, dict):
         raise InputSourceError("handoff observation assessment must be an object")

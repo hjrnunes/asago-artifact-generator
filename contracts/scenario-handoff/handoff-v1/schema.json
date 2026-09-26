@@ -184,7 +184,8 @@
             {
               "enum": [
                 "criterion_observed_operation",
-                "verified_control_action_specialization"
+                "verified_control_action_specialization",
+                "safe_observable_outcome_operation"
               ],
               "type": "string"
             },
@@ -306,6 +307,19 @@
           ],
           "default": null,
           "title": "Evidence"
+        },
+        "operation_name": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Name"
         },
         "reason": {
           "maxLength": 600,
