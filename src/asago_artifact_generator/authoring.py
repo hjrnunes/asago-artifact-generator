@@ -95,11 +95,13 @@ CALL2_PROMPT_VERSION_V9 = "authoring-call2-v9"
 CALL2_PROMPT_VERSION_V10 = "authoring-call2-v10"
 CORRECTION_PROMPT_VERSION_V14 = "authoring-correction-v14"
 CALL2_PROMPT_VERSION_V11 = "authoring-call2-v11"
+CORRECTION_PROMPT_VERSION_V15 = "authoring-correction-v15"
+CALL2_PROMPT_VERSION_V12 = "authoring-call2-v12"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical package readers.
 CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V8
-CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V11
-CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V14
+CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V12
+CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V15
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
@@ -1409,7 +1411,7 @@ def _render_correction_packet(
             (
                 CORRECTION_PROMPT_VERSION_V7
                 if correction_context.get("legacy_evidence_interface") is True
-                else CORRECTION_PROMPT_VERSION_V14
+                else CORRECTION_PROMPT_VERSION_V15
             )
             if correction_context.get("stage") == "artifact"
             else (
@@ -1421,7 +1423,7 @@ def _render_correction_packet(
                     else (
                         CORRECTION_PROMPT_VERSION_V10
                         if legacy_v10
-                        else CORRECTION_PROMPT_VERSION_V14
+                        else CORRECTION_PROMPT_VERSION_V15
                     )
                 )
             )
@@ -5177,8 +5179,15 @@ _ARTIFACT_AUTHOR_GUIDANCE = (
     "with only verdict, evidence_refs, and reason; missing or unusable raw judge "
     "support is represented as verdict unresolved with evidence_refs []. For "
     "supported or contradicted verdicts, use only judge.evidence_refs as the judge "
-    "support for a decisive result; an unresolved verdict has no judge support to "
-    "cite. Do not validate judge references, inspect judge audit fields, or "
+    "support for a decisive result; each cited reference resolves to either captured "
+    "message content or a non-null tool-call result value. Tool-call result paths "
+    "include tool_calls[i].decoded_result or tool_calls[i].raw_result and, when "
+    "retained by the adapter, messages[i].raw.notes.tool_calls[j].output or "
+    "messages[i].raw.raw_response.output[j].output; equivalent JSON Pointer and "
+    "$. paths are accepted. Call records, names, arguments, metadata, and null "
+    "results are not judge support. "
+    "An unresolved verdict has no judge support to cite. Do not validate judge "
+    "references, inspect judge audit fields, or "
     "reconstruct a judge request in detector code. A "
     "binding's source_ref and selector define downstream value resolution; the "
     "resolved value is read at evidence.bindings.<declared name>, and stimulus slots "
@@ -5401,7 +5410,9 @@ _CURRENT_JUDGE_CORRECTION_GUIDANCE = (
     " For a judge-enabled package, treat runner-normalized "
     "evidence.judge.verdict unresolved with evidence_refs [] as inconclusive. "
     "For supported or contradicted verdicts, cite only judge.evidence_refs as "
-    "judge support; do not cite or repair judge references in detector code."
+    "judge support. Each reference resolves to captured message content or a "
+    "non-null tool-call result value; call metadata, arguments, and null results "
+    "are unusable. Do not cite or repair judge references in detector code."
 )
 
 
@@ -6856,7 +6867,7 @@ def build_call2_packet_v2(
     )
     packet = PromptPacket(
         stage="call2",
-        version=CALL2_PROMPT_VERSION_V11,
+        version=CALL2_PROMPT_VERSION_V12,
         system=_CALL2_SYSTEM_V5,
         user=_render_sections(sections),
         payload=payload,
@@ -10271,6 +10282,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CALL2_PROMPT_VERSION_V9,
         CALL2_PROMPT_VERSION_V10,
         CALL2_PROMPT_VERSION_V11,
+        CALL2_PROMPT_VERSION_V12,
         CORRECTION_PROMPT_VERSION_V3,
         CORRECTION_PROMPT_VERSION_V4,
         CORRECTION_PROMPT_VERSION_V5,
@@ -10283,6 +10295,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CORRECTION_PROMPT_VERSION_V12,
         CORRECTION_PROMPT_VERSION_V13,
         CORRECTION_PROMPT_VERSION_V14,
+        CORRECTION_PROMPT_VERSION_V15,
         PLAN_REVIEW_PROMPT_VERSION_V1,
         PLAN_REVIEW_PROMPT_VERSION_V2,
         PLAN_REVIEW_PROMPT_VERSION_V3,
@@ -11523,8 +11536,9 @@ def _evidence_packet_contract() -> dict[str, Any]:
                 "type": "list of strings",
                 "meaning": (
                     "validated packet paths retained by the runner's normalized "
-                    "projection for supported or contradicted verdicts; unresolved "
-                    "verdicts always have an empty list"
+                    "projection for supported or contradicted verdicts; each path "
+                    "resolves to captured message content or a non-null tool-call "
+                    "result value; unresolved verdicts always have an empty list"
                 ),
             },
             "judge.reason": {
@@ -11545,6 +11559,14 @@ def _evidence_packet_contract() -> dict[str, Any]:
             "tool_calls[i].decoded_arguments": {
                 "type": "object, null, or unavailable",
                 "meaning": "decoded argument object when argument parsing succeeded",
+            },
+            "tool_calls[i].raw_result": {
+                "type": "any JSON value or null",
+                "meaning": "captured tool-call result before adapter decoding",
+            },
+            "tool_calls[i].decoded_result": {
+                "type": "any JSON value or null",
+                "meaning": "captured tool-call result after adapter decoding",
             },
             "tool_calls[i].parse_errors": {
                 "type": "object",
@@ -11617,7 +11639,8 @@ def _evidence_packet_contract() -> dict[str, Any]:
                 "contradicted verdicts retain only validated packet paths, while a "
                 "raw non-list, missing, malformed, unresolved, or unresolvable "
                 "decisive citation makes the normalized verdict unresolved with "
-                "evidence_refs set to []"
+                "evidence_refs set to []; a usable citation resolves to captured "
+                "message content or a non-null tool-call result value"
             ),
             "reason": "nonblank string explaining the judge result",
             "inconclusive_when": [
@@ -11870,6 +11893,8 @@ def _evidence_packet_contract_v1() -> dict[str, Any]:
         "judge.verdict",
         "judge.evidence_refs",
         "judge.reason",
+        "tool_calls[i].raw_result",
+        "tool_calls[i].decoded_result",
     ):
         contract["paths"].pop(path, None)
     contract["message_record"] = {
@@ -11994,6 +12019,13 @@ def _render_evidence_packet_interface(
                 "/messages/0/content",
             ]
         )
+    if include_judge:
+        reference_syntax_examples = [
+            "tool_calls[0].decoded_result",
+            "tool_calls[0].raw_result",
+            "messages[0].raw.notes.tool_calls[0].output",
+            *reference_syntax_examples,
+        ]
     result_contract = {
         "fields": ["outcome", "reason", "claim_level", "evidence_refs"],
         "allowed_outcomes": contract["result"]["outcomes"],
@@ -12011,7 +12043,14 @@ def _render_evidence_packet_interface(
             "judge and judge.* paths are valid only when this interface includes the "
             "runner-normalized judge object for a judge-enabled package. Use "
             "judge.evidence_refs as judge support only for supported or contradicted "
-            "verdicts; unresolved always has evidence_refs [] and is inconclusive."
+            "verdicts; every cited path must resolve to captured message content or "
+            "a non-null tool-call result value. Accepted result forms include "
+            "tool_calls[i].decoded_result, tool_calls[i].raw_result, and retained "
+            "messages[i].raw.notes.tool_calls[j].output or "
+            "messages[i].raw.raw_response.output[j].output; equivalent JSON Pointer "
+            "and $. paths are accepted. Call records, arguments, metadata, and null "
+            "results are unusable. Unresolved always has evidence_refs [] and is "
+            "inconclusive."
             if include_judge
             else "This interface does not include judge paths."
         ),
@@ -12494,6 +12533,7 @@ __all__ = [
     "CALL2_PROMPT_VERSION_V9",
     "CALL2_PROMPT_VERSION_V10",
     "CALL2_PROMPT_VERSION_V11",
+    "CALL2_PROMPT_VERSION_V12",
     "CORRECTION_PROMPT_VERSION",
     "CORRECTION_PROMPT_VERSION_V2",
     "CORRECTION_PROMPT_VERSION_V3",
@@ -12508,6 +12548,7 @@ __all__ = [
     "CORRECTION_PROMPT_VERSION_V12",
     "CORRECTION_PROMPT_VERSION_V13",
     "CORRECTION_PROMPT_VERSION_V14",
+    "CORRECTION_PROMPT_VERSION_V15",
     "Call2FramingError",
     "Finding",
     "PlanValidationError",

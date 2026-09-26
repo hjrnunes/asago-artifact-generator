@@ -5,7 +5,7 @@ import json
 
 from asago_artifact_generator.authoring import (
     CALL1_PROMPT_VERSION_V8,
-    CORRECTION_PROMPT_VERSION_V14,
+    CORRECTION_PROMPT_VERSION_V15,
     Finding,
     _render_correction_packet,
     build_artifact_author_context,
@@ -177,7 +177,7 @@ def test_plan_correction_explains_each_unknown_reference() -> None:
         )
     )
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V14
+    assert packet.version == CORRECTION_PROMPT_VERSION_V15
     options = {
         item["path"]: item for item in packet.payload["reference_repair_options"]["options"]
     }

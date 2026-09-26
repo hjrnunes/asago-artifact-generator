@@ -150,6 +150,88 @@
       }
     },
     {
+      "name": "supported-tool-result",
+      "judge_enabled": true,
+      "evidence": {
+        "messages": [],
+        "tool_calls": [
+          {
+            "native_id": "call-1",
+            "decoded_result": {"status": "ok"},
+            "parse_errors": {}
+          }
+        ],
+        "availability": {"tool_calls": "captured"},
+        "completeness": {"tool_calls": "complete"},
+        "judge": {
+          "verdict": "supported",
+          "evidence_refs": ["tool_calls[0].decoded_result"]
+        }
+      },
+      "expected_judge": {
+        "verdict": "supported",
+        "evidence_refs": ["tool_calls[0].decoded_result"],
+        "reason": "judge_completed"
+      }
+    },
+    {
+      "name": "supported-captured-tool-result",
+      "judge_enabled": true,
+      "evidence": {
+        "messages": [
+          {
+            "id": "reply-1",
+            "role": "assistant",
+            "content": "confirmed",
+            "raw": {
+              "notes": {
+                "tool_calls": [
+                  {"id": "call-1", "output": {"status": "ok"}}
+                ]
+              }
+            }
+          }
+        ],
+        "availability": {"messages": "captured"},
+        "completeness": {"messages": "complete"},
+        "judge": {
+          "verdict": "supported",
+          "evidence_refs": ["messages[0].raw.notes.tool_calls[0].output"]
+        }
+      },
+      "expected_judge": {
+        "verdict": "supported",
+        "evidence_refs": ["messages[0].raw.notes.tool_calls[0].output"],
+        "reason": "judge_completed"
+      }
+    },
+    {
+      "name": "null-tool-result",
+      "judge_enabled": true,
+      "evidence": {
+        "messages": [],
+        "tool_calls": [
+          {
+            "native_id": "call-1",
+            "decoded_result": null,
+            "raw_result": null,
+            "parse_errors": {}
+          }
+        ],
+        "availability": {"tool_calls": "captured"},
+        "completeness": {"tool_calls": "complete"},
+        "judge": {
+          "verdict": "supported",
+          "evidence_refs": ["tool_calls[0].decoded_result"]
+        }
+      },
+      "expected_judge": {
+        "verdict": "unresolved",
+        "evidence_refs": [],
+        "reason": "judge_support_unresolved"
+      }
+    },
+    {
       "name": "disabled-strips-audit",
       "judge_enabled": false,
       "evidence": {

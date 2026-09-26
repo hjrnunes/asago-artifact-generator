@@ -706,7 +706,12 @@ def _usable_judge_support(
     reference: str,
     value: Any,
 ) -> bool:
-    """Require references to point at captured, interpretable evidence."""
+    """Require references to point at captured, usable judge support.
+
+    Judge support is limited to message content or a non-null tool-call result
+    value. A call record, call metadata, argument, or other evidence field does
+    not by itself support a decisive judge verdict.
+    """
 
     if value is None:
         return False
@@ -725,6 +730,8 @@ def _usable_judge_support(
         and completeness.get(root) in {"unknown", "partial"}
     ):
         return False
+    if _is_tool_result_reference(reference):
+        return True
     if root == "messages":
         message_index = _message_content_index(normalized)
         if message_index is not None:
@@ -743,12 +750,80 @@ def _usable_judge_support(
             )
         return isinstance(value, dict) and isinstance(value.get("content"), str)
     if root == "tool_calls":
-        if isinstance(value, list):
-            return bool(value) and all(
-                isinstance(item, dict) and not item.get("parse_errors") for item in value
-            )
-        return isinstance(value, dict) and not value.get("parse_errors")
-    return True
+        return False
+    return False
+
+
+_TOOL_RESULT_FIELDS = frozenset({"decoded_result", "raw_result", "result", "output"})
+
+
+def _is_tool_result_reference(reference: str) -> bool:
+    """Identify packet paths that name a captured tool-call result value."""
+
+    parts = _reference_path_parts(reference)
+    if not parts:
+        return False
+    if (
+        len(parts) == 3
+        and parts[0] == "tool_calls"
+        and parts[1].isdigit()
+        and parts[2] in _TOOL_RESULT_FIELDS
+    ):
+        return True
+    if (
+        len(parts) == 4
+        and parts[0] == "tool_calls"
+        and parts[1].isdigit()
+        and parts[2] in {"raw", "source_item"}
+        and parts[3] in _TOOL_RESULT_FIELDS
+    ):
+        return True
+    if (
+        len(parts) in {6, 7}
+        and parts[0] == "messages"
+        and parts[1].isdigit()
+        and parts[2] in {"raw", "source_item"}
+    ):
+        if (
+            len(parts) == 6
+            and parts[3] == "tool_calls"
+            and parts[4].isdigit()
+            and parts[5] in _TOOL_RESULT_FIELDS
+        ):
+            return True
+        if (
+            len(parts) == 7
+            and parts[3] == "notes"
+            and parts[4] == "tool_calls"
+            and parts[5].isdigit()
+            and parts[6] in _TOOL_RESULT_FIELDS
+        ):
+            return True
+        if (
+            len(parts) == 7
+            and parts[3] == "raw_response"
+            and parts[4] == "output"
+            and parts[5].isdigit()
+            and parts[6] in _TOOL_RESULT_FIELDS
+        ):
+            return True
+    return False
+
+
+def _reference_path_parts(reference: str) -> list[str]:
+    """Parse the supported dotted/bracket or JSON Pointer path forms."""
+
+    if reference.startswith("/"):
+        return [part.replace("~1", "/").replace("~0", "~") for part in reference.split("/")[1:]]
+    if reference.startswith("$."):
+        reference = reference[2:]
+    if not re.fullmatch(
+        r"[A-Za-z_][A-Za-z0-9_]*(?:\[[0-9]+\])?(?:\.[A-Za-z_][A-Za-z0-9_]*|\[[0-9]+\])*",
+        reference,
+    ):
+        return []
+    tokens = re.findall(r"([A-Za-z_][A-Za-z0-9_]*)|\[([0-9]+)\]", reference)
+    return [name if name else index for name, index in tokens]
 
 
 def _message_content_index(reference: str) -> int | None:
