@@ -36,8 +36,9 @@ def _review(decision: str = "accept", findings: list[dict] | None = None) -> byt
     ).encode()
 
 
-def _finding() -> dict[str, str]:
+def _finding(question: str = "scenario_fidelity") -> dict[str, str]:
     return {
+        "question": question,
         "location": "plan.prerequisites[0]",
         "problem": "The prerequisite removes the scenario's starting condition.",
         "basis": "The supplied scenario requires the condition to remain present.",
@@ -263,7 +264,7 @@ def test_artifact_review_revision_preserves_plan_and_uses_artifact_review_allowa
             json.dumps(plan),
             _review(),
             _framed(),
-            _review("revise", [_finding()]),
+            _review("revise", [_finding("detector_implements_plan")]),
             _framed(),
             _review(),
         ],
@@ -316,7 +317,12 @@ def test_artifact_review_blocked_requires_plan_revision_without_recursing(
 ) -> None:
     orchestrator, transport = _orchestrator(
         tmp_path,
-        [json.dumps(_plan()), _review(), _framed(), _review("blocked", [_finding()])],
+        [
+            json.dumps(_plan()),
+            _review(),
+            _framed(),
+            _review("blocked", [_finding("detector_implements_plan")]),
+        ],
         policy=AuthoringPolicy(),
     )
 

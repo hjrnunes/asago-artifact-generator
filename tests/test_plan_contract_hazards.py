@@ -32,7 +32,7 @@ from .test_versioned_prompt_roles import (
 _CURRENT_PROMPT_DIGESTS = {
     "call1": "6fb2a76251ae6c9fc2c9d86ecaa6a72ada42cbea46f2ecdb95141bf9005c7843",
     "plan_correction": "1061e56cf05ed699191938724c0648648a47390ac786b365bb808f1bd98d2f32",
-    "plan_review": "1b8aaf0e7e49946eeb28cfe4da77a97c79f560a2bb63cf0c5af1f744f67c80fd",
+    "plan_review": "da2bcab36ee090417e119893ea36cf2dd3e3e44bf58551222e35b29685c4f20e",
 }
 
 
