@@ -111,7 +111,7 @@ def test_normalize_evidence_packet_projects_a_valid_judge_without_audit_fields()
             {"verdict": "supported", "evidence_refs": ["messages[99]"]},
             {
                 "verdict": "unresolved",
-                "evidence_refs": ["messages[99]"],
+                "evidence_refs": [],
                 "reason": "judge_support_unresolved",
             },
         ),
@@ -119,7 +119,7 @@ def test_normalize_evidence_packet_projects_a_valid_judge_without_audit_fields()
             {"verdict": "supported", "evidence_refs": ["messages[0]"]},
             {
                 "verdict": "unresolved",
-                "evidence_refs": ["messages[0]"],
+                "evidence_refs": [],
                 "reason": "judge_support_unresolved",
             },
         ),

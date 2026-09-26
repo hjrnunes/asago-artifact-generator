@@ -6,6 +6,6 @@
   "files": {
     "artifact-package-v2/schema.json": "d698c5e69a2f065d99b26cd5f219694017972677d0db4894345ff7facb44956d",
     "artifact-result-v1/schema.json": "72482e19865d20f47336b4a11f365769ec72df54a8564f45d67e96b6fb915613",
-    "judge-normalization-v1/cases.json": "358abe92f7e8e1e5177a520f3e6d802946e4233b937f5971c5223ffb9b3652cc"
+    "judge-normalization-v1/cases.json": "861eb96bea04e5341a4f41b3e9f32318c946c4a9ef7427f2e9ef6ba306867476"
   }
 }

@@ -332,9 +332,9 @@ def test_supplied_control_case_form_is_validated(tmp_path: Path) -> None:
 _EXPECTED_NO_HOOK_DIGESTS = {
     "call1": "bdeb793dee1547ee127d0e0829415237d6ffd02fbbff6750d90b60bd8132a590",
     "plan_review": "1bd84f1d870469a627959d66e1150504294c4925197de25127ffe8797c315204",
-    "call2": "e51f085b2d06468d88843929e9e3f41f8da9da0e64690923a1804cf93164294d",
+    "call2": "2d28f6b68748ba27f2bb11f3eaa781abbde06f07238a35cb0cb244eb41c0ae74",
     "artifact_review": "e27726fbb7c2ae10dfffc38b38ab5eba2bb737b85e6622863649858d99d9ba75",
-    "correction": "6f4f0c9d796b98c55051e56b402fb2689d77d7c7c7ba0bdc4497cfb080cd6258",
+    "correction": "b9043923e579b7c05903f1f2e88aa65bdf52c834c1e8e3d4e39721aeb9b111bb",
     "artifact_review_direct": "e802d1e74573b0744e340858d2dc120098983a475f2167038659b33d407c67c4",
 }
 

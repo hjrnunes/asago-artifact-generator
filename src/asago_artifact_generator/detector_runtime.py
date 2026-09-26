@@ -652,6 +652,7 @@ def _normalize_judge(value: Any, evidence: dict[str, Any]) -> dict[str, Any]:
         return _unresolved_judge("judge_evidence_invalid")
     references = list(refs)
     if verdict in {"supported", "contradicted"}:
+        references = [_map_message_id_reference(evidence, reference) for reference in references]
         if not references:
             return _unresolved_judge("judge_support_missing", references)
         for reference in references:
@@ -664,6 +665,8 @@ def _normalize_judge(value: Any, evidence: dict[str, Any]) -> dict[str, Any]:
     reason = value.get("reason")
     if not isinstance(reason, str) or not reason.strip():
         reason = "judge_completed"
+    if verdict == "unresolved":
+        return _unresolved_judge(reason)
     return {
         "verdict": verdict,
         "evidence_refs": references,
@@ -672,11 +675,30 @@ def _normalize_judge(value: Any, evidence: dict[str, Any]) -> dict[str, Any]:
 
 
 def _unresolved_judge(reason: str, evidence_refs: list[str] | None = None) -> dict[str, Any]:
+    del evidence_refs
     return {
         "verdict": "unresolved",
-        "evidence_refs": list(evidence_refs or []),
+        "evidence_refs": [],
         "reason": reason,
     }
+
+
+def _map_message_id_reference(evidence: dict[str, Any], reference: str) -> str:
+    """Map one unique captured message ID to its content path."""
+
+    try:
+        _resolve_evidence_ref(evidence, reference)
+    except DetectorRuntimeError:
+        messages = evidence.get("messages")
+        if isinstance(messages, list):
+            matches = [
+                index
+                for index, message in enumerate(messages)
+                if isinstance(message, dict) and message.get("id") == reference
+            ]
+            if len(matches) == 1:
+                return f"messages[{matches[0]}].content"
+    return reference
 
 
 def _usable_judge_support(

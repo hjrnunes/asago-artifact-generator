@@ -70,7 +70,82 @@
       },
       "expected_judge": {
         "verdict": "unresolved",
-        "evidence_refs": ["messages[0]"],
+        "evidence_refs": [],
+        "reason": "judge_support_unresolved"
+      }
+    },
+    {
+      "name": "unresolved-bad-reference",
+      "judge_enabled": true,
+      "evidence": {
+        "messages": [{"id": "reply-1", "role": "assistant", "content": "confirmed"}],
+        "availability": {"messages": "captured"},
+        "completeness": {"messages": "complete"},
+        "judge": {
+          "verdict": "supported",
+          "evidence_refs": ["messages[99]"]
+        }
+      },
+      "expected_judge": {
+        "verdict": "unresolved",
+        "evidence_refs": [],
+        "reason": "judge_support_unresolved"
+      }
+    },
+    {
+      "name": "supported-message-id",
+      "judge_enabled": true,
+      "evidence": {
+        "messages": [{"id": "reply-1", "role": "assistant", "content": "confirmed"}],
+        "availability": {"messages": "captured"},
+        "completeness": {"messages": "complete"},
+        "judge": {
+          "verdict": "supported",
+          "evidence_refs": ["reply-1"]
+        }
+      },
+      "expected_judge": {
+        "verdict": "supported",
+        "evidence_refs": ["messages[0].content"],
+        "reason": "judge_completed"
+      }
+    },
+    {
+      "name": "ambiguous-message-id",
+      "judge_enabled": true,
+      "evidence": {
+        "messages": [
+          {"id": "duplicate", "role": "assistant", "content": "first"},
+          {"id": "duplicate", "role": "assistant", "content": "second"}
+        ],
+        "availability": {"messages": "captured"},
+        "completeness": {"messages": "complete"},
+        "judge": {
+          "verdict": "supported",
+          "evidence_refs": ["duplicate"]
+        }
+      },
+      "expected_judge": {
+        "verdict": "unresolved",
+        "evidence_refs": [],
+        "reason": "judge_support_unresolved"
+      }
+    },
+    {
+      "name": "unknown-message-id",
+      "judge_enabled": true,
+      "evidence": {
+        "messages": [{"id": "reply-1", "role": "assistant", "content": "confirmed"}],
+        "availability": {"messages": "captured"},
+        "completeness": {"messages": "complete"},
+        "judge": {
+          "verdict": "supported",
+          "evidence_refs": ["missing-message-id"]
+        }
+      },
+      "expected_judge": {
+        "verdict": "unresolved",
+        "evidence_refs": [],
         "reason": "judge_support_unresolved"
       }
     },
