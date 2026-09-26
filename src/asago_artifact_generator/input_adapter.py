@@ -518,13 +518,16 @@ def _validate_deduplication(value: Any) -> None:
     elif duplicate_of is not None:
         raise InputSourceError("canonical and analytical-only handoffs must omit duplicate_of")
     key = value["key"]
-    if not isinstance(key, dict) or set(key) != {
-        "uca_id",
-        "control_action_id",
-        "operation_name",
-        "claim_level",
-    }:
+    key_required = {"uca_id", "control_action_id", "claim_level"}
+    # The producer omits null fields, so a key without an operation has no
+    # operation_name entry.
+    if (
+        not isinstance(key, dict)
+        or not key_required <= set(key)
+        or not set(key) <= key_required | {"operation_name"}
+    ):
         raise InputSourceError("handoff deduplication key is invalid")
+    key = {"operation_name": None, **key}
     if not all(
         isinstance(key[field], str) and key[field].strip()
         for field in ("uca_id", "control_action_id")

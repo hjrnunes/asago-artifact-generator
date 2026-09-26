@@ -96,17 +96,16 @@ def test_observation_metadata_reaches_authoring_view(tmp_path: Path) -> None:
         "statement": "The assistant reply preserves the requested action.",
         "claim_level": "reply",
         "evidence": "assistant_message",
-        "operation_name": None,
         "record_refs": [],
         "fact_refs": [],
     }
+    # The producer publishes with null fields omitted.
     payload["deduplication"] = {
         "scenario_id": payload["scenario_id"],
         "status": "canonical",
         "key": {
             "uca_id": "RESP-1:CA-1-1:INCORRECT",
             "control_action_id": "CA-1-1",
-            "operation_name": None,
             "claim_level": "reply",
         },
     }
