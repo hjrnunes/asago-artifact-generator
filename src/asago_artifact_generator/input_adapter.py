@@ -172,6 +172,7 @@ def build_scenario_handoff_view(view: InputView) -> dict[str, Any]:
         "gherkin": view.gherkin_text,
         "semantic_failure_condition": view.payload.get("semantic_failure_criterion", ""),
         "safe_alternative": view.payload.get("safe_alternative", ""),
+        "safe_observable_outcome": deepcopy(view.payload.get("safe_observable_outcome")),
         "supplied_facts": deepcopy(view.payload.get("sourced_facts", [])),
         "environment_documentation": {
             "documented_operations": deepcopy(view.payload.get("documented_operations", [])),
@@ -303,6 +304,8 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
         "sourced_facts",
         "assumptions_and_unknowns",
         "observation",
+        "safe_observable_outcome",
+        "deduplication",
         "content_digest",
         "narrative",
         "attack_tree",
@@ -331,6 +334,10 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
         raise InputSourceError("handoff attack_tree and lineage must be objects")
     if payload.get("observation") is not None:
         _validate_observation_metadata(payload["observation"])
+    if payload.get("safe_observable_outcome") is not None:
+        _validate_safe_observable_outcome(payload["safe_observable_outcome"])
+    if payload.get("deduplication") is not None:
+        _validate_deduplication(payload["deduplication"])
     gherkin = payload["gherkin"]
     if (
         not isinstance(gherkin, dict)
@@ -434,6 +441,107 @@ def _validate_observation_metadata(value: Any) -> None:
             isinstance(item, str) and item.strip() for item in assessment[key]
         ):
             raise InputSourceError(f"handoff observation assessment {key} is invalid")
+
+
+def _validate_safe_observable_outcome(value: Any) -> None:
+    """Validate the producer-owned scenario-specific safe boundary."""
+
+    if not isinstance(value, dict):
+        raise InputSourceError("handoff safe_observable_outcome must be an object")
+    allowed = {
+        "observable",
+        "statement",
+        "claim_level",
+        "evidence",
+        "operation_name",
+        "record_refs",
+        "fact_refs",
+    }
+    if set(value) - allowed:
+        raise InputSourceError("handoff safe_observable_outcome fields are invalid")
+    if not isinstance(value.get("observable"), bool):
+        raise InputSourceError("handoff safe outcome observable is invalid")
+    if not isinstance(value.get("statement"), str) or not value["statement"].strip():
+        raise InputSourceError("handoff safe outcome statement is invalid")
+    claim_level = value.get("claim_level")
+    evidence = value.get("evidence")
+    operation_name = value.get("operation_name")
+    if value["observable"]:
+        expected_evidence = {
+            "command_attempt": "tool_call",
+            "reply": "assistant_message",
+            "returned_result": "tool_result",
+            "state_effect": "snapshot",
+        }
+        if claim_level not in expected_evidence or evidence != expected_evidence[claim_level]:
+            raise InputSourceError("handoff safe outcome claim_level and evidence do not match")
+        if operation_name is not None and (
+            not isinstance(operation_name, str) or not operation_name.strip()
+        ):
+            raise InputSourceError("handoff safe outcome operation_name is invalid")
+    elif any(value.get(key) is not None for key in ("claim_level", "evidence", "operation_name")):
+        raise InputSourceError(
+            "analytical-only handoff safe outcome must omit claim and operation"
+        )
+    for key in ("record_refs", "fact_refs"):
+        refs = value.get(key)
+        if not isinstance(refs, list) or not all(
+            isinstance(item, str) and item.strip() for item in refs
+        ):
+            raise InputSourceError(f"handoff safe outcome {key} is invalid")
+        if len(refs) != len(set(refs)):
+            raise InputSourceError(f"handoff safe outcome {key} must be unique")
+    if not value["observable"] and any(value.get(key) for key in ("record_refs", "fact_refs")):
+        raise InputSourceError(
+            "analytical-only handoff safe outcome must omit record and fact references"
+        )
+
+
+def _validate_deduplication(value: Any) -> None:
+    """Validate producer duplicate metadata before authoring consumes it."""
+
+    if not isinstance(value, dict):
+        raise InputSourceError("handoff deduplication must be an object")
+    required = {"scenario_id", "status", "key"}
+    allowed = required | {"duplicate_of"}
+    if not required <= set(value) or not set(value) <= allowed:
+        raise InputSourceError("handoff deduplication fields are invalid")
+    if not isinstance(value["scenario_id"], str) or not value["scenario_id"].strip():
+        raise InputSourceError("handoff deduplication scenario_id is invalid")
+    status = value["status"]
+    if status not in {"canonical", "duplicate", "analytical_only"}:
+        raise InputSourceError("handoff deduplication status is invalid")
+    duplicate_of = value.get("duplicate_of")
+    if status == "duplicate":
+        if not isinstance(duplicate_of, str) or not duplicate_of.strip():
+            raise InputSourceError("duplicate handoff requires duplicate_of")
+    elif duplicate_of is not None:
+        raise InputSourceError("canonical and analytical-only handoffs must omit duplicate_of")
+    key = value["key"]
+    if not isinstance(key, dict) or set(key) != {
+        "uca_id",
+        "control_action_id",
+        "operation_name",
+        "claim_level",
+    }:
+        raise InputSourceError("handoff deduplication key is invalid")
+    if not all(
+        isinstance(key[field], str) and key[field].strip()
+        for field in ("uca_id", "control_action_id")
+    ):
+        raise InputSourceError("handoff deduplication key identity is invalid")
+    if key["operation_name"] is not None and (
+        not isinstance(key["operation_name"], str) or not key["operation_name"].strip()
+    ):
+        raise InputSourceError("handoff deduplication operation_name is invalid")
+    if key["claim_level"] not in {
+        "command_attempt",
+        "reply",
+        "returned_result",
+        "state_effect",
+        "unknown",
+    }:
+        raise InputSourceError("handoff deduplication claim_level is invalid")
 
 
 def _ownership_violations(payload: dict[str, Any]) -> list[str]:

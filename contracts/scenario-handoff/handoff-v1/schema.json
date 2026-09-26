@@ -4,16 +4,16 @@
       "additionalProperties": false,
       "description": "One source-grounded fact with its authority stamp.",
       "properties": {
-        "authority": {
-          "title": "Authority",
+        "statement": {
+          "title": "Statement",
           "type": "string"
         },
         "source": {
           "title": "Source",
           "type": "string"
         },
-        "statement": {
-          "title": "Statement",
+        "authority": {
+          "title": "Authority",
           "type": "string"
         }
       },
@@ -33,6 +33,10 @@
           "title": "Feature",
           "type": "string"
         },
+        "scenario": {
+          "title": "Scenario",
+          "type": "string"
+        },
         "given": {
           "items": {
             "type": "string"
@@ -40,9 +44,12 @@
           "title": "Given",
           "type": "array"
         },
-        "scenario": {
-          "title": "Scenario",
-          "type": "string"
+        "when": {
+          "items": {
+            "type": "string"
+          },
+          "title": "When",
+          "type": "array"
         },
         "then_expected": {
           "items": {
@@ -57,13 +64,6 @@
           },
           "title": "Then Unsafe Alternative",
           "type": "array"
-        },
-        "when": {
-          "items": {
-            "type": "string"
-          },
-          "title": "When",
-          "type": "array"
         }
       },
       "required": [
@@ -77,22 +77,12 @@
       "additionalProperties": false,
       "description": "Stable identity plus loss/hazard/constraint lineage.",
       "properties": {
-        "constraint_ids": {
+        "loss_ids": {
           "items": {
             "type": "string"
           },
-          "title": "Constraint Ids",
+          "title": "Loss Ids",
           "type": "array"
-        },
-        "control_action_id": {
-          "default": "",
-          "title": "Control Action Id",
-          "type": "string"
-        },
-        "controller_id": {
-          "default": "",
-          "title": "Controller Id",
-          "type": "string"
         },
         "hazard_ids": {
           "items": {
@@ -100,6 +90,18 @@
           },
           "title": "Hazard Ids",
           "type": "array"
+        },
+        "constraint_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Constraint Ids",
+          "type": "array"
+        },
+        "ica_slot_id": {
+          "default": "",
+          "title": "Ica Slot Id",
+          "type": "string"
         },
         "ica_id": {
           "anyOf": [
@@ -113,17 +115,15 @@
           "default": null,
           "title": "Ica Id"
         },
-        "ica_slot_id": {
+        "controller_id": {
           "default": "",
-          "title": "Ica Slot Id",
+          "title": "Controller Id",
           "type": "string"
         },
-        "loss_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Loss Ids",
-          "type": "array"
+        "control_action_id": {
+          "default": "",
+          "title": "Control Action Id",
+          "type": "string"
         }
       },
       "title": "HandoffLineage",
@@ -133,19 +133,16 @@
       "additionalProperties": false,
       "description": "Testability metadata without a target result or gold expectation.",
       "properties": {
-        "assessment": {
-          "$ref": "#/$defs/ObservationAssessment"
-        },
-        "contract_digest": {
-          "title": "Contract Digest",
+        "contract_schema": {
+          "title": "Contract Schema",
           "type": "string"
         },
         "contract_id": {
           "title": "Contract Id",
           "type": "string"
         },
-        "contract_schema": {
-          "title": "Contract Schema",
+        "contract_digest": {
+          "title": "Contract Digest",
           "type": "string"
         },
         "criteria": {
@@ -155,6 +152,9 @@
           "minItems": 1,
           "title": "Criteria",
           "type": "array"
+        },
+        "assessment": {
+          "$ref": "#/$defs/ObservationAssessment"
         }
       },
       "required": [
@@ -171,6 +171,14 @@
       "additionalProperties": false,
       "description": "A documented operation named only when it is supported and relevant.",
       "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "relevance": {
+          "title": "Relevance",
+          "type": "string"
+        },
         "authority": {
           "anyOf": [
             {
@@ -186,14 +194,6 @@
           ],
           "default": null,
           "title": "Authority"
-        },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "relevance": {
-          "title": "Relevance",
-          "type": "string"
         }
       },
       "required": [
@@ -268,6 +268,21 @@
       "additionalProperties": false,
       "description": "One provider-declared outcome and its requested evidence boundary.",
       "properties": {
+        "criterion_id": {
+          "minLength": 1,
+          "title": "Criterion Id",
+          "type": "string"
+        },
+        "outcome": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Outcome",
+          "type": "string"
+        },
+        "observable": {
+          "title": "Observable",
+          "type": "boolean"
+        },
         "claim_level": {
           "anyOf": [
             {
@@ -280,11 +295,6 @@
           "default": null,
           "title": "Claim Level"
         },
-        "criterion_id": {
-          "minLength": 1,
-          "title": "Criterion Id",
-          "type": "string"
-        },
         "evidence": {
           "anyOf": [
             {
@@ -296,16 +306,6 @@
           ],
           "default": null,
           "title": "Evidence"
-        },
-        "observable": {
-          "title": "Observable",
-          "type": "boolean"
-        },
-        "outcome": {
-          "maxLength": 600,
-          "minLength": 1,
-          "title": "Outcome",
-          "type": "string"
         },
         "reason": {
           "maxLength": 600,
@@ -322,48 +322,202 @@
       ],
       "title": "ObservationCriterion",
       "type": "object"
+    },
+    "SafeObservableOutcome": {
+      "additionalProperties": false,
+      "description": "One scenario-specific boundary for the expected safe behavior.\n\nThe statement is semantic prose, while the remaining fields bind that\nprose to the exact evidence boundary supplied to Stage 5.  An\n``analytical_only`` outcome is represented explicitly with\n``observable=False`` and no claim, operation, record, or fact references.",
+      "properties": {
+        "observable": {
+          "title": "Observable",
+          "type": "boolean"
+        },
+        "statement": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "claim_level": {
+          "anyOf": [
+            {
+              "enum": [
+                "command_attempt",
+                "reply",
+                "returned_result",
+                "state_effect"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim Level"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "enum": [
+                "assistant_message",
+                "tool_call",
+                "tool_result",
+                "snapshot"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence"
+        },
+        "operation_name": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Name"
+        },
+        "record_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Record Refs",
+          "type": "array"
+        },
+        "fact_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Fact Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "observable",
+        "statement"
+      ],
+      "title": "SafeObservableOutcome",
+      "type": "object"
+    },
+    "ScenarioDeduplication": {
+      "additionalProperties": false,
+      "description": "One scenario's canonical/duplicate disposition.",
+      "properties": {
+        "scenario_id": {
+          "minLength": 1,
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "canonical",
+            "duplicate",
+            "analytical_only"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "duplicate_of": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duplicate Of"
+        },
+        "key": {
+          "$ref": "#/$defs/ScenarioDeduplicationKey"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "status",
+        "key"
+      ],
+      "title": "ScenarioDeduplication",
+      "type": "object"
+    },
+    "ScenarioDeduplicationKey": {
+      "additionalProperties": false,
+      "description": "The stable identity used to collapse equivalent executable scenarios.",
+      "properties": {
+        "uca_id": {
+          "minLength": 1,
+          "title": "Uca Id",
+          "type": "string"
+        },
+        "control_action_id": {
+          "minLength": 1,
+          "title": "Control Action Id",
+          "type": "string"
+        },
+        "operation_name": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Name"
+        },
+        "claim_level": {
+          "enum": [
+            "command_attempt",
+            "reply",
+            "returned_result",
+            "state_effect",
+            "unknown"
+          ],
+          "title": "Claim Level",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uca_id",
+        "control_action_id",
+        "claim_level"
+      ],
+      "title": "ScenarioDeduplicationKey",
+      "type": "object"
     }
   },
   "additionalProperties": false,
   "description": "The versioned scenario handoff envelope.",
   "properties": {
-    "assumptions_and_unknowns": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Assumptions And Unknowns",
-      "type": "array"
-    },
-    "attack_tree": {
-      "additionalProperties": true,
-      "title": "Attack Tree",
-      "type": "object"
-    },
-    "content_digest": {
-      "default": "",
-      "title": "Content Digest",
+    "schema_version": {
+      "const": "scenario-handoff-v1",
+      "default": "scenario-handoff-v1",
+      "title": "Schema Version",
       "type": "string"
     },
-    "documented_operations": {
-      "items": {
-        "$ref": "#/$defs/HandoffOperation"
-      },
-      "title": "Documented Operations",
-      "type": "array"
-    },
-    "gherkin": {
-      "$ref": "#/$defs/HandoffGherkin"
-    },
-    "governing_rules": {
-      "items": {
-        "$ref": "#/$defs/HandoffRule"
-      },
-      "title": "Governing Rules",
-      "type": "array"
-    },
-    "hypothesis_framing": {
-      "title": "Hypothesis Framing",
+    "scenario_id": {
+      "title": "Scenario Id",
       "type": "string"
+    },
+    "scenario_version": {
+      "default": 1,
+      "title": "Scenario Version",
+      "type": "integer"
     },
     "kind": {
       "enum": [
@@ -373,12 +527,82 @@
       "title": "Kind",
       "type": "string"
     },
-    "lineage": {
-      "$ref": "#/$defs/HandoffLineage"
+    "hypothesis_framing": {
+      "title": "Hypothesis Framing",
+      "type": "string"
     },
     "narrative": {
       "title": "Narrative",
       "type": "string"
+    },
+    "attack_tree": {
+      "additionalProperties": true,
+      "title": "Attack Tree",
+      "type": "object"
+    },
+    "gherkin": {
+      "$ref": "#/$defs/HandoffGherkin"
+    },
+    "semantic_failure_criterion": {
+      "title": "Semantic Failure Criterion",
+      "type": "string"
+    },
+    "safe_alternative": {
+      "title": "Safe Alternative",
+      "type": "string"
+    },
+    "safe_observable_outcome": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SafeObservableOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "deduplication": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ScenarioDeduplication"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "governing_rules": {
+      "items": {
+        "$ref": "#/$defs/HandoffRule"
+      },
+      "title": "Governing Rules",
+      "type": "array"
+    },
+    "lineage": {
+      "$ref": "#/$defs/HandoffLineage"
+    },
+    "documented_operations": {
+      "items": {
+        "$ref": "#/$defs/HandoffOperation"
+      },
+      "title": "Documented Operations",
+      "type": "array"
+    },
+    "sourced_facts": {
+      "items": {
+        "$ref": "#/$defs/HandoffFact"
+      },
+      "title": "Sourced Facts",
+      "type": "array"
+    },
+    "assumptions_and_unknowns": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions And Unknowns",
+      "type": "array"
     },
     "observation": {
       "anyOf": [
@@ -391,35 +615,10 @@
       ],
       "default": null
     },
-    "safe_alternative": {
-      "title": "Safe Alternative",
+    "content_digest": {
+      "default": "",
+      "title": "Content Digest",
       "type": "string"
-    },
-    "scenario_id": {
-      "title": "Scenario Id",
-      "type": "string"
-    },
-    "scenario_version": {
-      "default": 1,
-      "title": "Scenario Version",
-      "type": "integer"
-    },
-    "schema_version": {
-      "const": "scenario-handoff-v1",
-      "default": "scenario-handoff-v1",
-      "title": "Schema Version",
-      "type": "string"
-    },
-    "semantic_failure_criterion": {
-      "title": "Semantic Failure Criterion",
-      "type": "string"
-    },
-    "sourced_facts": {
-      "items": {
-        "$ref": "#/$defs/HandoffFact"
-      },
-      "title": "Sourced Facts",
-      "type": "array"
     }
   },
   "required": [

@@ -12,6 +12,7 @@ import yaml
 from asago_artifact_generator.input_adapter import (
     InputKind,
     InputSourceError,
+    build_scenario_handoff_view,
     load_input,
     snapshot_input,
 )
@@ -90,6 +91,25 @@ def test_observation_metadata_reaches_authoring_view(tmp_path: Path) -> None:
             "unsupported_criteria": [],
         },
     }
+    payload["safe_observable_outcome"] = {
+        "observable": True,
+        "statement": "The assistant reply preserves the requested action.",
+        "claim_level": "reply",
+        "evidence": "assistant_message",
+        "operation_name": None,
+        "record_refs": [],
+        "fact_refs": [],
+    }
+    payload["deduplication"] = {
+        "scenario_id": payload["scenario_id"],
+        "status": "canonical",
+        "key": {
+            "uca_id": "RESP-1:CA-1-1:INCORRECT",
+            "control_action_id": "CA-1-1",
+            "operation_name": None,
+            "claim_level": "reply",
+        },
+    }
     payload_without_digest = {
         key: value for key, value in payload.items() if key != "content_digest"
     }
@@ -103,6 +123,11 @@ def test_observation_metadata_reaches_authoring_view(tmp_path: Path) -> None:
 
     assert view.payload["observation"]["assessment"]["disposition"] == "executable"
     assert view.payload["observation"]["criteria"][0]["claim_level"] == "reply"
+    authoring_view = build_scenario_handoff_view(view)
+    assert authoring_view["safe_observable_outcome"]["statement"] == (
+        "The assistant reply preserves the requested action."
+    )
+    assert view.payload["deduplication"]["status"] == "canonical"
 
 
 def test_analytical_observation_criterion_may_omit_optional_fields(
