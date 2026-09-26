@@ -1,5 +1,4 @@
 {
-  "$comment": "The scenario handoff is a versioned envelope over the three existing scenario representations (narrative, attack tree, Gherkin) plus necessary metadata. It introduces no fourth authoritative scenario representation and carries no artifact-design content.",
   "$defs": {
     "HandoffFact": {
       "additionalProperties": false,
@@ -130,6 +129,44 @@
       "title": "HandoffLineage",
       "type": "object"
     },
+    "HandoffObservation": {
+      "additionalProperties": false,
+      "description": "Testability metadata without a target result or gold expectation.",
+      "properties": {
+        "assessment": {
+          "$ref": "#/$defs/ObservationAssessment"
+        },
+        "contract_digest": {
+          "title": "Contract Digest",
+          "type": "string"
+        },
+        "contract_id": {
+          "title": "Contract Id",
+          "type": "string"
+        },
+        "contract_schema": {
+          "title": "Contract Schema",
+          "type": "string"
+        },
+        "criteria": {
+          "items": {
+            "$ref": "#/$defs/ObservationCriterion"
+          },
+          "minItems": 1,
+          "title": "Criteria",
+          "type": "array"
+        }
+      },
+      "required": [
+        "contract_schema",
+        "contract_id",
+        "contract_digest",
+        "criteria",
+        "assessment"
+      ],
+      "title": "HandoffObservation",
+      "type": "object"
+    },
     "HandoffOperation": {
       "additionalProperties": false,
       "description": "A documented operation named only when it is supported and relevant.",
@@ -184,6 +221,106 @@
         "statement"
       ],
       "title": "HandoffRule",
+      "type": "object"
+    },
+    "ObservationAssessment": {
+      "additionalProperties": false,
+      "description": "Deterministic testability result persisted with a scenario.",
+      "properties": {
+        "disposition": {
+          "enum": [
+            "executable",
+            "analytical_only"
+          ],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "supported_criteria": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Criteria",
+          "type": "array"
+        },
+        "unsupported_criteria": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Unsupported Criteria",
+          "type": "array"
+        }
+      },
+      "required": [
+        "disposition",
+        "reason"
+      ],
+      "title": "ObservationAssessment",
+      "type": "object"
+    },
+    "ObservationCriterion": {
+      "additionalProperties": false,
+      "description": "One provider-declared outcome and its requested evidence boundary.",
+      "properties": {
+        "claim_level": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim Level"
+        },
+        "criterion_id": {
+          "minLength": 1,
+          "title": "Criterion Id",
+          "type": "string"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence"
+        },
+        "observable": {
+          "title": "Observable",
+          "type": "boolean"
+        },
+        "outcome": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Outcome",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "criterion_id",
+        "outcome",
+        "observable",
+        "reason"
+      ],
+      "title": "ObservationCriterion",
       "type": "object"
     }
   },
@@ -242,6 +379,17 @@
     "narrative": {
       "title": "Narrative",
       "type": "string"
+    },
+    "observation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HandoffObservation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "safe_alternative": {
       "title": "Safe Alternative",

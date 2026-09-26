@@ -165,7 +165,7 @@ def load_input(
 def build_scenario_handoff_view(view: InputView) -> dict[str, Any]:
     """Project the producer handoff into meaning-bearing model context."""
 
-    return {
+    result = {
         "kind": view.kind.value,
         "scenario_id": view.scenario_id,
         "narrative": deepcopy(view.narrative),
@@ -180,6 +180,9 @@ def build_scenario_handoff_view(view: InputView) -> dict[str, Any]:
         },
         "source_references": dict(view.source_digests),
     }
+    if view.payload.get("observation") is not None:
+        result["observation"] = deepcopy(view.payload["observation"])
+    return result
 
 
 def _read_source(path: Path) -> bytes:
@@ -299,6 +302,7 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
         "documented_operations",
         "sourced_facts",
         "assumptions_and_unknowns",
+        "observation",
         "content_digest",
         "narrative",
         "attack_tree",
@@ -325,6 +329,8 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
             raise InputSourceError(f"handoff field is blank or mistyped: {key}")
     if not isinstance(payload["attack_tree"], dict) or not isinstance(payload["lineage"], dict):
         raise InputSourceError("handoff attack_tree and lineage must be objects")
+    if payload.get("observation") is not None:
+        _validate_observation_metadata(payload["observation"])
     gherkin = payload["gherkin"]
     if (
         not isinstance(gherkin, dict)
@@ -347,6 +353,87 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
     violations = _ownership_violations(payload)
     if violations:
         raise InputSourceError(f"handoff ownership violation: {', '.join(violations)}")
+
+
+def _validate_observation_metadata(value: Any) -> None:
+    """Validate additive producer testability metadata without target facts."""
+
+    if not isinstance(value, dict):
+        raise InputSourceError("handoff observation metadata must be an object")
+    required = {"contract_schema", "contract_id", "contract_digest", "criteria", "assessment"}
+    unknown = set(value) - required
+    missing = required - set(value)
+    if missing or unknown:
+        raise InputSourceError(
+            "handoff observation metadata is invalid "
+            f"(missing={sorted(missing)}, unknown={sorted(unknown)})"
+        )
+    for key in ("contract_schema", "contract_id", "contract_digest"):
+        if not isinstance(value[key], str) or not value[key].strip():
+            raise InputSourceError(f"handoff observation field is blank or mistyped: {key}")
+    if not re.fullmatch(r"[0-9a-f]{64}", value["contract_digest"]):
+        raise InputSourceError("handoff observation contract_digest is not a SHA-256 hex digest")
+    if value["contract_schema"] != "observation-contract-v1":
+        raise InputSourceError("unknown observation contract schema")
+    criteria = value["criteria"]
+    if not isinstance(criteria, list) or not criteria:
+        raise InputSourceError("handoff observation criteria must be a non-empty list")
+    criterion_keys = {
+        "criterion_id",
+        "outcome",
+        "observable",
+        "claim_level",
+        "evidence",
+        "reason",
+    }
+    required_criterion_keys = {
+        "criterion_id",
+        "outcome",
+        "observable",
+        "reason",
+    }
+    for criterion in criteria:
+        if not isinstance(criterion, dict):
+            raise InputSourceError("handoff observation criterion must be an object")
+        if not required_criterion_keys <= set(criterion) or not set(criterion) <= criterion_keys:
+            raise InputSourceError("handoff observation criterion fields are invalid")
+        if not all(
+            isinstance(criterion[key], str) and criterion[key].strip()
+            for key in ("criterion_id", "outcome", "reason")
+        ):
+            raise InputSourceError("handoff observation criterion text is invalid")
+        if not isinstance(criterion["observable"], bool):
+            raise InputSourceError("handoff observation criterion observable is invalid")
+        if criterion["observable"]:
+            if (
+                not isinstance(criterion.get("claim_level"), str)
+                or not criterion["claim_level"].strip()
+            ):
+                raise InputSourceError("observable criterion requires claim_level")
+            if not isinstance(criterion.get("evidence"), str) or not criterion["evidence"].strip():
+                raise InputSourceError("observable criterion requires evidence")
+        elif criterion.get("claim_level") is not None or criterion.get("evidence") is not None:
+            raise InputSourceError("analytical-only criterion must omit claim_level and evidence")
+    assessment = value["assessment"]
+    if not isinstance(assessment, dict):
+        raise InputSourceError("handoff observation assessment must be an object")
+    assessment_keys = {
+        "disposition",
+        "reason",
+        "supported_criteria",
+        "unsupported_criteria",
+    }
+    if set(assessment) != assessment_keys:
+        raise InputSourceError("handoff observation assessment fields are invalid")
+    if assessment["disposition"] not in {"executable", "analytical_only"}:
+        raise InputSourceError("handoff observation disposition is invalid")
+    if not isinstance(assessment["reason"], str) or not assessment["reason"].strip():
+        raise InputSourceError("handoff observation assessment reason is invalid")
+    for key in ("supported_criteria", "unsupported_criteria"):
+        if not isinstance(assessment[key], list) or not all(
+            isinstance(item, str) and item.strip() for item in assessment[key]
+        ):
+            raise InputSourceError(f"handoff observation assessment {key} is invalid")
 
 
 def _ownership_violations(payload: dict[str, Any]) -> list[str]:
