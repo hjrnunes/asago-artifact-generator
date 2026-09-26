@@ -8,6 +8,7 @@ from asago_artifact_generator.authoring import (
     CORRECTION_PROMPT_VERSION_V12,
     Finding,
     _render_correction_packet,
+    build_artifact_author_context,
     build_call1_packet_v2,
     build_correction_context,
     build_plan_author_context,
@@ -42,6 +43,21 @@ def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
     assert "interpretation.source_refs" in section["provenance_ids"]["rule"]
     assert "not valid here" in section["field_rules"]["assumptions[].ref"]
     assert any("assistant_messages" in item for item in section["not_references"])
+
+
+def test_attack_tree_node_ids_are_citable_provenance_with_plain_locations() -> None:
+    view = copy.deepcopy(_view())
+    view.payload["attack_tree"]["branches"][0]["node_id"] = "AT-REFUND-1"
+
+    provenance = scenario_provenance_ids(view)
+    section = _section(
+        build_call1_packet_v2(view, _inventory(), _runtime_contract()).user,
+        "EVIDENCE REFERENCES",
+    )
+
+    assert "AT-REFUND-1" in provenance
+    assert section["provenance_ids"]["ids"]["AT-REFUND-1"] == "attack_tree:AT-REFUND-1"
+    assert isinstance(section["provenance_ids"]["ids"]["AT-REFUND-1"], str)
 
 
 def test_call1_schema_describes_every_reference_field() -> None:
@@ -162,3 +178,28 @@ def test_plan_correction_explains_each_unknown_reference() -> None:
     assert "REFERENCE REPAIR OPTIONS" in packet.user
     assert packet.user.index("CURRENT FINDINGS") < packet.user.index("REFERENCE REPAIR OPTIONS")
     assert '"provenance_ids"' in packet.user
+
+
+def test_artifact_correction_explains_provenance_ids_outside_source_refs() -> None:
+    view = copy.deepcopy(_view())
+    view.payload["attack_tree"]["branches"][0]["node_id"] = "AT-REFUND-1"
+    context = build_artifact_author_context(view, _plan(), _inventory(), _runtime_contract())
+    correction = _render_correction_packet(
+        build_correction_context(
+            failed_stage="call2",
+            original_context=context,
+            current_output="candidate",
+            findings=[
+                {
+                    "code": "unknown_reference",
+                    "detail": "unknown_reference: AT-REFUND-1",
+                    "path": "assumptions[0].ref",
+                }
+            ],
+        )
+    )
+
+    option = correction.payload["reference_repair_options"]["options"][0]
+    assert option["rejected_value_kind"] == "provenance_id"
+    assert "attack-tree node ID" in option["repair"]
+    assert "interpretation.source_refs" in option["repair"]

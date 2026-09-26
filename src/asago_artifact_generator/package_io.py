@@ -13,7 +13,7 @@ from typing import Any
 
 from .metadata_policy import secret_metadata_paths
 
-PACKAGE_SCHEMA_VERSION = "artifact-package-v1"
+PACKAGE_SCHEMA_VERSION = "artifact-package-v2"
 DETECTOR_INTERFACE_VERSION = "evaluate(evidence: dict) -> dict"
 _ALLOWED_MEMBER_NAMES = {
     "plan.json",

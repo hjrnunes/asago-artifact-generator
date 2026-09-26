@@ -383,12 +383,14 @@ operations, infer fact schemas, and record discovery provenance. Authoring
 does not accept native semantic scenario files, reference tasks, benchmark
 answers, or hand-built inventories.
 
-The consumer-owned `artifact-package-v1` contract lives in
+The consumer-owned `artifact-package-v2` contract lives in
 `contracts/artifact-package/`. `package_io.write_package` writes a complete
 directory atomically, and `load_package` verifies its manifest, member paths,
-lengths, and digests before returning content. Runtime receipts remain outside
-the immutable package. The existing `generate` command remains the legacy
-compatibility path.
+lengths, and digests before returning content. A package containing `judge.json`
+receives a runner-normalized `evidence.judge` object with only `verdict`,
+`evidence_refs`, and `reason`; judge audit fields remain in downstream receipts,
+not in detector input. Runtime receipts remain outside the immutable package. The
+existing `generate` command remains the legacy compatibility path.
 
 ### Target-free authoring
 

@@ -1,10 +1,11 @@
 {
   "authority": "asago-artifact-generator",
   "contract": "artifact-package",
-  "digest_domain": "artifact-package-v1",
-  "package_schema_version": "artifact-package-v1",
+  "digest_domain": "artifact-package-v2",
+  "package_schema_version": "artifact-package-v2",
   "files": {
-    "artifact-package-v1/schema.json": "66ad71be1a0745843d0aea7ef3a4c61d7efe99dbb6528b72936a0549d809038c",
-    "artifact-result-v1/schema.json": "72482e19865d20f47336b4a11f365769ec72df54a8564f45d67e96b6fb915613"
+    "artifact-package-v2/schema.json": "d698c5e69a2f065d99b26cd5f219694017972677d0db4894345ff7facb44956d",
+    "artifact-result-v1/schema.json": "72482e19865d20f47336b4a11f365769ec72df54a8564f45d67e96b6fb915613",
+    "judge-normalization-v1/cases.json": "358abe92f7e8e1e5177a520f3e6d802946e4233b937f5971c5223ffb9b3652cc"
   }
 }

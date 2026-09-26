@@ -1,0 +1,92 @@
+{
+  "schema": "judge-normalization-v1",
+  "cases": [
+    {
+      "name": "missing",
+      "judge_enabled": true,
+      "evidence": {
+        "messages": [],
+        "availability": {"messages": "not_captured"},
+        "completeness": {"messages": "unknown"}
+      },
+      "expected_judge": {
+        "verdict": "unresolved",
+        "evidence_refs": [],
+        "reason": "judge_missing"
+      }
+    },
+    {
+      "name": "supported-json-pointer",
+      "judge_enabled": true,
+      "evidence": {
+        "messages": [{"id": "reply-1", "role": "assistant", "content": "confirmed"}],
+        "availability": {"messages": "captured"},
+        "completeness": {"messages": "complete"},
+        "judge": {
+          "verdict": "supported",
+          "evidence_refs": ["/messages/0/content"],
+          "reason": "judge_completed",
+          "request": {"private": true},
+          "output": {"private": true},
+          "dispatched": true,
+          "reused": false
+        }
+      },
+      "expected_judge": {
+        "verdict": "supported",
+        "evidence_refs": ["/messages/0/content"],
+        "reason": "judge_completed"
+      }
+    },
+    {
+      "name": "supported-dollar-path",
+      "judge_enabled": true,
+      "evidence": {
+        "messages": [{"id": "reply-1", "role": "assistant", "content": "confirmed"}],
+        "availability": {"messages": "captured"},
+        "completeness": {"messages": "complete"},
+        "judge": {
+          "verdict": "supported",
+          "evidence_refs": ["$.messages[0].content"]
+        }
+      },
+      "expected_judge": {
+        "verdict": "supported",
+        "evidence_refs": ["$.messages[0].content"],
+        "reason": "judge_completed"
+      }
+    },
+    {
+      "name": "unsupported-message-content",
+      "judge_enabled": true,
+      "evidence": {
+        "messages": [{"id": "reply-1", "role": "assistant", "content": null}],
+        "availability": {"messages": "captured"},
+        "completeness": {"messages": "complete"},
+        "judge": {
+          "verdict": "supported",
+          "evidence_refs": ["messages[0]"]
+        }
+      },
+      "expected_judge": {
+        "verdict": "unresolved",
+        "evidence_refs": ["messages[0]"],
+        "reason": "judge_support_unresolved"
+      }
+    },
+    {
+      "name": "disabled-strips-audit",
+      "judge_enabled": false,
+      "evidence": {
+        "messages": [],
+        "judge": {
+          "verdict": "supported",
+          "evidence_refs": ["messages[0]"],
+          "request": {"private": true},
+          "output": {"private": true}
+        }
+      },
+      "expected_judge": null
+    }
+  ]
+}

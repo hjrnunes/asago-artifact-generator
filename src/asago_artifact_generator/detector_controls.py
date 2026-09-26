@@ -25,6 +25,7 @@ from .detector_runtime import (
     DetectorRuntimeError,
     _resolve_evidence_ref,
     execute_detector,
+    normalize_evidence_packet,
 )
 from .package_io import build_package, write_package
 
@@ -102,6 +103,17 @@ class DetectorControlFeedback:
 # Detector Feedback Interface Correction Authority
 DETECTOR_FEEDBACK_CORRECTION_GUIDANCE = (
     "The supplied failures include the actual detector inputs. Diagnose each against "
+    "the runtime contract and correct the underlying behavior. The isolated runner "
+    "normalizes judge-enabled inputs before evaluate: it always supplies judge with "
+    "verdict, evidence_refs, and reason, and maps missing, malformed, unsupported, or "
+    "uncaptured support to verdict unresolved. Do not validate judge references or "
+    "reconstruct judge audit fields in detector code. Distinguish unresolved judge "
+    "evidence from a detector exception and from rejection of the detector's returned "
+    "evidence references. Preserve the accepted experiment, working controls and "
+    "observation level. Return the complete corrected artifact in the required format."
+)
+LEGACY_DETECTOR_FEEDBACK_CORRECTION_GUIDANCE = (
+    "The supplied failures include the actual detector inputs. Diagnose each against "
     "the runtime contract and correct the underlying behavior. A supported judge verdict "
     "is not sufficient when the judge record or its cited supporting evidence is unusable. "
     "Distinguish missing evidence from an unsupported verdict, and distinguish a detector "
@@ -144,8 +156,15 @@ def run_detector_controls(
     if not selected:
         return [], []
 
+    judge_enabled = _judge_is_declared(plan or {}, metadata or {}) or any(
+        isinstance(case.evidence, Mapping) and "judge" in case.evidence for case in selected
+    )
     with tempfile.TemporaryDirectory(prefix="asago-detector-controls-") as temporary:
-        package = _write_control_package(Path(temporary), detector_bytes)
+        package = _write_control_package(
+            Path(temporary),
+            detector_bytes,
+            judge_enabled=judge_enabled,
+        )
         findings: list[dict[str, str]] = []
         results: list[dict[str, Any]] = []
         for case in selected:
@@ -171,6 +190,8 @@ def build_control_cases_for_runtime_contract(
 def build_detector_feedback(
     cases: Sequence[ControlCase],
     results: Sequence[ControlResult | Mapping[str, Any]],
+    *,
+    judge_enabled: bool | None = None,
 ) -> tuple[DetectorControlFeedback, ...]:
     """Pair executed cases with their existing evaluator results.
 
@@ -190,6 +211,11 @@ def build_detector_feedback(
         if isinstance(result, Mapping) and isinstance(result.get("name"), str)
     }
     feedback: list[DetectorControlFeedback] = []
+    if judge_enabled is None:
+        judge_enabled = any(
+            isinstance(candidate.evidence, Mapping) and "judge" in candidate.evidence
+            for candidate in cases
+        )
     for index, case in enumerate(cases):
         if duplicate_names:
             paired_result = results[index]
@@ -216,11 +242,15 @@ def build_detector_feedback(
         actual_outcome = actual_outcome if isinstance(actual_outcome, str) else None
         actual_claim_level = result.get("observed_claim_level")
         actual_claim_level = actual_claim_level if isinstance(actual_claim_level, str) else None
+        feedback_evidence = normalize_evidence_packet(
+            case.evidence,
+            judge_enabled=judge_enabled,
+        )
         outcome_class = _feedback_outcome_class(status, error)
         feedback.append(
             DetectorControlFeedback(
                 name=case.name,
-                evidence=_copy_mapping(case.evidence),
+                evidence=_copy_mapping(feedback_evidence),
                 expected_outcome=case.expected_outcome,
                 expected_claim_level=case.expected_claim_level,
                 status=status,
@@ -230,7 +260,7 @@ def build_detector_feedback(
                 error=error,
                 outcome_class=outcome_class,
                 runtime_contract_explanation=_feedback_explanation(
-                    case.evidence,
+                    feedback_evidence,
                     actual_result=actual_result,
                     expected_claim_level=case.expected_claim_level,
                     error=error,
@@ -317,34 +347,29 @@ def _feedback_explanation(
         if expected_claim_level == "reply"
         else f"{expected_claim_level or 'declared'} claim-level"
     )
-    if isinstance(judge, Mapping) and isinstance(judge.get("evidence_refs"), str):
-        return (
-            "The supplied judge record contains a string evidence_refs value, but the "
-            "runtime contract requires a list of nonblank references. Preserve an "
-            f"inconclusive {claim_boundary} outcome when the returned reference contract is "
-            "invalid."
-        )
     unresolved_reference = _first_unresolved_reference(
         evidence,
-        judge=judge,
+        judge=None,
         actual_result=actual_result,
         error=error,
     )
     if unresolved_reference is not None:
-        absent_judge = " This is an absent judge path." if unresolved_reference == "judge" else ""
         return (
             f"The supplied evidence reference {unresolved_reference!r} does not resolve "
-            f"in the supplied evidence packet.{absent_judge} returned-reference validation "
-            f"rejected the citation. Preserve an inconclusive {claim_boundary} outcome "
-            "when supporting evidence cannot be resolved."
+            f"in the supplied evidence packet. Returned-reference validation rejected "
+            f"the citation. Preserve an inconclusive {claim_boundary} outcome when the "
+            "returned evidence reference cannot be resolved."
         )
-    cited_unusable_reference = _first_cited_unusable_reference(evidence, judge)
-    if cited_unusable_reference is not None:
+    if (
+        isinstance(judge, Mapping)
+        and judge.get("verdict") == "unresolved"
+        and isinstance(judge.get("reason"), str)
+    ):
         return (
-            f"The supplied judge cites {cited_unusable_reference!r}, whose message has "
-            "null content, so the cited support is unusable. Preserve an "
-            f"inconclusive {claim_boundary} outcome rather than treating the judge "
-            "verdict as usable evidence."
+            "The isolated runner normalized the judge input to verdict unresolved "
+            f"({judge['reason']!s}). Treat unresolved judge evidence as an "
+            f"inconclusive {claim_boundary} condition; do not inspect raw judge "
+            "audit fields or revalidate its references in detector code."
         )
     if outcome_class == "detector_exception":
         return (
@@ -389,8 +414,7 @@ def _first_unresolved_reference(
     """Find the first cited path that fails the detector runtime resolver."""
 
     references: list[str] = []
-    if isinstance(judge, Mapping):
-        references.extend(_string_references(judge.get("evidence_refs")))
+    del judge
     if isinstance(actual_result, Mapping):
         references.extend(_string_references(actual_result.get("evidence_refs")))
     error_reference = _reference_from_error(error)
@@ -400,26 +424,6 @@ def _first_unresolved_reference(
         try:
             _resolve_evidence_ref(dict(evidence), reference)
         except DetectorRuntimeError:
-            return reference
-    return None
-
-
-def _first_cited_unusable_reference(
-    evidence: Mapping[str, Any],
-    judge: Mapping[str, Any] | None,
-) -> str | None:
-    """Find a judge-cited message whose content is explicitly unusable."""
-
-    if not isinstance(judge, Mapping):
-        return None
-    for reference in _string_references(judge.get("evidence_refs")):
-        try:
-            resolved = _resolve_evidence_ref(dict(evidence), reference)
-        except DetectorRuntimeError:
-            continue
-        if isinstance(resolved, Mapping) and resolved.get("content") is None:
-            return reference
-        if resolved is None and (reference.endswith(".content") or reference.endswith("/content")):
             return reference
     return None
 
@@ -508,13 +512,21 @@ def _contract_control_cases(
     return result
 
 
-def _write_control_package(root: Path, detector_bytes: bytes) -> Path:
+def _write_control_package(
+    root: Path,
+    detector_bytes: bytes,
+    *,
+    judge_enabled: bool = False,
+) -> Path:
+    members = {"detector.py": detector_bytes}
+    if judge_enabled:
+        members["judge.json"] = b"{}"
     package = build_package(
         package_id=f"detector-controls-{hashlib.sha256(detector_bytes).hexdigest()[:16]}",
         scenario_id="detector-control-fixture",
         input_kind="scenario-handoff-v1",
         source_digests={"detector": hashlib.sha256(detector_bytes).hexdigest()},
-        members={"detector.py": detector_bytes},
+        members=members,
         authoring={"purpose": "offline-detector-controls"},
         runtime_capabilities={"detector": {"offline": True}},
         creation_model={"model": "model-authored-detector"},

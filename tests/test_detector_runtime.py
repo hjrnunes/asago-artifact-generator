@@ -11,19 +11,29 @@ from asago_artifact_generator.detector_runtime import (
     CLAIM_LEVELS,
     DetectorRuntimeError,
     execute_detector,
+    normalize_evidence_packet,
     validate_detector_result,
 )
 from asago_artifact_generator.package_io import build_package, write_package
 from asago_artifact_generator.reporting import garak_value
 
 
-def _package(tmp_path: Path, source: str, name: str = "package") -> Path:
+def _package(
+    tmp_path: Path,
+    source: str,
+    name: str = "package",
+    *,
+    judge_enabled: bool = False,
+) -> Path:
+    members = {"detector.py": source.encode("utf-8")}
+    if judge_enabled:
+        members["judge.json"] = b'{"question":"fixture"}'
     package = build_package(
         package_id=name,
         scenario_id="scenario-1",
         input_kind="scenario-handoff-v1",
         source_digests={"input": "a" * 64},
-        members={"detector.py": source.encode("utf-8")},
+        members=members,
         runtime_capabilities={"detector": {"timeout_seconds": 3}},
     )
     return write_package(tmp_path / name, package)
@@ -54,6 +64,121 @@ def _evidence() -> dict:
     }
 
 
+def test_normalize_evidence_packet_projects_a_valid_judge_without_audit_fields() -> None:
+    evidence = {
+        "messages": [
+            {"id": "reply-1", "role": "assistant", "content": "confirmed"},
+        ],
+        "availability": {"messages": "captured"},
+        "completeness": {"messages": "complete"},
+        "judge": {
+            "verdict": "supported",
+            "evidence_refs": ["messages[0].content"],
+            "reason": "judge_completed",
+            "request": {"question": "private"},
+            "output": {"verdict": "supported"},
+            "dispatched": True,
+            "reused": False,
+        },
+    }
+
+    normalized = normalize_evidence_packet(evidence, judge_enabled=True)
+
+    assert normalized["judge"] == {
+        "verdict": "supported",
+        "evidence_refs": ["messages[0].content"],
+        "reason": "judge_completed",
+    }
+    assert "request" not in normalized["judge"]
+    assert "output" not in normalized["judge"]
+    assert "dispatched" not in normalized["judge"]
+    assert normalized["messages"] == evidence["messages"]
+
+
+@pytest.mark.parametrize(
+    ("judge", "expected"),
+    [
+        (None, {"verdict": "unresolved", "evidence_refs": [], "reason": "judge_missing"}),
+        (
+            {"verdict": "supported", "evidence_refs": "messages[0]"},
+            {
+                "verdict": "unresolved",
+                "evidence_refs": [],
+                "reason": "judge_evidence_invalid",
+            },
+        ),
+        (
+            {"verdict": "supported", "evidence_refs": ["messages[99]"]},
+            {
+                "verdict": "unresolved",
+                "evidence_refs": ["messages[99]"],
+                "reason": "judge_support_unresolved",
+            },
+        ),
+        (
+            {"verdict": "supported", "evidence_refs": ["messages[0]"]},
+            {
+                "verdict": "unresolved",
+                "evidence_refs": ["messages[0]"],
+                "reason": "judge_support_unresolved",
+            },
+        ),
+    ],
+)
+def test_normalize_evidence_packet_makes_invalid_judge_inconclusive(
+    judge: dict | None, expected: dict
+) -> None:
+    evidence = {
+        "messages": [{"id": "reply-1", "role": "assistant", "content": None}],
+        "availability": {"messages": "captured"},
+        "completeness": {"messages": "complete"},
+    }
+    if judge is not None:
+        evidence["judge"] = judge
+
+    normalized = normalize_evidence_packet(evidence, judge_enabled=True)
+
+    assert normalized["judge"] == expected
+
+
+def test_normalize_evidence_packet_removes_judge_when_package_does_not_enable_it() -> None:
+    evidence = {
+        "judge": {
+            "verdict": "supported",
+            "evidence_refs": ["messages[0]"],
+            "request": {"private": True},
+        },
+        "messages": [],
+    }
+
+    normalized = normalize_evidence_packet(evidence, judge_enabled=False)
+
+    assert "judge" not in normalized
+    assert evidence["judge"]["request"] == {"private": True}
+
+
+def test_normalize_evidence_packet_matches_shared_conformance_fixture() -> None:
+    fixture = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "contracts"
+            / "artifact-package"
+            / "judge-normalization-v1"
+            / "cases.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    for case in fixture["cases"]:
+        normalized = normalize_evidence_packet(
+            case["evidence"],
+            judge_enabled=case["judge_enabled"],
+        )
+        if case["expected_judge"] is None:
+            assert "judge" not in normalized, case["name"]
+        else:
+            assert normalized["judge"] == case["expected_judge"], case["name"]
+
+
 def test_execute_detector_uses_exact_source_and_resolves_evidence_reference(
     tmp_path: Path,
 ) -> None:
@@ -70,6 +195,42 @@ def test_execute_detector_uses_exact_source_and_resolves_evidence_reference(
     assert execution.docker_argv[0] == "/usr/local/bin/docker"
     assert "--network" in execution.docker_argv
     assert "none" in execution.docker_argv
+
+
+def test_execute_detector_injects_only_normalized_judge_projection(
+    tmp_path: Path,
+) -> None:
+    source = """
+def evaluate(evidence: dict) -> dict:
+    assert set(evidence["judge"]) == {"verdict", "evidence_refs", "reason"}
+    return {
+        "outcome": "detected",
+        "reason": evidence["judge"]["reason"],
+        "evidence_refs": ["messages[0]"],
+        "claim_level": "reply",
+    }
+"""
+    evidence = {
+        "messages": [{"id": "reply-1", "role": "assistant", "content": "confirmed"}],
+        "availability": {"messages": "captured"},
+        "completeness": {"messages": "complete"},
+        "judge": {
+            "verdict": "supported",
+            "evidence_refs": ["messages[0]"],
+            "reason": "judge_completed",
+            "request": {"private": True},
+            "output": {"private": True},
+            "dispatched": True,
+        },
+    }
+
+    execution = execute_detector(
+        _package(tmp_path, source, judge_enabled=True),
+        evidence,
+    )
+
+    assert execution.status == "completed"
+    assert execution.result["reason"] == "judge_completed"
 
 
 def test_repackaged_detector_bytes_change_verdict(tmp_path: Path) -> None:

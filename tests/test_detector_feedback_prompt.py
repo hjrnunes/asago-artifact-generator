@@ -158,7 +158,7 @@ def test_leaf_message_references_are_valid_support_for_feedback(reference: str) 
     assert "structurally valid result" in feedback.runtime_contract_explanation
 
 
-def test_unusable_message_explanation_only_considers_judge_citations() -> None:
+def test_normalized_judge_feedback_only_considers_judge_citations() -> None:
     messages = [
         {"id": "uncited-null", "role": "assistant", "content": None},
         {"id": "cited-usable", "role": "assistant", "content": "usable reply"},
@@ -216,7 +216,36 @@ def test_unusable_message_explanation_only_considers_judge_citations() -> None:
 
     assert "null content" not in uncited_null.runtime_contract_explanation
     assert "structurally valid result" in uncited_null.runtime_contract_explanation
-    assert "null content" in cited_null.runtime_contract_explanation
+    assert "judge_support_unresolved" in cited_null.runtime_contract_explanation
+
+
+def test_feedback_can_render_missing_judge_for_a_judge_enabled_package() -> None:
+    feedback = build_detector_feedback(
+        (
+            ControlCase(
+                "missing-judge",
+                {"messages": [], "availability": {"messages": "not_captured"}},
+                expected_outcome="inconclusive",
+                expected_claim_level="reply",
+            ),
+        ),
+        (
+            {
+                "name": "missing-judge",
+                "status": "failed",
+                "failure": "outcome_mismatch",
+                "observed_outcome": "detected",
+                "observed_claim_level": "reply",
+            },
+        ),
+        judge_enabled=True,
+    )
+
+    assert feedback[0].evidence["judge"] == {
+        "verdict": "unresolved",
+        "evidence_refs": [],
+        "reason": "judge_missing",
+    }
 
 
 def test_shared_feedback_scan_covers_all_explanation_path_functions() -> None:

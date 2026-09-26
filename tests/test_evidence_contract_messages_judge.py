@@ -5,7 +5,7 @@ import json
 
 from asago_artifact_generator.authoring import (
     CALL2_PROMPT_VERSION_V9,
-    CORRECTION_PROMPT_VERSION_V8,
+    CORRECTION_PROMPT_VERSION_V12,
     _render_correction_packet,
     artifact_observation_guide,
     build_artifact_author_context,
@@ -180,19 +180,20 @@ def test_reply_call2_interface_documents_messages_judge_and_fact_refs() -> None:
         "contradicted",
         "unresolved",
     ]
+    assert not any(
+        example.startswith("judge") for example in interface["result"]["reference_syntax_examples"]
+    )
+    assert "judge-enabled package" in interface["result"]["judge_reference_rule"]
     assert "unresolvable" in interface["judge"]["evidence_refs"]
     assert "assistant_messages" in interface["observation_name_mapping"]
     assert interface["observation_name_mapping"]["assistant_messages"].startswith(
         "The runtime contract"
     )
-    assert interface["result"]["reference_syntax_examples"][-7:] == [
+    assert interface["result"]["reference_syntax_examples"][-4:] == [
         "messages[0]",
         "messages[0].id",
         "messages[0].content",
         "/messages/0/content",
-        "judge",
-        "judge.verdict",
-        "judge.evidence_refs",
     ]
     assert "semantic_judge_spec.fact_refs entries must be exact" in packet.user
     assert "state:record:alpha" in packet.user
@@ -252,7 +253,7 @@ def test_unknown_judge_fact_reference_correction_lists_valid_refs() -> None:
     )
     packet = _render_correction_packet(correction_context)
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V8
+    assert packet.version == CORRECTION_PROMPT_VERSION_V12
     assert "SEMANTIC JUDGE FACT REFERENCE GUIDANCE" in packet.user
     assert "inventory.facts[].ref" in packet.user
     assert "state:record:alpha" in packet.user
@@ -437,6 +438,6 @@ def test_judged_call2_interface_documents_missing_judge_result_references() -> N
 
     rule = judge["missing_judge_result"]
     assert "evidence_refs set to []" in rule
-    assert "availability.messages" in rule
-    assert "Never cite judge" in rule
+    assert "judge.verdict unresolved" in rule
+    assert "present judge path" in rule
     assert "tool_calls" in judge["judge_with_other_observations"]

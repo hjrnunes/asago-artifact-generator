@@ -30,6 +30,8 @@ DOCKER = "/usr/local/bin/docker"
 PYTHON_IMAGE = "python:3.12-slim"
 CLAIM_LEVELS = frozenset({"command_attempt", "reply", "returned_result", "state_effect"})
 OUTCOMES = frozenset({"detected", "not_detected", "inconclusive"})
+JUDGE_VERDICTS = frozenset({"supported", "contradicted", "unresolved"})
+_MISSING = object()
 RESULT_FIELDS = frozenset({"outcome", "reason", "evidence_refs", "claim_level"})
 DEFAULT_TIMEOUT_SECONDS = 10.0
 MAX_EVIDENCE_BYTES = 10 * 1024 * 1024
@@ -125,6 +127,10 @@ def execute_detector(
         _validate_source_interface(detector)
         if not isinstance(evidence, dict):
             raise DetectorRuntimeError("evidence packet must be an object")
+        evidence = normalize_evidence_packet(
+            evidence,
+            judge_enabled="judge.json" in loaded.members,
+        )
         evidence_bytes = _json_bytes(evidence)
         if len(evidence_bytes) > MAX_EVIDENCE_BYTES:
             raise DetectorRuntimeError("evidence exceeds the runtime input bound")
@@ -607,6 +613,140 @@ execute_generated_detector = execute_detector
 validate_result = validate_detector_result
 
 
+def normalize_evidence_packet(
+    evidence: dict[str, Any],
+    *,
+    judge_enabled: bool,
+) -> dict[str, Any]:
+    """Return the detector-facing packet with a closed semantic-judge projection.
+
+    A package that contains ``judge.json`` always exposes a judge object. The
+    projection retains only the detector-facing verdict, references, and
+    reason. Invalid, missing, or unsupported judge support becomes an
+    unresolved verdict before generated detector code runs.
+    """
+
+    if not isinstance(evidence, dict):
+        raise DetectorRuntimeError("evidence packet must be an object")
+    packet = dict(evidence)
+    if not judge_enabled:
+        packet.pop("judge", None)
+        return packet
+    packet["judge"] = _normalize_judge(
+        evidence["judge"] if "judge" in evidence else _MISSING,
+        evidence,
+    )
+    return packet
+
+
+def _normalize_judge(value: Any, evidence: dict[str, Any]) -> dict[str, Any]:
+    if value is _MISSING:
+        return _unresolved_judge("judge_missing")
+    if not isinstance(value, dict):
+        return _unresolved_judge("judge_invalid")
+    verdict = value.get("verdict")
+    refs = value.get("evidence_refs")
+    if verdict not in JUDGE_VERDICTS:
+        return _unresolved_judge("judge_response_invalid")
+    if not isinstance(refs, list) or not all(isinstance(ref, str) and ref.strip() for ref in refs):
+        return _unresolved_judge("judge_evidence_invalid")
+    references = list(refs)
+    if verdict in {"supported", "contradicted"}:
+        if not references:
+            return _unresolved_judge("judge_support_missing", references)
+        for reference in references:
+            try:
+                support = _resolve_evidence_ref(evidence, reference)
+            except DetectorRuntimeError:
+                return _unresolved_judge("judge_support_unresolved", references)
+            if not _usable_judge_support(evidence, reference, support):
+                return _unresolved_judge("judge_support_unresolved", references)
+    reason = value.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        reason = "judge_completed"
+    return {
+        "verdict": verdict,
+        "evidence_refs": references,
+        "reason": reason,
+    }
+
+
+def _unresolved_judge(reason: str, evidence_refs: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "verdict": "unresolved",
+        "evidence_refs": list(evidence_refs or []),
+        "reason": reason,
+    }
+
+
+def _usable_judge_support(
+    evidence: dict[str, Any],
+    reference: str,
+    value: Any,
+) -> bool:
+    """Require references to point at captured, interpretable evidence."""
+
+    if value is None:
+        return False
+    normalized = reference[2:] if reference.startswith("$.") else reference
+    root = normalized.lstrip("/").split("/", 1)[0].split("[", 1)[0].split(".", 1)[0]
+    availability = evidence.get("availability")
+    completeness = evidence.get("completeness")
+    if isinstance(availability, dict) and availability.get(root) != "captured":
+        return False
+    specific_item = "[" in normalized or (
+        normalized.startswith("/") and any(part.isdigit() for part in normalized.split("/")[2:])
+    )
+    if (
+        not specific_item
+        and isinstance(completeness, dict)
+        and completeness.get(root) in {"unknown", "partial"}
+    ):
+        return False
+    if root == "messages":
+        message_index = _message_content_index(normalized)
+        if message_index is not None:
+            messages = evidence.get("messages")
+            if not isinstance(messages, list) or message_index >= len(messages):
+                return False
+            message = messages[message_index]
+            return (
+                isinstance(message, dict)
+                and isinstance(message.get("content"), str)
+                and message["content"] == value
+            )
+        if isinstance(value, list):
+            return bool(value) and all(
+                isinstance(item, dict) and isinstance(item.get("content"), str) for item in value
+            )
+        return isinstance(value, dict) and isinstance(value.get("content"), str)
+    if root == "tool_calls":
+        if isinstance(value, list):
+            return bool(value) and all(
+                isinstance(item, dict) and not item.get("parse_errors") for item in value
+            )
+        return isinstance(value, dict) and not value.get("parse_errors")
+    return True
+
+
+def _message_content_index(reference: str) -> int | None:
+    if reference.startswith("/"):
+        parts = reference.split("/")
+        if (
+            len(parts) == 4
+            and parts[1] == "messages"
+            and parts[2].isdigit()
+            and parts[3] == "content"
+        ):
+            return int(parts[2])
+        return None
+    if reference.startswith("messages[") and reference.endswith("].content"):
+        index = reference[len("messages[") : -len("].content")]
+        if index.isdigit():
+            return int(index)
+    return None
+
+
 def _runner_failure(stdout: bytes, stderr: bytes, returncode: int | None) -> str:
     for payload in (stdout, stderr):
         try:
@@ -725,10 +865,12 @@ __all__ = [
     "DetectorExecution",
     "DetectorRuntimeError",
     "DOCKER",
+    "JUDGE_VERDICTS",
     "OUTCOMES",
     "PYTHON_IMAGE",
     "execute_detector",
     "execute_generated_detector",
+    "normalize_evidence_packet",
     "run_detector",
     "validate_result",
     "validate_detector_result",

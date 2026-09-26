@@ -1,4 +1,4 @@
-"""Atomic, contained artifact-package-v1 persistence."""
+"""Atomic, contained artifact-package-v2 persistence."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def test_package_round_trip_reloads_and_preserves_raw_member_bytes(tmp_path: Pat
     written = write_package(destination, package)
     loaded = load_package(written)
 
-    assert loaded.manifest.schema_version == "artifact-package-v1"
+    assert loaded.manifest.schema_version == "artifact-package-v2"
     assert loaded.manifest.package_id == "pkg-1"
     assert loaded.members["authoring/raw-response.json"] == b'{"raw":true}\n'
     assert loaded.members["detector.py"] == package.members["detector.py"]
