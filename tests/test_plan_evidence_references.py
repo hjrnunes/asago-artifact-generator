@@ -4,8 +4,8 @@ import copy
 import json
 
 from asago_artifact_generator.authoring import (
-    CALL1_PROMPT_VERSION_V7,
-    CORRECTION_PROMPT_VERSION_V12,
+    CALL1_PROMPT_VERSION_V8,
+    CORRECTION_PROMPT_VERSION_V13,
     Finding,
     _render_correction_packet,
     build_artifact_author_context,
@@ -28,7 +28,7 @@ def _section(user: str, title: str) -> dict:
 def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
     packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
 
-    assert packet.version == CALL1_PROMPT_VERSION_V7
+    assert packet.version == CALL1_PROMPT_VERSION_V8
     assert packet.user.index("SOURCE CONTEXT") < packet.user.index("EVIDENCE REFERENCES")
     assert packet.user.index("EVIDENCE REFERENCES") < packet.user.index("EXECUTION CAPABILITIES")
     section = _section(packet.user, "EVIDENCE REFERENCES")
@@ -38,8 +38,8 @@ def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
         "operations": ["operation:summarize_for_ehr"],
     }
     ids = section["provenance_ids"]["ids"]
-    assert ids["SC-1"] == "lineage.constraint_ids"
-    assert ids["CA-1-1"] == "lineage.control_action_id"
+    assert ids["SC-1"] == "scenario lineage (constraint IDs)"
+    assert ids["CA-1-1"] == "scenario lineage (control action ID)"
     assert "interpretation.source_refs" in section["provenance_ids"]["rule"]
     assert "not valid here" in section["field_rules"]["assumptions[].ref"]
     assert any("assistant_messages" in item for item in section["not_references"])
@@ -56,8 +56,22 @@ def test_attack_tree_node_ids_are_citable_provenance_with_plain_locations() -> N
     )
 
     assert "AT-REFUND-1" in provenance
-    assert section["provenance_ids"]["ids"]["AT-REFUND-1"] == "attack_tree:AT-REFUND-1"
+    assert section["provenance_ids"]["ids"]["AT-REFUND-1"] == (
+        "named by attack-tree node AT-REFUND-1"
+    )
     assert isinstance(section["provenance_ids"]["ids"]["AT-REFUND-1"], str)
+
+
+def test_provenance_locations_are_plain_language_not_reference_tokens() -> None:
+    section = build_plan_author_context(_view(), _inventory(), _runtime_contract())[
+        "evidence_references"
+    ]
+    locations = section["provenance_ids"]["ids"]
+
+    assert locations["SC-1"] == "scenario lineage (constraint IDs)"
+    assert locations["CA-1-1"] == "scenario lineage (control action ID)"
+    assert "attack_tree:" not in json.dumps(locations)
+    assert "lineage." not in json.dumps(locations)
 
 
 def test_call1_schema_describes_every_reference_field() -> None:
@@ -163,7 +177,7 @@ def test_plan_correction_explains_each_unknown_reference() -> None:
         )
     )
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V12
+    assert packet.version == CORRECTION_PROMPT_VERSION_V13
     options = {
         item["path"]: item for item in packet.payload["reference_repair_options"]["options"]
     }

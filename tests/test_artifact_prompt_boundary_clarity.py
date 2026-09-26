@@ -5,12 +5,13 @@ from copy import deepcopy
 
 from asago_artifact_generator.authoring import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
-    CALL2_PROMPT_VERSION_V9,
-    CORRECTION_PROMPT_VERSION_V12,
+    CALL2_PROMPT_VERSION_V10,
+    CORRECTION_PROMPT_VERSION_V13,
     _render_correction_packet,
     artifact_observation_guide,
     build_artifact_author_context,
     build_artifact_review_packet,
+    build_artifact_reviewer_context,
     build_call2_packet_v2,
     build_correction_context,
 )
@@ -87,8 +88,8 @@ def test_artifact_prompt_separates_capture_inventory_from_branch_requirements() 
     assert "needs_plan_revision" not in author.system + author.user
     assert "needs_plan_revision" not in correction.system + correction.user
     assert plan == original_plan
-    assert author.version == CALL2_PROMPT_VERSION_V9
-    assert correction.version == CORRECTION_PROMPT_VERSION_V12
+    assert author.version == CALL2_PROMPT_VERSION_V10
+    assert correction.version == CORRECTION_PROMPT_VERSION_V13
 
 
 def test_runtime_interface_has_one_path_table_and_a_valid_absence_result_example() -> None:
@@ -118,6 +119,27 @@ def test_artifact_prompt_explains_reference_namespaces_and_runtime_bindings() ->
     assert "evidence.bindings.<declared name>" in packet.system
     assert "Detector result evidence_refs must resolve within the actual evidence" in packet.system
     assert "Synthetic examples and controls substitute their own values" in packet.system
+
+
+def test_artifact_review_does_not_replay_unrelated_judge_facts_or_capabilities() -> None:
+    context = build_artifact_reviewer_context(
+        _view(),
+        _plan(),
+        _metadata(),
+        _source(),
+        [],
+        _inventory(),
+        _runtime_contract(),
+    )
+
+    assert context["resolved_runtime_context"]["judge_facts"] == []
+    assert context["resolved_runtime_context"]["judge_facts_are_in_authoritative_context"] is False
+    assert context["authoritative_context"]["runtime_capabilities"] == {
+        "note": (
+            "See RUNTIME CAPABILITIES for runtime capabilities and limits; "
+            "they are not repeated in this inventory section."
+        )
+    }
 
 
 def test_correction_renders_optional_stage_context_and_current_review_view() -> None:

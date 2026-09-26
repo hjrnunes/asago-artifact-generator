@@ -88,13 +88,16 @@ CORRECTION_PROMPT_VERSION_V9 = "authoring-correction-v9"
 CORRECTION_PROMPT_VERSION_V10 = "authoring-correction-v10"
 CORRECTION_PROMPT_VERSION_V11 = "authoring-correction-v11"
 CALL1_PROMPT_VERSION_V7 = "authoring-call1-v7"
+CALL1_PROMPT_VERSION_V8 = "authoring-call1-v8"
 CORRECTION_PROMPT_VERSION_V12 = "authoring-correction-v12"
+CORRECTION_PROMPT_VERSION_V13 = "authoring-correction-v13"
 CALL2_PROMPT_VERSION_V9 = "authoring-call2-v9"
+CALL2_PROMPT_VERSION_V10 = "authoring-call2-v10"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical package readers.
-CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V7
-CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V9
-CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V12
+CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V8
+CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V10
+CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V13
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
@@ -108,9 +111,11 @@ ARTIFACT_REVIEW_PROMPT_VERSION_V2 = "authoring-artifact-review-v2"
 ARTIFACT_REVIEW_PROMPT_VERSION_V4 = "authoring-artifact-review-v4"
 ARTIFACT_REVIEW_PROMPT_VERSION_V5 = "authoring-artifact-review-v5"
 PLAN_REVIEW_PROMPT_VERSION_V5 = "authoring-plan-review-v5"
+PLAN_REVIEW_PROMPT_VERSION_V6 = "authoring-plan-review-v6"
 ARTIFACT_REVIEW_PROMPT_VERSION_V6 = "authoring-artifact-review-v6"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V5
-ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V6
+ARTIFACT_REVIEW_PROMPT_VERSION_V7 = "authoring-artifact-review-v7"
+PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V6
+ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V7
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 
 _PLAN_FIELD_MEANING_SECTIONS: tuple[tuple[str, str], ...] = (
@@ -1067,7 +1072,10 @@ def _render_correction_packet(
         facts = authoritative.get("facts") if isinstance(authoritative, dict) else None
         if isinstance(facts, list):
             fact_ref_guidance = _semantic_judge_fact_ref_guidance({"facts": facts})
-    original_context = _correction_prompt_context(correction_context["original_context"])
+    original_context = _correction_prompt_context(
+        correction_context["original_context"],
+        compact_scenario_design=not (legacy_interface or legacy_v9 or legacy_v10),
+    )
     plan_field_meanings = original_context.pop("plan_field_meanings", None)
     neutral_outcome_example = original_context.pop("neutral_outcome_example", None)
     original_context.pop("semantic_judge_fact_ref_guidance", None)
@@ -1278,7 +1286,7 @@ def _render_correction_packet(
             (
                 CORRECTION_PROMPT_VERSION_V7
                 if correction_context.get("legacy_evidence_interface") is True
-                else CORRECTION_PROMPT_VERSION_V12
+                else CORRECTION_PROMPT_VERSION_V13
             )
             if correction_context.get("stage") == "artifact"
             else (
@@ -1290,7 +1298,7 @@ def _render_correction_packet(
                     else (
                         CORRECTION_PROMPT_VERSION_V10
                         if legacy_v10
-                        else CORRECTION_PROMPT_VERSION_V12
+                        else CORRECTION_PROMPT_VERSION_V13
                     )
                 )
             )
@@ -1435,10 +1443,16 @@ def _correction_current_output_view(value: Any, *, artifact: bool) -> Any:
     )
 
 
-def _correction_prompt_context(context: dict[str, Any]) -> dict[str, Any]:
+def _correction_prompt_context(
+    context: dict[str, Any],
+    *,
+    compact_scenario_design: bool = True,
+) -> dict[str, Any]:
     """Keep correction context authoritative without replaying authoring payloads."""
 
     result = deepcopy(context)
+    if compact_scenario_design and "scenario_design" in result:
+        result["scenario_design"] = _scenario_design_prompt_view(result["scenario_design"])
     authoritative = result.get("authoritative_context")
     interface = result.get("runtime_evidence_interface")
     if isinstance(authoritative, dict) and isinstance(interface, dict):
@@ -5345,19 +5359,31 @@ def _scenario_provenance_index(view: InputView) -> list[dict[str, Any]]:
             if location not in places:
                 places.append(location)
 
+    def lineage_location(prefix: str, key: str) -> str:
+        scope = "scenario lineage" if prefix == "lineage" else "attack-tree lineage"
+        words = key.split("_")
+        label = " ".join(
+            "IDs" if word == "ids" else "ID" if word == "id" else word for word in words
+        )
+        return f"{scope} ({label})"
+
     def add_lineage(lineage: Any, prefix: str) -> None:
         if not isinstance(lineage, dict):
             return
         for key in sorted(lineage):
             value = lineage[key]
             for item in value if isinstance(value, list) else [value]:
-                add(item, f"{prefix}.{key}")
+                add(item, lineage_location(prefix, key))
 
     def walk(node: Any) -> None:
         if not isinstance(node, dict):
             return
         node_id = node.get("node_id")
-        location = f"attack_tree:{node_id}" if isinstance(node_id, str) else "attack_tree"
+        location = (
+            f"named by attack-tree node {node_id}"
+            if isinstance(node_id, str)
+            else "named by an attack-tree node"
+        )
         add(node_id, location)
         add(node.get("source_id"), location)
         source_ids = node.get("source_ids")
@@ -5576,6 +5602,26 @@ def _scenario_design(view: InputView) -> dict[str, Any]:
         ),
         "attack_tree": _attack_tree_design(view.payload.get("attack_tree")),
     }
+
+
+def _scenario_design_prompt_view(design: Any) -> Any:
+    """Avoid repeating scenario meaning that already appears in the task context."""
+
+    if not isinstance(design, dict):
+        return design
+    result = deepcopy(design)
+    result["purpose"] = (
+        "Use the supplied node categories to design the stimulus and observations. "
+        "All nodes are proposed hypotheses, not observed results."
+    )
+    result.pop("classification", None)
+    tree = result.get("attack_tree")
+    if isinstance(tree, dict):
+        result["attack_tree"] = {
+            "note": ("Use the TASK scenario and Gherkin for criterion, root, losses, and leaves."),
+            "nodes_by_category": deepcopy(tree.get("nodes_by_category", {})),
+        }
+    return result
 
 
 def build_plan_author_context(
@@ -6017,6 +6063,83 @@ def artifact_observation_guide(
     }
 
 
+def _artifact_review_authoritative_context(
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    fact_refs: Collection[str],
+) -> dict[str, Any]:
+    """Keep only inventory material referenced by the accepted artifact plan."""
+
+    selected = _selected_refs(plan, inventory)
+    operation_names = set(selected["operations"])
+    fact_names = set(selected["facts"])
+    source_names = set(selected["sources"])
+    operation_map = {
+        item["name"]
+        for item in inventory.get("operations", [])
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    fact_map = {
+        item["ref"]
+        for item in inventory.get("facts", [])
+        if isinstance(item, dict) and isinstance(item.get("ref"), str)
+    }
+    source_map = {
+        item["ref"]
+        for item in inventory.get("source_handles", [])
+        if isinstance(item, dict) and isinstance(item.get("ref"), str)
+    }
+
+    def add_reference(value: Any) -> None:
+        if not isinstance(value, str):
+            return
+        if value in fact_map:
+            fact_names.add(value)
+        elif value in source_map:
+            source_names.add(value)
+        elif value in operation_map:
+            operation_names.add(value)
+        elif value.startswith("operation:") and value.split(":", 1)[1] in operation_map:
+            operation_names.add(value.split(":", 1)[1])
+
+    interpretation = plan.get("interpretation")
+    if isinstance(interpretation, dict):
+        for ref in interpretation.get("source_refs", []):
+            add_reference(ref)
+    for assumption in plan.get("assumptions", []):
+        if isinstance(assumption, dict):
+            add_reference(assumption.get("ref"))
+    for prerequisite in plan.get("prerequisites", []):
+        if isinstance(prerequisite, dict):
+            for ref in prerequisite.get("evidence_refs", []):
+                add_reference(ref)
+    for operation in plan.get("setup_recipe", []):
+        if isinstance(operation, dict):
+            add_reference(operation.get("name"))
+    for ref in fact_refs:
+        add_reference(ref)
+
+    return {
+        "facts": [
+            deepcopy(fact)
+            for fact in inventory.get("facts", [])
+            if isinstance(fact, dict) and fact.get("ref") in fact_names
+        ],
+        "operations": _explained_operations(inventory, operation_names),
+        "source_handles": [
+            deepcopy(handle)
+            for handle in inventory.get("source_handles", [])
+            if isinstance(handle, dict) and handle.get("ref") in source_names
+        ],
+        "runtime_capabilities": {
+            "note": (
+                "See RUNTIME CAPABILITIES for runtime capabilities and limits; "
+                "they are not repeated in this inventory section."
+            )
+        },
+    }
+
+
 def build_artifact_reviewer_context(
     view: InputView,
     plan: dict[str, Any],
@@ -6037,9 +6160,14 @@ def build_artifact_reviewer_context(
         if isinstance(judge_spec, dict) and isinstance(judge_spec.get("fact_refs"), list)
         else []
     )
+    authoritative_context = _artifact_review_authoritative_context(
+        plan,
+        inventory,
+        fact_refs,
+    )
     context = {
         "original_scenario": _original_scenario_context(view),
-        "authoritative_context": _authoritative_context(view, inventory, runtime_contract),
+        "authoritative_context": authoritative_context,
         "plan_field_meanings": PLAN_FIELD_MEANINGS,
         "accepted_plan": deepcopy(plan),
         "observation_guide": artifact_observation_guide(
@@ -6069,9 +6197,9 @@ def build_artifact_reviewer_context(
             "judge_facts": [
                 deepcopy(fact)
                 for fact in inventory.get("facts", [])
-                if isinstance(fact, dict) and (not fact_refs or fact.get("ref") in fact_refs)
+                if isinstance(fact, dict) and fact.get("ref") in fact_refs
             ],
-            "judge_facts_are_in_authoritative_context": True,
+            "judge_facts_are_in_authoritative_context": bool(fact_refs),
         },
         "actual_controls": deepcopy(list(controls or [])),
         "mechanical_check_summary": {
@@ -6366,14 +6494,21 @@ def build_call1_packet_v2(
     design_sections: tuple[tuple[str, Any], ...] = ()
     if "scenario_design" in context:
         payload["scenario_design"] = context["scenario_design"]
-        design_sections = (("SCENARIO DESIGN", context["scenario_design"]),)
+        design_sections = (
+            (
+                "SCENARIO DESIGN",
+                context["scenario_design"]
+                if legacy or legacy_binding_contract
+                else _scenario_design_prompt_view(context["scenario_design"]),
+            ),
+        )
     assert_no_prompt_secrets(payload)
     packet = PromptPacket(
         stage="call1",
         version=(
             CALL1_PROMPT_VERSION_V4
             if legacy
-            else (CALL1_PROMPT_VERSION_V5 if legacy_binding_contract else CALL1_PROMPT_VERSION_V7)
+            else (CALL1_PROMPT_VERSION_V5 if legacy_binding_contract else CALL1_PROMPT_VERSION_V8)
         ),
         system=_CALL1_SYSTEM_V3,
         user=_render_sections(
@@ -6481,7 +6616,7 @@ def build_call2_packet_v2(
     )
     packet = PromptPacket(
         stage="call2",
-        version=CALL2_PROMPT_VERSION_V9,
+        version=CALL2_PROMPT_VERSION_V10,
         system=_CALL2_SYSTEM_V5,
         user=_render_sections(sections),
         payload=payload,
@@ -6618,6 +6753,10 @@ def build_artifact_review_packet(
         ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
         ("ACCEPTED PLAN", context["accepted_plan"]),
         ("OBSERVATION DECISION GUIDE", context["observation_guide"]),
+        (
+            "RUNTIME CAPABILITIES",
+            context["runtime_evidence_interface"]["runtime_contract"],
+        ),
         ("RUNTIME EVIDENCE INTERFACE", context["evidence_packet_interface"]),
     ]
     sections.extend(
@@ -9845,6 +9984,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CALL1_PROMPT_VERSION_V5,
         CALL1_PROMPT_VERSION_V6,
         CALL1_PROMPT_VERSION_V7,
+        CALL1_PROMPT_VERSION_V8,
         CALL2_PROMPT_VERSION_V3,
         CALL2_PROMPT_VERSION_V4,
         CALL2_PROMPT_VERSION_V5,
@@ -9852,6 +9992,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CALL2_PROMPT_VERSION_V7,
         CALL2_PROMPT_VERSION_V8,
         CALL2_PROMPT_VERSION_V9,
+        CALL2_PROMPT_VERSION_V10,
         CORRECTION_PROMPT_VERSION_V3,
         CORRECTION_PROMPT_VERSION_V4,
         CORRECTION_PROMPT_VERSION_V5,
@@ -9862,17 +10003,20 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CORRECTION_PROMPT_VERSION_V10,
         CORRECTION_PROMPT_VERSION_V11,
         CORRECTION_PROMPT_VERSION_V12,
+        CORRECTION_PROMPT_VERSION_V13,
         PLAN_REVIEW_PROMPT_VERSION_V1,
         PLAN_REVIEW_PROMPT_VERSION_V2,
         PLAN_REVIEW_PROMPT_VERSION_V3,
         PLAN_REVIEW_PROMPT_VERSION_V4,
         PLAN_REVIEW_PROMPT_VERSION_V5,
+        PLAN_REVIEW_PROMPT_VERSION_V6,
         ARTIFACT_REVIEW_PROMPT_VERSION_V1,
         ARTIFACT_REVIEW_PROMPT_VERSION_V2,
         ARTIFACT_REVIEW_PROMPT_VERSION_V3,
         ARTIFACT_REVIEW_PROMPT_VERSION_V4,
         ARTIFACT_REVIEW_PROMPT_VERSION_V5,
         ARTIFACT_REVIEW_PROMPT_VERSION_V6,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V7,
     }:
         assert_no_prompt_duplicates(packet)
     if maximum <= 0:
@@ -12038,6 +12182,7 @@ __all__ = [
     "ARTIFACT_REVIEW_PROMPT_VERSION_V4",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V5",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V6",
+    "ARTIFACT_REVIEW_PROMPT_VERSION_V7",
     "BudgetExceeded",
     "Call1FramingError",
     "CALL1_PROMPT_VERSION",
@@ -12046,6 +12191,8 @@ __all__ = [
     "CALL1_PROMPT_VERSION_V4",
     "CALL1_PROMPT_VERSION_V5",
     "CALL1_PROMPT_VERSION_V6",
+    "CALL1_PROMPT_VERSION_V7",
+    "CALL1_PROMPT_VERSION_V8",
     "CALL2_PROMPT_VERSION",
     "CALL2_PROMPT_VERSION_V2",
     "CALL2_PROMPT_VERSION_V3",
@@ -12055,6 +12202,7 @@ __all__ = [
     "CALL2_PROMPT_VERSION_V7",
     "CALL2_PROMPT_VERSION_V8",
     "CALL2_PROMPT_VERSION_V9",
+    "CALL2_PROMPT_VERSION_V10",
     "CORRECTION_PROMPT_VERSION",
     "CORRECTION_PROMPT_VERSION_V2",
     "CORRECTION_PROMPT_VERSION_V3",
@@ -12066,6 +12214,8 @@ __all__ = [
     "CORRECTION_PROMPT_VERSION_V9",
     "CORRECTION_PROMPT_VERSION_V10",
     "CORRECTION_PROMPT_VERSION_V11",
+    "CORRECTION_PROMPT_VERSION_V12",
+    "CORRECTION_PROMPT_VERSION_V13",
     "Call2FramingError",
     "Finding",
     "PlanValidationError",
@@ -12074,6 +12224,8 @@ __all__ = [
     "PLAN_REVIEW_PROMPT_VERSION_V2",
     "PLAN_REVIEW_PROMPT_VERSION_V3",
     "PLAN_REVIEW_PROMPT_VERSION_V4",
+    "PLAN_REVIEW_PROMPT_VERSION_V5",
+    "PLAN_REVIEW_PROMPT_VERSION_V6",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V1",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V2",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V3",

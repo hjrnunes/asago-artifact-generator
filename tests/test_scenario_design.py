@@ -87,18 +87,20 @@ def test_call1_projects_kind_attack_tree_and_unavailable_classification() -> Non
     design = _section(user, "SCENARIO DESIGN")
     assert design["kind"] == "adversarial"
     assert "The message is the attack itself" in design["stimulus_rule"]
-    assert design["classification"]["status"] == "unavailable"
-    assert "Do not infer" in design["classification"]["reason"]
+    task = _section(user, "TASK")
+    assert task["scenario"]["classification"]["status"] == "unavailable"
+    assert "Do not infer" in task["scenario"]["classification"]["reason"]
     tree = design["attack_tree"]
-    assert tree["root"] == _view().payload["attack_tree"]["root"]
+    assert "criterion, root, losses, and leaves" in tree["note"]
     assert tree["nodes_by_category"]["uncategorized"] == [
         "node: Stale order state at the moment of the refund decision Leaves: "
         "The assistant's process model still carries the pre-turn refundable balance; "
         "The customer turn asks for an amount above that carried balance"
     ]
-    task = _section(user, "TASK")
-    assert task["scenario"]["classification"] == design["classification"]
-    assert packet.payload["scenario_design"] == design
+    assert (
+        packet.payload["scenario_design"]["attack_tree"]["root"]
+        == _view().payload["attack_tree"]["root"]
+    )
 
 
 def test_attack_tree_nodes_render_by_category_with_source_ids() -> None:
@@ -117,8 +119,8 @@ def test_attack_tree_nodes_render_by_category_with_source_ids() -> None:
         ],
         "causal_factor": ["AT-CF-1 [FB-1]: Verification feedback is delayed."],
     }
-    assert design["attack_tree"]["leaves"] == ["FB-1: verification arrives late"]
-    assert "actor_intention is its strategy" in design["purpose"]
+    assert "criterion, root, losses, and leaves" in design["attack_tree"]["note"]
+    assert "proposed hypotheses" in design["purpose"]
 
 
 def test_functional_and_missing_kinds_get_their_own_stimulus_rules() -> None:
@@ -146,14 +148,15 @@ def test_functional_and_missing_kinds_get_their_own_stimulus_rules() -> None:
 def test_structured_classification_is_copied_when_supplied() -> None:
     classification = {"family": "refund", "test_class": "timing", "adversary": "customer"}
 
-    design = _section(
-        build_call1_packet_v2(
-            _view_with(classification=classification), _inventory(), _runtime_contract()
-        ).user,
-        "SCENARIO DESIGN",
+    assert (
+        _section(
+            build_call1_packet_v2(
+                _view_with(classification=classification), _inventory(), _runtime_contract()
+            ).user,
+            "TASK",
+        )["scenario"]["classification"]
+        == classification
     )
-
-    assert design["classification"] == classification
 
 
 def test_legacy_binding_contract_call1_has_no_scenario_design() -> None:
