@@ -135,3 +135,127 @@ def test_substitution_accepts_declared_slots_only_and_never_evaluates_text() -> 
     )
     with pytest.raises(BindingValidationError, match="undeclared"):
         substitute_slots("{{__import__('os').getcwd()}}", {}, [binding])
+
+
+def _keyed_inventory() -> dict:
+    return {
+        "operations": [],
+        "facts": [
+            {
+                "ref": "state:orders",
+                "value": {
+                    "ORD-1": {"customer_id": "CUST-1", "status": "open"},
+                },
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "ORD-1": {
+                            "type": "object",
+                            "properties": {
+                                "customer_id": {"type": "string"},
+                                "status": {"type": "string"},
+                            },
+                        }
+                    },
+                },
+            },
+            {
+                "ref": "state:orders:records",
+                "value": {"ORD-1": {"record_key": "ORD-1"}},
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "ORD-1": {
+                            "type": "object",
+                            "properties": {"record_key": {"type": "string"}},
+                        }
+                    },
+                },
+            },
+        ],
+    }
+
+
+def test_keyed_source_shorthands_normalize_to_documented_paths() -> None:
+    validated = validate_bindings(
+        [
+            {
+                "name": "customer_id",
+                "expected_type": "string",
+                "source_kind": "supplied_input",
+                "source_ref": "facts:state:orders:ORD-1:customer_id",
+                "selector": "value",
+                "consumers": ["stimulus.user_text"],
+                "on_missing": "stop",
+            },
+            {
+                "name": "record_key",
+                "expected_type": "string",
+                "source_kind": "supplied_input",
+                "source_ref": "facts:state:orders:records:ORD-1.record_key",
+                "selector": "value",
+                "consumers": ["stimulus.user_text"],
+                "on_missing": "stop",
+            },
+            {
+                "name": "record",
+                "expected_type": "object",
+                "source_kind": "supplied_input",
+                "source_ref": "facts:state:orders:ORD-1",
+                "selector": "value",
+                "consumers": ["detector.record"],
+                "on_missing": "stop",
+            },
+        ],
+        inventory=_keyed_inventory(),
+        runtime_contract={"setup_permissions": []},
+    )
+
+    assert [(item.source_ref, item.selector) for item in validated] == [
+        ("facts:state:orders", "value.ORD-1.customer_id"),
+        ("facts:state:orders:records", "value.ORD-1.record_key"),
+        ("facts:state:orders", "value.ORD-1"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source_ref", "expected_type", "message"),
+    [
+        (
+            "facts:state:orders:ORD-404:customer_id",
+            "string",
+            "unknown supplied fact",
+        ),
+        (
+            "facts:state:orders:ORD-1:not_a_field",
+            "string",
+            "unknown supplied fact",
+        ),
+        (
+            "facts:state:orders:ORD-1:customer_id",
+            "object",
+            "type mismatch",
+        ),
+    ],
+)
+def test_keyed_source_shorthands_reject_unknown_keys_fields_and_types(
+    source_ref: str,
+    expected_type: str,
+    message: str,
+) -> None:
+    with pytest.raises(BindingValidationError, match=message):
+        validate_bindings(
+            [
+                {
+                    "name": "value",
+                    "expected_type": expected_type,
+                    "source_kind": "supplied_input",
+                    "source_ref": source_ref,
+                    "selector": "value",
+                    "consumers": ["stimulus.user_text"],
+                    "on_missing": "stop",
+                }
+            ],
+            inventory=_keyed_inventory(),
+            runtime_contract={"setup_permissions": []},
+        )

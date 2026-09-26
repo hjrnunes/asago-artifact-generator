@@ -27,6 +27,7 @@ from .bindings import (
     MISSING_POLICIES,
     SOURCE_KINDS,
     BindingValidationError,
+    canonical_binding_paths,
     validate_bindings,
 )
 from .detector_controls import (
@@ -89,6 +90,7 @@ CORRECTION_PROMPT_VERSION_V10 = "authoring-correction-v10"
 CORRECTION_PROMPT_VERSION_V11 = "authoring-correction-v11"
 CALL1_PROMPT_VERSION_V7 = "authoring-call1-v7"
 CALL1_PROMPT_VERSION_V8 = "authoring-call1-v8"
+CALL1_PROMPT_VERSION_V9 = "authoring-call1-v9"
 CORRECTION_PROMPT_VERSION_V12 = "authoring-correction-v12"
 CORRECTION_PROMPT_VERSION_V13 = "authoring-correction-v13"
 CALL2_PROMPT_VERSION_V9 = "authoring-call2-v9"
@@ -96,12 +98,14 @@ CALL2_PROMPT_VERSION_V10 = "authoring-call2-v10"
 CORRECTION_PROMPT_VERSION_V14 = "authoring-correction-v14"
 CALL2_PROMPT_VERSION_V11 = "authoring-call2-v11"
 CORRECTION_PROMPT_VERSION_V15 = "authoring-correction-v15"
+CORRECTION_PROMPT_VERSION_V16 = "authoring-correction-v16"
 CALL2_PROMPT_VERSION_V12 = "authoring-call2-v12"
+CALL2_PROMPT_VERSION_V13 = "authoring-call2-v13"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical package readers.
-CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V8
-CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V12
-CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V15
+CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V9
+CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V13
+CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V16
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
@@ -120,8 +124,10 @@ PLAN_REVIEW_PROMPT_VERSION_V7 = "authoring-plan-review-v7"
 ARTIFACT_REVIEW_PROMPT_VERSION_V6 = "authoring-artifact-review-v6"
 ARTIFACT_REVIEW_PROMPT_VERSION_V7 = "authoring-artifact-review-v7"
 ARTIFACT_REVIEW_PROMPT_VERSION_V8 = "authoring-artifact-review-v8"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V7
-ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V8
+ARTIFACT_REVIEW_PROMPT_VERSION_V9 = "authoring-artifact-review-v9"
+PLAN_REVIEW_PROMPT_VERSION_V8 = "authoring-plan-review-v8"
+PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V8
+ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V9
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 
 _PLAN_REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
@@ -1411,7 +1417,7 @@ def _render_correction_packet(
             (
                 CORRECTION_PROMPT_VERSION_V7
                 if correction_context.get("legacy_evidence_interface") is True
-                else CORRECTION_PROMPT_VERSION_V15
+                else CORRECTION_PROMPT_VERSION_V16
             )
             if correction_context.get("stage") == "artifact"
             else (
@@ -1423,7 +1429,7 @@ def _render_correction_packet(
                     else (
                         CORRECTION_PROMPT_VERSION_V10
                         if legacy_v10
-                        else CORRECTION_PROMPT_VERSION_V15
+                        else CORRECTION_PROMPT_VERSION_V16
                     )
                 )
             )
@@ -2284,15 +2290,16 @@ _REFERENCE_REPAIR_DESCRIPTION = (
     "Each option explains one unknown_reference finding: the rejected value, what "
     "kind of value it is, and the reference rule for its field from EVIDENCE "
     "REFERENCES in the original stage context. Replace the value with a listed "
-    "reference that supports the same claim, move a scenario lineage or attack-tree "
-    "node ID to interpretation.source_refs, move an observation scope to "
-    "required_observations, or remove the entry when no supplied reference supports it."
+    "reference that supports the same claim, keep a valid scenario lineage or "
+    "attack-tree node ID in interpretation.source_refs or assumptions[].ref as "
+    "permitted by that field, move an observation scope to required_observations, "
+    "or remove the entry when no supplied reference supports it."
 )
 _REFERENCE_VALUE_KIND_REPAIRS = {
     "provenance_id": (
         "This is a scenario lineage or attack-tree node ID. It is valid only in "
-        "interpretation.source_refs; cite it there and use a citable reference at "
-        "this field."
+        "interpretation.source_refs or assumptions[].ref; keep it at this field "
+        "only when that field's rule permits provenance_ids."
     ),
     "observation_scope": (
         "This is an observation scope, not a reference. Declare the capture in "
@@ -2357,7 +2364,11 @@ def _reference_repair_options_for_correction(
         )
     if not options:
         return None
-    return {"description": _REFERENCE_REPAIR_DESCRIPTION, "options": options}
+    return {
+        "description": _REFERENCE_REPAIR_DESCRIPTION,
+        "valid_provenance_ids": sorted(provenance_ids),
+        "options": options,
+    }
 
 
 def _binding_repair_options_for_correction_v9(
@@ -4848,6 +4859,31 @@ class AuthoringOrchestrator:
             budget=self.budget.snapshot(self.task_id),
         )
 
+    def _latest_attempt_findings(self, fallback: list[Finding]) -> list[Finding]:
+        """Return only the findings from the response that just terminated."""
+
+        attempts = self._failure_evidence.get("attempts")
+        latest = attempts[-1].get("findings") if isinstance(attempts, list) and attempts else None
+        if not isinstance(latest, list) or not latest:
+            return list(fallback)
+        result: list[Finding] = []
+        for item in latest:
+            if not isinstance(item, dict):
+                continue
+            code = item.get("code")
+            detail = item.get("detail")
+            path = item.get("path", "")
+            if isinstance(code, str) and isinstance(detail, str):
+                result.append(
+                    Finding(
+                        code,
+                        detail,
+                        path if isinstance(path, str) else "",
+                        item.get("details", {}) if isinstance(item.get("details"), dict) else {},
+                    )
+                )
+        return result or list(fallback)
+
     def _failure_attempt(self) -> dict[str, Any]:
         return self._failure_evidence["attempts"][-1]
 
@@ -4957,9 +4993,19 @@ class AuthoringOrchestrator:
         if not self._failure_evidence["attempts"] and not findings:
             return None
         self._failure_evidence["status"] = status
-        self._failure_evidence["findings"] = [finding.to_dict() for finding in self._findings] or [
-            finding.to_dict() for finding in findings
-        ]
+        terminal_findings = (
+            [] if status in {"accepted", "packaged"} else self._latest_attempt_findings(findings)
+        )
+        self._failure_evidence["findings"] = [finding.to_dict() for finding in terminal_findings]
+        self._failure_evidence["terminal"] = {
+            "stage": self._terminal_stage(terminal_findings),
+            "attempt_index": (
+                len(self._failure_evidence["attempts"]) - 1
+                if self._failure_evidence["attempts"]
+                else None
+            ),
+            "reason": status if not terminal_findings else terminal_findings[-1].code,
+        }
         for attempt in self._failure_evidence["attempts"]:
             attempt["terminal_status"] = status
             attempt["stage_status"] = status
@@ -4973,6 +5019,30 @@ class AuthoringOrchestrator:
             )
         self._persist_failure_evidence()
         return self._failure_evidence_file
+
+    def _terminal_stage(self, findings: list[Finding]) -> str | None:
+        """Return the logical stage that produced the terminal outcome."""
+
+        for finding in reversed(findings):
+            if finding.path in {"call1", "plan"}:
+                return "plan"
+            if finding.path in {"plan_review"}:
+                return "plan"
+            if finding.path in {"call2", "artifact"}:
+                return "artifact"
+            if finding.path in {"artifact_review"}:
+                return "artifact"
+        attempts = self._failure_evidence.get("attempts")
+        if isinstance(attempts, list) and attempts:
+            attempt = attempts[-1]
+            stage = attempt.get("stage")
+            if stage in {"call1", "plan_review"}:
+                return "plan"
+            if stage in {"call2", "artifact_review"}:
+                return "artifact"
+            if stage == "correction":
+                return "plan" if attempt.get("failed_stage") == "call1" else "artifact"
+        return None
 
 
 def build_call1_packet(
@@ -5244,8 +5314,9 @@ _PLAN_MECHANICAL_CHECKS = (
     "binding slot.",
     "Every runtime binding has the required closed fields, a unique nonblank name, "
     "a permitted source_kind, a source_ref that resolves to a supplied fact or a "
-    "permitted setup operation, a documented selector rooted at value or result, "
-    "a compatible expected_type, a nonempty closed consumer list, and a permitted "
+    "permitted setup operation, a documented selector rooted at value or result "
+    "(including a validated keyed-map source shorthand resolved to that form), a "
+    "compatible expected_type, a nonempty closed consumer list, and a permitted "
     "on_missing policy.",
     "Every prerequisite has the canonical closed fields and types, references a "
     "declared binding, uses an equals JSON value compatible with that binding's "
@@ -5269,7 +5340,11 @@ _PLAN_SELECTOR_FORMS = (
     "keyed-map record fields: value.<record key>.<field> on the original keyed-map "
     "fact; the derived companion fact <fact ref>:records exposes the key itself as "
     "value.<key>.record_key (for example, state:orders:records permits "
-    "value.ORD-104.record_key)",
+    "value.ORD-104.record_key). Code also accepts keyed-map source shorthand "
+    "facts:<fact ref>:<record key>:<field> or "
+    "facts:<fact ref>:<record key>.<field> and resolves it to the equivalent "
+    "documented facts:<fact ref> plus value.<record key>.<field> form when the "
+    "record and field exist.",
 )
 _PLAN_MECHANICAL_CHECK_INSTRUCTION = (
     "These structural properties were verified by code; do not report them as "
@@ -5574,6 +5649,63 @@ def _supplied_fact_binding_example(
     return None
 
 
+def _keyed_map_binding_forms(inventory: dict[str, Any]) -> dict[str, Any]:
+    """Render compact, source-derived keyed-record binding examples."""
+
+    facts = {
+        item["ref"]: item
+        for item in inventory.get("facts", [])
+        if isinstance(item, dict) and isinstance(item.get("ref"), str)
+    }
+    examples: list[dict[str, Any]] = []
+    for ref in sorted(facts):
+        fact = facts[ref]
+        value = fact.get("value")
+        if (
+            not isinstance(value, dict)
+            or not value
+            or not all(isinstance(record, dict) for record in value.values())
+        ):
+            continue
+        record_key = sorted(value, key=str)[0]
+        record = value[record_key]
+        fields = sorted(
+            field for field in record if isinstance(field, str) and field != "record_key"
+        )
+        if not fields:
+            continue
+        field = fields[0]
+        companion_ref = f"{ref}:records"
+        record_key_binding = (
+            f"facts:{companion_ref}:{record_key}:record_key -> "
+            f"facts:{companion_ref} + value.{record_key}.record_key"
+            if companion_ref in facts
+            else None
+        )
+        record_field = (
+            f"facts:{ref}:{record_key}:{field} -> facts:{ref} + value.{record_key}.{field}"
+        )
+        shorthand: dict[str, str] = {"record_field": record_field}
+        if record_key_binding is not None:
+            shorthand["record_key"] = record_key_binding
+        examples.append(
+            {
+                "fact_ref": ref,
+                "record_key": record_key,
+                "field": field,
+                "accepted_to_canonical": shorthand,
+            }
+        )
+    return {
+        "rule": (
+            "Existing keyed records accept key[:field] shorthands; code canonicalizes "
+            "them to facts:<fact ref> plus value.<record key>[.<field>]. Use "
+            "<fact ref>:records for record_key."
+        ),
+        "examples": examples[:1],
+    }
+
+
 def _scenario_provenance_index(view: InputView) -> list[dict[str, Any]]:
     """Return lineage and attack-tree node IDs with plain-text locations."""
 
@@ -5681,10 +5813,10 @@ def _plan_evidence_references(view: InputView, inventory: dict[str, Any]) -> dic
                 "source handle, or operation:<name> that the experiment relies on."
             ),
             "assumptions[].ref": (
-                "Each entry is exactly one citable_references value: the supplied fact or "
-                "source handle that the static assumption rests on. A lineage or "
-                "attack-tree node ID is not valid here; cite it in "
-                "interpretation.source_refs instead."
+                "Each entry is exactly one supplied fact, source handle, or valid "
+                "scenario lineage or attack-tree node ID from provenance_ids. The "
+                "reference must exist in this handoff and support the static "
+                "assumption; an invented ID is invalid."
             ),
             "prerequisites[].evidence_refs": (
                 "Each entry is exactly one citable_references value, such as operation:<name> "
@@ -5708,7 +5840,8 @@ def _plan_evidence_references(view: InputView, inventory: dict[str, Any]) -> dic
             "rule": (
                 "Producer STPA lineage and attack-tree node IDs from the scenario "
                 "handoff, each mapped to plain-text handoff locations that name it. "
-                "They are citable only in interpretation.source_refs."
+                "They are citable in interpretation.source_refs and assumptions[].ref; "
+                "they are not valid in selected_evidence or prerequisite evidence_refs."
             ),
             "ids": {
                 item["id"]: ", ".join(item["appears_in"])
@@ -5892,7 +6025,13 @@ def build_plan_author_context(
                     "a binding source, not an evidence citation."
                 ),
                 "selector": (
-                    "The documented path that extracts one value from the source result."
+                    (
+                        "The documented path that extracts one value from the source result. "
+                        "For keyed maps, code also accepts the source shorthand examples "
+                        "shown below and resolves them to a documented value path."
+                    )
+                    if not legacy_binding_contract
+                    else "The documented path that extracts one value from the source result."
                 ),
                 "name": (
                     "The declared plain binding name used by downstream "
@@ -5960,6 +6099,7 @@ def build_plan_author_context(
         },
     }
     if not legacy_binding_contract:
+        context["field_guide"]["keyed_map_path_forms"] = _keyed_map_binding_forms(inventory)
         context["execution_capabilities"]["available_operations"] = (
             "The documented operations are listed once, in SOURCE CONTEXT operations; "
             "cite each as operation:<name>."
@@ -6646,7 +6786,11 @@ def _review_acceptance_examples() -> dict[str, dict[str, str]]:
     }
 
 
-def _render_sections(sections: tuple[tuple[str, Any], ...]) -> str:
+def _render_sections(
+    sections: tuple[tuple[str, Any], ...],
+    *,
+    compact_titles: frozenset[str] = frozenset(),
+) -> str:
     """Render ordered prompt sections with one readable value per section."""
 
     rendered: list[str] = []
@@ -6655,7 +6799,13 @@ def _render_sections(sections: tuple[tuple[str, Any], ...]) -> str:
         rendered.append(
             value
             if isinstance(value, str)
-            else json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
+            else json.dumps(
+                value,
+                ensure_ascii=False,
+                separators=(",", ":") if title in compact_titles else None,
+                indent=None if title in compact_titles else 2,
+                sort_keys=True,
+            )
         )
         rendered.append("")
     return "\n".join(rendered).rstrip() + "\n"
@@ -6710,6 +6860,8 @@ def build_call1_packet_v2(
 ) -> PromptPacket:
     """Render the v3 plan-author prompt over the unchanged v2 response wire."""
 
+    if legacy_binding_contract is None:
+        legacy_binding_contract = legacy
     payload = _v2_prompt_payload(
         view=view,
         inventory=inventory,
@@ -6759,7 +6911,7 @@ def build_call1_packet_v2(
         version=(
             CALL1_PROMPT_VERSION_V4
             if legacy
-            else (CALL1_PROMPT_VERSION_V5 if legacy_binding_contract else CALL1_PROMPT_VERSION_V8)
+            else (CALL1_PROMPT_VERSION_V5 if legacy_binding_contract else CALL1_PROMPT_VERSION_V9)
         ),
         system=_CALL1_SYSTEM_V3,
         user=_render_sections(
@@ -6774,7 +6926,10 @@ def build_call1_packet_v2(
                 ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
                 ("NEUTRAL OUTCOME EXAMPLE", context["neutral_outcome_example"]),
                 ("RESPONSE CONTRACT", context["response_contract"]),
-            )
+            ),
+            compact_titles=(
+                frozenset({"FIELD GUIDE"}) if not legacy_binding_contract else frozenset()
+            ),
         ),
         payload=payload,
     )
@@ -6867,7 +7022,7 @@ def build_call2_packet_v2(
     )
     packet = PromptPacket(
         stage="call2",
-        version=CALL2_PROMPT_VERSION_V12,
+        version=CALL2_PROMPT_VERSION_V13,
         system=_CALL2_SYSTEM_V5,
         user=_render_sections(sections),
         payload=payload,
@@ -7556,9 +7711,10 @@ def collect_plan_findings_v2(
 ) -> list[Finding]:
     """Validate a v2 plan while retaining the historical v1 validator.
 
-    ``provenance_ids`` are scenario lineage or attack-tree node IDs that are
-    valid only in ``interpretation.source_refs``; every other reference field
-    stays limited to supplied inventory references.
+    ``provenance_ids`` are scenario lineage or attack-tree node IDs from the
+    supplied handoff. They are valid in ``interpretation.source_refs`` and
+    ``assumptions[].ref``; every other reference field stays limited to
+    supplied inventory references.
     """
 
     return _collect_plan_findings_with_contract(
@@ -7752,7 +7908,7 @@ def _collect_plan_findings_with_contract(
                 findings.append(
                     Finding("type_error", "assumption.ref must be a string", f"{path}.ref")
                 )
-            elif assumption["ref"] not in references:
+            elif assumption["ref"] not in references and assumption["ref"] not in provenance_ids:
                 findings.append(
                     Finding(
                         "unknown_reference",
@@ -8997,7 +9153,22 @@ def _collect_binding_nested_findings(
         )
 
     source_ref = raw.get("source_ref")
+    selector = raw.get("selector")
     source_schema: dict[str, Any] | None = None
+    canonical_source_ref = source_ref
+    canonical_selector = selector
+    if isinstance(source_kind, str) and isinstance(source_ref, str) and isinstance(selector, str):
+        canonical_source_ref, canonical_selector = canonical_binding_paths(
+            source_kind,
+            source_ref,
+            selector,
+            inventory,
+        )
+        if (canonical_source_ref, canonical_selector) != (source_ref, selector):
+            raw["source_ref"] = canonical_source_ref
+            raw["selector"] = canonical_selector
+            source_ref = canonical_source_ref
+            selector = canonical_selector
     if isinstance(source_ref, str):
         if not source_ref.strip():
             findings.append(
@@ -9010,7 +9181,7 @@ def _collect_binding_nested_findings(
         elif source_kind in SOURCE_KINDS:
             source_schema, source_error = _binding_source_schema(
                 source_kind,
-                source_ref,
+                canonical_source_ref,
                 inventory,
                 runtime_contract,
                 name,
@@ -9065,7 +9236,6 @@ def _collect_binding_nested_findings(
                     )
                 )
 
-    selector = raw.get("selector")
     if not isinstance(selector, str):
         if "selector" in raw:
             findings.append(
@@ -9095,7 +9265,7 @@ def _collect_binding_nested_findings(
             )
         )
     elif source_schema is not None:
-        actual_type = _binding_selector_type(source_schema, selector)
+        actual_type = _binding_selector_type(source_schema, canonical_selector)
         if actual_type is None:
             findings.append(
                 Finding(
@@ -9135,6 +9305,13 @@ def _binding_source_schema(
     runtime_contract: dict[str, Any],
     name: Any,
 ) -> tuple[dict[str, Any] | None, str | None]:
+    canonical_source_ref, _ = canonical_binding_paths(
+        source_kind,
+        source_ref,
+        "value" if source_kind == "supplied_input" else "result",
+        inventory,
+    )
+    source_ref = canonical_source_ref
     prefix, _, reference = source_ref.partition(":")
     expected_prefix = "setup" if source_kind == "setup_output" else "facts"
     if prefix != expected_prefix or not reference:
@@ -10282,6 +10459,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CALL1_PROMPT_VERSION_V6,
         CALL1_PROMPT_VERSION_V7,
         CALL1_PROMPT_VERSION_V8,
+        CALL1_PROMPT_VERSION_V9,
         CALL2_PROMPT_VERSION_V3,
         CALL2_PROMPT_VERSION_V4,
         CALL2_PROMPT_VERSION_V5,
@@ -10292,6 +10470,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CALL2_PROMPT_VERSION_V10,
         CALL2_PROMPT_VERSION_V11,
         CALL2_PROMPT_VERSION_V12,
+        CALL2_PROMPT_VERSION_V13,
         CORRECTION_PROMPT_VERSION_V3,
         CORRECTION_PROMPT_VERSION_V4,
         CORRECTION_PROMPT_VERSION_V5,
@@ -10305,6 +10484,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CORRECTION_PROMPT_VERSION_V13,
         CORRECTION_PROMPT_VERSION_V14,
         CORRECTION_PROMPT_VERSION_V15,
+        CORRECTION_PROMPT_VERSION_V16,
         PLAN_REVIEW_PROMPT_VERSION_V1,
         PLAN_REVIEW_PROMPT_VERSION_V2,
         PLAN_REVIEW_PROMPT_VERSION_V3,
@@ -10312,6 +10492,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         PLAN_REVIEW_PROMPT_VERSION_V5,
         PLAN_REVIEW_PROMPT_VERSION_V6,
         PLAN_REVIEW_PROMPT_VERSION_V7,
+        PLAN_REVIEW_PROMPT_VERSION_V8,
         ARTIFACT_REVIEW_PROMPT_VERSION_V1,
         ARTIFACT_REVIEW_PROMPT_VERSION_V2,
         ARTIFACT_REVIEW_PROMPT_VERSION_V3,
@@ -10320,6 +10501,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         ARTIFACT_REVIEW_PROMPT_VERSION_V6,
         ARTIFACT_REVIEW_PROMPT_VERSION_V7,
         ARTIFACT_REVIEW_PROMPT_VERSION_V8,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V9,
     }:
         assert_no_prompt_duplicates(packet)
     if maximum <= 0:
@@ -10723,9 +10905,9 @@ _PLAN_REFERENCE_FIELD_DESCRIPTIONS = {
         "node IDs are invalid."
     ),
     "assumption_ref": (
-        "Exactly one fact ref or source handle from EVIDENCE REFERENCES that the "
-        "assumption rests on. Lineage IDs are invalid here; attack-tree node IDs are "
-        "invalid here."
+        "Exactly one fact ref, source handle, or ID listed in EVIDENCE REFERENCES "
+        "provenance_ids. The ID must exist in the supplied handoff and support the "
+        "assumption; do not invent or shorten one."
     ),
     "evidence_refs": (
         "Each entry is one citable reference from EVIDENCE REFERENCES, such as "
@@ -11196,7 +11378,9 @@ def _binding_contract(*, legacy: bool = False) -> dict[str, Any]:
             "for supplied_input or setup:<operation> for setup_output. <fact ref> is the "
             "complete inventory.facts[].ref including its namespace prefix: the fact ref "
             "state:orders is written facts:state:orders, never facts:orders. source_ref "
-            "is not a stimulus path or a guessed field name"
+            "is not a stimulus path or a guessed field name. For keyed-map records, "
+            "the accepted shorthand facts:<fact ref>:<record key>:<field> (or the "
+            "dot-field form) is resolved only against supplied keys and fields."
         )
         contract["selector_rule"] = (
             "selector performs value extraction: it extracts one value through an exact "
@@ -11206,7 +11390,12 @@ def _binding_contract(*, legacy: bool = False) -> dict[str, Any]:
             "of records, value.<record key>.<field> selects one record field; the "
             "record key itself is selected from the derived fact <fact ref>:records "
             "as value.<record key>.record_key, when that fact is listed. Inferred "
-            "field names are invalid"
+            "field names are invalid. Code also accepts keyed-map shorthand in "
+            "source_ref: facts:<fact ref>:<record key>:<field>, "
+            "facts:<fact ref>:<record key>.<field>, or "
+            "facts:<fact ref>:<record key> for a whole record. It resolves these "
+            "forms to the documented source and selector only when the key and "
+            "field exist; unknown keys and fields remain invalid."
         )
         contract["consumer_rule"] = (
             "consumers is a non-empty list of closed destination paths that receive the "
@@ -12531,6 +12720,7 @@ __all__ = [
     "CALL1_PROMPT_VERSION_V6",
     "CALL1_PROMPT_VERSION_V7",
     "CALL1_PROMPT_VERSION_V8",
+    "CALL1_PROMPT_VERSION_V9",
     "CALL2_PROMPT_VERSION",
     "CALL2_PROMPT_VERSION_V2",
     "CALL2_PROMPT_VERSION_V3",
@@ -12543,6 +12733,7 @@ __all__ = [
     "CALL2_PROMPT_VERSION_V10",
     "CALL2_PROMPT_VERSION_V11",
     "CALL2_PROMPT_VERSION_V12",
+    "CALL2_PROMPT_VERSION_V13",
     "CORRECTION_PROMPT_VERSION",
     "CORRECTION_PROMPT_VERSION_V2",
     "CORRECTION_PROMPT_VERSION_V3",
@@ -12558,6 +12749,7 @@ __all__ = [
     "CORRECTION_PROMPT_VERSION_V13",
     "CORRECTION_PROMPT_VERSION_V14",
     "CORRECTION_PROMPT_VERSION_V15",
+    "CORRECTION_PROMPT_VERSION_V16",
     "Call2FramingError",
     "Finding",
     "PlanValidationError",
@@ -12569,6 +12761,7 @@ __all__ = [
     "PLAN_REVIEW_PROMPT_VERSION_V5",
     "PLAN_REVIEW_PROMPT_VERSION_V6",
     "PLAN_REVIEW_PROMPT_VERSION_V7",
+    "PLAN_REVIEW_PROMPT_VERSION_V8",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V1",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V2",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V3",
@@ -12577,6 +12770,7 @@ __all__ = [
     "ARTIFACT_REVIEW_PROMPT_VERSION_V6",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V7",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V8",
+    "ARTIFACT_REVIEW_PROMPT_VERSION_V9",
     "PLAN_FIELD_MEANINGS",
     "NEUTRAL_PLAN_OUTCOME_EXAMPLE",
     "PromptPacket",

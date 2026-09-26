@@ -109,3 +109,53 @@ def test_wildcard_prerequisite_consumer_stays_invalid() -> None:
     ]
 
     assert "consumer_mismatch" in codes
+
+
+def test_plan_validation_persists_canonical_keyed_binding_paths() -> None:
+    inventory = _inventory()
+    inventory["facts"].extend(
+        [
+            {
+                "ref": "state:orders",
+                "value": {"ORD-1": {"customer_id": "CUST-1"}},
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "ORD-1": {
+                            "type": "object",
+                            "properties": {"customer_id": {"type": "string"}},
+                        }
+                    },
+                },
+            },
+            {
+                "ref": "state:orders:records",
+                "value": {"ORD-1": {"record_key": "ORD-1"}},
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "ORD-1": {
+                            "type": "object",
+                            "properties": {"record_key": {"type": "string"}},
+                        }
+                    },
+                },
+            },
+        ]
+    )
+    plan = copy.deepcopy(_plan())
+    plan["runtime_bindings"] = [
+        {
+            "name": "customer_id",
+            "expected_type": "string",
+            "source_kind": "supplied_input",
+            "source_ref": "facts:state:orders:ORD-1:customer_id",
+            "selector": "value",
+            "consumers": ["stimulus.user_text"],
+            "on_missing": "stop",
+        }
+    ]
+
+    assert collect_plan_findings_v2(plan, inventory, _runtime_contract()) == []
+    assert plan["runtime_bindings"][0]["source_ref"] == "facts:state:orders"
+    assert plan["runtime_bindings"][0]["selector"] == "value.ORD-1.customer_id"

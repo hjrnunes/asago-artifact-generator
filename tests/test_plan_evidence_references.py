@@ -4,8 +4,8 @@ import copy
 import json
 
 from asago_artifact_generator.authoring import (
-    CALL1_PROMPT_VERSION_V8,
-    CORRECTION_PROMPT_VERSION_V15,
+    CALL1_PROMPT_VERSION_V9,
+    CORRECTION_PROMPT_VERSION_V16,
     Finding,
     _render_correction_packet,
     build_artifact_author_context,
@@ -28,7 +28,7 @@ def _section(user: str, title: str) -> dict:
 def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
     packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
 
-    assert packet.version == CALL1_PROMPT_VERSION_V8
+    assert packet.version == CALL1_PROMPT_VERSION_V9
     assert packet.user.index("SOURCE CONTEXT") < packet.user.index("EVIDENCE REFERENCES")
     assert packet.user.index("EVIDENCE REFERENCES") < packet.user.index("EXECUTION CAPABILITIES")
     section = _section(packet.user, "EVIDENCE REFERENCES")
@@ -41,7 +41,7 @@ def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
     assert ids["SC-1"] == "scenario lineage (constraint IDs)"
     assert ids["CA-1-1"] == "scenario lineage (control action ID)"
     assert "interpretation.source_refs" in section["provenance_ids"]["rule"]
-    assert "not valid here" in section["field_rules"]["assumptions[].ref"]
+    assert "provenance_ids" in section["field_rules"]["assumptions[].ref"]
     assert any("assistant_messages" in item for item in section["not_references"])
 
 
@@ -87,7 +87,7 @@ def test_call1_schema_describes_every_reference_field() -> None:
         in (properties["selected_evidence"]["items"]["properties"]["ref"]["description"])
     )
     assert (
-        "Lineage IDs are invalid"
+        "provenance_ids"
         in (properties["assumptions"]["items"]["properties"]["ref"]["description"])
     )
     assert (
@@ -116,7 +116,7 @@ def _codes_at(findings: list[Finding], prefix: str) -> list[str]:
     return [finding.code for finding in findings if finding.path.startswith(prefix)]
 
 
-def test_provenance_ids_are_valid_only_in_interpretation_source_refs() -> None:
+def test_provenance_ids_are_valid_in_source_refs_and_assumptions() -> None:
     plan = copy.deepcopy(_plan())
     plan["interpretation"]["source_refs"] = ["source:case", "SC-1", "CA-1-1"]
     plan["assumptions"] = [{"ref": "SC-1", "reason": "lineage is not a supplied fact"}]
@@ -128,7 +128,7 @@ def test_provenance_ids_are_valid_only_in_interpretation_source_refs() -> None:
     strict = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
 
     assert _codes_at(accepted, "interpretation.source_refs") == []
-    assert _codes_at(accepted, "assumptions[0].ref") == ["unknown_reference"]
+    assert _codes_at(accepted, "assumptions[0].ref") == []
     assert _codes_at(strict, "interpretation.source_refs") == [
         "unknown_reference",
         "unknown_reference",
@@ -157,7 +157,7 @@ def test_observation_scopes_stay_invalid_as_selected_evidence() -> None:
 
 def test_plan_correction_explains_each_unknown_reference() -> None:
     candidate = copy.deepcopy(_plan())
-    candidate["assumptions"] = [{"ref": "SC-1", "reason": "constraint"}]
+    candidate["assumptions"] = [{"ref": "AT-NOT-SUPPLIED", "reason": "constraint"}]
     candidate["selected_evidence"].append(
         {"ref": "assistant_messages", "role": "reply", "source": "runtime"}
     )
@@ -177,18 +177,17 @@ def test_plan_correction_explains_each_unknown_reference() -> None:
         )
     )
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V15
+    assert packet.version == CORRECTION_PROMPT_VERSION_V16
     options = {
         item["path"]: item for item in packet.payload["reference_repair_options"]["options"]
     }
     assert {path: item["rejected_value_kind"] for path, item in options.items()} == {
         "selected_evidence[1]": "observation_scope",
         "interpretation.source_refs[0]": "unlisted",
-        "assumptions[0].ref": "provenance_id",
+        "assumptions[0].ref": "unlisted",
     }
-    assert options["assumptions[0].ref"]["field_rule"].endswith(
-        "cite it in interpretation.source_refs instead."
-    )
+    assert "provenance_ids" in options["assumptions[0].ref"]["field_rule"]
+    assert "valid_provenance_ids" in packet.payload["reference_repair_options"]
     assert "REFERENCE REPAIR OPTIONS" in packet.user
     assert packet.user.index("CURRENT FINDINGS") < packet.user.index("REFERENCE REPAIR OPTIONS")
     assert '"provenance_ids"' in packet.user

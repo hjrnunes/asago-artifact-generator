@@ -179,14 +179,14 @@ or empty block leaves rendered request bytes unchanged.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v4` renders the plan author context while preserving the
+- `authoring-call1-v9` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v2` reviews a fresh source-derived plan context.
-- `authoring-call2-v5` renders the immutable accepted plan and preserves the
+- `authoring-plan-review-v8` reviews a fresh source-derived plan context.
+- `authoring-call2-v13` renders the immutable accepted plan and preserves the
   two-block JSON-metadata-plus-Python response.
-- `authoring-artifact-review-v3` reviews the exact metadata, detector bytes,
+- `authoring-artifact-review-v9` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v5` renders only the failed stage format and all
+- `authoring-correction-v16` renders only the failed stage format and all
   current findings.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
@@ -205,6 +205,14 @@ from setup binding sources (`setup:<operation>`), plain binding names, closed
 consumers, and `{{binding_name}}` stimulus slots. Its neutral example
 uses a case-permitted status operation when one is supplied; otherwise it is a
 labeled generic illustration with no operation, binding, or prerequisite.
+Keyed-map bindings may use a source shorthand such as
+`facts:state:orders:ORD-101:customer_id`; validation resolves it only when the
+record key and field exist, then persists the documented
+`facts:state:orders` plus `value.ORD-101.customer_id` paths. Unknown keys,
+fields, and incompatible types remain invalid. Valid scenario lineage and
+attack-tree IDs from the handoff are accepted in `interpretation.source_refs`
+and `assumptions[].ref`; correction feedback lists the valid provenance IDs,
+while invented IDs remain invalid.
 Review statuses remain visible as `accepted`, `not_requested`, `revise`,
 `blocked`, or `review_unavailable`.
 Provider capture keeps final-answer state, reasoning state and content, and
@@ -432,7 +440,11 @@ If authoring fails before a package exists, the sibling
 each exact rendered prompt, available raw response bytes, provider usage,
 controls, transformations, and findings. Missing responses or usage use an
 explicit `unavailable` marker. Provider endpoint and secret metadata are
-redacted from the sidecar.
+redacted from the sidecar. The sidecar uses
+`authoring-failure-evidence-v2`; readers accept the prior v1 document as well.
+`attempts` retains the full history, while top-level `findings` contains only
+the findings that caused the terminal status. The `terminal` object records the
+logical stage, zero-based attempt index, and terminal reason.
 
 ### Offline detector checks
 

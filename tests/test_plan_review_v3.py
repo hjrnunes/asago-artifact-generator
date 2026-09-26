@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from asago_artifact_generator.authoring import (
-    PLAN_REVIEW_PROMPT_VERSION_V7,
+    PLAN_REVIEW_PROMPT_VERSION_V8,
     _binding_contract,
     build_plan_review_packet,
     build_plan_reviewer_context,
@@ -23,7 +23,7 @@ def test_plan_reviewer_v3_renders_shared_binding_rules_and_mechanical_checks() -
     context = build_plan_reviewer_context(view, plan, inventory, runtime)
     packet = build_plan_review_packet(view, plan, inventory, runtime)
 
-    assert packet.version == PLAN_REVIEW_PROMPT_VERSION_V7
+    assert packet.version == PLAN_REVIEW_PROMPT_VERSION_V8
     assert (
         "Apply BINDING AND SETUP RULES when interpreting runtime_bindings, "
         "setup_recipe, and setup_permissions"

@@ -110,6 +110,22 @@ def validate_bindings(
     names: set[str] = set()
     for raw in declarations:
         binding = RuntimeBinding.from_dict(raw)
+        canonical_source_ref, canonical_selector = canonical_binding_paths(
+            binding.source_kind,
+            binding.source_ref,
+            binding.selector,
+            inventory,
+        )
+        if canonical_source_ref != binding.source_ref or canonical_selector != binding.selector:
+            binding = RuntimeBinding(
+                name=binding.name,
+                expected_type=binding.expected_type,
+                source_kind=binding.source_kind,
+                source_ref=canonical_source_ref,
+                selector=canonical_selector,
+                consumers=binding.consumers,
+                on_missing=binding.on_missing,
+            )
         if binding.name in names:
             raise BindingValidationError(f"duplicate binding: {binding.name}")
         names.add(binding.name)
@@ -136,6 +152,129 @@ def validate_bindings(
             )
         bindings.append(binding)
     return tuple(bindings)
+
+
+def canonical_binding_paths(
+    source_kind: str,
+    source_ref: str,
+    selector: str,
+    inventory: dict[str, Any],
+) -> tuple[str, str]:
+    """Resolve a keyed-map shorthand to the documented fact and selector.
+
+    The model-facing wire documents ``facts:<ref>`` plus a dot selector.  A
+    keyed-map shorthand may instead put the record key and field in the source
+    reference, for example ``facts:state:orders:ORD-201:customer_id``.  This
+    helper only canonicalizes a path when the referenced key and field exist
+    in the supplied schemas; unresolved shorthands remain unchanged and fail
+    the normal closed validation.
+    """
+
+    if source_kind != "supplied_input" or not source_ref.startswith("facts:"):
+        return source_ref, selector
+    reference = source_ref.removeprefix("facts:")
+    fact_by_ref = {
+        item["ref"]: item
+        for item in inventory.get("facts", [])
+        if isinstance(item, dict) and isinstance(item.get("ref"), str)
+    }
+    if reference in fact_by_ref:
+        return source_ref, selector
+
+    for companion_ref in sorted(fact_by_ref):
+        if not companion_ref.endswith(":records"):
+            continue
+        base_ref = companion_ref.removesuffix(":records")
+        parsed = _keyed_source_suffix(reference, companion_ref, base_ref)
+        if parsed is None:
+            continue
+        record_key, field = parsed
+        original = fact_by_ref.get(base_ref)
+        companion = fact_by_ref[companion_ref]
+        companion_source = reference.startswith(f"{companion_ref}:")
+        if field is None:
+            selector_parts = selector.split(".")
+            if selector == "value":
+                sources = (
+                    ((companion_ref, companion), (base_ref, original))
+                    if companion_source
+                    else ((base_ref, original), (companion_ref, companion))
+                )
+                for resolved_ref, resolved_fact in sources:
+                    if (
+                        _schema_at_selector(
+                            resolved_fact.get("schema", {})
+                            if isinstance(resolved_fact, dict)
+                            else {},
+                            f"value.{record_key}",
+                        )
+                        is not None
+                    ):
+                        return f"facts:{resolved_ref}", f"value.{record_key}"
+            elif len(selector_parts) == 2 and selector_parts[0] == "value":
+                field = selector_parts[1]
+                sources = (
+                    ((companion_ref, companion), (base_ref, original))
+                    if companion_source
+                    else ((base_ref, original), (companion_ref, companion))
+                )
+                for resolved_ref, resolved_fact in sources:
+                    if (
+                        _schema_at_selector(
+                            resolved_fact.get("schema", {})
+                            if isinstance(resolved_fact, dict)
+                            else {},
+                            f"value.{record_key}.{field}",
+                        )
+                        is not None
+                    ):
+                        return f"facts:{resolved_ref}", f"value.{record_key}.{field}"
+            continue
+        if selector != "value":
+            continue
+        sources = (
+            ((companion_ref, companion), (base_ref, original))
+            if companion_source
+            else ((base_ref, original), (companion_ref, companion))
+        )
+        for resolved_ref, resolved_fact in sources:
+            if (
+                _schema_at_selector(
+                    resolved_fact.get("schema", {}) if isinstance(resolved_fact, dict) else {},
+                    f"value.{record_key}.{field}",
+                )
+                is not None
+            ):
+                return f"facts:{resolved_ref}", f"value.{record_key}.{field}"
+    return source_ref, selector
+
+
+def _keyed_source_suffix(
+    reference: str,
+    companion_ref: str,
+    base_ref: str,
+) -> tuple[str, str | None] | None:
+    """Parse one keyed-map source shorthand against a known fact namespace."""
+
+    prefix: str | None = None
+    if reference.startswith(f"{companion_ref}:"):
+        prefix = companion_ref
+    elif reference.startswith(f"{base_ref}:"):
+        prefix = base_ref
+    if prefix is None:
+        return None
+    suffix = reference[len(prefix) + 1 :]
+    if not suffix:
+        return None
+    if "." in suffix:
+        record_key, field = suffix.split(".", 1)
+    elif ":" in suffix:
+        record_key, field = suffix.split(":", 1)
+    else:
+        record_key, field = suffix, None
+    if not record_key or field == "":
+        return None
+    return record_key, field
 
 
 def substitute_slots(
@@ -197,7 +336,13 @@ def _source_schema(
             raise BindingValidationError(f"setup operation is not permitted: {operation}")
         schema = operation_record.get("result_schema")
     else:
-        prefix, _, reference = binding.source_ref.partition(":")
+        source_ref, _ = canonical_binding_paths(
+            binding.source_kind,
+            binding.source_ref,
+            binding.selector,
+            inventory,
+        )
+        prefix, _, reference = source_ref.partition(":")
         if prefix != "facts" or not reference:
             raise BindingValidationError(
                 f"supplied binding source_ref must be facts:<ref>: {binding.name}"
@@ -265,6 +410,7 @@ __all__ = [
     "BindingValidationError",
     "CLOSED_TYPES",
     "RuntimeBinding",
+    "canonical_binding_paths",
     "substitute_slots",
     "validate_bindings",
 ]

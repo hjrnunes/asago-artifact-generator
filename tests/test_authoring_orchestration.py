@@ -1246,6 +1246,10 @@ def test_failed_authoring_persists_reloadable_evidence_before_discarding_respons
     assert first["controls"]["availability"] == "available"
     assert first["controls"]["value"]["max_retries"] == 0
     assert first["findings"][0]["code"] == expected_code
+    assert saved["findings"] == first["findings"]
+    assert saved["terminal"]["stage"] == "plan"
+    assert saved["terminal"]["attempt_index"] == 0
+    assert saved["terminal"]["reason"] == expected_code
 
     if isinstance(response, TransportResponse):
         assert first["raw_response"]["availability"] == "available"
