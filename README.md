@@ -236,54 +236,18 @@ uv run asago-scenario-generator run \
   --sp3-profile <profile-name>
 ```
 
-Frozen downstream execution remains producer-owned and consumes only a saved
-package:
+The consumer remains target-free. The `asago-orch` repository owns downstream
+qualification, including package execution, live setup, runtime judging,
+detector evaluation, evidence, and cleanup. Read
+`asago-orch/docs/qualification.md`; its implementation lives under
+`asago-orch/src/asago_orch/qualification/`.
+
+Run the configured pipeline from the orch repository:
 
 ```bash
-cd <producer-repo-root>
-.venv/bin/python scripts/qualification/run_frozen_package.py \
-  /absolute/path/to/package \
-  --setup-fixture /absolute/path/to/setup.json \
-  --generation-fixture /absolute/path/to/generation.json \
-  --receipt build/qualification/frozen-receipt.json
+cd <orch-repo-root>
+uv run asago-orch run --target <target> --to execute
 ```
-
-The consumer remains target-free. Downstream owns live qualification and uses
-the safe-only lifecycle with one target and the gateway at a time. Start,
-verify, and stop only the component-specific safe commands:
-
-```bash
-cd <producer-repo-root>
-uv run python scripts/qualification/run_recipe.py start-safe \
-  --component target --domain klarna --port 8888 \
-  --state-dir build/qualification/runtime/klarna
-uv run python scripts/qualification/run_recipe.py start-safe \
-  --component gateway --port 8321 \
-  --profile <configured-profile> \
-  --profiles-file config/model-profiles.yaml \
-  --state-dir build/qualification/runtime/gateway
-uv run python scripts/qualification/run_recipe.py verify-safe \
-  --component target --domain klarna --port 8888 \
-  --state-dir build/qualification/runtime/klarna
-uv run python scripts/qualification/run_recipe.py verify-safe \
-  --component gateway --port 8321 \
-  --state-dir build/qualification/runtime/gateway
-uv run python scripts/qualification/run_recipe.py stop-safe \
-  --component target --domain klarna --port 8888 \
-  --state-dir build/qualification/runtime/klarna
-uv run python scripts/qualification/run_recipe.py stop-safe \
-  --component gateway --port 8321 \
-  --state-dir build/qualification/runtime/gateway
-```
-
-The safe-only boundary permits gateway port `8321` and target ports `8888`,
-`8890`, and `8892`. The lifecycle records process identities and cleans up
-only those captured processes. Do not use the unrestricted stack or lifecycle
-commands for qualification.
-
-For end-to-end qualification, follow the downstream repository's
-`scripts/qualification/README.md`. The consumer does not start or reset a
-downstream stack.
 
 Run the final broad gate once, after the last required execution:
 
@@ -298,12 +262,7 @@ cd <producer-repo-root>
 ./scripts/quality.sh
 export ASAGO_SCENARIO_GENERATOR_APS_ROOT=/absolute/path/to/Acceptance-Pipeline-Specification
 ./scripts/acceptance.sh
-uv run pytest scripts/qualification -q
 ```
-
-The producer qualification suite includes the offline fake-judge and spy
-checks. They verify the package-declared judge dependency, one-request bound,
-saved-result reuse, and inconclusive failure behavior without live judging.
 
 The old `generate` command remains a read-only compatibility path for
 historical scenario YAMLs. Migrate new work to `run` → `author` → `check`;

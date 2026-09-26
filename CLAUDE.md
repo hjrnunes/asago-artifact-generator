@@ -90,7 +90,8 @@ Deterministic tests must not contact a model endpoint or target.
 - `src/asago_artifact_generator/bindings.py`: binding sources and destinations.
 - `src/asago_artifact_generator/detector_controls.py`: isolated control feedback.
 - `tests/`: executable examples and regression coverage for the changed behavior.
-- Paired producer `scripts/qualification/README.md`: downstream execution and cleanup.
+- Orch qualification runbook `asago-orch/docs/qualification.md`; its modules
+  live under `asago-orch/src/asago_orch/qualification/`.
 
 Finish the requested slice once its behavior and required checks pass. Report
 case outcomes, blockers, actual spend, and evidence paths. A passing suite is
