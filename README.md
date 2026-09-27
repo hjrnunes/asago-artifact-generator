@@ -179,14 +179,14 @@ or empty block leaves rendered request bytes unchanged.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v10` renders the plan author context while preserving the
+- `authoring-call1-v11` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v9` reviews a fresh source-derived plan context.
-- `authoring-call2-v14` renders the immutable accepted plan and preserves the
+- `authoring-plan-review-v10` reviews a fresh source-derived plan context.
+- `authoring-call2-v15` renders the immutable accepted plan and preserves the
   two-block JSON-metadata-plus-Python response.
-- `authoring-artifact-review-v10` reviews the exact metadata, detector bytes,
+- `authoring-artifact-review-v11` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v17` renders only the failed stage format and all
+- `authoring-correction-v18` renders only the failed stage format and all
   current findings.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
@@ -363,13 +363,26 @@ vendored v2 schema. A v1 document that contains either field is rejected.
   a `status` and one `{index, result, reason}` entry per comparison. It is not
   runtime evidence.
 
-When either field is non-null, authoring passes it unchanged into the scenario
-context of plan authoring, plan review, artifact authoring, and artifact review.
-Plan authoring and both reviews also state the generic rule: the detector checks
-the condition on captured evidence rather than only the operation, uses the
+When either field is non-null, authoring passes it into the scenario context of
+plan authoring, plan review, artifact authoring, artifact review, and
+correction. The model-facing view states each fact once: when the Gherkin step
+`Given the discriminating condition holds: <statement>` already carries the
+statement, the condition replaces `statement` with a `statement_location`
+pointer, and `condition_check` keeps `status` and each comparison's `index` and
+`result` without the producer's `reason` text. `build_scenario_handoff_view`
+keeps both fields unchanged. Only when a condition is present, plan
+authoring and both reviews also state the generic rule: the detector checks the
+condition on captured evidence rather than only the operation, uses the
 selected record's `argument_values` paths when the record is observed, and keeps
 a runtime binding while still checking captured arguments when it is
 unavailable.
+
+The plan-author prompt renders SOURCE CONTEXT as compact JSON and lists the
+runtime contract and each binding rule once; EXECUTION CAPABILITIES and the
+runtime-binding schema descriptions point to those single copies. To check a
+scenario against the context guard without a model call, run
+`uv run python scripts/measure_call1_budget.py --target-profile PROFILE
+--target-observations RUNTIME_CONTEXT --runtime-contract CONTRACT SCENARIO...`.
 
 Use
 `asago_artifact_generator.target_inputs.load_target_inputs` to validate the

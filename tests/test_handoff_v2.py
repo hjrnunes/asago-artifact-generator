@@ -116,10 +116,60 @@ def test_condition_and_guidance_reach_plan_artifact_and_review_prompts() -> None
         ),
     }
     statement = view.payload["discriminating_condition"]["statement"]
-    guidance = "When the scenario supplies discriminating_condition"
+    guidance = "must check the scenario's discriminating_condition on captured evidence"
+    check_reason = view.payload["condition_check"]["comparisons"][0]["reason"]
 
     for name, packet in packets.items():
-        assert statement in packet.user, name
+        assert packet.user.count(statement) == 1, name
+        assert "statement_location" in packet.user, name
         assert "argument_values" in packet.user, name
         assert '"condition_check"' in packet.user, name
-        assert (guidance in packet.user) is (name != "call2"), name
+        assert '"satisfied"' in packet.user, name
+        assert check_reason not in packet.user, name
+        assert packet.user.count(guidance) == (0 if name == "call2" else 1), name
+
+
+@pytest.mark.parametrize("source", [_V1_HANDOFF, _KIT / "valid" / "analytical-only.json"])
+def test_condition_guidance_is_omitted_without_a_condition(source: Path) -> None:
+    view = load_input(source)
+    inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
+    packets = (
+        build_call1_packet_v2(view, inventory, runtime),
+        build_plan_review_packet(view, plan, inventory, runtime),
+        build_artifact_review_packet(view, plan, _metadata(), _source(), [], inventory, runtime),
+    )
+
+    for packet in packets:
+        assert "discriminating_condition" not in packet.user, packet.stage
+        assert "condition_check" not in packet.user, packet.stage
+
+
+def test_condition_statement_stays_in_the_view_when_gherkin_omits_it(tmp_path: Path) -> None:
+    payload = json.loads(_OBSERVED.read_text(encoding="utf-8"))
+    payload["gherkin"]["given"] = [
+        step
+        for step in payload["gherkin"]["given"]
+        if "the discriminating condition holds" not in step
+    ]
+    path = _write_signed(tmp_path, payload, "scenario-handoff-v2")
+    view = load_input(path)
+    statement = view.payload["discriminating_condition"]["statement"]
+
+    packet = build_call1_packet_v2(view, _inventory(), _runtime_contract())
+
+    assert packet.user.count(statement) == 1
+    assert "statement_location" not in packet.user
+    assert build_scenario_handoff_view(view)["condition_check"] == view.payload["condition_check"]
+
+
+def test_call1_renders_runtime_contract_and_binding_rules_once() -> None:
+    view = load_input(_OBSERVED)
+    runtime = _runtime_contract()
+    packet = build_call1_packet_v2(view, _inventory(), runtime)
+    binding = packet.payload["response_contract"]["binding_declaration"]
+
+    runtime_text = json.dumps(runtime, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    assert packet.user.count(runtime_text) == 1
+    for rule in ("selector_rule", "consumer_rule", "source_ref_rule"):
+        assert packet.user.count(json.dumps(binding[rule], ensure_ascii=False)) == 1, rule
+        assert f"See binding_declaration.{rule}." in packet.user, rule
