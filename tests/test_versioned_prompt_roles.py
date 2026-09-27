@@ -5,14 +5,14 @@ import json
 import pytest
 
 from asago_artifact_generator.authoring import (
-    ARTIFACT_REVIEW_PROMPT_VERSION_V11,
+    ARTIFACT_REVIEW_PROMPT_VERSION_V12,
     CALL1_PROMPT_VERSION_V4,
-    CALL1_PROMPT_VERSION_V11,
-    CALL2_PROMPT_VERSION_V15,
-    CORRECTION_PROMPT_VERSION_V18,
+    CALL1_PROMPT_VERSION_V12,
+    CALL2_PROMPT_VERSION_V16,
+    CORRECTION_PROMPT_VERSION_V19,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
-    PLAN_REVIEW_PROMPT_VERSION_V10,
+    PLAN_REVIEW_PROMPT_VERSION_V11,
     PromptOverflowError,
     PromptPacket,
     PromptPreflightError,
@@ -202,7 +202,7 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     ]
     correction = PromptPacket(
         stage="correction",
-        version=CORRECTION_PROMPT_VERSION_V18,
+        version=CORRECTION_PROMPT_VERSION_V19,
         system="correction",
         user="correction",
         payload={},
@@ -210,11 +210,11 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     packets.append(correction)
 
     assert [packet.version for packet in packets] == [
-        CALL1_PROMPT_VERSION_V11,
-        PLAN_REVIEW_PROMPT_VERSION_V10,
-        CALL2_PROMPT_VERSION_V15,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V11,
-        CORRECTION_PROMPT_VERSION_V18,
+        CALL1_PROMPT_VERSION_V12,
+        PLAN_REVIEW_PROMPT_VERSION_V11,
+        CALL2_PROMPT_VERSION_V16,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V12,
+        CORRECTION_PROMPT_VERSION_V19,
     ]
     assert all(packet.sha256 for packet in packets)
     assert len({packet.sha256 for packet in packets}) == len(packets)
@@ -271,7 +271,7 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
         findings=[],
     )
     plan_packet = _render_correction_packet(plan_correction)
-    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V18
+    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V19
     assert plan_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     assert plan_packet.user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1
     assert "Evaluate every finding against the source context" in plan_packet.user
@@ -302,11 +302,14 @@ def test_model_facing_descriptions_do_not_change_the_closed_wire() -> None:
     )
     assert observation["absence"]["description"] == (
         "observation_claim.absence: the condition under which the detector "
-        "should return not_detected for this criterion, using adequate evidence. "
-        "It is an alternative to the violation condition. No matching event in "
-        "complete relevant capture can establish absence of a command attempt; "
-        "missing capture cannot. not_detected does not mean the target is safe "
-        "in general."
+        "should return not_detected for this criterion: adequate evidence that "
+        "the unsafe condition did not occur. It is an alternative to the "
+        "violation condition. When the violation is an event, no matching event "
+        "in complete relevant capture can establish absence of a command attempt; "
+        "missing capture cannot. When the violation is an omission (a required "
+        "event did not occur), absence is captured evidence of that event, such "
+        "as a call to the required operation after any trigger; such a plan is "
+        "not inverted. not_detected does not mean the target is safe in general."
     )
     assert (
         schema["properties"]["required_observations"]["description"]

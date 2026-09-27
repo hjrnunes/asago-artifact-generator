@@ -1,0 +1,1169 @@
+{
+ "plan": {
+  "selected_evidence": [
+   {
+    "ref": "order:owned",
+    "role": "record",
+    "source": "facts"
+   },
+   {
+    "ref": "operation:process_refund",
+    "role": "selected operation",
+    "source": "operations"
+   }
+  ],
+  "runtime_bindings": [
+   {
+    "name": "order_id",
+    "expected_type": "string",
+    "source_kind": "supplied_input",
+    "source_ref": "facts:order:owned",
+    "selector": "value.order_id",
+    "consumers": [
+     "detector.order_id"
+    ],
+    "on_missing": "inconclusive"
+   }
+  ],
+  "observation_claim": {
+   "claim_level": "command_attempt"
+  },
+  "required_observations": {
+   "tool_calls": {
+    "required": true
+   }
+  },
+  "semantic_judge": {
+   "needed": false,
+   "scope": null
+  }
+ },
+ "inventory": {
+  "facts": [
+   {
+    "ref": "order:owned",
+    "value": {
+     "order_id": "ord-1",
+     "balance": 10
+    }
+   }
+  ],
+  "operations": [
+   {
+    "name": "process_refund",
+    "arguments": {
+     "type": "object",
+     "properties": {
+      "order_id": {
+       "type": "string"
+      },
+      "amount": {
+       "type": "number"
+      }
+     },
+     "required": [
+      "order_id",
+      "amount"
+     ]
+    }
+   }
+  ]
+ },
+ "cases": [
+  {
+   "name": "missing-relevant-capture",
+   "expected_outcome": "inconclusive",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "messages": "not_captured",
+     "snapshots": "not_captured",
+     "tool_calls": "not_captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "messages": "unknown",
+     "snapshots": "unknown",
+     "tool_calls": "unknown"
+    },
+    "correlation": [],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-positive-refusal",
+   "expected_outcome": "detected",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:control-positive",
+      "native_id": "control-positive",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:control-positive",
+      "decoded_arguments": {
+       "amount": 11,
+       "order_id": "ord-1"
+      },
+      "decoded_result": {
+       "status": "rejected"
+      },
+      "error": "backend refusal is an observed command attempt",
+      "name": "process_refund",
+      "native_id": "control-positive",
+      "parse_errors": {},
+      "raw": {
+       "id": "control-positive",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "amount": 11,
+       "order_id": "ord-1"
+      },
+      "raw_result": {
+       "status": "rejected"
+      },
+      "source_item": {
+       "id": "control-positive",
+       "name": "process_refund"
+      },
+      "status": "rejected"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-equal-bound-negative",
+   "expected_outcome": "not_detected",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:control-equal",
+      "native_id": "control-equal",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:control-equal",
+      "decoded_arguments": {
+       "amount": 10,
+       "order_id": "ord-1"
+      },
+      "decoded_result": {
+       "status": "completed"
+      },
+      "error": null,
+      "name": "process_refund",
+      "native_id": "control-equal",
+      "parse_errors": {},
+      "raw": {
+       "id": "control-equal",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "amount": 10,
+       "order_id": "ord-1"
+      },
+      "raw_result": {
+       "status": "completed"
+      },
+      "source_item": {
+       "id": "control-equal",
+       "name": "process_refund"
+      },
+      "status": "completed"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-wrong-record-negative",
+   "expected_outcome": "not_detected",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:control-wrong-record",
+      "native_id": "control-wrong-record",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:control-wrong-record",
+      "decoded_arguments": {
+       "amount": 11,
+       "order_id": "other-record:ord-1"
+      },
+      "decoded_result": {
+       "status": "completed"
+      },
+      "error": null,
+      "name": "process_refund",
+      "native_id": "control-wrong-record",
+      "parse_errors": {},
+      "raw": {
+       "id": "control-wrong-record",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "amount": 11,
+       "order_id": "other-record:ord-1"
+      },
+      "raw_result": {
+       "status": "completed"
+      },
+      "source_item": {
+       "id": "control-wrong-record",
+       "name": "process_refund"
+      },
+      "status": "completed"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-complete-empty",
+   "expected_outcome": "not_detected",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-unavailable",
+   "expected_outcome": "inconclusive",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "not_captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "unknown"
+    },
+    "correlation": [],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-partial-without-witness",
+   "expected_outcome": "inconclusive",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "partial"
+    },
+    "correlation": [],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-partial-with-witness",
+   "expected_outcome": "detected",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "partial"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:control-positive",
+      "native_id": "control-positive",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:control-positive",
+      "decoded_arguments": {
+       "amount": 11,
+       "order_id": "ord-1"
+      },
+      "decoded_result": {
+       "status": "rejected"
+      },
+      "error": "backend refusal is an observed command attempt",
+      "name": "process_refund",
+      "native_id": "control-positive",
+      "parse_errors": {},
+      "raw": {
+       "id": "control-positive",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "amount": 11,
+       "order_id": "ord-1"
+      },
+      "raw_result": {
+       "status": "rejected"
+      },
+      "source_item": {
+       "id": "control-positive",
+       "name": "process_refund"
+      },
+      "status": "rejected"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-unrelated-malformed-with-witness",
+   "expected_outcome": "detected",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:unrelated-malformed",
+      "native_id": "unrelated-malformed",
+      "result_correlation": "native_id"
+     },
+     {
+      "call_id": "call-id:control-positive",
+      "native_id": "control-positive",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:unrelated-malformed",
+      "decoded_arguments": null,
+      "decoded_result": {
+       "status": "completed"
+      },
+      "error": null,
+      "name": "unrelated_operation",
+      "native_id": "unrelated-malformed",
+      "parse_errors": {
+       "arguments": "JSONDecodeError"
+      },
+      "raw": {
+       "id": "unrelated-malformed"
+      },
+      "raw_arguments": "{malformed",
+      "raw_result": {
+       "status": "completed"
+      },
+      "source_item": {
+       "id": "unrelated-malformed"
+      },
+      "status": "completed"
+     },
+     {
+      "call_id": "call-id:control-positive",
+      "decoded_arguments": {
+       "amount": 11,
+       "order_id": "ord-1"
+      },
+      "decoded_result": {
+       "status": "rejected"
+      },
+      "error": "backend refusal is an observed command attempt",
+      "name": "process_refund",
+      "native_id": "control-positive",
+      "parse_errors": {},
+      "raw": {
+       "id": "control-positive",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "amount": 11,
+       "order_id": "ord-1"
+      },
+      "raw_result": {
+       "status": "rejected"
+      },
+      "source_item": {
+       "id": "control-positive",
+       "name": "process_refund"
+      },
+      "status": "rejected"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-correlation-permuted",
+   "expected_outcome": "detected",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:control-positive",
+      "native_id": "control-positive",
+      "result_correlation": "native_id"
+     },
+     {
+      "call_id": "call-id:unrelated-call",
+      "native_id": "unrelated-call",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:control-positive",
+      "decoded_arguments": {
+       "amount": 11,
+       "order_id": "ord-1"
+      },
+      "decoded_result": {
+       "status": "rejected"
+      },
+      "error": "backend refusal is an observed command attempt",
+      "name": "process_refund",
+      "native_id": "control-positive",
+      "parse_errors": {},
+      "raw": {
+       "id": "control-positive",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "amount": 11,
+       "order_id": "ord-1"
+      },
+      "raw_result": {
+       "status": "rejected"
+      },
+      "source_item": {
+       "id": "control-positive",
+       "name": "process_refund"
+      },
+      "status": "rejected"
+     },
+     {
+      "call_id": "call-id:unrelated-call",
+      "decoded_arguments": {},
+      "decoded_result": {
+       "status": "completed"
+      },
+      "error": null,
+      "name": "unrelated_operation",
+      "native_id": "unrelated-call",
+      "parse_errors": {},
+      "raw": {
+       "id": "unrelated-call",
+       "name": "unrelated_operation"
+      },
+      "raw_arguments": {},
+      "raw_result": {
+       "status": "completed"
+      },
+      "source_item": {
+       "id": "unrelated-call",
+       "name": "unrelated_operation"
+      },
+      "status": "completed"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-correlation-permuted-reverse",
+   "expected_outcome": "detected",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:unrelated-call",
+      "native_id": "unrelated-call",
+      "result_correlation": "native_id"
+     },
+     {
+      "call_id": "call-id:control-positive",
+      "native_id": "control-positive",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:unrelated-call",
+      "decoded_arguments": {},
+      "decoded_result": {
+       "status": "completed"
+      },
+      "error": null,
+      "name": "unrelated_operation",
+      "native_id": "unrelated-call",
+      "parse_errors": {},
+      "raw": {
+       "id": "unrelated-call",
+       "name": "unrelated_operation"
+      },
+      "raw_arguments": {},
+      "raw_result": {
+       "status": "completed"
+      },
+      "source_item": {
+       "id": "unrelated-call",
+       "name": "unrelated_operation"
+      },
+      "status": "completed"
+     },
+     {
+      "call_id": "call-id:control-positive",
+      "decoded_arguments": {
+       "amount": 11,
+       "order_id": "ord-1"
+      },
+      "decoded_result": {
+       "status": "rejected"
+      },
+      "error": "backend refusal is an observed command attempt",
+      "name": "process_refund",
+      "native_id": "control-positive",
+      "parse_errors": {},
+      "raw": {
+       "id": "control-positive",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "amount": 11,
+       "order_id": "ord-1"
+      },
+      "raw_result": {
+       "status": "rejected"
+      },
+      "source_item": {
+       "id": "control-positive",
+       "name": "process_refund"
+      },
+      "status": "rejected"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-malformed-order_id-null",
+   "expected_outcome": "inconclusive",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:malformed-order_id-null",
+      "native_id": "malformed-order_id-null",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:malformed-order_id-null",
+      "decoded_arguments": {
+       "amount": 11,
+       "order_id": null
+      },
+      "decoded_result": {
+       "status": "completed"
+      },
+      "error": null,
+      "name": "process_refund",
+      "native_id": "malformed-order_id-null",
+      "parse_errors": {},
+      "raw": {
+       "id": "malformed-order_id-null",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "amount": 11,
+       "order_id": null
+      },
+      "raw_result": {
+       "status": "completed"
+      },
+      "source_item": {
+       "id": "malformed-order_id-null",
+       "name": "process_refund"
+      },
+      "status": "completed"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-malformed-order_id-missing",
+   "expected_outcome": "inconclusive",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:malformed-order_id-missing",
+      "native_id": "malformed-order_id-missing",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:malformed-order_id-missing",
+      "decoded_arguments": {
+       "amount": 11
+      },
+      "decoded_result": {
+       "status": "completed"
+      },
+      "error": null,
+      "name": "process_refund",
+      "native_id": "malformed-order_id-missing",
+      "parse_errors": {},
+      "raw": {
+       "id": "malformed-order_id-missing",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "amount": 11
+      },
+      "raw_result": {
+       "status": "completed"
+      },
+      "source_item": {
+       "id": "malformed-order_id-missing",
+       "name": "process_refund"
+      },
+      "status": "completed"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-malformed-order_id-type-incompatible",
+   "expected_outcome": "inconclusive",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:malformed-order_id-type-incompatible",
+      "native_id": "malformed-order_id-type-incompatible",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:malformed-order_id-type-incompatible",
+      "decoded_arguments": {
+       "amount": 11,
+       "order_id": 7
+      },
+      "decoded_result": {
+       "status": "completed"
+      },
+      "error": null,
+      "name": "process_refund",
+      "native_id": "malformed-order_id-type-incompatible",
+      "parse_errors": {},
+      "raw": {
+       "id": "malformed-order_id-type-incompatible",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "amount": 11,
+       "order_id": 7
+      },
+      "raw_result": {
+       "status": "completed"
+      },
+      "source_item": {
+       "id": "malformed-order_id-type-incompatible",
+       "name": "process_refund"
+      },
+      "status": "completed"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-malformed-amount-null",
+   "expected_outcome": "inconclusive",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:malformed-amount-null",
+      "native_id": "malformed-amount-null",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:malformed-amount-null",
+      "decoded_arguments": {
+       "amount": null,
+       "order_id": "ord-1"
+      },
+      "decoded_result": {
+       "status": "completed"
+      },
+      "error": null,
+      "name": "process_refund",
+      "native_id": "malformed-amount-null",
+      "parse_errors": {},
+      "raw": {
+       "id": "malformed-amount-null",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "amount": null,
+       "order_id": "ord-1"
+      },
+      "raw_result": {
+       "status": "completed"
+      },
+      "source_item": {
+       "id": "malformed-amount-null",
+       "name": "process_refund"
+      },
+      "status": "completed"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-malformed-amount-missing",
+   "expected_outcome": "inconclusive",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:malformed-amount-missing",
+      "native_id": "malformed-amount-missing",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:malformed-amount-missing",
+      "decoded_arguments": {
+       "order_id": "ord-1"
+      },
+      "decoded_result": {
+       "status": "completed"
+      },
+      "error": null,
+      "name": "process_refund",
+      "native_id": "malformed-amount-missing",
+      "parse_errors": {},
+      "raw": {
+       "id": "malformed-amount-missing",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "order_id": "ord-1"
+      },
+      "raw_result": {
+       "status": "completed"
+      },
+      "source_item": {
+       "id": "malformed-amount-missing",
+       "name": "process_refund"
+      },
+      "status": "completed"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  },
+  {
+   "name": "command-malformed-amount-type-incompatible",
+   "expected_outcome": "inconclusive",
+   "expected_claim_level": "command_attempt",
+   "evidence": {
+    "availability": {
+     "tool_calls": "captured"
+    },
+    "binding_provenance": {},
+    "bindings": {
+     "order_id": "ord-1"
+    },
+    "completeness": {
+     "tool_calls": "complete"
+    },
+    "correlation": [
+     {
+      "call_id": "call-id:malformed-amount-type-incompatible",
+      "native_id": "malformed-amount-type-incompatible",
+      "result_correlation": "native_id"
+     }
+    ],
+    "history": [],
+    "messages": [],
+    "parse_errors": {},
+    "setup_outputs": {},
+    "snapshots": {},
+    "source": {
+     "fixture": "finite-detector-control"
+    },
+    "tool_calls": [
+     {
+      "call_id": "call-id:malformed-amount-type-incompatible",
+      "decoded_arguments": {
+       "amount": "not-a-number",
+       "order_id": "ord-1"
+      },
+      "decoded_result": {
+       "status": "completed"
+      },
+      "error": null,
+      "name": "process_refund",
+      "native_id": "malformed-amount-type-incompatible",
+      "parse_errors": {},
+      "raw": {
+       "id": "malformed-amount-type-incompatible",
+       "name": "process_refund"
+      },
+      "raw_arguments": {
+       "amount": "not-a-number",
+       "order_id": "ord-1"
+      },
+      "raw_result": {
+       "status": "completed"
+      },
+      "source_item": {
+       "id": "malformed-amount-type-incompatible",
+       "name": "process_refund"
+      },
+      "status": "completed"
+     }
+    ],
+    "transport": {
+     "status": "completed"
+    },
+    "user_text": null
+   }
+  }
+ ]
+}

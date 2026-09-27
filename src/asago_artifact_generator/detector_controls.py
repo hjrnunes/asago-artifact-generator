@@ -129,6 +129,17 @@ LEGACY_DETECTOR_FEEDBACK_CORRECTION_GUIDANCE = (
 )
 
 
+@dataclass(frozen=True)
+class ControlSkip:
+    """A control that has no determinate expectation from supplied inputs."""
+
+    name: str
+    reason: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {"name": self.name, "reason": self.reason}
+
+
 def run_detector_controls(
     detector_bytes: bytes,
     *,
@@ -137,6 +148,7 @@ def run_detector_controls(
     metadata: Mapping[str, Any] | None = None,
     inventory: Mapping[str, Any] | None = None,
     runtime_contract: Mapping[str, Any] | None = None,
+    condition: Mapping[str, Any] | None = None,
 ) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
     """Run all supplied or mechanically available finite controls.
 
@@ -156,6 +168,7 @@ def run_detector_controls(
                 plan or {},
                 metadata or {},
                 inventory or {},
+                condition=condition,
             )
         )
     )
@@ -187,10 +200,31 @@ def build_control_cases_for_runtime_contract(
     plan: Mapping[str, Any],
     metadata: Mapping[str, Any],
     inventory: Mapping[str, Any],
+    *,
+    condition: Mapping[str, Any] | None = None,
 ) -> tuple[ControlCase, ...]:
-    """Resolve the exact cases used by the detector-control evaluator."""
+    """Resolve the exact cases used by the detector-control evaluator.
 
-    return tuple(_contract_control_cases(runtime_contract, plan, metadata, inventory))
+    ``condition`` is the handoff's discriminating_condition, copied from the
+    scenario input and never from model output.
+    """
+
+    return tuple(_contract_control_cases(runtime_contract, plan, metadata, inventory, condition))
+
+
+def build_control_skips_for_runtime_contract(
+    runtime_contract: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+    *,
+    condition: Mapping[str, Any] | None = None,
+) -> tuple[ControlSkip, ...]:
+    """Name generated controls that were withheld and why."""
+
+    if not _generates_control_cases(runtime_contract):
+        return ()
+    return tuple(_build_controls(plan, metadata, inventory, condition)[1])
 
 
 def build_detector_feedback(
@@ -454,9 +488,37 @@ def build_control_cases(
     plan: Mapping[str, Any],
     metadata: Mapping[str, Any],
     inventory: Mapping[str, Any],
+    *,
+    condition: Mapping[str, Any] | None = None,
 ) -> list[ControlCase]:
-    """Build only controls supported by the accepted typed plan and inventory."""
+    """Build only controls supported by the accepted typed plan and inventory.
 
+    A ``not_called`` comparison in ``condition`` (the handoff's
+    discriminating_condition) makes the unsafe behavior an omission, which
+    inverts the call-based expectations.
+    """
+
+    return _build_controls(plan, metadata, inventory, condition)[0]
+
+
+def build_control_skips(
+    plan: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+    *,
+    condition: Mapping[str, Any] | None = None,
+) -> list[ControlSkip]:
+    """Name the generated controls withheld for want of a determinate expectation."""
+
+    return _build_controls(plan, metadata, inventory, condition)[1]
+
+
+def _build_controls(
+    plan: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+    condition: Mapping[str, Any] | None,
+) -> tuple[list[ControlCase], list[ControlSkip]]:
     claim_level = _claim_level(plan)
     required = _required_observations(plan, metadata)
     bindings = _supplied_control_bindings(plan, inventory)
@@ -468,6 +530,19 @@ def build_control_cases(
             expected_claim_level=claim_level,
         )
     ]
+    omitted = _not_called_operations(condition)
+    if omitted:
+        skips = _extend_omission_controls(
+            cases,
+            omitted,
+            condition or {},
+            plan,
+            metadata,
+            inventory,
+            claim_level=claim_level,
+            bindings=bindings,
+        )
+        return cases, skips
 
     target = _command_target(plan, inventory)
     if _judge_is_declared(plan, metadata):
@@ -475,9 +550,22 @@ def build_control_cases(
         if judge_context is not None:
             cases.extend(_judge_cases(claim_level, judge_context, bindings=bindings))
 
-    if target is not None:
+    # A reply-level claim is decided by the reply, so call presence alone has no
+    # determinate expected outcome.
+    if target is not None and claim_level != "reply":
         cases.extend(_command_cases(target, claim_level, bindings=bindings))
-    return cases
+    return cases, []
+
+
+def _generates_control_cases(runtime_contract: Mapping[str, Any]) -> bool:
+    declared = runtime_contract.get("detector_controls")
+    if declared is None:
+        return isinstance(runtime_contract.get("authoring_transports"), Mapping)
+    return (
+        isinstance(declared, Mapping)
+        and not isinstance(declared.get("cases"), list)
+        and declared.get("enabled") is True
+    )
 
 
 def _contract_control_cases(
@@ -485,17 +573,18 @@ def _contract_control_cases(
     plan: Mapping[str, Any],
     metadata: Mapping[str, Any],
     inventory: Mapping[str, Any],
+    condition: Mapping[str, Any] | None = None,
 ) -> list[ControlCase]:
     """Read caller-supplied independent fixtures without inventing evidence."""
 
     declared = runtime_contract.get("detector_controls")
     if declared is None and isinstance(runtime_contract.get("authoring_transports"), Mapping):
-        return build_control_cases(plan, metadata, inventory)
+        return build_control_cases(plan, metadata, inventory, condition=condition)
     if isinstance(declared, Mapping):
         if isinstance(declared.get("cases"), list):
             declared = declared["cases"]
         elif declared.get("enabled") is True:
-            return build_control_cases(plan, metadata, inventory)
+            return build_control_cases(plan, metadata, inventory, condition=condition)
         else:
             return []
     if not isinstance(declared, list):
@@ -902,6 +991,12 @@ def _command_target(
                 break
     if operation_name is None:
         return None
+    return _operation_target(plan, inventory, operation_name)
+
+
+def _operation_target(
+    plan: Mapping[str, Any], inventory: Mapping[str, Any], operation_name: str
+) -> tuple[str, dict[str, Any], dict[str, Any]] | None:
     operations = inventory.get("operations")
     if not isinstance(operations, list):
         return None
@@ -1202,6 +1297,306 @@ def _malformed_command_cases(
     return cases
 
 
+def _not_called_operations(condition: Mapping[str, Any] | None) -> tuple[str, ...]:
+    """Return the operations a discriminating condition requires to be absent."""
+
+    if not isinstance(condition, Mapping):
+        return ()
+    comparisons = condition.get("comparisons")
+    if not isinstance(comparisons, list):
+        return ()
+    names: list[str] = []
+    for comparison in comparisons:
+        if (
+            isinstance(comparison, Mapping)
+            and comparison.get("kind") == "not_called"
+            and isinstance(comparison.get("operation"), str)
+            and comparison["operation"] not in names
+        ):
+            names.append(comparison["operation"])
+    return tuple(names)
+
+
+def _has_other_comparisons(condition: Mapping[str, Any]) -> bool:
+    comparisons = condition.get("comparisons")
+    return isinstance(comparisons, list) and any(
+        not isinstance(comparison, Mapping) or comparison.get("kind") != "not_called"
+        for comparison in comparisons
+    )
+
+
+def _selected_operations(plan: Mapping[str, Any]) -> list[str]:
+    names: list[str] = []
+    selected = plan.get("selected_evidence")
+    if not isinstance(selected, list):
+        return names
+    for item in selected:
+        if not isinstance(item, Mapping):
+            continue
+        ref = item.get("ref")
+        name = None
+        if isinstance(ref, str) and ref.startswith("operation:"):
+            name = ref.split(":", 1)[1]
+        elif isinstance(item.get("operation"), str):
+            name = item["operation"]
+        if name is not None and name not in names:
+            names.append(name)
+    return names
+
+
+def _plan_cited_fact_refs(plan: Mapping[str, Any]) -> list[str]:
+    """Fact refs the plan cites or binds from supplied inputs, in plan order."""
+
+    refs: list[str] = []
+
+    def add(ref: Any) -> None:
+        if isinstance(ref, str) and ref not in refs:
+            refs.append(ref)
+
+    selected = plan.get("selected_evidence")
+    for item in selected if isinstance(selected, list) else []:
+        if isinstance(item, Mapping):
+            add(item.get("ref"))
+    bindings = plan.get("runtime_bindings")
+    for item in bindings if isinstance(bindings, list) else []:
+        if (
+            isinstance(item, Mapping)
+            and item.get("source_kind") == "supplied_input"
+            and isinstance(item.get("source_ref"), str)
+            and item["source_ref"].startswith("facts:")
+        ):
+            add(item["source_ref"].removeprefix("facts:"))
+    prerequisites = plan.get("prerequisites")
+    for item in prerequisites if isinstance(prerequisites, list) else []:
+        if isinstance(item, Mapping) and isinstance(item.get("evidence_refs"), list):
+            for ref in item["evidence_refs"]:
+                add(ref)
+    return refs
+
+
+def _trigger_call(
+    plan: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+    operation_name: str,
+    index: int,
+) -> dict[str, Any] | None:
+    """Build one trigger call whose result is a supplied, plan-cited observation.
+
+    The result comes from a captured read observation of the trigger operation
+    that the plan cites or binds. Without one, the trigger's result would have
+    to be invented, so no trigger call is built.
+    """
+
+    facts = inventory.get("facts")
+    if not isinstance(facts, list):
+        return None
+    by_ref = {
+        item.get("ref"): item
+        for item in facts
+        if isinstance(item, Mapping) and isinstance(item.get("ref"), str) and "value" in item
+    }
+    for ref in _plan_cited_fact_refs(plan):
+        fact = by_ref.get(ref)
+        provenance = fact.get("provenance") if isinstance(fact, Mapping) else None
+        if not isinstance(provenance, Mapping) or provenance.get("tool_name") != operation_name:
+            continue
+        arguments = provenance.get("arguments")
+        if not isinstance(arguments, Mapping):
+            target = _operation_target(plan, inventory, operation_name)
+            if target is None:
+                return None
+            arguments = target[1]
+        call = _tool_call(
+            f"control-trigger-{index}",
+            operation_name,
+            _copy_mapping(arguments),
+            status="completed",
+        )
+        result = _copy_value(fact["value"])
+        call["raw_result"] = result
+        call["decoded_result"] = _copy_value(result)
+        return call
+    return None
+
+
+def _extend_omission_controls(
+    cases: list[ControlCase],
+    omitted: tuple[str, ...],
+    condition: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+    *,
+    claim_level: str,
+    bindings: Mapping[str, Any],
+) -> list[ControlSkip]:
+    """Append omission controls and return the ones withheld, with reasons.
+
+    Every omitted operation must be absent for ``detected``; a call to any one
+    of them makes the violation false. The trigger is every plan-selected
+    operation that is not omitted; it is present in a fixture only with its
+    plan-cited supplied result.
+    """
+
+    skips: list[ControlSkip] = []
+    trigger_names = [name for name in _selected_operations(plan) if name not in omitted]
+    trigger_calls = [
+        _trigger_call(plan, inventory, name, index) for index, name in enumerate(trigger_names)
+    ]
+    missing_triggers = [
+        name for name, call in zip(trigger_names, trigger_calls, strict=True) if call is None
+    ]
+    triggers: list[dict[str, Any]] | None = (
+        None if missing_triggers else [call for call in trigger_calls if call is not None]
+    )
+    trigger_reason = (
+        f"the plan cites trigger operation(s) {missing_triggers!r} but binds no supplied "
+        "result for them; a trigger fixture would need an invented result"
+    )
+    mixed = _has_other_comparisons(condition)
+    mixed_reason = (
+        "the discriminating condition has comparisons other than not_called, whose "
+        "captured values cannot be known offline"
+    )
+
+    if _judge_is_declared(plan, metadata) and (
+        claim_level == "reply" or claim_level in _COMMAND_CLAIM_LEVELS
+    ):
+        if triggers is None:
+            skips.append(ControlSkip("judge-*", trigger_reason))
+        elif mixed:
+            skips.append(ControlSkip("judge-*", mixed_reason))
+        else:
+            context = _JudgeEvidenceContext(
+                tool_calls=tuple(triggers),
+                availability={"messages": "captured", "tool_calls": "captured"},
+                completeness={"messages": "complete", "tool_calls": "complete"},
+            )
+            cases.extend(_judge_cases(claim_level, context, bindings=bindings))
+
+    if claim_level not in _COMMAND_CLAIM_LEVELS:
+        skips.append(
+            ControlSkip(
+                "omission-*",
+                f"call-based omission controls have no determinate outcome at claim "
+                f"level {claim_level!r}",
+            )
+        )
+        return skips
+
+    def evidence(
+        tool_calls: list[dict[str, Any]],
+        *,
+        availability: str = "captured",
+        completeness: str = "complete",
+    ) -> dict[str, Any]:
+        return _base_evidence(
+            tool_calls=[_copy_mapping(call) for call in tool_calls],
+            availability={"tool_calls": availability},
+            completeness={"tool_calls": completeness},
+            bindings=bindings,
+        )
+
+    prefix = list(triggers or [])
+    has_trigger = bool(trigger_names)
+    judged = _judge_is_declared(plan, metadata)
+    cases.append(
+        ControlCase(
+            "omission-unavailable",
+            evidence([], availability="not_captured", completeness="unknown"),
+            "inconclusive",
+            claim_level,
+        )
+    )
+    cases.append(
+        ControlCase(
+            "omission-partial-without-call",
+            evidence(prefix, completeness="partial"),
+            "inconclusive",
+            claim_level,
+        )
+    )
+
+    detected_name = "omission-trigger-no-call" if has_trigger else "omission-no-call"
+    if mixed:
+        skips.append(ControlSkip(detected_name, mixed_reason))
+    elif has_trigger and triggers is None:
+        skips.append(ControlSkip(detected_name, trigger_reason))
+    elif judged:
+        skips.append(
+            ControlSkip(
+                detected_name,
+                "a semantic judge is declared, so detected needs judge support; the "
+                "judge controls use this tool-call context",
+            )
+        )
+    else:
+        cases.append(ControlCase(detected_name, evidence(prefix), "detected", claim_level))
+    if has_trigger:
+        if mixed:
+            skips.append(ControlSkip("omission-no-trigger", mixed_reason))
+        else:
+            cases.append(
+                ControlCase("omission-no-trigger", evidence([]), "not_detected", claim_level)
+            )
+
+    call_prefix = "omission-trigger-call" if has_trigger else "omission-call"
+    for index, name in enumerate(omitted):
+        suffix = f"-{name}" if len(omitted) > 1 else ""
+        names = (
+            f"{call_prefix}{suffix}",
+            f"{call_prefix}-completed{suffix}",
+            f"omission-partial-with-call{suffix}",
+        )
+        if has_trigger and triggers is None:
+            skips.extend(ControlSkip(item, trigger_reason) for item in names)
+            continue
+        target = _operation_target(plan, inventory, name)
+        if target is None:
+            reason = f"arguments for {name!r} cannot be built from supplied inputs"
+            skips.extend(ControlSkip(item, reason) for item in names)
+            continue
+        _, arguments, _ = target
+        rejected = _tool_call(
+            f"control-omitted-{index}",
+            name,
+            arguments,
+            status="rejected",
+            error="backend refusal is an observed command attempt",
+        )
+        completed = _tool_call(f"control-omitted-{index}", name, arguments, status="completed")
+        cases.append(
+            ControlCase(names[0], evidence([*prefix, rejected]), "not_detected", claim_level)
+        )
+        cases.append(
+            ControlCase(names[1], evidence([*prefix, completed]), "not_detected", claim_level)
+        )
+        cases.append(
+            ControlCase(
+                names[2],
+                evidence([*prefix, completed], completeness="partial"),
+                "not_detected",
+                claim_level,
+            )
+        )
+    return skips
+
+
+# A generation packet always states all three scopes: messages are captured
+# whenever the generation carries them, and snapshots only when the executor
+# supplies them, which a finite fixture never does.
+_DEFAULT_AVAILABILITY = {
+    "messages": "captured",
+    "tool_calls": "not_captured",
+    "snapshots": "not_captured",
+}
+_DEFAULT_COMPLETENESS = {
+    "messages": "complete",
+    "tool_calls": "unknown",
+    "snapshots": "unknown",
+}
+
+
 def _base_evidence(
     *,
     tool_calls: list[dict[str, Any]],
@@ -1221,8 +1616,8 @@ def _base_evidence(
         "snapshots": {},
         "transport": {"status": "completed"},
         "parse_errors": {},
-        "availability": dict(availability or {}),
-        "completeness": dict(completeness or {}),
+        "availability": {**_DEFAULT_AVAILABILITY, **dict(availability or {})},
+        "completeness": {**_DEFAULT_COMPLETENESS, **dict(completeness or {})},
         "correlation": [
             {
                 "native_id": item.get("native_id"),
@@ -1418,6 +1813,8 @@ def _wrong_type(schema_type: Any) -> Any:
 __all__ = [
     "ControlCase",
     "ControlResult",
+    "ControlSkip",
     "build_control_cases",
+    "build_control_skips",
     "run_detector_controls",
 ]

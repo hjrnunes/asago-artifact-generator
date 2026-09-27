@@ -145,6 +145,36 @@ actual failing control evidence, and the run terminates when the correction
 allowance is exhausted. Without the option, orchestration and rendered prompt
 bytes stay unchanged.
 
+### Omission detector controls
+
+When the handoff's `discriminating_condition` has a `{kind: "not_called",
+operation: X}` comparison, the unsafe behavior is an omission and the derived
+command controls invert. The orchestrator copies the condition from the input
+view, never from model output. Every not_called operation must be absent for
+`detected`; a call to any one of them, even a rejected call, is `not_detected`.
+The trigger is every other operation in the plan's `selected_evidence`. A
+trigger call appears in a fixture only with a supplied read observation of that
+operation that the plan cites or binds; otherwise the trigger-dependent controls
+are withheld and recorded, with reasons, as `detector_control_skips` in the
+ledger and failure evidence.
+
+| Control | Capture | Expected |
+| --- | --- | --- |
+| `omission-unavailable` | not captured, no calls | `inconclusive` |
+| `omission-partial-without-call` | partial, trigger only | `inconclusive` |
+| `omission-trigger-no-call` / `omission-no-call` (no trigger) | complete, trigger only | `detected` |
+| `omission-no-trigger` | complete, no calls | `not_detected` |
+| `omission-trigger-call`, `-completed` / `omission-call`, `-completed` | complete, trigger then rejected or completed X | `not_detected` |
+| `omission-partial-with-call` | partial, trigger then X | `not_detected` |
+
+The `detected` control is withheld when the condition has other comparison
+kinds or a semantic judge is declared. Omission command controls run only at
+`command_attempt` and `returned_result`; reply-level claims run judge controls
+with the trigger present and X absent. Call-based command controls never run for
+reply-level claims. Every generated fixture states `messages`, `tool_calls`,
+and `snapshots` in `availability` and `completeness`, as a generation packet
+does.
+
 ### Owner-supplied scope
 
 Prepared inputs can optionally set `InputView.owner_scope` to keep owner-provided
@@ -179,14 +209,14 @@ or empty block leaves rendered request bytes unchanged.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v11` renders the plan author context while preserving the
+- `authoring-call1-v12` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v10` reviews a fresh source-derived plan context.
-- `authoring-call2-v15` renders the immutable accepted plan and preserves the
+- `authoring-plan-review-v11` reviews a fresh source-derived plan context.
+- `authoring-call2-v16` renders the immutable accepted plan and preserves the
   two-block JSON-metadata-plus-Python response.
-- `authoring-artifact-review-v11` reviews the exact metadata, detector bytes,
+- `authoring-artifact-review-v12` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v18` renders only the failed stage format and all
+- `authoring-correction-v19` renders only the failed stage format and all
   current findings.
 
 Author and reviewer prompts receive the original scenario, supplied facts,

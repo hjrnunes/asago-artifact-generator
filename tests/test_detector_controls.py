@@ -432,8 +432,16 @@ def test_command_level_judge_controls_capture_required_observations_and_command(
     assert judge_cases
     for case in judge_cases:
         assert case.expected_claim_level == "command_attempt"
-        assert case.evidence["availability"] == {"messages": "captured", "tool_calls": "captured"}
-        assert case.evidence["completeness"] == {"messages": "complete", "tool_calls": "complete"}
+        assert case.evidence["availability"] == {
+            "messages": "captured",
+            "tool_calls": "captured",
+            "snapshots": "not_captured",
+        }
+        assert case.evidence["completeness"] == {
+            "messages": "complete",
+            "tool_calls": "complete",
+            "snapshots": "unknown",
+        }
         assert [call["name"] for call in case.evidence["tool_calls"]] == ["process_refund"]
 
 

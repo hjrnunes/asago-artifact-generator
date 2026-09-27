@@ -9,6 +9,10 @@ import pytest
 import yaml
 
 from asago_artifact_generator.authoring import (
+    LEGACY_PLAN_FIELD_MEANINGS,
+    NEUTRAL_OMISSION_OUTCOME_EXAMPLE,
+    NEUTRAL_PLAN_OUTCOME_EXAMPLE,
+    PLAN_FIELD_MEANINGS,
     build_artifact_review_packet,
     build_call1_packet_v2,
     build_call2_packet_v2,
@@ -173,3 +177,58 @@ def test_call1_renders_runtime_contract_and_binding_rules_once() -> None:
     for rule in ("selector_rule", "consumer_rule", "source_ref_rule"):
         assert packet.user.count(json.dumps(binding[rule], ensure_ascii=False)) == 1, rule
         assert f"See binding_declaration.{rule}." in packet.user, rule
+
+
+_NOT_CALLED_HANDOFF = _KIT / "valid" / "functional-not-called.json"
+
+
+def test_not_called_condition_adds_omission_guidance_to_plan_prompts() -> None:
+    view = load_input(_NOT_CALLED_HANDOFF)
+    inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
+    packets = {
+        "call1": build_call1_packet_v2(view, inventory, runtime),
+        "plan_review": build_plan_review_packet(view, plan, inventory, runtime),
+        "artifact_review": build_artifact_review_packet(
+            view, plan, _metadata(), _source(), [], inventory, runtime
+        ),
+    }
+    omission_sentence = "A not_called comparison is an omission"
+
+    for name, packet in packets.items():
+        assert packet.user.count(omission_sentence) == 1, name
+    for name in ("call1", "plan_review"):
+        assert packets[name].user.count(NEUTRAL_OMISSION_OUTCOME_EXAMPLE) == 1, name
+        assert packets[name].user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1, name
+
+
+@pytest.mark.parametrize("source", [_OBSERVED, _V1_HANDOFF])
+def test_omission_guidance_is_omitted_without_a_not_called_comparison(source: Path) -> None:
+    view = load_input(source)
+    inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
+    packets = (
+        build_call1_packet_v2(view, inventory, runtime),
+        build_plan_review_packet(view, plan, inventory, runtime),
+    )
+
+    for packet in packets:
+        assert "A not_called comparison is an omission" not in packet.user, packet.stage
+        assert NEUTRAL_OMISSION_OUTCOME_EXAMPLE not in packet.user, packet.stage
+
+
+def test_command_interface_shows_detected_omission_with_container_refs() -> None:
+    packet = build_call2_packet_v2(
+        load_input(_NOT_CALLED_HANDOFF), _plan(), _inventory(), _runtime_contract()
+    )
+    omission = {
+        "claim_level": "command_attempt",
+        "evidence_refs": ["tool_calls", "completeness.tool_calls"],
+        "outcome": "detected",
+        "reason": (
+            "Complete relevant tool-call capture contains no call to the required operation."
+        ),
+    }
+
+    rendered = json.dumps(omission, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    assert f'"complete_omission_example":{rendered}' in packet.user
+    assert "omission" in PLAN_FIELD_MEANINGS
+    assert "omission" not in LEGACY_PLAN_FIELD_MEANINGS
