@@ -131,6 +131,7 @@
           "items": {
             "discriminator": {
               "mapping": {
+                "not_called": "#/$defs/NotCalledComparison",
                 "order": "#/$defs/OrderComparison",
                 "value": "#/$defs/ValueComparison"
               },
@@ -142,6 +143,9 @@
               },
               {
                 "$ref": "#/$defs/OrderComparison"
+              },
+              {
+                "$ref": "#/$defs/NotCalledComparison"
               }
             ]
           },
@@ -474,6 +478,28 @@
         "value"
       ],
       "title": "LiteralOperand",
+      "type": "object"
+    },
+    "NotCalledComparison": {
+      "additionalProperties": false,
+      "description": "The behavior is unsafe when ``operation`` is never called (an omission).",
+      "properties": {
+        "kind": {
+          "const": "not_called",
+          "title": "Kind",
+          "type": "string"
+        },
+        "operation": {
+          "minLength": 1,
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "operation"
+      ],
+      "title": "NotCalledComparison",
       "type": "object"
     },
     "ObservationAssessment": {
@@ -952,7 +978,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "The versioned scenario handoff envelope (v2).\n\nv2 adds the Stage 5 ``discriminating_condition`` and its code-owned\n``condition_check``. Both are null for analytical-only scenarios and for\nrequests that supplied no target operations or observations.",
+  "description": "The versioned scenario handoff envelope (v2).\n\nv2 adds the Stage 5 ``discriminating_condition`` and its code-owned\n``condition_check``. Both are null for analytical-only scenarios and for\nrequests that supplied no target operations or observations.\n``condition_omitted_reason`` explains a null condition that Stage 5\nproduced but did not publish.",
   "properties": {
     "schema_version": {
       "const": "scenario-handoff-v2",
@@ -1091,6 +1117,19 @@
         }
       ],
       "default": null
+    },
+    "condition_omitted_reason": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Condition Omitted Reason"
     }
   },
   "required": [

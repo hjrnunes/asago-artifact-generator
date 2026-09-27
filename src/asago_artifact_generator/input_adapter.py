@@ -23,7 +23,7 @@ _HANDOFF_DIGEST_DOMAINS = {
     _HANDOFF_SCHEMA_VERSION: "scenario-handoff-v1",
     _HANDOFF_SCHEMA_VERSION_V2: "scenario-handoff-v2",
 }
-_HANDOFF_V2_FIELDS = ("discriminating_condition", "condition_check")
+_HANDOFF_V2_FIELDS = ("discriminating_condition", "condition_check", "condition_omitted_reason")
 _HANDOFF_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "scenario-handoff"
 
 

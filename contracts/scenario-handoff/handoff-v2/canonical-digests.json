@@ -3,14 +3,18 @@
     "expected-violations.json": "c5ce0ed1e455513edf6d7e75944698aac9f44bafd1a61977b0ed81baa06e8dc3",
     "invalid/observed-selection-without-record-path.json": "08ee1b79256a717b64bb5a0280046db1c220fde3b807969de8d6d40f9652c6fc",
     "invalid/unknown-operand-source.json": "a5c17d20f5bb882b71d4f0a162356d7a4203e6fb838eee74171417977bc670eb",
-    "schema.json": "a4f38185c4c029a52c9e6601667a1155e73fc50851ad280813c2a8522d8675d0",
+    "schema.json": "705de6751fc2b799e4d7d7527d7dcb129e86f5355331f102fb692db878458d49",
+    "valid/adversarial-condition-omitted.json": "980e7ec876997c1eed149fee362bd5d524d1dc3397ca0024bd0703e8f6b2fd20",
     "valid/adversarial-observed-record.json": "d3a4c28f8431232b6771aae9bf00b4d039e8c22dde999435b625e17c9b7e5eed",
     "valid/analytical-only.json": "d4df036661951529924c60dfa9009281324b86d5e54f2c35acc3c37301600579",
+    "valid/functional-not-called.json": "b9923321da8643cb8dddd00ceb9864944214cbc1c16420e4cb256aa0c9488743",
     "valid/functional-record-unavailable.json": "de566df8067efef80b7301f2037264ed860ddbe648e3c73326a0131c0cd99dd9"
   },
   "handoff_digests": {
+    "valid/adversarial-condition-omitted.json": "7906292ad1d9fa0f9876b97ee89503dfe0abae1cd683f7de335b61baebdcbb9d",
     "valid/adversarial-observed-record.json": "f7af6ae2db3fb4ddc0beb9072cac9f1505e434460a9b5cfcd468dd42762be6e4",
     "valid/analytical-only.json": "4e73d80272aa326a966725c7a25128284b4dc2155cf4b486ed7b3bdd15ae9a83",
+    "valid/functional-not-called.json": "1740d781cd9f46ddf6248ba19f1ad99c17071f649e6548fdf9eb96d94530cd20",
     "valid/functional-record-unavailable.json": "3f0ed67eed49421ee71301ccce968626c4c403f7222d16497352fcb769d0552e"
   }
 }
