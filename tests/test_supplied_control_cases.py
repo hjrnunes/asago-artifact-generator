@@ -330,12 +330,12 @@ def test_supplied_control_case_form_is_validated(tmp_path: Path) -> None:
 # Digests of (system + "\x00" + user) rendered for the current prompt contracts
 # without the supplied-controls hook.
 _EXPECTED_NO_HOOK_DIGESTS = {
-    "call1": "7652140837c565c81c3d75507935dc764b2845f5f977d0b160d8fbfd983d7fa5",
-    "plan_review": "4b3a4e320c22e0b63f595fcfaeee3b6d3c119a3653f9616d2e0a8b98be4a2c45",
+    "call1": "be6581e6ebf29685ce99506bde84205d5e8f2b54559fff8570484609db5347cd",
+    "plan_review": "61f9a10aedd9d54b32be673ab73fc90b4850ecef0ca3987a6ef89b429cd7c1eb",
     "call2": "b1a422e020986c3da1874bf1699e49d6a3b5fdd7815c9f2b8fb535d12d5170a2",
-    "artifact_review": "b071bd1e6cd192632ed65eb64ee2e230ca5a39aa1270cf35ba9d68e1e5885f19",
+    "artifact_review": "cf3477b30a6f3635f3b00cf3e53ca78b129a54d29957f2634e3c5e2d902667d7",
     "correction": "23968c11b1c567697c8943bd9af5d5b13fcbb573e8e707ec65197ec3895560ea",
-    "artifact_review_direct": "6cb0f64a9a9922cb4f3a94341f1c1fec2d07216285f69ba3877e55f874be9c79",
+    "artifact_review_direct": "af901691f07e6f509b70d2c56825e3ca0e289c7e51b0dfa70ac4197452f842cf",
 }
 
 

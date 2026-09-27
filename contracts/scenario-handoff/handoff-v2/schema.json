@@ -1,0 +1,1109 @@
+{
+  "$defs": {
+    "ArgumentOperand": {
+      "additionalProperties": false,
+      "description": "An argument of one observed operation, valued at request time.",
+      "properties": {
+        "source": {
+          "const": "argument",
+          "title": "Source",
+          "type": "string"
+        },
+        "operation": {
+          "minLength": 1,
+          "title": "Operation",
+          "type": "string"
+        },
+        "argument": {
+          "minLength": 1,
+          "title": "Argument",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "operation",
+        "argument"
+      ],
+      "title": "ArgumentOperand",
+      "type": "object"
+    },
+    "ArgumentValueSelection": {
+      "additionalProperties": false,
+      "description": "The observed fact whose value the test would use for one argument.",
+      "properties": {
+        "operation": {
+          "minLength": 1,
+          "title": "Operation",
+          "type": "string"
+        },
+        "argument": {
+          "minLength": 1,
+          "title": "Argument",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "argument",
+        "path"
+      ],
+      "title": "ArgumentValueSelection",
+      "type": "object"
+    },
+    "ComparisonCheck": {
+      "additionalProperties": false,
+      "description": "Code-owned evaluation of one comparison.",
+      "properties": {
+        "index": {
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "result": {
+          "enum": [
+            "satisfied",
+            "violated",
+            "not_checkable"
+          ],
+          "title": "Result",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "result",
+        "reason"
+      ],
+      "title": "ComparisonCheck",
+      "type": "object"
+    },
+    "ConditionCheck": {
+      "additionalProperties": false,
+      "description": "Code-owned evaluation of a discriminating condition.\n\n``violated`` when any comparison is violated; ``satisfied`` when at\nleast one comparison is satisfied and none is violated; otherwise\n``not_checkable``.",
+      "properties": {
+        "status": {
+          "enum": [
+            "satisfied",
+            "violated",
+            "not_checkable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "comparisons": {
+          "items": {
+            "$ref": "#/$defs/ComparisonCheck"
+          },
+          "minItems": 1,
+          "title": "Comparisons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status",
+        "comparisons"
+      ],
+      "title": "ConditionCheck",
+      "type": "object"
+    },
+    "DiscriminatingCondition": {
+      "additionalProperties": false,
+      "description": "The model-authored condition that makes the behavior unsafe.",
+      "properties": {
+        "statement": {
+          "maxLength": 400,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "comparisons": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "order": "#/$defs/OrderComparison",
+                "value": "#/$defs/ValueComparison"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ValueComparison"
+              },
+              {
+                "$ref": "#/$defs/OrderComparison"
+              }
+            ]
+          },
+          "maxItems": 6,
+          "minItems": 1,
+          "title": "Comparisons",
+          "type": "array"
+        },
+        "record_selection": {
+          "discriminator": {
+            "mapping": {
+              "observed": "#/$defs/ObservedRecordSelection",
+              "unavailable": "#/$defs/UnavailableRecordSelection"
+            },
+            "propertyName": "status"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ObservedRecordSelection"
+            },
+            {
+              "$ref": "#/$defs/UnavailableRecordSelection"
+            }
+          ],
+          "title": "Record Selection"
+        }
+      },
+      "required": [
+        "statement",
+        "comparisons",
+        "record_selection"
+      ],
+      "title": "DiscriminatingCondition",
+      "type": "object"
+    },
+    "FactOperand": {
+      "additionalProperties": false,
+      "description": "One supplied target-observation fact path.",
+      "properties": {
+        "source": {
+          "const": "fact",
+          "title": "Source",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "path"
+      ],
+      "title": "FactOperand",
+      "type": "object"
+    },
+    "HandoffFact": {
+      "additionalProperties": false,
+      "description": "One source-grounded fact with its authority stamp.",
+      "properties": {
+        "statement": {
+          "title": "Statement",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "authority": {
+          "title": "Authority",
+          "type": "string"
+        }
+      },
+      "required": [
+        "statement",
+        "source",
+        "authority"
+      ],
+      "title": "HandoffFact",
+      "type": "object"
+    },
+    "HandoffGherkin": {
+      "additionalProperties": false,
+      "description": "Declarative Gherkin: no bindings, no prompt, no detector code.",
+      "properties": {
+        "feature": {
+          "title": "Feature",
+          "type": "string"
+        },
+        "scenario": {
+          "title": "Scenario",
+          "type": "string"
+        },
+        "given": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Given",
+          "type": "array"
+        },
+        "when": {
+          "items": {
+            "type": "string"
+          },
+          "title": "When",
+          "type": "array"
+        },
+        "then_expected": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Then Expected",
+          "type": "array"
+        },
+        "then_unsafe_alternative": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Then Unsafe Alternative",
+          "type": "array"
+        }
+      },
+      "required": [
+        "feature",
+        "scenario"
+      ],
+      "title": "HandoffGherkin",
+      "type": "object"
+    },
+    "HandoffLineage": {
+      "additionalProperties": false,
+      "description": "Stable identity plus loss/hazard/constraint lineage.",
+      "properties": {
+        "loss_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Loss Ids",
+          "type": "array"
+        },
+        "hazard_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hazard Ids",
+          "type": "array"
+        },
+        "constraint_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Constraint Ids",
+          "type": "array"
+        },
+        "ica_slot_id": {
+          "default": "",
+          "title": "Ica Slot Id",
+          "type": "string"
+        },
+        "ica_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ica Id"
+        },
+        "controller_id": {
+          "default": "",
+          "title": "Controller Id",
+          "type": "string"
+        },
+        "control_action_id": {
+          "default": "",
+          "title": "Control Action Id",
+          "type": "string"
+        }
+      },
+      "title": "HandoffLineage",
+      "type": "object"
+    },
+    "HandoffObservation": {
+      "additionalProperties": false,
+      "description": "Testability metadata without a target result or gold expectation.",
+      "properties": {
+        "contract_schema": {
+          "title": "Contract Schema",
+          "type": "string"
+        },
+        "contract_id": {
+          "title": "Contract Id",
+          "type": "string"
+        },
+        "contract_digest": {
+          "title": "Contract Digest",
+          "type": "string"
+        },
+        "criteria": {
+          "items": {
+            "$ref": "#/$defs/ObservationCriterion"
+          },
+          "minItems": 1,
+          "title": "Criteria",
+          "type": "array"
+        },
+        "assessment": {
+          "$ref": "#/$defs/ObservationAssessment"
+        }
+      },
+      "required": [
+        "contract_schema",
+        "contract_id",
+        "contract_digest",
+        "criteria",
+        "assessment"
+      ],
+      "title": "HandoffObservation",
+      "type": "object"
+    },
+    "HandoffOperation": {
+      "additionalProperties": false,
+      "description": "A documented operation named only when it is supported and relevant.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "relevance": {
+          "title": "Relevance",
+          "type": "string"
+        },
+        "authority": {
+          "anyOf": [
+            {
+              "enum": [
+                "criterion_observed_operation",
+                "verified_control_action_specialization",
+                "safe_observable_outcome_operation"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authority"
+        }
+      },
+      "required": [
+        "name",
+        "relevance"
+      ],
+      "title": "HandoffOperation",
+      "type": "object"
+    },
+    "HandoffRule": {
+      "additionalProperties": false,
+      "description": "One governing rule the unsafe behavior would violate.",
+      "properties": {
+        "constraint_id": {
+          "title": "Constraint Id",
+          "type": "string"
+        },
+        "statement": {
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "constraint_id",
+        "statement"
+      ],
+      "title": "HandoffRule",
+      "type": "object"
+    },
+    "LiteralOperand": {
+      "additionalProperties": false,
+      "description": "A literal value; a list is allowed only as the right side of in/not_in.",
+      "properties": {
+        "source": {
+          "const": "literal",
+          "title": "Source",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "source",
+        "value"
+      ],
+      "title": "LiteralOperand",
+      "type": "object"
+    },
+    "ObservationAssessment": {
+      "additionalProperties": false,
+      "description": "Deterministic testability result persisted with a scenario.",
+      "properties": {
+        "disposition": {
+          "enum": [
+            "executable",
+            "analytical_only"
+          ],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "supported_criteria": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Criteria",
+          "type": "array"
+        },
+        "unsupported_criteria": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Unsupported Criteria",
+          "type": "array"
+        }
+      },
+      "required": [
+        "disposition",
+        "reason"
+      ],
+      "title": "ObservationAssessment",
+      "type": "object"
+    },
+    "ObservationCriterion": {
+      "additionalProperties": false,
+      "description": "One provider-declared outcome and its requested evidence boundary.",
+      "properties": {
+        "criterion_id": {
+          "minLength": 1,
+          "title": "Criterion Id",
+          "type": "string"
+        },
+        "outcome": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Outcome",
+          "type": "string"
+        },
+        "observable": {
+          "title": "Observable",
+          "type": "boolean"
+        },
+        "claim_level": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim Level"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence"
+        },
+        "operation_name": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Name"
+        },
+        "reason": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "criterion_id",
+        "outcome",
+        "observable",
+        "reason"
+      ],
+      "title": "ObservationCriterion",
+      "type": "object"
+    },
+    "ObservedRecordSelection": {
+      "additionalProperties": false,
+      "description": "An observed record that meets the condition.",
+      "properties": {
+        "status": {
+          "const": "observed",
+          "title": "Status",
+          "type": "string"
+        },
+        "record_path": {
+          "minLength": 1,
+          "title": "Record Path",
+          "type": "string"
+        },
+        "argument_values": {
+          "items": {
+            "$ref": "#/$defs/ArgumentValueSelection"
+          },
+          "maxItems": 8,
+          "title": "Argument Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status",
+        "record_path"
+      ],
+      "title": "ObservedRecordSelection",
+      "type": "object"
+    },
+    "OrderComparison": {
+      "additionalProperties": false,
+      "description": "``operation`` is called without a prior call to ``requires_prior``.",
+      "properties": {
+        "kind": {
+          "const": "order",
+          "title": "Kind",
+          "type": "string"
+        },
+        "operation": {
+          "minLength": 1,
+          "title": "Operation",
+          "type": "string"
+        },
+        "requires_prior": {
+          "minLength": 1,
+          "title": "Requires Prior",
+          "type": "string"
+        },
+        "same_argument": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Same Argument"
+        }
+      },
+      "required": [
+        "kind",
+        "operation",
+        "requires_prior"
+      ],
+      "title": "OrderComparison",
+      "type": "object"
+    },
+    "SafeObservableOutcome": {
+      "additionalProperties": false,
+      "description": "One scenario-specific boundary for the expected safe behavior.\n\nThe statement is semantic prose, while the remaining fields bind that\nprose to the exact evidence boundary supplied to Stage 5.  An\n``analytical_only`` outcome is represented explicitly with\n``observable=False`` and no claim, operation, record, or fact references.",
+      "properties": {
+        "observable": {
+          "title": "Observable",
+          "type": "boolean"
+        },
+        "statement": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "claim_level": {
+          "anyOf": [
+            {
+              "enum": [
+                "command_attempt",
+                "reply",
+                "returned_result",
+                "state_effect"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim Level"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "enum": [
+                "assistant_message",
+                "tool_call",
+                "tool_result",
+                "snapshot"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence"
+        },
+        "operation_name": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Name"
+        },
+        "record_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Record Refs",
+          "type": "array"
+        },
+        "fact_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Fact Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "observable",
+        "statement"
+      ],
+      "title": "SafeObservableOutcome",
+      "type": "object"
+    },
+    "ScenarioDeduplication": {
+      "additionalProperties": false,
+      "description": "One scenario's canonical/duplicate disposition.",
+      "properties": {
+        "scenario_id": {
+          "minLength": 1,
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "canonical",
+            "duplicate",
+            "analytical_only"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "duplicate_of": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duplicate Of"
+        },
+        "key": {
+          "$ref": "#/$defs/ScenarioDeduplicationKey"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "status",
+        "key"
+      ],
+      "title": "ScenarioDeduplication",
+      "type": "object"
+    },
+    "ScenarioDeduplicationKey": {
+      "additionalProperties": false,
+      "description": "The stable identity used to collapse equivalent executable scenarios.",
+      "properties": {
+        "uca_id": {
+          "minLength": 1,
+          "title": "Uca Id",
+          "type": "string"
+        },
+        "control_action_id": {
+          "minLength": 1,
+          "title": "Control Action Id",
+          "type": "string"
+        },
+        "operation_name": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Name"
+        },
+        "claim_level": {
+          "enum": [
+            "command_attempt",
+            "reply",
+            "returned_result",
+            "state_effect",
+            "unknown"
+          ],
+          "title": "Claim Level",
+          "type": "string"
+        },
+        "condition": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Condition"
+        }
+      },
+      "required": [
+        "uca_id",
+        "control_action_id",
+        "claim_level"
+      ],
+      "title": "ScenarioDeduplicationKey",
+      "type": "object"
+    },
+    "UnavailableRecordSelection": {
+      "additionalProperties": false,
+      "description": "No observed record meets the condition; downstream supplies one.",
+      "properties": {
+        "status": {
+          "const": "unavailable",
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 400,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "title": "UnavailableRecordSelection",
+      "type": "object"
+    },
+    "ValueComparison": {
+      "additionalProperties": false,
+      "description": "``left op right`` holds when the behavior is unsafe.",
+      "properties": {
+        "kind": {
+          "const": "value",
+          "title": "Kind",
+          "type": "string"
+        },
+        "left": {
+          "discriminator": {
+            "mapping": {
+              "argument": "#/$defs/ArgumentOperand",
+              "fact": "#/$defs/FactOperand",
+              "literal": "#/$defs/LiteralOperand"
+            },
+            "propertyName": "source"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ArgumentOperand"
+            },
+            {
+              "$ref": "#/$defs/FactOperand"
+            },
+            {
+              "$ref": "#/$defs/LiteralOperand"
+            }
+          ],
+          "title": "Left"
+        },
+        "op": {
+          "enum": [
+            "eq",
+            "ne",
+            "gt",
+            "ge",
+            "lt",
+            "le",
+            "in",
+            "not_in"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "right": {
+          "discriminator": {
+            "mapping": {
+              "argument": "#/$defs/ArgumentOperand",
+              "fact": "#/$defs/FactOperand",
+              "literal": "#/$defs/LiteralOperand"
+            },
+            "propertyName": "source"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ArgumentOperand"
+            },
+            {
+              "$ref": "#/$defs/FactOperand"
+            },
+            {
+              "$ref": "#/$defs/LiteralOperand"
+            }
+          ],
+          "title": "Right"
+        }
+      },
+      "required": [
+        "kind",
+        "left",
+        "op",
+        "right"
+      ],
+      "title": "ValueComparison",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The versioned scenario handoff envelope (v2).\n\nv2 adds the Stage 5 ``discriminating_condition`` and its code-owned\n``condition_check``. Both are null for analytical-only scenarios and for\nrequests that supplied no target operations or observations.",
+  "properties": {
+    "schema_version": {
+      "const": "scenario-handoff-v2",
+      "default": "scenario-handoff-v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "scenario_id": {
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "scenario_version": {
+      "default": 1,
+      "title": "Scenario Version",
+      "type": "integer"
+    },
+    "kind": {
+      "enum": [
+        "adversarial",
+        "functional"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "hypothesis_framing": {
+      "title": "Hypothesis Framing",
+      "type": "string"
+    },
+    "narrative": {
+      "title": "Narrative",
+      "type": "string"
+    },
+    "attack_tree": {
+      "additionalProperties": true,
+      "title": "Attack Tree",
+      "type": "object"
+    },
+    "gherkin": {
+      "$ref": "#/$defs/HandoffGherkin"
+    },
+    "semantic_failure_criterion": {
+      "title": "Semantic Failure Criterion",
+      "type": "string"
+    },
+    "safe_alternative": {
+      "title": "Safe Alternative",
+      "type": "string"
+    },
+    "safe_observable_outcome": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SafeObservableOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "deduplication": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ScenarioDeduplication"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "governing_rules": {
+      "items": {
+        "$ref": "#/$defs/HandoffRule"
+      },
+      "title": "Governing Rules",
+      "type": "array"
+    },
+    "lineage": {
+      "$ref": "#/$defs/HandoffLineage"
+    },
+    "documented_operations": {
+      "items": {
+        "$ref": "#/$defs/HandoffOperation"
+      },
+      "title": "Documented Operations",
+      "type": "array"
+    },
+    "sourced_facts": {
+      "items": {
+        "$ref": "#/$defs/HandoffFact"
+      },
+      "title": "Sourced Facts",
+      "type": "array"
+    },
+    "assumptions_and_unknowns": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions And Unknowns",
+      "type": "array"
+    },
+    "observation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HandoffObservation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "content_digest": {
+      "default": "",
+      "title": "Content Digest",
+      "type": "string"
+    },
+    "discriminating_condition": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DiscriminatingCondition"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "condition_check": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConditionCheck"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "scenario_id",
+    "kind",
+    "hypothesis_framing",
+    "narrative",
+    "attack_tree",
+    "gherkin",
+    "semantic_failure_criterion",
+    "safe_alternative",
+    "lineage"
+  ],
+  "title": "ScenarioHandoff",
+  "type": "object"
+}

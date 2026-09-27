@@ -179,14 +179,14 @@ or empty block leaves rendered request bytes unchanged.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v9` renders the plan author context while preserving the
+- `authoring-call1-v10` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v8` reviews a fresh source-derived plan context.
-- `authoring-call2-v13` renders the immutable accepted plan and preserves the
+- `authoring-plan-review-v9` reviews a fresh source-derived plan context.
+- `authoring-call2-v14` renders the immutable accepted plan and preserves the
   two-block JSON-metadata-plus-Python response.
-- `authoring-artifact-review-v9` reviews the exact metadata, detector bytes,
+- `authoring-artifact-review-v10` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v16` renders only the failed stage format and all
+- `authoring-correction-v17` renders only the failed stage format and all
   current findings.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
@@ -220,8 +220,8 @@ finish reason separate. Absent, null, empty, text, and non-text final content
 remain distinct, and reasoning is never parsed as the final answer.
 
 The producer owns scenario meaning. From the producer repository root, run the
-normal producer command and then hand the resulting `scenario-handoff-v1`
-input to `author`:
+normal producer command and then hand the resulting `scenario-handoff-v2`
+(or older `scenario-handoff-v1`) input to `author`:
 
 ```bash
 cd <producer-repo-root>
@@ -336,14 +336,42 @@ historical scenario YAML compatibility only.
 The authoring path accepts producer-owned discovery outputs and one scenario
 handoff:
 
-- `scenario-handoff-v1` JSON or YAML for scenario meaning.
+- `scenario-handoff-v1` or `scenario-handoff-v2` JSON or YAML for scenario meaning.
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional normalized producer `runtime-context.json` for state and read observations.
 - A target-free runtime contract.
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
 vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and
-record SHA-256 source pins. Use
+record SHA-256 source pins. The adapter reads `schema_version`, verifies
+`content_digest` in that version's digest domain, and records the version as
+`InputView.handoff_schema_version`. Packages keep `input_kind`
+`scenario-handoff-v1` for both versions.
+
+A `scenario-handoff-v2` document may add two fields, both validated against the
+vendored v2 schema. A v1 document that contains either field is rejected.
+
+- `discriminating_condition` states what makes the behavior unsafe: a
+  `statement`, a list of `comparisons`, and a `record_selection`. A value
+  comparison has `left`, `op`, and `right` operands; each operand is an
+  `argument` (operation and argument name), a supplied `fact` path, or a
+  `literal`. An order comparison means `operation` runs without an earlier
+  `requires_prior` call, optionally for the same `same_argument` value. The
+  `record_selection` is `observed`, with a `record_path` and optional
+  `argument_values` paths, or `unavailable`, with a `reason`.
+- `condition_check` is the producer's code-owned pre-execution evaluation:
+  a `status` and one `{index, result, reason}` entry per comparison. It is not
+  runtime evidence.
+
+When either field is non-null, authoring passes it unchanged into the scenario
+context of plan authoring, plan review, artifact authoring, and artifact review.
+Plan authoring and both reviews also state the generic rule: the detector checks
+the condition on captured evidence rather than only the operation, uses the
+selected record's `argument_values` paths when the record is observed, and keeps
+a runtime binding while still checking captured arguments when it is
+unavailable.
+
+Use
 `asago_artifact_generator.target_inputs.load_target_inputs` to validate the
 producer profile, verify its semantic digest, map observed tools to
 operations, infer fact schemas, and record discovery provenance. Authoring

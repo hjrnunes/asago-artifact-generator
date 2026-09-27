@@ -14,14 +14,26 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from jsonschema import Draft202012Validator
 
 _HANDOFF_SCHEMA_VERSION = "scenario-handoff-v1"
-_HANDOFF_DIGEST_DOMAIN = "scenario-handoff-v1"
+_HANDOFF_SCHEMA_VERSION_V2 = "scenario-handoff-v2"
+# Each accepted handoff schema version frames its content digest in its own domain.
+_HANDOFF_DIGEST_DOMAINS = {
+    _HANDOFF_SCHEMA_VERSION: "scenario-handoff-v1",
+    _HANDOFF_SCHEMA_VERSION_V2: "scenario-handoff-v2",
+}
+_HANDOFF_V2_FIELDS = ("discriminating_condition", "condition_check")
 _HANDOFF_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "scenario-handoff"
 
 
 class InputKind(StrEnum):
-    """The supported design-time input representation."""
+    """The supported design-time input representation.
+
+    The value names the producer handoff family recorded in package manifests.
+    Both scenario-handoff-v1 and scenario-handoff-v2 documents load under it;
+    ``InputView.handoff_schema_version`` records the exact document version.
+    """
 
     SCENARIO_HANDOFF_V1 = "scenario-handoff-v1"
 
@@ -62,6 +74,7 @@ class InputView:
     gherkin_bytes: bytes
     source_digests: dict[str, str] = field(default_factory=dict)
     owner_scope: dict[str, list[dict[str, str]]] | None = None
+    handoff_schema_version: str = _HANDOFF_SCHEMA_VERSION
 
     @property
     def source_sha256(self) -> str:
@@ -183,6 +196,9 @@ def build_scenario_handoff_view(view: InputView) -> dict[str, Any]:
     }
     if view.payload.get("observation") is not None:
         result["observation"] = deepcopy(view.payload["observation"])
+    for key in _HANDOFF_V2_FIELDS:
+        if view.payload.get(key) is not None:
+            result[key] = deepcopy(view.payload[key])
     return result
 
 
@@ -218,9 +234,10 @@ def _handoff_view(path: Path, source_bytes: bytes, source: SourceSnapshot) -> In
     if not isinstance(payload, dict):
         raise InputSourceError("scenario handoff must be an object")
     _validate_handoff_payload(payload)
+    schema_version = payload.get("schema_version", _HANDOFF_SCHEMA_VERSION)
     expected_digest = payload.get("content_digest", "")
     digest_payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    if expected_digest != _framed_digest(_HANDOFF_DIGEST_DOMAIN, digest_payload):
+    if expected_digest != _framed_digest(_HANDOFF_DIGEST_DOMAINS[schema_version], digest_payload):
         raise InputSourceError("scenario handoff content_digest does not match source")
     gherkin = payload["gherkin"]
     gherkin_bytes = _canonical_json(gherkin)
@@ -248,14 +265,17 @@ def _handoff_view(path: Path, source_bytes: bytes, source: SourceSnapshot) -> In
             "input": source.sha256,
             "gherkin": _sha256(gherkin_bytes),
         },
+        handoff_schema_version=schema_version,
     )
 
 
 def _infer_kind(path: Path, source_bytes: bytes) -> InputKind:
     document = _parse_document(path, source_bytes)
-    if isinstance(document, dict) and document.get("schema_version") == _HANDOFF_SCHEMA_VERSION:
+    if isinstance(document, dict) and document.get("schema_version") in _HANDOFF_DIGEST_DOMAINS:
         return InputKind.SCENARIO_HANDOFF_V1
-    raise InputSourceError("authoring source must be a producer scenario-handoff-v1 document")
+    raise InputSourceError(
+        "authoring source must be a producer scenario-handoff-v1 or scenario-handoff-v2 document"
+    )
 
 
 def _validate_handoff_kit() -> None:
@@ -279,6 +299,10 @@ def validate_vendored_handoff_kit() -> None:
 
 
 def _validate_handoff_payload(payload: dict[str, Any]) -> None:
+    schema_version = payload.get("schema_version", _HANDOFF_SCHEMA_VERSION)
+    if schema_version not in _HANDOFF_DIGEST_DOMAINS:
+        raise InputSourceError("unknown scenario handoff schema version")
+    is_v2 = schema_version == _HANDOFF_SCHEMA_VERSION_V2
     required = {
         "scenario_id",
         "kind",
@@ -311,14 +335,14 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
         "attack_tree",
         "gherkin",
     }
+    if is_v2:
+        allowed.update(_HANDOFF_V2_FIELDS)
     missing = required - payload.keys()
     unknown = set(payload) - allowed
     if missing or unknown:
         raise InputSourceError(
             f"handoff schema invalid (missing={sorted(missing)}, unknown={sorted(unknown)})"
         )
-    if payload.get("schema_version", _HANDOFF_SCHEMA_VERSION) != _HANDOFF_SCHEMA_VERSION:
-        raise InputSourceError("unknown scenario handoff schema version")
     if payload.get("kind") not in {"adversarial", "functional"}:
         raise InputSourceError("handoff kind is invalid")
     for key in (
@@ -337,7 +361,9 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
     if payload.get("safe_observable_outcome") is not None:
         _validate_safe_observable_outcome(payload["safe_observable_outcome"])
     if payload.get("deduplication") is not None:
-        _validate_deduplication(payload["deduplication"])
+        _validate_deduplication(payload["deduplication"], allow_condition=is_v2)
+    if is_v2:
+        _validate_v2_fields(payload)
     gherkin = payload["gherkin"]
     if (
         not isinstance(gherkin, dict)
@@ -505,7 +531,24 @@ def _validate_safe_observable_outcome(value: Any) -> None:
         )
 
 
-def _validate_deduplication(value: Any) -> None:
+def _validate_v2_fields(payload: dict[str, Any]) -> None:
+    """Validate the v2 condition fields against the vendored producer schema."""
+
+    schema_path = _HANDOFF_ROOT / "handoff-v2" / "schema.json"
+    try:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise InputSourceError(f"cannot read vendored handoff-v2 schema: {exc}") from exc
+    violations = []
+    for key in _HANDOFF_V2_FIELDS:
+        validator = Draft202012Validator({"$defs": schema["$defs"], **schema["properties"][key]})
+        if not validator.is_valid(payload.get(key)):
+            violations.append(f"schema_violation:{key}")
+    if violations:
+        raise InputSourceError(f"handoff schema invalid: {', '.join(violations)}")
+
+
+def _validate_deduplication(value: Any, *, allow_condition: bool = False) -> None:
     """Validate producer duplicate metadata before authoring consumes it."""
 
     if not isinstance(value, dict):
@@ -527,15 +570,20 @@ def _validate_deduplication(value: Any) -> None:
         raise InputSourceError("canonical and analytical-only handoffs must omit duplicate_of")
     key = value["key"]
     key_required = {"uca_id", "control_action_id", "claim_level"}
+    key_optional = {"operation_name", "condition"} if allow_condition else {"operation_name"}
     # The producer omits null fields, so a key without an operation has no
     # operation_name entry.
     if (
         not isinstance(key, dict)
         or not key_required <= set(key)
-        or not set(key) <= key_required | {"operation_name"}
+        or not set(key) <= key_required | key_optional
     ):
         raise InputSourceError("handoff deduplication key is invalid")
-    key = {"operation_name": None, **key}
+    key = {"operation_name": None, "condition": None, **key}
+    if key["condition"] is not None and (
+        not isinstance(key["condition"], str) or not key["condition"].strip()
+    ):
+        raise InputSourceError("handoff deduplication condition is invalid")
     if not all(
         isinstance(key[field], str) and key[field].strip()
         for field in ("uca_id", "control_action_id")

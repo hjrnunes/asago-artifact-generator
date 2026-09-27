@@ -1,0 +1,8 @@
+{
+  "invalid/observed-selection-without-record-path.json": [
+    "schema_violation:discriminating_condition"
+  ],
+  "invalid/unknown-operand-source.json": [
+    "schema_violation:discriminating_condition"
+  ]
+}

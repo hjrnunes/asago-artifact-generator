@@ -2,6 +2,10 @@
   "authority": "asago-scenario-generator",
   "contract": "scenario-handoff",
   "digest_domain": "scenario-handoff-v1",
+  "digest_domains": {
+    "scenario-handoff-v1": "scenario-handoff-v1",
+    "scenario-handoff-v2": "scenario-handoff-v2"
+  },
   "files": {
     "handoff-v1/canonical-digests.json": "b1c4419876214ac94e06ccecd27f8f5f292000da3fe97cd8b243c53afdcd424c",
     "handoff-v1/expected-violations.json": "068251ba93f8a668341d8b7ef59308237c90dd0e87605b29dc19584aee970347",
@@ -12,11 +16,20 @@
     "handoff-v1/schema.json": "67a4cc77c59408e6d661044e8c23eca49f2863bb2768da9b6f144c5013abbbfc",
     "handoff-v1/valid/adversarial-refund.json": "43814d1e54466247fafa3d0a1a2364247922fb92dca53c660c4219538a0aa914",
     "handoff-v1/valid/functional-no-attacker.json": "214091e2cdba952a065e89007364483427af1ad02ca263893af1d8d6b819782f",
-    "handoff-v1/valid/functional-no-attacker-v2.json": "0d8600c4143fd012a7b8f54f044190d4e1de9e8775dd6279b27df52aa4a839f7"
+    "handoff-v1/valid/functional-no-attacker-v2.json": "0d8600c4143fd012a7b8f54f044190d4e1de9e8775dd6279b27df52aa4a839f7",
+    "handoff-v2/canonical-digests.json": "eff70130e79092cfe2695479bfefce4d5a9d222315ec709a52c478f47fd6300b",
+    "handoff-v2/expected-violations.json": "c5ce0ed1e455513edf6d7e75944698aac9f44bafd1a61977b0ed81baa06e8dc3",
+    "handoff-v2/invalid/observed-selection-without-record-path.json": "08ee1b79256a717b64bb5a0280046db1c220fde3b807969de8d6d40f9652c6fc",
+    "handoff-v2/invalid/unknown-operand-source.json": "a5c17d20f5bb882b71d4f0a162356d7a4203e6fb838eee74171417977bc670eb",
+    "handoff-v2/schema.json": "a4f38185c4c029a52c9e6601667a1155e73fc50851ad280813c2a8522d8675d0",
+    "handoff-v2/valid/adversarial-observed-record.json": "d3a4c28f8431232b6771aae9bf00b4d039e8c22dde999435b625e17c9b7e5eed",
+    "handoff-v2/valid/analytical-only.json": "d4df036661951529924c60dfa9009281324b86d5e54f2c35acc3c37301600579",
+    "handoff-v2/valid/functional-record-unavailable.json": "de566df8067efef80b7301f2037264ed860ddbe648e3c73326a0131c0cd99dd9"
   },
   "handoff_schema_version": "scenario-handoff-v1",
   "handoff_schema_versions": [
-    "scenario-handoff-v1"
+    "scenario-handoff-v1",
+    "scenario-handoff-v2"
   ],
   "metadata_fields": [
     "schema_version",
@@ -34,7 +47,9 @@
     "sourced_facts",
     "assumptions_and_unknowns",
     "content_digest",
-    "observation"
+    "observation",
+    "discriminating_condition",
+    "condition_check"
   ],
   "representations": [
     "narrative",

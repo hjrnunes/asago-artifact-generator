@@ -179,7 +179,7 @@ def generate(
 def author(
     source: Annotated[
         Path,
-        typer.Argument(help="Producer scenario-handoff-v1 JSON/YAML file."),
+        typer.Argument(help="Producer scenario-handoff-v1 or scenario-handoff-v2 JSON/YAML file."),
     ],
     target_profile: Annotated[
         Path,

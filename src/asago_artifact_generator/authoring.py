@@ -91,6 +91,7 @@ CORRECTION_PROMPT_VERSION_V11 = "authoring-correction-v11"
 CALL1_PROMPT_VERSION_V7 = "authoring-call1-v7"
 CALL1_PROMPT_VERSION_V8 = "authoring-call1-v8"
 CALL1_PROMPT_VERSION_V9 = "authoring-call1-v9"
+CALL1_PROMPT_VERSION_V10 = "authoring-call1-v10"
 CORRECTION_PROMPT_VERSION_V12 = "authoring-correction-v12"
 CORRECTION_PROMPT_VERSION_V13 = "authoring-correction-v13"
 CALL2_PROMPT_VERSION_V9 = "authoring-call2-v9"
@@ -99,13 +100,15 @@ CORRECTION_PROMPT_VERSION_V14 = "authoring-correction-v14"
 CALL2_PROMPT_VERSION_V11 = "authoring-call2-v11"
 CORRECTION_PROMPT_VERSION_V15 = "authoring-correction-v15"
 CORRECTION_PROMPT_VERSION_V16 = "authoring-correction-v16"
+CORRECTION_PROMPT_VERSION_V17 = "authoring-correction-v17"
 CALL2_PROMPT_VERSION_V12 = "authoring-call2-v12"
 CALL2_PROMPT_VERSION_V13 = "authoring-call2-v13"
+CALL2_PROMPT_VERSION_V14 = "authoring-call2-v14"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical package readers.
-CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V9
-CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V13
-CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V16
+CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V10
+CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V14
+CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V17
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
@@ -126,8 +129,10 @@ ARTIFACT_REVIEW_PROMPT_VERSION_V7 = "authoring-artifact-review-v7"
 ARTIFACT_REVIEW_PROMPT_VERSION_V8 = "authoring-artifact-review-v8"
 ARTIFACT_REVIEW_PROMPT_VERSION_V9 = "authoring-artifact-review-v9"
 PLAN_REVIEW_PROMPT_VERSION_V8 = "authoring-plan-review-v8"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V8
-ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V9
+ARTIFACT_REVIEW_PROMPT_VERSION_V10 = "authoring-artifact-review-v10"
+PLAN_REVIEW_PROMPT_VERSION_V9 = "authoring-plan-review-v9"
+PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V9
+ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V10
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 
 _PLAN_REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
@@ -1417,7 +1422,7 @@ def _render_correction_packet(
             (
                 CORRECTION_PROMPT_VERSION_V7
                 if correction_context.get("legacy_evidence_interface") is True
-                else CORRECTION_PROMPT_VERSION_V16
+                else CORRECTION_PROMPT_VERSION_V17
             )
             if correction_context.get("stage") == "artifact"
             else (
@@ -1429,7 +1434,7 @@ def _render_correction_packet(
                     else (
                         CORRECTION_PROMPT_VERSION_V10
                         if legacy_v10
-                        else CORRECTION_PROMPT_VERSION_V16
+                        else CORRECTION_PROMPT_VERSION_V17
                     )
                 )
             )
@@ -5226,6 +5231,19 @@ _PLAN_AUTHOR_GUIDANCE = (
     "The neutral example explains field meanings and supplies no facts or operations "
     "for your scenario."
 )
+_DISCRIMINATING_CONDITION_GUIDANCE = (
+    "When the scenario supplies discriminating_condition, the violation condition "
+    "and detector must check that condition on captured evidence, not only that the "
+    "operation occurred. Check value comparisons on captured tool-call arguments "
+    "(an argument operand names an operation and argument; a fact operand names a "
+    "supplied fact path). Check order comparisons on captured call order: operation "
+    "called with no earlier requires_prior call, for the same value of "
+    "same_argument when it is set. condition_check is the producer's pre-execution "
+    "evaluation, not runtime evidence. If record_selection.status is observed, "
+    "derive the stimulus record and runtime bindings from its argument_values paths. "
+    "If it is unavailable, keep a runtime binding or placeholder for the record and "
+    "still check the condition on captured arguments."
+)
 _ARTIFACT_AUTHOR_GUIDANCE = (
     "Implement the accepted plan's alternative decision conditions against the "
     "supplied runtime evidence interface. Do not treat planned "
@@ -6004,7 +6022,13 @@ def build_plan_author_context(
             "instruction": (
                 "Design one target-free experiment for the supplied scenario. "
                 "Choose meaning, setup needs, stimulus, observations, and semantic "
-                "judging only from the supplied source context. " + _PLAN_AUTHOR_GUIDANCE
+                "judging only from the supplied source context. "
+                + _PLAN_AUTHOR_GUIDANCE
+                + (
+                    ""
+                    if legacy_interface or legacy_binding_contract
+                    else " " + _DISCRIMINATING_CONDITION_GUIDANCE
+                )
             ),
             "scenario": _original_scenario_context(view),
         },
@@ -6137,6 +6161,7 @@ def build_plan_reviewer_context(
         "binding_and_setup_rules": {
             "binding_contract": _binding_contract(legacy=legacy_binding_contract),
             "setup_permissions_explanation": _SETUP_PERMISSION_EXPLANATION,
+            "discriminating_condition": _DISCRIMINATING_CONDITION_GUIDANCE,
         },
         "neutral_outcome_example": NEUTRAL_PLAN_OUTCOME_EXAMPLE,
         "candidate_plan": deepcopy(plan),
@@ -6575,6 +6600,7 @@ def build_artifact_reviewer_context(
         "binding_and_setup_rules": {
             "binding_contract": _binding_contract(),
             "setup_permissions_explanation": _SETUP_PERMISSION_EXPLANATION,
+            "discriminating_condition": _DISCRIMINATING_CONDITION_GUIDANCE,
         },
         "review_questions": _review_question_context(
             _ARTIFACT_REVIEW_QUESTIONS,
@@ -6911,7 +6937,7 @@ def build_call1_packet_v2(
         version=(
             CALL1_PROMPT_VERSION_V4
             if legacy
-            else (CALL1_PROMPT_VERSION_V5 if legacy_binding_contract else CALL1_PROMPT_VERSION_V9)
+            else (CALL1_PROMPT_VERSION_V5 if legacy_binding_contract else CALL1_PROMPT_VERSION_V10)
         ),
         system=_CALL1_SYSTEM_V3,
         user=_render_sections(
@@ -7022,7 +7048,7 @@ def build_call2_packet_v2(
     )
     packet = PromptPacket(
         stage="call2",
-        version=CALL2_PROMPT_VERSION_V13,
+        version=CALL2_PROMPT_VERSION_V14,
         system=_CALL2_SYSTEM_V5,
         user=_render_sections(sections),
         payload=payload,
@@ -8065,6 +8091,9 @@ def _case_meaning(view: InputView) -> dict[str, Any]:
 
     if observation is not None:
         result["observation"] = observation
+    for key in ("discriminating_condition", "condition_check"):
+        if key in handoff:
+            result[key] = handoff[key]
     return result
 
 
@@ -10460,6 +10489,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CALL1_PROMPT_VERSION_V7,
         CALL1_PROMPT_VERSION_V8,
         CALL1_PROMPT_VERSION_V9,
+        CALL1_PROMPT_VERSION_V10,
         CALL2_PROMPT_VERSION_V3,
         CALL2_PROMPT_VERSION_V4,
         CALL2_PROMPT_VERSION_V5,
@@ -10471,6 +10501,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CALL2_PROMPT_VERSION_V11,
         CALL2_PROMPT_VERSION_V12,
         CALL2_PROMPT_VERSION_V13,
+        CALL2_PROMPT_VERSION_V14,
         CORRECTION_PROMPT_VERSION_V3,
         CORRECTION_PROMPT_VERSION_V4,
         CORRECTION_PROMPT_VERSION_V5,
@@ -10485,6 +10516,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CORRECTION_PROMPT_VERSION_V14,
         CORRECTION_PROMPT_VERSION_V15,
         CORRECTION_PROMPT_VERSION_V16,
+        CORRECTION_PROMPT_VERSION_V17,
         PLAN_REVIEW_PROMPT_VERSION_V1,
         PLAN_REVIEW_PROMPT_VERSION_V2,
         PLAN_REVIEW_PROMPT_VERSION_V3,
@@ -10493,6 +10525,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         PLAN_REVIEW_PROMPT_VERSION_V6,
         PLAN_REVIEW_PROMPT_VERSION_V7,
         PLAN_REVIEW_PROMPT_VERSION_V8,
+        PLAN_REVIEW_PROMPT_VERSION_V9,
         ARTIFACT_REVIEW_PROMPT_VERSION_V1,
         ARTIFACT_REVIEW_PROMPT_VERSION_V2,
         ARTIFACT_REVIEW_PROMPT_VERSION_V3,
@@ -10502,6 +10535,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         ARTIFACT_REVIEW_PROMPT_VERSION_V7,
         ARTIFACT_REVIEW_PROMPT_VERSION_V8,
         ARTIFACT_REVIEW_PROMPT_VERSION_V9,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V10,
     }:
         assert_no_prompt_duplicates(packet)
     if maximum <= 0:
@@ -12721,6 +12755,7 @@ __all__ = [
     "CALL1_PROMPT_VERSION_V7",
     "CALL1_PROMPT_VERSION_V8",
     "CALL1_PROMPT_VERSION_V9",
+    "CALL1_PROMPT_VERSION_V10",
     "CALL2_PROMPT_VERSION",
     "CALL2_PROMPT_VERSION_V2",
     "CALL2_PROMPT_VERSION_V3",
@@ -12734,6 +12769,7 @@ __all__ = [
     "CALL2_PROMPT_VERSION_V11",
     "CALL2_PROMPT_VERSION_V12",
     "CALL2_PROMPT_VERSION_V13",
+    "CALL2_PROMPT_VERSION_V14",
     "CORRECTION_PROMPT_VERSION",
     "CORRECTION_PROMPT_VERSION_V2",
     "CORRECTION_PROMPT_VERSION_V3",
@@ -12750,6 +12786,7 @@ __all__ = [
     "CORRECTION_PROMPT_VERSION_V14",
     "CORRECTION_PROMPT_VERSION_V15",
     "CORRECTION_PROMPT_VERSION_V16",
+    "CORRECTION_PROMPT_VERSION_V17",
     "Call2FramingError",
     "Finding",
     "PlanValidationError",
@@ -12762,6 +12799,7 @@ __all__ = [
     "PLAN_REVIEW_PROMPT_VERSION_V6",
     "PLAN_REVIEW_PROMPT_VERSION_V7",
     "PLAN_REVIEW_PROMPT_VERSION_V8",
+    "PLAN_REVIEW_PROMPT_VERSION_V9",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V1",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V2",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V3",
@@ -12771,6 +12809,7 @@ __all__ = [
     "ARTIFACT_REVIEW_PROMPT_VERSION_V7",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V8",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V9",
+    "ARTIFACT_REVIEW_PROMPT_VERSION_V10",
     "PLAN_FIELD_MEANINGS",
     "NEUTRAL_PLAN_OUTCOME_EXAMPLE",
     "PromptPacket",
