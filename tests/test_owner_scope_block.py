@@ -31,16 +31,16 @@ from tests.test_versioned_prompt_roles import (
 _OWNER_SCOPE_LABEL = "OWNER-SUPPLIED SCOPE (NOT OBSERVED TARGET FACTS)"
 # SHA-256 of system + NUL + user bytes captured for these prompt contracts.
 _BASE_REVISION = (
-    "authoring-call1-v12 / authoring-call2-v16 / authoring-correction-v19 / "
-    "authoring-plan-review-v11 / authoring-artifact-review-v12"
+    "authoring-call1-v13 / authoring-call2-v17 / authoring-correction-v20 / "
+    "authoring-plan-review-v12 / authoring-artifact-review-v13"
 )
 _BASE_STAGE_DIGESTS = {
     "call1": "884ed9166f991823d0a36303708a3a54b799675fdb4e9e5db6b9ef06cdee701d",
     "plan_review": "6e917201824bf9a83a8af32152bffba770b544d07fff916f57a242b07c920a27",
-    "call2": "b0a5201e148d963b15288cae320b5109f5646b033dbdeb27e80048d07baa12fa",
-    "artifact_review": "f4114bb432461af7b6de77146de8e5dcf3720c6dd64b6ce69f6930c0bd1bac12",
+    "call2": "61d6da71a066d5cc61c85d54a6c7c176a0821dcf003d5b5963a71ff8d61d0436",
+    "artifact_review": "3a3cbd93a3a017d4a38385228314f1efcb0ca7a376b768e40dde8e7709c6ac79",
     "plan_correction": "13e82efd98cd5ec606441afa27cfdef96872ef3d5498dc939a7502f403cacd58",
-    "artifact_correction": "ccaff6b65ff0090ef1330d9c6cbe3993254446cabb7c3754fdc118549499171e",
+    "artifact_correction": "8a840f9079d3cee67af9eeda538d0cc5e66e94f57f3be9a9e99436b78d6b59af",
 }
 _OWNER_SCOPE = {
     "scenario_premises": [

@@ -1325,11 +1325,32 @@ def _has_other_comparisons(condition: Mapping[str, Any]) -> bool:
     )
 
 
-def _selected_operations(plan: Mapping[str, Any]) -> list[str]:
+def _observation_facts(inventory: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """Return supplied facts that record a tool result, keyed by fact ref."""
+
+    facts = inventory.get("facts")
+    observations: dict[str, Mapping[str, Any]] = {}
+    for item in facts if isinstance(facts, list) else []:
+        if not isinstance(item, Mapping) or not isinstance(item.get("ref"), str):
+            continue
+        provenance = item.get("provenance")
+        if (
+            "value" in item
+            and isinstance(provenance, Mapping)
+            and isinstance(provenance.get("tool_name"), str)
+        ):
+            observations[item["ref"]] = item
+    return observations
+
+
+def _selected_operations(plan: Mapping[str, Any], inventory: Mapping[str, Any]) -> list[str]:
+    """Return plan-selected operations, including those an observation ref records."""
+
     names: list[str] = []
     selected = plan.get("selected_evidence")
     if not isinstance(selected, list):
         return names
+    observations = _observation_facts(inventory)
     for item in selected:
         if not isinstance(item, Mapping):
             continue
@@ -1337,11 +1358,43 @@ def _selected_operations(plan: Mapping[str, Any]) -> list[str]:
         name = None
         if isinstance(ref, str) and ref.startswith("operation:"):
             name = ref.split(":", 1)[1]
+        elif isinstance(ref, str) and ref.startswith("observation:") and ref in observations:
+            name = observations[ref]["provenance"]["tool_name"]
         elif isinstance(item.get("operation"), str):
             name = item["operation"]
         if name is not None and name not in names:
             names.append(name)
     return names
+
+
+def uncited_trigger_observations(
+    plan: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+    condition: Mapping[str, Any] | None,
+) -> dict[str, list[str]]:
+    """Map each omission trigger lacking a cited observation to its supplied ones.
+
+    A trigger is a plan-selected operation that a ``not_called`` comparison does
+    not omit. It is listed only when the inventory supplies a result observation
+    for it and the plan cites or binds none of them; a trigger with no supplied
+    observation is not listed.
+    """
+
+    omitted = _not_called_operations(condition)
+    if not omitted:
+        return {}
+    observations = _observation_facts(inventory)
+    cited = set(_plan_cited_fact_refs(plan))
+    gaps: dict[str, list[str]] = {}
+    for name in _selected_operations(plan, inventory):
+        if name in omitted:
+            continue
+        supplied = [
+            ref for ref, fact in observations.items() if fact["provenance"]["tool_name"] == name
+        ]
+        if supplied and not cited.intersection(supplied):
+            gaps[name] = supplied
+    return gaps
 
 
 def _plan_cited_fact_refs(plan: Mapping[str, Any]) -> list[str]:
@@ -1412,11 +1465,64 @@ def _trigger_call(
             _copy_mapping(arguments),
             status="completed",
         )
-        result = _copy_value(fact["value"])
-        call["raw_result"] = result
-        call["decoded_result"] = _copy_value(result)
+        call.update(executor_tool_result(fact["value"]))
         return call
     return None
+
+
+_MCP_RESULT_FIELDS = frozenset({"content", "structuredContent", "isError", "_meta", "meta"})
+
+
+def _tool_output_text(value: Any) -> Any:
+    """Return the tool output an agent receives for one supplied tool result.
+
+    A supplied observation may be the native MCP result envelope. The agent
+    receives that result's JSON text, which the executor records verbatim as
+    the call's output: the single text block, else the structured content with
+    a sole ``result`` key unwrapped.
+    """
+
+    if not (
+        isinstance(value, Mapping)
+        and set(value) <= _MCP_RESULT_FIELDS
+        and ("content" in value or "structuredContent" in value)
+    ):
+        return value
+    content = value.get("content")
+    texts = [
+        item["text"]
+        for item in (content if isinstance(content, list) else [])
+        if isinstance(item, Mapping)
+        and item.get("type") == "text"
+        and isinstance(item.get("text"), str)
+    ]
+    if len(texts) == 1:
+        return texts[0]
+    structured = value.get("structuredContent")
+    if isinstance(structured, Mapping) and set(structured) == {"result"}:
+        return structured["result"]
+    if structured is not None:
+        return structured
+    return value
+
+
+def executor_tool_result(value: Any) -> dict[str, Any]:
+    """Return the result fields the downstream evidence adapter records for a tool result.
+
+    ``raw_result`` is the tool output text and ``decoded_result`` its JSON
+    decoding; an undecodable string yields ``decoded_result`` null and a
+    ``parse_errors.result`` entry, as at execution.
+    """
+
+    output = _tool_output_text(_copy_value(value))
+    raw = output if isinstance(output, str) else json.dumps(output)
+    parse_errors: dict[str, str] = {}
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        decoded = None
+        parse_errors["result"] = f"{type(exc).__name__}: {exc.msg}"
+    return {"raw_result": raw, "decoded_result": decoded, "parse_errors": parse_errors}
 
 
 def _extend_omission_controls(
@@ -1439,7 +1545,7 @@ def _extend_omission_controls(
     """
 
     skips: list[ControlSkip] = []
-    trigger_names = [name for name in _selected_operations(plan) if name not in omitted]
+    trigger_names = [name for name in _selected_operations(plan, inventory) if name not in omitted]
     trigger_calls = [
         _trigger_call(plan, inventory, name, index) for index, name in enumerate(trigger_names)
     ]
@@ -1816,5 +1922,7 @@ __all__ = [
     "ControlSkip",
     "build_control_cases",
     "build_control_skips",
+    "executor_tool_result",
     "run_detector_controls",
+    "uncited_trigger_observations",
 ]

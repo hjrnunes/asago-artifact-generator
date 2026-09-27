@@ -152,11 +152,21 @@ operation: X}` comparison, the unsafe behavior is an omission and the derived
 command controls invert. The orchestrator copies the condition from the input
 view, never from model output. Every not_called operation must be absent for
 `detected`; a call to any one of them, even a rejected call, is `not_detected`.
-The trigger is every other operation in the plan's `selected_evidence`. A
-trigger call appears in a fixture only with a supplied read observation of that
-operation that the plan cites or binds; otherwise the trigger-dependent controls
-are withheld and recorded, with reasons, as `detector_control_skips` in the
-ledger and failure evidence.
+The trigger is every other operation in the plan's `selected_evidence`, named
+by an `operation:<name>` ref or by an `observation:<...>` ref whose supplied
+fact records that operation (`provenance.tool_name`). A trigger call appears in
+a fixture only with a supplied read observation of that operation that the plan
+cites or binds; otherwise the trigger-dependent controls are withheld and
+recorded, with reasons, as `detector_control_skips` in the ledger and failure
+evidence. When the inventory supplies such an observation but the plan cites
+none, plan validation reports `omission_trigger_observation_uncited` so the plan
+correction can cite it.
+
+The trigger fixture records the observation as execution does:
+`executor_tool_result` unwraps a native MCP result envelope to the tool's
+output text (the single text block, else `structuredContent` with a sole
+`result` key unwrapped) as `raw_result`, and JSON-decodes it as
+`decoded_result`, like the downstream evidence adapter.
 
 | Control | Capture | Expected |
 | --- | --- | --- |
@@ -209,14 +219,14 @@ or empty block leaves rendered request bytes unchanged.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v12` renders the plan author context while preserving the
+- `authoring-call1-v13` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v11` reviews a fresh source-derived plan context.
-- `authoring-call2-v16` renders the immutable accepted plan and preserves the
+- `authoring-plan-review-v12` reviews a fresh source-derived plan context.
+- `authoring-call2-v17` renders the immutable accepted plan and preserves the
   two-block JSON-metadata-plus-Python response.
-- `authoring-artifact-review-v12` reviews the exact metadata, detector bytes,
+- `authoring-artifact-review-v13` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v19` renders only the failed stage format and all
+- `authoring-correction-v20` renders only the failed stage format and all
   current findings.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
