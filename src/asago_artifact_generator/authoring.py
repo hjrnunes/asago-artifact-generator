@@ -29,6 +29,7 @@ from .bindings import (
     BindingValidationError,
     canonical_binding_paths,
     find_stimulus_user_text_consumer_mismatches,
+    normalize_binding_declarations,
     supplied_binding_values,
     validate_bindings,
 )
@@ -1253,7 +1254,7 @@ class AuthoringResult:
     package_path: Path | None = None
     findings: list[Finding] = field(default_factory=list)
     ledger: list[dict[str, Any]] = field(default_factory=list)
-    transformations: list[str] = field(default_factory=list)
+    transformations: list[Any] = field(default_factory=list)
     raw_responses: dict[str, bytes] = field(default_factory=dict)
     decoded_responses: dict[str, Any] = field(default_factory=dict)
     prompts: dict[str, PromptPacket] = field(default_factory=dict)
@@ -3118,7 +3119,7 @@ class AuthoringOrchestrator:
         self._raw_responses: dict[str, bytes] = {}
         self._decoded_responses: dict[str, Any] = {}
         self._prompt_packets: dict[str, PromptPacket] = {}
-        self._transformations: list[str] = []
+        self._transformations: list[Any] = []
         self._failure_evidence = new_failure_evidence(self.task_id, self.package_dir)
         self._failure_evidence["budget"] = self.budget.snapshot(self.task_id)
         self._failure_evidence_file: Path | None = None
@@ -3140,7 +3141,12 @@ class AuthoringOrchestrator:
             return self._result("failed", None, [_prompt_preflight_finding(exc, "call1")])
         plan, findings, raw = self._request_and_validate(
             call1,
-            lambda decoded: collect_plan_findings(decoded, inventory, runtime_contract),
+            lambda decoded: collect_plan_findings(
+                decoded,
+                inventory,
+                runtime_contract,
+                transformations=self._transformations,
+            ),
         )
         if plan is None:
             if not findings:
@@ -3180,6 +3186,7 @@ class AuthoringOrchestrator:
                 plan,
                 inventory,
                 runtime_contract,
+                transformations=self._transformations,
             ),
         )
         if artifact is None:
@@ -3257,6 +3264,7 @@ class AuthoringOrchestrator:
                 runtime_contract,
                 provenance_ids=scenario_provenance_ids(view),
                 condition=view.payload.get("discriminating_condition"),
+                transformations=self._transformations,
             ),
         )
         if plan is None:
@@ -3297,6 +3305,7 @@ class AuthoringOrchestrator:
                 plan,
                 inventory,
                 runtime_contract,
+                transformations=self._transformations,
             ),
         )
         if isinstance(parsed, ParsedCall2Response):
@@ -3594,7 +3603,9 @@ class AuthoringOrchestrator:
             self._findings.append(finding)
             self._record_failure(finding)
             return None, [finding], raw
+        transformation_count = len(self._transformations)
         findings = findings_collector(decoded)
+        self._record_validation_transformations(transformation_count)
         if findings:
             self._findings.extend(findings)
             record["findings"] = [finding.to_dict() for finding in findings]
@@ -3714,7 +3725,9 @@ class AuthoringOrchestrator:
             self._findings.append(finding)
             self._record_failure(finding)
             return None, [finding], raw
+        transformation_count = len(self._transformations)
         findings = findings_collector(validation_value)
+        self._record_validation_transformations(transformation_count)
         if findings:
             self._findings.extend(findings)
             record["findings"] = [finding.to_dict() for finding in findings]
@@ -3989,15 +4002,23 @@ class AuthoringOrchestrator:
             self._ledger[-1]["decoded_output"] = decoded
             if not isinstance(decoded, dict):
                 raise ValueError("correction response must decode to an object")
+            transformation_count = len(self._transformations)
             if failed_stage == "call1":
-                findings = collect_plan_findings(decoded, inventory, runtime_contract)
+                findings = collect_plan_findings(
+                    decoded,
+                    inventory,
+                    runtime_contract,
+                    transformations=self._transformations,
+                )
             else:
                 findings = collect_artifact_findings(
                     decoded,
                     self._decoded_responses["call1"],
                     inventory,
                     runtime_contract,
+                    transformations=self._transformations,
                 )
+            self._record_validation_transformations(transformation_count)
             if findings:
                 self._ledger[-1]["findings"] = [finding.to_dict() for finding in findings]
                 self._findings.extend(findings)
@@ -4174,6 +4195,7 @@ class AuthoringOrchestrator:
             self._persist_failure_evidence()
             if not isinstance(decoded, dict):
                 raise ValueError("correction response must decode to an object")
+            transformation_count = len(self._transformations)
             if failed_stage == "call1":
                 replacement_findings = collect_plan_findings_v2(
                     decoded,
@@ -4181,6 +4203,7 @@ class AuthoringOrchestrator:
                     runtime_contract,
                     provenance_ids=scenario_provenance_ids(view),
                     condition=view.payload.get("discriminating_condition"),
+                    transformations=self._transformations,
                 )
             else:
                 replacement_findings = collect_artifact_findings_v2(
@@ -4188,7 +4211,9 @@ class AuthoringOrchestrator:
                     self._decoded_responses["call1"],
                     inventory,
                     runtime_contract,
+                    transformations=self._transformations,
                 )
+            self._record_validation_transformations(transformation_count)
             if replacement_findings:
                 self._ledger[-1]["findings"] = [
                     finding.to_dict() for finding in replacement_findings
@@ -4355,6 +4380,7 @@ class AuthoringOrchestrator:
                 runtime_contract,
                 provenance_ids=provenance_ids,
                 condition=view.payload.get("discriminating_condition"),
+                transformations=self._transformations,
             )
 
         candidate: dict[str, Any] | None = None
@@ -4465,7 +4491,13 @@ class AuthoringOrchestrator:
             return _StageStop(status, (finding,))
 
         def collector(decoded: Any) -> list[Finding]:
-            return collect_artifact_findings_v2(decoded, plan, inventory, runtime_contract)
+            return collect_artifact_findings_v2(
+                decoded,
+                plan,
+                inventory,
+                runtime_contract,
+                transformations=self._transformations,
+            )
 
         parsed: ParsedCall2Response | None = None
         pending: list[Finding] | None = None
@@ -5024,6 +5056,19 @@ class AuthoringOrchestrator:
             digest = _sha256(_canonical_json(candidate).encode("utf-8"))
         self._ledger[-1]["candidate_sha256"] = digest
         self._failure_attempt()["candidate_sha256"] = digest
+
+    def _record_validation_transformations(self, start: int) -> None:
+        """Persist deterministic binding rewrites made during validation."""
+
+        changes = self._transformations[start:]
+        if not changes:
+            return
+        self._failure_evidence["transformations"] = list(self._transformations)
+        attempt = self._failure_attempt()
+        attempt["transformations"] = deepcopy(changes)
+        if self._ledger:
+            self._ledger[-1]["transformations"] = deepcopy(changes)
+        self._persist_failure_evidence()
 
     def _record_available_response(
         self,
@@ -8014,6 +8059,7 @@ def collect_plan_findings_v2(
     legacy: bool = False,
     provenance_ids: Collection[str] = frozenset(),
     condition: Mapping[str, Any] | None = None,
+    transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
     """Validate a v2 plan while retaining the historical v1 validator.
 
@@ -8033,6 +8079,7 @@ def collect_plan_findings_v2(
         wire_version="v2",
         legacy=legacy,
         provenance_ids=provenance_ids,
+        transformations=transformations,
     )
     if not legacy and isinstance(plan, dict):
         findings.extend(_omission_trigger_findings(plan, inventory, condition))
@@ -8073,8 +8120,9 @@ def collect_artifact_findings_v2(
     runtime_contract: dict[str, Any],
     *,
     legacy: bool = False,
+    transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
-    """Validate v2 metadata and its plan-owned context."""
+    """Validate v2 metadata and normalize its plan-owned context."""
 
     if isinstance(response, ParsedCall2Response):
         findings = _validate_call2_metadata_shape(response.metadata)
@@ -8086,6 +8134,18 @@ def collect_artifact_findings_v2(
         return findings
     if not isinstance(metadata, dict):
         return findings
+    runtime_bindings = plan.get("runtime_bindings")
+    if isinstance(runtime_bindings, list):
+        normalize_binding_declarations(
+            runtime_bindings,
+            inventory=inventory,
+            transformations=transformations,
+        )
+        _normalize_prerequisite_binding_consumers(
+            plan.get("prerequisites"),
+            runtime_bindings,
+            transformations=transformations,
+        )
     stimulus = metadata.get("stimulus")
     if isinstance(stimulus, dict):
         delivery = stimulus.get("delivery")
@@ -8124,31 +8184,39 @@ def collect_artifact_findings_v2(
         slots = stimulus.get("slots")
         user_text = stimulus.get("user_text")
         if isinstance(slots, list) and isinstance(user_text, str):
-            rendered_slots = sorted({match.group(1) for match in _SLOT_RE.finditer(user_text)})
-            if sorted(slots) != rendered_slots:
+            rendered_slots = _slot_names_in_order(user_text)
+            declared = _declared_binding_names(runtime_bindings)
+            undeclared = [slot for slot in rendered_slots if slot not in declared]
+            if not undeclared:
+                _normalize_stimulus_slots(
+                    stimulus,
+                    declared,
+                    transformations=transformations,
+                )
+                slots = stimulus.get("slots")
+            if slots != rendered_slots:
                 findings.append(
                     Finding(
                         "slot_mismatch", "stimulus slots do not match user_text", "stimulus.slots"
                     )
                 )
-            declared = {
-                binding.get("name")
-                for binding in plan.get("runtime_bindings", [])
-                if isinstance(binding, dict)
-            }
             for slot in rendered_slots:
                 if slot not in declared:
                     findings.append(
                         Finding(
                             "undeclared_slot",
-                            "stimulus contains an undeclared binding slot",
+                            (
+                                f"stimulus contains undeclared binding placeholder(s): "
+                                f"{', '.join(sorted(set(undeclared)))}; declared binding "
+                                f"names: {', '.join(sorted(declared)) or '(none)'}"
+                            ),
                             f"stimulus.user_text:{slot}",
                         )
                     )
         if isinstance(plan, dict) and isinstance(plan.get("runtime_bindings"), list):
-            values = supplied_binding_values(plan["runtime_bindings"], inventory)
+            values = supplied_binding_values(runtime_bindings, inventory)
             for mismatch in find_stimulus_user_text_consumer_mismatches(
-                plan["runtime_bindings"],
+                runtime_bindings,
                 user_text if isinstance(user_text, str) else "",
                 resolved_values=values,
             ):
@@ -8220,9 +8288,10 @@ def collect_artifact_findings_v2(
                 plan["prerequisites"],
                 _inventory_references(inventory),
                 declared_bindings,
-                plan.get("runtime_bindings"),
+                runtime_bindings,
                 safe_behavior=_plan_safe_behavior(plan),
                 legacy=legacy,
+                transformations=transformations,
             )
         )
     return findings
@@ -8237,11 +8306,17 @@ def _collect_plan_findings_with_contract(
     wire_version: str,
     legacy: bool = False,
     provenance_ids: Collection[str] = frozenset(),
+    transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
     """Run the existing validator with a version-specific root contract."""
 
     if wire_version == "v1":
-        return collect_plan_findings(plan, inventory, runtime_contract)
+        return collect_plan_findings(
+            plan,
+            inventory,
+            runtime_contract,
+            transformations=transformations,
+        )
     if not isinstance(plan, dict):
         return [Finding("response_type_error", "plan must be an object", "response")]
     required = contract["schema"]["required"]
@@ -8311,6 +8386,7 @@ def _collect_plan_findings_with_contract(
             inventory,
             runtime_contract,
             provenance_ids=provenance_ids,
+            transformations=transformations,
         )
     )
     findings = [
@@ -8364,6 +8440,7 @@ def _collect_plan_findings_with_contract(
                 plan.get("runtime_bindings"),
                 safe_behavior=_plan_safe_behavior(plan),
                 legacy=legacy,
+                transformations=transformations,
             )
         )
     return findings
@@ -8716,8 +8793,9 @@ def collect_plan_findings(
     runtime_contract: dict[str, Any],
     *,
     provenance_ids: Collection[str] = frozenset(),
+    transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
-    """Return every structural Call 1 finding without changing ``plan``."""
+    """Return every structural Call 1 finding and normalize valid bindings."""
 
     findings: list[Finding] = []
     if not isinstance(plan, dict):
@@ -8871,6 +8949,7 @@ def collect_plan_findings(
                 inventory,
                 runtime_contract,
                 finding_code="plan_binding_validation",
+                transformations=transformations,
             )
         )
 
@@ -9027,6 +9106,11 @@ def collect_plan_findings(
 
     prerequisites = plan.get("prerequisites")
     if isinstance(prerequisites, list):
+        _normalize_prerequisite_binding_consumers(
+            prerequisites,
+            runtime_bindings,
+            transformations=transformations,
+        )
         findings.extend(_collect_prerequisite_findings(prerequisites, references))
     unresolved = plan.get("unresolved_requirements")
     if isinstance(unresolved, list):
@@ -9059,8 +9143,10 @@ def collect_artifact_findings(
     plan: dict[str, Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    *,
+    transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
-    """Return every structural Call 2 finding without changing ``artifact``."""
+    """Return every structural Call 2 finding and normalize valid bindings."""
 
     findings: list[Finding] = []
     if not isinstance(artifact, dict):
@@ -9086,6 +9172,18 @@ def collect_artifact_findings(
                 Finding("artifact_validation", f"missing artifact field: {field_name}", field_name)
             )
     if isinstance(plan, dict):
+        if isinstance(artifact.get("runtime_bindings"), list):
+            normalize_binding_declarations(
+                artifact["runtime_bindings"],
+                inventory=inventory,
+                transformations=transformations,
+            )
+        if isinstance(artifact.get("prerequisites"), list):
+            _normalize_prerequisite_binding_consumers(
+                artifact["prerequisites"],
+                artifact.get("runtime_bindings"),
+                transformations=transformations,
+            )
         for field_name in ("setup_recipe", "runtime_bindings", "prerequisites"):
             if field_name in artifact and not isinstance(artifact[field_name], list):
                 findings.append(
@@ -9201,8 +9299,17 @@ def collect_artifact_findings(
                         "stimulus.user_text",
                     )
                 )
-            rendered_slots = sorted({match.group(1) for match in matches})
-            if sorted(slots) != rendered_slots:
+            rendered_slots = _slot_names_in_order(user_text)
+            declared_names = _declared_binding_names(artifact.get("runtime_bindings"))
+            undeclared = [slot for slot in rendered_slots if slot not in declared_names]
+            if not undeclared:
+                _normalize_stimulus_slots(
+                    stimulus,
+                    declared_names,
+                    transformations=transformations,
+                )
+                slots = stimulus.get("slots", [])
+            if slots != rendered_slots:
                 findings.append(
                     Finding(
                         "slot_mismatch",
@@ -9216,6 +9323,7 @@ def collect_artifact_findings(
                     binding_values,
                     inventory=inventory,
                     runtime_contract=runtime_contract,
+                    transformations=transformations,
                 )
                 declared = {binding.name: binding for binding in valid_bindings}
                 for slot in rendered_slots:
@@ -9223,7 +9331,11 @@ def collect_artifact_findings(
                         findings.append(
                             Finding(
                                 "undeclared_slot",
-                                "stimulus contains an undeclared binding slot",
+                                (
+                                    f"stimulus contains undeclared binding placeholder(s): "
+                                    f"{', '.join(sorted(set(undeclared)))}; declared binding "
+                                    f"names: {', '.join(sorted(declared_names)) or '(none)'}"
+                                ),
                                 f"stimulus.user_text:{slot}",
                             )
                         )
@@ -9265,7 +9377,14 @@ def collect_artifact_findings(
         findings.extend(_collect_setup_findings(setup_recipe, inventory, runtime_contract))
     bindings = artifact.get("runtime_bindings")
     if isinstance(bindings, list):
-        findings.extend(_collect_binding_findings(bindings, inventory, runtime_contract))
+        findings.extend(
+            _collect_binding_findings(
+                bindings,
+                inventory,
+                runtime_contract,
+                transformations=transformations,
+            )
+        )
     prerequisites = artifact.get("prerequisites")
     if isinstance(prerequisites, list):
         findings.extend(
@@ -9488,10 +9607,16 @@ def _collect_binding_findings(
     runtime_contract: dict[str, Any],
     *,
     finding_code: str = "artifact_validation",
+    transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
     findings: list[Finding] = []
+    normalized = normalize_binding_declarations(
+        declarations,
+        inventory=inventory,
+        transformations=transformations,
+    )
     names: dict[str, int] = {}
-    for index, raw in enumerate(declarations):
+    for index, raw in enumerate(normalized):
         path = f"runtime_bindings[{index}]"
         if isinstance(raw, dict) and isinstance(raw.get("name"), str):
             if raw["name"] in names:
@@ -9832,12 +9957,14 @@ def _validated_bindings(
     *,
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    transformations: list[dict[str, Any]] | None = None,
 ) -> tuple[Any, ...]:
     try:
         return validate_bindings(
             declarations,
             inventory=inventory,
             runtime_contract=runtime_contract,
+            transformations=transformations,
         )
     except BindingValidationError:
         return ()
@@ -9949,9 +10076,15 @@ def _collect_canonical_prerequisite_findings(
     *,
     safe_behavior: str | None = None,
     legacy: bool = False,
+    transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
     """Validate the closed prerequisite form used by the v2 plan wire."""
 
+    _normalize_prerequisite_binding_consumers(
+        prerequisites,
+        runtime_bindings,
+        transformations=transformations,
+    )
     findings: list[Finding] = []
     allowed_fields = {"name", "check", "evidence_refs", "binding", "equals"}
     for index, prerequisite in enumerate(prerequisites):
@@ -10128,6 +10261,97 @@ def _validate_prerequisite_binding_consumer(
             )
         ]
     return []
+
+
+def _normalize_prerequisite_binding_consumers(
+    prerequisites: Any,
+    runtime_bindings: Any,
+    *,
+    transformations: list[dict[str, Any]] | None = None,
+) -> None:
+    """Add the closed prerequisite consumer for each declared binding use."""
+
+    if not isinstance(prerequisites, list) or not isinstance(runtime_bindings, list):
+        return
+    by_name = {
+        item["name"]: item
+        for item in runtime_bindings
+        if (
+            isinstance(item, dict)
+            and isinstance(item.get("name"), str)
+            and isinstance(item.get("consumers"), list)
+        )
+    }
+    for index, prerequisite in enumerate(prerequisites):
+        if not isinstance(prerequisite, dict):
+            continue
+        binding_name = prerequisite.get("binding")
+        declaration = by_name.get(binding_name)
+        if not isinstance(binding_name, str) or not isinstance(declaration, dict):
+            continue
+        required_consumer = f"prerequisites.{binding_name}"
+        consumers = declaration["consumers"]
+        if required_consumer in consumers:
+            continue
+        original_consumers = list(consumers)
+        consumers.append(required_consumer)
+        _record_authoring_transformation(
+            transformations,
+            transformation="binding_consumer_added",
+            binding=binding_name,
+            original_consumers=original_consumers,
+            canonical_consumers=list(consumers),
+            prerequisite_index=index,
+            prerequisite_name=prerequisite.get("name"),
+            consumer=required_consumer,
+        )
+
+
+def _slot_names_in_order(user_text: str) -> list[str]:
+    """Return unique placeholder names in first-appearance order."""
+
+    return list(dict.fromkeys(match.group(1) for match in _SLOT_RE.finditer(user_text)))
+
+
+def _normalize_stimulus_slots(
+    stimulus: dict[str, Any],
+    declared_binding_names: set[str],
+    *,
+    transformations: list[dict[str, Any]] | None = None,
+) -> None:
+    """Derive stimulus slot names when every placeholder is declared."""
+
+    user_text = stimulus.get("user_text")
+    slots = stimulus.get("slots")
+    if not isinstance(user_text, str) or not isinstance(slots, list):
+        return
+    derived_slots = _slot_names_in_order(user_text)
+    if not derived_slots or not set(derived_slots).issubset(declared_binding_names):
+        return
+    if slots == derived_slots:
+        return
+    original_slots = list(slots)
+    stimulus["slots"] = derived_slots
+    _record_authoring_transformation(
+        transformations,
+        transformation="stimulus_slots_derived",
+        original_slots=original_slots,
+        derived_slots=list(derived_slots),
+        placeholder_names=list(derived_slots),
+    )
+
+
+def _record_authoring_transformation(
+    transformations: list[dict[str, Any]] | None,
+    *,
+    transformation: str,
+    **details: Any,
+) -> None:
+    """Append one deterministic authoring rewrite record when requested."""
+
+    if transformations is None:
+        return
+    transformations.append({"transformation": transformation, **details})
 
 
 def _declared_binding_names(runtime_bindings: Any) -> set[str]:
@@ -10400,7 +10624,7 @@ def _package_from_responses(
     raw_responses: dict[str, bytes],
     decoded_responses: dict[str, Any],
     prompt_packets: dict[str, PromptPacket],
-    transformations: list[str],
+    transformations: list[Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
     discovery_provenance: dict[str, Any] | None = None,

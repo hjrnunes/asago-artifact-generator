@@ -253,6 +253,24 @@ fields, and incompatible types remain invalid. Valid scenario lineage and
 attack-tree IDs from the handoff are accepted in `interpretation.source_refs`
 and `assumptions[].ref`; correction feedback lists the valid provenance IDs,
 while invented IDs remain invalid.
+If a `:records` companion documents only the record key, a binding that names a
+field on that companion may resolve to the matching keyed field on the base
+fact. The fallback runs only when exactly one documented target exists;
+otherwise validation remains closed and reports the original error. Exact
+duplicate binding declarations are removed after canonicalization, while
+same-name declarations with different fields remain invalid. Accepted
+canonicalizations and dropped duplicates are recorded with the binding name,
+original paths, and canonical paths in authoring transformations and failure
+evidence.
+When authored `stimulus.user_text` contains `{{binding_name}}` placeholders,
+validation derives `stimulus.slots` as the unique placeholder names in
+first-appearance order, but only when every placeholder names a declared
+binding. An undeclared placeholder remains a validation error and feedback
+lists both the missing placeholder and declared binding names. When a
+prerequisite references a declared binding, validation adds the matching
+`prerequisites.<binding_name>` consumer if it is missing. Both rewrites are
+recorded in the same transformation evidence and carried into the packaged
+plan and stimulus.
 Review statuses remain visible as `accepted`, `not_requested`, `revise`,
 `blocked`, or `review_unavailable`.
 Provider capture keeps final-answer state, reasoning state and content, and

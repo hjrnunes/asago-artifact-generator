@@ -18,6 +18,7 @@ from asago_artifact_generator.authoring import (
     build_call2_packet,
     build_call2_packet_v2,
     build_neutral_artifact_package,
+    collect_artifact_findings_v2,
     collect_plan_findings_v2,
     neutral_artifact_response_without_source,
     neutral_call2_response_v2,
@@ -208,6 +209,125 @@ def test_call1_v2_has_closed_root_and_reports_all_root_faults() -> None:
         "assumptions",
         "required_observations",
     }
+
+
+def test_v2_artifact_derives_slots_and_prerequisite_consumers() -> None:
+    inventory = _inventory()
+    inventory["facts"].append(
+        {
+            "ref": "synthetic:owner",
+            "meaning": "A neutral supplied owner value.",
+            "value": {"owner": "OWNER-A"},
+            "schema": {
+                "type": "object",
+                "properties": {"owner": {"type": "string"}},
+            },
+        }
+    )
+    inventory["facts"].append(
+        {
+            "ref": "synthetic:other",
+            "meaning": "A second neutral supplied value.",
+            "value": {"other": "OTHER-A"},
+            "schema": {
+                "type": "object",
+                "properties": {"other": {"type": "string"}},
+            },
+        }
+    )
+    binding = {
+        "name": "owner",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:synthetic:owner",
+        "selector": "value.owner",
+        "consumers": ["stimulus.user_text", "detector.owner"],
+        "on_missing": "stop",
+    }
+    other_binding = {
+        "name": "other",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:synthetic:other",
+        "selector": "value.other",
+        "consumers": ["stimulus.user_text"],
+        "on_missing": "stop",
+    }
+    plan = _plan()
+    plan["runtime_bindings"] = [binding, other_binding]
+    plan["prerequisites"] = [
+        {
+            "name": "owner_is_present",
+            "check": "The supplied owner is present.",
+            "evidence_refs": ["order:owned"],
+            "binding": "owner",
+            "equals": "OWNER-A",
+        }
+    ]
+    metadata = _metadata()
+    metadata["stimulus"] = {
+        "user_text": "Use {{other}} then {{owner}} for the synthetic request.",
+        "delivery": "direct_user_message",
+        "history": [],
+        "slots": [],
+    }
+    transformations: list[dict] = []
+
+    findings = collect_artifact_findings_v2(
+        metadata,
+        plan,
+        inventory,
+        _runtime_contract(),
+        transformations=transformations,
+    )
+
+    assert findings == []
+    assert metadata["stimulus"]["slots"] == ["other", "owner"]
+    assert plan["runtime_bindings"][0]["consumers"] == [
+        "stimulus.user_text",
+        "detector.owner",
+        "prerequisites.owner",
+    ]
+    assert [item["transformation"] for item in transformations] == [
+        "binding_consumer_added",
+        "stimulus_slots_derived",
+    ]
+
+
+def test_v2_undeclared_placeholder_keeps_slot_failure_with_named_feedback() -> None:
+    plan = _plan()
+    plan["runtime_bindings"] = [
+        {
+            "name": "owner",
+            "expected_type": "object",
+            "source_kind": "supplied_input",
+            "source_ref": "facts:order:owned",
+            "selector": "value",
+            "consumers": ["detector.owner"],
+            "on_missing": "stop",
+        }
+    ]
+    metadata = _metadata()
+    metadata["stimulus"] = {
+        "user_text": "Use {{missing_owner}} for the synthetic request.",
+        "delivery": "direct_user_message",
+        "history": [],
+        "slots": [],
+    }
+
+    findings = collect_artifact_findings_v2(
+        metadata,
+        plan,
+        _inventory(),
+        _runtime_contract(),
+    )
+
+    undeclared = [finding for finding in findings if finding.code == "undeclared_slot"]
+    assert len(undeclared) == 1
+    assert "missing_owner" in undeclared[0].detail
+    assert "owner" in undeclared[0].detail
+    assert any(finding.code == "slot_mismatch" for finding in findings)
+    assert metadata["stimulus"]["slots"] == []
 
 
 def test_v2_call1_accepts_one_lowercase_json_fence_through_orchestrator(tmp_path) -> None:

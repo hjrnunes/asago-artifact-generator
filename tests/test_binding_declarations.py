@@ -7,7 +7,9 @@ import pytest
 from asago_artifact_generator.bindings import (
     BindingValidationError,
     RuntimeBinding,
+    canonical_binding_paths,
     substitute_slots,
+    supplied_binding_values,
     validate_bindings,
 )
 
@@ -259,3 +261,234 @@ def test_keyed_source_shorthands_reject_unknown_keys_fields_and_types(
             inventory=_keyed_inventory(),
             runtime_contract={"setup_permissions": []},
         )
+
+
+def _companion_inventory() -> dict:
+    return {
+        "operations": [],
+        "facts": [
+            {
+                "ref": "catalog:items",
+                "value": {"ITEM-A": {"owner": "OWNER-A", "label": "Sample"}},
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "ITEM-A": {
+                            "type": "object",
+                            "properties": {
+                                "owner": {"type": "string"},
+                                "label": {"type": "string"},
+                            },
+                        }
+                    },
+                },
+            },
+            {
+                "ref": "catalog:items:records",
+                "value": {"ITEM-A": {"record_key": "ITEM-A"}},
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "ITEM-A": {
+                            "type": "object",
+                            "properties": {"record_key": {"type": "string"}},
+                        }
+                    },
+                },
+            },
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("source_ref", "selector"),
+    [
+        ("facts:catalog:items:records:ITEM-A:owner", "value.owner"),
+        ("facts:catalog:items:records", "value.ITEM-A.owner"),
+    ],
+)
+def test_records_companion_fields_fall_back_to_base_fact(
+    source_ref: str,
+    selector: str,
+) -> None:
+    transformations: list[dict] = []
+    declarations = [
+        {
+            "name": "item_owner",
+            "expected_type": "string",
+            "source_kind": "supplied_input",
+            "source_ref": source_ref,
+            "selector": selector,
+            "consumers": ["stimulus.user_text"],
+            "on_missing": "stop",
+        }
+    ]
+
+    validated = validate_bindings(
+        declarations,
+        inventory=_companion_inventory(),
+        runtime_contract={"setup_permissions": []},
+        transformations=transformations,
+    )
+
+    assert [(binding.source_ref, binding.selector) for binding in validated] == [
+        ("facts:catalog:items", "value.ITEM-A.owner")
+    ]
+    assert transformations == [
+        {
+            "transformation": "binding_canonicalized",
+            "binding": "item_owner",
+            "original_source_ref": source_ref,
+            "original_selector": selector,
+            "canonical_source_ref": "facts:catalog:items",
+            "canonical_selector": "value.ITEM-A.owner",
+        }
+    ]
+
+
+def test_companion_fallback_fails_closed_for_undocumented_fields() -> None:
+    source_ref = "facts:catalog:items:records"
+    selector = "value.ITEM-A.missing"
+
+    assert canonical_binding_paths(
+        "supplied_input",
+        source_ref,
+        selector,
+        _companion_inventory(),
+    ) == (source_ref, selector)
+    with pytest.raises(BindingValidationError, match="undocumented selector"):
+        validate_bindings(
+            [
+                {
+                    "name": "missing_field",
+                    "expected_type": "string",
+                    "source_kind": "supplied_input",
+                    "source_ref": source_ref,
+                    "selector": selector,
+                    "consumers": ["stimulus.user_text"],
+                    "on_missing": "stop",
+                }
+            ],
+            inventory=_companion_inventory(),
+            runtime_contract={"setup_permissions": []},
+        )
+
+
+def test_companion_fallback_fails_closed_when_two_targets_are_documented() -> None:
+    inventory = _companion_inventory()
+    inventory["facts"].append(
+        {
+            "ref": "catalog:items:records:records",
+            "value": {"ITEM-A": {"owner": "OWNER-B"}},
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "ITEM-A": {
+                        "type": "object",
+                        "properties": {"owner": {"type": "string"}},
+                    }
+                },
+            },
+        }
+    )
+    source_ref = "facts:catalog:items:records:ITEM-A:owner"
+    selector = "value.owner"
+
+    assert canonical_binding_paths(
+        "supplied_input",
+        source_ref,
+        selector,
+        inventory,
+    ) == (source_ref, selector)
+
+
+def test_exact_canonical_duplicates_are_dropped_and_recorded() -> None:
+    first = {
+        "name": "item_owner",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:catalog:items:records:ITEM-A:owner",
+        "selector": "value.owner",
+        "consumers": ["stimulus.user_text"],
+        "on_missing": "stop",
+    }
+    declarations = [first, dict(first)]
+    transformations: list[dict] = []
+
+    validated = validate_bindings(
+        declarations,
+        inventory=_companion_inventory(),
+        runtime_contract={"setup_permissions": []},
+        transformations=transformations,
+    )
+
+    assert len(declarations) == 1
+    assert len(validated) == 1
+    assert transformations == [
+        {
+            "transformation": "binding_canonicalized",
+            "binding": "item_owner",
+            "original_source_ref": first["source_ref"],
+            "original_selector": first["selector"],
+            "canonical_source_ref": "facts:catalog:items",
+            "canonical_selector": "value.ITEM-A.owner",
+        },
+        {
+            "transformation": "binding_canonicalized",
+            "binding": "item_owner",
+            "original_source_ref": first["source_ref"],
+            "original_selector": first["selector"],
+            "canonical_source_ref": "facts:catalog:items",
+            "canonical_selector": "value.ITEM-A.owner",
+        },
+        {
+            "transformation": "binding_duplicate_dropped",
+            "binding": "item_owner",
+            "original_source_ref": first["source_ref"],
+            "original_selector": first["selector"],
+            "canonical_source_ref": "facts:catalog:items",
+            "canonical_selector": "value.ITEM-A.owner",
+            "kept_index": 0,
+            "dropped_index": 1,
+        },
+    ]
+
+
+def test_same_name_with_different_fields_still_fails_duplicate_check() -> None:
+    first = {
+        "name": "item_value",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:catalog:items",
+        "selector": "value.ITEM-A.owner",
+        "consumers": ["stimulus.user_text"],
+        "on_missing": "stop",
+    }
+    second = {**first, "selector": "value.ITEM-A.label"}
+
+    with pytest.raises(BindingValidationError, match="duplicate binding: item_value"):
+        validate_bindings(
+            [first, second],
+            inventory=_companion_inventory(),
+            runtime_contract={"setup_permissions": []},
+        )
+
+
+def test_supplied_binding_values_use_canonicalized_deduplicated_declarations() -> None:
+    declaration = {
+        "name": "item_owner",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:catalog:items:records:ITEM-A:owner",
+        "selector": "value.owner",
+        "consumers": ["detector.item_owner"],
+        "on_missing": "stop",
+    }
+    declarations = [declaration, dict(declaration)]
+
+    assert supplied_binding_values(declarations, _companion_inventory()) == {
+        "item_owner": "OWNER-A"
+    }
+    assert len(declarations) == 1
+    assert declarations[0]["source_ref"] == "facts:catalog:items"
+    assert declarations[0]["selector"] == "value.ITEM-A.owner"

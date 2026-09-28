@@ -80,7 +80,7 @@ def test_legacy_binding_contract_keeps_the_empty_neutral_example() -> None:
     assert context["field_guide"]["neutral_binding_example"]["runtime_bindings"] == []
 
 
-def test_wildcard_prerequisite_consumer_stays_invalid() -> None:
+def test_wildcard_prerequisite_consumer_gets_exact_binding_consumer() -> None:
     plan = copy.deepcopy(_plan())
     plan["runtime_bindings"] = [
         {
@@ -103,12 +103,11 @@ def test_wildcard_prerequisite_consumer_stays_invalid() -> None:
         }
     ]
 
-    codes = [
-        finding.code
-        for finding in collect_plan_findings_v2(plan, _inventory(), _no_setup_runtime())
+    assert collect_plan_findings_v2(plan, _inventory(), _no_setup_runtime()) == []
+    assert plan["runtime_bindings"][0]["consumers"] == [
+        "prerequisites.*",
+        "prerequisites.status",
     ]
-
-    assert "consumer_mismatch" in codes
 
 
 def test_plan_validation_persists_canonical_keyed_binding_paths() -> None:

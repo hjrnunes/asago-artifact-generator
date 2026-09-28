@@ -102,34 +102,30 @@ def validate_bindings(
     *,
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    transformations: list[dict[str, Any]] | None = None,
 ) -> tuple[RuntimeBinding, ...]:
-    """Validate declarations against exact supplied schemas and permissions."""
+    """Validate and normalize declarations against exact supplied schemas.
+
+    A mutable declaration list receives the canonicalized, de-duplicated wire
+    form.  Exact duplicates are removed before duplicate names are checked;
+    same-name declarations that differ in any field remain an error.
+    """
 
     if not isinstance(declarations, (list, tuple)):
         raise BindingValidationError("runtime_bindings must be a list")
-    bindings: list[RuntimeBinding] = []
+    normalized_declarations = normalize_binding_declarations(
+        declarations,
+        inventory=inventory,
+        transformations=transformations,
+    )
+    parsed_bindings = [RuntimeBinding.from_dict(raw) for raw in normalized_declarations]
     names: set[str] = set()
-    for raw in declarations:
-        binding = RuntimeBinding.from_dict(raw)
-        canonical_source_ref, canonical_selector = canonical_binding_paths(
-            binding.source_kind,
-            binding.source_ref,
-            binding.selector,
-            inventory,
-        )
-        if canonical_source_ref != binding.source_ref or canonical_selector != binding.selector:
-            binding = RuntimeBinding(
-                name=binding.name,
-                expected_type=binding.expected_type,
-                source_kind=binding.source_kind,
-                source_ref=canonical_source_ref,
-                selector=canonical_selector,
-                consumers=binding.consumers,
-                on_missing=binding.on_missing,
-            )
+    for binding in parsed_bindings:
         if binding.name in names:
             raise BindingValidationError(f"duplicate binding: {binding.name}")
         names.add(binding.name)
+    bindings: list[RuntimeBinding] = []
+    for binding in parsed_bindings:
         if not binding.name.strip():
             raise BindingValidationError("binding name is blank")
         if binding.expected_type not in CLOSED_TYPES:
@@ -179,8 +175,30 @@ def canonical_binding_paths(
         for item in inventory.get("facts", [])
         if isinstance(item, dict) and isinstance(item.get("ref"), str)
     }
+    fallback_targets: set[tuple[str, str]] = set()
     if reference in fact_by_ref:
-        return source_ref, selector
+        exact_fact = fact_by_ref[reference]
+        if (
+            _schema_at_selector(
+                exact_fact.get("schema", {}) if isinstance(exact_fact, dict) else {},
+                selector,
+            )
+            is not None
+        ):
+            return source_ref, selector
+        if reference.endswith(":records"):
+            base_ref = reference.removesuffix(":records")
+            base_fact = fact_by_ref.get(base_ref)
+            selector_parts = selector.split(".")
+            if len(selector_parts) >= 2 and selector_parts[0] == "value":
+                targets = _documented_targets(
+                    ((reference, exact_fact), (base_ref, base_fact)),
+                    selector,
+                )
+                if len(targets) == 1 and targets[0][0] == base_ref:
+                    fallback_targets.add((base_ref, selector))
+        if not reference.endswith(":records"):
+            return source_ref, selector
 
     for companion_ref in sorted(fact_by_ref):
         if not companion_ref.endswith(":records"):
@@ -192,7 +210,7 @@ def canonical_binding_paths(
         record_key, field = parsed
         original = fact_by_ref.get(base_ref)
         companion = fact_by_ref[companion_ref]
-        companion_source = reference.startswith(f"{companion_ref}:")
+        companion_source = reference == companion_ref or reference.startswith(f"{companion_ref}:")
         if field is None:
             selector_parts = selector.split(".")
             if selector == "value":
@@ -201,17 +219,22 @@ def canonical_binding_paths(
                     if companion_source
                     else ((base_ref, original), (companion_ref, companion))
                 )
-                for resolved_ref, resolved_fact in sources:
-                    if (
-                        _schema_at_selector(
-                            resolved_fact.get("schema", {})
-                            if isinstance(resolved_fact, dict)
-                            else {},
-                            f"value.{record_key}",
-                        )
-                        is not None
-                    ):
+                targets = _documented_targets(
+                    sources,
+                    f"value.{record_key}",
+                )
+                if targets and companion_source and targets[0][0] == companion_ref:
+                    resolved_ref, _ = targets[0]
+                    return f"facts:{resolved_ref}", f"value.{record_key}"
+                if targets and not companion_source:
+                    resolved_ref, _ = targets[0]
+                    target = (resolved_ref, f"value.{record_key}")
+                    if fallback_targets:
+                        fallback_targets.add(target)
+                    else:
                         return f"facts:{resolved_ref}", f"value.{record_key}"
+                if targets and companion_source:
+                    fallback_targets.add((base_ref, f"value.{record_key}"))
             elif len(selector_parts) == 2 and selector_parts[0] == "value":
                 field = selector_parts[1]
                 sources = (
@@ -219,35 +242,180 @@ def canonical_binding_paths(
                     if companion_source
                     else ((base_ref, original), (companion_ref, companion))
                 )
-                for resolved_ref, resolved_fact in sources:
-                    if (
-                        _schema_at_selector(
-                            resolved_fact.get("schema", {})
-                            if isinstance(resolved_fact, dict)
-                            else {},
-                            f"value.{record_key}.{field}",
-                        )
-                        is not None
-                    ):
+                targets = _documented_targets(
+                    sources,
+                    f"value.{record_key}.{field}",
+                )
+                if targets and companion_source and targets[0][0] == companion_ref:
+                    resolved_ref, _ = targets[0]
+                    return f"facts:{resolved_ref}", f"value.{record_key}.{field}"
+                if targets and not companion_source:
+                    resolved_ref, _ = targets[0]
+                    target = (resolved_ref, f"value.{record_key}.{field}")
+                    if fallback_targets:
+                        fallback_targets.add(target)
+                    else:
                         return f"facts:{resolved_ref}", f"value.{record_key}.{field}"
-            continue
-        if selector != "value":
+                if targets and companion_source:
+                    fallback_targets.add((base_ref, f"value.{record_key}.{field}"))
             continue
         sources = (
             ((companion_ref, companion), (base_ref, original))
             if companion_source
             else ((base_ref, original), (companion_ref, companion))
         )
-        for resolved_ref, resolved_fact in sources:
-            if (
-                _schema_at_selector(
-                    resolved_fact.get("schema", {}) if isinstance(resolved_fact, dict) else {},
-                    f"value.{record_key}.{field}",
-                )
-                is not None
-            ):
+        selector_parts = selector.split(".")
+        if selector != "value" and selector_parts != ["value", field]:
+            continue
+        targets = _documented_targets(sources, f"value.{record_key}.{field}")
+        if targets and companion_source and targets[0][0] == companion_ref:
+            resolved_ref, _ = targets[0]
+            return f"facts:{resolved_ref}", f"value.{record_key}.{field}"
+        if targets and not companion_source:
+            resolved_ref, _ = targets[0]
+            target = (resolved_ref, f"value.{record_key}.{field}")
+            if fallback_targets:
+                fallback_targets.add(target)
+            else:
                 return f"facts:{resolved_ref}", f"value.{record_key}.{field}"
+        if targets and companion_source:
+            fallback_targets.add((base_ref, f"value.{record_key}.{field}"))
+    if len(fallback_targets) == 1:
+        resolved_ref, resolved_selector = next(iter(fallback_targets))
+        return f"facts:{resolved_ref}", resolved_selector
     return source_ref, selector
+
+
+def _documented_targets(
+    sources: tuple[tuple[str, dict[str, Any] | None], ...],
+    selector: str,
+) -> list[tuple[str, dict[str, Any] | None]]:
+    """Return the source facts that document one selector."""
+
+    return [
+        (resolved_ref, resolved_fact)
+        for resolved_ref, resolved_fact in sources
+        if _schema_at_selector(
+            resolved_fact.get("schema", {}) if isinstance(resolved_fact, dict) else {},
+            selector,
+        )
+        is not None
+    ]
+
+
+def _record_binding_transformation(
+    transformations: list[dict[str, Any]] | None,
+    *,
+    transformation: str,
+    binding: str,
+    original_source_ref: str,
+    original_selector: str,
+    canonical_source_ref: str,
+    canonical_selector: str,
+    **details: Any,
+) -> None:
+    """Append one deterministic binding rewrite record when requested."""
+
+    if transformations is None:
+        return
+    transformations.append(
+        {
+            "transformation": transformation,
+            "binding": binding,
+            "original_source_ref": original_source_ref,
+            "original_selector": original_selector,
+            "canonical_source_ref": canonical_source_ref,
+            "canonical_selector": canonical_selector,
+            **details,
+        }
+    )
+
+
+def normalize_binding_declarations(
+    declarations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    inventory: dict[str, Any],
+    transformations: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Canonicalize paths and drop exact duplicate declaration objects.
+
+    Invalid declaration shapes remain in the returned sequence so callers can
+    report their structural findings instead of hiding them during repair.
+    """
+
+    if not isinstance(declarations, (list, tuple)):
+        raise BindingValidationError("runtime_bindings must be a list")
+    normalized: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    first_indices: dict[tuple[Any, ...], int] = {}
+    for declaration_index, raw in enumerate(declarations):
+        if not isinstance(raw, dict):
+            normalized.append(raw)
+            continue
+        try:
+            binding = RuntimeBinding.from_dict(raw)
+        except BindingValidationError:
+            normalized.append(raw)
+            continue
+        original_source_ref = binding.source_ref
+        original_selector = binding.selector
+        canonical_source_ref, canonical_selector = canonical_binding_paths(
+            binding.source_kind,
+            binding.source_ref,
+            binding.selector,
+            inventory,
+        )
+        if (canonical_source_ref, canonical_selector) != (
+            binding.source_ref,
+            binding.selector,
+        ):
+            binding = RuntimeBinding(
+                name=binding.name,
+                expected_type=binding.expected_type,
+                source_kind=binding.source_kind,
+                source_ref=canonical_source_ref,
+                selector=canonical_selector,
+                consumers=binding.consumers,
+                on_missing=binding.on_missing,
+            )
+            _record_binding_transformation(
+                transformations,
+                transformation="binding_canonicalized",
+                binding=binding.name,
+                original_source_ref=original_source_ref,
+                original_selector=original_selector,
+                canonical_source_ref=canonical_source_ref,
+                canonical_selector=canonical_selector,
+            )
+        declaration = binding.to_dict()
+        key = (
+            binding.name,
+            binding.expected_type,
+            binding.source_kind,
+            binding.source_ref,
+            binding.selector,
+            binding.consumers,
+            binding.on_missing,
+        )
+        if key in seen:
+            _record_binding_transformation(
+                transformations,
+                transformation="binding_duplicate_dropped",
+                binding=binding.name,
+                original_source_ref=original_source_ref,
+                original_selector=original_selector,
+                canonical_source_ref=binding.source_ref,
+                canonical_selector=binding.selector,
+                kept_index=first_indices[key],
+                dropped_index=declaration_index,
+            )
+            continue
+        seen.add(key)
+        first_indices[key] = declaration_index
+        normalized.append(declaration)
+    if isinstance(declarations, list):
+        declarations[:] = normalized
+    return normalized
 
 
 def _keyed_source_suffix(
@@ -333,7 +501,11 @@ def supplied_binding_values(
         if isinstance(item, dict) and isinstance(item.get("ref"), str)
     }
     values: dict[str, Any] = {}
-    for raw in declarations:
+    normalized_declarations = normalize_binding_declarations(
+        declarations,
+        inventory=dict(inventory),
+    )
+    for raw in normalized_declarations:
         if not isinstance(raw, dict):
             continue
         name = raw.get("name")
@@ -346,10 +518,7 @@ def supplied_binding_values(
         if not isinstance(source_ref, str) or not isinstance(selector, str):
             continue
         canonical_source_ref, canonical_selector = canonical_binding_paths(
-            "supplied_input",
-            source_ref,
-            selector,
-            dict(inventory),
+            "supplied_input", source_ref, selector, dict(inventory)
         )
         reference = canonical_source_ref.removeprefix("facts:")
         fact = fact_by_ref.get(reference)
@@ -529,6 +698,7 @@ __all__ = [
     "RuntimeBinding",
     "canonical_binding_paths",
     "find_stimulus_user_text_consumer_mismatches",
+    "normalize_binding_declarations",
     "supplied_binding_values",
     "substitute_slots",
     "validate_bindings",

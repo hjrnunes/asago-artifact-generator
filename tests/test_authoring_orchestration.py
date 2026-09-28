@@ -334,6 +334,314 @@ def test_plan_binding_findings_accumulate_nested_faults_without_coercion() -> No
     assert plan["runtime_bindings"] == [malformed]
 
 
+def test_plan_validation_carries_canonical_deduplicated_bindings_into_prerequisites() -> None:
+    inventory = _inventory()
+    inventory["facts"].extend(
+        [
+            {
+                "ref": "catalog:items",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "ITEM-A": {
+                            "type": "object",
+                            "properties": {"owner": {"type": "string"}},
+                        }
+                    },
+                },
+                "value": {"ITEM-A": {"owner": "OWNER-A"}},
+            },
+            {
+                "ref": "catalog:items:records",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "ITEM-A": {
+                            "type": "object",
+                            "properties": {"record_key": {"type": "string"}},
+                        }
+                    },
+                },
+                "value": {"ITEM-A": {"record_key": "ITEM-A"}},
+            },
+        ]
+    )
+    binding = {
+        "name": "item_owner",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:catalog:items:records:ITEM-A:owner",
+        "selector": "value.owner",
+        "consumers": ["prerequisites.item_owner", "detector.item_owner"],
+        "on_missing": "stop",
+    }
+    plan = _plan(
+        runtime_bindings=[binding, dict(binding)],
+        prerequisites=[
+            {
+                "name": "owner_is_supplied",
+                "check": "the supplied owner is available",
+                "evidence_refs": ["order:owned"],
+                "binding": "item_owner",
+                "equals": "OWNER-A",
+            }
+        ],
+    )
+    transformations: list[dict] = []
+
+    findings = collect_plan_findings(
+        plan,
+        inventory,
+        _contract(),
+        transformations=transformations,
+    )
+
+    assert findings == []
+    assert len(plan["runtime_bindings"]) == 1
+    assert plan["runtime_bindings"][0]["source_ref"] == "facts:catalog:items"
+    assert plan["runtime_bindings"][0]["selector"] == "value.ITEM-A.owner"
+    assert "prerequisites.item_owner" in plan["runtime_bindings"][0]["consumers"]
+    assert [item["transformation"] for item in transformations] == [
+        "binding_canonicalized",
+        "binding_canonicalized",
+        "binding_duplicate_dropped",
+    ]
+
+
+def test_artifact_validation_compares_canonicalized_binding_projection() -> None:
+    inventory = _inventory()
+    inventory["facts"].extend(
+        [
+            {
+                "ref": "catalog:items",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "ITEM-A": {
+                            "type": "object",
+                            "properties": {"owner": {"type": "string"}},
+                        }
+                    },
+                },
+                "value": {"ITEM-A": {"owner": "OWNER-A"}},
+            },
+            {
+                "ref": "catalog:items:records",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "ITEM-A": {
+                            "type": "object",
+                            "properties": {"record_key": {"type": "string"}},
+                        }
+                    },
+                },
+                "value": {"ITEM-A": {"record_key": "ITEM-A"}},
+            },
+        ]
+    )
+    binding = {
+        "name": "item_owner",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:catalog:items",
+        "selector": "value.ITEM-A.owner",
+        "consumers": ["detector.item_owner"],
+        "on_missing": "stop",
+    }
+    plan = _plan(runtime_bindings=[binding])
+    artifact_binding = {
+        **binding,
+        "source_ref": "facts:catalog:items:records",
+        "selector": "value.ITEM-A.owner",
+    }
+    artifact = _artifact(runtime_bindings=[artifact_binding, dict(artifact_binding)])
+    transformations: list[dict] = []
+
+    findings = collect_artifact_findings(
+        artifact,
+        plan,
+        inventory,
+        _contract(),
+        transformations=transformations,
+    )
+
+    assert findings == []
+    assert artifact["runtime_bindings"] == [binding]
+    assert [item["transformation"] for item in transformations] == [
+        "binding_canonicalized",
+        "binding_canonicalized",
+        "binding_duplicate_dropped",
+    ]
+
+
+def test_plan_validation_adds_missing_prerequisite_consumer_and_records_rewrite() -> None:
+    inventory = _inventory()
+    inventory["facts"].append(
+        {
+            "ref": "synthetic:owner",
+            "value": {"owner": "OWNER-A"},
+            "schema": {
+                "type": "object",
+                "properties": {"owner": {"type": "string"}},
+            },
+        }
+    )
+    binding = {
+        "name": "owner",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:synthetic:owner",
+        "selector": "value.owner",
+        "consumers": ["detector.owner"],
+        "on_missing": "stop",
+    }
+    plan = _plan(
+        runtime_bindings=[binding],
+        prerequisites=[
+            {
+                "name": "owner_is_present",
+                "check": "The supplied owner is present.",
+                "evidence_refs": ["order:owned"],
+                "binding": "owner",
+                "equals": "OWNER-A",
+            }
+        ],
+    )
+    transformations: list[dict] = []
+
+    findings = collect_plan_findings(
+        plan,
+        inventory,
+        _contract(),
+        transformations=transformations,
+    )
+
+    assert findings == []
+    assert plan["runtime_bindings"][0]["consumers"] == [
+        "detector.owner",
+        "prerequisites.owner",
+    ]
+    assert transformations == [
+        {
+            "transformation": "binding_consumer_added",
+            "binding": "owner",
+            "original_consumers": ["detector.owner"],
+            "canonical_consumers": ["detector.owner", "prerequisites.owner"],
+            "prerequisite_index": 0,
+            "prerequisite_name": "owner_is_present",
+            "consumer": "prerequisites.owner",
+        }
+    ]
+
+
+def test_artifact_validation_derives_declared_slots_and_records_rewrite() -> None:
+    inventory = _inventory()
+    inventory["facts"].append(
+        {
+            "ref": "synthetic:owner",
+            "value": {"owner": "OWNER-A"},
+            "schema": {
+                "type": "object",
+                "properties": {"owner": {"type": "string"}},
+            },
+        }
+    )
+    binding = {
+        "name": "owner",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:synthetic:owner",
+        "selector": "value.owner",
+        "consumers": ["stimulus.user_text", "detector.owner", "prerequisites.owner"],
+        "on_missing": "stop",
+    }
+    plan = _plan(
+        runtime_bindings=[binding],
+        prerequisites=[
+            {
+                "name": "owner_is_present",
+                "check": "The supplied owner is present.",
+                "evidence_refs": ["order:owned"],
+                "binding": "owner",
+                "equals": "OWNER-A",
+            }
+        ],
+    )
+    artifact = _artifact(
+        runtime_bindings=[binding],
+        prerequisites=plan["prerequisites"],
+        stimulus={
+            "user_text": "Use {{owner}} for the synthetic request, then {{owner}} again.",
+            "delivery": "direct_user_message",
+            "history": [],
+            "slots": [],
+        },
+    )
+    transformations: list[dict] = []
+
+    findings = collect_artifact_findings(
+        artifact,
+        plan,
+        inventory,
+        _contract(),
+        transformations=transformations,
+    )
+
+    assert findings == []
+    assert artifact["stimulus"]["slots"] == ["owner"]
+    assert transformations == [
+        {
+            "transformation": "stimulus_slots_derived",
+            "original_slots": [],
+            "derived_slots": ["owner"],
+            "placeholder_names": ["owner"],
+        }
+    ]
+
+
+def test_undeclared_stimulus_placeholder_keeps_failure_and_names_bindings() -> None:
+    inventory = _inventory()
+    inventory["facts"].append(
+        {
+            "ref": "synthetic:owner",
+            "value": {"owner": "OWNER-A"},
+            "schema": {
+                "type": "object",
+                "properties": {"owner": {"type": "string"}},
+            },
+        }
+    )
+    binding = {
+        "name": "owner",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:synthetic:owner",
+        "selector": "value.owner",
+        "consumers": ["detector.owner"],
+        "on_missing": "stop",
+    }
+    plan = _plan(runtime_bindings=[binding])
+    artifact = _artifact(
+        runtime_bindings=[binding],
+        stimulus={
+            "user_text": "Use {{missing_owner}} for the synthetic request.",
+            "delivery": "direct_user_message",
+            "history": [],
+            "slots": [],
+        },
+    )
+
+    findings = collect_artifact_findings(artifact, plan, inventory, _contract())
+
+    undeclared = [finding for finding in findings if finding.code == "undeclared_slot"]
+    assert len(undeclared) == 1
+    assert "missing_owner" in undeclared[0].detail
+    assert "owner" in undeclared[0].detail
+    assert any(finding.code == "slot_mismatch" for finding in findings)
+    assert artifact["stimulus"]["slots"] == []
+
+
 def test_plan_validation_accumulates_all_structural_findings() -> None:
     malformed = {
         "interpretation": "wrong",
