@@ -20,6 +20,7 @@ import tempfile
 import textwrap
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,24 @@ OUTCOMES = frozenset({"detected", "not_detected", "inconclusive"})
 JUDGE_VERDICTS = frozenset({"supported", "contradicted", "unresolved"})
 _MISSING = object()
 RESULT_FIELDS = frozenset({"outcome", "reason", "evidence_refs", "claim_level"})
+EVIDENCE_PACKET_ROOTS = frozenset(
+    {
+        "user_text",
+        "history",
+        "messages",
+        "tool_calls",
+        "bindings",
+        "binding_provenance",
+        "setup_outputs",
+        "snapshots",
+        "transport",
+        "parse_errors",
+        "correlation",
+        "source",
+        "availability",
+        "completeness",
+    }
+)
 DEFAULT_TIMEOUT_SECONDS = 10.0
 MAX_EVIDENCE_BYTES = 10 * 1024 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024
@@ -131,6 +150,14 @@ def execute_detector(
             evidence,
             judge_enabled="judge.json" in loaded.members,
         )
+        access_findings = validate_detector_evidence_access(
+            detector,
+            observations=_package_json_member(loaded, "observations.json", default={}),
+            bindings=_package_json_member(loaded, "bindings.json", default=[]),
+            judge_enabled="judge.json" in loaded.members,
+        )
+        if access_findings:
+            raise DetectorRuntimeError(access_findings[0]["detail"])
         evidence_bytes = _json_bytes(evidence)
         if len(evidence_bytes) > MAX_EVIDENCE_BYTES:
             raise DetectorRuntimeError("evidence exceeds the runtime input bound")
@@ -613,6 +640,301 @@ execute_generated_detector = execute_detector
 validate_result = validate_detector_result
 
 
+def evidence_packet_roots(
+    observations: Mapping[str, Any] | None = None,
+    *,
+    judge_enabled: bool,
+) -> tuple[str, ...]:
+    """Return detector-facing roots from the adapter packet and declarations.
+
+    The adapter always constructs the standard roots, even when a collection is
+    empty or unavailable.  ``assistant_messages`` is an observations spelling
+    for the packet's ``messages`` root, not an alternate detector key.
+    """
+
+    del observations
+    roots = set(EVIDENCE_PACKET_ROOTS)
+    if judge_enabled:
+        roots.add("judge")
+    return tuple(sorted(roots))
+
+
+def validate_detector_evidence_access(
+    source: bytes | str,
+    *,
+    observations: Mapping[str, Any] | None = None,
+    bindings: Any = None,
+    judge_enabled: bool,
+) -> tuple[dict[str, Any], ...]:
+    """Find common static reads and citations outside the supplied packet.
+
+    This deliberately checks only literal ``evidence["root"]``,
+    ``evidence.get("root")`` chains, literal binding names below
+    ``evidence.bindings``, and literal ``evidence_refs`` entries.  It does not
+    attempt to prove arbitrary Python data flow, aliases, computed keys, or
+    dynamically built reference strings.
+    """
+
+    try:
+        tree = ast.parse(
+            source.decode("utf-8") if isinstance(source, bytes) else source,
+            filename="detector.py",
+        )
+    except (UnicodeDecodeError, SyntaxError, TypeError):
+        return ()
+
+    allowed_roots = set(evidence_packet_roots(observations, judge_enabled=judge_enabled))
+    declared_bindings = _declared_binding_names(bindings)
+    visitor = _EvidenceAccessVisitor()
+    visitor.visit(tree)
+    findings: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, int]] = set()
+    for path, node in visitor.accesses:
+        if not path:
+            continue
+        root = path[0]
+        location = f"detector.py:{getattr(node, 'lineno', 0)}"
+        if root not in allowed_roots:
+            key = ("read", root, getattr(node, "lineno", 0))
+            if key in seen:
+                continue
+            seen.add(key)
+            findings.append(
+                _evidence_access_finding(
+                    kind="read",
+                    root=root,
+                    location=location,
+                    allowed_roots=allowed_roots,
+                    declared_bindings=declared_bindings,
+                    path=path,
+                )
+            )
+            continue
+        if root == "bindings" and len(path) >= 2:
+            binding_name = path[1]
+            if binding_name not in declared_bindings:
+                key = ("binding", binding_name, getattr(node, "lineno", 0))
+                if key in seen:
+                    continue
+                seen.add(key)
+                findings.append(
+                    _evidence_access_finding(
+                        kind="binding",
+                        root=binding_name,
+                        location=location,
+                        allowed_roots=allowed_roots,
+                        declared_bindings=declared_bindings,
+                        path=path,
+                    )
+                )
+
+    for reference, node in visitor.references:
+        root = _evidence_reference_root(reference)
+        if root is None:
+            continue
+        location = f"detector.py:{getattr(node, 'lineno', 0)}"
+        if root not in allowed_roots:
+            key = ("reference", root, getattr(node, "lineno", 0))
+            if key in seen:
+                continue
+            seen.add(key)
+            findings.append(
+                _evidence_access_finding(
+                    kind="reference",
+                    root=root,
+                    location=location,
+                    allowed_roots=allowed_roots,
+                    declared_bindings=declared_bindings,
+                    path=(root,),
+                    reference=reference,
+                )
+            )
+        elif root == "bindings":
+            binding_name = _evidence_reference_binding_name(reference)
+            if binding_name is not None and binding_name not in declared_bindings:
+                key = ("reference-binding", binding_name, getattr(node, "lineno", 0))
+                if key in seen:
+                    continue
+                seen.add(key)
+                findings.append(
+                    _evidence_access_finding(
+                        kind="reference-binding",
+                        root=binding_name,
+                        location=location,
+                        allowed_roots=allowed_roots,
+                        declared_bindings=declared_bindings,
+                        path=("bindings", binding_name),
+                        reference=reference,
+                    )
+                )
+    return tuple(findings)
+
+
+def _package_json_member(
+    package: ArtifactPackage,
+    name: str,
+    *,
+    default: Any,
+) -> Any:
+    value = package.members.get(name)
+    if value is None:
+        return default
+    try:
+        return json.loads(value.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return default
+
+
+def _declared_binding_names(bindings: Any) -> frozenset[str]:
+    if not isinstance(bindings, list):
+        return frozenset()
+    names = {
+        item["name"]
+        for item in bindings
+        if (isinstance(item, dict) and isinstance(item.get("name"), str))
+    }
+    return frozenset(names)
+
+
+def _evidence_access_finding(
+    *,
+    kind: str,
+    root: str,
+    location: str,
+    allowed_roots: set[str],
+    declared_bindings: frozenset[str],
+    path: tuple[str, ...],
+    reference: str | None = None,
+) -> dict[str, Any]:
+    allowed = ", ".join(sorted(allowed_roots))
+    if kind in {"binding", "reference-binding"}:
+        detail = (
+            f"detector accesses undeclared evidence binding {root!r} at {location}; "
+            f"declare a runtime binding named {root!r} in bindings.json and read "
+            f"evidence.bindings.{root}. If this is a detector-only binding, list "
+            f"'detector.{root}' as a consumer. Do not read a runtime state key or "
+            "hardcode the supplied fact."
+        )
+    elif kind == "reference":
+        detail = (
+            f"detector returns evidence_refs root {root!r} at {location}, but the "
+            f"package does not declare or supply that evidence root, so the reference "
+            f"does not resolve. Allowed detector "
+            f"packet roots are: {allowed}. Return a reference under a supplied root "
+            "and cite a declared binding for supplied record facts."
+        )
+    else:
+        detail = (
+            f"detector reads undeclared evidence root {root!r} at {location}; the "
+            f"package supplies only these detector packet roots: {allowed}. "
+            "If this is a supplied record fact, declare a supplied_input runtime "
+            f"binding named {root!r} and read "
+            f"evidence.bindings.{root}; do not read a runtime state key or hardcode "
+            "the literal. For a newly added detector-only binding, list its "
+            "detector.<name> consumer."
+        )
+    return {
+        "code": "undeclared_evidence_access",
+        "detail": detail,
+        "path": location,
+        "details": {
+            "kind": kind,
+            "root": root,
+            "path": ".".join(path),
+            "reference": reference,
+            "allowed_roots": sorted(allowed_roots),
+            "declared_bindings": sorted(declared_bindings),
+            "static_analysis_limits": (
+                "literal evidence subscripts/get calls and literal evidence_refs "
+                "only; aliases, computed keys, and dynamically built references "
+                "are not analyzed"
+            ),
+        },
+    }
+
+
+def _evidence_reference_root(reference: str) -> str | None:
+    normalized = reference
+    if normalized.startswith("/"):
+        parts = normalized.split("/")
+        return parts[1] if len(parts) > 1 and parts[1] else None
+    if normalized.startswith("$."):
+        normalized = normalized[2:]
+    match = re.match(r"([A-Za-z_][A-Za-z0-9_]*)", normalized)
+    return match.group(1) if match else None
+
+
+def _evidence_reference_binding_name(reference: str) -> str | None:
+    normalized = reference[2:] if reference.startswith("$.") else reference
+    if normalized.startswith("/"):
+        parts = normalized.split("/")
+        return parts[2] if len(parts) > 2 and parts[1] == "bindings" else None
+    if normalized.startswith("bindings."):
+        match = re.match(r"bindings\.([A-Za-z_][A-Za-z0-9_]*)", normalized)
+        return match.group(1) if match else None
+    if normalized.startswith("bindings["):
+        match = re.match(r"bindings\[([\"']?)([A-Za-z_][A-Za-z0-9_]*)\1\]", normalized)
+        return match.group(2) if match else None
+    return None
+
+
+class _EvidenceAccessVisitor(ast.NodeVisitor):
+    """Collect literal detector evidence accesses and result references."""
+
+    def __init__(self) -> None:
+        self.accesses: list[tuple[tuple[str, ...], ast.AST]] = []
+        self.references: list[tuple[str, ast.AST]] = []
+
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        path = _literal_evidence_path(node)
+        if path is not None:
+            self.accesses.append((path, node))
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        path = _literal_evidence_path(node)
+        if path is not None:
+            self.accesses.append((path, node))
+        self.generic_visit(node)
+
+    def visit_Dict(self, node: ast.Dict) -> None:
+        for key, value in zip(node.keys, node.values, strict=True):
+            if isinstance(key, ast.Constant) and key.value == "evidence_refs":
+                for reference in _literal_strings(value):
+                    self.references.append((reference, value))
+        self.generic_visit(node)
+
+
+def _literal_evidence_path(node: ast.AST) -> tuple[str, ...] | None:
+    if isinstance(node, ast.Subscript):
+        base = _literal_evidence_path(node.value)
+        key = _literal_string_or_integer(node.slice)
+        return (*base, key) if base is not None and key is not None else None
+    if isinstance(node, ast.Call):
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "get" and node.args:
+            base = _literal_evidence_path(node.func.value)
+            key = _literal_string_or_integer(node.args[0])
+            return (*base, key) if base is not None and key is not None else None
+        return None
+    if isinstance(node, ast.Name) and node.id == "evidence":
+        return ()
+    return None
+
+
+def _literal_string_or_integer(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, (str, int)):
+        return str(node.value)
+    return None
+
+
+def _literal_strings(node: ast.AST) -> tuple[str, ...]:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return (node.value,)
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return tuple(reference for item in node.elts for reference in _literal_strings(item))
+    return ()
+
+
 def normalize_evidence_packet(
     evidence: dict[str, Any],
     *,
@@ -962,13 +1284,16 @@ __all__ = [
     "DetectorExecution",
     "DetectorRuntimeError",
     "DOCKER",
+    "EVIDENCE_PACKET_ROOTS",
     "JUDGE_VERDICTS",
     "OUTCOMES",
     "PYTHON_IMAGE",
+    "evidence_packet_roots",
     "execute_detector",
     "execute_generated_detector",
     "normalize_evidence_packet",
     "run_detector",
     "validate_result",
+    "validate_detector_evidence_access",
     "validate_detector_result",
 ]

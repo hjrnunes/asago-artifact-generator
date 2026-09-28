@@ -5,14 +5,14 @@ import json
 import pytest
 
 from asago_artifact_generator.authoring import (
-    ARTIFACT_REVIEW_PROMPT_VERSION_V13,
+    ARTIFACT_REVIEW_PROMPT_VERSION_V14,
     CALL1_PROMPT_VERSION_V4,
-    CALL1_PROMPT_VERSION_V13,
-    CALL2_PROMPT_VERSION_V17,
-    CORRECTION_PROMPT_VERSION_V20,
+    CALL1_PROMPT_VERSION_V14,
+    CALL2_PROMPT_VERSION_V18,
+    CORRECTION_PROMPT_VERSION_V21,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
-    PLAN_REVIEW_PROMPT_VERSION_V12,
+    PLAN_REVIEW_PROMPT_VERSION_V13,
     PromptOverflowError,
     PromptPacket,
     PromptPreflightError,
@@ -202,7 +202,7 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     ]
     correction = PromptPacket(
         stage="correction",
-        version=CORRECTION_PROMPT_VERSION_V20,
+        version=CORRECTION_PROMPT_VERSION_V21,
         system="correction",
         user="correction",
         payload={},
@@ -210,11 +210,11 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     packets.append(correction)
 
     assert [packet.version for packet in packets] == [
-        CALL1_PROMPT_VERSION_V13,
-        PLAN_REVIEW_PROMPT_VERSION_V12,
-        CALL2_PROMPT_VERSION_V17,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V13,
-        CORRECTION_PROMPT_VERSION_V20,
+        CALL1_PROMPT_VERSION_V14,
+        PLAN_REVIEW_PROMPT_VERSION_V13,
+        CALL2_PROMPT_VERSION_V18,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V14,
+        CORRECTION_PROMPT_VERSION_V21,
     ]
     assert all(packet.sha256 for packet in packets)
     assert len({packet.sha256 for packet in packets}) == len(packets)
@@ -271,7 +271,7 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
         findings=[],
     )
     plan_packet = _render_correction_packet(plan_correction)
-    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V20
+    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V21
     assert plan_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     assert plan_packet.user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1
     assert "Evaluate every finding against the source context" in plan_packet.user

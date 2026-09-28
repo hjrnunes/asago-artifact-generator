@@ -26,6 +26,7 @@ from .detector_runtime import (
     _resolve_evidence_ref,
     execute_detector,
     normalize_evidence_packet,
+    validate_detector_evidence_access,
 )
 from .package_io import build_package, write_package
 
@@ -111,7 +112,10 @@ DETECTOR_FEEDBACK_CORRECTION_GUIDANCE = (
     "decisive result; each cited reference resolves to captured message content or "
     "a non-null tool-call result value. Call records, arguments, metadata, and null "
     "results are not judge support. An unresolved verdict has no judge support to "
-    "cite. Do not "
+    "cite. Static access findings identify literal reads or returned evidence roots "
+    "outside the supplied packet; use only the listed packet roots and read supplied "
+    "record facts through a declared evidence.bindings.<binding_name> value. When "
+    "adding a detector-only binding, list its detector.<binding_name> consumer. Do not "
     "validate judge references or reconstruct judge audit fields in detector code. "
     "Distinguish unresolved judge evidence from a detector exception and from "
     "rejection of the detector's returned evidence references. Preserve the accepted "
@@ -149,7 +153,7 @@ def run_detector_controls(
     inventory: Mapping[str, Any] | None = None,
     runtime_contract: Mapping[str, Any] | None = None,
     condition: Mapping[str, Any] | None = None,
-) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Run all supplied or mechanically available finite controls.
 
     The first return value contains correction-ready findings.  The second
@@ -172,17 +176,27 @@ def run_detector_controls(
             )
         )
     )
-    if not selected:
-        return [], []
-
     judge_enabled = _judge_is_declared(plan or {}, metadata or {}) or any(
         isinstance(case.evidence, Mapping) and "judge" in case.evidence for case in selected
     )
+    static_findings = validate_detector_evidence_access(
+        detector_bytes,
+        observations=_control_observations(plan or {}, metadata or {}),
+        bindings=(plan or {}).get("runtime_bindings", []),
+        judge_enabled=judge_enabled,
+    )
+    if static_findings:
+        return list(static_findings), []
+    if not selected:
+        return [], []
+
     with tempfile.TemporaryDirectory(prefix="asago-detector-controls-") as temporary:
         package = _write_control_package(
             Path(temporary),
             detector_bytes,
             judge_enabled=judge_enabled,
+            observations=_control_observations(plan or {}, metadata or {}),
+            bindings=(plan or {}).get("runtime_bindings", []),
         )
         findings: list[dict[str, str]] = []
         results: list[dict[str, Any]] = []
@@ -612,8 +626,20 @@ def _write_control_package(
     detector_bytes: bytes,
     *,
     judge_enabled: bool = False,
+    observations: Mapping[str, Any] | None = None,
+    bindings: Any = None,
 ) -> Path:
     members = {"detector.py": detector_bytes}
+    members["observations.json"] = json.dumps(
+        dict(observations or {}),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    members["bindings.json"] = json.dumps(
+        bindings if isinstance(bindings, list) else [],
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
     if judge_enabled:
         members["judge.json"] = b"{}"
     package = build_package(
@@ -627,6 +653,19 @@ def _write_control_package(
         creation_model={"model": "model-authored-detector"},
     )
     return write_package(root / "package", package)
+
+
+def _control_observations(
+    plan: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Return the package observation declaration used by static controls."""
+
+    value = metadata.get("required_observations")
+    if isinstance(value, Mapping):
+        return value
+    value = plan.get("required_observations")
+    return value if isinstance(value, Mapping) else {}
 
 
 def _control_result(case: ControlCase, execution: DetectorExecution) -> ControlResult:

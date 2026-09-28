@@ -219,14 +219,14 @@ or empty block leaves rendered request bytes unchanged.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v13` renders the plan author context while preserving the
+- `authoring-call1-v14` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v12` reviews a fresh source-derived plan context.
-- `authoring-call2-v17` renders the immutable accepted plan and preserves the
+- `authoring-plan-review-v13` reviews a fresh source-derived plan context.
+- `authoring-call2-v18` renders the immutable accepted plan and preserves the
   two-block JSON-metadata-plus-Python response.
-- `authoring-artifact-review-v13` reviews the exact metadata, detector bytes,
+- `authoring-artifact-review-v14` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v20` renders only the failed stage format and all
+- `authoring-correction-v21` renders only the failed stage format and all
   current findings.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
@@ -502,6 +502,32 @@ bounded memory, process count, output, and wall-clock time, and no inherited
 credentials. Rich results remain separate from runtime failures. Reporting
 maps `detected`, `not_detected`, and `inconclusive` to Garak's `1`, `0`, and
 `None` only at the reporting edge.
+
+Before the container starts, the checker performs a finite evidence-access
+check. The detector may read the adapter packet's `user_text`, `history`,
+`messages`, `tool_calls`, `bindings`, `binding_provenance`, `setup_outputs`,
+`snapshots`, `transport`, `parse_errors`, `correlation`, `source`,
+`availability`, and `completeness` roots. It may read `judge` only when the
+package contains `judge.json`. A supplied record fact belongs in
+`evidence.bindings.<name>` when `bindings.json` declares that binding, regardless
+of its consumers. A detector-only binding should also list the
+`detector.<name>` consumer. The detector must return `evidence_refs` under the
+same supplied packet roots; `assistant_messages` is an observation
+declaration alias for `messages`, not a packet key.
+
+The authoring controls and package checker flag literal
+`evidence["root"]`, `evidence.get("root")`, literal binding child accesses, and
+literal `evidence_refs` roots that fall outside this interface. The check does
+not prove arbitrary Python data flow, aliases, computed keys, or dynamically
+built references. When a detector needs a supplied fact, declare a
+`supplied_input` binding instead of reading runtime state or hardcoding the
+value. Add the `detector.<name>` consumer when you add a binding needed only by
+the detector.
+
+Binding declarations list `stimulus.user_text` only when the resolved scalar
+value occurs in authored user text or the text contains its `{{name}}` slot.
+The authoring validator fails with correction feedback when a binding lists
+that consumer for a session prerequisite or detector-only value.
 
 ## Output layout
 

@@ -8,6 +8,7 @@ selectors after it has captured a permitted setup result.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -309,6 +310,122 @@ def substitute_slots(
     return _SLOT_RE.sub(replace, template)
 
 
+def supplied_binding_values(
+    declarations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    inventory: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resolve values that are available from supplied facts.
+
+    Authoring can inspect supplied facts, but it cannot run setup operations.
+    This helper therefore resolves only ``supplied_input`` declarations.  An
+    invalid or unavailable source is skipped; the normal binding validator
+    reports that structural error separately.
+    """
+
+    if not isinstance(declarations, (list, tuple)) or not isinstance(inventory, Mapping):
+        return {}
+    facts = inventory.get("facts", [])
+    if not isinstance(facts, list):
+        return {}
+    fact_by_ref = {
+        item["ref"]: item
+        for item in facts
+        if isinstance(item, dict) and isinstance(item.get("ref"), str)
+    }
+    values: dict[str, Any] = {}
+    for raw in declarations:
+        if not isinstance(raw, dict):
+            continue
+        name = raw.get("name")
+        if not isinstance(name, str):
+            continue
+        if raw.get("source_kind") != "supplied_input":
+            continue
+        source_ref = raw.get("source_ref")
+        selector = raw.get("selector")
+        if not isinstance(source_ref, str) or not isinstance(selector, str):
+            continue
+        canonical_source_ref, canonical_selector = canonical_binding_paths(
+            "supplied_input",
+            source_ref,
+            selector,
+            dict(inventory),
+        )
+        reference = canonical_source_ref.removeprefix("facts:")
+        fact = fact_by_ref.get(reference)
+        if not isinstance(fact, dict) or "value" not in fact:
+            continue
+        try:
+            values[name] = _value_at_selector(fact["value"], canonical_selector)
+        except (BindingValidationError, KeyError, IndexError, TypeError):
+            continue
+    return values
+
+
+def find_stimulus_user_text_consumer_mismatches(
+    declarations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    user_text: str,
+    *,
+    resolved_values: Mapping[str, Any] | None = None,
+) -> tuple[dict[str, Any], ...]:
+    """Find bindings that claim user-text use without authored text use.
+
+    Downstream dispatch treats ``stimulus.user_text`` as a request-record
+    identity check.  A binding belongs in that consumer list only when the
+    authored text contains its exact scalar value or a declared
+    ``{{binding_name}}`` slot.  Missing values are reported rather than
+    guessed, so setup-derived values without a slot also fail closed.
+    """
+
+    if not isinstance(user_text, str):
+        return ()
+    values = resolved_values if isinstance(resolved_values, Mapping) else {}
+    slots = {match.group(1) for match in _SLOT_RE.finditer(user_text)}
+    findings: list[dict[str, Any]] = []
+    for binding_index, raw in enumerate(declarations):
+        if not isinstance(raw, dict):
+            continue
+        name = raw.get("name")
+        consumers = raw.get("consumers")
+        if not isinstance(name, str) or not isinstance(consumers, list):
+            continue
+        for consumer_index, consumer in enumerate(consumers):
+            if consumer != "stimulus.user_text":
+                continue
+            if name in slots:
+                continue
+            value = values.get(name)
+            value_used = value is not None and str(value) in user_text
+            if value_used:
+                continue
+            findings.append(
+                {
+                    "binding_index": binding_index,
+                    "consumer_index": consumer_index,
+                    "binding_name": name,
+                    "value_available": name in values,
+                }
+            )
+    return tuple(findings)
+
+
+def _value_at_selector(value: Any, selector: str) -> Any:
+    """Resolve a canonical value-rooted selector against one fact value."""
+
+    parts = selector.split(".")
+    if not parts or parts[0] != "value":
+        raise BindingValidationError(f"invalid supplied selector: {selector}")
+    current = value
+    for part in parts[1:]:
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        elif isinstance(current, list) and part == "items":
+            continue
+        else:
+            raise BindingValidationError(f"supplied selector not found: {selector}")
+    return current
+
+
 def _source_schema(
     binding: RuntimeBinding,
     inventory: dict[str, Any],
@@ -411,6 +528,8 @@ __all__ = [
     "CLOSED_TYPES",
     "RuntimeBinding",
     "canonical_binding_paths",
+    "find_stimulus_user_text_consumer_mismatches",
+    "supplied_binding_values",
     "substitute_slots",
     "validate_bindings",
 ]
