@@ -2729,6 +2729,12 @@ class PrivateModelAuthoringTransport:
         max_completion_tokens: int | None = None,
         context_window_tokens: int | None = None,
         review_fill_context: bool = False,
+        reasoning_effort: str | None = None,
+        service_tier: str | None = None,
+        service_tier_fallback: str | None = None,
+        sampling_controls: bool = True,
+        strict_json_schema: bool | None = None,
+        timeout: float | int | None = None,
     ) -> None:
         """Create the client.
 
@@ -2768,6 +2774,33 @@ class PrivateModelAuthoringTransport:
         self.model = model
         self.profile_name = profile_name
         self.temperature = temperature
+        if not isinstance(sampling_controls, bool):
+            raise ValueError("sampling_controls must be a boolean")
+        if reasoning_effort is not None and (
+            not isinstance(reasoning_effort, str) or not reasoning_effort.strip()
+        ):
+            raise ValueError("reasoning_effort must be a nonblank string when provided")
+        if service_tier is not None and (
+            not isinstance(service_tier, str) or not service_tier.strip()
+        ):
+            raise ValueError("service_tier must be a nonblank string when provided")
+        if service_tier_fallback is not None and (
+            not isinstance(service_tier_fallback, str) or not service_tier_fallback.strip()
+        ):
+            raise ValueError("service_tier_fallback must be a nonblank string when provided")
+        if strict_json_schema is not None and not isinstance(strict_json_schema, bool):
+            raise ValueError("strict_json_schema must be a boolean when provided")
+        if timeout is not None and (
+            isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0
+        ):
+            raise ValueError("timeout must be a positive number when provided")
+        self.reasoning_effort = reasoning_effort
+        self.service_tier = service_tier
+        self.service_tier_fallback = service_tier_fallback
+        self.sampling_controls = sampling_controls
+        self.strict_json_schema = strict_json_schema
+        self.timeout = timeout
+        self.last_controls: dict[str, Any] | None = None
         self.extra_body = deepcopy(extra_body) if extra_body is not None else None
         self.review_extra_body = (
             deepcopy(review_extra_body) if review_extra_body is not None else None
@@ -2781,18 +2814,30 @@ class PrivateModelAuthoringTransport:
         self.max_completion_tokens = max_completion_tokens
         self.context_window_tokens = context_window_tokens
         self.review_fill_context = review_fill_context
-        self._client = OpenAI(
-            base_url=base_url,
-            api_key=api_key,
-            max_retries=0,
-        )
+        client_options: dict[str, Any] = {
+            "base_url": base_url,
+            "api_key": api_key,
+            "max_retries": 0,
+        }
+        if timeout is not None:
+            client_options["timeout"] = timeout
+        self._client = OpenAI(**client_options)
 
     def extra_body_for(self, packet: PromptPacket) -> dict[str, Any] | None:
         """Return the extra_body controls for this packet's role."""
 
-        if packet.stage in _REVIEW_STAGES and self.review_extra_body is not None:
-            return deepcopy(self.review_extra_body)
-        return deepcopy(self.extra_body) if self.extra_body is not None else None
+        body = (
+            self.review_extra_body
+            if packet.stage in _REVIEW_STAGES and self.review_extra_body is not None
+            else self.extra_body
+        )
+        if body is None:
+            return None
+        result = deepcopy(body)
+        if not self.sampling_controls:
+            for key in ("chat_template_kwargs", "temperature", "top_p", "top_k", "seed"):
+                result.pop(key, None)
+        return result or None
 
     def max_completion_tokens_for(self, packet: PromptPacket) -> int | None:
         """Return the completion limit sent with this packet."""
@@ -2805,6 +2850,12 @@ class PrivateModelAuthoringTransport:
         ):
             estimate = _context_budget_estimate(packet)["estimated_prompt_tokens"]
             filled = self.context_window_tokens - int(estimate) - _CONTEXT_FRAMING_TOKEN_RESERVE
+            # Keep the historical Gemma review-fill behavior, but treat a
+            # larger profile completion limit as the review role's explicit
+            # cap. A 1.05M context must not turn a review into a million-token
+            # request.
+            if self.max_completion_tokens > AUTHORING_MAX_COMPLETION_TOKENS:
+                return min(filled, self.max_completion_tokens)
             return max(filled, self.max_completion_tokens)
         return self.max_completion_tokens
 
@@ -2814,17 +2865,44 @@ class PrivateModelAuthoringTransport:
         max_completion_tokens = self.max_completion_tokens_for(packet)
         request: dict[str, Any] = {
             "model": self.model,
-            "temperature": self.temperature,
             "messages": [
                 {"role": "system", "content": packet.system},
                 {"role": "user", "content": packet.user},
             ],
         }
+        if self.sampling_controls:
+            request["temperature"] = self.temperature
         if extra_body is not None:
             request["extra_body"] = deepcopy(extra_body)
         if max_completion_tokens is not None:
             request["max_completion_tokens"] = max_completion_tokens
-        response = self._client.chat.completions.create(**request)
+        if self.reasoning_effort is not None:
+            request["reasoning_effort"] = self.reasoning_effort
+        if self.service_tier is not None:
+            request["service_tier"] = self.service_tier
+        fallback_used = False
+        self.last_controls = self._request_controls(
+            extra_body=extra_body,
+            max_completion_tokens=max_completion_tokens,
+            service_tier=request.get("service_tier"),
+            fallback_used=fallback_used,
+        )
+        try:
+            response = self._client.chat.completions.create(**request)
+        except self._rate_limit_error_type():
+            if self.service_tier is None or self.service_tier_fallback is None:
+                raise
+            fallback_request = deepcopy(request)
+            fallback_request["service_tier"] = self.service_tier_fallback
+            request = fallback_request
+            fallback_used = True
+            self.last_controls = self._request_controls(
+                extra_body=extra_body,
+                max_completion_tokens=max_completion_tokens,
+                service_tier=request.get("service_tier"),
+                fallback_used=fallback_used,
+            )
+            response = self._client.chat.completions.create(**fallback_request)
         choice = response.choices[0]
         message = choice.message
         provider_model = getattr(response, "model", None)
@@ -2838,15 +2916,7 @@ class PrivateModelAuthoringTransport:
         else:
             raw = b""
         usage = _model_dump(getattr(response, "usage", None))
-        controls = {
-            "temperature": self.temperature,
-            "max_retries": 0,
-            "extra_body": extra_body,
-        }
-        if max_completion_tokens is not None:
-            controls["max_completion_tokens"] = max_completion_tokens
-        if self.context_window_tokens is not None:
-            controls["context_window_tokens"] = self.context_window_tokens
+        controls = deepcopy(self.last_controls) if self.last_controls is not None else {}
         return TransportResponse(
             raw=raw,
             usage=usage,
@@ -2854,6 +2924,49 @@ class PrivateModelAuthoringTransport:
             response_capture=_provider_response_capture(choice, message),
             provider_model=provider_model,
         )
+
+    def _request_controls(
+        self,
+        *,
+        extra_body: dict[str, Any] | None,
+        max_completion_tokens: int | None,
+        service_tier: Any,
+        fallback_used: bool,
+    ) -> dict[str, Any]:
+        """Return the non-secret controls for the request currently in flight."""
+
+        controls: dict[str, Any] = {"max_retries": 0}
+        if self.sampling_controls:
+            controls.update({"temperature": self.temperature, "extra_body": extra_body})
+        elif extra_body is not None:
+            controls["extra_body"] = extra_body
+        if max_completion_tokens is not None:
+            controls["max_completion_tokens"] = max_completion_tokens
+        if self.context_window_tokens is not None:
+            controls["context_window_tokens"] = self.context_window_tokens
+        if self.reasoning_effort is not None:
+            controls["reasoning_effort"] = self.reasoning_effort
+        if service_tier is not None:
+            controls["service_tier"] = service_tier
+            controls["service_tier_requested"] = self.service_tier
+        if self.service_tier_fallback is not None:
+            controls["service_tier_fallback"] = self.service_tier_fallback
+            controls["service_tier_fallback_used"] = fallback_used
+        if not self.sampling_controls:
+            controls["sampling_controls"] = False
+        if self.strict_json_schema is not None:
+            controls["strict_json_schema"] = self.strict_json_schema
+        if self.timeout is not None:
+            controls["timeout"] = self.timeout
+        return controls
+
+    @staticmethod
+    def _rate_limit_error_type() -> type[BaseException]:
+        """Resolve the SDK exception lazily so offline fakes remain simple."""
+
+        from openai import RateLimitError
+
+        return RateLimitError
 
     def preflight_context_budget(
         self, packet: PromptPacket
@@ -3872,7 +3985,17 @@ class AuthoringOrchestrator:
                 "reviewed_candidate_sha256"
             ]
         self._persist_failure_evidence()
-        response = self.transport.complete(packet)
+        try:
+            response = self.transport.complete(packet)
+        except Exception:
+            last_controls = getattr(self.transport, "last_controls", None)
+            if isinstance(last_controls, dict):
+                record["controls"] = _safe_metadata(last_controls)
+                self._failure_attempt()["controls"] = metadata_record(
+                    last_controls,
+                    unavailable_reason="provider_did_not_return_response",
+                )
+            raise
         provider_model = (
             response.provider_model if isinstance(response, TransportResponse) else None
         )
@@ -4879,7 +5002,7 @@ class AuthoringOrchestrator:
 
         policy = self.policy
         assert policy is not None
-        return {
+        record = {
             "plan_max_corrections": policy.plan_max_corrections,
             "artifact_max_corrections": policy.artifact_max_corrections,
             "plan_max_review_revisions": (
@@ -4891,18 +5014,25 @@ class AuthoringOrchestrator:
             "review_plan": policy.review_plan,
             "review_artifact": policy.review_artifact,
             "review_model_profile": self.review_model_profile,
-            "review_temperature": 0,
             "max_retries": 0,
         }
+        if getattr(self.transport, "sampling_controls", True):
+            record["review_temperature"] = 0
+        else:
+            record["sampling_controls"] = False
+        return record
 
     def _review_controls(self, controls: Any) -> dict[str, Any]:
         """Return redacted effective reviewer controls for durable evidence."""
 
         effective = {
             "review_model_profile": self.review_model_profile,
-            "temperature": 0,
             "max_retries": 0,
         }
+        if getattr(self.transport, "sampling_controls", True):
+            effective["temperature"] = 0
+        else:
+            effective["sampling_controls"] = False
         model = getattr(self.transport, "model", None)
         if isinstance(model, str) and model.strip():
             effective["model"] = model
@@ -11282,7 +11412,10 @@ def _model_dump(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
     if hasattr(value, "model_dump"):
-        result = value.model_dump()
+        try:
+            result = value.model_dump(exclude_none=True)
+        except TypeError:
+            result = value.model_dump()
     elif isinstance(value, dict):
         result = value
     else:

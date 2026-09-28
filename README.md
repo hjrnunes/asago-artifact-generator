@@ -55,15 +55,26 @@ through a shell or print them. Credentials and endpoint values stay out of
 prompts, ledgers, packages, and failure evidence. A missing profile or required
 field stops before dispatch.
 Thinking is a per-role control sent through the transport's additive
-`extra_body`. Author, correction, and review requests all send
-`chat_template_kwargs.enable_thinking=false`; with thinking on, reviews looped
-until the completion limit and returned no answer. Each call records the
-`extra_body` it actually sent among its non-secret controls and keeps
-`max_retries=0`. Only the final message content is parsed; provider reasoning
-stays in the raw response capture and never substitutes for a missing answer.
-Configured live requests reserve a 32,768-token context window and an 8,192-token
-completion limit, plus the existing 256-token framing reserve. The guard
-estimates prompt tokens as the ceiling of all model-facing system and user
+With the default `sampling_controls=true`, author, correction, and review
+requests preserve the existing temperature and per-role
+`chat_template_kwargs.enable_thinking=false` controls. With
+`sampling_controls=false`, the transport omits `temperature`, `top_p`, `top_k`,
+and `seed`,
+and the thinking `chat_template_kwargs` entirely. Each call records only the
+controls it actually sends and keeps `max_retries=0`. `reasoning_effort` and
+`service_tier` become top-level request fields; a configured
+`service_tier_fallback` retries one 429 once with the fallback tier. The
+`strict_json_schema` profile field is accepted for shared-profile compatibility,
+but the consumer continues to send no `response_format`. Only the final message
+content is parsed; provider reasoning stays in the raw response capture and
+never substitutes for a missing answer.
+Optional `context_window`, `max_completion_tokens`, and `timeout` fields drive
+the request. Omitted limits retain the 32,768-token context window and 8,192-token
+completion limit, plus the existing 256-token framing reserve. Author and
+correction requests use the profile completion limit. Reviews preserve the
+existing remaining-context fill for the Gemma-sized default; when a profile
+provides a larger completion limit, reviews use that limit as a cap so a
+1.05-million-token context does not create a million-token review request. The guard
 UTF-8 bytes, including correction feedback and the 128-byte schema/message
 allowance, divided by a calibrated bytes-per-token ratio. It applies the same
 estimate to authoring, review, and correction requests and rejects an overflow

@@ -51,7 +51,7 @@ class ProfileNotFoundError(ProfileLoadError):
 
 
 class ProfileFieldError(ProfileLoadError):
-    """A named profile is missing or has an invalid required field."""
+    """A named profile is missing or has an invalid field."""
 
     code = "profile_field_error"
 
@@ -70,6 +70,14 @@ class AuthoringProfile:
     base_url: str = field(repr=False)
     api_key: str = field(repr=False)
     model: str = field(repr=False)
+    reasoning_effort: str | None = None
+    service_tier: str | None = None
+    service_tier_fallback: str | None = None
+    sampling_controls: bool = True
+    strict_json_schema: bool | None = None
+    context_window: int | None = None
+    max_completion_tokens: int | None = None
+    timeout: float | int | None = None
 
     def __repr__(self) -> str:
         """Avoid exposing connection values in test failures or diagnostics."""
@@ -88,8 +96,9 @@ def load_authoring_profile(
 
     The approved project file uses a top-level mapping of profile names.  A
     ``profiles`` mapping is also accepted for compatibility with existing
-    qualification helpers.  Only the three connection fields needed by the
-    consumer are returned.
+    qualification helpers. The three connection fields and recognized optional
+    request controls are returned. Unknown profile fields remain ignored for
+    compatibility with the producer's shared profile file.
     """
 
     path = Path(profiles_file)
@@ -137,7 +146,7 @@ def load_authoring_profile(
             path=path,
             profile_name=profile_name,
         )
-    values: dict[str, str] = {}
+    values: dict[str, Any] = {}
     for field_name in REQUIRED_PROFILE_FIELDS:
         value = entry.get(field_name)
         if not isinstance(value, str) or not value.strip():
@@ -148,7 +157,122 @@ def load_authoring_profile(
                 field=field_name,
             )
         values[field_name] = value
-    return AuthoringProfile(name=profile_name, **values)
+    optional = {
+        "reasoning_effort": _optional_nonblank_string(
+            entry, "reasoning_effort", path=path, profile_name=profile_name
+        ),
+        "service_tier": _optional_nonblank_string(
+            entry, "service_tier", path=path, profile_name=profile_name
+        ),
+        "service_tier_fallback": _optional_nonblank_string(
+            entry, "service_tier_fallback", path=path, profile_name=profile_name
+        ),
+        "sampling_controls": _optional_boolean(
+            entry,
+            "sampling_controls",
+            default=True,
+            path=path,
+            profile_name=profile_name,
+        ),
+        "strict_json_schema": _optional_boolean(
+            entry,
+            "strict_json_schema",
+            default=None,
+            path=path,
+            profile_name=profile_name,
+        ),
+        "context_window": _optional_positive_integer(
+            entry, "context_window", path=path, profile_name=profile_name
+        ),
+        "max_completion_tokens": _optional_positive_integer(
+            entry, "max_completion_tokens", path=path, profile_name=profile_name
+        ),
+        "timeout": _optional_positive_number(
+            entry, "timeout", path=path, profile_name=profile_name
+        ),
+    }
+    return AuthoringProfile(name=profile_name, **values, **optional)
+
+
+def _optional_nonblank_string(
+    entry: dict[str, Any],
+    field_name: str,
+    *,
+    path: Path,
+    profile_name: str,
+) -> str | None:
+    value = entry.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ProfileFieldError(
+            f"profile {profile_name!r} has invalid field {field_name!r}",
+            path=path,
+            profile_name=profile_name,
+            field=field_name,
+        )
+    return value
+
+
+def _optional_boolean(
+    entry: dict[str, Any],
+    field_name: str,
+    *,
+    default: bool | None,
+    path: Path,
+    profile_name: str,
+) -> bool | None:
+    value = entry.get(field_name)
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise ProfileFieldError(
+            f"profile {profile_name!r} has invalid field {field_name!r}",
+            path=path,
+            profile_name=profile_name,
+            field=field_name,
+        )
+    return value
+
+
+def _optional_positive_integer(
+    entry: dict[str, Any],
+    field_name: str,
+    *,
+    path: Path,
+    profile_name: str,
+) -> int | None:
+    value = entry.get(field_name)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ProfileFieldError(
+            f"profile {profile_name!r} has invalid field {field_name!r}",
+            path=path,
+            profile_name=profile_name,
+            field=field_name,
+        )
+    return value
+
+
+def _optional_positive_number(
+    entry: dict[str, Any],
+    field_name: str,
+    *,
+    path: Path,
+    profile_name: str,
+) -> float | int | None:
+    value = entry.get(field_name)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise ProfileFieldError(
+            f"profile {profile_name!r} has invalid field {field_name!r}",
+            path=path,
+            profile_name=profile_name,
+            field=field_name,
+        )
+    return value
 
 
 def authoring_profile_from_environment(

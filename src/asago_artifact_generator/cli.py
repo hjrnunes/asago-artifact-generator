@@ -354,15 +354,36 @@ def author(
         "base_url": connection.base_url,
         "api_key": connection.api_key,
         "model": connection.model,
+        "context_window_tokens": (
+            connection.context_window
+            if connection.context_window is not None
+            else AUTHORING_CONTEXT_WINDOW_TOKENS
+        ),
+        "max_completion_tokens": (
+            connection.max_completion_tokens
+            if connection.max_completion_tokens is not None
+            else AUTHORING_MAX_COMPLETION_TOKENS
+        ),
     }
     if profile is not None:
         transport_options["profile_name"] = connection.name
+    if connection.reasoning_effort is not None:
+        transport_options["reasoning_effort"] = connection.reasoning_effort
+    if connection.service_tier is not None:
+        transport_options["service_tier"] = connection.service_tier
+    if connection.service_tier_fallback is not None:
+        transport_options["service_tier_fallback"] = connection.service_tier_fallback
+    if connection.sampling_controls is False:
+        transport_options["sampling_controls"] = False
+    if connection.strict_json_schema is not None:
+        transport_options["strict_json_schema"] = connection.strict_json_schema
+    if connection.timeout is not None:
+        transport_options["timeout"] = connection.timeout
+    sampling_controls = connection.sampling_controls
     transport = PrivateModelAuthoringTransport(
         **transport_options,
-        extra_body=deepcopy(AUTHORING_THINKING_EXTRA_BODY),
-        review_extra_body=deepcopy(REVIEW_THINKING_EXTRA_BODY),
-        context_window_tokens=AUTHORING_CONTEXT_WINDOW_TOKENS,
-        max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
+        extra_body=(deepcopy(AUTHORING_THINKING_EXTRA_BODY) if sampling_controls else None),
+        review_extra_body=(deepcopy(REVIEW_THINKING_EXTRA_BODY) if sampling_controls else None),
         review_fill_context=True,
     )
     package_dir = output_dir / stable_task_id

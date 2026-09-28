@@ -86,7 +86,7 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path]:
     return profile, runtime_contract
 
 
-def _profile_file(tmp_path: Path, **changes: object) -> tuple[Path, dict[str, str]]:
+def _profile_file(tmp_path: Path, **changes: object) -> tuple[Path, dict[str, object]]:
     values = {
         "base_url": "https://profile.example.invalid/v1",
         "api_key": "profile-secret-value",
@@ -131,6 +131,31 @@ def test_loader_returns_named_connection_fields_without_logging_or_redaction(
     assert profile.model == values["model"]
     assert values["api_key"] not in repr(profile)
     assert values["base_url"] not in repr(profile)
+
+
+def test_loader_preserves_optional_openai_request_controls(tmp_path: Path) -> None:
+    profiles_file, _ = _profile_file(
+        tmp_path,
+        reasoning_effort="high",
+        service_tier="priority",
+        service_tier_fallback="auto",
+        sampling_controls=False,
+        strict_json_schema=True,
+        context_window=1_050_000,
+        max_completion_tokens=32_000,
+        timeout=900,
+    )
+
+    profile = load_authoring_profile(profiles_file, "gemma4-oc")
+
+    assert profile.reasoning_effort == "high"
+    assert profile.service_tier == "priority"
+    assert profile.service_tier_fallback == "auto"
+    assert profile.sampling_controls is False
+    assert profile.strict_json_schema is True
+    assert profile.context_window == 1_050_000
+    assert profile.max_completion_tokens == 32_000
+    assert profile.timeout == 900
 
 
 @pytest.mark.parametrize("field", ["base_url", "api_key", "model"])
@@ -214,6 +239,66 @@ def test_author_cli_passes_profile_values_directly_to_transport(
     assert runtime["delivery"] == ["direct_user_message"]
     assert values["api_key"] not in result.output
     assert values["base_url"] not in result.output
+
+
+def test_author_cli_passes_optional_profile_controls_to_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profiles_file, _ = _profile_file(
+        tmp_path,
+        reasoning_effort="high",
+        service_tier="priority",
+        service_tier_fallback="auto",
+        sampling_controls=False,
+        strict_json_schema=True,
+        context_window=1_050_000,
+        max_completion_tokens=32_000,
+        timeout=900,
+    )
+    captured: dict[str, object] = {}
+
+    class FakeTransport:
+        max_retries = 0
+
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    class FakeOrchestrator:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def run(self, *_: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                status="failed",
+                package_path=None,
+                review_status={},
+                findings=[],
+            )
+
+    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FakeTransport)
+    monkeypatch.setattr(cli, "AuthoringOrchestrator", FakeOrchestrator)
+
+    result = _invoke_author(
+        tmp_path,
+        extra_args=[
+            "--profile",
+            "gemma4-oc",
+            "--profiles-file",
+            str(profiles_file),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert captured["reasoning_effort"] == "high"
+    assert captured["service_tier"] == "priority"
+    assert captured["service_tier_fallback"] == "auto"
+    assert captured["sampling_controls"] is False
+    assert captured["strict_json_schema"] is True
+    assert captured["context_window_tokens"] == 1_050_000
+    assert captured["max_completion_tokens"] == 32_000
+    assert captured["timeout"] == 900
+    assert captured["extra_body"] is None
+    assert captured["review_extra_body"] is None
 
 
 def test_author_cli_rejects_missing_named_profile_before_transport(
