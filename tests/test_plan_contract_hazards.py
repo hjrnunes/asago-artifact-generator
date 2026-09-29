@@ -6,7 +6,7 @@ import hashlib
 from asago_artifact_generator.authoring import (
     CALL1_PROMPT_VERSION_V15,
     CALL2_PROMPT_VERSION_V18,
-    CORRECTION_PROMPT_VERSION_V22,
+    CORRECTION_PROMPT_VERSION_V23,
     PromptPacket,
     _is_blocked_plan,
     _render_correction_packet,
@@ -210,7 +210,7 @@ def test_prerequisite_type_finding_is_rendered_in_plan_correction() -> None:
     )
     packet = _render_correction_packet(context)
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V22
+    assert packet.version == CORRECTION_PROMPT_VERSION_V23
     assert finding.detail in packet.user
 
 

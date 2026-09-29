@@ -450,6 +450,210 @@ def test_source_repair_marks_referenced_facts_whose_supplied_value_is_empty() ->
     )
 
 
+_ORDER_FIELDS = ("customer_id", "item", "status")
+
+
+def _keyed_orders_inventory() -> dict:
+    """Return keyed order facts whose full selector list exceeds the repair cap.
+
+    ORD-201 sorts after fourteen other orders, so a collection-wide
+    enumeration capped at 40 selectors never reaches it.
+    """
+
+    keys = [f"ORD-1{index:02d}" for index in range(1, 15)] + ["ORD-201"]
+    inventory = _inventory()
+    inventory["facts"].extend(
+        [
+            {
+                "ref": "state:orders",
+                "value": {
+                    key: {field: f"{key}-{field}" for field in _ORDER_FIELDS} for key in keys
+                },
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        key: {
+                            "type": "object",
+                            "properties": {field: {"type": "string"} for field in _ORDER_FIELDS},
+                        }
+                        for key in keys
+                    },
+                },
+            },
+            {
+                "ref": "state:orders:records",
+                "value": {key: {"record_key": key} for key in keys},
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        key: {"type": "object", "properties": {"record_key": {"type": "string"}}}
+                        for key in keys
+                    },
+                },
+            },
+        ]
+    )
+    return inventory
+
+
+def _named_record_binding(source_ref: str, selector: str) -> dict:
+    return {
+        "name": "target_order_id",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": source_ref,
+        "selector": selector,
+        "consumers": ["detector.target_order_id"],
+        "on_missing": "stop",
+    }
+
+
+_NAMED_ORDER_SOURCES = [
+    {
+        "source_kind": "supplied_input",
+        "source_ref": "facts:state:orders",
+        "source_schema_type": "object",
+        "documented_selectors": {
+            "value.ORD-201": "object",
+            "value.ORD-201.customer_id": "string",
+            "value.ORD-201.item": "string",
+            "value.ORD-201.status": "string",
+        },
+        "matching_expected_type": [
+            "value.ORD-201.customer_id",
+            "value.ORD-201.item",
+            "value.ORD-201.status",
+        ],
+        "truncated": False,
+    },
+    {
+        "source_kind": "supplied_input",
+        "source_ref": "facts:state:orders:records",
+        "source_schema_type": "object",
+        "documented_selectors": {
+            "value.ORD-201": "object",
+            "value.ORD-201.record_key": "string",
+        },
+        "matching_expected_type": ["value.ORD-201.record_key"],
+        "truncated": False,
+    },
+]
+
+
+def _assert_named_sources_validate(inventory: dict, sources: list[dict]) -> None:
+    schemas = {f"facts:{fact['ref']}": fact["schema"] for fact in inventory["facts"]}
+    for source in sources:
+        for selector, json_type in source["documented_selectors"].items():
+            assert _binding_selector_type(schemas[source["source_ref"]], selector) == json_type
+
+
+def test_selector_repair_lists_the_named_record_beyond_the_selector_cap() -> None:
+    inventory = _keyed_orders_inventory()
+    candidate = _candidate()
+    candidate["runtime_bindings"] = [
+        _named_record_binding("facts:state:orders:ORD-201", "value.order_id")
+    ]
+    packet = _render_correction_packet(
+        _context(
+            candidate,
+            inventory,
+            _runtime_contract(),
+            [
+                Finding(
+                    "plan_binding_validation",
+                    "undocumented selector for binding target_order_id: value.order_id",
+                    "runtime_bindings[0].selector",
+                )
+            ],
+        )
+    )
+
+    option = _option(packet)
+    assert option["kind"] == "selector"
+    assert option["truncated"] is True
+    assert "value.ORD-201.customer_id" not in option["documented_selectors"]
+    assert option["named_record_key"] == "ORD-201"
+    assert option["named_record_sources"] == _NAMED_ORDER_SOURCES
+    _assert_named_sources_validate(inventory, option["named_record_sources"])
+    descriptions = packet.payload["binding_repair_options"]["field_descriptions"]
+    assert descriptions["named_record_key"]
+    assert descriptions["named_record_sources"]
+
+
+def test_source_repair_lists_the_named_record_of_an_unresolved_field_shorthand() -> None:
+    inventory = _keyed_orders_inventory()
+    candidate = _candidate()
+    candidate["runtime_bindings"] = [
+        _named_record_binding("facts:state:orders:ORD-201:order_id", "value")
+    ]
+    packet = _render_correction_packet(
+        _context(
+            candidate,
+            inventory,
+            _runtime_contract(),
+            [
+                Finding(
+                    "plan_binding_validation",
+                    "unknown supplied fact: state:orders:ORD-201:order_id",
+                    "runtime_bindings[0].source_ref",
+                )
+            ],
+        )
+    )
+
+    option = _option(packet)
+    assert option["kind"] == "source"
+    assert option["resolved_source"] is False
+    assert option["named_record_key"] == "ORD-201"
+    assert option["named_record_sources"] == _NAMED_ORDER_SOURCES
+
+
+def test_repair_options_omit_named_record_fields_for_an_exact_fact_source() -> None:
+    inventory = _keyed_orders_inventory()
+    candidate = _candidate()
+    candidate["runtime_bindings"] = [_named_record_binding("facts:state:orders", "value.ORD-201")]
+    packet = _render_correction_packet(
+        _context(
+            candidate,
+            inventory,
+            _runtime_contract(),
+            [
+                Finding(
+                    "plan_binding_validation",
+                    "binding type mismatch for target_order_id: expected string, source is object",
+                    "runtime_bindings[0].selector",
+                )
+            ],
+        )
+    )
+
+    option = _option(packet)
+    assert option["kind"] == "selector"
+    assert "named_record_key" not in option
+    assert "named_record_sources" not in option
+
+
+def test_legacy_v9_selector_repair_omits_named_record_fields() -> None:
+    candidate = _candidate()
+    candidate["runtime_bindings"] = [
+        _named_record_binding("facts:state:orders:ORD-201", "value.order_id")
+    ]
+    packet = _render_correction_packet(
+        _context(
+            candidate,
+            _keyed_orders_inventory(),
+            _runtime_contract(),
+            [Finding("plan_binding_validation", "bad selector", "runtime_bindings[0].selector")],
+            legacy_binding_contract=True,
+        ),
+        legacy_v9=True,
+    )
+
+    option = _option(packet)
+    assert "named_record_key" not in option
+    assert "named_record" not in packet.user
+
+
 def test_selector_only_finding_on_resolving_source_keeps_selector_option_shape() -> None:
     inventory = _inventory()
     candidate = _candidate()

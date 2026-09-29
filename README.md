@@ -237,7 +237,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   two-block JSON-metadata-plus-Python response.
 - `authoring-artifact-review-v14` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v22` renders only the failed stage format and all
+- `authoring-correction-v23` renders only the failed stage format and all
   current findings.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
@@ -548,7 +548,12 @@ the run, a supplied fact or a permitted setup result: content the experiment
 chooses belongs directly in the stimulus, and the target's tool-call arguments,
 results, and replies are read from `tool_calls` or `messages`. Binding repair
 options mark a supplied fact whose value is an empty list or object with
-`supplied_value_empty`. The detector must return `evidence_refs` under the
+`supplied_value_empty`. When a binding `source_ref` names one record of a keyed
+fact (`facts:<ref>:<record_key>`), the options also list `named_record_sources`:
+that record's full selectors in each fact documenting it, including the record
+key at `value.<record_key>.record_key` in the `facts:<ref>:records` companion.
+The whole-source selector list is sorted and capped at 40 entries, so it can
+omit the named record. The detector must return `evidence_refs` under the
 same supplied packet roots; `assistant_messages` is an observation
 declaration alias for `messages`, not a packet key.
 

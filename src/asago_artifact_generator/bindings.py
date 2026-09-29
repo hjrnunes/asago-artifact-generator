@@ -428,6 +428,54 @@ def normalize_binding_declarations(
     return normalized
 
 
+def named_record_facts(
+    source_kind: str,
+    source_ref: str,
+    inventory: dict[str, Any],
+) -> tuple[str, tuple[tuple[str, dict[str, Any]], ...]] | None:
+    """Return the record key a keyed-map shorthand names and the facts documenting it.
+
+    ``facts:state:orders:ORD-201`` names record ``ORD-201`` of ``state:orders``
+    and of its ``state:orders:records`` companion.  Each returned pair holds a
+    fact reference and that record's own schema within the fact.  An exact
+    fact reference names no record.
+    """
+
+    if source_kind != "supplied_input" or not source_ref.startswith("facts:"):
+        return None
+    reference = source_ref.removeprefix("facts:")
+    fact_by_ref = {
+        item["ref"]: item
+        for item in inventory.get("facts", [])
+        if isinstance(item, dict) and isinstance(item.get("ref"), str)
+    }
+    if reference in fact_by_ref:
+        return None
+    for companion_ref in sorted(fact_by_ref):
+        if not companion_ref.endswith(":records"):
+            continue
+        base_ref = companion_ref.removesuffix(":records")
+        parsed = _keyed_source_suffix(reference, companion_ref, base_ref)
+        if parsed is None:
+            continue
+        record_key = parsed[0]
+        documented: list[tuple[str, dict[str, Any]]] = []
+        for fact_ref in (base_ref, companion_ref):
+            fact = fact_by_ref.get(fact_ref)
+            schema = fact.get("schema") if isinstance(fact, dict) else None
+            properties = schema.get("properties") if isinstance(schema, dict) else None
+            if (
+                isinstance(schema, dict)
+                and schema.get("type") == "object"
+                and isinstance(properties, dict)
+                and isinstance(properties.get(record_key), dict)
+            ):
+                documented.append((fact_ref, properties[record_key]))
+        if documented:
+            return record_key, tuple(documented)
+    return None
+
+
 def _keyed_source_suffix(
     reference: str,
     companion_ref: str,
@@ -708,6 +756,7 @@ __all__ = [
     "RuntimeBinding",
     "canonical_binding_paths",
     "find_stimulus_user_text_consumer_mismatches",
+    "named_record_facts",
     "normalize_binding_declarations",
     "supplied_binding_values",
     "substitute_slots",

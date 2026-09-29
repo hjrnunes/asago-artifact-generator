@@ -29,6 +29,7 @@ from .bindings import (
     BindingValidationError,
     canonical_binding_paths,
     find_stimulus_user_text_consumer_mismatches,
+    named_record_facts,
     normalize_binding_declarations,
     supplied_binding_values,
     validate_bindings,
@@ -123,11 +124,12 @@ CALL2_PROMPT_VERSION_V18 = "authoring-call2-v18"
 CORRECTION_PROMPT_VERSION_V21 = "authoring-correction-v21"
 CALL1_PROMPT_VERSION_V15 = "authoring-call1-v15"
 CORRECTION_PROMPT_VERSION_V22 = "authoring-correction-v22"
+CORRECTION_PROMPT_VERSION_V23 = "authoring-correction-v23"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical package readers.
 CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V15
 CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V18
-CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V22
+CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V23
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
@@ -1523,7 +1525,7 @@ def _render_correction_packet(
             (
                 CORRECTION_PROMPT_VERSION_V7
                 if correction_context.get("legacy_evidence_interface") is True
-                else CORRECTION_PROMPT_VERSION_V22
+                else CORRECTION_PROMPT_VERSION_V23
             )
             if correction_context.get("stage") == "artifact"
             else (
@@ -1535,7 +1537,7 @@ def _render_correction_packet(
                     else (
                         CORRECTION_PROMPT_VERSION_V10
                         if legacy_v10
-                        else CORRECTION_PROMPT_VERSION_V22
+                        else CORRECTION_PROMPT_VERSION_V23
                     )
                 )
             )
@@ -1874,6 +1876,16 @@ _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS = {
         "object; the source then contains nothing to bind."
     ),
     "supplied_value_empty_note": ("Names the empty supplied fact source and its empty shape."),
+    "named_record_key": (
+        "Present when source_ref names one record of a keyed supplied fact, as in "
+        "facts:<ref>:<record_key>; the record key it names."
+    ),
+    "named_record_sources": (
+        "Each supplied fact that documents the named record, listing only that record's "
+        "selectors written in full from value; each source_ref and selector pair is "
+        "accepted as written. A facts:<ref>:records source holds the record key itself "
+        "at value.<record_key>.record_key."
+    ),
 }
 
 
@@ -2012,12 +2024,13 @@ def _repair_selector_option(
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
     *,
-    mark_empty_value: bool = True,
+    legacy_v9: bool = False,
 ) -> dict[str, Any]:
     """Build selector repair choices from the exact source schema.
 
-    ``mark_empty_value`` is False only for the historical v9 rendering, whose
-    field descriptions predate the empty supplied value marker.
+    ``legacy_v9`` reproduces the historical v9 rendering, whose field
+    descriptions predate the empty supplied value marker and named record
+    sources.
     """
 
     code = finding.code if isinstance(finding, Finding) else finding.get("code")
@@ -2074,8 +2087,11 @@ def _repair_selector_option(
             "truncated": truncated,
         }
     )
-    if mark_empty_value:
+    if not legacy_v9:
         option.update(_supplied_value_empty_fields(source_kind, source_ref, inventory))
+        option.update(
+            _named_record_source_fields(source_kind, source_ref, expected_type, inventory)
+        )
     if truncated:
         option["truncation_note"] = (
             "Documented selector enumeration truncated after "
@@ -2128,6 +2144,55 @@ def _supplied_value_empty_fields(
             "it contains no element or field to bind."
         ),
     }
+
+
+def _named_record_source_fields(
+    source_kind: Any,
+    source_ref: Any,
+    expected_type: Any,
+    inventory: dict[str, Any],
+) -> dict[str, Any]:
+    """List only the named record's selectors when source_ref names one keyed record.
+
+    The whole-source enumeration is sorted and capped, so a named record late
+    in a large keyed fact can fall outside it; the key itself lives only in
+    the records companion fact.
+    """
+
+    if not isinstance(source_kind, str) or not isinstance(source_ref, str):
+        return {}
+    named = named_record_facts(source_kind, source_ref, inventory)
+    if named is None:
+        return {}
+    record_key, facts = named
+    sources: list[dict[str, Any]] = []
+    for reference, record_schema in facts:
+        fact_schema = next(
+            item["schema"]
+            for item in inventory.get("facts", [])
+            if isinstance(item, dict) and item.get("ref") == reference
+        )
+        selectors, matching, truncated = _binding_selector_details(
+            record_schema,
+            root=f"value.{record_key}",
+            expected_type=expected_type,
+        )
+        entry: dict[str, Any] = {
+            "source_kind": "supplied_input",
+            "source_ref": f"facts:{reference}",
+            "source_schema_type": fact_schema.get("type"),
+            "documented_selectors": selectors,
+            "matching_expected_type": matching,
+            "truncated": truncated,
+        }
+        if truncated:
+            entry["truncation_note"] = (
+                "Documented selector enumeration truncated after "
+                f"{_BINDING_REPAIR_SELECTOR_LIMIT} selectors; only the first "
+                f"{_BINDING_REPAIR_SELECTOR_LIMIT} sorted paths are shown."
+            )
+        sources.append(entry)
+    return {"named_record_key": record_key, "named_record_sources": sources}
 
 
 def _binding_selector_details(
@@ -2432,6 +2497,7 @@ def _repair_source_option(
         "permitted_setup_sources_truncated": permitted_setup_sources_truncated,
         "other_fact_source_refs": other_fact_source_refs[:_BINDING_REPAIR_SELECTOR_LIMIT],
         "other_fact_source_refs_truncated": other_fact_source_refs_truncated,
+        **_named_record_source_fields(source_kind, source_ref, expected_type, inventory),
     }
     truncated_labels = []
     if referenced_fact_sources_truncated:
@@ -2570,7 +2636,7 @@ def _binding_repair_options_for_correction_v9(
                             bindings[index],
                             inventory,
                             runtime_contract,
-                            mark_empty_value=False,
+                            legacy_v9=True,
                         )
                     )
             elif (
@@ -11368,6 +11434,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CORRECTION_PROMPT_VERSION_V20,
         CORRECTION_PROMPT_VERSION_V21,
         CORRECTION_PROMPT_VERSION_V22,
+        CORRECTION_PROMPT_VERSION_V23,
         PLAN_REVIEW_PROMPT_VERSION_V1,
         PLAN_REVIEW_PROMPT_VERSION_V2,
         PLAN_REVIEW_PROMPT_VERSION_V3,
@@ -13716,6 +13783,7 @@ __all__ = [
     "CORRECTION_PROMPT_VERSION_V20",
     "CORRECTION_PROMPT_VERSION_V21",
     "CORRECTION_PROMPT_VERSION_V22",
+    "CORRECTION_PROMPT_VERSION_V23",
     "Call2FramingError",
     "Finding",
     "PlanValidationError",
