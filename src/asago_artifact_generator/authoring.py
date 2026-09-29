@@ -160,7 +160,8 @@ ARTIFACT_REVIEW_PROMPT_VERSION_V13 = "authoring-artifact-review-v13"
 PLAN_REVIEW_PROMPT_VERSION_V12 = "authoring-plan-review-v12"
 PLAN_REVIEW_PROMPT_VERSION_V13 = "authoring-plan-review-v13"
 ARTIFACT_REVIEW_PROMPT_VERSION_V14 = "authoring-artifact-review-v14"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V13
+PLAN_REVIEW_PROMPT_VERSION_V14 = "authoring-plan-review-v14"
+PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V14
 ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V14
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 
@@ -6664,6 +6665,61 @@ def build_plan_author_context(
     return context
 
 
+_RESOLVED_BINDING_VALUES_MEANING = (
+    "Code resolved each supplied_input binding in the candidate plan against the "
+    "supplied inventory. resolved_value is the exact value the runtime binds to that "
+    "name before the run. resolved_at_run_time names setup_output bindings, whose "
+    "values exist only after setup runs."
+)
+_RESOLVED_BINDING_VALUES_INSTRUCTION = (
+    "Use these values when you answer value_meaning. The binding name, its "
+    "consumers, and every plan use must fit the resolved value; for example, a "
+    "binding the plan uses as a record identifier must resolve to that record's "
+    "key, not to another field of the record. A successful resolution proves only "
+    "that the path exists, not that it selects the intended value."
+)
+
+
+def _resolved_supplied_binding_values(
+    plan: Mapping[str, Any], inventory: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Show the reviewer what each supplied binding actually resolves to."""
+
+    declarations = [item for item in plan.get("runtime_bindings") or [] if isinstance(item, dict)]
+    resolved = supplied_binding_values(declarations, inventory)
+    values: list[dict[str, Any]] = []
+    run_time: list[str] = []
+    for declaration in normalize_binding_declarations(declarations, inventory=dict(inventory)):
+        name = declaration.get("name")
+        if not isinstance(name, str):
+            continue
+        if declaration.get("source_kind") == "setup_output":
+            run_time.append(name)
+            continue
+        if name not in resolved:
+            continue
+        source_ref, selector = canonical_binding_paths(
+            "supplied_input",
+            str(declaration.get("source_ref")),
+            str(declaration.get("selector")),
+            dict(inventory),
+        )
+        values.append(
+            {
+                "name": name,
+                "source_ref": source_ref,
+                "selector": selector,
+                "resolved_value": deepcopy(resolved[name]),
+            }
+        )
+    return {
+        "meaning": _RESOLVED_BINDING_VALUES_MEANING,
+        "reviewer_instruction": _RESOLVED_BINDING_VALUES_INSTRUCTION,
+        "values": values,
+        "resolved_at_run_time": run_time,
+    }
+
+
 def build_plan_reviewer_context(
     view: InputView,
     plan: dict[str, Any],
@@ -6685,6 +6741,7 @@ def build_plan_reviewer_context(
         },
         "neutral_outcome_example": _neutral_outcome_example(view),
         "candidate_plan": deepcopy(plan),
+        "resolved_supplied_binding_values": _resolved_supplied_binding_values(plan, inventory),
         "review_questions": _review_question_context(
             _PLAN_REVIEW_QUESTIONS,
             fixed_plan=False,
@@ -7750,6 +7807,10 @@ def build_plan_review_packet(
                 ("NEUTRAL OUTCOME EXAMPLE", context["neutral_outcome_example"]),
                 ("REVIEW QUESTIONS", context["review_questions"]),
                 ("CANDIDATE PLAN", context["candidate_plan"]),
+                (
+                    "RESOLVED SUPPLIED BINDING VALUES",
+                    context["resolved_supplied_binding_values"],
+                ),
                 (
                     "MECHANICAL GUARANTEES (NOT REVIEW QUESTIONS)",
                     context["mechanical_check_summary"],
@@ -11448,6 +11509,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         PLAN_REVIEW_PROMPT_VERSION_V11,
         PLAN_REVIEW_PROMPT_VERSION_V12,
         PLAN_REVIEW_PROMPT_VERSION_V13,
+        PLAN_REVIEW_PROMPT_VERSION_V14,
         ARTIFACT_REVIEW_PROMPT_VERSION_V1,
         ARTIFACT_REVIEW_PROMPT_VERSION_V2,
         ARTIFACT_REVIEW_PROMPT_VERSION_V3,
@@ -13801,6 +13863,7 @@ __all__ = [
     "PLAN_REVIEW_PROMPT_VERSION_V11",
     "PLAN_REVIEW_PROMPT_VERSION_V12",
     "PLAN_REVIEW_PROMPT_VERSION_V13",
+    "PLAN_REVIEW_PROMPT_VERSION_V14",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V1",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V2",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V3",

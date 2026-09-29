@@ -12,7 +12,7 @@ from asago_artifact_generator.authoring import (
     CORRECTION_PROMPT_VERSION_V23,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
-    PLAN_REVIEW_PROMPT_VERSION_V13,
+    PLAN_REVIEW_PROMPT_VERSION_V14,
     PromptOverflowError,
     PromptPacket,
     PromptPreflightError,
@@ -211,7 +211,7 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
 
     assert [packet.version for packet in packets] == [
         CALL1_PROMPT_VERSION_V15,
-        PLAN_REVIEW_PROMPT_VERSION_V13,
+        PLAN_REVIEW_PROMPT_VERSION_V14,
         CALL2_PROMPT_VERSION_V18,
         ARTIFACT_REVIEW_PROMPT_VERSION_V14,
         CORRECTION_PROMPT_VERSION_V23,
