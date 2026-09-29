@@ -331,6 +331,125 @@ def test_selector_repair_explicitly_reports_no_matching_type() -> None:
     )
 
 
+def _empty_list_inventory() -> dict:
+    inventory = _inventory()
+    inventory["facts"].append(
+        {
+            "ref": "state:inbox",
+            "meaning": "Captured target state at discovery time.",
+            "schema": {"type": "array", "items": {}},
+            "value": [],
+        }
+    )
+    return inventory
+
+
+def _empty_list_binding() -> dict:
+    return {
+        "name": "inbox_text",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:state:inbox",
+        "selector": "value",
+        "consumers": ["stimulus.user_text"],
+        "on_missing": "stop",
+    }
+
+
+_EMPTY_LIST_NOTE = (
+    "The supplied value of source facts:state:inbox is an empty list; "
+    "it contains no element or field to bind."
+)
+
+
+def test_selector_repair_marks_a_source_whose_supplied_value_is_empty() -> None:
+    candidate = _candidate()
+    candidate["runtime_bindings"] = [_empty_list_binding()]
+    packet = _render_correction_packet(
+        _context(
+            candidate,
+            _empty_list_inventory(),
+            _runtime_contract(),
+            [
+                Finding(
+                    "plan_binding_validation",
+                    "binding type mismatch for inbox_text: expected string, source is array",
+                    "runtime_bindings[0].selector",
+                )
+            ],
+        )
+    )
+
+    option = _option(packet)
+    assert option["kind"] == "selector"
+    assert option["documented_selectors"] == {"value": "array"}
+    assert option["supplied_value_empty"] is True
+    assert option["supplied_value_empty_note"] == _EMPTY_LIST_NOTE
+    descriptions = packet.payload["binding_repair_options"]["field_descriptions"]
+    assert descriptions["supplied_value_empty"]
+    assert descriptions["supplied_value_empty_note"]
+
+
+def test_legacy_v9_selector_repair_does_not_mark_empty_supplied_values() -> None:
+    candidate = _candidate()
+    candidate["runtime_bindings"] = [_empty_list_binding()]
+    packet = _render_correction_packet(
+        _context(
+            candidate,
+            _empty_list_inventory(),
+            _runtime_contract(),
+            [Finding("plan_binding_validation", "bad selector", "runtime_bindings[0].selector")],
+            legacy_binding_contract=True,
+        ),
+        legacy_v9=True,
+    )
+
+    option = _option(packet)
+    assert option["documented_selectors"] == {"value": "array"}
+    assert "supplied_value_empty" not in option
+    assert "supplied_value_empty" not in packet.user
+
+
+def test_source_repair_marks_referenced_facts_whose_supplied_value_is_empty() -> None:
+    candidate = _candidate()
+    binding = _empty_list_binding()
+    binding["source_ref"] = "state:inbox"
+    candidate["runtime_bindings"] = [binding]
+    packet = _render_correction_packet(
+        _context(
+            candidate,
+            _empty_list_inventory(),
+            _runtime_contract(),
+            [
+                Finding(
+                    "plan_binding_validation",
+                    "supplied_input binding source_ref must be facts:<ref>: inbox_text",
+                    "runtime_bindings[0].source_ref",
+                )
+            ],
+        )
+    )
+
+    option = _option(packet)
+    assert option["kind"] == "source"
+    sources = {entry["source_ref"]: entry for entry in option["referenced_fact_sources"]}
+    assert sources["facts:state:inbox"] == {
+        "documented_selectors": {"value": "array"},
+        "matching_expected_type": [],
+        "source_kind": "supplied_input",
+        "source_ref": "facts:state:inbox",
+        "source_schema_type": "array",
+        "supplied_value_empty": True,
+        "supplied_value_empty_note": _EMPTY_LIST_NOTE,
+        "truncated": False,
+    }
+    assert all(
+        "supplied_value_empty" not in entry
+        for ref, entry in sources.items()
+        if ref != "facts:state:inbox"
+    )
+
+
 def test_selector_only_finding_on_resolving_source_keeps_selector_option_shape() -> None:
     inventory = _inventory()
     candidate = _candidate()

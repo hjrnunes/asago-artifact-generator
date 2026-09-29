@@ -230,14 +230,14 @@ or empty block leaves rendered request bytes unchanged.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v14` renders the plan author context while preserving the
+- `authoring-call1-v15` renders the plan author context while preserving the
   existing 11-field plan response.
 - `authoring-plan-review-v13` reviews a fresh source-derived plan context.
 - `authoring-call2-v18` renders the immutable accepted plan and preserves the
   two-block JSON-metadata-plus-Python response.
 - `authoring-artifact-review-v14` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v21` renders only the failed stage format and all
+- `authoring-correction-v22` renders only the failed stage format and all
   current findings.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
@@ -259,8 +259,11 @@ labeled generic illustration with no operation, binding, or prerequisite.
 Keyed-map bindings may use a source shorthand such as
 `facts:state:orders:ORD-101:customer_id`; validation resolves it only when the
 record key and field exist, then persists the documented
-`facts:state:orders` plus `value.ORD-101.customer_id` paths. Unknown keys,
-fields, and incompatible types remain invalid. Valid scenario lineage and
+`facts:state:orders` plus `value.ORD-101.customer_id` paths. A shorthand
+source whose selector repeats its record key, such as
+`facts:state:orders:ORD-101` with `value.ORD-101.customer_id`, resolves the
+same way. Unknown keys, fields, a selector that names a different key or
+field, and incompatible types remain invalid. Valid scenario lineage and
 attack-tree IDs from the handoff are accepted in `interpretation.source_refs`
 and `assumptions[].ref`; correction feedback lists the valid provenance IDs,
 while invented IDs remain invalid.
@@ -540,7 +543,12 @@ check. The detector may read the adapter packet's `user_text`, `history`,
 package contains `judge.json`. A supplied record fact belongs in
 `evidence.bindings.<name>` when `bindings.json` declares that binding, regardless
 of its consumers. A detector-only binding should also list the
-`detector.<name>` consumer. The detector must return `evidence_refs` under the
+`detector.<name>` consumer. A binding carries only a value that exists before
+the run, a supplied fact or a permitted setup result: content the experiment
+chooses belongs directly in the stimulus, and the target's tool-call arguments,
+results, and replies are read from `tool_calls` or `messages`. Binding repair
+options mark a supplied fact whose value is an empty list or object with
+`supplied_value_empty`. The detector must return `evidence_refs` under the
 same supplied packet roots; `assistant_messages` is an observation
 declaration alias for `messages`, not a packet key.
 

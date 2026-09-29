@@ -330,7 +330,7 @@ def test_supplied_control_case_form_is_validated(tmp_path: Path) -> None:
 # Digests of (system + "\x00" + user) rendered for the current prompt contracts
 # without the supplied-controls hook.
 _EXPECTED_NO_HOOK_DIGESTS = {
-    "call1": "532122c2ec7931cd43288e42c7b7ee2e99bd1d25158a10425eaaf222bff8f228",
+    "call1": "82bd34e37977102e7ab2622cfe5763be9f8db0bac011640b3ca2bfdaeef45595",
     "plan_review": "fd4a91b2336f40620685a64d9dd8cc8bc9fca6430806a4d4c611f1894c934dd0",
     "call2": "f8629cb2f52eee8ca400dd18d7f8f27afa03e4d6a06029207708fba57d4ac010",
     "artifact_review": "dd9c960c5fe6cf24c081548bf2813438f1eb21a46d5c10405683e717e9273d94",

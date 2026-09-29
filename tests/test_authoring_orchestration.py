@@ -408,6 +408,70 @@ def test_plan_validation_carries_canonical_deduplicated_bindings_into_prerequisi
     ]
 
 
+def test_plan_validation_accepts_a_record_shorthand_whose_selector_repeats_the_key() -> None:
+    inventory = _inventory()
+    inventory["facts"].extend(
+        [
+            {
+                "ref": "catalog:items",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "ITEM-A": {
+                            "type": "object",
+                            "properties": {"owner": {"type": "string"}},
+                        }
+                    },
+                },
+                "value": {"ITEM-A": {"owner": "OWNER-A"}},
+            },
+            {
+                "ref": "catalog:items:records",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "ITEM-A": {
+                            "type": "object",
+                            "properties": {"record_key": {"type": "string"}},
+                        }
+                    },
+                },
+                "value": {"ITEM-A": {"record_key": "ITEM-A"}},
+            },
+        ]
+    )
+    plan = _plan(
+        runtime_bindings=[
+            {
+                "name": "item_key",
+                "expected_type": "string",
+                "source_kind": "supplied_input",
+                "source_ref": "facts:catalog:items:records:ITEM-A",
+                "selector": "value.ITEM-A.record_key",
+                "consumers": ["detector.item_key"],
+                "on_missing": "stop",
+            },
+            {
+                "name": "item_owner",
+                "expected_type": "string",
+                "source_kind": "supplied_input",
+                "source_ref": "facts:catalog:items:ITEM-A",
+                "selector": "value.ITEM-A.owner",
+                "consumers": ["detector.item_owner"],
+                "on_missing": "stop",
+            },
+        ],
+    )
+
+    findings = collect_plan_findings(plan, inventory, _contract())
+
+    assert findings == []
+    assert [(item["source_ref"], item["selector"]) for item in plan["runtime_bindings"]] == [
+        ("facts:catalog:items:records", "value.ITEM-A.record_key"),
+        ("facts:catalog:items", "value.ITEM-A.owner"),
+    ]
+
+
 def test_artifact_validation_compares_canonicalized_binding_projection() -> None:
     inventory = _inventory()
     inventory["facts"].extend(

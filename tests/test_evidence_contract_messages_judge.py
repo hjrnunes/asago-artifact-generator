@@ -5,7 +5,7 @@ import json
 
 from asago_artifact_generator.authoring import (
     CALL2_PROMPT_VERSION_V18,
-    CORRECTION_PROMPT_VERSION_V21,
+    CORRECTION_PROMPT_VERSION_V22,
     _render_correction_packet,
     artifact_observation_guide,
     build_artifact_author_context,
@@ -253,7 +253,7 @@ def test_unknown_judge_fact_reference_correction_lists_valid_refs() -> None:
     )
     packet = _render_correction_packet(correction_context)
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V21
+    assert packet.version == CORRECTION_PROMPT_VERSION_V22
     assert "SEMANTIC JUDGE FACT REFERENCE GUIDANCE" in packet.user
     assert "inventory.facts[].ref" in packet.user
     assert "state:record:alpha" in packet.user

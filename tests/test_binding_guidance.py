@@ -72,6 +72,28 @@ def test_neutral_binding_example_uses_a_supplied_scalar_fact_without_setup() -> 
     assert collect_plan_findings_v2(plan, _inventory(), runtime) == []
 
 
+def test_plan_instruction_limits_bindings_to_values_that_exist_before_the_run() -> None:
+    instruction = build_plan_author_context(_view(), _inventory(), _no_setup_runtime())["task"][
+        "instruction"
+    ]
+    legacy = build_plan_author_context(
+        _view(), _inventory(), _no_setup_runtime(), legacy_binding_contract=True
+    )["task"]["instruction"]
+
+    rules = (
+        "A runtime binding carries a value that exists before the run",
+        "Write content the experiment chooses",
+        "directly in the stimulus; it needs no binding",
+        "A value the target produces during the run",
+        "reads it from evidence.tool_calls or evidence.messages",
+        "not from a runtime binding or a setup:<operation> source",
+        "an empty list or empty object supplies nothing to bind",
+    )
+    for rule in rules:
+        assert rule in instruction
+        assert rule not in legacy
+
+
 def test_legacy_binding_contract_keeps_the_empty_neutral_example() -> None:
     context = build_plan_author_context(
         _view(), _inventory(), _no_setup_runtime(), legacy_binding_contract=True

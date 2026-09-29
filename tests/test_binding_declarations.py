@@ -263,6 +263,105 @@ def test_keyed_source_shorthands_reject_unknown_keys_fields_and_types(
         )
 
 
+@pytest.mark.parametrize(
+    ("source_ref", "selector", "expected"),
+    [
+        (
+            "facts:state:orders:ORD-1",
+            "value.ORD-1.customer_id",
+            ("facts:state:orders", "value.ORD-1.customer_id"),
+        ),
+        (
+            "facts:state:orders:records:ORD-1",
+            "value.ORD-1.record_key",
+            ("facts:state:orders:records", "value.ORD-1.record_key"),
+        ),
+        (
+            "facts:state:orders:records:ORD-1",
+            "value.ORD-1.customer_id",
+            ("facts:state:orders", "value.ORD-1.customer_id"),
+        ),
+        (
+            "facts:state:orders:ORD-1:customer_id",
+            "value.ORD-1.customer_id",
+            ("facts:state:orders", "value.ORD-1.customer_id"),
+        ),
+    ],
+)
+def test_keyed_source_shorthands_accept_a_selector_that_repeats_the_record_key(
+    source_ref: str,
+    selector: str,
+    expected: tuple[str, str],
+) -> None:
+    transformations: list[dict] = []
+
+    validated = validate_bindings(
+        [
+            {
+                "name": "record_value",
+                "expected_type": "string",
+                "source_kind": "supplied_input",
+                "source_ref": source_ref,
+                "selector": selector,
+                "consumers": ["detector.record_value"],
+                "on_missing": "stop",
+            }
+        ],
+        inventory=_keyed_inventory(),
+        runtime_contract={"setup_permissions": []},
+        transformations=transformations,
+    )
+
+    assert [(item.source_ref, item.selector) for item in validated] == [expected]
+    assert transformations == [
+        {
+            "transformation": "binding_canonicalized",
+            "binding": "record_value",
+            "original_source_ref": source_ref,
+            "original_selector": selector,
+            "canonical_source_ref": expected[0],
+            "canonical_selector": expected[1],
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source_ref", "selector"),
+    [
+        ("facts:state:orders:ORD-1", "value.ORD-2.customer_id"),
+        ("facts:state:orders:ORD-1", "value.ORD-1.not_a_field"),
+        ("facts:state:orders:ORD-1:status", "value.ORD-1.customer_id"),
+        ("facts:state:orders:ORD-404", "value.ORD-404.customer_id"),
+    ],
+)
+def test_repeated_record_key_selectors_fail_closed_on_conflicts_and_unknown_paths(
+    source_ref: str,
+    selector: str,
+) -> None:
+    assert canonical_binding_paths(
+        "supplied_input",
+        source_ref,
+        selector,
+        _keyed_inventory(),
+    ) == (source_ref, selector)
+    with pytest.raises(BindingValidationError, match="unknown supplied fact"):
+        validate_bindings(
+            [
+                {
+                    "name": "record_value",
+                    "expected_type": "string",
+                    "source_kind": "supplied_input",
+                    "source_ref": source_ref,
+                    "selector": selector,
+                    "consumers": ["detector.record_value"],
+                    "on_missing": "stop",
+                }
+            ],
+            inventory=_keyed_inventory(),
+            runtime_contract={"setup_permissions": []},
+        )
+
+
 def _companion_inventory() -> dict:
     return {
         "operations": [],

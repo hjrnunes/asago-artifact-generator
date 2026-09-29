@@ -211,79 +211,89 @@ def canonical_binding_paths(
         original = fact_by_ref.get(base_ref)
         companion = fact_by_ref[companion_ref]
         companion_source = reference == companion_ref or reference.startswith(f"{companion_ref}:")
-        if field is None:
-            selector_parts = selector.split(".")
-            if selector == "value":
-                sources = (
-                    ((companion_ref, companion), (base_ref, original))
-                    if companion_source
-                    else ((base_ref, original), (companion_ref, companion))
-                )
-                targets = _documented_targets(
-                    sources,
-                    f"value.{record_key}",
-                )
-                if targets and companion_source and targets[0][0] == companion_ref:
-                    resolved_ref, _ = targets[0]
-                    return f"facts:{resolved_ref}", f"value.{record_key}"
-                if targets and not companion_source:
-                    resolved_ref, _ = targets[0]
-                    target = (resolved_ref, f"value.{record_key}")
-                    if fallback_targets:
-                        fallback_targets.add(target)
-                    else:
-                        return f"facts:{resolved_ref}", f"value.{record_key}"
-                if targets and companion_source:
-                    fallback_targets.add((base_ref, f"value.{record_key}"))
-            elif len(selector_parts) == 2 and selector_parts[0] == "value":
-                field = selector_parts[1]
-                sources = (
-                    ((companion_ref, companion), (base_ref, original))
-                    if companion_source
-                    else ((base_ref, original), (companion_ref, companion))
-                )
-                targets = _documented_targets(
-                    sources,
-                    f"value.{record_key}.{field}",
-                )
-                if targets and companion_source and targets[0][0] == companion_ref:
-                    resolved_ref, _ = targets[0]
-                    return f"facts:{resolved_ref}", f"value.{record_key}.{field}"
-                if targets and not companion_source:
-                    resolved_ref, _ = targets[0]
-                    target = (resolved_ref, f"value.{record_key}.{field}")
-                    if fallback_targets:
-                        fallback_targets.add(target)
-                    else:
-                        return f"facts:{resolved_ref}", f"value.{record_key}.{field}"
-                if targets and companion_source:
-                    fallback_targets.add((base_ref, f"value.{record_key}.{field}"))
-            continue
         sources = (
             ((companion_ref, companion), (base_ref, original))
             if companion_source
             else ((base_ref, original), (companion_ref, companion))
         )
         selector_parts = selector.split(".")
-        if selector != "value" and selector_parts != ["value", field]:
-            continue
-        targets = _documented_targets(sources, f"value.{record_key}.{field}")
-        if targets and companion_source and targets[0][0] == companion_ref:
-            resolved_ref, _ = targets[0]
-            return f"facts:{resolved_ref}", f"value.{record_key}.{field}"
-        if targets and not companion_source:
-            resolved_ref, _ = targets[0]
-            target = (resolved_ref, f"value.{record_key}.{field}")
-            if fallback_targets:
-                fallback_targets.add(target)
+        if _selector_repeats_record_key(selector_parts, record_key, field):
+            # The selector already names the full path from the fact root, so
+            # the key in source_ref is redundant rather than a second level.
+            target_selector = selector
+        elif field is None:
+            if selector == "value":
+                target_selector = f"value.{record_key}"
+            elif len(selector_parts) == 2 and selector_parts[0] == "value":
+                target_selector = f"value.{record_key}.{selector_parts[1]}"
             else:
-                return f"facts:{resolved_ref}", f"value.{record_key}.{field}"
-        if targets and companion_source:
-            fallback_targets.add((base_ref, f"value.{record_key}.{field}"))
+                continue
+        elif selector == "value" or selector_parts == ["value", field]:
+            target_selector = f"value.{record_key}.{field}"
+        else:
+            continue
+        resolved = _keyed_resolution(
+            sources,
+            companion_source=companion_source,
+            companion_ref=companion_ref,
+            base_ref=base_ref,
+            selector=target_selector,
+            fallback_targets=fallback_targets,
+        )
+        if resolved is not None:
+            return resolved
     if len(fallback_targets) == 1:
         resolved_ref, resolved_selector = next(iter(fallback_targets))
         return f"facts:{resolved_ref}", resolved_selector
     return source_ref, selector
+
+
+def _selector_repeats_record_key(
+    selector_parts: list[str],
+    record_key: str,
+    field: str | None,
+) -> bool:
+    """Return whether a selector below the record restates the shorthand key and field."""
+
+    if len(selector_parts) < 3 or selector_parts[0] != "value":
+        return False
+    if selector_parts[1] != record_key:
+        return False
+    if field is None:
+        return True
+    field_parts = field.split(".")
+    return selector_parts[2 : 2 + len(field_parts)] == field_parts
+
+
+def _keyed_resolution(
+    sources: tuple[tuple[str, dict[str, Any] | None], ...],
+    *,
+    companion_source: bool,
+    companion_ref: str,
+    base_ref: str,
+    selector: str,
+    fallback_targets: set[tuple[str, str]],
+) -> tuple[str, str] | None:
+    """Resolve one keyed-map target selector, or record it as a fallback candidate.
+
+    A records-companion source resolves directly only when the companion
+    documents the selector; otherwise its base fact becomes a fallback that
+    applies only when it is the single candidate.
+    """
+
+    targets = _documented_targets(sources, selector)
+    if not targets:
+        return None
+    resolved_ref = targets[0][0]
+    if companion_source:
+        if resolved_ref == companion_ref:
+            return f"facts:{companion_ref}", selector
+        fallback_targets.add((base_ref, selector))
+        return None
+    if fallback_targets:
+        fallback_targets.add((resolved_ref, selector))
+        return None
+    return f"facts:{resolved_ref}", selector
 
 
 def _documented_targets(
