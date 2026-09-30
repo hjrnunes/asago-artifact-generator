@@ -3773,6 +3773,7 @@ class AuthoringOrchestrator:
             metadata=parsed.metadata,
             inventory=inventory,
             runtime_contract=runtime_contract,
+            condition=self._control_condition,
         )
         if self._supplied_control_cases is not None:
             _mark_control_origins(controls, len(normal_cases))

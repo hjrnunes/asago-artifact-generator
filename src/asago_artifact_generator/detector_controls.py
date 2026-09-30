@@ -186,7 +186,10 @@ def run_detector_controls(
         judge_enabled=judge_enabled,
     )
     if static_findings:
-        return list(static_findings), []
+        operands = supplied_fact_operand_bindings(condition, inventory or {}, plan or {})
+        return [
+            _with_operand_binding_forms(item, operands, plan or {}) for item in static_findings
+        ], []
     if not selected:
         return [], []
 
@@ -1124,6 +1127,117 @@ def _command_target(
     if operation_name is None:
         return None
     return _operation_target(plan, inventory, operation_name)
+
+
+def supplied_fact_operand_bindings(
+    condition: Mapping[str, Any] | None,
+    inventory: Mapping[str, Any],
+    plan: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Derive the supplied_input binding form of each fact operand in ``condition``.
+
+    A ``TARGET-STATE.<key>.<rest>`` operand resolves through fact
+    ``state:<key>`` with selector ``value.<rest>``. ``declared_binding`` names
+    the accepted-plan binding with that exact source_ref and selector, if any.
+    Operands that do not resolve in the supplied facts are omitted.
+    """
+
+    if not isinstance(condition, Mapping):
+        return []
+    comparisons = condition.get("comparisons")
+    bindings = plan.get("runtime_bindings")
+    declared = {
+        (item.get("source_ref"), item.get("selector")): item.get("name")
+        for item in (bindings if isinstance(bindings, list) else [])
+        if isinstance(item, Mapping) and item.get("source_kind") == "supplied_input"
+    }
+    forms: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for comparison in comparisons if isinstance(comparisons, list) else []:
+        if not isinstance(comparison, Mapping):
+            continue
+        for side in ("left", "right"):
+            operand = comparison.get(side)
+            if not isinstance(operand, Mapping) or operand.get("source") != "fact":
+                continue
+            path = operand.get("path")
+            if not isinstance(path, str) or path in seen:
+                continue
+            parts = path.split(".")
+            if len(parts) < 2 or parts[0] != "TARGET-STATE":
+                continue
+            if _condition_path_value(path, None, inventory) is _MISSING:
+                continue
+            seen.add(path)
+            source_ref = f"facts:state:{parts[1]}"
+            selector = ".".join(["value", *parts[2:]])
+            forms.append(
+                {
+                    "path": path,
+                    "source_kind": "supplied_input",
+                    "source_ref": source_ref,
+                    "selector": selector,
+                    "declared_binding": declared.get((source_ref, selector)),
+                }
+            )
+    return forms
+
+
+def _with_operand_binding_forms(
+    finding: dict[str, Any],
+    operands: list[dict[str, Any]],
+    plan: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Restate an undeclared binding or root read against the plan-owned bindings.
+
+    Artifact corrections cannot add runtime bindings, so the generic advice to
+    declare one cannot be followed there; name the declared bindings and the
+    exact binding form of each supplied fact operand instead.
+    """
+
+    details = finding.get("details")
+    if (
+        not operands
+        or finding.get("code") != "undeclared_evidence_access"
+        or not isinstance(details, Mapping)
+        or details.get("kind") not in {"binding", "reference-binding", "read"}
+    ):
+        return finding
+    bindings = plan.get("runtime_bindings")
+    declared = "; ".join(
+        f"{item.get('name')} (source_ref {item.get('source_ref')}, selector "
+        f"{item.get('selector')})"
+        for item in (bindings if isinstance(bindings, list) else [])
+        if isinstance(item, Mapping)
+    )
+    forms = "; ".join(
+        f"{item['path']}: source_kind {item['source_kind']}, source_ref "
+        f"{item['source_ref']}, selector {item['selector']}, declared binding: "
+        f"{item['declared_binding'] or 'none'}"
+        for item in operands
+    )
+    subject = (
+        f"evidence root {details.get('root')!r}"
+        if details.get("kind") == "read"
+        else f"evidence binding {details.get('root')!r}"
+    )
+    detail = (
+        f"detector reads undeclared {subject} at {finding.get('path')}. Runtime "
+        "bindings come from the accepted plan, and an artifact correction cannot add "
+        f"one; the declared bindings are: {declared or 'none'}. The condition's "
+        f"supplied fact operands have these supplied_input binding forms: {forms}. "
+        "The supplied facts fix these operands before the run, so the detector need "
+        "not read an operand that no declared binding supplies: decide the run event "
+        "from the standard packet roots and the declared evidence.bindings.<name> "
+        "values. Do not read a runtime state key or hardcode a supplied fact. If the "
+        "detector must read an undeclared operand, the accepted plan needs a runtime "
+        "binding with that exact source_ref and selector."
+    )
+    return {
+        **finding,
+        "detail": detail,
+        "details": {**details, "supplied_fact_operands": [dict(item) for item in operands]},
+    }
 
 
 # Controls withheld when supplied facts decide the condition before the run.
@@ -2274,5 +2388,6 @@ __all__ = [
     "established_trigger_operations",
     "executor_tool_result",
     "run_detector_controls",
+    "supplied_fact_operand_bindings",
     "uncited_trigger_observations",
 ]

@@ -614,6 +614,18 @@ built references. When a detector needs a supplied fact, declare a
 value. Add the `detector.<name>` consumer when you add a binding needed only by
 the detector.
 
+Artifact authoring copies `runtime_bindings` from the accepted plan, so an
+artifact correction cannot add a binding. When the scenario supplies a
+`discriminating_condition`, the controls restate each undeclared binding or root
+read in those terms. The restated finding lists the declared bindings and, for
+each condition fact operand that resolves in the supplied facts, its exact
+`supplied_input` form: `TARGET-STATE.<key>.<rest>` becomes `source_ref`
+`facts:state:<key>` with `selector` `value.<rest>`, plus the declared binding
+with that form or `none`. The finding keeps these forms in
+`details.supplied_fact_operands`. Because the supplied facts fix those operands
+before the run, the detector need not read an operand that no declared binding
+supplies.
+
 Binding declarations list `stimulus.user_text` only when the resolved scalar
 value occurs in authored user text or the text contains its `{{name}}` slot.
 The authoring validator fails with correction feedback when a binding lists
