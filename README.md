@@ -594,8 +594,13 @@ of its consumers. A detector-only binding should also list the
 `detector.<name>` consumer. A binding carries only a value that exists before
 the run, a supplied fact or a permitted setup result: content the experiment
 chooses belongs directly in the stimulus, and the target's tool-call arguments,
-results, and replies are read from `tool_calls` or `messages`. Binding repair
-options mark a supplied fact whose value is an empty list or object with
+results, and replies are read from `tool_calls` or `messages`. The same holds
+for a record the target creates during the run. If no supplied fact or permitted
+setup provides a needed record but a documented operation creates it, the plan
+author guidance lets the stimulus ask the target to create it. The detector then
+attributes later calls to that record from captured calls, and the plan does not
+list the record as an unresolved requirement. An empty `setup_permissions` list
+permits no setup. Binding repair options mark a supplied fact whose value is an empty list or object with
 `supplied_value_empty`. When a binding `source_ref` names one record of a keyed
 fact (`facts:<ref>:<record_key>`), the options also list `named_record_sources`:
 that record's full selectors in each fact documenting it, including the record
