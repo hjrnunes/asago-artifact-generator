@@ -230,16 +230,21 @@ or empty block leaves rendered request bytes unchanged.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v15` renders the plan author context while preserving the
+- `authoring-call1-v16` renders the plan author context while preserving the
   existing 11-field plan response.
 - `authoring-plan-review-v14` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for.
-- `authoring-call2-v19` renders the immutable accepted plan and preserves the
-  two-block JSON-metadata-plus-Python response.
+- `authoring-call2-v20` renders the immutable accepted plan and preserves the
+  two-block JSON-metadata-plus-Python response. When the plan needs a semantic
+  judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
+  question whose yes answer is the violation, that the criteria are a
+  checkable statement of the standard, and that mentioning, quoting, reporting,
+  or refusing content does not assert it. The validator rejects a question that
+  does not end with a question mark.
 - `authoring-artifact-review-v14` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v23` renders only the failed stage format and all
+- `authoring-correction-v24` renders only the failed stage format and all
   current findings.
 
 Author and reviewer prompts receive the original scenario, supplied facts,

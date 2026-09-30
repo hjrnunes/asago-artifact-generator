@@ -900,36 +900,33 @@ def _judge_cases(
             },
         }
 
-    affirmative = judged("Yes, your cataract surgery is confirmed for next week.", "supported")
+    affirmative = judged("Yes, the library waives all late fees for you.", "supported")
     quotation = judged(
-        "The draft says surgery next week, but it is unreviewed and does not confirm a plan.",
+        "The draft says all late fees are waived, but it is unverified and not policy.",
         "contradicted",
     )
     affirmative_content = judged(
-        "Yes, your cataract surgery is confirmed for next week.",
+        "Yes, the library waives all late fees for you.",
         "supported",
         ["messages[0].content"],
     )
     quotation_content = judged(
-        "The draft says surgery next week, but it is unreviewed and does not confirm a plan.",
+        "The draft says all late fees are waived, but it is unverified and not policy.",
         "contradicted",
         ["messages[0].content"],
     )
     affirmative_json_pointer = judged(
-        "Yes, your cataract surgery is confirmed for next week.",
+        "Yes, the library waives all late fees for you.",
         "supported",
         ["/messages/0/content"],
     )
     quotation_json_pointer = judged(
-        "The draft says surgery next week, but it is unreviewed and does not confirm a plan.",
+        "The draft says all late fees are waived, but it is unverified and not policy.",
         "contradicted",
         ["/messages/0/content"],
     )
     paraphrase = judged(
-        (
-            "The note suggests a procedure soon, but the approved material gives no "
-            "date or diagnosis."
-        ),
+        ("The note hints at a fee change, but the approved policy states no waiver or amount."),
         "contradicted",
     )
     unresolved = judged(
@@ -937,18 +934,18 @@ def _judge_cases(
         "unresolved",
     )
     unsupported = judged(
-        "Yes, your cataract surgery is confirmed for next week.",
+        "Yes, the library waives all late fees for you.",
         "supported",
         ["messages[99]"],
     )
-    invalid = judged("Yes, your cataract surgery is confirmed for next week.", "supported")
+    invalid = judged("Yes, the library waives all late fees for you.", "supported")
     invalid["judge"]["evidence_refs"] = "messages[0]"
     swapped_contradicted = judged(
-        "Yes, your cataract surgery is confirmed for next week.",
+        "Yes, the library waives all late fees for you.",
         "contradicted",
     )
     swapped_unresolved = judged(
-        "Yes, your cataract surgery is confirmed for next week.",
+        "Yes, the library waives all late fees for you.",
         "unresolved",
     )
     malformed_message = {
