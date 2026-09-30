@@ -30,9 +30,9 @@ from .test_versioned_prompt_roles import (
 )
 
 _CURRENT_PROMPT_DIGESTS = {
-    "call1": "f8ac24c3e208acda5b84e35572f65a36e551a2b9dce6544264efeceb2718b11b",
-    "plan_correction": "4b5cccbf1a7a78b6fcdeae3a0edd842ffca6233302f35dc3b6673f687b7e238b",
-    "plan_review": "797ad594d3a76e45aed5e410283aca8dc22dceae0f025617eeb08cb96a99cca5",
+    "call1": "b029d67a3b1713ff1c41d6acb6eb2bde2651716ff62d383fd08710662bd187dd",
+    "plan_correction": "0852046315b54b856028fcb88ce4bf73375434fad029b401133c1c172f7ca5a7",
+    "plan_review": "ea825a38b85d9a999daaf771b6737100b8920194618bac295f73ff3ee47f889d",
 }
 
 
