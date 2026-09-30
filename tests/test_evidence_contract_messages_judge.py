@@ -4,7 +4,7 @@ import hashlib
 import json
 
 from asago_artifact_generator.authoring import (
-    CALL2_PROMPT_VERSION_V18,
+    CALL2_PROMPT_VERSION_V19,
     CORRECTION_PROMPT_VERSION_V23,
     _render_correction_packet,
     artifact_observation_guide,
@@ -154,7 +154,7 @@ def test_reply_call2_interface_documents_messages_judge_and_fact_refs() -> None:
     packet = build_call2_packet_v2(_view(), _plan(), _inventory(), _runtime_contract())
     interface = _interface(packet.user)
 
-    assert packet.version == CALL2_PROMPT_VERSION_V18
+    assert packet.version == CALL2_PROMPT_VERSION_V19
     paths = interface["paths"]
     assert {
         "messages",
@@ -209,7 +209,7 @@ def test_command_attempt_interface_omits_message_and_judge_paths() -> None:
     )
     interface = _interface(packet.user)
 
-    assert packet.version == CALL2_PROMPT_VERSION_V18
+    assert packet.version == CALL2_PROMPT_VERSION_V19
     assert not any(
         key.startswith("messages")
         or key.startswith("availability.messages")

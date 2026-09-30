@@ -235,7 +235,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
 - `authoring-plan-review-v14` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for.
-- `authoring-call2-v18` renders the immutable accepted plan and preserves the
+- `authoring-call2-v19` renders the immutable accepted plan and preserves the
   two-block JSON-metadata-plus-Python response.
 - `authoring-artifact-review-v14` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.

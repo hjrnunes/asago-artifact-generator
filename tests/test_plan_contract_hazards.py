@@ -5,7 +5,7 @@ import hashlib
 
 from asago_artifact_generator.authoring import (
     CALL1_PROMPT_VERSION_V15,
-    CALL2_PROMPT_VERSION_V18,
+    CALL2_PROMPT_VERSION_V19,
     CORRECTION_PROMPT_VERSION_V23,
     PromptPacket,
     _is_blocked_plan,
@@ -295,7 +295,7 @@ def test_current_prompt_versions_cover_contract_changes() -> None:
     )
     assert (
         build_call2_packet_v2(view, _plan(), inventory, runtime_contract).version
-        == CALL2_PROMPT_VERSION_V18
+        == CALL2_PROMPT_VERSION_V19
     )
 
 

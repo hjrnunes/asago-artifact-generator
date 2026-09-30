@@ -5,7 +5,7 @@ from copy import deepcopy
 
 from asago_artifact_generator.authoring import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
-    CALL2_PROMPT_VERSION_V18,
+    CALL2_PROMPT_VERSION_V19,
     CORRECTION_PROMPT_VERSION_V23,
     _render_correction_packet,
     artifact_observation_guide,
@@ -88,7 +88,7 @@ def test_artifact_prompt_separates_capture_inventory_from_branch_requirements() 
     assert "needs_plan_revision" not in author.system + author.user
     assert "needs_plan_revision" not in correction.system + correction.user
     assert plan == original_plan
-    assert author.version == CALL2_PROMPT_VERSION_V18
+    assert author.version == CALL2_PROMPT_VERSION_V19
     assert correction.version == CORRECTION_PROMPT_VERSION_V23
 
 

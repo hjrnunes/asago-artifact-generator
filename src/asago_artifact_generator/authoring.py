@@ -125,10 +125,11 @@ CORRECTION_PROMPT_VERSION_V21 = "authoring-correction-v21"
 CALL1_PROMPT_VERSION_V15 = "authoring-call1-v15"
 CORRECTION_PROMPT_VERSION_V22 = "authoring-correction-v22"
 CORRECTION_PROMPT_VERSION_V23 = "authoring-correction-v23"
+CALL2_PROMPT_VERSION_V19 = "authoring-call2-v19"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical package readers.
 CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V15
-CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V18
+CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V19
 CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V23
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
@@ -7694,9 +7695,15 @@ def build_call2_packet_v2(
     )
     packet = PromptPacket(
         stage="call2",
-        version=CALL2_PROMPT_VERSION_V18,
+        version=CALL2_PROMPT_VERSION_V19,
         system=_CALL2_SYSTEM_V5,
-        user=_render_sections(sections),
+        # Same fit as call1's SOURCE CONTEXT: compact JSON keeps every value and
+        # drops only indentation, which otherwise pushes large inventories past
+        # the context budget.
+        user=_render_sections(
+            sections,
+            compact_titles=frozenset({"ORIGINAL SCENARIO AND SOURCE CONTEXT"}),
+        ),
         payload=payload,
     )
     _enforce_prompt_size(packet, max_prompt_bytes)
@@ -11475,6 +11482,7 @@ def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
         CALL2_PROMPT_VERSION_V16,
         CALL2_PROMPT_VERSION_V17,
         CALL2_PROMPT_VERSION_V18,
+        CALL2_PROMPT_VERSION_V19,
         CORRECTION_PROMPT_VERSION_V3,
         CORRECTION_PROMPT_VERSION_V4,
         CORRECTION_PROMPT_VERSION_V5,
@@ -13823,6 +13831,7 @@ __all__ = [
     "CALL2_PROMPT_VERSION_V16",
     "CALL2_PROMPT_VERSION_V17",
     "CALL2_PROMPT_VERSION_V18",
+    "CALL2_PROMPT_VERSION_V19",
     "CORRECTION_PROMPT_VERSION",
     "CORRECTION_PROMPT_VERSION_V2",
     "CORRECTION_PROMPT_VERSION_V3",
