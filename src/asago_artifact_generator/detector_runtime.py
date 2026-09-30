@@ -807,13 +807,16 @@ def _evidence_access_finding(
     reference: str | None = None,
 ) -> dict[str, Any]:
     allowed = ", ".join(sorted(allowed_roots))
+    declared = ", ".join(sorted(declared_bindings)) or "none"
     if kind in {"binding", "reference-binding"}:
         detail = (
-            f"detector accesses undeclared evidence binding {root!r} at {location}; "
-            f"declare a runtime binding named {root!r} in bindings.json and read "
-            f"evidence.bindings.{root}. If this is a detector-only binding, list "
-            f"'detector.{root}' as a consumer. Do not read a runtime state key or "
-            "hardcode the supplied fact."
+            f"detector accesses undeclared evidence binding {root!r} at {location}. "
+            "Runtime bindings come from the accepted plan's bindings.json, and "
+            "artifact authoring cannot add one; the declared bindings are: "
+            f"{declared}. Read a declared binding at evidence.bindings.<name> or a "
+            "standard packet root. Do not read a runtime state key or hardcode the "
+            "supplied fact. If the detector needs a value that no declared binding "
+            "supplies, the accepted plan needs a new runtime binding."
         )
     elif kind == "reference":
         detail = (
@@ -827,11 +830,11 @@ def _evidence_access_finding(
         detail = (
             f"detector reads undeclared evidence root {root!r} at {location}; the "
             f"package supplies only these detector packet roots: {allowed}. "
-            "If this is a supplied record fact, declare a supplied_input runtime "
-            f"binding named {root!r} and read "
-            f"evidence.bindings.{root}; do not read a runtime state key or hardcode "
-            "the literal. For a newly added detector-only binding, list its "
-            "detector.<name> consumer."
+            "Read a supplied record fact through a declared binding at "
+            f"evidence.bindings.<name>; the declared bindings are: {declared}. "
+            "Runtime bindings come from the accepted plan's bindings.json, and "
+            "artifact authoring cannot add one. Do not read a runtime state key or "
+            "hardcode the literal."
         )
     return {
         "code": "undeclared_evidence_access",

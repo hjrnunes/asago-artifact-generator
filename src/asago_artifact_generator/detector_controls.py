@@ -114,8 +114,8 @@ DETECTOR_FEEDBACK_CORRECTION_GUIDANCE = (
     "results are not judge support. An unresolved verdict has no judge support to "
     "cite. Static access findings identify literal reads or returned evidence roots "
     "outside the supplied packet; use only the listed packet roots and read supplied "
-    "record facts through a declared evidence.bindings.<binding_name> value. When "
-    "adding a detector-only binding, list its detector.<binding_name> consumer. Do not "
+    "record facts through a declared evidence.bindings.<binding_name> value; runtime "
+    "bindings come from the accepted plan, and artifact authoring cannot add one. Do not "
     "validate judge references or reconstruct judge audit fields in detector code. "
     "Distinguish unresolved judge evidence from a detector exception and from "
     "rejection of the detector's returned evidence references. Preserve the accepted "
@@ -1223,7 +1223,7 @@ def _with_operand_binding_forms(
     )
     detail = (
         f"detector reads undeclared {subject} at {finding.get('path')}. Runtime "
-        "bindings come from the accepted plan, and an artifact correction cannot add "
+        "bindings come from the accepted plan, and artifact authoring cannot add "
         f"one; the declared bindings are: {declared or 'none'}. The condition's "
         f"supplied fact operands have these supplied_input binding forms: {forms}. "
         "The supplied facts fix these operands before the run, so the detector need "

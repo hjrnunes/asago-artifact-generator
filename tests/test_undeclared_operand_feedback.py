@@ -117,5 +117,6 @@ def test_feedback_without_a_condition_is_unchanged() -> None:
         _READS_TICKET_RECORD, cases=[], plan=_PLAN, inventory=_INVENTORY
     )
 
-    assert "declare a runtime binding named 'ticket_record'" in plain["detail"]
-    assert "cannot add" not in plain["detail"]
+    assert "'ticket_record'" in plain["detail"]
+    assert "artifact authoring cannot add" in plain["detail"]
+    assert "supplied_input binding forms" not in plain["detail"]

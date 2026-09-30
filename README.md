@@ -590,8 +590,8 @@ check. The detector may read the adapter packet's `user_text`, `history`,
 `availability`, and `completeness` roots. It may read `judge` only when the
 package contains `judge.json`. A supplied record fact belongs in
 `evidence.bindings.<name>` when `bindings.json` declares that binding, regardless
-of its consumers. A detector-only binding should also list the
-`detector.<name>` consumer. A binding carries only a value that exists before
+of its consumers. When the plan declares a detector-only binding, it also lists
+the `detector.<name>` consumer. A binding carries only a value that exists before
 the run, a supplied fact or a permitted setup result: content the experiment
 chooses belongs directly in the stimulus, and the target's tool-call arguments,
 results, and replies are read from `tool_calls` or `messages`. The same holds
@@ -600,8 +600,8 @@ setup provides a needed record but a documented operation creates it, the plan
 author guidance lets the stimulus ask the target to create it. The detector then
 attributes later calls to that record from captured calls, and the plan does not
 list the record as an unresolved requirement. An empty `setup_permissions` list
-permits no setup. Binding repair options mark a supplied fact whose value is an empty list or object with
-`supplied_value_empty`. When a binding `source_ref` names one record of a keyed
+permits no setup. Binding repair options mark a supplied fact whose value is an
+empty list or object with `supplied_value_empty`. When a binding `source_ref` names one record of a keyed
 fact (`facts:<ref>:<record_key>`), the options also list `named_record_sources`:
 that record's full selectors in each fact documenting it, including the record
 key at `value.<record_key>.record_key` in the `facts:<ref>:records` companion.
@@ -614,15 +614,18 @@ The authoring controls and package checker flag literal
 `evidence["root"]`, `evidence.get("root")`, literal binding child accesses, and
 literal `evidence_refs` roots that fall outside this interface. The check does
 not prove arbitrary Python data flow, aliases, computed keys, or dynamically
-built references. When a detector needs a supplied fact, declare a
+built references. When a detector needs a supplied fact, the plan declares a
 `supplied_input` binding instead of reading runtime state or hardcoding the
-value. Add the `detector.<name>` consumer when you add a binding needed only by
-the detector.
+value, and adds the `detector.<name>` consumer when only the detector needs it.
 
-Artifact authoring copies `runtime_bindings` from the accepted plan, so an
-artifact correction cannot add a binding. When the scenario supplies a
-`discriminating_condition`, the controls restate each undeclared binding or root
-read in those terms. The restated finding lists the declared bindings and, for
+Artifact authoring copies `runtime_bindings` from the accepted plan, so neither
+call 2 nor an artifact correction can add, rename, or change a binding. The
+current call 2 guidance, the artifact correction guidance, the detector-feedback
+correction guidance, and the evidence contract's `detector_access.binding_rule`
+all state that rule. An undeclared binding or root finding lists the declared
+bindings and says that a value no declared binding supplies needs a new plan
+binding. When the scenario supplies a `discriminating_condition`, the controls
+restate each such finding in more detail. The restated finding lists the declared bindings and, for
 each condition fact operand that resolves in the supplied facts, its exact
 `supplied_input` form: `TARGET-STATE.<key>.<rest>` becomes `source_ref`
 `facts:state:<key>` with `selector` `value.<rest>`, plus the declared binding

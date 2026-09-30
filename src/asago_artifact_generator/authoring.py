@@ -5903,8 +5903,9 @@ _ARTIFACT_AUTHOR_GUIDANCE = (
     "supply live identities. Only the standard adapter packet roots and declared "
     "binding names are available; do not read evidence.state or another invented "
     "root. If a supplied record fact is needed, use the accepted plan's declared "
-    "binding and evidence.bindings.<binding_name>, not a hardcoded literal. When "
-    "adding a detector-only binding, list its detector.<binding_name> consumer. "
+    "binding and evidence.bindings.<binding_name>, not a hardcoded literal. Runtime "
+    "bindings come from the accepted plan, and artifact authoring cannot add, rename, "
+    "or change one; read only declared binding names. "
     "The supplied neutral example is illustrative, not a source of case facts. "
     "Return the complete artifact in the required two-block format. Every evaluate "
     "return path must satisfy the detector-result contract and cite available "
@@ -6126,8 +6127,9 @@ _ARTIFACT_CORRECTION_GUIDANCE = (
 _CURRENT_ARTIFACT_CORRECTION_GUIDANCE = (
     "If a deterministic finding reports an undeclared evidence "
     "root or binding, replace the read with a standard packet root or the declared "
-    "evidence.bindings.<binding_name> path. If adding a detector-only binding, list "
-    "its detector.<binding_name> consumer. Never read evidence.state or hardcode a "
+    "evidence.bindings.<binding_name> path. Runtime bindings come from the accepted "
+    "plan, and artifact authoring cannot add, rename, or change one, so a correction "
+    "cannot declare a new binding. Never read evidence.state or hardcode a "
     "supplied record fact. If a binding lists stimulus.user_text, keep that consumer "
     "only when its exact resolved value occurs in the authored text or the text "
     "contains its {{binding_name}} slot; otherwise remove the consumer."
@@ -13648,8 +13650,8 @@ def evidence_packet_contract(*, legacy: bool = False) -> dict[str, Any]:
             ],
             "binding_rule": (
                 "Only binding names declared by runtime_bindings are supplied under "
-                "bindings. A detector-only binding should also list its "
-                "detector.<binding_name> consumer. "
+                "bindings. Runtime bindings come from the accepted plan, and artifact "
+                "authoring cannot add, rename, or change one. "
                 "assistant_messages is an observation declaration spelling for "
                 "messages, not a detector packet root."
             ),
