@@ -136,11 +136,12 @@ CALL2_PROMPT_VERSION_V20 = "authoring-call2-v20"
 CALL2_PROMPT_VERSION_V21 = "authoring-call2-v21"
 CORRECTION_PROMPT_VERSION_V24 = "authoring-correction-v24"
 CORRECTION_PROMPT_VERSION_V25 = "authoring-correction-v25"
+CORRECTION_PROMPT_VERSION_V26 = "authoring-correction-v26"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical package readers.
 CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V17
 CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V21
-CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V25
+CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V26
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
@@ -174,7 +175,8 @@ ARTIFACT_REVIEW_PROMPT_VERSION_V14 = "authoring-artifact-review-v14"
 ARTIFACT_REVIEW_PROMPT_VERSION_V15 = "authoring-artifact-review-v15"
 PLAN_REVIEW_PROMPT_VERSION_V14 = "authoring-plan-review-v14"
 PLAN_REVIEW_PROMPT_VERSION_V15 = "authoring-plan-review-v15"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V15
+PLAN_REVIEW_PROMPT_VERSION_V16 = "authoring-plan-review-v16"
+PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V16
 ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V15
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 
@@ -1584,6 +1586,7 @@ def _render_correction_packet(
     binding_repair_options = _binding_repair_options_for_correction(
         correction_context,
         legacy_v9=legacy_v9,
+        legacy_v10=legacy_v10,
     )
     sections.extend(
         (
@@ -1688,7 +1691,7 @@ def _render_correction_packet(
                     else (
                         CORRECTION_PROMPT_VERSION_V10
                         if legacy_v10
-                        else CORRECTION_PROMPT_VERSION_V25
+                        else CORRECTION_PROMPT_VERSION_V26
                     )
                 )
             )
@@ -1819,8 +1822,10 @@ def _correction_findings_view(value: Any) -> Any:
         path = item.get("path", "")
         if isinstance(path, str) and path.startswith("detector_controls."):
             continue
-        else:
-            result.append(item)
+        if item.get("code") == "semantic_review" and "details" in item:
+            # The review location and required change already appear in detail.
+            item = {key: value for key, value in item.items() if key != "details"}
+        result.append(item)
     return result
 
 
@@ -2047,6 +2052,39 @@ _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS = {
         "at value.<record_key>.record_key."
     ),
 }
+_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V26 = {
+    **_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS,
+    "code": (
+        "The existing finding code; it does not change the finding or validation rules. "
+        "semantic_review marks a binding that a semantic review finding concerns."
+    ),
+    "path": (
+        "The exact existing finding path in the candidate plan; for a review_binding "
+        "option, the runtime binding that the review finding concerns."
+    ),
+    "kind": (
+        "The repair category: source, selector, review_binding, unknown_binding, or "
+        "consumer_mismatch. review_binding lists the documented choices for a binding "
+        "that a semantic review finding concerns; when the binding selects inside one "
+        "keyed record, it lists only that record's sources in named_record_sources."
+    ),
+    "selector": "The candidate binding selector, as written.",
+    "named_record_key": (
+        "Present when source_ref names one record of a keyed supplied fact, as in "
+        "facts:<ref>:<record_key>, or when the selector selects inside one such "
+        "record, as in value.<record_key>.<field>; the record key it names."
+    ),
+    "review_selector_checks": (
+        "Each selector path that the review finding's required change names, checked "
+        "by code against the documented selectors. documented_on_binding_source states "
+        "whether the binding's current source_ref documents that selector; "
+        "documented_source_refs lists every source_ref that documents it. A selector is "
+        "valid only together with a listed source_ref; an empty list means no supplied "
+        "source documents it."
+    ),
+}
+_REVIEW_BINDING_LOCATION = re.compile(r"^(?:candidate_plan\.|plan\.)?runtime_bindings\[(\d+)\]")
+_REVIEW_SELECTOR_TOKEN = re.compile(r"(?<![\w.:-])((?:value|result)(?:\.[A-Za-z0-9_-]+)+)")
 
 
 def _correction_plan_candidate(correction_context: dict[str, Any]) -> dict[str, Any] | None:
@@ -2185,12 +2223,14 @@ def _repair_selector_option(
     runtime_contract: dict[str, Any],
     *,
     legacy_v9: bool = False,
+    selected_record: bool = False,
 ) -> dict[str, Any]:
     """Build selector repair choices from the exact source schema.
 
     ``legacy_v9`` reproduces the historical v9 rendering, whose field
     descriptions predate the empty supplied value marker and named record
-    sources.
+    sources. ``selected_record`` also lists the named record sources when the
+    selector, rather than source_ref, names one keyed record.
     """
 
     code = finding.code if isinstance(finding, Finding) else finding.get("code")
@@ -2249,9 +2289,14 @@ def _repair_selector_option(
     )
     if not legacy_v9:
         option.update(_supplied_value_empty_fields(source_kind, source_ref, inventory))
-        option.update(
-            _named_record_source_fields(source_kind, source_ref, expected_type, inventory)
+        named_fields = _named_record_source_fields(
+            source_kind, source_ref, expected_type, inventory
         )
+        if not named_fields and selected_record:
+            named_fields = _selected_record_source_fields(
+                source_kind, source_ref, binding.get("selector"), expected_type, inventory
+            )
+        option.update(named_fields)
     if truncated:
         option["truncation_note"] = (
             "Documented selector enumeration truncated after "
@@ -2353,6 +2398,172 @@ def _named_record_source_fields(
             )
         sources.append(entry)
     return {"named_record_key": record_key, "named_record_sources": sources}
+
+
+def _selected_record_source_fields(
+    source_kind: Any,
+    source_ref: Any,
+    selector: Any,
+    expected_type: Any,
+    inventory: dict[str, Any],
+) -> dict[str, Any]:
+    """List the named record's sources when the selector selects inside one keyed record.
+
+    A binding such as facts:<ref> with value.<record key>.<field> names the
+    record in its selector; the record key string itself is documented only
+    by the <ref>:records companion.
+    """
+
+    if (
+        source_kind != "supplied_input"
+        or not isinstance(source_ref, str)
+        or not isinstance(selector, str)
+    ):
+        return {}
+    canonical_ref, canonical_selector = canonical_binding_paths(
+        source_kind, source_ref, selector, inventory
+    )
+    parts = canonical_selector.split(".")
+    if len(parts) < 2 or parts[0] != "value" or not parts[1]:
+        return {}
+    return _named_record_source_fields(
+        source_kind, f"{canonical_ref}:{parts[1]}", expected_type, inventory
+    )
+
+
+def _review_selector_checks(
+    required_change: str,
+    binding: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Check the selector paths a review's required change names against documented sources.
+
+    This is a structural lookup of exact dot paths; it makes no judgment about
+    which selector the scenario needs.
+    """
+
+    selectors = list(dict.fromkeys(_REVIEW_SELECTOR_TOKEN.findall(required_change)))
+    if not selectors:
+        return []
+    source_kind = binding.get("source_kind")
+    source_ref = binding.get("source_ref")
+    binding_schema = None
+    if isinstance(source_kind, str) and isinstance(source_ref, str):
+        binding_schema, _ = _binding_source_schema(
+            source_kind, source_ref, inventory, runtime_contract, binding.get("name")
+        )
+    documented_sources: list[tuple[str, dict[str, Any]]] = [
+        (f"facts:{fact['ref']}", fact["schema"])
+        for fact in inventory.get("facts", [])
+        if isinstance(fact, dict)
+        and isinstance(fact.get("ref"), str)
+        and fact["ref"]
+        and isinstance(fact.get("schema"), dict)
+    ]
+    permitted = runtime_contract.get("setup_permissions", [])
+    permitted_names = set(permitted) if isinstance(permitted, list) else set()
+    documented_sources.extend(
+        (f"setup:{operation['name']}", operation["result_schema"])
+        for operation in inventory.get("operations", [])
+        if isinstance(operation, dict)
+        and isinstance(operation.get("name"), str)
+        and operation["name"] in permitted_names
+        and isinstance(operation.get("result_schema"), dict)
+    )
+    checks: list[dict[str, Any]] = []
+    for selector in selectors[:_BINDING_REPAIR_SELECTOR_LIMIT]:
+        root = "value" if selector.startswith("value") else "result"
+        refs = sorted(
+            {
+                reference
+                for reference, schema in documented_sources
+                if reference.startswith("facts:" if root == "value" else "setup:")
+                and _binding_selector_type(schema, selector) is not None
+            }
+        )
+        checks.append(
+            {
+                "selector": selector,
+                "documented_on_binding_source": (
+                    binding_schema is not None
+                    and _binding_selector_type(binding_schema, selector) is not None
+                ),
+                "documented_source_refs": refs[:_BINDING_REPAIR_SELECTOR_LIMIT],
+            }
+        )
+    return checks
+
+
+def _review_binding_indices(
+    finding: Finding | dict[str, Any],
+    bindings: list[Any],
+) -> list[int]:
+    """Return the runtime bindings a semantic review finding points to.
+
+    The finding's location pointer names one binding index, or its location
+    or required change names declared binding identifiers exactly.
+    """
+
+    details = finding.details if isinstance(finding, Finding) else finding.get("details")
+    if not isinstance(details, dict):
+        return []
+    location = details.get("review_location")
+    required_change = details.get("review_required_change")
+    location = location if isinstance(location, str) else ""
+    required_change = required_change if isinstance(required_change, str) else ""
+    match = _REVIEW_BINDING_LOCATION.match(location.strip())
+    if match:
+        index = int(match.group(1))
+        return [index] if index < len(bindings) else []
+    indices: list[int] = []
+    for index, binding in enumerate(bindings):
+        name = binding.get("name") if isinstance(binding, dict) else None
+        if not isinstance(name, str) or not name:
+            continue
+        pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+        if pattern.search(location) or pattern.search(required_change):
+            indices.append(index)
+    return indices
+
+
+def _repair_review_binding_option(
+    finding: Finding | dict[str, Any],
+    index: int,
+    binding: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Build the documented choices for a binding that a semantic review finding concerns."""
+
+    option = _repair_selector_option(
+        {"code": "semantic_review", "path": f"runtime_bindings[{index}]"},
+        binding,
+        inventory,
+        runtime_contract,
+        selected_record=True,
+    )
+    if option.get("resolved_source") is not True:
+        return None
+    option["kind"] = "review_binding"
+    option["selector"] = binding.get("selector")
+    if "named_record_sources" in option:
+        # The capped whole-source list mostly repeats other records' fields.
+        for key in (
+            "documented_selectors",
+            "matching_expected_type",
+            "truncated",
+            "truncation_note",
+            "no_matching_selector_note",
+        ):
+            option.pop(key, None)
+    details = finding.details if isinstance(finding, Finding) else finding.get("details")
+    required_change = details.get("review_required_change") if isinstance(details, dict) else None
+    if isinstance(required_change, str):
+        checks = _review_selector_checks(required_change, binding, inventory, runtime_contract)
+        if checks:
+            option["review_selector_checks"] = checks
+    return option
 
 
 def _binding_selector_details(
@@ -2840,8 +3051,13 @@ def _binding_repair_options_for_correction(
     correction_context: dict[str, Any],
     *,
     legacy_v9: bool = False,
+    legacy_v10: bool = False,
 ) -> dict[str, Any] | None:
-    """Compute v10 repair choices, or reproduce the v9 choices when requested."""
+    """Compute current repair choices, or reproduce the v9 or v10 choices when requested.
+
+    Current choices also cover bindings that semantic review findings concern
+    and list the record sources of a selector that names one keyed record.
+    """
 
     if legacy_v9:
         return _binding_repair_options_for_correction_v9(correction_context)
@@ -2912,8 +3128,28 @@ def _binding_repair_options_for_correction(
                             binding,
                             inventory,
                             runtime_contract,
+                            selected_record=not legacy_v10,
                         )
                     )
+            if not legacy_v10:
+                reviewed: set[int] = set(binding_findings)
+                for finding in findings:
+                    code = finding.code if isinstance(finding, Finding) else finding.get("code")
+                    if code != "semantic_review":
+                        continue
+                    for index in _review_binding_indices(finding, bindings):
+                        if index in reviewed or not isinstance(bindings[index], dict):
+                            continue
+                        review_option = _repair_review_binding_option(
+                            finding,
+                            index,
+                            bindings[index],
+                            inventory,
+                            runtime_contract,
+                        )
+                        if review_option is not None:
+                            reviewed.add(index)
+                            options.append(review_option)
 
         if isinstance(prerequisites, list):
             for finding in findings:
@@ -2966,7 +3202,11 @@ def _binding_repair_options_for_correction(
         return None
     return {
         "description": _BINDING_REPAIR_OPTIONS_DESCRIPTION,
-        "field_descriptions": deepcopy(_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS),
+        "field_descriptions": deepcopy(
+            _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS
+            if legacy_v10
+            else _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V26
+        ),
         "options": deduplicated,
     }
 
@@ -6878,8 +7118,47 @@ _RESOLVED_BINDING_VALUES_INSTRUCTION = (
     "consumers, and every plan use must fit the resolved value; for example, a "
     "binding the plan uses as a record identifier must resolve to that record's "
     "key, not to another field of the record. A successful resolution proves only "
-    "that the path exists, not that it selects the intended value."
+    "that the path exists, not that it selects the intended value. When a binding "
+    "selects inside one record of a keyed fact, record_key_source gives the documented "
+    "source_ref and selector pair that binds that record's key string; the key is not "
+    "a field of the keyed fact itself. A required_change that replaces a binding path "
+    "names the complete source_ref and selector pair, such as record_key_source; a "
+    "selector is valid only on a source_ref that documents it."
 )
+
+
+def _record_key_source(
+    source_ref: str, selector: str, inventory: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """Return the documented pair that binds the key of the record a selector selects inside."""
+
+    reference = source_ref.removeprefix("facts:")
+    parts = selector.split(".")
+    if reference.endswith(":records") or len(parts) < 2 or parts[0] != "value":
+        return None
+    record_key = parts[1]
+    companion_ref = f"{reference}:records"
+    companion = next(
+        (
+            item
+            for item in inventory.get("facts", [])
+            if isinstance(item, dict) and item.get("ref") == companion_ref
+        ),
+        None,
+    )
+    if not isinstance(companion, dict) or not isinstance(companion.get("schema"), dict):
+        return None
+    key_selector = f"value.{record_key}.record_key"
+    if _binding_selector_type(companion["schema"], key_selector) is None:
+        return None
+    value = companion.get("value")
+    record = value.get(record_key) if isinstance(value, dict) else None
+    resolved = record.get("record_key") if isinstance(record, dict) else None
+    return {
+        "source_ref": f"facts:{companion_ref}",
+        "selector": key_selector,
+        "resolved_value": resolved if resolved is not None else record_key,
+    }
 
 
 def _resolved_supplied_binding_values(
@@ -6906,14 +7185,16 @@ def _resolved_supplied_binding_values(
             str(declaration.get("selector")),
             dict(inventory),
         )
-        values.append(
-            {
-                "name": name,
-                "source_ref": source_ref,
-                "selector": selector,
-                "resolved_value": deepcopy(resolved[name]),
-            }
-        )
+        entry = {
+            "name": name,
+            "source_ref": source_ref,
+            "selector": selector,
+            "resolved_value": deepcopy(resolved[name]),
+        }
+        record_key_source = _record_key_source(source_ref, selector, inventory)
+        if record_key_source is not None:
+            entry["record_key_source"] = record_key_source
+        values.append(entry)
     return {
         "meaning": _RESOLVED_BINDING_VALUES_MEANING,
         "reviewer_instruction": _RESOLVED_BINDING_VALUES_INSTRUCTION,
@@ -8158,7 +8439,19 @@ def _review_finding_to_finding(record: dict[str, Any], stage: str) -> Finding:
         f"Basis: {record.get('basis', '')} Required change: "
         f"{record.get('required_change', '')}"
     )
-    return Finding("semantic_review", detail, stage)
+    if stage != "plan":
+        return Finding("semantic_review", detail, stage)
+    # Plan corrections use the pointer and required change to list the
+    # documented choices for a binding the finding concerns.
+    return Finding(
+        "semantic_review",
+        detail,
+        stage,
+        details={
+            "review_location": str(record.get("location", "")),
+            "review_required_change": str(record.get("required_change", "")),
+        },
+    )
 
 
 def _review_packet_digests(packet: PromptPacket) -> tuple[str, str]:
@@ -11970,6 +12263,7 @@ def _enforce_prompt_size(
         CORRECTION_PROMPT_VERSION_V23,
         CORRECTION_PROMPT_VERSION_V24,
         CORRECTION_PROMPT_VERSION_V25,
+        CORRECTION_PROMPT_VERSION_V26,
         PLAN_REVIEW_PROMPT_VERSION_V1,
         PLAN_REVIEW_PROMPT_VERSION_V2,
         PLAN_REVIEW_PROMPT_VERSION_V3,
@@ -11985,6 +12279,7 @@ def _enforce_prompt_size(
         PLAN_REVIEW_PROMPT_VERSION_V13,
         PLAN_REVIEW_PROMPT_VERSION_V14,
         PLAN_REVIEW_PROMPT_VERSION_V15,
+        PLAN_REVIEW_PROMPT_VERSION_V16,
         ARTIFACT_REVIEW_PROMPT_VERSION_V1,
         ARTIFACT_REVIEW_PROMPT_VERSION_V2,
         ARTIFACT_REVIEW_PROMPT_VERSION_V3,
@@ -14412,6 +14707,7 @@ __all__ = [
     "CORRECTION_PROMPT_VERSION_V23",
     "CORRECTION_PROMPT_VERSION_V24",
     "CORRECTION_PROMPT_VERSION_V25",
+    "CORRECTION_PROMPT_VERSION_V26",
     "Call2FramingError",
     "Finding",
     "PlanValidationError",
@@ -14431,6 +14727,7 @@ __all__ = [
     "PLAN_REVIEW_PROMPT_VERSION_V13",
     "PLAN_REVIEW_PROMPT_VERSION_V14",
     "PLAN_REVIEW_PROMPT_VERSION_V15",
+    "PLAN_REVIEW_PROMPT_VERSION_V16",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V1",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V2",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V3",

@@ -282,9 +282,14 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
 
 - `authoring-call1-v17` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v15` reviews a fresh source-derived plan context. It
+- `authoring-plan-review-v16` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
-  reviewer can check that a bound value means what the plan uses it for.
+  reviewer can check that a bound value means what the plan uses it for. When a
+  binding selects inside one record of a keyed fact, the value also carries
+  `record_key_source`: the documented `facts:<ref>:records` source and
+  `value.<record_key>.record_key` selector that bind the record key itself. A
+  required change that replaces a binding path names the complete source and
+  selector pair.
 - `authoring-call2-v21` renders the immutable accepted plan and preserves the
   two-block JSON-metadata-plus-Python response. When the plan needs a semantic
   judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
@@ -294,8 +299,14 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   does not end with a question mark.
 - `authoring-artifact-review-v15` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v25` renders only the failed stage format and all
-  current findings.
+- `authoring-correction-v26` renders only the failed stage format and all
+  current findings. A plan correction after a semantic review finding that
+  points to a runtime binding, by `runtime_bindings[<index>]` location or by
+  the exact binding name, carries a `review_binding` repair option. The option
+  lists the binding's documented selectors, the selected record's sources, and
+  `review_selector_checks`: each selector path the required change names,
+  checked against the sources that document it. Artifact corrections keep the
+  `authoring-correction-v25` bytes and label.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
 operations, schemas, provenance, and runtime capabilities. Reviewers do not
@@ -619,7 +630,8 @@ attributes later calls to that record from captured calls, and the plan does not
 list the record as an unresolved requirement. An empty `setup_permissions` list
 permits no setup. Binding repair options mark a supplied fact whose value is an
 empty list or object with `supplied_value_empty`. When a binding `source_ref` names one record of a keyed
-fact (`facts:<ref>:<record_key>`), the options also list `named_record_sources`:
+fact (`facts:<ref>:<record_key>`), or its selector selects inside one record
+(`value.<record_key>...`), the options also list `named_record_sources`:
 that record's full selectors in each fact documenting it, including the record
 key at `value.<record_key>.record_key` in the `facts:<ref>:records` companion.
 The whole-source selector list is sorted and capped at 40 entries, so it can

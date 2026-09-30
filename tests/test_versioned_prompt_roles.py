@@ -9,10 +9,10 @@ from asago_artifact_generator.authoring import (
     CALL1_PROMPT_VERSION_V4,
     CALL1_PROMPT_VERSION_V17,
     CALL2_PROMPT_VERSION_V21,
-    CORRECTION_PROMPT_VERSION_V25,
+    CORRECTION_PROMPT_VERSION_V26,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
-    PLAN_REVIEW_PROMPT_VERSION_V15,
+    PLAN_REVIEW_PROMPT_VERSION_V16,
     PromptOverflowError,
     PromptPacket,
     PromptPreflightError,
@@ -202,7 +202,7 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     ]
     correction = PromptPacket(
         stage="correction",
-        version=CORRECTION_PROMPT_VERSION_V25,
+        version=CORRECTION_PROMPT_VERSION_V26,
         system="correction",
         user="correction",
         payload={},
@@ -211,10 +211,10 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
 
     assert [packet.version for packet in packets] == [
         CALL1_PROMPT_VERSION_V17,
-        PLAN_REVIEW_PROMPT_VERSION_V15,
+        PLAN_REVIEW_PROMPT_VERSION_V16,
         CALL2_PROMPT_VERSION_V21,
         ARTIFACT_REVIEW_PROMPT_VERSION_V15,
-        CORRECTION_PROMPT_VERSION_V25,
+        CORRECTION_PROMPT_VERSION_V26,
     ]
     assert all(packet.sha256 for packet in packets)
     assert len({packet.sha256 for packet in packets}) == len(packets)
@@ -271,7 +271,7 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
         findings=[],
     )
     plan_packet = _render_correction_packet(plan_correction)
-    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V25
+    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V26
     assert plan_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     assert plan_packet.user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1
     assert "Evaluate every finding against the source context" in plan_packet.user

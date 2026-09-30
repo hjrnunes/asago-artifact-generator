@@ -6,7 +6,7 @@ import hashlib
 from asago_artifact_generator.authoring import (
     CALL1_PROMPT_VERSION_V17,
     CALL2_PROMPT_VERSION_V21,
-    CORRECTION_PROMPT_VERSION_V25,
+    CORRECTION_PROMPT_VERSION_V26,
     PromptPacket,
     _is_blocked_plan,
     _render_correction_packet,
@@ -32,7 +32,7 @@ from .test_versioned_prompt_roles import (
 _CURRENT_PROMPT_DIGESTS = {
     "call1": "d3b1c9ea696a77ae28341a9ac07207f65ce82fb26d65c579e88c28d44e2ff402",
     "plan_correction": "9d6ec4007114631d2e79f4aa50fb32054fd138f282198d6ef2b4b9863f942eac",
-    "plan_review": "ea825a38b85d9a999daaf771b6737100b8920194618bac295f73ff3ee47f889d",
+    "plan_review": "cb88779ad1673cc8e3c9585956b3dc5395fb4daddec2d890da43d978bb8ad597",
 }
 
 
@@ -210,7 +210,7 @@ def test_prerequisite_type_finding_is_rendered_in_plan_correction() -> None:
     )
     packet = _render_correction_packet(context)
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V25
+    assert packet.version == CORRECTION_PROMPT_VERSION_V26
     assert finding.detail in packet.user
 
 

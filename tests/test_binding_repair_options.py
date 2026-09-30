@@ -608,10 +608,35 @@ def test_source_repair_lists_the_named_record_of_an_unresolved_field_shorthand()
     assert option["named_record_sources"] == _NAMED_ORDER_SOURCES
 
 
-def test_repair_options_omit_named_record_fields_for_an_exact_fact_source() -> None:
+def test_repair_options_list_the_record_an_exact_fact_selector_names() -> None:
     inventory = _keyed_orders_inventory()
     candidate = _candidate()
     candidate["runtime_bindings"] = [_named_record_binding("facts:state:orders", "value.ORD-201")]
+    packet = _render_correction_packet(
+        _context(
+            candidate,
+            inventory,
+            _runtime_contract(),
+            [
+                Finding(
+                    "plan_binding_validation",
+                    "binding type mismatch for target_order_id: expected string, source is object",
+                    "runtime_bindings[0].selector",
+                )
+            ],
+        )
+    )
+
+    option = _option(packet)
+    assert option["kind"] == "selector"
+    assert option["named_record_key"] == "ORD-201"
+    assert option["named_record_sources"] == _NAMED_ORDER_SOURCES
+
+
+def test_repair_options_omit_named_record_fields_for_a_whole_fact_selector() -> None:
+    inventory = _keyed_orders_inventory()
+    candidate = _candidate()
+    candidate["runtime_bindings"] = [_named_record_binding("facts:state:orders", "value")]
     packet = _render_correction_packet(
         _context(
             candidate,
