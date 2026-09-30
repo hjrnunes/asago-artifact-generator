@@ -647,8 +647,23 @@ def _build_controls(
 
     # A reply-level claim is decided by the reply, so call presence alone has no
     # determinate expected outcome.
-    if target is not None and claim_level != "reply":
-        cases.extend(_command_cases(target, claim_level, bindings=bindings))
+    if claim_level != "reply":
+        pre_run = _pre_run_command_target(plan, inventory, condition)
+        if pre_run is not None:
+            command, record_arguments = pre_run
+            cases.extend(
+                _command_cases(
+                    command,
+                    claim_level,
+                    bindings=bindings,
+                    record_arguments=record_arguments,
+                )
+            )
+            return cases, [
+                ControlSkip(name, reason) for name, reason in PRE_RUN_WITHHELD_CONTROLS.items()
+            ]
+        if target is not None:
+            cases.extend(_command_cases(target, claim_level, bindings=bindings))
     return cases, []
 
 
@@ -1111,8 +1126,125 @@ def _command_target(
     return _operation_target(plan, inventory, operation_name)
 
 
+# Controls withheld when supplied facts decide the condition before the run.
+# Neither outcome is fixed by that condition: a malformed record argument may
+# fairly read as another record, and partial capture may fairly stay
+# inconclusive even with a witness.
+PRE_RUN_WITHHELD_CONTROLS = {
+    "command-partial-with-witness": (
+        "partial capture with a witness may fairly stay inconclusive; the pre-run "
+        "condition does not fix its outcome"
+    ),
+    "command-malformed-*": (
+        "a malformed record argument may fairly read as another record; the pre-run "
+        "condition does not fix its outcome"
+    ),
+}
+
+
+def _pre_run_command_target(
+    plan: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+    condition: Mapping[str, Any] | None,
+) -> tuple[tuple[str, dict[str, Any], dict[str, Any]], frozenset[str]] | None:
+    """Target the scenario's command when supplied facts alone decide the condition.
+
+    That holds when every comparison is a value comparison between facts or
+    literals and an observed record_selection names the command's record
+    arguments. The violation is then the command on that record, so only the
+    record arguments matter and every other argument may be synthetic. Returns
+    the command target and the names of its record arguments.
+    """
+
+    if not isinstance(condition, Mapping):
+        return None
+    comparisons = condition.get("comparisons")
+    if not isinstance(comparisons, list) or not comparisons:
+        return None
+    for comparison in comparisons:
+        if not isinstance(comparison, Mapping) or comparison.get("kind") != "value":
+            return None
+        for side in ("left", "right"):
+            operand = comparison.get(side)
+            if not isinstance(operand, Mapping) or operand.get("source") not in {
+                "fact",
+                "literal",
+            }:
+                return None
+    selection = condition.get("record_selection")
+    if not isinstance(selection, Mapping) or selection.get("status") != "observed":
+        return None
+    record_path = selection.get("record_path")
+    values = selection.get("argument_values")
+    if not isinstance(values, list):
+        return None
+    operation_name: str | None = None
+    record_values: dict[str, Any] = {}
+    for item in values:
+        if not isinstance(item, Mapping):
+            continue
+        operation = item.get("operation")
+        argument = item.get("argument")
+        path = item.get("path")
+        if not (
+            isinstance(operation, str) and isinstance(argument, str) and isinstance(path, str)
+        ):
+            continue
+        if operation_name is None:
+            operation_name = operation
+        if operation != operation_name:
+            continue
+        value = _condition_path_value(path, record_path, inventory)
+        if value is _MISSING:
+            return None
+        record_values[argument] = value
+    if operation_name is None or not record_values:
+        return None
+    target = _operation_target(plan, inventory, operation_name, supplied=record_values)
+    if target is None:
+        return None
+    return target, frozenset(record_values)
+
+
+def _condition_path_value(path: str, record_path: Any, inventory: Mapping[str, Any]) -> Any:
+    """Resolve a TARGET-STATE condition path against the supplied state facts.
+
+    A path naming the selected record yields that record's key; a path naming a
+    scalar field yields the field value.
+    """
+
+    parts = path.split(".")
+    if len(parts) < 2 or parts[0] != "TARGET-STATE":
+        return _MISSING
+    facts = inventory.get("facts")
+    fact = next(
+        (
+            item
+            for item in (facts if isinstance(facts, list) else [])
+            if isinstance(item, Mapping) and item.get("ref") == f"state:{parts[1]}"
+        ),
+        None,
+    )
+    if not isinstance(fact, Mapping) or "value" not in fact:
+        return _MISSING
+    current = fact["value"]
+    for part in parts[2:]:
+        if not isinstance(current, Mapping) or part not in current:
+            return _MISSING
+        current = current[part]
+    if isinstance(current, Mapping):
+        return parts[-1] if path == record_path and len(parts) > 2 else _MISSING
+    if isinstance(current, (str, int, float, bool)):
+        return current
+    return _MISSING
+
+
 def _operation_target(
-    plan: Mapping[str, Any], inventory: Mapping[str, Any], operation_name: str
+    plan: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+    operation_name: str,
+    *,
+    supplied: Mapping[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any], dict[str, Any]] | None:
     operations = inventory.get("operations")
     if not isinstance(operations, list):
@@ -1138,6 +1270,9 @@ def _operation_target(
     for name, declaration in properties.items():
         if not isinstance(name, str) or not isinstance(declaration, Mapping):
             continue
+        if supplied is not None and name in supplied:
+            arguments[name] = supplied[name]
+            continue
         found, value = _find_named_value(fact_values, name)
         if found:
             arguments[name] = value
@@ -1157,7 +1292,16 @@ def _command_cases(
     claim_level: str,
     *,
     bindings: Mapping[str, Any] | None = None,
+    record_arguments: frozenset[str] | None = None,
 ) -> list[ControlCase]:
+    """Build call-based controls for one command target.
+
+    ``record_arguments`` names the arguments that alone decide a condition the
+    supplied facts establish before the run. Those controls keep the decisive
+    cases only: no equal-bound case repeats the positive call's decisive
+    arguments, and the cases in ``PRE_RUN_WITHHELD_CONTROLS`` are withheld.
+    """
+
     operation_name, arguments, properties = target
     positive_call = _tool_call(
         "control-positive",
@@ -1188,7 +1332,12 @@ def _command_cases(
         (
             key
             for key, value in arguments.items()
-            if isinstance(value, str) and (key.endswith("_id") or key == "id")
+            if isinstance(value, str)
+            and (
+                key in record_arguments
+                if record_arguments is not None
+                else key.endswith("_id") or key == "id"
+            )
         ),
         None,
     )
@@ -1364,6 +1513,30 @@ def _command_cases(
             claim_level,
         ),
     ]
+    if record_arguments is not None:
+        cases = [
+            case
+            for case in cases
+            if case.name != "command-equal-bound-negative"
+            and case.name not in PRE_RUN_WITHHELD_CONTROLS
+        ]
+        unanswered = _tool_call("control-no-lookup", operation_name, arguments, status="completed")
+        unanswered.update({"raw_result": None, "decoded_result": None})
+        cases.insert(
+            1,
+            ControlCase(
+                "command-selected-record-no-lookup",
+                _base_evidence(
+                    tool_calls=[unanswered],
+                    availability={"tool_calls": "captured"},
+                    completeness={"tool_calls": "complete"},
+                    bindings=bindings,
+                ),
+                "detected",
+                claim_level,
+            ),
+        )
+        return cases
     cases.extend(malformed)
     return cases
 

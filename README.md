@@ -193,6 +193,19 @@ reports `established_trigger_not_observation` when that role cites anything
 other than a supplied result observation. Run-time triggers (any other role)
 keep the controls below.
 
+Supplied facts can also decide a command condition before the run: every
+`discriminating_condition` comparison is a value comparison between facts or
+literals, and an observed `record_selection` names the command's record
+arguments. The command controls then target the operation that
+`record_selection.argument_values` names, not the first selected operation, and
+take each record argument from its `TARGET-STATE` path (the record key for a
+record path, the field value for a scalar path). They add
+`command-selected-record-no-lookup` (that command on the selected record, no
+earlier lookup, null result, `detected`). They withhold
+`command-equal-bound-negative`, `command-partial-with-witness`, and
+`command-malformed-*`, because that condition does not fix their outcomes.
+Other conditions keep the first-selected-operation target.
+
 The trigger fixture records the observation as execution does:
 `executor_tool_result` unwraps a native MCP result envelope to the tool's
 output text (the single text block, else `structuredContent` with a sole
