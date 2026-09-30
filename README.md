@@ -272,7 +272,10 @@ while invented IDs remain invalid.
 If a `:records` companion documents only the record key, a binding that names a
 field on that companion may resolve to the matching keyed field on the base
 fact. The fallback runs only when exactly one documented target exists;
-otherwise validation remains closed and reports the original error. Exact
+otherwise validation remains closed and reports the original error. A binding
+on a `:records` companion must select `value.<key>.record_key`; selecting a
+record wrapper such as `value.ORD-101` or the whole companion is invalid, and
+the error points to the base fact for the whole record or one field. Exact
 duplicate binding declarations are removed after canonicalization, while
 same-name declarations with different fields remain invalid. Accepted
 canonicalizations and dropped duplicates are recorded with the binding name,

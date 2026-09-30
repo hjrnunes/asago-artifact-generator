@@ -147,8 +147,47 @@ def validate_bindings(
                 f"binding type mismatch for {binding.name}: "
                 f"expected {binding.expected_type}, source is {actual_type}"
             )
+        _require_record_key_selector(binding, inventory)
         bindings.append(binding)
     return tuple(bindings)
+
+
+def _require_record_key_selector(binding: RuntimeBinding, inventory: dict[str, Any]) -> None:
+    """Reject a record-key companion binding that does not select the key string.
+
+    The companion's records are ``{"record_key": key}`` wrappers, so any other
+    selector yields a wrapper that carries none of the record's fields.
+    """
+
+    if binding.source_kind != "supplied_input":
+        return
+    source_ref, selector = canonical_binding_paths(
+        binding.source_kind, binding.source_ref, binding.selector, inventory
+    )
+    reference = source_ref.removeprefix("facts:")
+    fact = next(
+        (
+            item
+            for item in inventory.get("facts", [])
+            if isinstance(item, dict) and item.get("ref") == reference
+        ),
+        None,
+    )
+    provenance = fact.get("provenance") if isinstance(fact, dict) else None
+    if not isinstance(provenance, dict):
+        return
+    if provenance.get("derivation") != "keyed_map_record_key":
+        return
+    parts = selector.split(".")
+    if len(parts) == 3 and parts[0] == "value" and parts[2] == "record_key":
+        return
+    base = provenance.get("derived_from") or reference.removesuffix(":records")
+    raise BindingValidationError(
+        f"binding {binding.name} selects {selector} from facts:{reference}, whose records "
+        f"hold only record_key: select value.<key>.record_key there for the key string, "
+        f"or bind facts:{base} with value.<key> for the whole record or "
+        f"value.<key>.<field> for one field"
+    )
 
 
 def canonical_binding_paths(

@@ -286,3 +286,42 @@ def test_keyed_map_state_gains_a_derived_record_key_companion(tmp_path: Path) ->
         "target_order_id",
         "target_order_status",
     ]
+
+
+@pytest.mark.parametrize(
+    ("selector", "expected_type"),
+    [("value.ORD-2", "object"), ("value", "object")],
+)
+def test_record_key_companion_bindings_must_select_the_key_string(
+    tmp_path: Path, selector: str, expected_type: str
+) -> None:
+    # The companion's records are {"record_key": key} wrappers; binding one
+    # hands a detector that expects the full record nothing but the key.
+    from asago_artifact_generator.bindings import BindingValidationError
+
+    profile = tmp_path / "profile.json"
+    observations = tmp_path / "runtime-context.json"
+    _write_profile(profile)
+    _write_keyed_observations(observations, _profile_digest(profile))
+    inventory, _ = load_target_inputs(profile, observations)
+
+    with pytest.raises(BindingValidationError) as raised:
+        validate_bindings(
+            [
+                {
+                    "name": "target_order",
+                    "expected_type": expected_type,
+                    "source_kind": "supplied_input",
+                    "source_ref": "facts:state:orders:records",
+                    "selector": selector,
+                    "consumers": ["detector.target_order"],
+                    "on_missing": "stop",
+                }
+            ],
+            inventory=inventory,
+            runtime_contract={"setup_permissions": []},
+        )
+    message = str(raised.value)
+    assert "target_order" in message
+    assert "value.<key>.record_key" in message
+    assert "facts:state:orders" in message
