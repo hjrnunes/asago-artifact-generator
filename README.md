@@ -82,9 +82,26 @@ before reserving a dispatch. The estimate must fit the remaining 24,320-token
 input budget. Review requests send a larger completion limit: the context window minus that request's prompt estimate and
 the framing reserve, never less than 8,192. Each call records the limit it sent.
 
-The calibration uses three approved provider measurements: 3.964777680907
-bytes per provider-reported prompt token. A 12% margin lowers the ratio to
-3.489004359198 bytes per estimated token. The measurement values live in
+The calibration is per prompt stage, because prompt families tokenize
+differently: review prompts carry more JSON punctuation than correction
+prompts. Each stage uses the lowest bytes per provider-reported prompt token
+measured for it, and a 5% margin lowers that ratio. The measurements come from
+dispatched authoring prompts (system + user + 128 bytes) with provider usage:
+8,028 gemma-4-26b-a4b-it (`gemma4-oc`) prompts and 205 qwen38-27b
+(`qwen38-oc`) prompts saved in orchestration runs up to 2026-09-30.
+
+| Stage | gemma lowest (median) | qwen lowest | Calibrated |
+| --- | --- | --- | --- |
+| `call1` | 3.845 (3.957) | 4.261 | 3.653 |
+| `call2` | 3.847 (3.947) | not measured | 3.655 |
+| `correction` | 3.979 (4.177) | 4.298 | 3.780 |
+| `plan_review` | 3.723 (3.821) | 4.272 | 3.537 |
+| `artifact_review` | 3.758 (4.084) | not measured | 3.570 |
+| other stages | lowest of all: 3.723 | | 3.537 |
+
+Qwen needs fewer tokens than gemma for the same content: on the producer's
+matched prompts it measured higher bytes per token than gemma in almost every
+step, so the gemma minimum bounds both models. The measurement values live in
 `src/asago_artifact_generator/authoring.py` as
 `CONTEXT_GUARD_CALIBRATION`; the authoring path does not read saved runs.
 Every guard result labels the value `estimated_prompt_tokens`; provider usage

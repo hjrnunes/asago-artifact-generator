@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import replace
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -9,6 +11,7 @@ import pytest
 from asago_artifact_generator.authoring import (
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
+    CONTEXT_GUARD_CALIBRATION,
     MAX_RENDERED_PROMPT_BYTES,
     AuthoringBudget,
     AuthoringOrchestrator,
@@ -17,6 +20,7 @@ from asago_artifact_generator.authoring import (
     PromptPacket,
     ScriptedAuthoringTransport,
     _context_budget_estimate,
+    _context_guard_ratio,
     _enforce_context_budget,
 )
 from tests.test_versioned_authoring_wire import _inventory, _plan, _runtime_contract, _view
@@ -44,11 +48,11 @@ class _ContextGuardedScriptedTransport:
         return self.scripted.complete(packet)
 
 
-def _packet_with_model_facing_bytes(total_bytes: int) -> PromptPacket:
+def _packet_with_model_facing_bytes(total_bytes: int, stage: str = "call1") -> PromptPacket:
     system = "é"
     user = "x" * (total_bytes - len(system.encode("utf-8")) - 128)
     return PromptPacket(
-        stage="call1",
+        stage=stage,
         version="context-guard-boundary-test",
         system=system,
         user=user,
@@ -56,14 +60,63 @@ def _packet_with_model_facing_bytes(total_bytes: int) -> PromptPacket:
     )
 
 
+_STAGES = ("call1", "call2", "correction", "plan_review", "artifact_review")
+
+
+def test_calibration_applies_the_stated_margin_below_every_measured_stage_ratio() -> None:
+    sources = CONTEXT_GUARD_CALIBRATION["sources"]
+    margin = Fraction(CONTEXT_GUARD_CALIBRATION["margin_fraction"])
+
+    assert margin == Fraction(5, 100)
+    assert {source["model"] for source in sources} == {"gemma-4-26b-a4b-it", "qwen38-27b"}
+    for stage in _STAGES:
+        measured = min(
+            Fraction(source["model_facing_utf8_bytes"], source["provider_reported_prompt_tokens"])
+            for source in sources
+            if source["stage"] == stage
+        )
+        assert _context_guard_ratio(stage) == measured * (1 - margin)
+    lowest = min(
+        Fraction(source["model_facing_utf8_bytes"], source["provider_reported_prompt_tokens"])
+        for source in sources
+    )
+    assert _context_guard_ratio("legacy-stage") == lowest * (1 - margin)
+
+
+def test_every_measured_prompt_estimates_at_least_its_provider_token_count() -> None:
+    for source in CONTEXT_GUARD_CALIBRATION["sources"]:
+        packet = _packet_with_model_facing_bytes(
+            source["model_facing_utf8_bytes"], source["stage"]
+        )
+        estimate = _context_budget_estimate(packet)["estimated_prompt_tokens"]
+        assert estimate >= source["provider_reported_prompt_tokens"], source
+
+
+def test_correction_prompts_the_previous_ratio_rejected_now_fit_the_input_budget() -> None:
+    remaining_input_budget = (
+        AUTHORING_CONTEXT_WINDOW_TOKENS - AUTHORING_MAX_COMPLETION_TOKENS - 256
+    )
+    # Step 2 rejected correction prompts of these sizes at 3.489 bytes per token;
+    # gemma measured correction prompts at 3.98 or more bytes per token.
+    for total_bytes in (85_051, 87_615, 89_494):
+        packet = _packet_with_model_facing_bytes(total_bytes, "correction")
+        estimate = _enforce_context_budget(
+            packet,
+            context_window_tokens=AUTHORING_CONTEXT_WINDOW_TOKENS,
+            max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
+        )
+        assert estimate["estimated_prompt_tokens"] <= remaining_input_budget
+
+
 def test_context_guard_fits_exact_input_budget_and_rejects_one_estimated_token_over() -> None:
     remaining_input_budget = (
         AUTHORING_CONTEXT_WINDOW_TOKENS - AUTHORING_MAX_COMPLETION_TOKENS - 256
     )
-    exact_boundary_packet = _packet_with_model_facing_bytes(84_852)
+    boundary_bytes = math.floor(remaining_input_budget * _context_guard_ratio("call1"))
+    exact_boundary_packet = _packet_with_model_facing_bytes(boundary_bytes)
     estimate = _context_budget_estimate(exact_boundary_packet)
 
-    assert estimate["model_facing_utf8_bytes"] == 84_852
+    assert estimate["model_facing_utf8_bytes"] == boundary_bytes
     assert estimate["estimated_prompt_tokens"] == remaining_input_budget
     assert (
         _enforce_context_budget(
@@ -74,7 +127,7 @@ def test_context_guard_fits_exact_input_budget_and_rejects_one_estimated_token_o
         == remaining_input_budget
     )
 
-    one_token_over_packet = _packet_with_model_facing_bytes(84_853)
+    one_token_over_packet = _packet_with_model_facing_bytes(boundary_bytes + 1)
     with pytest.raises(PromptOverflowError) as overflow:
         _enforce_context_budget(
             one_token_over_packet,

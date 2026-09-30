@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import subprocess
 import sys
 from copy import deepcopy
@@ -27,6 +28,7 @@ from asago_artifact_generator.authoring import (
     ScriptedAuthoringTransport,
     TransportResponse,
     _context_budget_estimate,
+    _context_guard_ratio,
     build_call1_packet,
     build_call2_packet,
     collect_artifact_findings,
@@ -1298,14 +1300,18 @@ def test_private_model_transport_fills_remaining_context_for_review_requests(
     ]
     responses = [transport.complete(packet) for packet in packets]
 
-    estimate = _context_budget_estimate(packets[1])["estimated_prompt_tokens"]
-    filled = 32_768 - estimate - _CONTEXT_FRAMING_TOKEN_RESERVE
-    assert filled > 8_192
-    expected = [8_192, filled, filled]
+    # Each stage has its own calibrated ratio, so each review fills from its own estimate.
+    estimates = [_context_budget_estimate(packet)["estimated_prompt_tokens"] for packet in packets]
+    filled = [32_768 - estimate - _CONTEXT_FRAMING_TOKEN_RESERVE for estimate in estimates[1:]]
+    assert all(limit > 8_192 for limit in filled)
+    expected = [8_192, *filled]
     requests = transport._client.chat.completions.requests
     assert [request["max_completion_tokens"] for request in requests] == expected
     assert [response.controls["max_completion_tokens"] for response in responses] == expected
-    assert all(estimate + limit + _CONTEXT_FRAMING_TOKEN_RESERVE <= 32_768 for limit in expected)
+    assert all(
+        estimate + limit + _CONTEXT_FRAMING_TOKEN_RESERVE <= 32_768
+        for estimate, limit in zip(estimates, expected, strict=True)
+    )
 
 
 def test_private_model_transport_review_fill_context_requires_limits() -> None:
@@ -1514,11 +1520,13 @@ def test_private_model_transport_rejects_context_overflow_before_provider_dispat
         context_window_tokens=AUTHORING_CONTEXT_WINDOW_TOKENS,
         max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
     )
+    # One byte past the largest correction prompt that fits the 24,320-token input budget.
+    fitting_bytes = math.floor(24_320 * _context_guard_ratio("correction"))
     packet = PromptPacket(
         stage="correction",
         version="test",
         system="system",
-        user="x" * 84_719,
+        user="x" * (fitting_bytes + 1 - len("system") - 128),
         payload={},
     )
 

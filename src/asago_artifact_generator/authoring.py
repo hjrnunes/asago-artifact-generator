@@ -571,41 +571,120 @@ _CONTEXT_FRAMING_TOKEN_RESERVE = 256
 # rendered system and user content. This fixed UTF-8-byte allowance and the
 # separate framing-token reserve stay in every context estimate.
 _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES = 128
-# Calibrate from approved provider measurements. Each record uses only
-# provider-reported prompt_tokens and the same system+user+128 byte measurement
-# as the guard. The minimum bytes/token ratio is conservative; a 12% margin
-# lowers it further so the resulting token estimate rounds up.
+# Calibrate from provider measurements of dispatched authoring prompts. Each
+# record uses only provider-reported prompt_tokens and the same system+user+128
+# byte measurement as the guard, and is the lowest bytes/token ratio measured
+# for its stage and model. Prompt families tokenize differently (review prompts
+# hold more JSON punctuation than correction prompts), so each stage uses its
+# own lowest measured ratio; an unlisted stage uses the lowest ratio of all.
+# A 5% margin lowers each ratio further so the token estimate rounds up.
 _CONTEXT_GUARD_CALIBRATION_SOURCES = (
     {
-        "model_facing_utf8_bytes": 22_738,
-        "provider_reported_prompt_tokens": 5_735,
+        "stage": "call1",
+        "model": "gemma-4-26b-a4b-it",
+        "prompt_version": "authoring-call1-v14",
+        "model_facing_utf8_bytes": 76_665,
+        "provider_reported_prompt_tokens": 19_938,
     },
     {
-        "model_facing_utf8_bytes": 22_847,
-        "provider_reported_prompt_tokens": 5_758,
+        "stage": "call2",
+        "model": "gemma-4-26b-a4b-it",
+        "prompt_version": "authoring-call2-v18",
+        "model_facing_utf8_bytes": 78_535,
+        "provider_reported_prompt_tokens": 20_412,
     },
     {
-        "model_facing_utf8_bytes": 27_462,
-        "provider_reported_prompt_tokens": 6_695,
+        "stage": "correction",
+        "model": "gemma-4-26b-a4b-it",
+        "prompt_version": "authoring-correction-v21",
+        "model_facing_utf8_bytes": 84_275,
+        "provider_reported_prompt_tokens": 21_179,
+    },
+    {
+        "stage": "plan_review",
+        "model": "gemma-4-26b-a4b-it",
+        "prompt_version": "authoring-plan-review-v13",
+        "model_facing_utf8_bytes": 73_134,
+        "provider_reported_prompt_tokens": 19_642,
+    },
+    {
+        "stage": "artifact_review",
+        "model": "gemma-4-26b-a4b-it",
+        "prompt_version": "authoring-artifact-review-v6",
+        "model_facing_utf8_bytes": 80_079,
+        "provider_reported_prompt_tokens": 21_310,
+    },
+    {
+        "stage": "call1",
+        "model": "qwen38-27b",
+        "prompt_version": "authoring-call1-v17",
+        "model_facing_utf8_bytes": 80_722,
+        "provider_reported_prompt_tokens": 18_946,
+    },
+    {
+        "stage": "correction",
+        "model": "qwen38-27b",
+        "prompt_version": "authoring-correction-v25",
+        "model_facing_utf8_bytes": 81_894,
+        "provider_reported_prompt_tokens": 19_054,
+    },
+    {
+        "stage": "plan_review",
+        "model": "qwen38-27b",
+        "prompt_version": "authoring-plan-review-v15",
+        "model_facing_utf8_bytes": 66_229,
+        "provider_reported_prompt_tokens": 15_503,
     },
 )
-_CONTEXT_GUARD_OBSERVED_RATIO = min(
-    Fraction(
+
+
+def _measured_ratio(record: Mapping[str, Any]) -> Fraction:
+    return Fraction(
         record["model_facing_utf8_bytes"],
         record["provider_reported_prompt_tokens"],
     )
-    for record in _CONTEXT_GUARD_CALIBRATION_SOURCES
-)
-_CONTEXT_GUARD_MARGIN = Fraction(12, 100)
+
+
+_CONTEXT_GUARD_MARGIN = Fraction(5, 100)
+_CONTEXT_GUARD_OBSERVED_STAGE_RATIOS = {
+    stage: min(
+        _measured_ratio(record)
+        for record in _CONTEXT_GUARD_CALIBRATION_SOURCES
+        if record["stage"] == stage
+    )
+    for stage in dict.fromkeys(record["stage"] for record in _CONTEXT_GUARD_CALIBRATION_SOURCES)
+}
+_CONTEXT_GUARD_OBSERVED_RATIO = min(_CONTEXT_GUARD_OBSERVED_STAGE_RATIOS.values())
+_CONTEXT_GUARD_STAGE_RATIOS = {
+    stage: ratio * (1 - _CONTEXT_GUARD_MARGIN)
+    for stage, ratio in _CONTEXT_GUARD_OBSERVED_STAGE_RATIOS.items()
+}
 _CONTEXT_GUARD_CALIBRATED_RATIO = _CONTEXT_GUARD_OBSERVED_RATIO * (1 - _CONTEXT_GUARD_MARGIN)
 CONTEXT_GUARD_CALIBRATION = {
-    "formula": "estimated_prompt_tokens = ceil(total_model_facing_utf8_bytes / calibrated_ratio)",
-    "ratio_formula": "calibrated_ratio = observed_conservative_ratio * (1 - margin)",
+    "formula": (
+        "estimated_prompt_tokens = ceil(total_model_facing_utf8_bytes / calibrated_ratio[stage])"
+    ),
+    "ratio_formula": "calibrated_ratio[stage] = observed_lowest_ratio[stage] * (1 - margin)",
     "sources": _CONTEXT_GUARD_CALIBRATION_SOURCES,
+    "observed_lowest_bytes_per_token_by_stage": {
+        stage: float(ratio) for stage, ratio in _CONTEXT_GUARD_OBSERVED_STAGE_RATIOS.items()
+    },
     "observed_conservative_bytes_per_token": float(_CONTEXT_GUARD_OBSERVED_RATIO),
     "margin": float(_CONTEXT_GUARD_MARGIN),
+    "margin_fraction": str(_CONTEXT_GUARD_MARGIN),
+    "calibrated_bytes_per_token_by_stage": {
+        stage: float(ratio) for stage, ratio in _CONTEXT_GUARD_STAGE_RATIOS.items()
+    },
     "calibrated_bytes_per_token": float(_CONTEXT_GUARD_CALIBRATED_RATIO),
 }
+
+
+def _context_guard_ratio(stage: str) -> Fraction:
+    """Return the calibrated bytes-per-token ratio for one prompt stage."""
+
+    return _CONTEXT_GUARD_STAGE_RATIOS.get(stage, _CONTEXT_GUARD_CALIBRATED_RATIO)
+
+
 # Normal private authoring sets thinking per role through the transport's
 # additive extra_body.  Every role currently runs with thinking off: with
 # thinking on, gemma-4-26b-a4b-it reviews repeated the same reasoning lines
@@ -11986,6 +12065,7 @@ def _context_budget_estimate(packet: PromptPacket) -> dict[str, int | float | st
     model_facing_utf8_bytes = (
         system_utf8_bytes + user_utf8_bytes + _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES
     )
+    ratio = _context_guard_ratio(packet.stage)
     return {
         # Keep the byte fields explicit. Token estimates use the estimate
         # suffix and calibrated ratio below.
@@ -11998,10 +12078,8 @@ def _context_budget_estimate(packet: PromptPacket) -> dict[str, int | float | st
         "user_utf8_bytes": user_utf8_bytes,
         "schema_message_overhead_utf8_bytes": _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES,
         "model_facing_utf8_bytes": model_facing_utf8_bytes,
-        "calibrated_bytes_per_token_estimate": float(_CONTEXT_GUARD_CALIBRATED_RATIO),
-        "estimated_prompt_tokens": math.ceil(
-            Fraction(model_facing_utf8_bytes, 1) / _CONTEXT_GUARD_CALIBRATED_RATIO
-        ),
+        "calibrated_bytes_per_token_estimate": float(ratio),
+        "estimated_prompt_tokens": math.ceil(Fraction(model_facing_utf8_bytes, 1) / ratio),
     }
 
 
