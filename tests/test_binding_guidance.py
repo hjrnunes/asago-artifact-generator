@@ -176,6 +176,7 @@ def test_plan_validation_persists_canonical_keyed_binding_paths() -> None:
             "on_missing": "stop",
         }
     ]
+    plan["stimulus_approach"]["request"] = "Show the orders for customer {{customer_id}}."
 
     assert collect_plan_findings_v2(plan, inventory, _runtime_contract()) == []
     assert plan["runtime_bindings"][0]["source_ref"] == "facts:state:orders"

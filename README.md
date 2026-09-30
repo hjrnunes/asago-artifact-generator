@@ -579,7 +579,10 @@ the detector.
 Binding declarations list `stimulus.user_text` only when the resolved scalar
 value occurs in authored user text or the text contains its `{{name}}` slot.
 The authoring validator fails with correction feedback when a binding lists
-that consumer for a session prerequisite or detector-only value.
+that consumer for a session prerequisite or detector-only value. The plan
+validator applies the same rule to `stimulus_approach.request`, and rejects a
+request slot that names no declared binding, so plan correction can repair the
+binding before the artifact stage freezes the plan.
 
 ## Output layout
 

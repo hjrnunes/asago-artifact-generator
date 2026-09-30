@@ -8438,6 +8438,66 @@ def collect_plan_findings_v2(
     )
     if not legacy and isinstance(plan, dict):
         findings.extend(_omission_trigger_findings(plan, inventory, condition))
+        findings.extend(_plan_stimulus_slot_findings(plan, inventory))
+    return findings
+
+
+def _plan_stimulus_slot_findings(
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+) -> list[Finding]:
+    """Cross-check request slots and user-text consumers while the plan can still change.
+
+    The artifact stage applies the same user-text consumer rule to the authored
+    stimulus, where the accepted plan is frozen and the binding cannot be
+    repaired. A request slot whose binding lists other consumers stays valid:
+    downstream fills slots from any declared binding.
+    """
+
+    approach = plan.get("stimulus_approach")
+    bindings = plan.get("runtime_bindings")
+    if not isinstance(approach, dict) or not isinstance(bindings, list):
+        return []
+    request = approach.get("request")
+    if not isinstance(request, str):
+        return []
+    declared = _declared_binding_names(bindings)
+    findings = [
+        Finding(
+            "undeclared_slot",
+            (
+                f"stimulus_approach.request uses {{{{{slot}}}}}, but no runtime binding is "
+                f"named {slot!r}; declared binding names: "
+                f"{', '.join(sorted(declared)) or '(none)'}. Declare the binding or "
+                "remove the slot."
+            ),
+            f"stimulus_approach.request:{slot}",
+        )
+        for slot in _slot_names_in_order(request)
+        if slot not in declared
+    ]
+    values = supplied_binding_values(bindings, inventory)
+    for mismatch in find_stimulus_user_text_consumer_mismatches(
+        bindings, request, resolved_values=values
+    ):
+        name = mismatch["binding_name"]
+        findings.append(
+            Finding(
+                "consumer_mismatch",
+                (
+                    f"binding {name!r} declares stimulus.user_text, but "
+                    "stimulus_approach.request contains neither its {{" + name + "}} slot "
+                    "nor its supplied value; the artifact stage rejects that consumer "
+                    "and cannot change the plan. Either write {{" + name + "}} where the "
+                    "request uses the value, or remove stimulus.user_text from its "
+                    "consumers. A slot must name the binding whose value it carries; "
+                    "session prerequisites and detector-only values do not belong in "
+                    "stimulus.user_text."
+                ),
+                f"runtime_bindings[{mismatch['binding_index']}]"
+                f".consumers[{mismatch['consumer_index']}]",
+            )
+        )
     return findings
 
 
