@@ -1403,6 +1403,35 @@ def _selected_operations(plan: Mapping[str, Any], inventory: Mapping[str, Any]) 
     return names
 
 
+ESTABLISHED_TRIGGER_ROLE = "established_trigger"
+
+
+def established_trigger_operations(
+    plan: Mapping[str, Any], inventory: Mapping[str, Any]
+) -> list[str]:
+    """Return trigger operations whose supplied observation holds before the run.
+
+    The plan marks such a trigger with a selected_evidence item of role
+    ``established_trigger`` whose ref is a supplied result observation. Only a
+    ref that resolves to such an observation counts.
+    """
+
+    selected = plan.get("selected_evidence")
+    observations = _observation_facts(inventory)
+    names: list[str] = []
+    for item in selected if isinstance(selected, list) else []:
+        if not isinstance(item, Mapping) or item.get("role") != ESTABLISHED_TRIGGER_ROLE:
+            continue
+        ref = item.get("ref")
+        fact = observations.get(ref) if isinstance(ref, str) else None
+        if fact is None:
+            continue
+        name = fact["provenance"]["tool_name"]
+        if name not in names:
+            names.append(name)
+    return names
+
+
 def uncited_trigger_observations(
     plan: Mapping[str, Any],
     inventory: Mapping[str, Any],
@@ -1577,13 +1606,23 @@ def _extend_omission_controls(
     Every omitted operation must be absent for ``detected``; a call to any one
     of them makes the violation false. The trigger is every plan-selected
     operation that is not omitted; it is present in a fixture only with its
-    plan-cited supplied result.
+    plan-cited supplied result. A trigger the plan marks as established before
+    the run need not be captured, so its lookup is optional in the fixtures.
     """
 
     skips: list[ControlSkip] = []
     trigger_names = [name for name in _selected_operations(plan, inventory) if name not in omitted]
     trigger_calls = [
         _trigger_call(plan, inventory, name, index) for index, name in enumerate(trigger_names)
+    ]
+    established = [
+        name for name in established_trigger_operations(plan, inventory) if name in trigger_names
+    ]
+    run_time_names = [name for name in trigger_names if name not in established]
+    run_time_prefix = [
+        call
+        for name, call in zip(trigger_names, trigger_calls, strict=True)
+        if name in run_time_names and call is not None
     ]
     missing_triggers = [
         name for name, call in zip(trigger_names, trigger_calls, strict=True) if call is None
@@ -1674,7 +1713,16 @@ def _extend_omission_controls(
         )
     else:
         cases.append(ControlCase(detected_name, evidence(prefix), "detected", claim_level))
-    if has_trigger:
+        if established:
+            cases.append(
+                ControlCase(
+                    "omission-established-trigger-no-lookup",
+                    evidence(run_time_prefix),
+                    "detected",
+                    claim_level,
+                )
+            )
+    if run_time_names:
         if mixed:
             skips.append(ControlSkip("omission-no-trigger", mixed_reason))
         else:
@@ -1721,6 +1769,15 @@ def _extend_omission_controls(
                 claim_level,
             )
         )
+        if established:
+            cases.append(
+                ControlCase(
+                    f"omission-established-call-no-lookup{suffix}",
+                    evidence([*run_time_prefix, rejected]),
+                    "not_detected",
+                    claim_level,
+                )
+            )
     return skips
 
 
@@ -1958,6 +2015,8 @@ __all__ = [
     "ControlSkip",
     "build_control_cases",
     "build_control_skips",
+    "ESTABLISHED_TRIGGER_ROLE",
+    "established_trigger_operations",
     "executor_tool_result",
     "run_detector_controls",
     "uncited_trigger_observations",

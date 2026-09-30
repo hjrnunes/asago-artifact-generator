@@ -173,6 +173,19 @@ evidence. When the inventory supplies such an observation but the plan cites
 none, plan validation reports `omission_trigger_observation_uncited` so the plan
 correction can cite it.
 
+A trigger is either established before the run or happens during it. The plan
+marks a trigger as established before the run by citing its supplied
+observation with `selected_evidence` role `established_trigger`: the
+observation already shows the triggering result for the subject the stimulus
+asks about, so the target need not repeat the lookup. The violation is then
+complete capture with no call to X, with or without the lookup: the controls
+add `omission-established-trigger-no-lookup` (complete, no trigger call,
+`detected`) and `omission-established-call-no-lookup` (complete, X without the
+lookup, `not_detected`), and drop `omission-no-trigger`. Plan validation
+reports `established_trigger_not_observation` when that role cites anything
+other than a supplied result observation. Run-time triggers (any other role)
+keep the controls below.
+
 The trigger fixture records the observation as execution does:
 `executor_tool_result` unwraps a native MCP result envelope to the tool's
 output text (the single text block, else `structuredContent` with a sole
@@ -230,21 +243,21 @@ or empty block leaves rendered request bytes unchanged.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v16` renders the plan author context while preserving the
+- `authoring-call1-v17` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v14` reviews a fresh source-derived plan context. It
+- `authoring-plan-review-v15` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for.
-- `authoring-call2-v20` renders the immutable accepted plan and preserves the
+- `authoring-call2-v21` renders the immutable accepted plan and preserves the
   two-block JSON-metadata-plus-Python response. When the plan needs a semantic
   judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
   question whose yes answer is the violation, that the criteria are a
   checkable statement of the standard, and that mentioning, quoting, reporting,
   or refusing content does not assert it. The validator rejects a question that
   does not end with a question mark.
-- `authoring-artifact-review-v14` reviews the exact metadata, detector bytes,
+- `authoring-artifact-review-v15` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v24` renders only the failed stage format and all
+- `authoring-correction-v25` renders only the failed stage format and all
   current findings.
 
 Author and reviewer prompts receive the original scenario, supplied facts,

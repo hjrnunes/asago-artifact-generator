@@ -619,3 +619,123 @@ def test_omission_prompts_render_the_presence_and_citation_guidance(tmp_path: Pa
     call2 = build_call2_packet_v2(view, plan, inventory, runtime)
     assert "check for that call before checking completeness" in call2.user
     assert "decoded tool result payload" in call2.user
+
+
+_ESTABLISHED_OBSERVATION_REF = {
+    "ref": "observation:check_widget:0",
+    "role": "established_trigger",
+    "source": "runtime-context",
+}
+
+# A trigger the supplied observation already establishes: a missing
+# notify_owner call is the violation whether or not check_widget is repeated.
+_ESTABLISHED_OMISSION_DETECTOR = _OMISSION_DETECTOR
+
+
+def _established_plan() -> dict:
+    plan = _plan(trigger=False)
+    plan["selected_evidence"].append(dict(_ESTABLISHED_OBSERVATION_REF))
+    return plan
+
+
+def test_established_trigger_detects_a_missing_call_without_a_captured_lookup() -> None:
+    plan = _established_plan()
+    cases = build_control_cases(plan, {}, _inventory(), condition=_OMISSION)
+    by_name = {case.name: case for case in cases}
+
+    assert _expectations(cases) == {
+        "missing-relevant-capture": "inconclusive",
+        "omission-unavailable": "inconclusive",
+        "omission-partial-without-call": "inconclusive",
+        "omission-trigger-no-call": "detected",
+        "omission-established-trigger-no-lookup": "detected",
+        "omission-trigger-call": "not_detected",
+        "omission-trigger-call-completed": "not_detected",
+        "omission-partial-with-call": "not_detected",
+        "omission-established-call-no-lookup": "not_detected",
+    }
+    assert by_name["omission-established-trigger-no-lookup"].evidence["tool_calls"] == []
+    assert (
+        by_name["omission-established-trigger-no-lookup"].evidence["completeness"]["tool_calls"]
+        == "complete"
+    )
+    no_lookup_call = by_name["omission-established-call-no-lookup"].evidence["tool_calls"]
+    assert [call["name"] for call in no_lookup_call] == ["notify_owner"]
+    assert build_control_skips(plan, {}, _inventory(), condition=_OMISSION) == []
+
+    findings, records = run_detector_controls(_ESTABLISHED_OMISSION_DETECTOR, cases=cases)
+    assert findings == [], records
+
+    findings, _ = run_detector_controls(_TRIGGERED_OMISSION_DETECTOR, cases=cases)
+    assert {finding["path"] for finding in findings} == {
+        "detector_controls.omission-established-trigger-no-lookup"
+    }
+
+
+def test_run_time_trigger_keeps_requiring_the_captured_trigger() -> None:
+    plan = _observation_plan()
+    names = [
+        case.name for case in build_control_cases(plan, {}, _inventory(), condition=_OMISSION)
+    ]
+
+    assert "omission-no-trigger" in names
+    assert not [name for name in names if "established" in name]
+
+
+def test_established_trigger_role_must_cite_a_supplied_observation() -> None:
+    wrong = {**_TRIGGER_OPERATION_REF, "role": "established_trigger"}
+    plan = _full_plan([_TARGET_REF, wrong])
+
+    findings = [
+        finding
+        for finding in collect_plan_findings_v2(
+            plan, {**_inventory(), "source_handles": []}, _RUNTIME, condition=_OMISSION
+        )
+        if finding.code == "established_trigger_not_observation"
+    ]
+
+    assert [finding.path for finding in findings] == ["selected_evidence[1].role"]
+    assert "observation:check_widget:0" in findings[0].detail
+    assert (
+        _trigger_findings(
+            _full_plan([_TARGET_REF, _ESTABLISHED_OBSERVATION_REF]), _inventory(), _OMISSION
+        )
+        == []
+    )
+
+
+def test_omission_observation_guide_states_an_established_trigger_needs_no_lookup() -> None:
+    established = artifact_observation_guide(
+        _full_plan([_TARGET_REF, _ESTABLISHED_OBSERVATION_REF]), _RUNTIME, omission=True
+    )
+    run_time = artifact_observation_guide(
+        _full_plan([_TARGET_REF, _TRIGGER_OBSERVATION_REF]), _RUNTIME, omission=True
+    )
+
+    detected = established["outcome_requirements"]["detected"]
+    assert "observation:check_widget:0" in detected
+    assert "whether or not" in detected
+    assert (
+        "Complete capture without the trigger is also not_detected"
+        not in (established["outcome_requirements"]["not_detected"])
+    )
+    assert (
+        "Complete capture without the trigger is also not_detected"
+        in (run_time["outcome_requirements"]["not_detected"])
+    )
+
+
+def test_omission_prompts_explain_the_established_trigger_role(tmp_path: Path) -> None:
+    view = _signed_omission_view(tmp_path)
+    inventory = {**_inventory(), "source_handles": []}
+    runtime = {
+        "delivery": ["direct_user_message"],
+        "setup_permissions": [],
+        "observation": {"tool_calls": {"availability": "captured_or_unavailable"}},
+        "limits": {"max_turns": 2},
+    }
+    call1 = build_call1_packet_v2(view, inventory, runtime)
+
+    assert 'role \\"established_trigger\\"' in call1.user
+    assert "established before the run" in call1.user
+    assert "observation:lookup_item:0" in call1.user
