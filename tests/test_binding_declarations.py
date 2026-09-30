@@ -445,6 +445,82 @@ def test_records_companion_fields_fall_back_to_base_fact(
     ]
 
 
+def test_record_key_selector_on_a_base_fact_resolves_to_its_records_companion() -> None:
+    transformations: list[dict] = []
+    declarations = [
+        {
+            "name": "item_id",
+            "expected_type": "string",
+            "source_kind": "supplied_input",
+            "source_ref": "facts:catalog:items",
+            "selector": "value.ITEM-A.record_key",
+            "consumers": ["detector.item_id"],
+            "on_missing": "stop",
+        }
+    ]
+
+    validated = validate_bindings(
+        declarations,
+        inventory=_companion_inventory(),
+        runtime_contract={"setup_permissions": []},
+        transformations=transformations,
+    )
+
+    assert [(binding.source_ref, binding.selector) for binding in validated] == [
+        ("facts:catalog:items:records", "value.ITEM-A.record_key")
+    ]
+    assert transformations == [
+        {
+            "transformation": "binding_canonicalized",
+            "binding": "item_id",
+            "original_source_ref": "facts:catalog:items",
+            "original_selector": "value.ITEM-A.record_key",
+            "canonical_source_ref": "facts:catalog:items:records",
+            "canonical_selector": "value.ITEM-A.record_key",
+        }
+    ]
+    assert supplied_binding_values(declarations, _companion_inventory()) == {"item_id": "ITEM-A"}
+
+
+@pytest.mark.parametrize(
+    "selector",
+    ["value.ITEM-B.record_key", "value.<record_key>.record_key", "value.ITEM-A.missing"],
+)
+def test_base_fact_selectors_the_companion_does_not_document_stay_invalid(
+    selector: str,
+) -> None:
+    assert canonical_binding_paths(
+        "supplied_input", "facts:catalog:items", selector, _companion_inventory()
+    ) == ("facts:catalog:items", selector)
+    with pytest.raises(BindingValidationError, match="undocumented selector"):
+        validate_bindings(
+            [
+                {
+                    "name": "item_id",
+                    "expected_type": "string",
+                    "source_kind": "supplied_input",
+                    "source_ref": "facts:catalog:items",
+                    "selector": selector,
+                    "consumers": ["detector.item_id"],
+                    "on_missing": "stop",
+                }
+            ],
+            inventory=_companion_inventory(),
+            runtime_contract={"setup_permissions": []},
+        )
+
+
+def test_base_fact_that_documents_a_record_key_field_keeps_its_own_selector() -> None:
+    inventory = _companion_inventory()
+    base = inventory["facts"][0]
+    base["value"]["ITEM-A"]["record_key"] = "LEGACY-A"
+    base["schema"]["properties"]["ITEM-A"]["properties"]["record_key"] = {"type": "string"}
+
+    assert canonical_binding_paths(
+        "supplied_input", "facts:catalog:items", "value.ITEM-A.record_key", inventory
+    ) == ("facts:catalog:items", "value.ITEM-A.record_key")
+
+
 def test_companion_fallback_fails_closed_for_undocumented_fields() -> None:
     source_ref = "facts:catalog:items:records"
     selector = "value.ITEM-A.missing"

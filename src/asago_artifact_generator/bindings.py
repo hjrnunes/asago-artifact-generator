@@ -237,7 +237,10 @@ def canonical_binding_paths(
                 if len(targets) == 1 and targets[0][0] == base_ref:
                     fallback_targets.add((base_ref, selector))
         if not reference.endswith(":records"):
-            return source_ref, selector
+            return _record_key_companion_path(reference, selector, fact_by_ref) or (
+                source_ref,
+                selector,
+            )
 
     for companion_ref in sorted(fact_by_ref):
         if not companion_ref.endswith(":records"):
@@ -285,6 +288,34 @@ def canonical_binding_paths(
         resolved_ref, resolved_selector = next(iter(fallback_targets))
         return f"facts:{resolved_ref}", resolved_selector
     return source_ref, selector
+
+
+def _record_key_companion_path(
+    reference: str,
+    selector: str,
+    fact_by_ref: dict[str, Any],
+) -> tuple[str, str] | None:
+    """Move a record-key selector written on a keyed fact to its records companion.
+
+    ``value.<key>.record_key`` is documented only on ``<ref>:records`` unless the
+    keyed fact's own record has that field, in which case the caller has already
+    accepted the exact selector.
+    """
+
+    parts = selector.split(".")
+    if len(parts) != 3 or parts[0] != "value" or parts[2] != "record_key":
+        return None
+    companion = fact_by_ref.get(f"{reference}:records")
+    provenance = companion.get("provenance") if isinstance(companion, dict) else None
+    if isinstance(provenance, dict) and provenance.get("derivation") not in (
+        None,
+        "keyed_map_record_key",
+    ):
+        return None
+    schema = companion.get("schema") if isinstance(companion, dict) else None
+    if not isinstance(schema, dict) or _schema_at_selector(schema, selector) is None:
+        return None
+    return f"facts:{reference}:records", selector
 
 
 def _selector_repeats_record_key(

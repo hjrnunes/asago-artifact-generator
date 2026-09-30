@@ -343,7 +343,12 @@ while invented IDs remain invalid.
 If a `:records` companion documents only the record key, a binding that names a
 field on that companion may resolve to the matching keyed field on the base
 fact. The fallback runs only when exactly one documented target exists;
-otherwise validation remains closed and reports the original error. A binding
+otherwise validation remains closed and reports the original error. The
+reverse holds for the key itself: `value.ORD-101.record_key` written on the
+base fact `facts:state:orders` resolves to `facts:state:orders:records` when
+that companion documents the key and the base record has no `record_key`
+field; an unknown key or a placeholder such as `value.<record_key>.record_key`
+remains invalid. A binding
 on a `:records` companion must select `value.<key>.record_key`; selecting a
 record wrapper such as `value.ORD-101` or the whole companion is invalid, and
 the error points to the base fact for the whole record or one field. Exact
