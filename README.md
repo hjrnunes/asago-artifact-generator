@@ -247,7 +247,12 @@ operations, schemas, provenance, and runtime capabilities. Reviewers do not
 receive an author transcript or unrelated budget plumbing. The artifact author
 cannot rewrite plan-owned setup, bindings, prerequisites, observations, or
 judge decisions. Prompt construction fails before dispatch on overflow, secret
-values, endpoint URLs, or bounded duplicate candidate forms. Dispatch evidence
+values, credential patterns, or bounded duplicate candidate forms, and on any URL
+that does not occur verbatim in the supplied scenario handoff or in model-authored
+candidate content (a plan, artifact metadata, detector source, or review finding).
+A scenario's own lure link therefore reaches the prompt, while a URL from target
+inventory, profiles, or code does not. The private-model transport also rejects,
+before reserving a request, any prompt that names its configured endpoint host. Dispatch evidence
 records the role, version, UTF-8 prompt hash, raw response, controls, findings,
 and terminal review status.
 

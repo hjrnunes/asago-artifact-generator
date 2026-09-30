@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 from .bindings import (
     CLOSED_TYPES,
@@ -2944,6 +2945,7 @@ class PrivateModelAuthoringTransport:
         self.max_completion_tokens = max_completion_tokens
         self.context_window_tokens = context_window_tokens
         self.review_fill_context = review_fill_context
+        self._endpoint_netloc, self._endpoint_hostname = _endpoint_identity(base_url)
         client_options: dict[str, Any] = {
             "base_url": base_url,
             "api_key": api_key,
@@ -3101,8 +3103,15 @@ class PrivateModelAuthoringTransport:
     def preflight_context_budget(
         self, packet: PromptPacket
     ) -> dict[str, int | float | str] | None:
-        """Expose the guard so orchestration can reject before reserving budget."""
+        """Expose the guard so orchestration can reject before reserving budget.
 
+        The guard also rejects a prompt that names this transport's configured
+        endpoint, whatever the provenance of the text that carries it.
+        """
+
+        paths = _endpoint_prompt_paths(packet, self._endpoint_netloc, self._endpoint_hostname)
+        if paths:
+            raise PromptPreflightError(f"secret-bearing authoring evidence: {', '.join(paths)}")
         if self.context_window_tokens is None or self.max_completion_tokens is None:
             return None
         return _enforce_context_budget(
@@ -4366,7 +4375,16 @@ class AuthoringOrchestrator:
             correction_payload,
         )
         try:
-            _enforce_prompt_size(packet, MAX_RENDERED_PROMPT_BYTES)
+            _enforce_prompt_size(
+                packet,
+                MAX_RENDERED_PROMPT_BYTES,
+                allowed_urls=prompt_data_urls(
+                    view,
+                    failed_response,
+                    self._decoded_responses.get("call1"),
+                    findings,
+                ),
+            )
         except PromptPreflightError as exc:
             finding = _prompt_preflight_finding(exc, "correction")
             self._findings.append(finding)
@@ -7606,7 +7624,7 @@ def build_call1_packet_v2(
         ),
         payload=payload,
     )
-    _enforce_prompt_size(packet, max_prompt_bytes)
+    _enforce_prompt_size(packet, max_prompt_bytes, allowed_urls=prompt_data_urls(view))
     return packet
 
 
@@ -7706,7 +7724,7 @@ def build_call2_packet_v2(
         ),
         payload=payload,
     )
-    _enforce_prompt_size(packet, max_prompt_bytes)
+    _enforce_prompt_size(packet, max_prompt_bytes, allowed_urls=prompt_data_urls(view, plan))
     return packet
 
 
@@ -7828,7 +7846,7 @@ def build_plan_review_packet(
         ),
         payload=payload,
     )
-    _enforce_prompt_size(packet, max_prompt_bytes)
+    _enforce_prompt_size(packet, max_prompt_bytes, allowed_urls=prompt_data_urls(view, plan))
     return packet
 
 
@@ -7907,7 +7925,11 @@ def build_artifact_review_packet(
         user=_render_sections(tuple(sections)),
         payload=payload,
     )
-    _enforce_prompt_size(packet, max_prompt_bytes)
+    _enforce_prompt_size(
+        packet,
+        max_prompt_bytes,
+        allowed_urls=prompt_data_urls(view, plan, metadata, python_bytes),
+    )
     return packet
 
 
@@ -9018,14 +9040,62 @@ def scan_for_secrets(value: Any, path: str = "") -> list[str]:
     return secret_metadata_paths(value, path)
 
 
-def scan_for_prompt_secrets(value: Any, path: str = "") -> list[str]:
-    """Return secret-bearing paths from a model-facing prompt view."""
+def scan_for_prompt_secrets(
+    value: Any,
+    path: str = "",
+    *,
+    allowed_urls: Collection[str] = (),
+) -> list[str]:
+    """Return secret-bearing paths from a model-facing prompt view.
+
+    ``allowed_urls`` lists URLs with scenario or candidate provenance (see
+    :func:`prompt_data_urls`); every other URL in the rendered text is flagged.
+    """
 
     if isinstance(value, PromptPacket):
         paths = prompt_secret_metadata_paths(value.payload, "payload")
-        paths.extend(_prompt_secret_text_paths(value))
+        paths.extend(_prompt_secret_text_paths(value, allowed_urls=allowed_urls))
         return paths
     return prompt_secret_metadata_paths(value, path)
+
+
+def prompt_data_urls(*values: Any) -> frozenset[str]:
+    """Return the URLs that supplied scenario data or model-authored candidates contain.
+
+    A scenario can carry a URL as attack content, and an author can write one
+    into a stimulus; neither is an endpoint or credential. Prompts render these
+    strings inside JSON, so each string contributes its raw and JSON-escaped
+    matches.
+    """
+
+    found: set[str] = set()
+
+    def visit(item: Any) -> None:
+        if isinstance(item, InputView):
+            visit(item.payload)
+            visit(item.owner_scope)
+            visit(item.gherkin_text)
+        elif isinstance(item, ParsedCall2Response):
+            visit(item.metadata)
+            visit(item.python_bytes)
+        elif isinstance(item, Finding):
+            visit(item.to_dict())
+        elif isinstance(item, bytes):
+            visit(item.decode("utf-8", errors="replace"))
+        elif isinstance(item, str):
+            found.update(_PROMPT_URL_RE.findall(item))
+            found.update(_PROMPT_URL_RE.findall(json.dumps(item, ensure_ascii=False)[1:-1]))
+        elif isinstance(item, dict):
+            for key, child in item.items():
+                visit(key)
+                visit(child)
+        elif isinstance(item, (list, tuple)):
+            for child in item:
+                visit(child)
+
+    for value in values:
+        visit(value)
+    return frozenset(found)
 
 
 def assert_no_secrets(value: Any) -> None:
@@ -9034,8 +9104,8 @@ def assert_no_secrets(value: Any) -> None:
         raise AuthoringError(f"secret-bearing authoring evidence: {', '.join(paths)}")
 
 
-def assert_no_prompt_secrets(value: Any) -> None:
-    paths = scan_for_prompt_secrets(value)
+def assert_no_prompt_secrets(value: Any, *, allowed_urls: Collection[str] = ()) -> None:
+    paths = scan_for_prompt_secrets(value, allowed_urls=allowed_urls)
     if paths:
         raise PromptPreflightError(f"secret-bearing authoring evidence: {', '.join(paths)}")
 
@@ -9108,15 +9178,53 @@ def _duplicate_prompt_chunks(payload: dict[str, Any]) -> list[tuple[str, str]]:
     return chunks
 
 
-def _prompt_secret_text_paths(packet: PromptPacket) -> list[str]:
-    """Detect obvious URL and credential values without returning their contents."""
+def _prompt_secret_text_paths(
+    packet: PromptPacket,
+    *,
+    allowed_urls: Collection[str] = (),
+) -> list[str]:
+    """Detect unprovenanced URLs and credential values without returning their contents."""
 
+    allowed = frozenset(allowed_urls)
     paths: list[str] = []
     for name, text in (("system", packet.system), ("user", packet.user)):
-        if _PROMPT_URL_RE.search(text):
+        if any(url not in allowed for url in _PROMPT_URL_RE.findall(text)):
             paths.append(f"prompt.{name}.url")
         if _PROMPT_TOKEN_RE.search(text):
             paths.append(f"prompt.{name}.credential")
+    return paths
+
+
+def _endpoint_identity(base_url: str) -> tuple[str, str]:
+    """Return the lowercase network location and hostname of a configured endpoint."""
+
+    try:
+        parts = urlsplit(base_url)
+        hostname = parts.hostname or ""
+    except ValueError:
+        return "", ""
+    netloc = parts.netloc.rpartition("@")[2].lower()
+    return netloc, hostname.lower()
+
+
+def _endpoint_prompt_paths(packet: PromptPacket, netloc: str, hostname: str) -> list[str]:
+    """Flag prompt text that names the configured endpoint's host."""
+
+    paths: list[str] = []
+    for name, text in (("system", packet.system), ("user", packet.user)):
+        lowered = text.lower()
+        named = bool(netloc) and netloc in lowered
+        if not named and hostname:
+            for url in _PROMPT_URL_RE.findall(text):
+                try:
+                    url_host = urlsplit(url).hostname
+                except ValueError:
+                    continue
+                if url_host is not None and url_host.lower() == hostname:
+                    named = True
+                    break
+        if named:
+            paths.append(f"prompt.{name}.endpoint")
     return paths
 
 
@@ -11450,8 +11558,13 @@ def _safe_error(exc: BaseException) -> str:
     return text
 
 
-def _enforce_prompt_size(packet: PromptPacket, maximum: int) -> None:
-    assert_no_prompt_secrets(packet)
+def _enforce_prompt_size(
+    packet: PromptPacket,
+    maximum: int,
+    *,
+    allowed_urls: Collection[str] = (),
+) -> None:
+    assert_no_prompt_secrets(packet, allowed_urls=allowed_urls)
     if packet.version in {
         CALL1_PROMPT_VERSION_V3,
         CALL1_PROMPT_VERSION_V4,
@@ -13934,6 +14047,7 @@ __all__ = [
     "neutral_artifact_response_without_source",
     "neutral_artifact_plan",
     "scan_for_secrets",
+    "prompt_data_urls",
     "scan_for_prompt_secrets",
     "scan_prompt_duplicates",
     "assert_no_prompt_duplicates",
