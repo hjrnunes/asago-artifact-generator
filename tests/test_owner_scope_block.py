@@ -37,10 +37,10 @@ _BASE_REVISION = (
 _BASE_STAGE_DIGESTS = {
     "call1": "f8ac24c3e208acda5b84e35572f65a36e551a2b9dce6544264efeceb2718b11b",
     "plan_review": "797ad594d3a76e45aed5e410283aca8dc22dceae0f025617eeb08cb96a99cca5",
-    "call2": "a6de5cb78ee08c936dba0cc70a9efbf5db8d9c5fedfc537677ffadaa0fc6d77b",
-    "artifact_review": "67c8352d266621b24a70ab6364d6761252225b3fbbc4ac79b1960878b09afbf2",
+    "call2": "6325ba660f0723f8f0046a2f60a7072fa0d8f9e5a3126635319c5ecd54956bc9",
+    "artifact_review": "dfe81e0d13873ed9065bb8b4a760ab2dfdc1bfb94b5cfa9906a6bdcb3b0b00cd",
     "plan_correction": "4b5cccbf1a7a78b6fcdeae3a0edd842ffca6233302f35dc3b6673f687b7e238b",
-    "artifact_correction": "8c266e6ec59044faf370ec88464139878c0e920031bd29468d928694c120664f",
+    "artifact_correction": "7292a93baf71726d89a38cb00e66626c5564f72e7e9bb5c71e9b60ac4392f3af",
 }
 _OWNER_SCOPE = {
     "scenario_premises": [

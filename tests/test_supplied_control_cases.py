@@ -332,10 +332,10 @@ def test_supplied_control_case_form_is_validated(tmp_path: Path) -> None:
 _EXPECTED_NO_HOOK_DIGESTS = {
     "call1": "66bd7afd8383fdfe94b652330724035d25c09a70057ba9f91bab4a59b9f8577a",
     "plan_review": "55854a3c477c92c4ceb24ac9c4b9c4083e6a0e00999e6b4655c5cef89c63eedc",
-    "call2": "e4b33b5dd53cd61a92de397ca6e8f9e71bd9b1528be04f2a1af7e2d40ec58ded",
-    "artifact_review": "f18dae07fefd0bca8453b2fa146177b873d2bc3f096ab6887f66141778984aae",
-    "correction": "8fb2cd9ee22a1f1def1dc931c1edee8b241e0a6196fe1a28b4905d3770feebe7",
-    "artifact_review_direct": "5bd3536ffb91d623c686faf4dd3e8b6dc11b2ff8fcb940255350fd91dec7ef3c",
+    "call2": "148b9d28a7347c8bdc02123a28017ddd4c50f2f460fb72a2af96c07aa3415d95",
+    "artifact_review": "a33c71cce2b42548f94104c518a9cc0f27dff9a38c1bc091f99c957a542c6521",
+    "correction": "75a538c06f0ff81a9443e1f08dda66d42a22fe863e3e5e6a0bc1948a50c42596",
+    "artifact_review_direct": "76c83a1f3172f7a552de0f69c54c397d9f283fc7eef46ec5f67ad83527a004fa",
 }
 
 

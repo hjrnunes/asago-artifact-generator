@@ -349,6 +349,87 @@ def build_detector_feedback_prompt_context(
     }
 
 
+_SHAPE_DEPTH = 4
+
+
+def describe_input_shapes(evidence: Mapping[str, Any]) -> dict[str, str]:
+    """Describe the value types a detector reads from one control fixture.
+
+    Covers each tool call's decoded and raw result and each binding, and names
+    every nested string that holds JSON text, since a detector must parse such
+    a string before reading its fields.
+    """
+
+    shapes: dict[str, str] = {}
+    calls = evidence.get("tool_calls")
+    for index, call in enumerate(calls if isinstance(calls, list) else []):
+        if not isinstance(call, Mapping):
+            continue
+        if "decoded_result" in call:
+            decoded = call["decoded_result"]
+            shape = _value_shape(decoded)
+            if isinstance(decoded, (Mapping, list)):
+                shape += "; parsed JSON, compare its fields"
+            shapes[f"tool_calls[{index}].decoded_result"] = shape
+        if call.get("raw_result") is not None:
+            _nested_shapes(shapes, f"tool_calls[{index}].raw_result", call["raw_result"], 0)
+    bindings = evidence.get("bindings")
+    if isinstance(bindings, Mapping):
+        for name, value in bindings.items():
+            _nested_shapes(shapes, f"bindings.{name}", value, 0)
+    return shapes
+
+
+def _nested_shapes(shapes: dict[str, str], path: str, value: Any, depth: int) -> None:
+    shapes[path] = _value_shape(value)
+    if depth >= _SHAPE_DEPTH:
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if isinstance(item, (Mapping, list)) or _json_text_kind(item) is not None:
+                _nested_shapes(shapes, f"{path}.{key}", item, depth + 1)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            if isinstance(item, (Mapping, list)) or _json_text_kind(item) is not None:
+                _nested_shapes(shapes, f"{path}[{index}]", item, depth + 1)
+
+
+def _json_text_kind(value: Any) -> str | None:
+    if not isinstance(value, str) or value.lstrip()[:1] not in {"{", "["}:
+        return None
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(decoded, Mapping):
+        return "an object"
+    if isinstance(decoded, list):
+        return "a list"
+    return None
+
+
+def _value_shape(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, Mapping):
+        return f"object with keys {sorted(str(key) for key in value)}"
+    if isinstance(value, list):
+        return f"list of {len(value)} item(s)"
+    if isinstance(value, str):
+        kind = _json_text_kind(value)
+        if kind is not None:
+            return (
+                f"string holding JSON text of {kind}; json.loads it before reading "
+                "fields, and do not compare it with a parsed value"
+            )
+        return "string"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    return type(value).__name__
+
+
 def _copy_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
     """Copy nested case evidence without retaining mutable evaluator input."""
 
@@ -2015,6 +2096,7 @@ __all__ = [
     "ControlSkip",
     "build_control_cases",
     "build_control_skips",
+    "describe_input_shapes",
     "ESTABLISHED_TRIGGER_ROLE",
     "established_trigger_operations",
     "executor_tool_result",

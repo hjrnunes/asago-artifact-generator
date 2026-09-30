@@ -156,6 +156,13 @@ actual failing control evidence, and the run terminates when the correction
 allowance is exhausted. Without the option, orchestration and rendered prompt
 bytes stay unchanged.
 
+Each failed control in an artifact correction carries its exact `input` and
+an `input_shapes` map derived by code from that input: the type of every
+`tool_calls[i].decoded_result`, `tool_calls[i].raw_result`, and binding value,
+and every nested string that holds JSON text. `decoded_result` is the parsed
+JSON value, so a detector compares its fields; a binding keeps the selected
+value's type, so a JSON-text string needs `json.loads` before field access.
+
 ### Omission detector controls
 
 When the handoff's `discriminating_condition` has a `{kind: "not_called",

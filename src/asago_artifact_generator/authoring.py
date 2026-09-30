@@ -44,6 +44,7 @@ from .detector_controls import (
     build_control_skips_for_runtime_contract,
     build_detector_feedback,
     build_detector_feedback_prompt_context,
+    describe_input_shapes,
     run_detector_controls,
     uncited_trigger_observations,
 )
@@ -1541,7 +1542,10 @@ def _render_correction_packet(
         sections.append(
             (
                 "DETECTOR CONTROL FEEDBACK",
-                _correction_detector_feedback_view(correction_context["detector_feedback"]),
+                _correction_detector_feedback_view(
+                    correction_context["detector_feedback"],
+                    input_shapes=not (legacy_interface or legacy_v9 or legacy_v10),
+                ),
             )
         )
     correction_instruction = correction_context["instruction"]
@@ -1603,8 +1607,12 @@ def _render_correction_packet(
     return packet
 
 
-def _correction_detector_feedback_view(value: Any) -> Any:
-    """Render exact failed control inputs/results without redundant wrappers."""
+def _correction_detector_feedback_view(value: Any, *, input_shapes: bool = True) -> Any:
+    """Render exact failed control inputs/results without redundant wrappers.
+
+    ``input_shapes`` adds a code-derived type summary of each failed control's
+    inputs; legacy prompt versions render without it.
+    """
 
     if not isinstance(value, dict):
         return value
@@ -1627,10 +1635,14 @@ def _correction_detector_feedback_view(value: Any) -> Any:
                 actual = {"invalid_result": error}
             else:
                 actual = {"pre_result_failure": error}
-        rendered.append(
+        evidence = item.get("evidence")
+        entry: dict[str, Any] = {"name": item.get("name"), "input": evidence}
+        if input_shapes:
+            entry["input_shapes"] = (
+                describe_input_shapes(evidence) if isinstance(evidence, dict) else {}
+            )
+        entry.update(
             {
-                "name": item.get("name"),
-                "input": item.get("evidence"),
                 "expected": {
                     "outcome": item.get("expected_outcome"),
                     "claim_level": item.get("expected_claim_level"),
@@ -1639,6 +1651,7 @@ def _correction_detector_feedback_view(value: Any) -> Any:
                 "explanation": _compact_feedback_explanation(item),
             }
         )
+        rendered.append(entry)
     passing = value.get("passing_controls")
     passing_rendered: list[dict[str, Any]] = []
     if isinstance(passing, list):
@@ -13127,7 +13140,10 @@ def _evidence_packet_contract() -> dict[str, Any]:
                 "type": "any JSON value",
                 "meaning": (
                     "resolved runtime value for a binding declared by the accepted "
-                    "plan; the name is not invented by the detector"
+                    "plan; the name is not invented by the detector. The value keeps the "
+                    "selected value's type: a selector ending at a string that holds "
+                    "JSON text yields that string, which the detector parses with "
+                    "json.loads before reading fields"
                 ),
             },
             "availability.tool_calls": {
@@ -13217,7 +13233,8 @@ def _evidence_packet_contract() -> dict[str, Any]:
                 "type": "any JSON value or null",
                 "meaning": (
                     "captured tool-call result before adapter decoding, usually the "
-                    "JSON text the tool returned to the agent"
+                    "JSON text the tool returned to the agent; read fields from "
+                    "decoded_result instead"
                 ),
             },
             "tool_calls[i].decoded_result": {
@@ -13225,7 +13242,10 @@ def _evidence_packet_contract() -> dict[str, Any]:
                 "meaning": (
                     "decoded tool result payload: the JSON value parsed from "
                     "raw_result, such as the object the tool returned, without any "
-                    "transport envelope; null when decoding failed"
+                    "transport envelope; null when decoding failed. It is a parsed "
+                    "object, list, or scalar, not JSON text: compare its fields, such "
+                    "as decoded_result.get('status'); str(decoded_result) never equals "
+                    "the tool's JSON text"
                 ),
             },
             "tool_calls[i].parse_errors": {
@@ -13538,6 +13558,12 @@ def neutral_artifact_plan() -> dict[str, Any]:
     }
 
 
+_LEGACY_BINDING_PATH_MEANING = (
+    "resolved runtime value for a binding declared by the accepted "
+    "plan; the name is not invented by the detector"
+)
+
+
 def _evidence_packet_contract_v1() -> dict[str, Any]:
     """Return the frozen evidence contract from base f433560."""
 
@@ -13566,6 +13592,7 @@ def _evidence_packet_contract_v1() -> dict[str, Any]:
         "missing, invalid, unresolved, or unsupported judge evidence is inconclusive"
     )
     contract.pop("judge", None)
+    contract["paths"]["bindings.<declared name>"]["meaning"] = _LEGACY_BINDING_PATH_MEANING
     return contract
 
 
