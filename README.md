@@ -221,7 +221,17 @@ record path, the field value for a scalar path). They add
 earlier lookup, null result, `detected`). They withhold
 `command-equal-bound-negative`, `command-partial-with-witness`, and
 `command-malformed-*`, because that condition does not fix their outcomes.
-Other conditions keep the first-selected-operation target.
+
+A condition that compares a captured call argument (an `argument` operand) or
+orders calls (an `order` comparison) gets only the controls that capture alone
+decides: `command-complete-empty`, `command-unavailable`, and
+`command-partial-without-witness`. The comparisons may encode only part of the
+condition statement, and a fixture call takes its other arguments from
+whichever supplied fact names them, so that call is not known to be a
+violation. The skips name every withheld call-based control, and command-level
+judge controls are withheld for the same reason. Conditions without such
+comparisons, and scenarios without a condition, keep the
+first-selected-operation target.
 
 The trigger fixture records the observation as execution does:
 `executor_tool_result` unwraps a native MCP result envelope to the tool's

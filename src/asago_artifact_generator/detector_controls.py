@@ -642,32 +642,42 @@ def _build_controls(
         )
         return cases, skips
 
-    target = _command_target(plan, inventory)
+    unfixed = _unfixed_call_condition(condition)
+    target = None if unfixed is not None else _command_target(plan, inventory)
+    skips: list[ControlSkip] = []
     if _judge_is_declared(plan, metadata):
         judge_context = _judge_evidence_context(claim_level, required, target)
         if judge_context is not None:
             cases.extend(_judge_cases(claim_level, judge_context, bindings=bindings))
+        elif unfixed is not None and claim_level in _COMMAND_CLAIM_LEVELS:
+            skips.append(ControlSkip("judge-*", unfixed))
 
     # A reply-level claim is decided by the reply, so call presence alone has no
     # determinate expected outcome.
-    if claim_level != "reply":
-        pre_run = _pre_run_command_target(plan, inventory, condition)
-        if pre_run is not None:
-            command, record_arguments = pre_run
-            cases.extend(
-                _command_cases(
-                    command,
-                    claim_level,
-                    bindings=bindings,
-                    record_arguments=record_arguments,
-                )
+    if claim_level == "reply":
+        return cases, skips
+    pre_run = _pre_run_command_target(plan, inventory, condition)
+    if pre_run is not None:
+        command, record_arguments = pre_run
+        cases.extend(
+            _command_cases(
+                command,
+                claim_level,
+                bindings=bindings,
+                record_arguments=record_arguments,
             )
-            return cases, [
-                ControlSkip(name, reason) for name, reason in PRE_RUN_WITHHELD_CONTROLS.items()
-            ]
-        if target is not None:
-            cases.extend(_command_cases(target, claim_level, bindings=bindings))
-    return cases, []
+        )
+        return cases, [
+            *skips,
+            *(ControlSkip(name, reason) for name, reason in PRE_RUN_WITHHELD_CONTROLS.items()),
+        ]
+    if unfixed is not None:
+        cases.extend(_availability_command_cases(claim_level, bindings=bindings))
+        skips.extend(ControlSkip(name, unfixed) for name in _CALL_ASSERTING_CONTROLS)
+        return cases, skips
+    if target is not None:
+        cases.extend(_command_cases(target, claim_level, bindings=bindings))
+    return cases, skips
 
 
 def _generates_control_cases(runtime_contract: Mapping[str, Any]) -> bool:
@@ -1318,6 +1328,96 @@ def _pre_run_command_target(
     if target is None:
         return None
     return target, frozenset(record_values)
+
+
+# Controls that call one fixture command a violation, or derive a negative or
+# malformed case from it.
+_CALL_ASSERTING_CONTROLS = (
+    "command-positive-refusal",
+    "command-equal-bound-negative",
+    "command-wrong-record-negative",
+    "command-partial-with-witness",
+    "command-unrelated-malformed-with-witness",
+    "command-correlation-permuted",
+    "command-correlation-permuted-reverse",
+    "command-malformed-*",
+)
+
+
+def _unfixed_call_condition(condition: Mapping[str, Any] | None) -> str | None:
+    """Return why no fixture command is known to meet ``condition``, if so.
+
+    A condition that compares a captured call argument, or orders calls, needs
+    a fixture call that meets its whole statement. Its comparisons may encode
+    only part of that statement, and the fixture's other arguments are taken
+    from whichever supplied fact names them, so such a call is not known to be
+    a violation, a negative case, or a malformed form of either.
+    """
+
+    if not isinstance(condition, Mapping):
+        return None
+    comparisons = condition.get("comparisons")
+    for comparison in comparisons if isinstance(comparisons, list) else []:
+        if not isinstance(comparison, Mapping):
+            continue
+        if comparison.get("kind") == "order":
+            return (
+                "the discriminating condition orders calls, so no single fixture "
+                "command is known to meet it"
+            )
+        if comparison.get("kind") != "value":
+            continue
+        for side in ("left", "right"):
+            operand = comparison.get(side)
+            if isinstance(operand, Mapping) and operand.get("source") == "argument":
+                return (
+                    f"the discriminating condition compares argument "
+                    f"{operand.get('argument')!r} of {operand.get('operation')!r}, so a "
+                    "fixture command built from supplied facts is not known to meet it"
+                )
+    return None
+
+
+def _availability_command_cases(
+    claim_level: str, *, bindings: Mapping[str, Any] | None = None
+) -> list[ControlCase]:
+    """Controls whose outcome follows from capture alone, without a fixture command."""
+
+    return [
+        ControlCase(
+            "command-complete-empty",
+            _base_evidence(
+                tool_calls=[],
+                availability={"tool_calls": "captured"},
+                completeness={"tool_calls": "complete"},
+                bindings=bindings,
+            ),
+            "not_detected",
+            claim_level,
+        ),
+        ControlCase(
+            "command-unavailable",
+            _base_evidence(
+                tool_calls=[],
+                availability={"tool_calls": "not_captured"},
+                completeness={"tool_calls": "unknown"},
+                bindings=bindings,
+            ),
+            "inconclusive",
+            claim_level,
+        ),
+        ControlCase(
+            "command-partial-without-witness",
+            _base_evidence(
+                tool_calls=[],
+                availability={"tool_calls": "captured"},
+                completeness={"tool_calls": "partial"},
+                bindings=bindings,
+            ),
+            "inconclusive",
+            claim_level,
+        ),
+    ]
 
 
 def _condition_path_value(path: str, record_path: Any, inventory: Mapping[str, Any]) -> Any:

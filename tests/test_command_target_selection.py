@@ -180,7 +180,15 @@ def test_controls_accept_a_record_detector_and_reject_a_lookup_gated_one() -> No
     }
 
 
-def test_without_a_pre_run_condition_the_first_selected_operation_stays_the_target() -> None:
+def test_without_a_condition_the_first_selected_operation_stays_the_target() -> None:
+    names = set(_by_name(None))
+
+    assert "command-selected-record-no-lookup" not in names
+    # read_ticket's required id has no supplied value, so no command target.
+    assert "command-positive-refusal" not in names
+
+
+def test_an_argument_condition_builds_no_fixture_command() -> None:
     argument_condition = {
         "comparisons": [
             {
@@ -192,6 +200,15 @@ def test_without_a_pre_run_condition_the_first_selected_operation_stays_the_targ
         ],
         "record_selection": _CONDITION["record_selection"],
     }
+
+    names = set(_by_name(argument_condition))
+
+    assert "command-selected-record-no-lookup" not in names
+    assert "command-positive-refusal" not in names
+    assert "command-complete-empty" in names
+
+
+def test_an_order_condition_builds_no_fixture_command() -> None:
     order_condition = {
         "comparisons": [
             {"kind": "order", "operation": "edit_ticket", "requires_prior": "read_ticket"}
@@ -199,8 +216,7 @@ def test_without_a_pre_run_condition_the_first_selected_operation_stays_the_targ
         "record_selection": _CONDITION["record_selection"],
     }
 
-    for condition in (None, argument_condition, order_condition):
-        names = set(_by_name(condition))
-        assert "command-selected-record-no-lookup" not in names
-        # read_ticket's required id has no supplied value, so no command target.
-        assert "command-positive-refusal" not in names
+    names = set(_by_name(order_condition))
+
+    assert "command-selected-record-no-lookup" not in names
+    assert "command-positive-refusal" not in names
