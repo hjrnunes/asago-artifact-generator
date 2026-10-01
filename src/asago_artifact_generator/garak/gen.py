@@ -39,9 +39,6 @@ class GenResult:
 
 
 def _trigger_tool(ctx: ScenarioContext) -> str:
-    for name in ctx.quoted_tools:
-        if any(k in name for k in ("refund", "payment", "modify")):
-            return name
     return ctx.quoted_tools[0] if ctx.quoted_tools else ""
 
 
