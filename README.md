@@ -446,6 +446,34 @@ The installed command is `asago-artifact-generator` and the Python package is
 
 Supported LLM backends: **Gemini** (default when `GEMINI_API_KEY` is set), **OpenAI**, **Ollama**, Hugging Face, or OpenRouter.
 
+`REDTEAM_MAX_TOKENS`, `REDTEAM_MAX_COMPLETION_TOKENS`, and
+`REDTEAM_REASONING_EFFORT` are provider-agnostic request settings: they are
+passed to whichever configured backend is selected. The provider and model
+must support each option, and limits or behavior can vary between backends.
+
+Set at most one of `REDTEAM_MAX_TOKENS` or
+`REDTEAM_MAX_COMPLETION_TOKENS`, depending on which parameter the selected
+model/API supports. They are sent as `max_tokens` and
+`max_completion_tokens`, respectively, on any connector. If neither is set,
+no completion limit is added. The limit includes reasoning tokens for models
+that expose reasoning, so increase it when a model stops with
+`finish_reason=length` before returning JSON. For example:
+
+```bash
+REDTEAM_MAX_TOKENS=16000
+# or, for APIs/models that require the newer parameter:
+REDTEAM_MAX_COMPLETION_TOKENS=16000
+```
+
+For compatible reasoning models, `REDTEAM_REASONING_EFFORT` can be set to
+`none`, `low`, `medium`, `high`, or `max`. Do not set it for providers or models
+that reject the option. Lower effort leaves more of the completion budget for
+the JSON artifact; for example:
+
+```bash
+REDTEAM_REASONING_EFFORT=low
+```
+
 ## How it works
 
 1. **Classify** the injection surface from `narrative.entry_point` (`input` → `user_turn`, `tool_execution` → `tool_return`). Supply chain threats (`threat_name`) skip with no coverage.
