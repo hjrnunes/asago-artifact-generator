@@ -340,11 +340,11 @@ consumers, and `{{binding_name}}` stimulus slots. Its neutral example
 uses a case-permitted status operation when one is supplied; otherwise it is a
 labeled generic illustration with no operation, binding, or prerequisite.
 Keyed-map bindings may use a source shorthand such as
-`facts:state:orders:ORD-101:customer_id`; validation resolves it only when the
+`facts:state:loans:LN-101:borrower_id`; validation resolves it only when the
 record key and field exist, then persists the documented
-`facts:state:orders` plus `value.ORD-101.customer_id` paths. A shorthand
+`facts:state:loans` plus `value.LN-101.borrower_id` paths. A shorthand
 source whose selector repeats its record key, such as
-`facts:state:orders:ORD-101` with `value.ORD-101.customer_id`, resolves the
+`facts:state:loans:LN-101` with `value.LN-101.borrower_id`, resolves the
 same way. Unknown keys, fields, a selector that names a different key or
 field, and incompatible types remain invalid. Valid scenario lineage and
 attack-tree IDs from the handoff are accepted in `interpretation.source_refs`
@@ -354,13 +354,13 @@ If a `:records` companion documents only the record key, a binding that names a
 field on that companion may resolve to the matching keyed field on the base
 fact. The fallback runs only when exactly one documented target exists;
 otherwise validation remains closed and reports the original error. The
-reverse holds for the key itself: `value.ORD-101.record_key` written on the
-base fact `facts:state:orders` resolves to `facts:state:orders:records` when
+reverse holds for the key itself: `value.LN-101.record_key` written on the
+base fact `facts:state:loans` resolves to `facts:state:loans:records` when
 that companion documents the key and the base record has no `record_key`
 field; an unknown key or a placeholder such as `value.<record_key>.record_key`
 remains invalid. A binding
 on a `:records` companion must select `value.<key>.record_key`; selecting a
-record wrapper such as `value.ORD-101` or the whole companion is invalid, and
+record wrapper such as `value.LN-101` or the whole companion is invalid, and
 the error points to the base fact for the whole record or one field. Exact
 duplicate binding declarations are removed after canonicalization, while
 same-name declarations with different fields remain invalid. Accepted

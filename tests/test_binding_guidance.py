@@ -23,9 +23,9 @@ def test_current_supplied_input_example_uses_the_complete_fact_ref_form() -> Non
 
     assert example["source_ref"] == "facts:<fact ref>"
     assert example["selector"] == "value.<documented field path>"
-    assert "facts:state:orders, never facts:orders" in contract["source_ref_rule"]
+    assert "facts:state:loans, never facts:loans" in contract["source_ref_rule"]
     assert _binding_contract(legacy=True)["valid_examples"]["supplied_input"]["source_ref"] == (
-        "facts:order"
+        "facts:loan"
     )
 
 

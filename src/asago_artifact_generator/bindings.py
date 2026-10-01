@@ -200,7 +200,7 @@ def canonical_binding_paths(
 
     The model-facing wire documents ``facts:<ref>`` plus a dot selector.  A
     keyed-map shorthand may instead put the record key and field in the source
-    reference, for example ``facts:state:orders:ORD-201:customer_id``.  This
+    reference, for example ``facts:state:loans:LN-201:borrower_id``.  This
     helper only canonicalizes a path when the referenced key and field exist
     in the supplied schemas; unresolved shorthands remain unchanged and fail
     the normal closed validation.
@@ -505,8 +505,8 @@ def named_record_facts(
 ) -> tuple[str, tuple[tuple[str, dict[str, Any]], ...]] | None:
     """Return the record key a keyed-map shorthand names and the facts documenting it.
 
-    ``facts:state:orders:ORD-201`` names record ``ORD-201`` of ``state:orders``
-    and of its ``state:orders:records`` companion.  Each returned pair holds a
+    ``facts:state:loans:LN-201`` names record ``LN-201`` of ``state:loans``
+    and of its ``state:loans:records`` companion.  Each returned pair holds a
     fact reference and that record's own schema within the fact.  An exact
     fact reference names no record.
     """

@@ -251,7 +251,7 @@ def _keyed_records_fact(
 ) -> dict[str, Any] | None:
     """Return a derived fact that exposes each keyed-map record key as a field.
 
-    A captured map such as ``{"ORD-1": {...}}`` documents its records only
+    A captured map such as ``{"LN-1": {...}}`` documents its records only
     under their keys, so no selector can yield the key itself as a string.
     The companion maps each key to ``{"record_key": key}``; record fields stay
     selectable only through the unchanged original fact, which also keeps the

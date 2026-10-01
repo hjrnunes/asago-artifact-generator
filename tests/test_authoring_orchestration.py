@@ -260,11 +260,11 @@ def test_rendered_binding_contract_explains_applicability_and_both_source_exampl
             == []
         )
         assert binding["valid_examples"]["supplied_input"] == {
-            "name": "order_id",
+            "name": "loan_id",
             "expected_type": "string",
             "source_kind": "supplied_input",
-            "source_ref": "facts:order",
-            "selector": "value.order_id",
+            "source_ref": "facts:loan",
+            "selector": "value.loan_id",
             "consumers": ["stimulus.user_text"],
             "on_missing": "stop",
         }
@@ -277,10 +277,10 @@ def test_rendered_binding_examples_are_accepted_by_closed_validator() -> None:
     inventory = {
         "facts": [
             {
-                "ref": "order",
+                "ref": "loan",
                 "schema": {
                     "type": "object",
-                    "properties": {"order_id": {"type": "string"}},
+                    "properties": {"loan_id": {"type": "string"}},
                 },
             }
         ],
@@ -304,7 +304,7 @@ def test_rendered_binding_examples_are_accepted_by_closed_validator() -> None:
         runtime_contract=runtime_contract,
     )
 
-    assert [binding.name for binding in validated] == ["order_id", "setup_status"]
+    assert [binding.name for binding in validated] == ["loan_id", "setup_status"]
 
 
 def test_plan_binding_findings_accumulate_nested_faults_without_coercion() -> None:

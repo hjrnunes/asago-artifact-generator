@@ -6297,8 +6297,8 @@ _PLAN_SELECTOR_FORMS = (
     "selects a documented nested property)",
     "keyed-map record fields: value.<record key>.<field> on the original keyed-map "
     "fact; the derived companion fact <fact ref>:records exposes the key itself as "
-    "value.<key>.record_key (for example, state:orders:records permits "
-    "value.ORD-104.record_key). Code also accepts keyed-map source shorthand "
+    "value.<key>.record_key (for example, state:loans:records permits "
+    "value.LN-104.record_key). Code also accepts keyed-map source shorthand "
     "facts:<fact ref>:<record key>:<field> or "
     "facts:<fact ref>:<record key>.<field> and resolves it to the equivalent "
     "documented facts:<fact ref> plus value.<record key>.<field> form when the "
@@ -13126,11 +13126,11 @@ def _binding_contract(*, legacy: bool = False) -> dict[str, Any]:
         "on_missing": "stop",
     }
     supplied_input_example = {
-        "name": "order_id",
+        "name": "loan_id",
         "expected_type": "string",
         "source_kind": "supplied_input",
-        "source_ref": "facts:order",
-        "selector": "value.order_id",
+        "source_ref": "facts:loan",
+        "selector": "value.loan_id",
         "consumers": ["stimulus.user_text"],
         "on_missing": "stop",
     }
@@ -13228,7 +13228,7 @@ def _binding_contract(*, legacy: bool = False) -> dict[str, Any]:
             "source_ref identifies the permitted source using exactly facts:<fact ref> "
             "for supplied_input or setup:<operation> for setup_output. <fact ref> is the "
             "complete inventory.facts[].ref including its namespace prefix: the fact ref "
-            "state:orders is written facts:state:orders, never facts:orders. source_ref "
+            "state:loans is written facts:state:loans, never facts:loans. source_ref "
             "is not a stimulus path or a guessed field name. For keyed-map records, "
             "the accepted shorthand facts:<fact ref>:<record key>:<field> (or the "
             "dot-field form) is resolved only against supplied keys and fields."
@@ -13322,7 +13322,7 @@ def _prerequisite_schema() -> dict[str, Any]:
                     "minLength": 1,
                     "description": (
                         "Optional executable reference consumed by downstream checks, "
-                        "for example bindings.order_id or setup.prepare.status."
+                        "for example bindings.loan_id or setup.prepare.status."
                     ),
                 },
                 "binding": {

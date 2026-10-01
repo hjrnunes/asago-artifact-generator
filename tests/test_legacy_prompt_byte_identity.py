@@ -30,6 +30,8 @@ from tests.test_versioned_prompt_roles import (
 )
 
 # Expected values come from the full f433560 tree extracted with git archive.
+# The v2 and current-role digests were re-pinned after the shared binding
+# example changed from an order to a library loan.
 
 _LEGACY_INTERFACE_DIGESTS = {
     None: "17cac6c0b26d8234d8bf2010f0ff9958ddbf8f23d4c7634cadf4a020039ae55c",
@@ -53,13 +55,13 @@ _LEGACY_PROMPT_DIGESTS = {
 _LEGACY_CONTRACT_DIGEST = "afce7f1f4f7723729ec0a0949e63cc67bad377ac76dd412a042a460327507882"
 
 _LEGACY_V2_PROMPT_DIGESTS = {
-    "call1": "55e858b48a8e4438ef8be8d77e02a89fca06081be5edcdb0f12ca1305bc34e77",
-    "plan_correction": "4c1c67de29dbdf6d64ee758fcddaf0702baf45257c35b3b8161801cb5c353a08",
+    "call1": "eb9b886074ae8c374228778387cb2df1abdc3e9c7881b4da6e8134883c263e63",
+    "plan_correction": "52b0d15cb253fabc13c406568c0776dd3cc373c1d054f2643a491f4eceded5b8",
 }
 
 _LEGACY_CURRENT_ROLE_DIGESTS = {
-    "call1_v5": "97f23bfb71bfd4b41e76be2ec3d485f466239c7cd31d8305c51607d5ccece732",
-    "plan_correction_v10": "21b70f5468eefdd6241ef706f99520690260a9392312508def929c79af02780b",
+    "call1_v5": "074f6e97b3b09cfcfd5f50ecc1927a193718c126f955fb57c0bbc43a6acbe656",
+    "plan_correction_v10": "83668475590decfd9ebe4f7c7a04d24237d873780570ab5002c6f6c85f9cca17",
 }
 
 
