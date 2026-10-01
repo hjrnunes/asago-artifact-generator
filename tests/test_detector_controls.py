@@ -454,7 +454,21 @@ def test_command_level_judge_controls_pass_a_judge_driven_detector() -> None:
 
     findings, records = run_detector_controls(_JUDGED_COMMAND_DETECTOR, cases=cases)
 
-    assert findings == [], records
+    # Each case starts its own Docker container; this test has failed once in a
+    # loaded full run without reproducing since. Put the cause of any failure on
+    # the pytest summary line: a runtime_failure points at Docker, a failed
+    # outcome at the controls or this detector.
+    not_passed = [
+        (
+            record["name"],
+            record["status"],
+            record["failure"],
+            f"{record['observed_outcome']} != {record['expected_outcome']}",
+        )
+        for record in records
+        if record["status"] != "passed"
+    ]
+    assert not_passed == [] and findings == [], not_passed or findings
 
 
 def test_command_level_judge_controls_still_catch_a_detector_that_ignores_the_judge() -> None:
