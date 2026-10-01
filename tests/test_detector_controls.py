@@ -161,7 +161,16 @@ def test_generated_controls_include_resolved_supplied_bindings() -> None:
                 "selector": "value.order_id",
                 "consumers": ["detector.order_id"],
                 "on_missing": "inconclusive",
-            }
+            },
+            {
+                "name": "balance",
+                "expected_type": "number",
+                "source_kind": "supplied_input",
+                "source_ref": "facts:order:owned",
+                "selector": "value.balance",
+                "consumers": ["detector.balance"],
+                "on_missing": "inconclusive",
+            },
         ],
         "observation_claim": {"claim_level": "command_attempt"},
         "required_observations": {"tool_calls": {"required": True}},

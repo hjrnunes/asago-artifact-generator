@@ -1480,6 +1480,7 @@ def _operation_target(
         return None
 
     fact_values = _selected_fact_values(plan, inventory)
+    bounds = _detector_bound_numbers(plan, inventory)
     arguments: dict[str, Any] = {}
     for name, declaration in properties.items():
         if not isinstance(name, str) or not isinstance(declaration, Mapping):
@@ -1492,7 +1493,7 @@ def _operation_target(
             arguments[name] = value
             continue
         if name in required:
-            generated = _synthetic_argument(name, declaration, fact_values)
+            generated = _synthetic_argument(name, declaration, bounds)
             if generated is _MISSING:
                 return None
             arguments[name] = generated
@@ -2442,14 +2443,39 @@ class _Missing:
 _MISSING = _Missing()
 
 
-def _synthetic_argument(name: str, declaration: Mapping[str, Any], values: Iterable[Any]) -> Any:
+def _detector_bound_numbers(
+    plan: Mapping[str, Any], inventory: Mapping[str, Any]
+) -> list[int | float]:
+    """Return the numbers the plan binds for the detector to compare against.
+
+    Field names carry no meaning here, so only the plan's own declaration marks
+    a value as something the detector reads.
+    """
+
+    declarations = plan.get("runtime_bindings")
+    detector_declarations = []
+    for item in declarations if isinstance(declarations, list) else []:
+        consumers = item.get("consumers") if isinstance(item, Mapping) else None
+        if isinstance(consumers, list) and any(
+            isinstance(consumer, str) and consumer.startswith("detector.")
+            for consumer in consumers
+        ):
+            detector_declarations.append(item)
+    resolved = _supplied_control_bindings({"runtime_bindings": detector_declarations}, inventory)
+    return [
+        value
+        for value in resolved.values()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    ]
+
+
+def _synthetic_argument(
+    name: str, declaration: Mapping[str, Any], bounds: Sequence[int | float]
+) -> Any:
     schema_type = declaration.get("type")
     if schema_type in {"number", "integer"}:
-        for bound_name in ("balance", "remaining_to_pay", "limit", "max_amount", "threshold"):
-            found, value = _find_named_value(values, bound_name)
-            if found and isinstance(value, (int, float)) and not isinstance(value, bool):
-                return value + 1
-        return 1
+        # One bound is unambiguous; with several, no argument can be tied to one.
+        return bounds[0] + 1 if len(bounds) == 1 else 1
     if schema_type == "string":
         if name.endswith("_id") or name == "id":
             return _MISSING
