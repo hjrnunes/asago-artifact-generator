@@ -10120,11 +10120,25 @@ def collect_plan_findings(
                         f"observation_claim.{field_name}",
                     )
                 )
-        if claim.get("claim_level") not in _claim_levels():
+        claim_level = claim.get("claim_level")
+        supported_levels = _supported_claim_levels(runtime_contract)
+        if claim_level not in _claim_levels():
             findings.append(
                 Finding(
                     "closed_value_error",
                     "observation_claim must declare a closed claim_level",
+                    "observation_claim.claim_level",
+                )
+            )
+        elif claim_level not in supported_levels:
+            findings.append(
+                Finding(
+                    "unsupported_claim_level",
+                    f"observation_claim.claim_level {claim_level} is not supported by "
+                    "downstream execution; the supported claim levels are "
+                    f"{', '.join(supported_levels)}. Choose the supported claim level "
+                    "at which the failure criterion is observable, and state "
+                    "violation, absence, and inconclusive at that level.",
                     "observation_claim.claim_level",
                 )
             )
@@ -11461,6 +11475,22 @@ def _declared_binding_expected_types(runtime_bindings: Any) -> dict[str, str]:
 
 def _claim_levels() -> tuple[str, ...]:
     return ("command_attempt", "reply", "returned_result", "state_effect")
+
+
+# Capturing a decoded tool result or a snapshot does not mean downstream
+# execution accepts a claim at that level, so result- and state-level claims
+# need an explicit runtime_contract.observation.claim_levels declaration.
+_DEFAULT_SUPPORTED_CLAIM_LEVELS = ("command_attempt", "reply")
+
+
+def _supported_claim_levels(runtime_contract: Any) -> tuple[str, ...]:
+    observation = (
+        runtime_contract.get("observation") if isinstance(runtime_contract, dict) else None
+    )
+    declared = observation.get("claim_levels") if isinstance(observation, dict) else None
+    if isinstance(declared, list):
+        return tuple(level for level in _claim_levels() if level in declared)
+    return _DEFAULT_SUPPORTED_CLAIM_LEVELS
 
 
 def _validate_setup_recipe(

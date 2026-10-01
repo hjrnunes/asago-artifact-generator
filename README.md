@@ -537,6 +537,13 @@ scenario against the context guard without a model call, run
 `uv run python scripts/measure_call1_budget.py --target-profile PROFILE
 --target-observations RUNTIME_CONTEXT --runtime-contract CONTRACT SCENARIO...`.
 
+Plan validation accepts `observation_claim.claim_level` values listed in
+`runtime_contract.observation.claim_levels`. When the runtime contract omits
+that list, only `command_attempt` and `reply` are accepted, because downstream
+execution rejects other levels even when it captures decoded results. A plan
+with another level gets an `unsupported_claim_level` correction that names the
+supported levels.
+
 Use
 `asago_artifact_generator.target_inputs.load_target_inputs` to validate the
 producer profile, verify its semantic digest, map observed tools to
