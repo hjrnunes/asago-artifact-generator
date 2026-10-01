@@ -576,63 +576,57 @@ _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES = 128
 # Calibrate from provider measurements of dispatched authoring prompts. Each
 # record uses only provider-reported prompt_tokens and the same system+user+128
 # byte measurement as the guard, and is the lowest bytes/token ratio measured
-# for its stage and model. Prompt families tokenize differently (review prompts
+# for its stage on one of two measured open-weight models. A model whose
+# tokenizer needs more tokens per byte than both would exceed the estimate.
+# Prompt families tokenize differently (review prompts
 # hold more JSON punctuation than correction prompts), so each stage uses its
 # own lowest measured ratio; an unlisted stage uses the lowest ratio of all.
 # A 5% margin lowers each ratio further so the token estimate rounds up.
 _CONTEXT_GUARD_CALIBRATION_SOURCES = (
     {
         "stage": "call1",
-        "model": "gemma-4-26b-a4b-it",
         "prompt_version": "authoring-call1-v14",
         "model_facing_utf8_bytes": 76_665,
         "provider_reported_prompt_tokens": 19_938,
     },
     {
         "stage": "call2",
-        "model": "gemma-4-26b-a4b-it",
         "prompt_version": "authoring-call2-v18",
         "model_facing_utf8_bytes": 78_535,
         "provider_reported_prompt_tokens": 20_412,
     },
     {
         "stage": "correction",
-        "model": "gemma-4-26b-a4b-it",
         "prompt_version": "authoring-correction-v21",
         "model_facing_utf8_bytes": 84_275,
         "provider_reported_prompt_tokens": 21_179,
     },
     {
         "stage": "plan_review",
-        "model": "gemma-4-26b-a4b-it",
         "prompt_version": "authoring-plan-review-v13",
         "model_facing_utf8_bytes": 73_134,
         "provider_reported_prompt_tokens": 19_642,
     },
     {
         "stage": "artifact_review",
-        "model": "gemma-4-26b-a4b-it",
         "prompt_version": "authoring-artifact-review-v6",
         "model_facing_utf8_bytes": 80_079,
         "provider_reported_prompt_tokens": 21_310,
     },
     {
         "stage": "call1",
-        "model": "qwen38-27b",
         "prompt_version": "authoring-call1-v17",
         "model_facing_utf8_bytes": 80_722,
         "provider_reported_prompt_tokens": 18_946,
     },
     {
         "stage": "correction",
-        "model": "qwen38-27b",
         "prompt_version": "authoring-correction-v25",
         "model_facing_utf8_bytes": 81_894,
         "provider_reported_prompt_tokens": 19_054,
     },
     {
         "stage": "plan_review",
-        "model": "qwen38-27b",
         "prompt_version": "authoring-plan-review-v15",
         "model_facing_utf8_bytes": 66_229,
         "provider_reported_prompt_tokens": 15_503,
@@ -689,7 +683,7 @@ def _context_guard_ratio(stage: str) -> Fraction:
 
 # Normal private authoring sets thinking per role through the transport's
 # additive extra_body.  Every role currently runs with thinking off: with
-# thinking on, gemma-4-26b-a4b-it reviews repeated the same reasoning lines
+# thinking on, reviews on a measured open-weight model repeated the same reasoning lines
 # until the completion limit and returned no answer in 11 of 35 scenarios.
 # The values are non-secret and are recorded as per-call controls.
 AUTHORING_THINKING_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
@@ -3379,10 +3373,10 @@ class PrivateModelAuthoringTransport:
         ):
             estimate = _context_budget_estimate(packet)["estimated_prompt_tokens"]
             filled = self.context_window_tokens - int(estimate) - _CONTEXT_FRAMING_TOKEN_RESERVE
-            # Keep the historical Gemma review-fill behavior, but treat a
-            # larger profile completion limit as the review role's explicit
-            # cap. A 1.05M context must not turn a review into a million-token
-            # request.
+            # The default completion limit is a floor that a review fills from
+            # the remaining context; treat a larger profile completion limit
+            # as the review role's explicit cap. A 1.05M context must not turn
+            # a review into a million-token request.
             if self.max_completion_tokens > AUTHORING_MAX_COMPLETION_TOKENS:
                 return min(filled, self.max_completion_tokens)
             return max(filled, self.max_completion_tokens)

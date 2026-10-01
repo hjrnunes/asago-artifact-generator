@@ -45,7 +45,7 @@ uv run asago-artifact-generator author <scenario-handoff.json> \
   --target-observations <runtime-context.json> \
   --runtime-contract <runtime-contract.json> \
   --output-dir runs/authoring/<case-id> \
-  --profile gemma4-oc \
+  --profile <profile-name> \
   --profiles-file /absolute/path/to/asago-scenario-generator/config/model-profiles.yaml
 ```
 
@@ -72,7 +72,7 @@ Optional `context_window`, `max_completion_tokens`, and `timeout` fields drive
 the request. Omitted limits retain the 32,768-token context window and 8,192-token
 completion limit, plus the existing 256-token framing reserve. Author and
 correction requests use the profile completion limit. Reviews preserve the
-existing remaining-context fill for the Gemma-sized default; when a profile
+existing remaining-context fill for the default completion limit; when a profile
 provides a larger completion limit, reviews use that limit as a cap so a
 1.05-million-token context does not create a million-token review request. The guard
 UTF-8 bytes, including correction feedback and the 128-byte schema/message
@@ -87,10 +87,10 @@ differently: review prompts carry more JSON punctuation than correction
 prompts. Each stage uses the lowest bytes per provider-reported prompt token
 measured for it, and a 5% margin lowers that ratio. The measurements come from
 dispatched authoring prompts (system + user + 128 bytes) with provider usage:
-8,028 gemma-4-26b-a4b-it (`gemma4-oc`) prompts and 205 qwen38-27b
-(`qwen38-oc`) prompts saved in orchestration runs up to 2026-09-30.
+8,028 prompts from one open-weight model and 205 prompts from a second,
+saved in orchestration runs up to 2026-09-30.
 
-| Stage | gemma lowest (median) | qwen lowest | Calibrated |
+| Stage | Lowest, model A (median) | Lowest, model B | Calibrated |
 | --- | --- | --- | --- |
 | `call1` | 3.845 (3.957) | 4.261 | 3.653 |
 | `call2` | 3.847 (3.947) | not measured | 3.655 |
@@ -99,9 +99,11 @@ dispatched authoring prompts (system + user + 128 bytes) with provider usage:
 | `artifact_review` | 3.758 (4.084) | not measured | 3.570 |
 | other stages | lowest of all: 3.723 | | 3.537 |
 
-Qwen needs fewer tokens than gemma for the same content: on the producer's
-matched prompts it measured higher bytes per token than gemma in almost every
-step, so the gemma minimum bounds both models. The measurement values live in
+Model B needs fewer tokens than model A for the same content: on the producer's
+matched prompts it measured higher bytes per token in almost every step, so
+the model A minimum bounds both. A model whose tokenizer needs more tokens per
+byte than both measured models can exceed the estimate; the provider then
+rejects the request. The measurement values live in
 `src/asago_artifact_generator/authoring.py` as
 `CONTEXT_GUARD_CALIBRATION`; the authoring path does not read saved runs.
 Every guard result labels the value `estimated_prompt_tokens`; provider usage

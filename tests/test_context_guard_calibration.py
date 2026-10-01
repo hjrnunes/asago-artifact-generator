@@ -68,7 +68,7 @@ def test_calibration_applies_the_stated_margin_below_every_measured_stage_ratio(
     margin = Fraction(CONTEXT_GUARD_CALIBRATION["margin_fraction"])
 
     assert margin == Fraction(5, 100)
-    assert {source["model"] for source in sources} == {"gemma-4-26b-a4b-it", "qwen38-27b"}
+    assert all("model" not in source for source in sources)
     for stage in _STAGES:
         measured = min(
             Fraction(source["model_facing_utf8_bytes"], source["provider_reported_prompt_tokens"])
@@ -97,7 +97,7 @@ def test_correction_prompts_the_previous_ratio_rejected_now_fit_the_input_budget
         AUTHORING_CONTEXT_WINDOW_TOKENS - AUTHORING_MAX_COMPLETION_TOKENS - 256
     )
     # Step 2 rejected correction prompts of these sizes at 3.489 bytes per token;
-    # gemma measured correction prompts at 3.98 or more bytes per token.
+    # measured correction prompts need 3.98 or more bytes per token.
     for total_bytes in (85_051, 87_615, 89_494):
         packet = _packet_with_model_facing_bytes(total_bytes, "correction")
         estimate = _enforce_context_budget(
