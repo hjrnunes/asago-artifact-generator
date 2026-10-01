@@ -23,7 +23,6 @@ from asago_artifact_generator.authoring import (
     build_artifact_review_packet,
 )
 from asago_artifact_generator.detector_controls import ControlCase
-from asago_artifact_generator.detector_runtime import resolve_docker_path
 
 from .test_versioned_authoring_wire import (
     _framed,
@@ -398,7 +397,9 @@ def test_no_hook_renders_base_revision_prompt_bytes(tmp_path: Path) -> None:
             "failure": None,
             "runtime": {
                 "engine": "docker",
-                "docker_path": resolve_docker_path(),
+                # Rendered into the pinned artifact_review_direct digest, so it
+                # must not follow the host's Docker location.
+                "docker_path": "/usr/local/bin/docker",
                 "image": "python:3.12-slim",
                 "network": "none",
                 "read_only": True,
