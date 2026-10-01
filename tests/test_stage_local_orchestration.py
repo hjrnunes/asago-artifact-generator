@@ -16,6 +16,7 @@ from asago_artifact_generator.authoring import (
     policy_max_dispatches,
     policy_role_limits,
 )
+from asago_artifact_generator.detector_runtime import resolve_docker_path
 
 from .test_versioned_authoring_wire import (
     _framed,
@@ -608,7 +609,7 @@ def test_corrected_detector_failing_own_controls_stops_without_publication(
     control_record = result.ledger[2]["detector_controls"][0]
     assert control_record["runtime"] == {
         "engine": "docker",
-        "docker_path": "/usr/local/bin/docker",
+        "docker_path": resolve_docker_path(),
         "image": "python:3.12-slim",
         "network": "none",
         "read_only": True,

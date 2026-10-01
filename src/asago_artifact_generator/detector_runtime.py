@@ -15,6 +15,7 @@ import json
 import os
 import re
 import selectors
+import shutil
 import subprocess
 import tempfile
 import textwrap
@@ -117,23 +118,40 @@ class DetectorExecution:
         return garak_value(self)
 
 
+def resolve_docker_path() -> str:
+    """Return the Docker CLI to run, preferring the documented ``DOCKER`` path.
+
+    Hosts such as Linux CI runners install the CLI at ``/usr/bin/docker``, so
+    the fixed path is used only when it is executable; otherwise the first
+    ``docker`` on ``PATH`` is used.  When neither exists, ``DOCKER`` is
+    returned so the runtime-unavailable failure names the documented location.
+    """
+
+    if os.access(DOCKER, os.X_OK):
+        return DOCKER
+    return shutil.which("docker") or DOCKER
+
+
 def execute_detector(
     package: str | Path | ArtifactPackage,
     evidence: dict[str, Any],
     *,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
-    docker_path: str = DOCKER,
+    docker_path: str | None = None,
     image: str = PYTHON_IMAGE,
 ) -> DetectorExecution:
     """Execute the package's exact ``detector.py`` bytes in constrained Docker.
 
     ``status`` is ``completed``, ``failed`` or ``timeout``.  A non-completed
     execution never carries a detector result, even if generated code printed
-    a plausible verdict before failing.
+    a plausible verdict before failing.  ``docker_path`` defaults to
+    :func:`resolve_docker_path`.
     """
 
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
+    if docker_path is None:
+        docker_path = resolve_docker_path()
     argv: tuple[str, ...] = ()
     package_path: Path | None = None
     loaded: ArtifactPackage | None = None
@@ -1295,6 +1313,7 @@ __all__ = [
     "execute_detector",
     "execute_generated_detector",
     "normalize_evidence_packet",
+    "resolve_docker_path",
     "run_detector",
     "validate_result",
     "validate_detector_evidence_access",

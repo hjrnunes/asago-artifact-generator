@@ -19,13 +19,13 @@ from pathlib import Path
 from typing import Any
 
 from .detector_runtime import (
-    DOCKER,
     PYTHON_IMAGE,
     DetectorExecution,
     DetectorRuntimeError,
     _resolve_evidence_ref,
     execute_detector,
     normalize_evidence_packet,
+    resolve_docker_path,
     validate_detector_evidence_access,
 )
 from .package_io import build_package, write_package
@@ -847,7 +847,7 @@ def _invalid_raw_return(execution: DetectorExecution) -> dict[str, Any] | None:
 def _control_runtime(execution: DetectorExecution) -> dict[str, Any]:
     """Describe the constrained runtime without persisting ephemeral paths."""
 
-    docker_path = execution.docker_argv[0] if execution.docker_argv else DOCKER
+    docker_path = execution.docker_argv[0] if execution.docker_argv else resolve_docker_path()
     image = next(
         (value for value in execution.docker_argv if value == PYTHON_IMAGE),
         PYTHON_IMAGE,

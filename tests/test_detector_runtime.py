@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from asago_artifact_generator import detector_runtime
 from asago_artifact_generator.detector_runtime import (
     CLAIM_LEVELS,
+    DOCKER,
     DetectorRuntimeError,
     execute_detector,
     normalize_evidence_packet,
+    resolve_docker_path,
     validate_detector_result,
 )
 from asago_artifact_generator.package_io import build_package, write_package
@@ -192,9 +197,42 @@ def test_execute_detector_uses_exact_source_and_resolves_evidence_reference(
     assert execution.result["evidence_refs"] == ["tool_calls[0]"]
     assert execution.detector_sha256 == execution.detector_sha256_after
     assert execution.package_digest == execution.package_digest_after
-    assert execution.docker_argv[0] == "/usr/local/bin/docker"
+    assert execution.docker_argv[0] == resolve_docker_path()
     assert "--network" in execution.docker_argv
     assert "none" in execution.docker_argv
+
+
+def _patch_docker_lookup(
+    monkeypatch: pytest.MonkeyPatch, *, executable: bool, on_path: str | None
+) -> None:
+    monkeypatch.setattr(
+        detector_runtime,
+        "os",
+        SimpleNamespace(access=lambda path, mode: executable, X_OK=os.X_OK),
+    )
+    monkeypatch.setattr(detector_runtime, "shutil", SimpleNamespace(which=lambda name: on_path))
+
+
+def test_docker_path_prefers_the_documented_location_when_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_docker_lookup(monkeypatch, executable=True, on_path="/usr/bin/docker")
+
+    assert resolve_docker_path() == DOCKER
+
+
+def test_docker_path_falls_back_to_path_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_docker_lookup(monkeypatch, executable=False, on_path="/usr/bin/docker")
+
+    assert resolve_docker_path() == "/usr/bin/docker"
+
+
+def test_docker_path_names_the_documented_location_when_docker_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_docker_lookup(monkeypatch, executable=False, on_path=None)
+
+    assert resolve_docker_path() == DOCKER
 
 
 def test_execute_detector_injects_only_normalized_judge_projection(

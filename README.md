@@ -655,7 +655,8 @@ uv run asago-artifact-generator check runs/authoring/task \
 
 The checker validates package and detector digests before and after execution.
 It runs the emitted source in `python:3.12-slim` through
-`/usr/local/bin/docker` with no network, read-only package and input mounts,
+Docker (`/usr/local/bin/docker` when executable, otherwise `docker` on
+`PATH`) with no network, read-only package and input mounts,
 bounded memory, process count, output, and wall-clock time, and no inherited
 credentials. Rich results remain separate from runtime failures. Reporting
 maps `detected`, `not_detected`, and `inconclusive` to Garak's `1`, `0`, and
