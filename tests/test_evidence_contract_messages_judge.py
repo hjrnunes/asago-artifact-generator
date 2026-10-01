@@ -292,7 +292,7 @@ def test_artifact_review_uses_current_interface_version() -> None:
         _runtime_contract(),
     )
 
-    assert packet.version == "authoring-artifact-review-v15"
+    assert packet.version == "authoring-artifact-review-v16"
     interface = _interface(packet.user)
     assert "judge.verdict" in interface["paths"]
 

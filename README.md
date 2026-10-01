@@ -292,9 +292,9 @@ or empty block leaves rendered request bytes unchanged.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v17` renders the plan author context while preserving the
+- `authoring-call1-v18` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v16` reviews a fresh source-derived plan context. It
+- `authoring-plan-review-v17` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
   binding selects inside one record of a keyed fact, the value also carries
@@ -309,9 +309,9 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   checkable statement of the standard, and that mentioning, quoting, reporting,
   or refusing content does not assert it. The validator rejects a question that
   does not end with a question mark.
-- `authoring-artifact-review-v15` reviews the exact metadata, detector bytes,
+- `authoring-artifact-review-v16` reviews the exact metadata, detector bytes,
   binding/judge declarations, and offline controls.
-- `authoring-correction-v26` renders only the failed stage format and all
+- `authoring-correction-v27` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option

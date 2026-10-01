@@ -137,11 +137,13 @@ CALL2_PROMPT_VERSION_V21 = "authoring-call2-v21"
 CORRECTION_PROMPT_VERSION_V24 = "authoring-correction-v24"
 CORRECTION_PROMPT_VERSION_V25 = "authoring-correction-v25"
 CORRECTION_PROMPT_VERSION_V26 = "authoring-correction-v26"
+CALL1_PROMPT_VERSION_V18 = "authoring-call1-v18"
+CORRECTION_PROMPT_VERSION_V27 = "authoring-correction-v27"
 # The v2 aliases identify the current v2 response builders. Keep prior template
 # values above available to historical package readers.
-CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V17
+CALL1_PROMPT_VERSION_V2 = CALL1_PROMPT_VERSION_V18
 CALL2_PROMPT_VERSION_V2 = CALL2_PROMPT_VERSION_V21
-CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V26
+CORRECTION_PROMPT_VERSION_V2 = CORRECTION_PROMPT_VERSION_V27
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
@@ -176,8 +178,10 @@ ARTIFACT_REVIEW_PROMPT_VERSION_V15 = "authoring-artifact-review-v15"
 PLAN_REVIEW_PROMPT_VERSION_V14 = "authoring-plan-review-v14"
 PLAN_REVIEW_PROMPT_VERSION_V15 = "authoring-plan-review-v15"
 PLAN_REVIEW_PROMPT_VERSION_V16 = "authoring-plan-review-v16"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V16
-ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V15
+PLAN_REVIEW_PROMPT_VERSION_V17 = "authoring-plan-review-v17"
+ARTIFACT_REVIEW_PROMPT_VERSION_V16 = "authoring-artifact-review-v16"
+PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V17
+ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V16
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 
 _PLAN_REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
@@ -1685,7 +1689,7 @@ def _render_correction_packet(
                     else (
                         CORRECTION_PROMPT_VERSION_V10
                         if legacy_v10
-                        else CORRECTION_PROMPT_VERSION_V26
+                        else CORRECTION_PROMPT_VERSION_V27
                     )
                 )
             )
@@ -8086,7 +8090,7 @@ def build_call1_packet_v2(
         version=(
             CALL1_PROMPT_VERSION_V4
             if legacy
-            else (CALL1_PROMPT_VERSION_V5 if legacy_binding_contract else CALL1_PROMPT_VERSION_V17)
+            else (CALL1_PROMPT_VERSION_V5 if legacy_binding_contract else CALL1_PROMPT_VERSION_V18)
         ),
         system=_CALL1_SYSTEM_V3,
         user=_render_sections(
@@ -12245,6 +12249,7 @@ def _enforce_prompt_size(
         CALL1_PROMPT_VERSION_V15,
         CALL1_PROMPT_VERSION_V16,
         CALL1_PROMPT_VERSION_V17,
+        CALL1_PROMPT_VERSION_V18,
         CALL2_PROMPT_VERSION_V3,
         CALL2_PROMPT_VERSION_V4,
         CALL2_PROMPT_VERSION_V5,
@@ -12288,6 +12293,7 @@ def _enforce_prompt_size(
         CORRECTION_PROMPT_VERSION_V24,
         CORRECTION_PROMPT_VERSION_V25,
         CORRECTION_PROMPT_VERSION_V26,
+        CORRECTION_PROMPT_VERSION_V27,
         PLAN_REVIEW_PROMPT_VERSION_V1,
         PLAN_REVIEW_PROMPT_VERSION_V2,
         PLAN_REVIEW_PROMPT_VERSION_V3,
@@ -12304,6 +12310,7 @@ def _enforce_prompt_size(
         PLAN_REVIEW_PROMPT_VERSION_V14,
         PLAN_REVIEW_PROMPT_VERSION_V15,
         PLAN_REVIEW_PROMPT_VERSION_V16,
+        PLAN_REVIEW_PROMPT_VERSION_V17,
         ARTIFACT_REVIEW_PROMPT_VERSION_V1,
         ARTIFACT_REVIEW_PROMPT_VERSION_V2,
         ARTIFACT_REVIEW_PROMPT_VERSION_V3,
@@ -12319,6 +12326,7 @@ def _enforce_prompt_size(
         ARTIFACT_REVIEW_PROMPT_VERSION_V13,
         ARTIFACT_REVIEW_PROMPT_VERSION_V14,
         ARTIFACT_REVIEW_PROMPT_VERSION_V15,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V16,
     }:
         assert_no_prompt_duplicates(packet)
     if maximum <= 0:
@@ -14685,6 +14693,7 @@ __all__ = [
     "CALL1_PROMPT_VERSION_V15",
     "CALL1_PROMPT_VERSION_V16",
     "CALL1_PROMPT_VERSION_V17",
+    "CALL1_PROMPT_VERSION_V18",
     "CALL2_PROMPT_VERSION",
     "CALL2_PROMPT_VERSION_V2",
     "CALL2_PROMPT_VERSION_V3",
@@ -14732,6 +14741,7 @@ __all__ = [
     "CORRECTION_PROMPT_VERSION_V24",
     "CORRECTION_PROMPT_VERSION_V25",
     "CORRECTION_PROMPT_VERSION_V26",
+    "CORRECTION_PROMPT_VERSION_V27",
     "Call2FramingError",
     "Finding",
     "PlanValidationError",
@@ -14752,6 +14762,7 @@ __all__ = [
     "PLAN_REVIEW_PROMPT_VERSION_V14",
     "PLAN_REVIEW_PROMPT_VERSION_V15",
     "PLAN_REVIEW_PROMPT_VERSION_V16",
+    "PLAN_REVIEW_PROMPT_VERSION_V17",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V1",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V2",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V3",
@@ -14767,6 +14778,7 @@ __all__ = [
     "ARTIFACT_REVIEW_PROMPT_VERSION_V13",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V14",
     "ARTIFACT_REVIEW_PROMPT_VERSION_V15",
+    "ARTIFACT_REVIEW_PROMPT_VERSION_V16",
     "PLAN_FIELD_MEANINGS",
     "LEGACY_PLAN_FIELD_MEANINGS",
     "NEUTRAL_PLAN_OUTCOME_EXAMPLE",

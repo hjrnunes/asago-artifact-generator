@@ -31,8 +31,9 @@ from tests.test_versioned_prompt_roles import (
 _OWNER_SCOPE_LABEL = "OWNER-SUPPLIED SCOPE (NOT OBSERVED TARGET FACTS)"
 # SHA-256 of system + NUL + user bytes captured for these prompt contracts.
 _BASE_REVISION = (
-    "authoring-call1-v17 / authoring-call2-v21 / authoring-correction-v25 / "
-    "authoring-plan-review-v15 / authoring-artifact-review-v15"
+    "authoring-call1-v18 / authoring-call2-v21 / authoring-correction-v27 (plan) / "
+    "authoring-correction-v25 (artifact) / authoring-plan-review-v17 / "
+    "authoring-artifact-review-v16"
 )
 _BASE_STAGE_DIGESTS = {
     "call1": "6520a4820a927b495cf7c55f4b23be496b03694585eb5063caf6b645898e9806",
