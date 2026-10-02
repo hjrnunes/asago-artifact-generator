@@ -52,162 +52,168 @@ def parse_call2_response(raw: bytes | str) -> ParsedCall2Response:
     if not isinstance(source, bytes):
         raise TypeError("Call 2 response must be bytes or text")
     findings: list[Finding] = []
-    try:
-        lines = source.splitlines(keepends=True)
-        if not lines or not _is_fence_line(lines[0], "json", opening=True):
-            missing_json = bool(lines) and _is_fence_line(lines[0], "python", opening=True)
-            findings.append(
-                Finding(
-                    "missing_json_block" if not lines or missing_json else "ambiguous_content",
-                    "Call 2 must start with one ```json opening fence",
-                    "call2",
-                )
-            )
-            raise Call2FramingError(findings)
-
-        index = 1
-        json_lines: list[bytes] = []
-        json_close_index: int | None = None
-        while index < len(lines):
-            line = lines[index]
-            if _is_closing_fence(line):
-                json_close_index = index
-                break
-            if _is_fence_line(line, "json", opening=True):
-                findings.append(
-                    Finding(
-                        "duplicate_json_block", "Call 2 contains more than one JSON block", "call2"
-                    )
-                )
-            json_lines.append(line)
-            index += 1
-        if json_close_index is None:
-            findings.append(
-                Finding("truncated_block", "Call 2 JSON block is not closed", "call2.json")
-            )
-            raise Call2FramingError(findings)
-
-        index = json_close_index + 1
-        while index < len(lines) and not lines[index].strip():
-            index += 1
-        if index >= len(lines):
-            findings.append(
-                Finding("missing_python_block", "Call 2 must contain one Python block", "call2")
-            )
-            raise Call2FramingError(findings)
-        if _is_fence_line(lines[index], "json", opening=True):
-            findings.append(
-                Finding(
-                    "duplicate_json_block", "Call 2 contains more than one JSON block", "call2"
-                )
-            )
-            raise Call2FramingError(findings)
-        if not _is_fence_line(lines[index], "python", opening=True):
-            findings.append(
-                Finding(
-                    "ambiguous_content",
-                    "Call 2 must place exactly one ```python block after JSON",
-                    "call2",
-                )
-            )
-            raise Call2FramingError(findings)
-        index += 1
-        python_lines: list[bytes] = []
-        python_close_index: int | None = None
-        while index < len(lines):
-            line = lines[index]
-            if _is_closing_fence(line):
-                python_close_index = index
-                break
-            if _is_fence_line(line, "python", opening=True):
-                findings.append(
-                    Finding(
-                        "duplicate_python_block",
-                        "Call 2 contains more than one Python block",
-                        "call2",
-                    )
-                )
-            python_lines.append(line)
-            index += 1
-        if python_close_index is None:
-            findings.append(
-                Finding("truncated_block", "Call 2 Python block is not closed", "call2.python")
-            )
-            raise Call2FramingError(findings)
-        index = python_close_index + 1
-        if index != len(lines):
-            if any(_is_fence_line(line, "python", opening=True) for line in lines[index:]):
-                findings.append(
-                    Finding(
-                        "duplicate_python_block",
-                        "Call 2 contains more than one Python block",
-                        "call2",
-                    )
-                )
-            if any(_is_fence_line(line, "json", opening=True) for line in lines[index:]):
-                findings.append(
-                    Finding(
-                        "duplicate_json_block",
-                        "Call 2 contains more than one JSON block",
-                        "call2",
-                    )
-                )
-            findings.append(
-                Finding(
-                    "closing_fence_in_python",
-                    "a closing fence line terminates Python before the response ends",
-                    "call2.python",
-                )
-            )
-            findings.append(
-                Finding("extra_content", "Call 2 contains content outside its two blocks", "call2")
-            )
-            raise Call2FramingError(findings)
-
-        metadata_bytes = b"".join(json_lines)
-        try:
-            metadata = json.loads(metadata_bytes.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            findings.append(Finding("invalid_metadata_json", str(exc), "call2.json"))
-            raise Call2FramingError(findings) from exc
-        findings.extend(_validate_call2_metadata_shape(metadata))
-        python_bytes = b"".join(python_lines)
-        try:
-            python_source = python_bytes.decode("utf-8")
-            tree = ast.parse(python_source)
-        except (UnicodeDecodeError, SyntaxError) as exc:
-            findings.append(Finding("invalid_python", str(exc), "call2.python"))
-            raise Call2FramingError(findings) from exc
-        evaluate = next(
-            (
-                node
-                for node in tree.body
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name == "evaluate"
-            ),
-            None,
+    lines = source.splitlines(keepends=True)
+    _require_json_opening_fence(lines, findings)
+    json_lines, json_close_index = _read_fenced_block(lines, 1, "json", findings)
+    if json_close_index is None:
+        findings.append(
+            Finding("truncated_block", "Call 2 JSON block is not closed", "call2.json")
         )
-        if evaluate is None:
-            findings.append(
-                Finding(
-                    "missing_function",
-                    "Python block must define evaluate(evidence)",
-                    "call2.python",
-                )
+        raise Call2FramingError(findings)
+    index = _python_block_start(lines, json_close_index + 1, findings)
+    python_lines, python_close_index = _read_fenced_block(lines, index, "python", findings)
+    if python_close_index is None:
+        findings.append(
+            Finding("truncated_block", "Call 2 Python block is not closed", "call2.python")
+        )
+        raise Call2FramingError(findings)
+    _require_no_trailing_content(lines, python_close_index + 1, findings)
+    metadata = _decode_call2_metadata(b"".join(json_lines), findings)
+    findings.extend(_validate_call2_metadata_shape(metadata))
+    python_bytes = b"".join(python_lines)
+    tree = _parse_call2_python(python_bytes, findings)
+    findings.extend(_evaluate_signature_findings(tree))
+    if findings:
+        raise Call2FramingError(findings)
+    return ParsedCall2Response(metadata=metadata, python_bytes=python_bytes)
+
+
+_DUPLICATE_BLOCK_FINDINGS = {
+    "json": ("duplicate_json_block", "Call 2 contains more than one JSON block"),
+    "python": ("duplicate_python_block", "Call 2 contains more than one Python block"),
+}
+
+
+def _duplicate_block_finding(language: str) -> Finding:
+    code, message = _DUPLICATE_BLOCK_FINDINGS[language]
+    return Finding(code, message, "call2")
+
+
+def _require_json_opening_fence(lines: list[bytes], findings: list[Finding]) -> None:
+    if lines and _is_fence_line(lines[0], "json", opening=True):
+        return
+    missing_json = bool(lines) and _is_fence_line(lines[0], "python", opening=True)
+    findings.append(
+        Finding(
+            "missing_json_block" if not lines or missing_json else "ambiguous_content",
+            "Call 2 must start with one ```json opening fence",
+            "call2",
+        )
+    )
+    raise Call2FramingError(findings)
+
+
+def _read_fenced_block(
+    lines: list[bytes],
+    index: int,
+    language: str,
+    findings: list[Finding],
+) -> tuple[list[bytes], int | None]:
+    """Collect body lines from ``index`` up to the next closing fence.
+
+    Returns the body and the closing fence index, or ``None`` when the block
+    is not closed. A nested opening fence of the same language is recorded as
+    a duplicate block and kept in the body.
+    """
+
+    block_lines: list[bytes] = []
+    while index < len(lines):
+        line = lines[index]
+        if _is_closing_fence(line):
+            return block_lines, index
+        if _is_fence_line(line, language, opening=True):
+            findings.append(_duplicate_block_finding(language))
+        block_lines.append(line)
+        index += 1
+    return block_lines, None
+
+
+def _python_block_start(lines: list[bytes], index: int, findings: list[Finding]) -> int:
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    if index >= len(lines):
+        findings.append(
+            Finding("missing_python_block", "Call 2 must contain one Python block", "call2")
+        )
+        raise Call2FramingError(findings)
+    if _is_fence_line(lines[index], "json", opening=True):
+        findings.append(_duplicate_block_finding("json"))
+        raise Call2FramingError(findings)
+    if not _is_fence_line(lines[index], "python", opening=True):
+        findings.append(
+            Finding(
+                "ambiguous_content",
+                "Call 2 must place exactly one ```python block after JSON",
+                "call2",
             )
-        elif len(evaluate.args.args) != 1 or evaluate.args.args[0].arg != "evidence":
-            findings.append(
-                Finding(
-                    "function_signature",
-                    "evaluate must accept exactly one evidence argument",
-                    "call2.python.evaluate",
-                )
+        )
+        raise Call2FramingError(findings)
+    return index + 1
+
+
+def _require_no_trailing_content(lines: list[bytes], index: int, findings: list[Finding]) -> None:
+    if index == len(lines):
+        return
+    for language in ("python", "json"):
+        if any(_is_fence_line(line, language, opening=True) for line in lines[index:]):
+            findings.append(_duplicate_block_finding(language))
+    findings.append(
+        Finding(
+            "closing_fence_in_python",
+            "a closing fence line terminates Python before the response ends",
+            "call2.python",
+        )
+    )
+    findings.append(
+        Finding("extra_content", "Call 2 contains content outside its two blocks", "call2")
+    )
+    raise Call2FramingError(findings)
+
+
+def _decode_call2_metadata(metadata_bytes: bytes, findings: list[Finding]) -> Any:
+    try:
+        return json.loads(metadata_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        findings.append(Finding("invalid_metadata_json", str(exc), "call2.json"))
+        raise Call2FramingError(findings) from exc
+
+
+def _parse_call2_python(python_bytes: bytes, findings: list[Finding]) -> ast.Module:
+    try:
+        python_source = python_bytes.decode("utf-8")
+        return ast.parse(python_source)
+    except (UnicodeDecodeError, SyntaxError) as exc:
+        findings.append(Finding("invalid_python", str(exc), "call2.python"))
+        raise Call2FramingError(findings) from exc
+
+
+def _evaluate_signature_findings(tree: ast.Module) -> list[Finding]:
+    evaluate = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "evaluate"
+        ),
+        None,
+    )
+    if evaluate is None:
+        return [
+            Finding(
+                "missing_function",
+                "Python block must define evaluate(evidence)",
+                "call2.python",
             )
-        if findings:
-            raise Call2FramingError(findings)
-        return ParsedCall2Response(metadata=metadata, python_bytes=python_bytes)
-    except Call2FramingError:
-        raise
+        ]
+    if len(evaluate.args.args) != 1 or evaluate.args.args[0].arg != "evidence":
+        return [
+            Finding(
+                "function_signature",
+                "evaluate must accept exactly one evidence argument",
+                "call2.python.evaluate",
+            )
+        ]
+    return []
 
 
 def _is_fence_line(line: bytes, language: str, *, opening: bool) -> bool:
@@ -221,13 +227,24 @@ def _is_closing_fence(line: bytes) -> bool:
 
 
 def _validate_call2_metadata_shape(value: Any) -> list[Finding]:
-    findings: list[Finding] = []
     if not isinstance(value, dict):
         return [
             Finding("metadata_type_error", "Call 2 JSON block must be an object", "call2.json")
         ]
-    allowed = {"stimulus", "semantic_judge_spec", "examples", "explanation"}
-    plan_owned = {
+    findings = _call2_root_field_findings(value)
+    if "stimulus" in value:
+        findings.extend(_call2_stimulus_findings(value["stimulus"]))
+    findings.extend(_call2_semantic_judge_spec_findings(value.get("semantic_judge_spec")))
+    if "examples" in value:
+        findings.extend(_call2_examples_findings(value["examples"]))
+    if "explanation" in value and not isinstance(value["explanation"], str):
+        findings.append(Finding("type_error", "explanation must be a string", "explanation"))
+    return findings
+
+
+_CALL2_METADATA_FIELDS = frozenset({"stimulus", "semantic_judge_spec", "examples", "explanation"})
+_CALL2_PLAN_OWNED_FIELDS = frozenset(
+    {
         "interpretation",
         "selected_evidence",
         "assumptions",
@@ -246,19 +263,24 @@ def _validate_call2_metadata_shape(value: Any) -> list[Finding]:
         "claim_level",
         "judge",
     }
-    for field_name in sorted(set(value) - allowed):
+)
+
+
+def _call2_root_field_findings(value: dict[str, Any]) -> list[Finding]:
+    findings: list[Finding] = []
+    for field_name in sorted(set(value) - _CALL2_METADATA_FIELDS):
         findings.append(
             Finding(
-                "plan_conflict" if field_name in plan_owned else "unexpected_field",
+                "plan_conflict" if field_name in _CALL2_PLAN_OWNED_FIELDS else "unexpected_field",
                 (
                     f"Call 2 cannot resubmit plan-owned field: {field_name}"
-                    if field_name in plan_owned
+                    if field_name in _CALL2_PLAN_OWNED_FIELDS
                     else f"unexpected Call 2 metadata field: {field_name}"
                 ),
                 f"call2.json.{field_name}",
             )
         )
-    for field_name in sorted(allowed - set(value)):
+    for field_name in sorted(_CALL2_METADATA_FIELDS - set(value)):
         findings.append(
             Finding(
                 "missing_field",
@@ -266,159 +288,155 @@ def _validate_call2_metadata_shape(value: Any) -> list[Finding]:
                 f"call2.json.{field_name}",
             )
         )
-    if "stimulus" in value:
-        stimulus = value["stimulus"]
-        if not isinstance(stimulus, dict):
-            findings.append(Finding("type_error", "stimulus must be an object", "stimulus"))
-        else:
-            required = {"user_text", "history", "slots", "delivery"}
-            for field_name in sorted(required - set(stimulus)):
-                findings.append(
-                    Finding(
-                        "missing_field",
-                        f"stimulus missing field: {field_name}",
-                        f"stimulus.{field_name}",
-                    )
-                )
-            for field_name in sorted(set(stimulus) - required):
-                findings.append(
-                    Finding(
-                        "unexpected_field",
-                        f"unexpected stimulus field: {field_name}",
-                        f"stimulus.{field_name}",
-                    )
-                )
-            if not isinstance(stimulus.get("user_text"), str):
-                findings.append(
-                    Finding(
-                        "type_error", "stimulus.user_text must be a string", "stimulus.user_text"
-                    )
-                )
-            if not isinstance(stimulus.get("delivery"), str):
-                findings.append(
-                    Finding(
-                        "type_error", "stimulus.delivery must be a string", "stimulus.delivery"
-                    )
-                )
-            if not isinstance(stimulus.get("history"), list):
-                findings.append(
-                    Finding("type_error", "stimulus.history must be a list", "stimulus.history")
-                )
-            if not isinstance(stimulus.get("slots"), list) or not all(
-                isinstance(item, str) for item in stimulus.get("slots", [])
-            ):
-                findings.append(
-                    Finding(
-                        "type_error", "stimulus.slots must be a list of strings", "stimulus.slots"
-                    )
-                )
-    if value.get("semantic_judge_spec") is not None and not isinstance(
-        value.get("semantic_judge_spec"), dict
-    ):
+    return findings
+
+
+def _call2_stimulus_findings(stimulus: Any) -> list[Finding]:
+    if not isinstance(stimulus, dict):
+        return [Finding("type_error", "stimulus must be an object", "stimulus")]
+    findings: list[Finding] = []
+    required = {"user_text", "history", "slots", "delivery"}
+    for field_name in sorted(required - set(stimulus)):
         findings.append(
+            Finding(
+                "missing_field",
+                f"stimulus missing field: {field_name}",
+                f"stimulus.{field_name}",
+            )
+        )
+    for field_name in sorted(set(stimulus) - required):
+        findings.append(
+            Finding(
+                "unexpected_field",
+                f"unexpected stimulus field: {field_name}",
+                f"stimulus.{field_name}",
+            )
+        )
+    if not isinstance(stimulus.get("user_text"), str):
+        findings.append(
+            Finding("type_error", "stimulus.user_text must be a string", "stimulus.user_text")
+        )
+    if not isinstance(stimulus.get("delivery"), str):
+        findings.append(
+            Finding("type_error", "stimulus.delivery must be a string", "stimulus.delivery")
+        )
+    if not isinstance(stimulus.get("history"), list):
+        findings.append(
+            Finding("type_error", "stimulus.history must be a list", "stimulus.history")
+        )
+    if not _is_string_list(stimulus.get("slots")):
+        findings.append(
+            Finding("type_error", "stimulus.slots must be a list of strings", "stimulus.slots")
+        )
+    return findings
+
+
+def _is_string_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _call2_semantic_judge_spec_findings(spec: Any) -> list[Finding]:
+    if spec is None:
+        return []
+    if not isinstance(spec, dict):
+        return [
             Finding(
                 "type_error",
                 "semantic_judge_spec must be an object or null",
                 "semantic_judge_spec",
             )
+        ]
+    findings: list[Finding] = []
+    for field_name in sorted(set(spec) - {"question", "criteria", "fact_refs"}):
+        findings.append(
+            Finding(
+                "unexpected_field",
+                f"unexpected semantic_judge_spec field: {field_name}",
+                f"semantic_judge_spec.{field_name}",
+            )
         )
-    if isinstance(value.get("semantic_judge_spec"), dict):
-        spec = value["semantic_judge_spec"]
-        for field_name in sorted(set(spec) - {"question", "criteria", "fact_refs"}):
+    for field_name in ("question", "criteria", "fact_refs"):
+        if field_name not in spec:
             findings.append(
                 Finding(
-                    "unexpected_field",
-                    f"unexpected semantic_judge_spec field: {field_name}",
+                    "missing_field",
+                    f"semantic_judge_spec missing field: {field_name}",
                     f"semantic_judge_spec.{field_name}",
                 )
             )
-        for field_name in ("question", "criteria", "fact_refs"):
-            if field_name not in spec:
-                findings.append(
-                    Finding(
-                        "missing_field",
-                        f"semantic_judge_spec missing field: {field_name}",
-                        f"semantic_judge_spec.{field_name}",
-                    )
-                )
-        if "question" in spec and not isinstance(spec.get("question"), str):
+    for field_name in ("question", "criteria"):
+        if field_name in spec and not isinstance(spec.get(field_name), str):
             findings.append(
                 Finding(
                     "type_error",
-                    "semantic_judge_spec.question must be a string",
-                    "semantic_judge_spec.question",
+                    f"semantic_judge_spec.{field_name} must be a string",
+                    f"semantic_judge_spec.{field_name}",
                 )
             )
-        if "criteria" in spec and not isinstance(spec.get("criteria"), str):
-            findings.append(
-                Finding(
-                    "type_error",
-                    "semantic_judge_spec.criteria must be a string",
-                    "semantic_judge_spec.criteria",
-                )
+    if "fact_refs" in spec and not _is_string_list(spec.get("fact_refs")):
+        findings.append(
+            Finding(
+                "type_error",
+                "semantic_judge_spec.fact_refs must be a list of strings",
+                "semantic_judge_spec.fact_refs",
             )
-        if "fact_refs" in spec and (
-            not isinstance(spec.get("fact_refs"), list)
-            or not all(isinstance(item, str) for item in spec.get("fact_refs", []))
-        ):
-            findings.append(
-                Finding(
-                    "type_error",
-                    "semantic_judge_spec.fact_refs must be a list of strings",
-                    "semantic_judge_spec.fact_refs",
-                )
-            )
-    if "examples" in value:
-        examples = value["examples"]
-        if not isinstance(examples, dict):
-            findings.append(Finding("type_error", "examples must be an object", "examples"))
-        else:
-            for label in sorted(set(examples) - {"unsafe", "safe", "inconclusive"}):
-                findings.append(
-                    Finding(
-                        "unexpected_field",
-                        f"unexpected examples field: {label}",
-                        f"examples.{label}",
-                    )
-                )
-            for label in ("unsafe", "safe", "inconclusive"):
-                item = examples.get(label)
-                if item is None:
-                    findings.append(
-                        Finding(
-                            "missing_field",
-                            f"examples missing field: {label}",
-                            f"examples.{label}",
-                        )
-                    )
-                elif not isinstance(item, dict) or item.get("label") != "author-proposed":
-                    findings.append(
-                        Finding(
-                            "example_shape",
-                            f"example {label} must be author-proposed",
-                            f"examples.{label}",
-                        )
-                    )
-                elif set(item) - {"label", "description"}:
-                    for field_name in sorted(set(item) - {"label", "description"}):
-                        findings.append(
-                            Finding(
-                                "unexpected_field",
-                                f"unexpected example field: {field_name}",
-                                f"examples.{label}.{field_name}",
-                            )
-                        )
-                elif not isinstance(item.get("description"), str):
-                    findings.append(
-                        Finding(
-                            "type_error",
-                            f"example {label} description must be a string",
-                            f"examples.{label}.description",
-                        )
-                    )
-    if "explanation" in value and not isinstance(value["explanation"], str):
-        findings.append(Finding("type_error", "explanation must be a string", "explanation"))
+        )
     return findings
+
+
+def _call2_examples_findings(examples: Any) -> list[Finding]:
+    if not isinstance(examples, dict):
+        return [Finding("type_error", "examples must be an object", "examples")]
+    findings: list[Finding] = []
+    for label in sorted(set(examples) - {"unsafe", "safe", "inconclusive"}):
+        findings.append(
+            Finding(
+                "unexpected_field",
+                f"unexpected examples field: {label}",
+                f"examples.{label}",
+            )
+        )
+    for label in ("unsafe", "safe", "inconclusive"):
+        findings.extend(_call2_example_findings(label, examples.get(label)))
+    return findings
+
+
+def _call2_example_findings(label: str, item: Any) -> list[Finding]:
+    if item is None:
+        return [
+            Finding(
+                "missing_field",
+                f"examples missing field: {label}",
+                f"examples.{label}",
+            )
+        ]
+    if not isinstance(item, dict) or item.get("label") != "author-proposed":
+        return [
+            Finding(
+                "example_shape",
+                f"example {label} must be author-proposed",
+                f"examples.{label}",
+            )
+        ]
+    extra = sorted(set(item) - {"label", "description"})
+    if extra:
+        return [
+            Finding(
+                "unexpected_field",
+                f"unexpected example field: {field_name}",
+                f"examples.{label}.{field_name}",
+            )
+            for field_name in extra
+        ]
+    if not isinstance(item.get("description"), str):
+        return [
+            Finding(
+                "type_error",
+                f"example {label} description must be a string",
+                f"examples.{label}.description",
+            )
+        ]
+    return []
 
 
 def collect_plan_findings_v2(
