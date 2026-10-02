@@ -151,7 +151,7 @@ def _enforce_prompt_size(
         assert_no_prompt_duplicates(packet)
     if maximum <= 0:
         raise PromptOverflowError("prompt size limit must be positive")
-    rendered = len(packet.system.encode("utf-8")) + len(packet.user.encode("utf-8"))
+    rendered = packet.byte_size
     if rendered > maximum:
         estimate = _context_budget_estimate(packet)
         remaining_input_budget_estimate = (
