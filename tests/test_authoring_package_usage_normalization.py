@@ -29,7 +29,6 @@ def _package_with_usage(usage: object) -> object:
             "setup_recipe": [],
             "runtime_bindings": [],
             "prerequisites": [],
-            "detector_source": "def evaluate(evidence): return {}\n",
             "required_observations": {},
             "semantic_judge_spec": None,
             "explanation": "",
@@ -43,6 +42,7 @@ def _package_with_usage(usage: object) -> object:
         transformations=[],
         inventory={},
         runtime_contract={},
+        detector_bytes=b"def evaluate(evidence): return {}\n",
     )
 
 

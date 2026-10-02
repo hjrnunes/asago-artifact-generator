@@ -77,7 +77,7 @@ def test_neutral_detector_scans_decisive_event_before_partial_capture(tmp_path: 
 def test_neutral_example_is_complete_and_runs_with_exact_detector_bytes(
     tmp_path: Path,
 ) -> None:
-    package = build_neutral_artifact_package(tmp_path / "neutral", wire_version="v2")
+    package = build_neutral_artifact_package(tmp_path / "neutral")
     assert validate_neutral_example() == []
 
     execution = execute_detector(

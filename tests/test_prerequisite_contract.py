@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 from asago_artifact_generator.authoring import (
-    build_call1_packet,
     build_call1_packet_v2,
-    build_call2_packet,
-    collect_artifact_findings,
     collect_plan_findings,
     collect_plan_findings_v2,
 )
 
-from .test_authoring_orchestration import _artifact, _contract, _inventory, _plan, _view
+from .test_authoring_orchestration import _contract, _inventory, _plan, _view
 
 
 def _executable_prerequisite(**overrides: object) -> dict[str, object]:
@@ -22,12 +19,10 @@ def _executable_prerequisite(**overrides: object) -> dict[str, object]:
     return value
 
 
-def test_executable_prerequisites_are_admitted_by_both_validators() -> None:
+def test_executable_prerequisites_are_admitted_by_the_plan_validator() -> None:
     plan = _plan(prerequisites=[_executable_prerequisite()])
-    artifact = _artifact(prerequisites=[_executable_prerequisite()])
 
     assert collect_plan_findings(plan, _inventory(), _contract()) == []
-    assert collect_artifact_findings(artifact, plan, _inventory(), _contract()) == []
 
 
 def test_binding_and_expected_prerequisite_fields_are_admitted() -> None:
@@ -37,10 +32,8 @@ def test_binding_and_expected_prerequisite_fields_are_admitted() -> None:
         "expected": {"status": "awaiting_review", "attempts": 0},
     }
     plan = _plan(prerequisites=[prerequisite])
-    artifact = _artifact(prerequisites=[prerequisite])
 
     assert collect_plan_findings(plan, _inventory(), _contract()) == []
-    assert collect_artifact_findings(artifact, plan, _inventory(), _contract()) == []
 
 
 def test_descriptive_prerequisites_remain_admitted_and_non_executable() -> None:
@@ -76,31 +69,6 @@ def test_prerequisite_contract_rejects_unknown_fields() -> None:
         finding.path == "prerequisites[0].operator" and finding.code == "unexpected_field"
         for finding in findings
     )
-
-
-def test_rendered_prerequisite_contract_matches_executable_union() -> None:
-    packets = (
-        build_call1_packet(_view(), _inventory(), _contract()),
-        build_call2_packet(_view(), _plan(), _inventory(), _contract()),
-    )
-
-    for packet in packets:
-        schema = packet.payload["response_contract"]["schema"]["properties"]["prerequisites"]
-        prerequisite_schema = schema["items"]
-        assert prerequisite_schema["required"] == ["name"]
-        assert set(prerequisite_schema["properties"]) == {
-            "name",
-            "evidence_refs",
-            "check",
-            "source",
-            "binding",
-            "equals",
-            "expected",
-        }
-        assert prerequisite_schema["properties"]["source"]["type"] == "string"
-        assert prerequisite_schema["properties"]["binding"]["type"] == "string"
-        assert prerequisite_schema["properties"]["equals"]["description"]
-        assert prerequisite_schema["properties"]["expected"]["description"]
 
 
 def _v2_inventory_and_binding() -> tuple[dict[str, object], dict[str, object]]:

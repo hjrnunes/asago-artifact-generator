@@ -94,7 +94,6 @@ def _orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="supplied-controls",
-        wire_version="v2",
         policy=AuthoringPolicy(),
         supplied_control_cases=supplied_control_cases,
     )

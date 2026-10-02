@@ -98,7 +98,7 @@ def _orchestrator(
     tmp_path: Path,
     responses: list[object],
     *,
-    policy: AuthoringPolicy | None,
+    policy: AuthoringPolicy,
     supplied_control_cases: object = None,
 ) -> tuple[AuthoringOrchestrator, ScriptedAuthoringTransport]:
     transport = ScriptedAuthoringTransport(responses)
@@ -108,7 +108,6 @@ def _orchestrator(
         task_id="control-execution-policy",
         policy=policy,
         supplied_control_cases=supplied_control_cases,
-        wire_version="v2",
     )
     return orchestrator, transport
 
@@ -188,27 +187,6 @@ def test_policy_retries_after_structural_and_control_findings_with_latest_feedba
     failed_controls = second_correction["detector_feedback"]["failed_controls"]
     assert [control["name"] for control in failed_controls] == ["supplied-detected"]
     assert "another_unsupported_delivery" in second_correction["current_output"]
-
-
-def test_legacy_structural_correction_does_not_run_controls(tmp_path: Path) -> None:
-    bad_candidate = _framed_with(source=_BAD_SOURCE, delivery="unsupported_delivery")
-    orchestrator, transport = _orchestrator(
-        tmp_path,
-        [json.dumps(_plan()), bad_candidate, bad_candidate],
-        policy=None,
-        supplied_control_cases=[_SUPPLIED_FAILING_CASE],
-    )
-
-    result = orchestrator.run(_view(), _inventory(), _RUNTIME_WITH_NORMAL_CASE)
-
-    assert result.status == "failed"
-    assert [request["stage"] for request in transport.requests] == [
-        "call1",
-        "call2",
-        "correction",
-    ]
-    assert "detector_controls" in result.ledger[1]
-    assert "detector_controls" not in result.ledger[2]
 
 
 def test_supplied_exact_duplicates_are_dropped_and_conflicts_are_kept(

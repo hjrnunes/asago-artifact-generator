@@ -11,16 +11,12 @@ from asago_artifact_generator.authoring import (
     CALL2_PROMPT_VERSION_V2,
     Call2FramingError,
     ParsedCall2Response,
-    build_call1_packet,
     build_call1_packet_v2,
-    build_call2_packet,
     build_call2_packet_v2,
     collect_artifact_findings_v2,
     collect_plan_findings_v2,
     neutral_artifact_response_without_source,
     parse_call2_response,
-    parse_historical_call2_response,
-    prompt_byte_sizes,
 )
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
@@ -685,7 +681,6 @@ def test_v2_prompt_has_typed_references_selected_schemas_and_measured_bytes() ->
 
     for packet in (call1, call2):
         assert packet.byte_size == len(packet.system.encode()) + len(packet.user.encode())
-        assert packet_byte_sizes(packet) == packet.byte_size
         assert packet.payload["identifier_kinds"] == [
             "evidence references identify supplied facts",
             "binding names identify values resolved later",
@@ -696,9 +691,6 @@ def test_v2_prompt_has_typed_references_selected_schemas_and_measured_bytes() ->
     assert [item["name"] for item in operations] == ["process_refund"]
     assert operations[0]["arguments"]["properties"]["amount"]["type"] == "number"
     assert operations[0]["result_schema"]["properties"]["ok"]["type"] == "boolean"
-    sizes = prompt_byte_sizes({"call1": call1, "call2": call2})
-    assert sizes["call1"]["total_bytes"] == call1.byte_size
-    assert sizes["call2"]["total_bytes"] == call2.byte_size
 
 
 def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
@@ -740,29 +732,11 @@ def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
         )
 
 
-def test_v1_prompt_retains_its_historical_full_input_projection() -> None:
-    view = _view()
-    call1 = build_call1_packet(view, _inventory(), _runtime_contract())
-    call2 = build_call2_packet(view, _plan(), _inventory(), _runtime_contract())
-
-    for packet in (call1, call2):
-        assert packet.payload["input"]["narrative"] == view.narrative
-        assert packet.payload["input"]["gherkin_text"] == view.gherkin_text
-        assert (
-            packet.payload["input"]["narrative_bytes_sha256"]
-            == hashlib.sha256(view.narrative_bytes).hexdigest()
-        )
-        assert (
-            packet.payload["input"]["gherkin_bytes_sha256"]
-            == hashlib.sha256(view.gherkin_bytes).hexdigest()
-        )
-
-
 def test_neutral_v2_example_uses_real_framing_and_package_check(tmp_path) -> None:
     assert validate_neutral_example() == []
     parsed = parse_call2_response(neutral_call2_response_v2())
     assert parsed.python_bytes
-    destination = build_neutral_artifact_package(tmp_path / "neutral", wire_version="v2")
+    destination = build_neutral_artifact_package(tmp_path / "neutral")
     assert destination.joinpath("detector.py").read_bytes() == parsed.python_bytes
     assert json.loads(destination.joinpath("checks.json").read_text())["interface"] == (
         AUTHORING_INTERFACE_VERSION_V2
@@ -773,14 +747,3 @@ def test_neutral_artifact_response_without_source_matches_v2_metadata() -> None:
     parsed = parse_call2_response(neutral_call2_response_v2())
 
     assert parsed.metadata == neutral_artifact_response_without_source()
-
-
-def test_historical_reader_is_explicit_and_does_not_accept_v2_framing() -> None:
-    historical, _ = parse_historical_call2_response(b'{"detector_source":"x"}')
-    assert historical["detector_source"] == "x"
-    with pytest.raises(json.JSONDecodeError):
-        parse_historical_call2_response(neutral_call2_response_v2())
-
-
-def packet_byte_sizes(packet) -> int:
-    return prompt_byte_sizes(packet)["total_bytes"]

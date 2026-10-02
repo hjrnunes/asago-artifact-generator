@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from asago_artifact_generator.authoring import (
     _NEUTRAL_DETECTOR_SOURCE,
-    AUTHORING_INTERFACE_VERSION,
     AUTHORING_INTERFACE_VERSION_V2,
     AuthoringOrchestrator,
     AuthoringPolicy,
@@ -18,7 +16,6 @@ from asago_artifact_generator.authoring import (
     PromptPacket,
     TransportResponse,
     _json_bytes,
-    _neutral_artifact_response,
     _sha256,
     collect_artifact_findings_v2,
     collect_plan_findings_v2,
@@ -71,7 +68,6 @@ def stage_local_orchestrator(
     """Build an orchestrator on the stage-local path; reviews are off by default."""
 
     return AuthoringOrchestrator(
-        wire_version="v2",
         policy=unreviewed_policy() if policy is None else policy,
         **kwargs,
     )
@@ -105,12 +101,6 @@ def validate_neutral_example() -> list[Finding]:
             runtime_contract,
         ),
     ]
-
-
-def neutral_artifact_response() -> dict[str, Any]:
-    """Return a copy of the maintained neutral artifact response example."""
-
-    return json.loads(json.dumps(_neutral_artifact_response()))
 
 
 def neutral_observation_results() -> dict[str, dict[str, Any]]:
@@ -162,74 +152,40 @@ def neutral_observation_results() -> dict[str, dict[str, Any]]:
     }
 
 
-def build_neutral_artifact_package(
-    destination: str | Path,
-    *,
-    wire_version: str = "v1",
-) -> Path:
-    """Persist the neutral example through the real package writer."""
+def build_neutral_artifact_package(destination: str | Path) -> Path:
+    """Persist the neutral v2 example through the real package writer."""
 
-    example = _neutral_artifact_response()
-    if wire_version == "v2":
-        parsed = parse_call2_response(neutral_call2_response_v2())
-        plan = neutral_artifact_plan_v2()
-        findings = validate_neutral_example()
-        if findings:
-            raise ValueError(
-                "neutral v2 example is invalid: "
-                + "; ".join(finding.detail for finding in findings)
-            )
-        members = {
-            "plan.json": _json_bytes(plan),
-            "stimulus.json": _json_bytes(parsed.metadata["stimulus"]),
-            "setup.json": _json_bytes(plan["setup_recipe"]),
-            "bindings.json": _json_bytes(plan["runtime_bindings"]),
-            "prerequisites.json": _json_bytes(plan["prerequisites"]),
-            "detector.py": parsed.python_bytes,
-            "checks.json": _json_bytes({"interface": AUTHORING_INTERFACE_VERSION_V2}),
-            "inputs.json": _json_bytes({"neutral": True, "operation": "inspect_record"}),
-            "source-hashes.json": _json_bytes({"neutral": _sha256(b"neutral-example-v2")}),
-            "observations.json": _json_bytes(plan["required_observations"]),
-            "explanation.json": _json_bytes({"text": parsed.metadata["explanation"]}),
-            "examples.json": _json_bytes(parsed.metadata["examples"]),
-        }
-        package = build_package(
-            package_id="offline-neutral-example-v2",
-            scenario_id="neutral-example",
-            input_kind="scenario-handoff-v1",
-            source_digests={"neutral": _sha256(b"neutral-example-v2")},
-            members=members,
-            authoring={
-                "status": "scripted-offline-example",
-                "interface": AUTHORING_INTERFACE_VERSION_V2,
-            },
-            runtime_capabilities={"detector": {"timeout_seconds": 10}},
-            creation_model={"model": "maintained-neutral-example"},
+    parsed = parse_call2_response(neutral_call2_response_v2())
+    plan = neutral_artifact_plan_v2()
+    findings = validate_neutral_example()
+    if findings:
+        raise ValueError(
+            "neutral v2 example is invalid: " + "; ".join(finding.detail for finding in findings)
         )
-        return write_package(destination, package)
-    if wire_version != "v1":
-        raise ValueError("wire_version must be 'v1' or 'v2'")
     members = {
-        "plan.json": _json_bytes({"neutral": True, "operation": "inspect_record"}),
-        "stimulus.json": _json_bytes(example["stimulus"]),
-        "setup.json": _json_bytes(example["setup_recipe"]),
-        "bindings.json": _json_bytes(example["runtime_bindings"]),
-        "prerequisites.json": _json_bytes(example["prerequisites"]),
-        "detector.py": example["detector_source"].encode("utf-8"),
-        "checks.json": _json_bytes({"interface": AUTHORING_INTERFACE_VERSION}),
+        "plan.json": _json_bytes(plan),
+        "stimulus.json": _json_bytes(parsed.metadata["stimulus"]),
+        "setup.json": _json_bytes(plan["setup_recipe"]),
+        "bindings.json": _json_bytes(plan["runtime_bindings"]),
+        "prerequisites.json": _json_bytes(plan["prerequisites"]),
+        "detector.py": parsed.python_bytes,
+        "checks.json": _json_bytes({"interface": AUTHORING_INTERFACE_VERSION_V2}),
         "inputs.json": _json_bytes({"neutral": True, "operation": "inspect_record"}),
-        "source-hashes.json": _json_bytes({"neutral": _sha256(b"neutral-example-v1")}),
-        "observations.json": _json_bytes(example["required_observations"]),
-        "explanation.json": _json_bytes({"text": example["explanation"]}),
-        "examples.json": _json_bytes(example["examples"]),
+        "source-hashes.json": _json_bytes({"neutral": _sha256(b"neutral-example-v2")}),
+        "observations.json": _json_bytes(plan["required_observations"]),
+        "explanation.json": _json_bytes({"text": parsed.metadata["explanation"]}),
+        "examples.json": _json_bytes(parsed.metadata["examples"]),
     }
     package = build_package(
-        package_id="offline-neutral-example",
+        package_id="offline-neutral-example-v2",
         scenario_id="neutral-example",
         input_kind="scenario-handoff-v1",
-        source_digests={"neutral": _sha256(b"neutral-example-v1")},
+        source_digests={"neutral": _sha256(b"neutral-example-v2")},
         members=members,
-        authoring={"status": "scripted-offline-example"},
+        authoring={
+            "status": "scripted-offline-example",
+            "interface": AUTHORING_INTERFACE_VERSION_V2,
+        },
         runtime_capabilities={"detector": {"timeout_seconds": 10}},
         creation_model={"model": "maintained-neutral-example"},
     )

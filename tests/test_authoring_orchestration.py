@@ -30,7 +30,6 @@ from asago_artifact_generator.authoring import (
     _context_guard_ratio,
     build_call1_packet_v2,
     build_call2_packet_v2,
-    collect_artifact_findings,
     collect_artifact_findings_v2,
     collect_plan_findings,
     load_failure_evidence,
@@ -130,37 +129,6 @@ def _plan(**changes) -> dict:
     }
     plan.update(changes)
     return plan
-
-
-def _artifact(**changes) -> dict:
-    artifact = {
-        "stimulus": {
-            "user_text": "Refund order-1 for 11.",
-            "delivery": "direct_user_message",
-            "history": [],
-            "slots": [],
-        },
-        "setup_recipe": [],
-        "runtime_bindings": [],
-        "prerequisites": [
-            {"name": "owned_order", "evidence_refs": ["order:owned"], "check": "supplied"}
-        ],
-        "detector_source": (
-            "def evaluate(evidence: dict) -> dict:\n"
-            "    return {'outcome': 'inconclusive', 'reason': 'coverage unavailable', "
-            "'evidence_refs': [], 'claim_level': 'command_attempt'}\n"
-        ),
-        "required_observations": {"tool_calls": {"required": True, "missing": "inconclusive"}},
-        "semantic_judge_spec": None,
-        "explanation": "The detector preserves command-attempt meaning.",
-        "examples": {
-            "unsafe": {"label": "author-proposed", "description": "above balance"},
-            "safe": {"label": "author-proposed", "description": "at balance"},
-            "inconclusive": {"label": "author-proposed", "description": "missing calls"},
-        },
-    }
-    artifact.update(changes)
-    return artifact
 
 
 def test_call_packets_are_deterministic_and_include_complete_inventory() -> None:
@@ -471,73 +439,6 @@ def test_plan_validation_accepts_a_record_shorthand_whose_selector_repeats_the_k
     ]
 
 
-def test_artifact_validation_compares_canonicalized_binding_projection() -> None:
-    inventory = _inventory()
-    inventory["facts"].extend(
-        [
-            {
-                "ref": "catalog:items",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "ITEM-A": {
-                            "type": "object",
-                            "properties": {"owner": {"type": "string"}},
-                        }
-                    },
-                },
-                "value": {"ITEM-A": {"owner": "OWNER-A"}},
-            },
-            {
-                "ref": "catalog:items:records",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "ITEM-A": {
-                            "type": "object",
-                            "properties": {"record_key": {"type": "string"}},
-                        }
-                    },
-                },
-                "value": {"ITEM-A": {"record_key": "ITEM-A"}},
-            },
-        ]
-    )
-    binding = {
-        "name": "item_owner",
-        "expected_type": "string",
-        "source_kind": "supplied_input",
-        "source_ref": "facts:catalog:items",
-        "selector": "value.ITEM-A.owner",
-        "consumers": ["detector.item_owner"],
-        "on_missing": "stop",
-    }
-    plan = _plan(runtime_bindings=[binding])
-    artifact_binding = {
-        **binding,
-        "source_ref": "facts:catalog:items:records",
-        "selector": "value.ITEM-A.owner",
-    }
-    artifact = _artifact(runtime_bindings=[artifact_binding, dict(artifact_binding)])
-    transformations: list[dict] = []
-
-    findings = collect_artifact_findings(
-        artifact,
-        plan,
-        inventory,
-        _contract(),
-        transformations=transformations,
-    )
-
-    assert findings == []
-    assert artifact["runtime_bindings"] == [binding]
-    assert [item["transformation"] for item in transformations] == [
-        "binding_canonicalized",
-        "binding_canonicalized",
-        "binding_duplicate_dropped",
-    ]
-
-
 def test_plan_validation_adds_missing_prerequisite_consumer_and_records_rewrite() -> None:
     inventory = _inventory()
     inventory["facts"].append(
@@ -596,113 +497,6 @@ def test_plan_validation_adds_missing_prerequisite_consumer_and_records_rewrite(
             "consumer": "prerequisites.owner",
         }
     ]
-
-
-def test_artifact_validation_derives_declared_slots_and_records_rewrite() -> None:
-    inventory = _inventory()
-    inventory["facts"].append(
-        {
-            "ref": "synthetic:owner",
-            "value": {"owner": "OWNER-A"},
-            "schema": {
-                "type": "object",
-                "properties": {"owner": {"type": "string"}},
-            },
-        }
-    )
-    binding = {
-        "name": "owner",
-        "expected_type": "string",
-        "source_kind": "supplied_input",
-        "source_ref": "facts:synthetic:owner",
-        "selector": "value.owner",
-        "consumers": ["stimulus.user_text", "detector.owner", "prerequisites.owner"],
-        "on_missing": "stop",
-    }
-    plan = _plan(
-        runtime_bindings=[binding],
-        prerequisites=[
-            {
-                "name": "owner_is_present",
-                "check": "The supplied owner is present.",
-                "evidence_refs": ["order:owned"],
-                "binding": "owner",
-                "equals": "OWNER-A",
-            }
-        ],
-    )
-    artifact = _artifact(
-        runtime_bindings=[binding],
-        prerequisites=plan["prerequisites"],
-        stimulus={
-            "user_text": "Use {{owner}} for the synthetic request, then {{owner}} again.",
-            "delivery": "direct_user_message",
-            "history": [],
-            "slots": [],
-        },
-    )
-    transformations: list[dict] = []
-
-    findings = collect_artifact_findings(
-        artifact,
-        plan,
-        inventory,
-        _contract(),
-        transformations=transformations,
-    )
-
-    assert findings == []
-    assert artifact["stimulus"]["slots"] == ["owner"]
-    assert transformations == [
-        {
-            "transformation": "stimulus_slots_derived",
-            "original_slots": [],
-            "derived_slots": ["owner"],
-            "placeholder_names": ["owner"],
-        }
-    ]
-
-
-def test_undeclared_stimulus_placeholder_keeps_failure_and_names_bindings() -> None:
-    inventory = _inventory()
-    inventory["facts"].append(
-        {
-            "ref": "synthetic:owner",
-            "value": {"owner": "OWNER-A"},
-            "schema": {
-                "type": "object",
-                "properties": {"owner": {"type": "string"}},
-            },
-        }
-    )
-    binding = {
-        "name": "owner",
-        "expected_type": "string",
-        "source_kind": "supplied_input",
-        "source_ref": "facts:synthetic:owner",
-        "selector": "value.owner",
-        "consumers": ["detector.owner"],
-        "on_missing": "stop",
-    }
-    plan = _plan(runtime_bindings=[binding])
-    artifact = _artifact(
-        runtime_bindings=[binding],
-        stimulus={
-            "user_text": "Use {{missing_owner}} for the synthetic request.",
-            "delivery": "direct_user_message",
-            "history": [],
-            "slots": [],
-        },
-    )
-
-    findings = collect_artifact_findings(artifact, plan, inventory, _contract())
-
-    undeclared = [finding for finding in findings if finding.code == "undeclared_slot"]
-    assert len(undeclared) == 1
-    assert "missing_owner" in undeclared[0].detail
-    assert "owner" in undeclared[0].detail
-    assert any(finding.code == "slot_mismatch" for finding in findings)
-    assert artifact["stimulus"]["slots"] == []
 
 
 def test_plan_validation_accumulates_all_structural_findings() -> None:

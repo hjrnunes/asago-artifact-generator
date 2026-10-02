@@ -49,7 +49,6 @@ def _run_direct(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="provenance",
-        wire_version="v2",
         policy=policy or _no_review_policy(),
         budget=AuthoringBudget(
             aggregate_limit=20,
@@ -205,7 +204,6 @@ def test_private_transport_captures_provider_model_without_persisting_credential
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="private-credentials",
-        wire_version="v2",
         policy=_no_review_policy(),
         budget=AuthoringBudget(aggregate_limit=2, task_limit=2),
     ).run(_view(), _inventory(), _runtime_contract())

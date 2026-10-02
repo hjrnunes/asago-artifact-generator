@@ -245,7 +245,6 @@ def test_orchestrated_binding_review_revision_carries_repair_options(tmp_path: P
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="review-binding",
-        wire_version="v2",
         policy=AuthoringPolicy(),
     )
 

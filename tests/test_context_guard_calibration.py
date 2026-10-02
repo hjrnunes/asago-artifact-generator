@@ -201,7 +201,6 @@ def test_later_correction_overflow_does_not_spend_author_dispatch(tmp_path: Path
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="correction-overflow",
-        wire_version="v2",
         policy=AuthoringPolicy(),
         budget=budget,
     ).run(_view(), _inventory(), _runtime_contract())

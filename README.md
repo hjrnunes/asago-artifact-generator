@@ -32,7 +32,7 @@ SHA-256 digests without repeating those texts.
 The accepted Call 1 plan owns setup, bindings, prerequisites, evidence,
 assumptions, observation requirements, and judge decisions; Call 2 cannot
 resubmit those fields. Historical v1 readers remain explicit for preserved
-responses and packages.
+packages.
 
 ### Private authoring profiles
 
@@ -615,7 +615,7 @@ uv run asago-artifact-generator author scenario-handoff.json \
 
 Authoring uses only the configured private model client. It sets provider
 retries to zero, records prompts, raw and decoded responses, usage, controls,
-and one shared correction allowance, and never contacts a target, setup,
+and the stage-local correction allowances, and never contacts a target, setup,
 discovery, or runtime-judge transport. An essential unresolved requirement
 produces a retained `*.blocked.json` plan and no package. The package contains
 the model-authored detector source, user-only stimulus, exact runtime-binding

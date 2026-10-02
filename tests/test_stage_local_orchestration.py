@@ -51,7 +51,7 @@ def _orchestrator(
     tmp_path: Path,
     responses: list[object],
     *,
-    policy: AuthoringPolicy | None = None,
+    policy: AuthoringPolicy,
     budget: AuthoringBudget | None = None,
 ) -> tuple[AuthoringOrchestrator, ScriptedAuthoringTransport]:
     transport = ScriptedAuthoringTransport(responses)
@@ -61,7 +61,6 @@ def _orchestrator(
         task_id="stage-local",
         budget=budget,
         policy=policy,
-        wire_version="v2",
     )
     return orchestrator, transport
 
@@ -91,17 +90,18 @@ def test_legacy_no_correction_translates_both_stages_without_precedence() -> Non
         AuthoringPolicy(no_correction=True, artifact_max_corrections=2)
 
 
-def test_orchestrator_python_options_build_stage_policy_directly(tmp_path: Path) -> None:
+def test_orchestrator_records_the_supplied_stage_policy(tmp_path: Path) -> None:
     transport = ScriptedAuthoringTransport([json.dumps(_plan()), _framed()])
     orchestrator = AuthoringOrchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="direct-options",
-        wire_version="v2",
-        plan_max_corrections=0,
-        artifact_max_corrections=2,
-        review_plan=False,
-        review_artifact=False,
+        policy=AuthoringPolicy(
+            plan_max_corrections=0,
+            artifact_max_corrections=2,
+            review_plan=False,
+            review_artifact=False,
+        ),
     )
 
     result = orchestrator.run(_view(), _inventory(), _runtime_contract())
@@ -130,7 +130,6 @@ def test_reviewer_controls_record_profile_model_and_zero_temperature(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="review-controls",
-        wire_version="v2",
         policy=AuthoringPolicy(review_model_profile="reviewer-profile"),
     )
 

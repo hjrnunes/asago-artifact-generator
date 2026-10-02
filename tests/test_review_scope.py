@@ -51,7 +51,6 @@ def _orchestrator(tmp_path: Path, responses: list[object]) -> AuthoringOrchestra
         package_dir=tmp_path / "package",
         task_id="review-scope",
         policy=AuthoringPolicy(),
-        wire_version="v2",
     )
 
 
@@ -113,7 +112,6 @@ def test_only_in_scope_findings_reach_correction_prompt(tmp_path: Path) -> None:
         package_dir=tmp_path / "package",
         task_id="review-correction-scope",
         policy=AuthoringPolicy(),
-        wire_version="v2",
     )
 
     result = orchestrator.run(_view(), _inventory(), _runtime_contract())

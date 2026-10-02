@@ -391,7 +391,6 @@ def author(
         transport=transport,
         package_dir=package_dir,
         task_id=stable_task_id,
-        wire_version="v2",
         policy=policy,
         prior_author_correction_spend=prior_author_correction_spend,
         prior_review_spend=prior_review_spend,
