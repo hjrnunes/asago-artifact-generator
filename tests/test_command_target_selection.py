@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from asago_artifact_generator.detector_controls import (
     build_control_cases,
-    build_control_skips,
+    build_control_skips_for_runtime_contract,
     run_detector_controls,
 )
+
+from .support import ENABLED_CONTROLS_CONTRACT
 
 # Neutral domain: a caller edits a ticket owned by someone else.
 _CONDITION = {
@@ -157,7 +159,9 @@ def test_selected_record_command_without_a_lookup_is_detected() -> None:
 
 def test_pre_run_command_controls_withhold_cases_the_condition_does_not_decide() -> None:
     names = set(_by_name())
-    skips = build_control_skips(_plan(), {}, _inventory(), condition=_CONDITION)
+    skips = build_control_skips_for_runtime_contract(
+        ENABLED_CONTROLS_CONTRACT, _plan(), {}, _inventory(), condition=_CONDITION
+    )
 
     assert "command-equal-bound-negative" not in names
     assert "command-partial-with-witness" not in names

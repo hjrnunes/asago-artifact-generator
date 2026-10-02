@@ -590,18 +590,6 @@ def build_control_cases(
     return _build_controls(plan, metadata, inventory, condition)[0]
 
 
-def build_control_skips(
-    plan: Mapping[str, Any],
-    metadata: Mapping[str, Any],
-    inventory: Mapping[str, Any],
-    *,
-    condition: Mapping[str, Any] | None = None,
-) -> list[ControlSkip]:
-    """Name the generated controls withheld for want of a determinate expectation."""
-
-    return _build_controls(plan, metadata, inventory, condition)[1]
-
-
 def _build_controls(
     plan: Mapping[str, Any],
     metadata: Mapping[str, Any],
@@ -2499,7 +2487,6 @@ __all__ = [
     "ControlResult",
     "ControlSkip",
     "build_control_cases",
-    "build_control_skips",
     "describe_input_shapes",
     "ESTABLISHED_TRIGGER_ROLE",
     "established_trigger_operations",

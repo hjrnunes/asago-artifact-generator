@@ -17,14 +17,18 @@ from asago_artifact_generator.authoring.prompt_packets import (
 from asago_artifact_generator.detector_controls import (
     _base_evidence,
     build_control_cases,
-    build_control_skips,
+    build_control_skips_for_runtime_contract,
     executor_tool_result,
     run_detector_controls,
     uncited_trigger_observations,
 )
 from asago_artifact_generator.input_adapter import _framed_digest, load_input
 
-from .support import ScriptedAuthoringTransport, stage_local_orchestrator
+from .support import (
+    ENABLED_CONTROLS_CONTRACT,
+    ScriptedAuthoringTransport,
+    stage_local_orchestrator,
+)
 
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _NOT_CALLED = (
@@ -172,7 +176,12 @@ def test_omission_without_trigger_inverts_the_call_expectations() -> None:
     by_name = {case.name: case for case in cases}
     rejected = by_name["omission-call"].evidence["tool_calls"]
     assert [(call["name"], call["status"]) for call in rejected] == [("notify_owner", "rejected")]
-    assert build_control_skips(_plan(trigger=False), {}, _inventory(), condition=_OMISSION) == []
+    assert (
+        build_control_skips_for_runtime_contract(
+            ENABLED_CONTROLS_CONTRACT, _plan(trigger=False), {}, _inventory(), condition=_OMISSION
+        )
+        == ()
+    )
 
 
 def test_omission_controls_accept_an_omission_detector_and_reject_a_commission_one() -> None:
@@ -221,7 +230,9 @@ def test_omission_trigger_carries_the_plan_bound_supplied_result() -> None:
 def test_omission_trigger_without_a_supplied_result_skips_trigger_dependent_controls() -> None:
     plan = _plan(trigger=True, bind_result=False)
     cases = build_control_cases(plan, {}, _inventory(), condition=_OMISSION)
-    skips = build_control_skips(plan, {}, _inventory(), condition=_OMISSION)
+    skips = build_control_skips_for_runtime_contract(
+        ENABLED_CONTROLS_CONTRACT, plan, {}, _inventory(), condition=_OMISSION
+    )
 
     assert _expectations(cases) == {
         "missing-relevant-capture": "inconclusive",
@@ -265,7 +276,9 @@ def test_mixed_condition_withholds_the_detected_control() -> None:
         ]
     }
     cases = build_control_cases(_plan(trigger=False), {}, _inventory(), condition=condition)
-    skips = build_control_skips(_plan(trigger=False), {}, _inventory(), condition=condition)
+    skips = build_control_skips_for_runtime_contract(
+        ENABLED_CONTROLS_CONTRACT, _plan(trigger=False), {}, _inventory(), condition=condition
+    )
 
     assert "detected" not in _expectations(cases).values()
     assert [skip.name for skip in skips] == ["omission-no-call"]
@@ -277,7 +290,9 @@ def test_reply_level_omission_runs_judge_controls_in_the_violating_tool_context(
         "semantic_judge": {"needed": True, "scope": "improvised answer"},
     }
     cases = build_control_cases(plan, {}, _inventory(), condition=_OMISSION)
-    skips = build_control_skips(plan, {}, _inventory(), condition=_OMISSION)
+    skips = build_control_skips_for_runtime_contract(
+        ENABLED_CONTROLS_CONTRACT, plan, {}, _inventory(), condition=_OMISSION
+    )
 
     assert not [case for case in cases if case.name.startswith(("omission-", "command-"))]
     judge_cases = [case for case in cases if case.name.startswith("judge-")]
@@ -458,7 +473,12 @@ def test_observation_ref_names_the_trigger_and_supplies_its_result() -> None:
     assert [call["name"] for call in trigger] == ["check_widget"]
     assert trigger[0]["decoded_arguments"] == {"widget": "W-1"}
     assert trigger[0]["decoded_result"] == {"status": "missing"}
-    assert build_control_skips(plan, {}, _inventory(), condition=_OMISSION) == []
+    assert (
+        build_control_skips_for_runtime_contract(
+            ENABLED_CONTROLS_CONTRACT, plan, {}, _inventory(), condition=_OMISSION
+        )
+        == ()
+    )
 
     findings, records = run_detector_controls(_TRIGGERED_OMISSION_DETECTOR, cases=cases)
     assert findings == [], records
@@ -660,7 +680,12 @@ def test_established_trigger_detects_a_missing_call_without_a_captured_lookup() 
     )
     no_lookup_call = by_name["omission-established-call-no-lookup"].evidence["tool_calls"]
     assert [call["name"] for call in no_lookup_call] == ["notify_owner"]
-    assert build_control_skips(plan, {}, _inventory(), condition=_OMISSION) == []
+    assert (
+        build_control_skips_for_runtime_contract(
+            ENABLED_CONTROLS_CONTRACT, plan, {}, _inventory(), condition=_OMISSION
+        )
+        == ()
+    )
 
     findings, records = run_detector_controls(_ESTABLISHED_OMISSION_DETECTOR, cases=cases)
     assert findings == [], records

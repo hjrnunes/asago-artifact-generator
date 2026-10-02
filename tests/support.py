@@ -29,6 +29,9 @@ from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrato
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 from asago_artifact_generator.package_io import build_package, write_package
 
+# A runtime contract that makes the detector controls generate their own cases.
+ENABLED_CONTROLS_CONTRACT = {"detector_controls": {"enabled": True}}
+
 
 class ScriptedAuthoringTransport:
     """Deterministic transport used by tests and offline rehearsals."""

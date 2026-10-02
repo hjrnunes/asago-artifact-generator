@@ -10,9 +10,11 @@ from __future__ import annotations
 
 from asago_artifact_generator.detector_controls import (
     build_control_cases,
-    build_control_skips,
+    build_control_skips_for_runtime_contract,
     run_detector_controls,
 )
+
+from .support import ENABLED_CONTROLS_CONTRACT
 
 _RECORD_SELECTION = {
     "status": "observed",
@@ -166,7 +168,9 @@ def _cases(condition: dict | None, **plan_options) -> dict:
 def _skips(condition: dict | None) -> dict:
     return {
         skip.name: skip.reason
-        for skip in build_control_skips(_plan(), {}, _inventory(), condition=condition)
+        for skip in build_control_skips_for_runtime_contract(
+            ENABLED_CONTROLS_CONTRACT, _plan(), {}, _inventory(), condition=condition
+        )
     }
 
 
