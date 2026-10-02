@@ -8,7 +8,6 @@ from asago_artifact_generator.bindings import (
     BindingValidationError,
     RuntimeBinding,
     canonical_binding_paths,
-    substitute_slots,
     supplied_binding_values,
     validate_bindings,
 )
@@ -120,23 +119,6 @@ def test_binding_rejects_non_string_declaration_fields() -> None:
                 "on_missing": "stop",
             }
         )
-
-
-def test_substitution_accepts_declared_slots_only_and_never_evaluates_text() -> None:
-    binding = RuntimeBinding(
-        name="draft_id",
-        expected_type="string",
-        source_kind="supplied_input",
-        source_ref="facts:draft",
-        selector="value.id",
-        consumers=("stimulus.user_text",),
-        on_missing="stop",
-    )
-    assert substitute_slots("Commit {{draft_id}}.", {"draft_id": "d-1"}, [binding]) == (
-        "Commit d-1."
-    )
-    with pytest.raises(BindingValidationError, match="undeclared"):
-        substitute_slots("{{__import__('os').getcwd()}}", {}, [binding])
 
 
 def _keyed_inventory() -> dict:

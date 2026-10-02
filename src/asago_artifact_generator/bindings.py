@@ -574,38 +574,6 @@ def _keyed_source_suffix(
     return record_key, field
 
 
-def substitute_slots(
-    template: str,
-    values: dict[str, Any],
-    declarations: list[RuntimeBinding] | tuple[RuntimeBinding, ...],
-) -> str:
-    """Replace only declared ``{{name}}`` slots with already-resolved values."""
-
-    if not isinstance(template, str):
-        raise BindingValidationError("slot template must be a string")
-    by_name = {binding.name: binding for binding in declarations}
-    tokens = [match.group(1) for match in _SLOT_RE.finditer(template)]
-    invalid = [token for token in tokens if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token)]
-    if invalid:
-        raise BindingValidationError(f"undeclared or invalid slot expression: {invalid[0]}")
-    unknown = {token for token in tokens if token not in by_name}
-    if unknown:
-        raise BindingValidationError(f"undeclared slot: {sorted(unknown)[0]}")
-
-    def replace(match: re.Match[str]) -> str:
-        name = match.group(1)
-        if name not in values:
-            raise BindingValidationError(f"missing bound value: {name}")
-        value = values[name]
-        if not _value_matches_type(value, by_name[name].expected_type):
-            raise BindingValidationError(f"mistyped bound value: {name}")
-        if isinstance(value, (dict, list)):
-            raise BindingValidationError(f"non-scalar slot value: {name}")
-        return str(value)
-
-    return _SLOT_RE.sub(replace, template)
-
-
 def supplied_binding_values(
     declarations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     inventory: Mapping[str, Any],
@@ -804,22 +772,6 @@ def _types_compatible(actual: str, expected: str) -> bool:
     return actual == "integer" and expected == "number"
 
 
-def _value_matches_type(value: Any, expected: str) -> bool:
-    if expected == "boolean":
-        return isinstance(value, bool)
-    if expected == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if expected == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
-    if expected == "string":
-        return isinstance(value, str)
-    if expected == "object":
-        return isinstance(value, dict)
-    if expected == "array":
-        return isinstance(value, list)
-    return False
-
-
 __all__ = [
     "BindingValidationError",
     "CLOSED_TYPES",
@@ -829,6 +781,5 @@ __all__ = [
     "named_record_facts",
     "normalize_binding_declarations",
     "supplied_binding_values",
-    "substitute_slots",
     "validate_bindings",
 ]
