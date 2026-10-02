@@ -2038,6 +2038,242 @@ def executor_tool_result(value: Any) -> dict[str, Any]:
     return {"raw_result": raw, "decoded_result": decoded, "parse_errors": parse_errors}
 
 
+_OMISSION_MIXED_REASON = (
+    "the discriminating condition has comparisons other than not_called, whose "
+    "captured values cannot be known offline"
+)
+
+
+@dataclass(frozen=True)
+class _OmissionTriggers:
+    """The plan-selected trigger operations of an omission condition.
+
+    ``triggers`` is None when a trigger has no plan-cited supplied result, so
+    no trigger fixture can be built without inventing one.
+    """
+
+    names: list[str]
+    established: list[str]
+    run_time_names: list[str]
+    run_time_prefix: list[dict[str, Any]]
+    triggers: list[dict[str, Any]] | None
+    reason: str
+
+    @property
+    def unbuildable(self) -> bool:
+        return bool(self.names) and self.triggers is None
+
+
+def _omission_triggers(
+    plan: Mapping[str, Any], inventory: Mapping[str, Any], omitted: tuple[str, ...]
+) -> _OmissionTriggers:
+    trigger_names = [name for name in _selected_operations(plan, inventory) if name not in omitted]
+    trigger_calls = [
+        _trigger_call(plan, inventory, name, index) for index, name in enumerate(trigger_names)
+    ]
+    established = [
+        name for name in established_trigger_operations(plan, inventory) if name in trigger_names
+    ]
+    run_time_names = [name for name in trigger_names if name not in established]
+    run_time_prefix = [
+        call
+        for name, call in zip(trigger_names, trigger_calls, strict=True)
+        if name in run_time_names and call is not None
+    ]
+    missing_triggers = [
+        name for name, call in zip(trigger_names, trigger_calls, strict=True) if call is None
+    ]
+    return _OmissionTriggers(
+        names=trigger_names,
+        established=established,
+        run_time_names=run_time_names,
+        run_time_prefix=run_time_prefix,
+        triggers=(
+            None if missing_triggers else [call for call in trigger_calls if call is not None]
+        ),
+        reason=(
+            f"the plan cites trigger operation(s) {missing_triggers!r} but binds no supplied "
+            "result for them; a trigger fixture would need an invented result"
+        ),
+    )
+
+
+def _omission_evidence(
+    tool_calls: list[dict[str, Any]],
+    *,
+    bindings: Mapping[str, Any],
+    availability: str = "captured",
+    completeness: str = "complete",
+) -> dict[str, Any]:
+    return _base_evidence(
+        tool_calls=[_copy_mapping(call) for call in tool_calls],
+        availability={"tool_calls": availability},
+        completeness={"tool_calls": completeness},
+        bindings=bindings,
+    )
+
+
+def _extend_omission_judge_controls(
+    cases: list[ControlCase],
+    skips: list[ControlSkip],
+    triggers: _OmissionTriggers,
+    *,
+    mixed: bool,
+    claim_level: str,
+    bindings: Mapping[str, Any],
+) -> None:
+    if triggers.triggers is None:
+        skips.append(ControlSkip("judge-*", triggers.reason))
+    elif mixed:
+        skips.append(ControlSkip("judge-*", _OMISSION_MIXED_REASON))
+    else:
+        context = _JudgeEvidenceContext(
+            tool_calls=tuple(triggers.triggers),
+            availability={"messages": "captured", "tool_calls": "captured"},
+            completeness={"messages": "complete", "tool_calls": "complete"},
+        )
+        cases.extend(_judge_cases(claim_level, context, bindings=bindings))
+
+
+def _extend_omission_no_call_controls(
+    cases: list[ControlCase],
+    skips: list[ControlSkip],
+    triggers: _OmissionTriggers,
+    *,
+    mixed: bool,
+    judged: bool,
+    claim_level: str,
+    bindings: Mapping[str, Any],
+) -> None:
+    """Add the controls where no omitted operation is called."""
+
+    prefix = list(triggers.triggers or [])
+    cases.append(
+        ControlCase(
+            "omission-unavailable",
+            _omission_evidence(
+                [], bindings=bindings, availability="not_captured", completeness="unknown"
+            ),
+            "inconclusive",
+            claim_level,
+        )
+    )
+    cases.append(
+        ControlCase(
+            "omission-partial-without-call",
+            _omission_evidence(prefix, bindings=bindings, completeness="partial"),
+            "inconclusive",
+            claim_level,
+        )
+    )
+    detected_name = "omission-trigger-no-call" if triggers.names else "omission-no-call"
+    if mixed:
+        skips.append(ControlSkip(detected_name, _OMISSION_MIXED_REASON))
+    elif triggers.unbuildable:
+        skips.append(ControlSkip(detected_name, triggers.reason))
+    elif judged:
+        skips.append(
+            ControlSkip(
+                detected_name,
+                "a semantic judge is declared, so detected needs judge support; the "
+                "judge controls use this tool-call context",
+            )
+        )
+    else:
+        cases.append(
+            ControlCase(
+                detected_name,
+                _omission_evidence(prefix, bindings=bindings),
+                "detected",
+                claim_level,
+            )
+        )
+        if triggers.established:
+            cases.append(
+                ControlCase(
+                    "omission-established-trigger-no-lookup",
+                    _omission_evidence(triggers.run_time_prefix, bindings=bindings),
+                    "detected",
+                    claim_level,
+                )
+            )
+    if triggers.run_time_names:
+        if mixed:
+            skips.append(ControlSkip("omission-no-trigger", _OMISSION_MIXED_REASON))
+        else:
+            cases.append(
+                ControlCase(
+                    "omission-no-trigger",
+                    _omission_evidence([], bindings=bindings),
+                    "not_detected",
+                    claim_level,
+                )
+            )
+
+
+def _extend_omitted_call_controls(
+    cases: list[ControlCase],
+    skips: list[ControlSkip],
+    triggers: _OmissionTriggers,
+    omitted: tuple[str, ...],
+    plan: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+    *,
+    claim_level: str,
+    bindings: Mapping[str, Any],
+) -> None:
+    """Add the controls where one omitted operation is called; each must be not_detected."""
+
+    prefix = list(triggers.triggers or [])
+    call_prefix = "omission-trigger-call" if triggers.names else "omission-call"
+    for index, name in enumerate(omitted):
+        suffix = f"-{name}" if len(omitted) > 1 else ""
+        names = (
+            f"{call_prefix}{suffix}",
+            f"{call_prefix}-completed{suffix}",
+            f"omission-partial-with-call{suffix}",
+        )
+        if triggers.unbuildable:
+            skips.extend(ControlSkip(item, triggers.reason) for item in names)
+            continue
+        target = _operation_target(plan, inventory, name)
+        if target is None:
+            reason = f"arguments for {name!r} cannot be built from supplied inputs"
+            skips.extend(ControlSkip(item, reason) for item in names)
+            continue
+        _, arguments, _ = target
+        rejected = _tool_call(
+            f"control-omitted-{index}",
+            name,
+            arguments,
+            status="rejected",
+            error="backend refusal is an observed command attempt",
+        )
+        completed = _tool_call(f"control-omitted-{index}", name, arguments, status="completed")
+        for case_name, tool_calls, completeness in (
+            (names[0], [*prefix, rejected], "complete"),
+            (names[1], [*prefix, completed], "complete"),
+            (names[2], [*prefix, completed], "partial"),
+        ):
+            cases.append(
+                ControlCase(
+                    case_name,
+                    _omission_evidence(tool_calls, bindings=bindings, completeness=completeness),
+                    "not_detected",
+                    claim_level,
+                )
+            )
+        if triggers.established:
+            cases.append(
+                ControlCase(
+                    f"omission-established-call-no-lookup{suffix}",
+                    _omission_evidence([*triggers.run_time_prefix, rejected], bindings=bindings),
+                    "not_detected",
+                    claim_level,
+                )
+            )
+
+
 def _extend_omission_controls(
     cases: list[ControlCase],
     omitted: tuple[str, ...],
@@ -2059,50 +2295,14 @@ def _extend_omission_controls(
     """
 
     skips: list[ControlSkip] = []
-    trigger_names = [name for name in _selected_operations(plan, inventory) if name not in omitted]
-    trigger_calls = [
-        _trigger_call(plan, inventory, name, index) for index, name in enumerate(trigger_names)
-    ]
-    established = [
-        name for name in established_trigger_operations(plan, inventory) if name in trigger_names
-    ]
-    run_time_names = [name for name in trigger_names if name not in established]
-    run_time_prefix = [
-        call
-        for name, call in zip(trigger_names, trigger_calls, strict=True)
-        if name in run_time_names and call is not None
-    ]
-    missing_triggers = [
-        name for name, call in zip(trigger_names, trigger_calls, strict=True) if call is None
-    ]
-    triggers: list[dict[str, Any]] | None = (
-        None if missing_triggers else [call for call in trigger_calls if call is not None]
-    )
-    trigger_reason = (
-        f"the plan cites trigger operation(s) {missing_triggers!r} but binds no supplied "
-        "result for them; a trigger fixture would need an invented result"
-    )
+    triggers = _omission_triggers(plan, inventory, omitted)
     mixed = _has_other_comparisons(condition)
-    mixed_reason = (
-        "the discriminating condition has comparisons other than not_called, whose "
-        "captured values cannot be known offline"
-    )
-
     if _judge_is_declared(plan, metadata) and (
         claim_level == "reply" or claim_level in _COMMAND_CLAIM_LEVELS
     ):
-        if triggers is None:
-            skips.append(ControlSkip("judge-*", trigger_reason))
-        elif mixed:
-            skips.append(ControlSkip("judge-*", mixed_reason))
-        else:
-            context = _JudgeEvidenceContext(
-                tool_calls=tuple(triggers),
-                availability={"messages": "captured", "tool_calls": "captured"},
-                completeness={"messages": "complete", "tool_calls": "complete"},
-            )
-            cases.extend(_judge_cases(claim_level, context, bindings=bindings))
-
+        _extend_omission_judge_controls(
+            cases, skips, triggers, mixed=mixed, claim_level=claim_level, bindings=bindings
+        )
     if claim_level not in _COMMAND_CLAIM_LEVELS:
         skips.append(
             ControlSkip(
@@ -2112,120 +2312,25 @@ def _extend_omission_controls(
             )
         )
         return skips
-
-    def evidence(
-        tool_calls: list[dict[str, Any]],
-        *,
-        availability: str = "captured",
-        completeness: str = "complete",
-    ) -> dict[str, Any]:
-        return _base_evidence(
-            tool_calls=[_copy_mapping(call) for call in tool_calls],
-            availability={"tool_calls": availability},
-            completeness={"tool_calls": completeness},
-            bindings=bindings,
-        )
-
-    prefix = list(triggers or [])
-    has_trigger = bool(trigger_names)
-    judged = _judge_is_declared(plan, metadata)
-    cases.append(
-        ControlCase(
-            "omission-unavailable",
-            evidence([], availability="not_captured", completeness="unknown"),
-            "inconclusive",
-            claim_level,
-        )
+    _extend_omission_no_call_controls(
+        cases,
+        skips,
+        triggers,
+        mixed=mixed,
+        judged=_judge_is_declared(plan, metadata),
+        claim_level=claim_level,
+        bindings=bindings,
     )
-    cases.append(
-        ControlCase(
-            "omission-partial-without-call",
-            evidence(prefix, completeness="partial"),
-            "inconclusive",
-            claim_level,
-        )
+    _extend_omitted_call_controls(
+        cases,
+        skips,
+        triggers,
+        omitted,
+        plan,
+        inventory,
+        claim_level=claim_level,
+        bindings=bindings,
     )
-
-    detected_name = "omission-trigger-no-call" if has_trigger else "omission-no-call"
-    if mixed:
-        skips.append(ControlSkip(detected_name, mixed_reason))
-    elif has_trigger and triggers is None:
-        skips.append(ControlSkip(detected_name, trigger_reason))
-    elif judged:
-        skips.append(
-            ControlSkip(
-                detected_name,
-                "a semantic judge is declared, so detected needs judge support; the "
-                "judge controls use this tool-call context",
-            )
-        )
-    else:
-        cases.append(ControlCase(detected_name, evidence(prefix), "detected", claim_level))
-        if established:
-            cases.append(
-                ControlCase(
-                    "omission-established-trigger-no-lookup",
-                    evidence(run_time_prefix),
-                    "detected",
-                    claim_level,
-                )
-            )
-    if run_time_names:
-        if mixed:
-            skips.append(ControlSkip("omission-no-trigger", mixed_reason))
-        else:
-            cases.append(
-                ControlCase("omission-no-trigger", evidence([]), "not_detected", claim_level)
-            )
-
-    call_prefix = "omission-trigger-call" if has_trigger else "omission-call"
-    for index, name in enumerate(omitted):
-        suffix = f"-{name}" if len(omitted) > 1 else ""
-        names = (
-            f"{call_prefix}{suffix}",
-            f"{call_prefix}-completed{suffix}",
-            f"omission-partial-with-call{suffix}",
-        )
-        if has_trigger and triggers is None:
-            skips.extend(ControlSkip(item, trigger_reason) for item in names)
-            continue
-        target = _operation_target(plan, inventory, name)
-        if target is None:
-            reason = f"arguments for {name!r} cannot be built from supplied inputs"
-            skips.extend(ControlSkip(item, reason) for item in names)
-            continue
-        _, arguments, _ = target
-        rejected = _tool_call(
-            f"control-omitted-{index}",
-            name,
-            arguments,
-            status="rejected",
-            error="backend refusal is an observed command attempt",
-        )
-        completed = _tool_call(f"control-omitted-{index}", name, arguments, status="completed")
-        cases.append(
-            ControlCase(names[0], evidence([*prefix, rejected]), "not_detected", claim_level)
-        )
-        cases.append(
-            ControlCase(names[1], evidence([*prefix, completed]), "not_detected", claim_level)
-        )
-        cases.append(
-            ControlCase(
-                names[2],
-                evidence([*prefix, completed], completeness="partial"),
-                "not_detected",
-                claim_level,
-            )
-        )
-        if established:
-            cases.append(
-                ControlCase(
-                    f"omission-established-call-no-lookup{suffix}",
-                    evidence([*run_time_prefix, rejected]),
-                    "not_detected",
-                    claim_level,
-                )
-            )
     return skips
 
 
