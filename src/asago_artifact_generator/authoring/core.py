@@ -192,18 +192,6 @@ class PromptPacket:
         rendered = "\0".join((self.stage, self.version, self.system, self.user))
         return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
 
-    @property
-    def prompt_sha256(self) -> str:
-        """Compatibility spelling for evidence and review callers."""
-
-        return self.sha256
-
-    @property
-    def prompt_hash(self) -> str:
-        """Short compatibility spelling for rendered prompt consumers."""
-
-        return self.sha256
-
 
 @dataclass(frozen=True)
 class ParsedCall2Response:
@@ -217,12 +205,6 @@ class ParsedCall2Response:
         """Decode the source for syntax validation without changing its bytes."""
 
         return self.python_bytes.decode("utf-8")
-
-    @property
-    def detector_source(self) -> str:
-        """Compatibility name for callers that consume detector source text."""
-
-        return self.python_source
 
 
 class Call2FramingError(AuthoringError):

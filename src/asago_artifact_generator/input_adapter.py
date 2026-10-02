@@ -88,20 +88,6 @@ class InputView:
 
         return self.kind.value
 
-    @property
-    def source_hashes(self) -> dict[str, str]:
-        """Return source hashes in a package-friendly mapping."""
-
-        return dict(self.source_digests)
-
-    @property
-    def narrative_text(self) -> str:
-        """Return narrative content without changing its supplied wording."""
-
-        if isinstance(self.narrative, str):
-            return self.narrative
-        return self.narrative_bytes.decode("utf-8")
-
 
 def snapshot_input(source_path: str | Path, snapshot_dir: str | Path) -> SourceSnapshot:
     """Read one source and copy its exact bytes into a hash-addressed snapshot.
@@ -131,15 +117,6 @@ def snapshot_input(source_path: str | Path, snapshot_dir: str | Path) -> SourceS
         finally:
             temporary.unlink(missing_ok=True)
     return SourceSnapshot(str(path), digest, len(source_bytes), str(destination))
-
-
-def snapshot_inputs(
-    source_paths: list[str | Path] | tuple[str | Path, ...],
-    snapshot_dir: str | Path,
-) -> tuple[SourceSnapshot, ...]:
-    """Snapshot a supplied collection in caller order."""
-
-    return tuple(snapshot_input(path, snapshot_dir) for path in source_paths)
 
 
 def load_input(
@@ -290,12 +267,6 @@ def _validate_handoff_kit() -> None:
         member = _HANDOFF_ROOT / relative
         if not member.is_file() or _sha256(member.read_bytes()) != expected:
             raise InputSourceError(f"vendored handoff kit digest mismatch: {relative}")
-
-
-def validate_vendored_handoff_kit() -> None:
-    """Validate every producer-owned handoff-kit member before use."""
-
-    _validate_handoff_kit()
 
 
 def _validate_handoff_payload(payload: dict[str, Any]) -> None:
@@ -717,6 +688,4 @@ __all__ = [
     "SourceSnapshot",
     "load_input",
     "snapshot_input",
-    "snapshot_inputs",
-    "validate_vendored_handoff_kit",
 ]

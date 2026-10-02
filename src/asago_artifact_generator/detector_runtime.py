@@ -80,18 +80,6 @@ class DetectorExecution:
     stderr: bytes = b""
 
     @property
-    def runtime_failure(self) -> str | None:
-        """Expose the failure using the receipt vocabulary."""
-
-        return self.failure
-
-    @property
-    def runtime_status(self) -> str:
-        """Expose execution status without conflating it with the result."""
-
-        return self.status
-
-    @property
     def package_digest_before(self) -> str | None:
         """Expose the pre-execution package digest."""
 
@@ -102,12 +90,6 @@ class DetectorExecution:
         """Expose the pre-execution detector digest."""
 
         return self.detector_sha256
-
-    @property
-    def rich_result(self) -> dict[str, Any] | None:
-        """Expose the validated detector result for receipt writers."""
-
-        return self.result
 
     @property
     def garak_value(self) -> int | None:
