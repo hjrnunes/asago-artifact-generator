@@ -649,158 +649,23 @@ def collect_artifact_findings_v2(
             runtime_bindings,
             transformations=transformations,
         )
-    spec = metadata.get("semantic_judge_spec")
-    if (
-        isinstance(spec, dict)
-        and isinstance(spec.get("question"), str)
-        and not spec["question"].rstrip().endswith("?")
-    ):
-        findings.append(
-            Finding(
-                "semantic_judge_question_form",
-                (
-                    "semantic_judge_spec.question must be one yes/no question ending with "
-                    "a question mark, not an instruction. "
-                    + _SEMANTIC_JUDGE_SPEC_RULES["question"]
-                ),
-                "semantic_judge_spec.question",
-            )
-        )
+    findings.extend(_semantic_judge_question_findings(metadata.get("semantic_judge_spec")))
     stimulus = metadata.get("stimulus")
     if isinstance(stimulus, dict):
-        delivery = stimulus.get("delivery")
-        if delivery != plan.get("stimulus_approach", {}).get("delivery"):
-            findings.append(
-                Finding(
-                    "plan_conflict",
-                    "stimulus delivery differs from accepted plan",
-                    "stimulus.delivery",
-                )
-            )
-        if delivery not in runtime_contract.get("delivery", []):
-            findings.append(
-                Finding(
-                    "closed_value_error",
-                    f"undocumented delivery capability: {delivery}",
-                    "stimulus.delivery",
-                )
-            )
-        history = stimulus.get("history")
-        if isinstance(history, list):
-            for index, item in enumerate(history):
-                if (
-                    not isinstance(item, dict)
-                    or item.get("role") != "user"
-                    or not isinstance(item.get("content"), str)
-                    or set(item) - {"role", "content"}
-                ):
-                    findings.append(
-                        Finding(
-                            "non_user_history",
-                            "stimulus history may contain user messages only",
-                            f"stimulus.history[{index}]",
-                        )
-                    )
-        slots = stimulus.get("slots")
-        user_text = stimulus.get("user_text")
-        if isinstance(slots, list) and isinstance(user_text, str):
-            rendered_slots = _slot_names_in_order(user_text)
-            declared = _declared_binding_names(runtime_bindings)
-            undeclared = [slot for slot in rendered_slots if slot not in declared]
-            if not undeclared:
-                _normalize_stimulus_slots(
-                    stimulus,
-                    declared,
-                    transformations=transformations,
-                )
-                slots = stimulus.get("slots")
-            if slots != rendered_slots:
-                findings.append(
-                    Finding(
-                        "slot_mismatch", "stimulus slots do not match user_text", "stimulus.slots"
-                    )
-                )
-            for slot in rendered_slots:
-                if slot not in declared:
-                    findings.append(
-                        Finding(
-                            "undeclared_slot",
-                            (
-                                f"stimulus contains undeclared binding placeholder(s): "
-                                f"{', '.join(sorted(set(undeclared)))}; declared binding "
-                                f"names: {', '.join(sorted(declared)) or '(none)'}"
-                            ),
-                            f"stimulus.user_text:{slot}",
-                        )
-                    )
-        if isinstance(plan, dict) and isinstance(plan.get("runtime_bindings"), list):
-            values = supplied_binding_values(runtime_bindings, inventory)
-            for mismatch in find_stimulus_user_text_consumer_mismatches(
+        findings.extend(
+            _artifact_stimulus_findings(
+                stimulus,
+                plan,
+                inventory,
+                runtime_contract,
                 runtime_bindings,
-                user_text if isinstance(user_text, str) else "",
-                resolved_values=values,
-            ):
-                binding_index = mismatch["binding_index"]
-                consumer_index = mismatch["consumer_index"]
-                binding_name = mismatch["binding_name"]
-                if mismatch["value_available"]:
-                    detail = (
-                        f"binding {binding_name!r} declares stimulus.user_text, but its "
-                        "supplied value does not occur in authored stimulus.user_text; "
-                        f"remove that consumer or use {{{{{binding_name}}}}} in the "
-                        "user text. Session prerequisites and detector inputs do not "
-                        "belong in stimulus.user_text."
-                    )
-                else:
-                    detail = (
-                        f"binding {binding_name!r} declares stimulus.user_text, but its "
-                        "resolved value is not present in authored stimulus.user_text; "
-                        f"remove that consumer or use {{{{{binding_name}}}}} in the "
-                        "user text. A setup-derived value must use a declared slot."
-                    )
-                findings.append(
-                    Finding(
-                        "consumer_mismatch",
-                        detail,
-                        f"runtime_bindings[{binding_index}].consumers[{consumer_index}]",
-                    )
-                )
-    judge_spec = metadata.get("semantic_judge_spec")
-    needed = (
-        plan.get("semantic_judge", {}).get("needed")
-        if isinstance(plan.get("semantic_judge"), dict)
-        else None
-    )
-    if isinstance(needed, bool) and needed != (judge_spec is not None):
-        findings.append(
-            Finding(
-                "plan_conflict",
-                "semantic judge specification differs from accepted plan decision",
-                "semantic_judge_spec",
+                transformations=transformations,
             )
         )
+    judge_spec = metadata.get("semantic_judge_spec")
+    findings.extend(_semantic_judge_decision_findings(plan, judge_spec))
     if isinstance(judge_spec, dict):
-        refs = judge_spec.get("fact_refs")
-        facts = _inventory_fact_map(inventory)
-        if isinstance(refs, list):
-            for index, ref in enumerate(refs):
-                path = f"semantic_judge_spec.fact_refs[{index}]"
-                if not isinstance(ref, str) or ref not in facts:
-                    findings.append(
-                        Finding(
-                            "unknown_reference",
-                            f"unknown_reference: {ref}",
-                            path,
-                        )
-                    )
-                elif "value" not in facts[ref]:
-                    findings.append(
-                        Finding(
-                            "unresolved_fact",
-                            f"static fact has no supplied value: {ref}",
-                            path,
-                        )
-                    )
+        findings.extend(_semantic_judge_fact_ref_findings(judge_spec, inventory))
     if isinstance(plan, dict) and isinstance(plan.get("prerequisites"), list):
         declared_bindings = _declared_binding_names(plan.get("runtime_bindings"))
         findings.extend(
@@ -813,6 +678,224 @@ def collect_artifact_findings_v2(
                 transformations=transformations,
             )
         )
+    return findings
+
+
+def _semantic_judge_question_findings(spec: Any) -> list[Finding]:
+    if (
+        isinstance(spec, dict)
+        and isinstance(spec.get("question"), str)
+        and not spec["question"].rstrip().endswith("?")
+    ):
+        return [
+            Finding(
+                "semantic_judge_question_form",
+                (
+                    "semantic_judge_spec.question must be one yes/no question ending with "
+                    "a question mark, not an instruction. "
+                    + _SEMANTIC_JUDGE_SPEC_RULES["question"]
+                ),
+                "semantic_judge_spec.question",
+            )
+        ]
+    return []
+
+
+def _artifact_stimulus_findings(
+    stimulus: dict[str, Any],
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    runtime_bindings: Any,
+    *,
+    transformations: list[dict[str, Any]] | None,
+) -> list[Finding]:
+    findings = _stimulus_delivery_findings(stimulus.get("delivery"), plan, runtime_contract)
+    findings.extend(_stimulus_history_findings(stimulus.get("history")))
+    user_text = stimulus.get("user_text")
+    findings.extend(
+        _stimulus_slot_findings(stimulus, runtime_bindings, transformations=transformations)
+    )
+    if isinstance(plan, dict) and isinstance(plan.get("runtime_bindings"), list):
+        findings.extend(
+            _stimulus_consumer_findings(
+                runtime_bindings,
+                inventory,
+                user_text if isinstance(user_text, str) else "",
+            )
+        )
+    return findings
+
+
+def _stimulus_delivery_findings(
+    delivery: Any,
+    plan: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[Finding]:
+    findings: list[Finding] = []
+    if delivery != plan.get("stimulus_approach", {}).get("delivery"):
+        findings.append(
+            Finding(
+                "plan_conflict",
+                "stimulus delivery differs from accepted plan",
+                "stimulus.delivery",
+            )
+        )
+    if delivery not in runtime_contract.get("delivery", []):
+        findings.append(
+            Finding(
+                "closed_value_error",
+                f"undocumented delivery capability: {delivery}",
+                "stimulus.delivery",
+            )
+        )
+    return findings
+
+
+def _stimulus_history_findings(history: Any) -> list[Finding]:
+    if not isinstance(history, list):
+        return []
+    return [
+        Finding(
+            "non_user_history",
+            "stimulus history may contain user messages only",
+            f"stimulus.history[{index}]",
+        )
+        for index, item in enumerate(history)
+        if (
+            not isinstance(item, dict)
+            or item.get("role") != "user"
+            or not isinstance(item.get("content"), str)
+            or set(item) - {"role", "content"}
+        )
+    ]
+
+
+def _stimulus_slot_findings(
+    stimulus: dict[str, Any],
+    runtime_bindings: Any,
+    *,
+    transformations: list[dict[str, Any]] | None,
+) -> list[Finding]:
+    slots = stimulus.get("slots")
+    user_text = stimulus.get("user_text")
+    if not (isinstance(slots, list) and isinstance(user_text, str)):
+        return []
+    findings: list[Finding] = []
+    rendered_slots = _slot_names_in_order(user_text)
+    declared = _declared_binding_names(runtime_bindings)
+    undeclared = [slot for slot in rendered_slots if slot not in declared]
+    if not undeclared:
+        _normalize_stimulus_slots(
+            stimulus,
+            declared,
+            transformations=transformations,
+        )
+        slots = stimulus.get("slots")
+    if slots != rendered_slots:
+        findings.append(
+            Finding("slot_mismatch", "stimulus slots do not match user_text", "stimulus.slots")
+        )
+    for slot in rendered_slots:
+        if slot not in declared:
+            findings.append(
+                Finding(
+                    "undeclared_slot",
+                    (
+                        f"stimulus contains undeclared binding placeholder(s): "
+                        f"{', '.join(sorted(set(undeclared)))}; declared binding "
+                        f"names: {', '.join(sorted(declared)) or '(none)'}"
+                    ),
+                    f"stimulus.user_text:{slot}",
+                )
+            )
+    return findings
+
+
+def _stimulus_consumer_findings(
+    runtime_bindings: list[Any],
+    inventory: dict[str, Any],
+    user_text: str,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    values = supplied_binding_values(runtime_bindings, inventory)
+    for mismatch in find_stimulus_user_text_consumer_mismatches(
+        runtime_bindings,
+        user_text,
+        resolved_values=values,
+    ):
+        binding_index = mismatch["binding_index"]
+        consumer_index = mismatch["consumer_index"]
+        binding_name = mismatch["binding_name"]
+        if mismatch["value_available"]:
+            detail = (
+                f"binding {binding_name!r} declares stimulus.user_text, but its "
+                "supplied value does not occur in authored stimulus.user_text; "
+                f"remove that consumer or use {{{{{binding_name}}}}} in the "
+                "user text. Session prerequisites and detector inputs do not "
+                "belong in stimulus.user_text."
+            )
+        else:
+            detail = (
+                f"binding {binding_name!r} declares stimulus.user_text, but its "
+                "resolved value is not present in authored stimulus.user_text; "
+                f"remove that consumer or use {{{{{binding_name}}}}} in the "
+                "user text. A setup-derived value must use a declared slot."
+            )
+        findings.append(
+            Finding(
+                "consumer_mismatch",
+                detail,
+                f"runtime_bindings[{binding_index}].consumers[{consumer_index}]",
+            )
+        )
+    return findings
+
+
+def _semantic_judge_decision_findings(plan: dict[str, Any], judge_spec: Any) -> list[Finding]:
+    needed = (
+        plan.get("semantic_judge", {}).get("needed")
+        if isinstance(plan.get("semantic_judge"), dict)
+        else None
+    )
+    if isinstance(needed, bool) and needed != (judge_spec is not None):
+        return [
+            Finding(
+                "plan_conflict",
+                "semantic judge specification differs from accepted plan decision",
+                "semantic_judge_spec",
+            )
+        ]
+    return []
+
+
+def _semantic_judge_fact_ref_findings(
+    judge_spec: dict[str, Any],
+    inventory: dict[str, Any],
+) -> list[Finding]:
+    findings: list[Finding] = []
+    refs = judge_spec.get("fact_refs")
+    facts = _inventory_fact_map(inventory)
+    if not isinstance(refs, list):
+        return findings
+    for index, ref in enumerate(refs):
+        path = f"semantic_judge_spec.fact_refs[{index}]"
+        if not isinstance(ref, str) or ref not in facts:
+            findings.append(
+                Finding(
+                    "unknown_reference",
+                    f"unknown_reference: {ref}",
+                    path,
+                )
+            )
+        elif "value" not in facts[ref]:
+            findings.append(
+                Finding(
+                    "unresolved_fact",
+                    f"static fact has no supplied value: {ref}",
+                    path,
+                )
+            )
     return findings
 
 
