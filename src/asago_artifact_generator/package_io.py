@@ -133,44 +133,67 @@ def write_package(
     parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", suffix=".tmp", dir=parent))
     try:
-        for index, (relative, content) in enumerate(package.members.items(), start=1):
-            target = _contained_path(temporary, relative)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content)
-            if fail_after_members is not None and index >= fail_after_members:
-                raise RuntimeError("interrupted package write")
-        manifest_path = temporary / "manifest.json"
-        manifest_path.write_bytes(_canonical_json(package.manifest.to_dict()) + b"\n")
+        _write_package_files(temporary, package, fail_after_members=fail_after_members)
         loaded = load_package(temporary)
         if loaded.manifest.to_dict() != package.manifest.to_dict():
             raise PackageIntegrityError("package changed while writing")
-        backup: Path | None = None
-        if destination.exists() or destination.is_symlink():
-            backup = Path(
-                tempfile.mkdtemp(prefix=f".{destination.name}.backup.", suffix=".tmp", dir=parent)
-            )
-            backup.rmdir()
-            os.replace(destination, backup)
-        try:
-            os.replace(temporary, destination)
-        except Exception:
-            if destination.exists() or destination.is_symlink():
-                if destination.is_dir() and not destination.is_symlink():
-                    shutil.rmtree(destination)
-                else:
-                    destination.unlink()
-            if backup is not None and (backup.exists() or backup.is_symlink()):
-                os.replace(backup, destination)
-            raise
-        if backup is not None and (backup.exists() or backup.is_symlink()):
-            if backup.is_dir() and not backup.is_symlink():
-                shutil.rmtree(backup)
-            else:
-                backup.unlink()
+        backup = _move_existing_aside(destination, parent)
+        _replace_or_restore(temporary, destination, backup)
+        if backup is not None and _path_present(backup):
+            _remove_path(backup)
         return destination
     except Exception:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
+
+
+def _write_package_files(
+    temporary: Path,
+    package: ArtifactPackage,
+    *,
+    fail_after_members: int | None,
+) -> None:
+    for index, (relative, content) in enumerate(package.members.items(), start=1):
+        target = _contained_path(temporary, relative)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        if fail_after_members is not None and index >= fail_after_members:
+            raise RuntimeError("interrupted package write")
+    manifest_path = temporary / "manifest.json"
+    manifest_path.write_bytes(_canonical_json(package.manifest.to_dict()) + b"\n")
+
+
+def _move_existing_aside(destination: Path, parent: Path) -> Path | None:
+    if not _path_present(destination):
+        return None
+    backup = Path(
+        tempfile.mkdtemp(prefix=f".{destination.name}.backup.", suffix=".tmp", dir=parent)
+    )
+    backup.rmdir()
+    os.replace(destination, backup)
+    return backup
+
+
+def _replace_or_restore(temporary: Path, destination: Path, backup: Path | None) -> None:
+    try:
+        os.replace(temporary, destination)
+    except Exception:
+        if _path_present(destination):
+            _remove_path(destination)
+        if backup is not None and _path_present(backup):
+            os.replace(backup, destination)
+        raise
+
+
+def _path_present(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
 
 
 def load_package(path: str | Path) -> ArtifactPackage:
@@ -332,30 +355,42 @@ def _validate_manifest_fields(manifest: PackageManifest) -> None:
             raise PackageIntegrityError(f"manifest field is blank: {name}")
     if manifest.input_kind not in _INPUT_KINDS:
         raise PackageIntegrityError(f"unsupported package input kind: {manifest.input_kind}")
-    if (
-        not isinstance(manifest.source_digests, dict)
-        or not manifest.source_digests
-        or any(
-            not isinstance(key, str)
-            or not key
-            or not isinstance(value, str)
-            or len(value) != 64
-            or any(character not in "0123456789abcdef" for character in value)
-            for key, value in manifest.source_digests.items()
-        )
-    ):
+    if not _is_source_digest_map(manifest.source_digests):
         raise PackageIntegrityError("manifest source_digests must contain SHA-256 strings")
     for value in (
         manifest.authoring,
         manifest.runtime_capabilities,
         manifest.creation_model,
     ):
-        if value is not None and not isinstance(value, dict):
-            raise PackageIntegrityError("manifest metadata must be objects")
-        if value is not None and secret_metadata_paths(value):
-            raise PackageIntegrityError("manifest contains secret-bearing metadata")
+        _validate_manifest_metadata(value)
     if not isinstance(manifest.members, list):
         raise PackageIntegrityError("manifest members must be a list")
+
+
+def _is_source_digest_map(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and bool(value)
+        and all(
+            isinstance(key, str) and bool(key) and _is_sha256_hex(digest)
+            for key, digest in value.items()
+        )
+    )
+
+
+def _is_sha256_hex(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _validate_manifest_metadata(value: Any) -> None:
+    if value is not None and not isinstance(value, dict):
+        raise PackageIntegrityError("manifest metadata must be objects")
+    if value is not None and secret_metadata_paths(value):
+        raise PackageIntegrityError("manifest contains secret-bearing metadata")
 
 
 def _validate_package(package: ArtifactPackage) -> None:
