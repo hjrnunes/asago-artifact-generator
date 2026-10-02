@@ -1,3 +1,5 @@
+"""Supplied detector control cases: validation, origin marks, and deduplication."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence

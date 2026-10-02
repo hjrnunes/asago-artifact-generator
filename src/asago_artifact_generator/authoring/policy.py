@@ -1,3 +1,5 @@
+"""Authoring policy, request budget, per-role limits, and the authoring result."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -1,3 +1,5 @@
+"""Lookups over the supplied inventory and input view used by checks and prompts."""
+
 from __future__ import annotations
 
 from typing import Any

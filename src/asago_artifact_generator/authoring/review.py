@@ -1,3 +1,5 @@
+"""Plan and artifact review prompts, question sets, and review response parsing."""
+
 from __future__ import annotations
 
 from collections.abc import Collection

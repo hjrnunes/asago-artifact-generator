@@ -1,3 +1,9 @@
+"""Binding and reference repair options for correction prompts.
+
+These helpers list documented selectors, source references, and consumers
+that a correction may choose from; they never rewrite the plan themselves.
+"""
+
 from __future__ import annotations
 
 import json

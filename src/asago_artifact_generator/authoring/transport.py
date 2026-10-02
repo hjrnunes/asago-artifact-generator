@@ -1,3 +1,5 @@
+"""The OpenAI-compatible provider client used for private-model authoring."""
+
 from __future__ import annotations
 
 from copy import deepcopy

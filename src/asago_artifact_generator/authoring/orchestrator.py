@@ -1,3 +1,7 @@
+"""The authoring orchestrator: runs plan, artifact, review, and correction stages
+within the policy's request allowance and writes the package or failure evidence.
+"""
+
 from __future__ import annotations
 
 import json

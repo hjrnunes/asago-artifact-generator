@@ -1,3 +1,7 @@
+"""Provider response capture and JSON decoding; the final answer, reasoning, and
+finish reason stay separate.
+"""
+
 from __future__ import annotations
 
 import json

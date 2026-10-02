@@ -1,3 +1,5 @@
+"""Pre-dispatch prompt checks for secrets, data URLs, and duplicated chunks."""
+
 from __future__ import annotations
 
 import base64

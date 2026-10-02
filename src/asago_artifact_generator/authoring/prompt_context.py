@@ -1,3 +1,5 @@
+"""Deterministic author context views: supplied facts, owner scope, and guidance."""
+
 from __future__ import annotations
 
 import json

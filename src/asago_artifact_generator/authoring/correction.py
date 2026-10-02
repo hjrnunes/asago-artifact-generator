@@ -1,3 +1,5 @@
+"""Stage-local correction context and the rendered correction prompt."""
+
 from __future__ import annotations
 
 import json

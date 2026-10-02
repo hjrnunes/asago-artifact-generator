@@ -1,3 +1,7 @@
+"""Context-window guard: measured bytes-per-token calibration and the
+pre-dispatch estimate that rejects an oversized prompt without spending a request.
+"""
+
 from __future__ import annotations
 
 import math

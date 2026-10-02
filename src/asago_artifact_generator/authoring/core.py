@@ -1,3 +1,9 @@
+"""Shared authoring types, prompt versions, request limits, and small helpers.
+
+Errors, findings, prompt packets, and parsed responses live here so that the
+other submodules depend on one common base.
+"""
+
 from __future__ import annotations
 
 import hashlib

@@ -1,3 +1,5 @@
+"""Rendered Call 1 (plan) and Call 2 (artifact) prompt packets."""
+
 from __future__ import annotations
 
 from copy import deepcopy

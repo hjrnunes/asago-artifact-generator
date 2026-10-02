@@ -1,3 +1,5 @@
+"""Response contracts, field meanings, and neutral examples for each authoring call."""
+
 from __future__ import annotations
 
 import json

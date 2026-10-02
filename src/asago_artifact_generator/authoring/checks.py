@@ -1,3 +1,9 @@
+"""Closed structural checks for plan and artifact responses.
+
+This module parses the fenced Call 2 response and collects the deterministic
+findings that run before semantic review.
+"""
+
 from __future__ import annotations
 
 import ast

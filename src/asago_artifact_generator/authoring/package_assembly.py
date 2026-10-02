@@ -1,3 +1,5 @@
+"""Immutable package assembly from accepted responses, plus blocked-plan persistence."""
+
 from __future__ import annotations
 
 from copy import deepcopy
