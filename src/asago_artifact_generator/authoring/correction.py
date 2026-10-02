@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any
 
 from ..detector_controls import (
@@ -40,21 +42,41 @@ from .prompt_packets import _artifact_response_contract_for_prompt
 from .response_decode import _readable_response
 
 
-def _render_correction_packet(correction_context: dict[str, Any]) -> PromptPacket:
-    """Render one shared correction prompt for every artifact caller."""
+@dataclass
+class _CorrectionView:
+    """Values the correction packet sections read, derived once per packet."""
 
-    source_original_context = correction_context.get("original_context")
-    fact_ref_guidance = (
-        deepcopy(source_original_context.get("semantic_judge_fact_ref_guidance"))
-        if isinstance(source_original_context, dict)
-        and isinstance(source_original_context.get("semantic_judge_fact_ref_guidance"), dict)
-        else None
-    )
-    if fact_ref_guidance is None and isinstance(source_original_context, dict):
-        authoritative = source_original_context.get("authoritative_context")
-        facts = authoritative.get("facts") if isinstance(authoritative, dict) else None
-        if isinstance(facts, list):
-            fact_ref_guidance = _semantic_judge_fact_ref_guidance({"facts": facts})
+    context: dict[str, Any]
+    artifact: bool
+    original_context: dict[str, Any]
+    fact_ref_guidance: dict[str, Any] | None
+    plan_field_meanings: Any
+    neutral_outcome_example: Any
+    owner_scope: Any
+    observation_guide: Any
+    accepted_plan: Any
+    binding_repair_options: dict[str, Any] | None = None
+    reference_repair_options: dict[str, Any] | None = None
+
+
+_CorrectionSection = Callable[[_CorrectionView], "tuple[str, Any] | None"]
+
+
+def _correction_fact_ref_guidance(source_original_context: Any) -> dict[str, Any] | None:
+    if not isinstance(source_original_context, dict):
+        return None
+    guidance = source_original_context.get("semantic_judge_fact_ref_guidance")
+    if isinstance(guidance, dict):
+        return deepcopy(guidance)
+    authoritative = source_original_context.get("authoritative_context")
+    facts = authoritative.get("facts") if isinstance(authoritative, dict) else None
+    if isinstance(facts, list):
+        return _semantic_judge_fact_ref_guidance({"facts": facts})
+    return None
+
+
+def _correction_view(correction_context: dict[str, Any]) -> _CorrectionView:
+    fact_ref_guidance = _correction_fact_ref_guidance(correction_context.get("original_context"))
     original_context = _correction_prompt_context(correction_context["original_context"])
     plan_field_meanings = original_context.pop("plan_field_meanings", None)
     neutral_outcome_example = original_context.pop("neutral_outcome_example", None)
@@ -72,7 +94,8 @@ def _render_correction_packet(correction_context: dict[str, Any]) -> PromptPacke
         if isinstance(runtime_evidence_interface, dict)
         else None
     )
-    if correction_context.get("stage") == "artifact" and isinstance(runtime_contract, dict):
+    artifact = correction_context.get("stage") == "artifact"
+    if artifact and isinstance(runtime_contract, dict):
         observation = runtime_contract.get("observation")
         if isinstance(observation, dict):
             required_keys = _required_observation_keys(accepted_plan)
@@ -83,176 +106,267 @@ def _render_correction_packet(correction_context: dict[str, Any]) -> PromptPacke
             original_context["runtime_contract"] = {
                 "observation": runtime_observation,
             }
-    if correction_context.get("stage") == "artifact" and not isinstance(observation_guide, dict):
+    if artifact and not isinstance(observation_guide, dict):
         observation_guide = artifact_observation_guide(
             accepted_plan if isinstance(accepted_plan, dict) else {},
             runtime_contract if isinstance(runtime_contract, dict) else None,
             omission=_context_has_not_called(correction_context.get("original_context")),
         )
-    sections: list[tuple[str, Any]] = [
-        (
-            "FAILED STAGE",
-            {
-                "stage": correction_context["stage"],
-                "failed_stage": correction_context["failed_stage"],
-            },
-        ),
-    ]
-    if (
-        isinstance(accepted_plan, dict)
-        and isinstance(accepted_plan.get("semantic_judge"), dict)
-        and accepted_plan["semantic_judge"].get("needed") is False
+    return _CorrectionView(
+        context=correction_context,
+        artifact=artifact,
+        original_context=original_context,
+        fact_ref_guidance=fact_ref_guidance,
+        plan_field_meanings=plan_field_meanings,
+        neutral_outcome_example=neutral_outcome_example,
+        owner_scope=owner_scope,
+        observation_guide=observation_guide,
+        accepted_plan=accepted_plan,
+    )
+
+
+def _failed_stage_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    return (
+        "FAILED STAGE",
+        {
+            "stage": view.context["stage"],
+            "failed_stage": view.context["failed_stage"],
+        },
+    )
+
+
+def _fixed_plan_decision_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    plan = view.accepted_plan
+    if not (
+        isinstance(plan, dict)
+        and isinstance(plan.get("semantic_judge"), dict)
+        and plan["semantic_judge"].get("needed") is False
     ):
-        sections.append(
-            (
-                "FIXED PLAN DECISION",
-                "The accepted plan requires no semantic judge. semantic_judge_spec must be null. "
-                "This decision is fixed; correct the detector within it.",
-            )
-        )
-    sections.append(("ORIGINAL STAGE CONTEXT", original_context))
-    if owner_scope is not None:
-        sections.append((_OWNER_SCOPE_SECTION_TITLE, owner_scope))
-    supplied_stage_context = correction_context.get("supplied_stage_context")
-    if supplied_stage_context is not None:
-        sections.append(("SUPPLIED STAGE CONTEXT", supplied_stage_context))
-    if isinstance(observation_guide, dict):
-        sections.append(("OBSERVATION DECISION GUIDE", observation_guide))
-    if isinstance(plan_field_meanings, str) and (
-        correction_context.get("stage") != "artifact"
-        or correction_context.get("detector_feedback") is None
-    ):
-        sections.append(("PLAN FIELD MEANINGS", plan_field_meanings))
-    if isinstance(neutral_outcome_example, str):
-        sections.append(("NEUTRAL OUTCOME EXAMPLE", neutral_outcome_example))
+        return None
+    return (
+        "FIXED PLAN DECISION",
+        "The accepted plan requires no semantic judge. semantic_judge_spec must be null. "
+        "This decision is fixed; correct the detector within it.",
+    )
+
+
+def _original_stage_context_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    return ("ORIGINAL STAGE CONTEXT", view.original_context)
+
+
+def _owner_scope_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    if view.owner_scope is None:
+        return None
+    return (_OWNER_SCOPE_SECTION_TITLE, view.owner_scope)
+
+
+def _supplied_stage_context_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    supplied_stage_context = view.context.get("supplied_stage_context")
+    if supplied_stage_context is None:
+        return None
+    return ("SUPPLIED STAGE CONTEXT", supplied_stage_context)
+
+
+def _observation_guide_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    if not isinstance(view.observation_guide, dict):
+        return None
+    return ("OBSERVATION DECISION GUIDE", view.observation_guide)
+
+
+def _plan_field_meanings_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    if not isinstance(view.plan_field_meanings, str):
+        return None
+    if view.artifact and view.context.get("detector_feedback") is not None:
+        return None
+    return ("PLAN FIELD MEANINGS", view.plan_field_meanings)
+
+
+def _neutral_outcome_example_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    if not isinstance(view.neutral_outcome_example, str):
+        return None
+    return ("NEUTRAL OUTCOME EXAMPLE", view.neutral_outcome_example)
+
+
+def _fact_ref_guidance_section(view: _CorrectionView) -> tuple[str, Any] | None:
     unknown_fact_ref_findings = [
         finding
-        for finding in correction_context.get("findings", [])
+        for finding in view.context.get("findings", [])
         if isinstance(finding, dict)
         and finding.get("code") == "unknown_reference"
         and str(finding.get("path", "")).startswith("semantic_judge_spec.fact_refs[")
     ]
-    if (
-        correction_context.get("stage") == "artifact"
-        and unknown_fact_ref_findings
-        and isinstance(fact_ref_guidance, dict)
+    if not (
+        view.artifact and unknown_fact_ref_findings and isinstance(view.fact_ref_guidance, dict)
     ):
-        sections.append(
-            (
-                "SEMANTIC JUDGE FACT REFERENCE GUIDANCE",
-                {
-                    **fact_ref_guidance,
-                    "triggered_findings": unknown_fact_ref_findings,
-                },
-            )
-        )
-    if correction_context.get("stage") == "artifact":
-        evidence_interface = correction_context.get(
-            "evidence_packet_interface",
-            _render_evidence_packet_interface(
-                claim_level=_plan_claim_level(accepted_plan),
-                required_observations=(
-                    accepted_plan.get("required_observations")
-                    if isinstance(accepted_plan, dict)
-                    else None
-                ),
-                semantic_judge_needed=_plan_semantic_judge_needed(accepted_plan),
-            ),
-        )
-        if correction_context.get("detector_feedback") and isinstance(evidence_interface, str):
-            # Exact control packets already demonstrate the input shape. Keep
-            # the path/result contract, without a second unrelated input example.
-            interface_view = json.loads(evidence_interface)
-            interface_view.pop("full_example", None)
-            interface_view.pop("full_example_label", None)
-            evidence_interface = _canonical_json(interface_view)
-        sections.append(
-            (
-                "RUNTIME EVIDENCE INTERFACE",
-                evidence_interface,
-            )
-        )
-    binding_repair_options = _binding_repair_options_for_correction(correction_context)
-    sections.extend(
-        (
-            (
-                "RESPONSE CONTRACT",
-                (
-                    _artifact_response_contract_for_prompt(
-                        correction_context["response_contract"],
-                        correction=True,
-                    )
-                    if correction_context.get("stage") == "artifact"
-                    else correction_context["response_contract"]
-                ),
-            ),
-            (
-                "CURRENT OUTPUT",
-                _correction_current_output_view(
-                    correction_context["current_output"],
-                    artifact=correction_context.get("stage") == "artifact",
-                ),
-            ),
-            ("CURRENT FINDINGS", _correction_findings_view(correction_context["findings"])),
-        )
+        return None
+    return (
+        "SEMANTIC JUDGE FACT REFERENCE GUIDANCE",
+        {
+            **view.fact_ref_guidance,
+            "triggered_findings": unknown_fact_ref_findings,
+        },
     )
-    reference_repair_options = _reference_repair_options_for_correction(correction_context)
-    if reference_repair_options is not None:
-        sections.append(("REFERENCE REPAIR OPTIONS", reference_repair_options))
-    if binding_repair_options is not None:
-        sections.append(
-            (
-                "BINDING REPAIR OPTION FIELDS",
-                {
-                    "description": binding_repair_options["description"],
-                    "field_descriptions": binding_repair_options["field_descriptions"],
-                },
+
+
+def _runtime_evidence_interface_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    if not view.artifact:
+        return None
+    accepted_plan = view.accepted_plan
+    evidence_interface = view.context.get(
+        "evidence_packet_interface",
+        _render_evidence_packet_interface(
+            claim_level=_plan_claim_level(accepted_plan),
+            required_observations=(
+                accepted_plan.get("required_observations")
+                if isinstance(accepted_plan, dict)
+                else None
+            ),
+            semantic_judge_needed=_plan_semantic_judge_needed(accepted_plan),
+        ),
+    )
+    if view.context.get("detector_feedback") and isinstance(evidence_interface, str):
+        # Exact control packets already demonstrate the input shape. Keep
+        # the path/result contract, without a second unrelated input example.
+        interface_view = json.loads(evidence_interface)
+        interface_view.pop("full_example", None)
+        interface_view.pop("full_example_label", None)
+        evidence_interface = _canonical_json(interface_view)
+    return ("RUNTIME EVIDENCE INTERFACE", evidence_interface)
+
+
+def _response_contract_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    return (
+        "RESPONSE CONTRACT",
+        (
+            _artifact_response_contract_for_prompt(
+                view.context["response_contract"],
+                correction=True,
             )
-        )
-        sections.append(
-            (
-                "BINDING REPAIR OPTIONS",
-                {"options": binding_repair_options["options"]},
-            )
-        )
-    if correction_context.get("detector_feedback") is not None:
-        sections.append(
-            (
-                "DETECTOR CONTROL FEEDBACK",
-                _correction_detector_feedback_view(correction_context["detector_feedback"]),
-            )
-        )
-    correction_instruction = correction_context["instruction"]
-    if correction_context.get("stage") == "artifact":
+            if view.artifact
+            else view.context["response_contract"]
+        ),
+    )
+
+
+def _current_output_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    return (
+        "CURRENT OUTPUT",
+        _correction_current_output_view(view.context["current_output"], artifact=view.artifact),
+    )
+
+
+def _current_findings_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    return ("CURRENT FINDINGS", _correction_findings_view(view.context["findings"]))
+
+
+def _reference_repair_options_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    if view.reference_repair_options is None:
+        return None
+    return ("REFERENCE REPAIR OPTIONS", view.reference_repair_options)
+
+
+def _binding_repair_option_fields_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    options = view.binding_repair_options
+    if options is None:
+        return None
+    return (
+        "BINDING REPAIR OPTION FIELDS",
+        {
+            "description": options["description"],
+            "field_descriptions": options["field_descriptions"],
+        },
+    )
+
+
+def _binding_repair_options_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    if view.binding_repair_options is None:
+        return None
+    return ("BINDING REPAIR OPTIONS", {"options": view.binding_repair_options["options"]})
+
+
+def _detector_control_feedback_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    if view.context.get("detector_feedback") is None:
+        return None
+    return (
+        "DETECTOR CONTROL FEEDBACK",
+        _correction_detector_feedback_view(view.context["detector_feedback"]),
+    )
+
+
+def _correction_instructions_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    correction_instruction = view.context["instruction"]
+    if view.artifact:
         correction_instruction += " " + _CURRENT_ARTIFACT_CORRECTION_GUIDANCE
-    sections.append(
-        (
-            "CORRECTION INSTRUCTIONS",
-            {
-                "instruction": correction_instruction,
-                "format": correction_context["format"],
-                "accepted_plan_fixed": correction_context["accepted_plan_fixed"],
-            },
-        )
+    return (
+        "CORRECTION INSTRUCTIONS",
+        {
+            "instruction": correction_instruction,
+            "format": view.context["format"],
+            "accepted_plan_fixed": view.context["accepted_plan_fixed"],
+        },
     )
-    if "prior_unresolved_findings" in correction_context:
-        sections.append(
-            (
-                "PRIOR UNRESOLVED FINDINGS",
-                correction_context["prior_unresolved_findings"],
-            )
-        )
+
+
+def _prior_unresolved_findings_section(view: _CorrectionView) -> tuple[str, Any] | None:
+    if "prior_unresolved_findings" not in view.context:
+        return None
+    return ("PRIOR UNRESOLVED FINDINGS", view.context["prior_unresolved_findings"])
+
+
+# The packet's section order.  The binding repair options are computed after
+# the context sections and the reference repair options after the output
+# sections, so the three groups also fix the order of those computations.
+_CORRECTION_CONTEXT_SECTIONS: tuple[_CorrectionSection, ...] = (
+    _failed_stage_section,
+    _fixed_plan_decision_section,
+    _original_stage_context_section,
+    _owner_scope_section,
+    _supplied_stage_context_section,
+    _observation_guide_section,
+    _plan_field_meanings_section,
+    _neutral_outcome_example_section,
+    _fact_ref_guidance_section,
+    _runtime_evidence_interface_section,
+)
+_CORRECTION_OUTPUT_SECTIONS: tuple[_CorrectionSection, ...] = (
+    _response_contract_section,
+    _current_output_section,
+    _current_findings_section,
+)
+_CORRECTION_REPAIR_SECTIONS: tuple[_CorrectionSection, ...] = (
+    _reference_repair_options_section,
+    _binding_repair_option_fields_section,
+    _binding_repair_options_section,
+    _detector_control_feedback_section,
+    _correction_instructions_section,
+    _prior_unresolved_findings_section,
+)
+
+
+def _rendered_sections(
+    view: _CorrectionView, renderers: tuple[_CorrectionSection, ...]
+) -> list[tuple[str, Any]]:
+    return [section for render in renderers if (section := render(view)) is not None]
+
+
+def _render_correction_packet(correction_context: dict[str, Any]) -> PromptPacket:
+    """Render one shared correction prompt for every artifact caller."""
+
+    view = _correction_view(correction_context)
+    sections = _rendered_sections(view, _CORRECTION_CONTEXT_SECTIONS)
+    view.binding_repair_options = _binding_repair_options_for_correction(correction_context)
+    sections += _rendered_sections(view, _CORRECTION_OUTPUT_SECTIONS)
+    view.reference_repair_options = _reference_repair_options_for_correction(correction_context)
+    sections += _rendered_sections(view, _CORRECTION_REPAIR_SECTIONS)
     payload = deepcopy(correction_context)
-    if binding_repair_options is not None:
-        payload["binding_repair_options"] = binding_repair_options
-    if reference_repair_options is not None:
-        payload["reference_repair_options"] = reference_repair_options
+    if view.binding_repair_options is not None:
+        payload["binding_repair_options"] = view.binding_repair_options
+    if view.reference_repair_options is not None:
+        payload["reference_repair_options"] = view.reference_repair_options
     packet = PromptPacket(
         stage="correction",
         version=(
-            CORRECTION_PROMPT_VERSION_V25
-            if correction_context.get("stage") == "artifact"
-            else CORRECTION_PROMPT_VERSION_V27
+            CORRECTION_PROMPT_VERSION_V25 if view.artifact else CORRECTION_PROMPT_VERSION_V27
         ),
         system=_CORRECTION_SYSTEM_V5,
         user=_render_correction_sections(tuple(sections)),
