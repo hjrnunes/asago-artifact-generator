@@ -1,6 +1,9 @@
 # Policy-Driven Agentic Red Teaming
 
-Takes pre-built **scenario** YAMLs, classifies their injection surface, and generates red-teaming artifacts that can be run on downstream evaluation platforms.
+Turns producer scenario handoffs into target-free, testable artifact packages:
+a stimulus, setup declarations, runtime bindings, and a detector that
+downstream tooling executes.
+
 ## Primary delivery workflow
 
 Run the target-free consumer workflow from this repository root:
@@ -12,7 +15,9 @@ uv run asago-artifact-generator author <scenario-handoff.json> \
   --target-profile <execution-target-profile.json> \
   --target-observations <runtime-context.json> \
   --runtime-contract <runtime-contract.json> \
-  --output-dir runs/authoring/<case-id>
+  --output-dir runs/authoring/<case-id> \
+  --profile <profile-name> \
+  --profiles-file /absolute/path/to/asago-scenario-generator/config/model-profiles.yaml
 uv run asago-artifact-generator check runs/authoring/<case-id>/<case-id> \
   --evidence <evidence.json>
 ```
@@ -109,9 +114,8 @@ rejects the request. The measurement values live in
 Every guard result labels the value `estimated_prompt_tokens`; provider usage
 remains separate. A rejected prompt returns `prompt_overflow` and spends no
 provider request or author/reviewer dispatch.
-If you omit `--profile`, existing environment-only configuration remains
-supported when it provides a real API key; an absent key fails closed instead
-of using a placeholder credential.
+`author` requires `--profile`; it reads no endpoint, model, or API key from
+the environment.
 
 ### Stage-local corrections and semantic review
 
@@ -123,6 +127,8 @@ uv run asago-artifact-generator author <scenario-handoff.json> \
   --target-profile <execution-target-profile.json> \
   --target-observations <runtime-context.json> \
   --runtime-contract <runtime-contract.json> \
+  --profile <profile-name> \
+  --profiles-file <profiles.yaml> \
   --plan-max-corrections 1 \
   --artifact-max-corrections 1 \
   --review-plan/--no-review-plan \
@@ -429,10 +435,6 @@ export ASAGO_SCENARIO_GENERATOR_APS_ROOT=/absolute/path/to/Acceptance-Pipeline-S
 ./scripts/acceptance.sh
 ```
 
-The old `generate` command remains a read-only compatibility path for
-historical scenario YAMLs. Migrate new work to `run` → `author` → `check`;
-do not use `generate` as the primary workflow or add another legacy command.
-
 ## Setup
 
 Asago Artifact Generator requires Python 3.11 or newer. The lock file is the
@@ -440,89 +442,11 @@ authoritative development environment.
 
 ```bash
 uv sync --locked
-cp .env.example .env   # set GEMINI_API_KEY or configure Ollama
 ```
 
 The installed command is `asago-artifact-generator` and the Python package is
-`asago_artifact_generator`.
-
-Supported LLM backends: **Gemini** (default when `GEMINI_API_KEY` is set), **OpenAI**, **Ollama**, Hugging Face, or OpenRouter.
-
-`REDTEAM_MAX_TOKENS`, `REDTEAM_MAX_COMPLETION_TOKENS`, and
-`REDTEAM_REASONING_EFFORT` are provider-agnostic request settings: they are
-passed to whichever configured backend is selected. The provider and model
-must support each option, and limits or behavior can vary between backends.
-
-Set at most one of `REDTEAM_MAX_TOKENS` or
-`REDTEAM_MAX_COMPLETION_TOKENS`, depending on which parameter the selected
-model/API supports. They are sent as `max_tokens` and
-`max_completion_tokens`, respectively, on any connector. If neither is set,
-no completion limit is added. The limit includes reasoning tokens for models
-that expose reasoning, so increase it when a model stops with
-`finish_reason=length` before returning JSON. For example:
-
-```bash
-REDTEAM_MAX_TOKENS=16000
-# or, for APIs/models that require the newer parameter:
-REDTEAM_MAX_COMPLETION_TOKENS=16000
-```
-
-For compatible reasoning models, `REDTEAM_REASONING_EFFORT` can be set to
-`none`, `low`, `medium`, `high`, or `max`. Do not set it for providers or models
-that reject the option. Lower effort leaves more of the completion budget for
-the JSON artifact; for example:
-
-```bash
-REDTEAM_REASONING_EFFORT=low
-```
-
-## How it works
-
-1. **Classify** the injection surface from `narrative.entry_point` (`input` → `user_turn`, `tool_execution` → `tool_return`). Supply chain threats (`threat_name`) skip with no coverage.
-2. **Skip** surfaces the target platform cannot express (including supply chain).
-3. **Generate** a red-teaming artifact for that platform (transcript + detector rubric).
-4. **Validate** does the artifact pass all checks (`ok` / `errors`).
-5. **Gate** platform coverage: `full`, `partial`, or `skip`.
-
-## Supported platforms
-
-| Platform | Status | Details |
-|----------|--------|---------|
-| [Garak](https://github.com/NVIDIA/garak) | Supported | See `src/asago_artifact_generator/garak/` |
-| [AgentDojo](https://github.com/ethz-spylab/agentdojo) | Planned | — |
-| [PyRIT](https://github.com/Azure/PyRIT) | Planned | — |
-
-Each platform generator lives in its own subpackage under
-`src/asago_artifact_generator/` and writes artifacts under `runs/`.
-
-## Legacy `generate` compatibility
-
-```bash
-# One scenario
-uv run asago-artifact-generator generate examples/scenarios/AP-T2-01-28712e.yaml --force -v
-
-# All scenarios in examples/scenarios/
-uv run asago-artifact-generator generate -v
-```
-
-Use `author` for new target-free artifact work. Keep `generate` for
-historical scenario YAML compatibility only.
-
-| Flag | Effect |
-|------|--------|
-| `--force` | Write garak JSON even when structural validation fails |
-| `--dry-run` | Classify + LLM + validate only — no files written |
-| `--no-llm` | Skip LLM (useful to test pre-plan surface skips) |
-| `--output-dir DIR` | Override default `runs/` output directory |
-| `-v` | Verbose logging |
-
-### Pipeline
-
-1. **Classify** injection surface from `narrative.entry_point` (`input` → `user_turn`, `tool_execution` → `tool_return`). `threat_name` containing “supply chain” is `none` (no coverage).
-2. **Skip** unwritable surfaces (supply chain / `none`) — writes a minimal artifact without calling the LLM.
-3. **Generate** artifact via one-shot LLM (`prompts/generate_artifact.md`).
-4. **Validate** structural gates (rubric completeness, surface/turn alignment, schema). 
-5. **Gate** platform coverage: `full`, `partial`, or `skip` .
+`asago_artifact_generator`. Live authoring reads its endpoint, model, and
+credential from the named profile passed to `author --profile`.
 
 ## Source-pinned artifact foundation
 
@@ -597,8 +521,7 @@ directory atomically, and `load_package` verifies its manifest, member paths,
 lengths, and digests before returning content. A package containing `judge.json`
 receives a runner-normalized `evidence.judge` object with only `verdict`,
 `evidence_refs`, and `reason`; judge audit fields remain in downstream receipts,
-not in detector input. Runtime receipts remain outside the immutable package. The
-existing `generate` command remains the legacy compatibility path.
+not in detector input. Runtime receipts remain outside the immutable package.
 
 ### Target-free authoring
 
@@ -610,7 +533,9 @@ uv run asago-artifact-generator author scenario-handoff.json \
   --target-profile execution-target-profile.json \
   --target-observations runtime-context.json \
   --runtime-contract runtime-contract.json \
-  --output-dir runs/authoring
+  --output-dir runs/authoring \
+  --profile <profile-name> \
+  --profiles-file <profiles.yaml>
 ```
 
 Authoring uses only the configured private model client. It sets provider
@@ -724,58 +649,6 @@ validator applies the same rule to `stimulus_approach.request`, and rejects a
 request slot that names no declared binding, so plan correction can repair the
 binding before the artifact stage freezes the plan.
 
-## Output layout
-
-Each scenario gets its own directory under `runs/`:
-
-```
-runs/
-  manifest.json
-  AP-T2-01-28712e/
-    AP-T2-01-28712e-garak.json    # Garak artifact
-    validation.json               # structural gate result
-```
-
-**`{scenario_id}-garak.json`** — Garak artifact (transcript + detector predicates):
-
-- `scenario_id`, `injection_surface`, `platform_coverage` (`full` | `partial` | `null` for skips)
-- `narrative.summary`
-- `disclosure` — `"This artifact contains AI generated content"`
-- `model` — LLM used for generation (`null` on skip)
-- `timestamp` — UTC ISO time when the artifact was written
-- `turns[]` with adversarial attack turn
-- `detector_rubric` (judge prompt + success/blocked rubrics)
-
-**`validation.json`** — sidecar from the structural gate:
-
-```json
-{
-  "ok": true,
-  "checks": "Artifact structural gate after LLM generation: ...",
-  "errors": []
-}
-```
-
-Skipped scenarios (supply chain / unwritable surfaces) get a pre-plan `checks` string and no LLM call.
-
-**`manifest.json`** — batch summary (`ok`, `gate_result`, `gate_reason`, `artifact_path`, optional `errors` per scenario). `gate_result` is coverage only.
-
-## Interactive demo
-
-End-to-end Jupyter walkthrough (API key → scenario YAML → artifact → Garak `toolchat.ToolChat` attack).
-
-From the **repository root**:
-
-```bash
-uv sync --locked
-uv pip install ipywidgets jupyter ipykernel
-uv run python -m ipykernel install --user --name asago-artifact-generator --display-name "asago-artifact-generator"
-cp .env.example .env   # set GEMINI_API_KEY or GOOGLE_API_KEY
-uv run jupyter notebook examples/demo/garak-artifact-demo.ipynb
-```
-
-In Cursor / VS Code, pick this repo’s `.venv` as the notebook kernel. Gemini is a first-class provider (`GEMINI_API_KEY` or `GOOGLE_API_KEY`).
-
 ## Development
 
 ```bash
@@ -788,30 +661,12 @@ The unit test suite is deterministic and does not require an LLM endpoint.
 ## Project structure
 
 ```
-├── src/asago_artifact_generator/    # shared models, LLM client, CLI
-│   └── garak/                        # Garak platform generator
-│       ├── plugins/                  # probe + detector sources
-│       └── prompts/                  # generation prompt
+├── src/asago_artifact_generator/    # authoring, packages, detector runtime, CLI
+├── contracts/                        # vendored and consumer-owned contracts
+├── scripts/                          # quality, replay, and budget tools
 ├── tests/                            # unit tests
-├── examples/
-│   ├── scenarios/                    # input scenario YAMLs
-│   └── demo/                         # Jupyter walkthrough
-└── runs/                             # generated artifacts (gitignored)
+└── runs/                             # authoring output (gitignored)
 ```
-
-## Modules
-
-| Module | Role |
-|--------|------|
-| `cli.py` | `typer` CLI — orchestrates classify → generate → validate → save |
-| `garak/gen.py` | Core generation logic for Garak artifacts |
-| `garak/artifact_spec.py` | `ScenarioArtifact` schema, LLM call, `gate_artifact_errors`, artifact dicts |
-| `garak/spec_io.py` | Paths and I/O for `runs/{id}/{id}-garak.json` and `validation.json` |
-| `garak/classify.py` | Injection-surface table, pre-plan skip, `platform_coverage` gates |
-| `extract.py` | Load scenario YAML into `ScenarioContext` |
-| `garak/gate.py` | `gate_from_context` — full vs partial vs skip coverage |
-| `llm.py` | Provider-agnostic completion (Gemini / Ollama / OpenAI / HF / OpenRouter) |
-| `garak/prompts/generate_artifact.md` | One-shot artifact generation prompt |
 
 ## License
 

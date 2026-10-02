@@ -18,6 +18,7 @@ from asago_artifact_generator.authoring import (
 from .support import ScriptedAuthoringTransport
 from .test_authoring_orchestration import HANDOFF
 from .test_profile_bridge import _inputs as _cli_inputs
+from .test_profile_bridge import _profile_file
 from .test_versioned_authoring_wire import (
     _inventory,
     _plan,
@@ -157,9 +158,7 @@ def test_author_cli_threads_prior_spend_to_orchestrator_without_provider_contact
 
     monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FakeTransport)
     monkeypatch.setattr(cli, "AuthoringOrchestrator", FakeOrchestrator)
-    monkeypatch.setattr(cli, "BASE_URL", "https://offline.invalid/v1")
-    monkeypatch.setattr(cli, "MODEL", "offline-model")
-    monkeypatch.setenv("OPENAI_API_KEY", "offline-key")
+    profiles_file, _ = _profile_file(tmp_path)
 
     result = CliRunner().invoke(
         cli.app,
@@ -172,6 +171,10 @@ def test_author_cli_threads_prior_spend_to_orchestrator_without_provider_contact
             str(runtime_contract),
             "--output-dir",
             str(tmp_path / "output"),
+            "--profile",
+            "gemma4-oc",
+            "--profiles-file",
+            str(profiles_file),
             "--prior-author-correction-spend",
             "1",
             "--prior-review-spend",
@@ -197,6 +200,7 @@ def test_author_cli_rejects_negative_prior_spend_before_transport(
         raise AssertionError("transport must not be constructed")
 
     monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", fail_if_constructed)
+    profiles_file, _ = _profile_file(tmp_path)
 
     result = CliRunner().invoke(
         cli.app,
@@ -209,6 +213,10 @@ def test_author_cli_rejects_negative_prior_spend_before_transport(
             str(runtime_contract),
             "--output-dir",
             str(tmp_path / "output"),
+            "--profile",
+            "gemma4-oc",
+            "--profiles-file",
+            str(profiles_file),
             "--prior-author-correction-spend",
             "-1",
             "--prior-review-spend",

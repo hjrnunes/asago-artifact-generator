@@ -1,9 +1,8 @@
-"""CLI: scenario YAML → runs/{scenario_id}/{scenario_id}-garak.json (one-shot LLM)."""
+"""CLI: target-free artifact authoring (`author`) and offline detector checks (`check`)."""
 
 from __future__ import annotations
 
 import json
-import logging
 from copy import deepcopy
 from pathlib import Path
 from typing import Annotated
@@ -22,16 +21,8 @@ from .authoring import (
     PrivateModelAuthoringTransport,
 )
 from .detector_runtime import execute_detector
-from .extract import load_scenario
-from .garak.gen import generate_artifact, list_scenario_files
-from .garak.spec_io import MANIFEST_FILE, runs_dir
 from .input_adapter import InputSourceError, load_input
-from .llm import BASE_URL, MODEL
-from .profiles import (
-    ProfileLoadError,
-    authoring_profile_from_environment,
-    load_authoring_profile,
-)
+from .profiles import ProfileLoadError, load_authoring_profile
 from .reporting import garak_value
 from .target_inputs import TargetInputError, load_target_inputs
 
@@ -44,135 +35,6 @@ app = typer.Typer(
 @app.callback()
 def _main() -> None:
     """Policy-driven agentic red-teaming artifact generator."""
-
-
-@app.command()
-def generate(
-    scenarios: Annotated[
-        list[Path] | None,
-        typer.Argument(
-            help="Scenario YAML file(s). If omitted, processes all in examples/scenarios/",
-        ),
-    ] = None,
-    output_dir: Annotated[
-        Path | None,
-        typer.Option("--output-dir", help="Override runs/ output directory (default: runs/)"),
-    ] = None,
-    prompt: Annotated[
-        Path | None,
-        typer.Option(
-            "--prompt",
-            help="Override generation prompt (default: prompts/generate_artifact.md)",
-        ),
-    ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help="Classify + LLM + validate only — do not write garak JSON"),
-    ] = False,
-    no_llm: Annotated[
-        bool,
-        typer.Option("--no-llm", help="Refuse LLM (only useful for skip check)"),
-    ] = False,
-    force: Annotated[
-        bool,
-        typer.Option(
-            "--force",
-            help="Write garak JSON even if artifact validation fails (result is still not ok)",
-        ),
-    ] = False,
-    verbose: Annotated[
-        bool,
-        typer.Option("-v", "--verbose", help="Verbose logging"),
-    ] = False,
-) -> None:
-    """Generate Garak artifacts from scenario YAMLs."""
-
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(levelname)-5s %(name)s: %(message)s",
-    )
-    log = logging.getLogger(__name__)
-
-    prompt_path = prompt
-    paths = list(scenarios) if scenarios else list_scenario_files()
-    if not paths:
-        typer.echo("No scenario files found.", err=True)
-        raise typer.Exit(1)
-
-    manifest: list[dict] = []
-    coverage_counts = {"full": 0, "partial": 0, "skip": 0}
-    validation_failed = 0
-    process_errors = 0
-    failed = False
-
-    for path in paths:
-        try:
-            ctx = load_scenario(path)
-            result = generate_artifact(
-                ctx,
-                prompt_path=prompt_path,
-                output_dir=output_dir,
-                use_llm=not no_llm,
-                force=force,
-                dry_run=dry_run,
-            )
-            entry = {
-                "scenario_id": result.scenario_id,
-                "ok": result.ok,
-                "gate_result": result.gate,
-                "gate_reason": result.gate_reason,
-                "artifact_path": result.artifact_path,
-            }
-            if result.errors:
-                entry["errors"] = result.errors
-            manifest.append(entry)
-            if result.gate in coverage_counts:
-                coverage_counts[result.gate] += 1
-            if not result.ok:
-                validation_failed += 1
-                failed = True
-        except Exception as e:
-            log.error("ERROR processing %s: %s", path.name, e)
-            manifest.append(
-                {
-                    "scenario_id": path.stem,
-                    "ok": False,
-                    "error": str(e),
-                }
-            )
-            process_errors += 1
-            failed = True
-
-    if not dry_run:
-        out = runs_dir(output_dir)
-        out.mkdir(parents=True, exist_ok=True)
-        manifest_path = out / MANIFEST_FILE
-        manifest_path.write_text(json.dumps(manifest, indent=2))
-        log.info("Manifest written to %s", manifest_path)
-
-    print(f"\n{'=' * 50}")
-    print("Garak artifact generation summary")
-    print(f"{'=' * 50}")
-    print(f"Total scenarios: {len(manifest)}")
-    print("Coverage:")
-    print(f"  Full:    {coverage_counts['full']}")
-    print(f"  Partial: {coverage_counts['partial']}")
-    print(f"  Skip:    {coverage_counts['skip']}")
-    print(f"Validation failed: {validation_failed}")
-    if process_errors:
-        print(f"Process errors:    {process_errors}")
-
-    print(f"\n{'Scenario':<25} {'Gate':<8} {'Ok':<6} {'Reason'}")
-    print("-" * 80)
-    for e in manifest:
-        sid = e.get("scenario_id", "?")
-        gr = e.get("gate_result", "-")
-        ok = "yes" if e.get("ok") else "no"
-        reason = e.get("gate_reason", e.get("error", ""))
-        print(f"{sid:<25} {gr:<8} {ok:<6} {reason}")
-
-    if failed:
-        raise typer.Exit(1)
 
 
 @app.command()
@@ -192,6 +54,16 @@ def author(
         Path,
         typer.Option(
             "--runtime-contract", help="Supplied target-free runtime contract JSON/YAML."
+        ),
+    ],
+    profile: Annotated[
+        str,
+        typer.Option(
+            "--profile",
+            help=(
+                "Named private authoring profile (required). Values are loaded in "
+                "process and never persisted."
+            ),
         ),
     ],
     target_observations: Annotated[
@@ -247,16 +119,6 @@ def author(
             help=(
                 "Recorded name of an already-authorized reviewer profile; the default "
                 "inherits the configured private authoring profile."
-            ),
-        ),
-    ] = None,
-    profile: Annotated[
-        str | None,
-        typer.Option(
-            "--profile",
-            help=(
-                "Named private authoring profile. Values are loaded in process and "
-                "never persisted."
             ),
         ),
     ] = None,
@@ -340,16 +202,9 @@ def author(
             param_hint="--prior-author-correction-spend/--prior-review-spend",
         ) from None
     try:
-        connection = (
-            load_authoring_profile(profiles_file, profile)
-            if profile is not None
-            else authoring_profile_from_environment(base_url=BASE_URL, model=MODEL)
-        )
+        connection = load_authoring_profile(profiles_file, profile)
     except ProfileLoadError as exc:
-        raise typer.BadParameter(
-            str(exc),
-            param_hint="--profile/--profiles-file" if profile is not None else "--profile",
-        ) from None
+        raise typer.BadParameter(str(exc), param_hint="--profile/--profiles-file") from None
     transport_options: dict[str, object] = {
         "base_url": connection.base_url,
         "api_key": connection.api_key,
@@ -364,9 +219,8 @@ def author(
             if connection.max_completion_tokens is not None
             else AUTHORING_MAX_COMPLETION_TOKENS
         ),
+        "profile_name": connection.name,
     }
-    if profile is not None:
-        transport_options["profile_name"] = connection.name
     if connection.reasoning_effort is not None:
         transport_options["reasoning_effort"] = connection.reasoning_effort
     if connection.service_tier is not None:

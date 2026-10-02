@@ -14,7 +14,6 @@ essentials for getting started.
 git clone <repo-url>
 cd asago-artifact-generator
 uv sync --locked
-cp .env.example .env   # set GEMINI_API_KEY or configure Ollama
 ```
 
 ## Development workflow

@@ -26,7 +26,7 @@ contracts and historical experiment details belong in their own documents.
 - Downstream tooling alone performs live setup, target/Garak generation, runtime
   judging, evidence collection, and cleanup. This repo does not do those actions
   during authoring.
-- Preserve legacy command and package behavior where required by the task. Do
+- Preserve saved package and evidence formats where required by the task. Do
   not redirect new work into an older workflow because its code still exists.
 
 ## Commands

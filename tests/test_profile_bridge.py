@@ -329,54 +329,7 @@ def test_author_cli_rejects_missing_named_profile_before_transport(
     assert called is False
 
 
-def test_author_cli_keeps_real_environment_only_configuration_compatible(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    captured: dict[str, object] = {}
-
-    class FakeTransport:
-        max_retries = 0
-
-        def __init__(self, **kwargs: object) -> None:
-            captured.update(kwargs)
-
-    class FakeOrchestrator:
-        def __init__(self, **_: object) -> None:
-            pass
-
-        def run(self, *_: object) -> SimpleNamespace:
-            return SimpleNamespace(
-                status="failed",
-                package_path=None,
-                review_status={},
-                findings=[],
-            )
-
-    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FakeTransport)
-    monkeypatch.setattr(cli, "AuthoringOrchestrator", FakeOrchestrator)
-    monkeypatch.setattr(cli, "BASE_URL", "https://environment.example.invalid/v1")
-    monkeypatch.setattr(cli, "MODEL", "environment-model")
-    monkeypatch.setenv("OPENAI_API_KEY", "environment-secret-value")
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-
-    result = _invoke_author(tmp_path)
-
-    assert result.exit_code == 1
-    assert captured == {
-        "base_url": "https://environment.example.invalid/v1",
-        "api_key": "environment-secret-value",
-        "model": "environment-model",
-        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
-        "review_extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
-        "context_window_tokens": 32_768,
-        "max_completion_tokens": 8_192,
-        "review_fill_context": True,
-    }
-    assert "environment-secret-value" not in result.output
-
-
-def test_author_cli_rejects_missing_environment_credential_before_transport(
+def test_author_cli_requires_a_named_profile_before_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     called = False
@@ -387,20 +340,13 @@ def test_author_cli_rejects_missing_environment_credential_before_transport(
         raise AssertionError("transport must not be constructed")
 
     monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", fail_if_constructed)
-    for name in (
-        "OPENAI_API_KEY",
-        "GEMINI_API_KEY",
-        "GOOGLE_API_KEY",
-        "HF_TOKEN",
-        "OPENROUTER_API_KEY",
-    ):
-        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "environment-secret-value")
 
     result = _invoke_author(tmp_path)
 
     assert result.exit_code == 2
-    assert "API key" in result.output
-    assert "private" not in result.output
+    assert "--profile" in result.output
+    assert "environment-secret-value" not in result.output
     assert called is False
 
 

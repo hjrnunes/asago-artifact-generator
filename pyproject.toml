@@ -12,7 +12,6 @@ dependencies = [
     "pyyaml>=6.0",
     "jsonschema>=4.0",
     "openai>=1.0",
-    "python-dotenv>=1.0",
     "typer>=0.12",
 ]
 
@@ -55,5 +54,4 @@ norecursedirs = [
     "venv",
     "__pycache__",
     "runs",
-    "examples",
 ]

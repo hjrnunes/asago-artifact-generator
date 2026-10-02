@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -10,13 +9,6 @@ from typing import Any
 import yaml
 
 REQUIRED_PROFILE_FIELDS: tuple[str, ...] = ("base_url", "api_key", "model")
-ENVIRONMENT_API_KEY_NAMES: tuple[str, ...] = (
-    "OPENAI_API_KEY",
-    "GEMINI_API_KEY",
-    "GOOGLE_API_KEY",
-    "HF_TOKEN",
-    "OPENROUTER_API_KEY",
-)
 
 
 class ProfileLoadError(ValueError):
@@ -54,12 +46,6 @@ class ProfileFieldError(ProfileLoadError):
     """A named profile is missing or has an invalid field."""
 
     code = "profile_field_error"
-
-
-class EnvironmentConfigurationError(ProfileLoadError):
-    """Environment-only authoring configuration is incomplete."""
-
-    code = "environment_configuration_error"
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,53 +261,12 @@ def _optional_positive_number(
     return value
 
 
-def authoring_profile_from_environment(
-    *,
-    base_url: Any,
-    model: Any,
-) -> AuthoringProfile:
-    """Resolve legacy environment-only settings without a placeholder key."""
-
-    if not isinstance(base_url, str) or not base_url.strip():
-        raise EnvironmentConfigurationError(
-            "environment authoring configuration is missing base_url",
-            field="base_url",
-        )
-    if not isinstance(model, str) or not model.strip():
-        raise EnvironmentConfigurationError(
-            "environment authoring configuration is missing model",
-            field="model",
-        )
-    api_key = next(
-        (
-            value
-            for name in ENVIRONMENT_API_KEY_NAMES
-            if isinstance(value := os.environ.get(name), str) and value.strip()
-        ),
-        None,
-    )
-    if api_key is None:
-        raise EnvironmentConfigurationError(
-            "environment authoring configuration is missing an API key",
-            field="api_key",
-        )
-    return AuthoringProfile(
-        name="environment",
-        base_url=base_url,
-        api_key=api_key,
-        model=model,
-    )
-
-
 __all__ = [
     "AuthoringProfile",
-    "ENVIRONMENT_API_KEY_NAMES",
-    "EnvironmentConfigurationError",
     "ProfileFieldError",
     "ProfileFileError",
     "ProfileLoadError",
     "ProfileNotFoundError",
     "REQUIRED_PROFILE_FIELDS",
-    "authoring_profile_from_environment",
     "load_authoring_profile",
 ]
