@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 from asago_artifact_generator.authoring import (
-    AuthoringOrchestrator,
     neutral_observation_cases,
     parse_call2_response,
 )
@@ -17,6 +16,7 @@ from .support import (
     ScriptedAuthoringTransport,
     neutral_call2_response_v2,
     neutral_observation_results,
+    stage_local_orchestrator,
 )
 
 
@@ -342,14 +342,13 @@ def test_parsed_call2_control_failures_join_one_correction_payload(tmp_path) -> 
     transport = ScriptedAuthoringTransport(
         [json.dumps(plan), frame(bad_source), frame(good_source)]
     )
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="combined-controls",
-        wire_version="v2",
     ).run(view, {"operations": [], "facts": [], "source_handles": []}, runtime)
 
-    assert result.status == "packaged"
+    assert result.status == "accepted"
     assert len(transport.requests) == 3
     correction = transport.requests[2]["payload"]
     assert any(finding["code"] == "detector_control_failure" for finding in correction["findings"])

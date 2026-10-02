@@ -24,7 +24,7 @@ from asago_artifact_generator.authoring import (
 )
 from tests.test_versioned_authoring_wire import _inventory, _plan, _runtime_contract, _view
 
-from .support import ScriptedAuthoringTransport
+from .support import ScriptedAuthoringTransport, stage_local_orchestrator
 
 
 class _ContextGuardedScriptedTransport:
@@ -145,11 +145,10 @@ def test_call1_overflow_does_not_spend_a_dispatch(tmp_path: Path) -> None:
     transport = _ContextGuardedScriptedTransport([b"{}"])
     budget = AuthoringBudget(aggregate_limit=8, task_limit=4)
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="call1-overflow",
-        wire_version="v2",
         budget=budget,
     ).run(oversized_view, _inventory(), _runtime_contract())
 
@@ -171,11 +170,10 @@ def test_rendered_prompt_size_overflow_does_not_spend_a_dispatch(tmp_path: Path)
     transport = ScriptedAuthoringTransport([b"{}"])
     budget = AuthoringBudget(aggregate_limit=8, task_limit=4)
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="rendered-prompt-overflow",
-        wire_version="v2",
         budget=budget,
     ).run(oversized_view, _inventory(), _runtime_contract())
 

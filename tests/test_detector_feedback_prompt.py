@@ -7,9 +7,6 @@ from pathlib import Path
 import pytest
 
 import asago_artifact_generator.detector_controls as detector_controls
-from asago_artifact_generator.authoring import (
-    AuthoringOrchestrator,
-)
 from asago_artifact_generator.detector_controls import (
     ControlCase,
     build_detector_feedback,
@@ -17,7 +14,7 @@ from asago_artifact_generator.detector_controls import (
 )
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
-from .support import ScriptedAuthoringTransport
+from .support import ScriptedAuthoringTransport, stage_local_orchestrator
 
 
 def test_feedback_classification_covers_runtime_failures() -> None:
@@ -359,14 +356,13 @@ def test_normal_artifact_correction_dispatch_uses_shared_feedback_section(
     transport = ScriptedAuthoringTransport(
         [json.dumps(plan), frame(bad_source), frame(good_source)]
     )
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="shared-detector-feedback-normal",
-        wire_version="v2",
     ).run(view, {"operations": [], "facts": [], "source_handles": []}, runtime)
 
-    assert result.status == "packaged"
+    assert result.status == "accepted"
     correction = transport.requests[2]
     assert correction["user"].count("DETECTOR CONTROL FEEDBACK") == 1
     assert correction["payload"]["detector_feedback"]["failed_controls"][0] == {

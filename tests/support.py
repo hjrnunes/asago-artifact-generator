@@ -11,6 +11,8 @@ from asago_artifact_generator.authoring import (
     _NEUTRAL_DETECTOR_SOURCE,
     AUTHORING_INTERFACE_VERSION,
     AUTHORING_INTERFACE_VERSION_V2,
+    AuthoringOrchestrator,
+    AuthoringPolicy,
     Finding,
     ParsedCall2Response,
     PromptPacket,
@@ -53,6 +55,26 @@ class ScriptedAuthoringTransport:
         if isinstance(response, BaseException):
             raise response
         return response
+
+
+def unreviewed_policy(**changes: Any) -> AuthoringPolicy:
+    """Return a stage-local policy whose runs dispatch no semantic reviews."""
+
+    return AuthoringPolicy(**{"review_plan": False, "review_artifact": False, **changes})
+
+
+def stage_local_orchestrator(
+    *,
+    policy: AuthoringPolicy | None = None,
+    **kwargs: Any,
+) -> AuthoringOrchestrator:
+    """Build an orchestrator on the stage-local path; reviews are off by default."""
+
+    return AuthoringOrchestrator(
+        wire_version="v2",
+        policy=unreviewed_policy() if policy is None else policy,
+        **kwargs,
+    )
 
 
 def neutral_call2_response_v2() -> bytes:

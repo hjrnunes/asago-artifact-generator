@@ -9,7 +9,6 @@ from asago_artifact_generator.authoring import (
     AUTHORING_INTERFACE_VERSION_V2,
     CALL1_PROMPT_VERSION_V2,
     CALL2_PROMPT_VERSION_V2,
-    AuthoringOrchestrator,
     Call2FramingError,
     ParsedCall2Response,
     build_call1_packet,
@@ -29,6 +28,8 @@ from .support import (
     ScriptedAuthoringTransport,
     build_neutral_artifact_package,
     neutral_call2_response_v2,
+    stage_local_orchestrator,
+    unreviewed_policy,
     validate_neutral_example,
 )
 
@@ -338,14 +339,13 @@ def test_v2_call1_accepts_one_lowercase_json_fence_through_orchestrator(tmp_path
     raw_plan = b" \n```json\n" + json.dumps(plan, sort_keys=True).encode("utf-8") + b"\n```\n\t"
     transport = ScriptedAuthoringTransport([raw_plan, _framed()])
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="v2-fenced-call1",
-        wire_version="v2",
     ).run(_view(), _inventory(), _runtime_contract())
 
-    assert result.status == "packaged"
+    assert result.status == "accepted"
     assert result.raw_responses["call1"] == raw_plan
     assert result.transformations == ["outer_fence_removed"]
     assert result.ledger[0]["transformation"] == "outer_fence_removed"
@@ -354,14 +354,13 @@ def test_v2_call1_accepts_one_lowercase_json_fence_through_orchestrator(tmp_path
 
 def test_v2_call1_accepts_one_bare_object_without_transformation(tmp_path) -> None:
     raw_plan = json.dumps(_plan(), sort_keys=True).encode("utf-8")
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=ScriptedAuthoringTransport([raw_plan, _framed()]),
         package_dir=tmp_path / "package",
         task_id="v2-bare-call1",
-        wire_version="v2",
     ).run(_view(), _inventory(), _runtime_contract())
 
-    assert result.status == "packaged"
+    assert result.status == "accepted"
     assert result.raw_responses["call1"] == raw_plan
     assert result.transformations == []
     assert "transformation" not in result.ledger[0]
@@ -372,14 +371,13 @@ def test_v2_call1_correction_accepts_one_lowercase_json_fence(tmp_path) -> None:
     corrected_plan = (
         b"\n```json\r\n" + json.dumps(_plan(), sort_keys=True).encode("utf-8") + b"\r\n```\n"
     )
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=ScriptedAuthoringTransport([invalid_plan, corrected_plan, _framed()]),
         package_dir=tmp_path / "package",
         task_id="v2-corrected-fenced-call1",
-        wire_version="v2",
     ).run(_view(), _inventory(), _runtime_contract())
 
-    assert result.status == "packaged"
+    assert result.status == "accepted"
     assert result.raw_responses["call1"] == corrected_plan
     assert result.raw_responses["correction"] == corrected_plan
     assert result.transformations == ["outer_fence_removed"]
@@ -404,15 +402,14 @@ def test_v2_call1_correction_accepts_one_lowercase_json_fence(tmp_path) -> None:
 def test_v2_call1_rejects_unsupported_framing_through_orchestrator(
     tmp_path, raw: bytes, finding_code: str
 ) -> None:
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=ScriptedAuthoringTransport([raw]),
         package_dir=tmp_path / finding_code,
         task_id=f"v2-reject-{finding_code}",
-        correction_allowed=False,
-        wire_version="v2",
+        policy=unreviewed_policy(no_correction=True),
     ).run(_view(), _inventory(), _runtime_contract())
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     assert result.raw_responses["call1"] == raw
     assert any(finding.code == finding_code for finding in result.findings)
 
@@ -434,14 +431,13 @@ def test_v2_call1_rejects_unsupported_framing_through_orchestrator(
 def test_v2_call1_correction_rejects_unsupported_framing(
     tmp_path, raw: bytes, finding_code: str
 ) -> None:
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=ScriptedAuthoringTransport([b"{}", raw]),
         package_dir=tmp_path / f"correction-{finding_code}",
         task_id=f"v2-correction-reject-{finding_code}",
-        wire_version="v2",
     ).run(_view(), _inventory(), _runtime_contract())
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     assert result.raw_responses["correction"] == raw
     assert "call2" not in result.raw_responses
     assert any(finding.code == finding_code for finding in result.findings)
@@ -508,14 +504,13 @@ def test_call2_v2_rejects_a_closing_fence_line_inside_python() -> None:
 def test_new_orchestrator_copies_plan_owned_fields_and_exact_detector_bytes(tmp_path) -> None:
     plan = _plan()
     transport = ScriptedAuthoringTransport([json.dumps(plan), _framed()])
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="v2-task",
-        wire_version="v2",
     ).run(_view(), _inventory(), _runtime_contract())
 
-    assert result.status == "packaged"
+    assert result.status == "accepted"
     assert result.package is not None
     assert result.package.members["detector.py"] == _source()
     assert json.loads(result.package.members["setup.json"]) == plan["setup_recipe"]
@@ -545,14 +540,13 @@ def test_v2_assembly_resolves_static_judge_facts_with_source_provenance(tmp_path
             "fact_refs": ["order:owned"],
         }
     }
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=ScriptedAuthoringTransport([json.dumps(plan), _framed(metadata)]),
         package_dir=tmp_path / "package",
         task_id="v2-static-facts",
-        wire_version="v2",
     ).run(_view(), inventory, _runtime_contract())
 
-    assert result.status == "packaged"
+    assert result.status == "accepted"
     assert result.package is not None
     judge = json.loads(result.package.members["judge.json"])
     assert "fact_refs" not in judge
@@ -587,17 +581,16 @@ def test_v2_assembly_is_byte_and_digest_deterministic(tmp_path) -> None:
     }
 
     def assemble(package_dir, task_id):
-        return AuthoringOrchestrator(
+        return stage_local_orchestrator(
             transport=ScriptedAuthoringTransport([json.dumps(plan), _framed(metadata)]),
             package_dir=package_dir,
             task_id=task_id,
-            wire_version="v2",
         ).run(_view(), _inventory(), _runtime_contract())
 
     first = assemble(tmp_path / "first", "v2-deterministic")
     second = assemble(tmp_path / "second", "v2-deterministic")
 
-    assert first.status == second.status == "packaged"
+    assert first.status == second.status == "accepted"
     assert first.package is not None
     assert second.package is not None
     assert first.package.members == second.package.members
@@ -621,14 +614,13 @@ def test_v2_assembly_rejects_unresolved_static_judge_fact_before_publication(tmp
     transport = ScriptedAuthoringTransport(
         [json.dumps(plan), _framed(metadata), _framed(metadata)]
     )
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="v2-unresolved-fact",
-        wire_version="v2",
     ).run(_view(), _inventory(), _runtime_contract())
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     assert result.package is None
     assert not (tmp_path / "package").exists()
     assert any(finding.path == "semantic_judge_spec.fact_refs[0]" for finding in result.findings)
@@ -653,14 +645,13 @@ def test_v2_assembly_rejects_valueless_static_fact_before_publication(tmp_path) 
     transport = ScriptedAuthoringTransport(
         [json.dumps(plan), _framed(metadata), _framed(metadata)]
     )
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="v2-valueless-fact",
-        wire_version="v2",
     ).run(_view(), inventory, _runtime_contract())
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     assert result.package is None
     assert not (tmp_path / "package").exists()
     assert any(
@@ -675,14 +666,13 @@ def test_new_call2_rejects_plan_owned_resubmission_without_package(tmp_path) -> 
     transport = ScriptedAuthoringTransport(
         [json.dumps(plan), _framed(conflict), _framed(conflict)]
     )
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="v2-conflict",
-        wire_version="v2",
     ).run(_view(), _inventory(), _runtime_contract())
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     assert result.package is None
     assert any(finding.code == "plan_conflict" for finding in result.findings)
 

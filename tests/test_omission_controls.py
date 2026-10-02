@@ -9,7 +9,6 @@ import pytest
 import yaml
 
 from asago_artifact_generator.authoring import (
-    AuthoringOrchestrator,
     artifact_observation_guide,
     build_call1_packet_v2,
     build_call2_packet_v2,
@@ -25,7 +24,7 @@ from asago_artifact_generator.detector_controls import (
 )
 from asago_artifact_generator.input_adapter import _framed_digest, load_input
 
-from .support import ScriptedAuthoringTransport
+from .support import ScriptedAuthoringTransport, stage_local_orchestrator
 
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _NOT_CALLED = (
@@ -425,14 +424,13 @@ def test_authoring_applies_the_handoff_condition_to_generated_controls(tmp_path:
         [json.dumps(plan), frame(_COMMISSION_DETECTOR), frame(_OMISSION_DETECTOR)]
     )
     inventory = {**_inventory(), "source_handles": []}
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="omission-controls",
-        wire_version="v2",
     ).run(view, inventory, runtime)
 
-    assert result.status == "packaged", result.findings
+    assert result.status == "accepted", result.findings
     correction = transport.requests[2]["payload"]
     failed = {finding["path"] for finding in correction["findings"]}
     assert "detector_controls.omission-no-call" in failed

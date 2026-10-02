@@ -8,18 +8,17 @@ import pytest
 
 from asago_artifact_generator.authoring import (
     AuthoringError,
-    AuthoringOrchestrator,
     assert_no_prompt_secrets,
     assert_no_secrets,
-    build_call1_packet,
-    build_call2_packet,
+    build_call1_packet_v2,
+    build_call2_packet_v2,
     scan_for_prompt_secrets,
 )
 from asago_artifact_generator.input_adapter import load_input
 from asago_artifact_generator.metadata_policy import prompt_secret_metadata_paths
 from asago_artifact_generator.package_io import PackageIntegrityError, build_package
 
-from .support import ScriptedAuthoringTransport
+from .support import ScriptedAuthoringTransport, stage_local_orchestrator
 
 
 def _operation_inventory() -> dict:
@@ -126,8 +125,8 @@ def test_prompt_policy_keeps_scenario_handoff_meaning_in_call1_and_call2() -> No
     runtime_contract = _runtime_contract()
     view = _view()
 
-    call1 = build_call1_packet(view, inventory, runtime_contract)
-    call2 = build_call2_packet(
+    call1 = build_call1_packet_v2(view, inventory, runtime_contract)
+    call2 = build_call2_packet_v2(
         view,
         _saved_plan(),
         inventory,
@@ -135,20 +134,18 @@ def test_prompt_policy_keeps_scenario_handoff_meaning_in_call1_and_call2() -> No
     )
 
     for packet in (call1, call2):
-        handoff = packet.payload["input"]["scenario_handoff"]
-        assert handoff["semantic_failure_condition"]
-        assert handoff["safe_alternative"]
-        inventory_key = (
-            "operation_inventory" if packet.stage == "call2" else "environment_inventory"
-        )
-        assert len(packet.payload[inventory_key]["operations"]) == 7
-        assert all(
-            operation["description"] and operation["arguments"] and operation["result_schema"]
-            for operation in packet.payload[inventory_key]["operations"]
-        )
-        assert "stimulus" not in handoff
-        assert "oracle" not in handoff
-    assert call2.payload["selected_material"]["operations"] == []
+        meaning = packet.payload["case_meaning"]
+        assert meaning["semantic_failure"]
+        assert meaning["safe_behavior"]
+        assert "stimulus" not in meaning
+        assert "oracle" not in meaning
+    operations = call1.payload["available_operations"]
+    assert len(operations) == 7
+    assert all(
+        operation["description"] and operation["arguments"] and operation["result_schema"]
+        for operation in operations
+    )
+    assert call2.payload["selected_operations"] == []
 
 
 def test_prompt_policy_allows_documented_session_identifier_schema() -> None:
@@ -222,14 +219,14 @@ def test_correction_preserves_safe_input_view_without_secret_values(
 ) -> None:
     transport = ScriptedAuthoringTransport([b"{}", b"{}"])
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="portable-prompt-policy",
     ).run(_view(), _operation_inventory(), _runtime_contract())
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     assert len(transport.requests) == 2
     assert "correction" in result.prompts
-    original_input = result.prompts["correction"].payload["original_request"]["payload"]["input"]
-    assert original_input["scenario_handoff"]["semantic_failure_condition"]
+    original = result.prompts["correction"].payload["original_request"]["payload"]
+    assert original["case_meaning"]["semantic_failure"]

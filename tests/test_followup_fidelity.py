@@ -6,9 +6,7 @@ import json
 from pathlib import Path
 
 from asago_artifact_generator.authoring import (
-    AuthoringOrchestrator,
-    collect_artifact_findings,
-    neutral_artifact_plan,
+    neutral_artifact_plan_v2,
     neutral_observation_cases,
 )
 from asago_artifact_generator.detector_runtime import execute_detector
@@ -16,8 +14,9 @@ from asago_artifact_generator.detector_runtime import execute_detector
 from .support import (
     ScriptedAuthoringTransport,
     build_neutral_artifact_package,
-    neutral_artifact_response,
     neutral_observation_results,
+    stage_local_orchestrator,
+    validate_neutral_example,
 )
 
 HANDOFF = (
@@ -78,17 +77,8 @@ def test_neutral_detector_scans_decisive_event_before_partial_capture(tmp_path: 
 def test_neutral_example_is_complete_and_runs_with_exact_detector_bytes(
     tmp_path: Path,
 ) -> None:
-    package = build_neutral_artifact_package(tmp_path / "neutral")
-    example = neutral_artifact_response()
-    assert (
-        collect_artifact_findings(
-            example,
-            neutral_artifact_plan(),
-            _inventory(),
-            _runtime_contract(),
-        )
-        == []
-    )
+    package = build_neutral_artifact_package(tmp_path / "neutral", wire_version="v2")
+    assert validate_neutral_example() == []
 
     execution = execute_detector(
         package,
@@ -101,9 +91,11 @@ def test_neutral_example_is_complete_and_runs_with_exact_detector_bytes(
 
 
 def test_correction_size_accounting_is_evidence_only(tmp_path: Path) -> None:
-    invalid = b'{"detector": {}, "detector_source": "not python"}'
-    result = AuthoringOrchestrator(
-        transport=ScriptedAuthoringTransport([json.dumps(neutral_artifact_plan()), invalid]),
+    invalid = b"```json\n{}\n```\n```python\nnot python\n```\n"
+    result = stage_local_orchestrator(
+        transport=ScriptedAuthoringTransport(
+            [json.dumps(neutral_artifact_plan_v2()), invalid, invalid]
+        ),
         package_dir=tmp_path / "package",
         task_id="size-followup",
     ).run(
@@ -112,7 +104,7 @@ def test_correction_size_accounting_is_evidence_only(tmp_path: Path) -> None:
         _runtime_contract(),
     )
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     correction = result.prompts["correction"]
     assert "size_comparison" not in correction.payload
     assert "tokens" not in correction.payload

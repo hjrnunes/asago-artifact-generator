@@ -18,9 +18,9 @@ from asago_artifact_generator.authoring import (
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
     AUTHORING_THINKING_EXTRA_BODY,
+    CALL1_PROMPT_VERSION_V2,
     REVIEW_THINKING_EXTRA_BODY,
     AuthoringBudget,
-    AuthoringOrchestrator,
     AuthoringResult,
     PrivateModelAuthoringTransport,
     PromptOverflowError,
@@ -28,16 +28,21 @@ from asago_artifact_generator.authoring import (
     TransportResponse,
     _context_budget_estimate,
     _context_guard_ratio,
-    build_call1_packet,
-    build_call2_packet,
+    build_call1_packet_v2,
+    build_call2_packet_v2,
     collect_artifact_findings,
+    collect_artifact_findings_v2,
     collect_plan_findings,
     load_failure_evidence,
 )
 from asago_artifact_generator.bindings import validate_bindings
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
-from .support import ScriptedAuthoringTransport
+from .support import ScriptedAuthoringTransport, stage_local_orchestrator, unreviewed_policy
+from .test_versioned_authoring_wire import _framed, _metadata, _source
+from .test_versioned_authoring_wire import _inventory as _inventory_v2
+from .test_versioned_authoring_wire import _plan as _plan_v2
+from .test_versioned_authoring_wire import _runtime_contract as _runtime_contract_v2
 
 HANDOFF = (
     Path(__file__).resolve().parents[1]
@@ -161,8 +166,8 @@ def _artifact(**changes) -> dict:
 def test_call_packets_are_deterministic_and_include_complete_inventory() -> None:
     view = _view()
 
-    first = build_call1_packet(view, _inventory(), _contract())
-    second = build_call1_packet(view, _inventory(), _contract())
+    first = build_call1_packet_v2(view, _inventory_v2(), _runtime_contract_v2())
+    second = build_call1_packet_v2(view, _inventory_v2(), _runtime_contract_v2())
 
     assert isinstance(first, PromptPacket)
     assert first.system == second.system
@@ -175,106 +180,97 @@ def test_call_packets_are_deterministic_and_include_complete_inventory() -> None
 
 def test_rendered_contracts_expose_complete_validator_shapes_and_empty_permissions() -> None:
     view = _view()
-    contract = _contract()
-    call1 = build_call1_packet(view, _inventory(), contract)
-    call2 = build_call2_packet(view, _plan(), _inventory(), contract)
+    contract = _runtime_contract_v2()
+    call1 = build_call1_packet_v2(view, _inventory_v2(), contract)
+    call2 = build_call2_packet_v2(view, _plan_v2(), _inventory_v2(), contract)
 
     for packet in (call1, call2):
         response_contract = packet.payload["response_contract"]
         schema = response_contract["schema"]
         assert schema["type"] == "object"
         assert set(schema["required"]) == set(response_contract["fields"])
-        assert response_contract["empty_shapes"]["setup_recipe_when_setup_is_unavailable"] == []
-        assert response_contract["binding_declaration"]["required"] == [
-            "name",
-            "expected_type",
-            "source_kind",
-            "source_ref",
-            "selector",
-            "consumers",
-            "on_missing",
-        ]
-        assert response_contract["binding_declaration"]["consumer_rule"]
-        assert response_contract["binding_declaration"]["selector_rule"]
 
-    call1_schema = call1.payload["response_contract"]["schema"]
+    call1_contract = call1.payload["response_contract"]
+    assert call1_contract["binding_declaration"]["required"] == [
+        "name",
+        "expected_type",
+        "source_kind",
+        "source_ref",
+        "selector",
+        "consumers",
+        "on_missing",
+    ]
+    assert call1_contract["binding_declaration"]["consumer_rule"]
+    assert call1_contract["binding_declaration"]["selector_rule"]
+    assert {
+        "field": "setup_recipe",
+        "value": [],
+        "when": "setup is unavailable or no permitted setup operation is needed",
+    } in call1_contract["empty_value_guidance"]
+    call1_schema = call1_contract["schema"]
     assert call1_schema["properties"]["setup_recipe"]["type"] == "array"
     assert call1_schema["properties"]["runtime_bindings"]["type"] == "array"
     assert call1_schema["properties"]["semantic_judge"]["properties"]["needed"]["type"] == (
         "boolean"
     )
-    call2_schema = call2.payload["response_contract"]["schema"]
-    assert call2_schema["properties"]["detector_source"]["type"] == "string"
-    assert call2_schema["properties"]["semantic_judge_spec"]["nullable"] is True
-    assert call2.payload["response_contract"]["detector_result"]["outcomes"] == [
-        "detected",
-        "not_detected",
-        "inconclusive",
-    ]
+    call2_contract = call2.payload["response_contract"]
+    assert call2_contract["schema"]["properties"]["explanation"]["type"] == "string"
+    assert call2_contract["detector_interface"] == "evaluate(evidence: dict) -> dict"
 
 
 def test_rendered_binding_contract_explains_direction_grammar_and_example() -> None:
-    view = _view()
-    call1 = build_call1_packet(view, _inventory(), _contract())
-    call2 = build_call2_packet(view, _plan(), _inventory(), _contract())
+    call1 = build_call1_packet_v2(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    for packet in (call1, call2):
-        binding = packet.payload["response_contract"]["binding_declaration"]
-        assert "facts:<ref>" in binding["source_ref_rule"]
-        assert "setup:<operation>" in binding["source_ref_rule"]
-        assert binding["direction"] == "source_ref -> selector -> consumers"
-        assert "extracts one value" in binding["selector_rule"]
-        assert "substitution destinations" in binding["consumer_rule"]
-        assert binding["valid_example"] == {
-            "name": "setup_status",
-            "expected_type": "string",
-            "source_kind": "setup_output",
-            "source_ref": "setup:case_permitted_operation",
-            "selector": "result.status",
-            "consumers": ["prerequisites.setup_status"],
-            "on_missing": "stop",
-        }
+    binding = call1.payload["response_contract"]["binding_declaration"]
+    assert "facts:<fact ref>" in binding["source_ref_rule"]
+    assert "setup:<operation>" in binding["source_ref_rule"]
+    assert binding["direction"] == "source_ref -> selector -> consumers"
+    assert "extracts one value" in binding["selector_rule"]
+    assert "destination paths" in binding["consumer_rule"]
+    assert binding["valid_example"] == {
+        "name": "setup_status",
+        "expected_type": "string",
+        "source_kind": "setup_output",
+        "source_ref": "setup:case_permitted_operation",
+        "selector": "result.status",
+        "consumers": ["prerequisites.setup_status"],
+        "on_missing": "stop",
+    }
 
 
 def test_rendered_binding_contract_explains_applicability_and_both_source_examples() -> None:
-    view = _view()
-    packets = (
-        build_call1_packet(view, _inventory(), _contract()),
-        build_call2_packet(view, _plan(), _inventory(), _contract()),
-    )
+    call1 = build_call1_packet_v2(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    for packet in packets:
-        binding = packet.payload["response_contract"]["binding_declaration"]
-        assert binding["source_scope"] == (
-            "Only environment inventory facts are bindable supplied sources; "
-            "input payloads and source handles remain context and are not bindable sources."
-        )
-        assert binding["applicability"] == (
-            "When the stimulus is already concrete and no setup-derived value is needed, "
-            "runtime_bindings must be [] (an empty list); do not wire a concrete stimulus "
-            "back to itself."
-        )
-        assert (
-            packet.payload["response_contract"]["empty_shapes"][
-                "runtime_bindings_for_static_concrete_stimulus"
-            ]
-            == []
-        )
-        assert binding["valid_examples"]["supplied_input"] == {
-            "name": "loan_id",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": "facts:loan",
-            "selector": "value.loan_id",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-        assert binding["valid_examples"]["setup_output"] == binding["valid_example"]
+    binding = call1.payload["response_contract"]["binding_declaration"]
+    assert binding["source_scope"] == (
+        "Only environment inventory facts are bindable supplied sources; "
+        "input payloads and source handles remain context and are not bindable sources."
+    )
+    assert binding["applicability"].startswith(
+        "runtime_bindings is [] (an empty list) only when no consumer needs a bound value"
+    )
+    assert binding["valid_examples"]["supplied_input"] == {
+        "name": "loan_id",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:<fact ref>",
+        "selector": "value.<documented field path>",
+        "consumers": ["stimulus.user_text"],
+        "on_missing": "stop",
+    }
+    assert binding["valid_examples"]["setup_output"] == binding["valid_example"]
 
 
 def test_rendered_binding_examples_are_accepted_by_closed_validator() -> None:
-    packet = build_call1_packet(_view(), _inventory(), _contract())
+    packet = build_call1_packet_v2(_view(), _inventory_v2(), _runtime_contract_v2())
     examples = packet.payload["response_contract"]["binding_declaration"]["valid_examples"]
+    supplied = {
+        **examples["supplied_input"],
+        "source_ref": examples["supplied_input"]["source_ref"].replace("<fact ref>", "loan"),
+        "selector": examples["supplied_input"]["selector"].replace(
+            "<documented field path>", "loan_id"
+        ),
+    }
     inventory = {
         "facts": [
             {
@@ -300,7 +296,7 @@ def test_rendered_binding_examples_are_accepted_by_closed_validator() -> None:
     runtime_contract = {"setup_permissions": ["case_permitted_operation"]}
 
     validated = validate_bindings(
-        [examples["supplied_input"], examples["setup_output"]],
+        [supplied, examples["setup_output"]],
         inventory=inventory,
         runtime_contract=runtime_contract,
     )
@@ -745,57 +741,49 @@ def test_plan_validation_accumulates_all_structural_findings() -> None:
 def test_artifact_validation_accumulates_all_structural_findings() -> None:
     malformed = {
         "stimulus": "wrong",
-        "setup_recipe": "wrong",
-        "runtime_bindings": {"wrong": True},
-        "prerequisites": "wrong",
-        "detector_source": 7,
-        "required_observations": [],
         "semantic_judge_spec": 7,
         "explanation": [],
         "examples": [],
     }
 
-    findings = collect_artifact_findings(malformed, _plan(), _inventory(), _contract())
+    findings = collect_artifact_findings_v2(
+        malformed, _plan_v2(), _inventory_v2(), _runtime_contract_v2()
+    )
 
-    assert len(findings) >= 9
-    paths = {finding.path for finding in findings}
-    assert {
+    assert {finding.path for finding in findings} >= {
         "stimulus",
-        "setup_recipe",
-        "runtime_bindings",
-        "prerequisites",
-        "detector_source",
-        "required_observations",
         "semantic_judge_spec",
         "explanation",
         "examples",
-    } <= paths
+    }
 
 
-def test_shared_correction_contains_complete_contract_and_all_findings(
+def test_stage_correction_contains_complete_contract_and_all_findings(
     tmp_path: Path,
 ) -> None:
     malformed = {
         "interpretation": "wrong",
         "selected_evidence": ["wrong"],
+        "assumptions": "wrong",
         "setup_recipe": "wrong",
         "runtime_bindings": {"wrong": True},
         "prerequisites": ["wrong"],
         "stimulus_approach": "wrong",
         "observation_claim": "wrong",
+        "required_observations": "wrong",
         "semantic_judge": "wrong",
         "unresolved_requirements": "wrong",
     }
     response = json.dumps(malformed)
     transport = ScriptedAuthoringTransport([response, response])
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="complete-correction",
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     assert len(result.ledger) == 2
     correction = transport.requests[1]
     original = transport.requests[0]
@@ -811,109 +799,109 @@ def test_shared_correction_contains_complete_contract_and_all_findings(
     assert "failed_response_bytes_hex" not in payload
     assert "failed_response_bytes_base64" not in payload
     assert "failed_stage_contract" not in payload
-    assert len(payload["findings"]) >= 9
-    assert len(result.ledger[1]["findings"]) >= 9
+    assert len(payload["findings"]) >= 11
+    assert len(result.ledger[1]["findings"]) >= 11
     assert result.raw_responses["call1"] == response.encode()
     assert result.decoded_responses["call1"] == malformed
 
 
 def test_two_calls_build_an_immutable_package_with_exact_detector_bytes(tmp_path: Path) -> None:
-    transport = ScriptedAuthoringTransport([json.dumps(_plan()), json.dumps(_artifact())])
-    result = AuthoringOrchestrator(
+    transport = ScriptedAuthoringTransport([json.dumps(_plan_v2()), _framed()])
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="refund-task",
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
     assert isinstance(result, AuthoringResult)
-    assert result.status == "packaged"
+    assert result.status == "accepted"
     assert result.package_path == tmp_path / "package"
     assert result.package is not None
-    assert result.package.members["detector.py"] == _artifact()["detector_source"].encode()
+    assert result.package.members["detector.py"] == _source()
     assert json.loads(result.package.members["explanation.json"])["text"]
     assert json.loads(result.package.members["examples.json"])["unsafe"]["label"] == (
         "author-proposed"
     )
-    assert result.package.members["authoring/01-call1.raw"] == json.dumps(_plan()).encode()
+    assert result.package.members["authoring/01-call1.raw"] == json.dumps(_plan_v2()).encode()
     assert [record["stage"] for record in result.ledger] == ["call1", "call2"]
     assert result.package.manifest.authoring["usage"][0]["availability"] == "unavailable"
-    assert result.raw_responses["call1"] == json.dumps(_plan()).encode()
-    assert result.decoded_responses["call2"] == _artifact()
-    assert result.prompts["call1"].version == "authoring-call1-v1"
+    assert result.raw_responses["call1"] == json.dumps(_plan_v2()).encode()
+    assert result.raw_responses["call2"] == _framed()
+    assert result.prompts["call1"].version == CALL1_PROMPT_VERSION_V2
     assert transport.max_retries == 0
 
 
 def test_structural_unknown_reference_blocks_call2_without_prose_classification(
     tmp_path: Path,
 ) -> None:
-    plan = _plan(
-        selected_evidence=[{"ref": "missing:record", "role": "record", "source": "facts"}]
-    )
-    transport = ScriptedAuthoringTransport([json.dumps(plan)])
+    plan = _plan_v2()
+    plan["selected_evidence"] = [{"ref": "missing:record", "role": "record", "source": "facts"}]
+    transport = ScriptedAuthoringTransport([json.dumps(plan), json.dumps(plan)])
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="bad-reference",
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     assert result.package is None
-    assert len(transport.requests) == 2
+    assert [request["stage"] for request in transport.requests] == ["call1", "correction"]
     assert any(finding.code == "unknown_reference" for finding in result.findings)
 
 
 def test_essential_missing_information_is_retained_as_blocked_plan(tmp_path: Path) -> None:
-    plan = _plan(
-        unresolved_requirements=[
-            {"name": "fresh_order", "essential": True, "reason": "not supplied"}
-        ]
-    )
+    plan = _plan_v2()
+    plan["unresolved_requirements"] = [
+        {"name": "fresh_order", "essential": True, "reason": "not supplied"}
+    ]
     transport = ScriptedAuthoringTransport([json.dumps(plan)])
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="blocked",
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
     assert result.status == "blocked"
-    assert result.plan == plan
+    assert result.decoded_responses["call1"] == plan
     assert len(transport.requests) == 1
     assert not (tmp_path / "package").exists()
 
 
 @pytest.mark.parametrize("failed_stage", ["call1", "call2"])
-def test_one_shared_correction_contains_exact_failure_and_never_fourth_request(
+def test_stage_correction_contains_exact_failure_and_never_fourth_request(
     tmp_path: Path, failed_stage: str
 ) -> None:
     if failed_stage == "call1":
-        responses = [
-            json.dumps({**_plan(), "selected_evidence": [{"ref": "missing", "role": "x"}]}),
-            json.dumps(_plan()),
-            json.dumps(_artifact()),
+        invalid_plan = _plan_v2()
+        invalid_plan["selected_evidence"] = [{"ref": "missing", "role": "x"}]
+        responses: list[object] = [
+            json.dumps(invalid_plan).encode(),
+            json.dumps(_plan_v2()).encode(),
+            _framed(),
         ]
     else:
         responses = [
-            json.dumps(_plan()),
-            json.dumps({**_artifact(), "runtime_bindings": [{"name": "unplanned"}]}),
-            json.dumps(_artifact()),
+            json.dumps(_plan_v2()).encode(),
+            _framed(_metadata() | {"setup_recipe": []}),
+            _framed(),
         ]
     transport = ScriptedAuthoringTransport(responses)
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / failed_stage,
         task_id=failed_stage,
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    assert result.status == "packaged"
+    assert result.status == "accepted"
     assert len(transport.requests) == 3
     correction = transport.requests[1 if failed_stage == "call1" else 2]
     assert correction["stage"] == "correction"
     assert correction["payload"]["failed_stage"] == failed_stage
     failed_index = 0 if failed_stage == "call1" else 1
-    assert correction["payload"]["failed_response"] == responses[failed_index]
+    assert correction["payload"]["failed_response"] == responses[failed_index].decode()
     assert (
         correction["payload"]["original_request"]["payload"]["response_contract"]
         == transport.requests[failed_index]["payload"]["response_contract"]
@@ -921,56 +909,35 @@ def test_one_shared_correction_contains_exact_failure_and_never_fourth_request(
     assert correction["payload"]["findings"]
 
 
-def test_failed_correction_stops_with_two_or_three_dispatches(tmp_path: Path) -> None:
-    responses = [
-        json.dumps({**_plan(), "selected_evidence": [{"ref": "missing", "role": "x"}]}),
-        json.dumps(
-            {
-                **_plan(),
-                "selected_evidence": [{"ref": "still-missing", "role": "x", "source": "facts"}],
-            }
-        ),
-    ]
-    transport = ScriptedAuthoringTransport(responses)
+def test_failed_correction_stops_with_two_dispatches(tmp_path: Path) -> None:
+    first = _plan_v2()
+    first["selected_evidence"] = [{"ref": "missing", "role": "x"}]
+    second = _plan_v2()
+    second["selected_evidence"] = [{"ref": "still-missing", "role": "x", "source": "facts"}]
+    transport = ScriptedAuthoringTransport([json.dumps(first), json.dumps(second)])
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="exhausted",
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     assert len(transport.requests) == 2
     assert any("still-missing" in finding.detail for finding in result.findings)
-
-
-def test_call2_plan_conflict_is_not_silently_packaged(tmp_path: Path) -> None:
-    transport = ScriptedAuthoringTransport(
-        [json.dumps(_plan()), json.dumps(_artifact(setup_recipe=[{"operation": "other"}]))]
-    )
-    result = AuthoringOrchestrator(
-        transport=transport,
-        package_dir=tmp_path / "package",
-        task_id="conflict",
-    ).run(_view(), _inventory(), _contract())
-
-    assert result.status == "failed"
-    assert len(transport.requests) == 3
-    assert any(finding.code == "plan_conflict" for finding in result.findings)
-    assert not (tmp_path / "package").exists()
 
 
 def test_transport_failure_is_recorded_before_dispatch_and_contains_no_endpoint(
     tmp_path: Path,
 ) -> None:
     transport = ScriptedAuthoringTransport([RuntimeError("offline")])
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="transport",
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    assert result.status == "failed"
+    assert result.status == "transport_failure"
     assert result.ledger[0]["dispatch_index"] == 1
     assert result.ledger[0]["error"] == "offline"
     assert "endpoint" not in json.dumps(result.ledger).lower()
@@ -980,7 +947,7 @@ def test_transport_failure_is_recorded_before_dispatch_and_contains_no_endpoint(
     ("responses", "expected_stages"),
     [
         ([TimeoutError("Request timed out.")], ["call1"]),
-        ([json.dumps(_plan()), TimeoutError("Request timed out.")], ["call1", "call2"]),
+        ([json.dumps(_plan_v2()), TimeoutError("Request timed out.")], ["call1", "call2"]),
     ],
     ids=["call1", "call2"],
 )
@@ -991,13 +958,13 @@ def test_transport_failure_is_not_eligible_for_normal_correction(
 ) -> None:
     transport = ScriptedAuthoringTransport(responses)
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="transport-gate",
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    assert result.status == "failed"
+    assert result.status == "transport_failure"
     assert [request["stage"] for request in transport.requests] == expected_stages
     assert len(result.ledger) == len(expected_stages)
     assert result.ledger[-1]["stage"] != "correction"
@@ -1007,9 +974,9 @@ def test_transport_failure_is_not_eligible_for_normal_correction(
 @pytest.mark.parametrize(
     ("responses", "expected_stages"),
     [
-        ([b"", json.dumps(_plan()), json.dumps(_artifact())], ["call1", "correction", "call2"]),
+        ([b"", json.dumps(_plan_v2()), _framed()], ["call1", "correction", "call2"]),
         (
-            [json.dumps(_plan()), b'{"broken":', json.dumps(_artifact())],
+            [json.dumps(_plan_v2()), b"```json\n{broken}\n```\n```python\nx\n```\n", _framed()],
             ["call1", "call2", "correction"],
         ),
     ],
@@ -1022,48 +989,46 @@ def test_response_bearing_failure_remains_eligible_for_correction(
 ) -> None:
     transport = ScriptedAuthoringTransport(responses)
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="response-bearing-correction",
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    assert result.status == "packaged"
+    assert result.status == "accepted"
     assert [request["stage"] for request in transport.requests] == expected_stages
     assert result.package is not None
 
 
 def test_call2_rejects_fabricated_assistant_or_tool_history(tmp_path: Path) -> None:
-    bad = _artifact(
-        stimulus={
-            "user_text": "Do it.",
-            "delivery": "direct_user_message",
-            "history": [{"role": "assistant", "content": "Sure"}],
-            "slots": [],
-        }
-    )
-    transport = ScriptedAuthoringTransport([json.dumps(_plan()), json.dumps(bad)])
-    result = AuthoringOrchestrator(
+    bad = _metadata()
+    bad["stimulus"] = {
+        "user_text": "Do it.",
+        "delivery": "direct_user_message",
+        "history": [{"role": "assistant", "content": "Sure"}],
+        "slots": [],
+    }
+    transport = ScriptedAuthoringTransport([json.dumps(_plan_v2()), _framed(bad), _framed(bad)])
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="history",
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     assert any(finding.code == "non_user_history" for finding in result.findings)
 
 
 def test_blocked_plan_is_retained_outside_the_immutable_package(tmp_path: Path) -> None:
-    plan = _plan(
-        unresolved_requirements=[
-            {"name": "fresh_order", "essential": True, "reason": "not supplied"}
-        ]
-    )
-    result = AuthoringOrchestrator(
+    plan = _plan_v2()
+    plan["unresolved_requirements"] = [
+        {"name": "fresh_order", "essential": True, "reason": "not supplied"}
+    ]
+    result = stage_local_orchestrator(
         transport=ScriptedAuthoringTransport([json.dumps(plan)]),
         package_dir=tmp_path / "package",
         task_id="blocked-persisted",
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
     assert result.status == "blocked"
     retained = tmp_path / "package.blocked.json"
@@ -1074,26 +1039,27 @@ def test_blocked_plan_is_retained_outside_the_immutable_package(tmp_path: Path) 
     assert not (tmp_path / "package" / "manifest.json").exists()
 
 
-def test_setup_argument_schema_mismatch_is_structural_and_uses_shared_correction(
+def test_setup_argument_schema_mismatch_is_structural_and_uses_stage_correction(
     tmp_path: Path,
 ) -> None:
-    inventory = _inventory()
-    inventory["operations"][0]["arguments"]["properties"]["amount"] = {"type": "number"}
-    plan = _plan(
-        setup_recipe=[
-            {
-                "operation": "process_refund",
-                "arguments": {"order_id": "ord-1", "amount": "not-a-number"},
-            }
-        ]
-    )
-    result = AuthoringOrchestrator(
+    plan = _plan_v2()
+    plan["setup_recipe"] = [
+        {
+            "operation": "process_refund",
+            "arguments": {"order_id": "ord-1", "amount": "not-a-number"},
+        }
+    ]
+    result = stage_local_orchestrator(
         transport=ScriptedAuthoringTransport([json.dumps(plan), json.dumps(plan)]),
         package_dir=tmp_path / "package",
         task_id="schema-mismatch",
-    ).run(_view(), inventory, {**_contract(), "setup_permissions": ["process_refund"]})
+    ).run(
+        _view(),
+        _inventory_v2(),
+        {**_runtime_contract_v2(), "setup_permissions": ["process_refund"]},
+    )
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     assert len(result.ledger) == 2
     assert any(finding.code == "schema_type_mismatch" for finding in result.findings)
 
@@ -1105,21 +1071,21 @@ def test_budget_reserves_before_transport_failure_without_correction(
     transport = ScriptedAuthoringTransport(
         [RuntimeError("first"), RuntimeError("second"), RuntimeError("third")]
     )
-    first = AuthoringOrchestrator(
+    first = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "one",
         task_id="one",
         budget=budget,
-    ).run(_view(), _inventory(), _contract())
-    second = AuthoringOrchestrator(
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    second = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "two",
         task_id="two",
         budget=budget,
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    assert first.status == "failed"
-    assert second.status == "failed"
+    assert first.status == "transport_failure"
+    assert second.status == "transport_failure"
     assert budget.total_dispatched == 2
     assert len(transport.requests) == 2
     assert all(request["stage"] == "call1" for request in transport.requests)
@@ -1566,16 +1532,16 @@ def test_response_capture_is_persisted_separately_from_final_answer(
         "reasoning": {"state": "text", "content": "must not be parsed"},
         "finish_reason": {"state": "value", "value": "length"},
     }
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=ScriptedAuthoringTransport(
             [TransportResponse(raw=b"", response_capture=capture)]
         ),
         package_dir=tmp_path / "package",
         task_id="capture-separation",
         budget=AuthoringBudget(aggregate_limit=1, task_limit=1),
-    ).run(_view(), _inventory(), _contract())
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    assert result.status == "failed"
+    assert result.status == "budget_exhausted"
     saved = load_failure_evidence(tmp_path / "package.failure-evidence.json")
     attempt = saved["attempts"][0]
     assert attempt["response_capture"] == capture
@@ -1586,15 +1552,25 @@ def test_response_capture_is_persisted_separately_from_final_answer(
 
 def test_prompt_overflow_is_reported_without_silent_truncation() -> None:
     with pytest.raises(PromptOverflowError, match="explicitly scoped"):
-        build_call1_packet(_view(), _inventory(), _contract(), max_prompt_bytes=10)
+        build_call1_packet_v2(
+            _view(), _inventory_v2(), _runtime_contract_v2(), max_prompt_bytes=10
+        )
 
 
 @pytest.mark.parametrize(
-    ("response", "expected_code"),
+    ("response", "expected_code", "expected_status"),
     [
-        (TransportResponse(raw=b'{"broken":', usage={"prompt_tokens": 7}), "response_parse_error"),
-        (TransportResponse(raw=b"{}", usage={"prompt_tokens": 8}), "plan_validation"),
-        (RuntimeError("provider unavailable"), "transport_failure"),
+        (
+            TransportResponse(raw=b'{"broken":', usage={"prompt_tokens": 7}),
+            "invalid_json",
+            "unresolved",
+        ),
+        (
+            TransportResponse(raw=b"{}", usage={"prompt_tokens": 8}),
+            "plan_validation",
+            "unresolved",
+        ),
+        (RuntimeError("provider unavailable"), "transport_failure", "transport_failure"),
     ],
     ids=["malformed-json", "schema-invalid", "provider-failure"],
 )
@@ -1602,23 +1578,24 @@ def test_failed_authoring_persists_reloadable_evidence_before_discarding_respons
     tmp_path: Path,
     response: object,
     expected_code: str,
+    expected_status: str,
 ) -> None:
     package_dir = tmp_path / "package"
     transport = ScriptedAuthoringTransport([response])
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=package_dir,
         task_id="durable-failure",
-        budget=AuthoringBudget(aggregate_limit=1, task_limit=1),
-    ).run(_view(), _inventory(), _contract())
+        policy=unreviewed_policy(plan_max_corrections=0),
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    assert result.status == "failed"
+    assert result.status == expected_status
     assert len(transport.requests) == 1
     evidence_path = package_dir.with_name("package.failure-evidence.json")
     assert result.failure_evidence_path == evidence_path
     saved = load_failure_evidence(evidence_path)
-    assert saved["status"] == "failed"
+    assert saved["status"] == expected_status
     assert saved["task_id"] == "durable-failure"
     assert saved["attempts"]
     first = saved["attempts"][0]
@@ -1660,13 +1637,14 @@ def test_failure_evidence_redacts_endpoint_and_secret_metadata_without_losing_co
             "api_key": "do-not-persist",
         },
     )
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=ScriptedAuthoringTransport([response]),
         package_dir=package_dir,
         task_id="safe-failure",
-    ).run(_view(), _inventory(), _contract())
+        policy=unreviewed_policy(plan_max_corrections=0),
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    assert result.status == "failed"
+    assert result.status == "unresolved"
     evidence_path = package_dir.with_name("package.failure-evidence.json")
     persisted = evidence_path.read_text(encoding="utf-8")
     assert "private.invalid" not in persisted
@@ -1684,8 +1662,11 @@ def test_failure_evidence_reloads_after_authoring_process_exits(tmp_path: Path) 
     script = """
 import sys
 from pathlib import Path
-from asago_artifact_generator.authoring import AuthoringOrchestrator
-from tests.support import ScriptedAuthoringTransport
+from tests.support import (
+    ScriptedAuthoringTransport,
+    stage_local_orchestrator,
+    unreviewed_policy,
+)
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
 source, destination = map(Path, sys.argv[1:3])
@@ -1701,12 +1682,13 @@ contract = {
     "setup_permissions": [],
     "limits": {"max_turns": 1},
 }
-result = AuthoringOrchestrator(
+result = stage_local_orchestrator(
     transport=ScriptedAuthoringTransport([b'{"broken":']),
     package_dir=destination,
     task_id="process-exit",
+    policy=unreviewed_policy(plan_max_corrections=0),
 ).run(view, inventory, contract)
-raise SystemExit(0 if result.status == "failed" else 1)
+raise SystemExit(0 if result.status == "unresolved" else 1)
 """
     completed = subprocess.run(
         [sys.executable, "-c", script, str(HANDOFF), str(package_dir)],
@@ -1718,6 +1700,6 @@ raise SystemExit(0 if result.status == "failed" else 1)
 
     assert completed.returncode == 0, completed.stderr
     saved = load_failure_evidence(package_dir.with_name("package.failure-evidence.json"))
-    assert saved["status"] == "failed"
+    assert saved["status"] == "unresolved"
     assert saved["attempts"][0]["raw_response"]["availability"] == "available"
-    assert saved["attempts"][0]["findings"][0]["code"] == "response_parse_error"
+    assert saved["attempts"][0]["findings"][0]["code"] == "invalid_json"

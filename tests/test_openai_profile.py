@@ -13,11 +13,12 @@ from openai.types.completion_usage import CompletionTokensDetails, CompletionUsa
 from asago_artifact_generator.authoring import (
     AUTHORING_THINKING_EXTRA_BODY,
     AuthoringBudget,
-    AuthoringOrchestrator,
     PrivateModelAuthoringTransport,
     PromptPacket,
 )
 from asago_artifact_generator.input_adapter import load_input
+
+from .support import stage_local_orchestrator, unreviewed_policy
 
 HANDOFF = (
     Path(__file__).resolve().parents[1]
@@ -393,13 +394,13 @@ def test_empty_length_completion_remains_typed_response_failure(
         _response(content="", finish_reason="length", usage={"total_tokens": 32})
     )
 
-    result = AuthoringOrchestrator(
+    result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "empty-reasoning-package",
         task_id="empty-reasoning",
-        correction_allowed=False,
+        policy=unreviewed_policy(no_correction=True),
         budget=AuthoringBudget(aggregate_limit=1, task_limit=1),
     ).run(load_input(HANDOFF), {}, {})
 
-    assert result.status == "failed"
-    assert result.findings[0].code == "response_parse_error"
+    assert result.status == "unresolved"
+    assert result.findings[0].code == "ambiguous_content"
