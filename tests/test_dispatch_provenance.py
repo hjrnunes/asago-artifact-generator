@@ -13,11 +13,11 @@ from asago_artifact_generator.authoring import (
     AuthoringPolicy,
     PrivateModelAuthoringTransport,
     PromptPacket,
-    ScriptedAuthoringTransport,
     TransportResponse,
 )
 from asago_artifact_generator.failure_evidence import load_failure_evidence
 
+from .support import ScriptedAuthoringTransport
 from .test_versioned_authoring_wire import (
     _framed,
     _inventory,

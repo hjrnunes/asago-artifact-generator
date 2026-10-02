@@ -10,7 +10,6 @@ from asago_artifact_generator.authoring import (
     AuthoringOrchestrator,
     AuthoringPolicy,
     ReviewResponseError,
-    ScriptedAuthoringTransport,
     load_failure_evidence,
     parse_review_response,
     policy_max_dispatches,
@@ -18,6 +17,7 @@ from asago_artifact_generator.authoring import (
 )
 from asago_artifact_generator.detector_runtime import resolve_docker_path
 
+from .support import ScriptedAuthoringTransport
 from .test_versioned_authoring_wire import (
     _framed,
     _inventory,

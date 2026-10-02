@@ -8,12 +8,12 @@ from asago_artifact_generator.authoring import (
     PLAN_REVIEW_QUESTION_IDS,
     AuthoringOrchestrator,
     AuthoringPolicy,
-    ScriptedAuthoringTransport,
     build_artifact_review_packet,
     build_plan_review_packet,
     parse_review_response,
 )
 
+from .support import ScriptedAuthoringTransport
 from .test_versioned_authoring_wire import (
     _framed,
     _inventory,

@@ -12,10 +12,10 @@ from asago_artifact_generator.authoring import (
     AuthoringBudget,
     AuthoringOrchestrator,
     AuthoringPolicy,
-    ScriptedAuthoringTransport,
     policy_role_limits,
 )
 
+from .support import ScriptedAuthoringTransport
 from .test_authoring_orchestration import HANDOFF
 from .test_profile_bridge import _inputs as _cli_inputs
 from .test_versioned_authoring_wire import (

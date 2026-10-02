@@ -12,7 +12,6 @@ from asago_artifact_generator.authoring import (
     AuthoringOrchestrator,
     AuthoringPolicy,
     Finding,
-    ScriptedAuthoringTransport,
     _render_correction_packet,
     _review_finding_to_finding,
     build_correction_context,
@@ -22,6 +21,7 @@ from asago_artifact_generator.authoring import (
 )
 
 from . import test_versioned_authoring_wire as wire
+from .support import ScriptedAuthoringTransport
 from .test_binding_repair_options import (
     _NAMED_ORDER_SOURCES,
     _keyed_orders_inventory,

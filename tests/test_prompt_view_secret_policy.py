@@ -9,7 +9,6 @@ import pytest
 from asago_artifact_generator.authoring import (
     AuthoringError,
     AuthoringOrchestrator,
-    ScriptedAuthoringTransport,
     assert_no_prompt_secrets,
     assert_no_secrets,
     build_call1_packet,
@@ -19,6 +18,8 @@ from asago_artifact_generator.authoring import (
 from asago_artifact_generator.input_adapter import load_input
 from asago_artifact_generator.metadata_policy import prompt_secret_metadata_paths
 from asago_artifact_generator.package_io import PackageIntegrityError, build_package
+
+from .support import ScriptedAuthoringTransport
 
 
 def _operation_inventory() -> dict:

@@ -25,7 +25,6 @@ from asago_artifact_generator.authoring import (
     PrivateModelAuthoringTransport,
     PromptOverflowError,
     PromptPacket,
-    ScriptedAuthoringTransport,
     TransportResponse,
     _context_budget_estimate,
     _context_guard_ratio,
@@ -37,6 +36,8 @@ from asago_artifact_generator.authoring import (
 )
 from asago_artifact_generator.bindings import validate_bindings
 from asago_artifact_generator.input_adapter import InputKind, load_input
+
+from .support import ScriptedAuthoringTransport
 
 HANDOFF = (
     Path(__file__).resolve().parents[1]
@@ -1683,7 +1684,8 @@ def test_failure_evidence_reloads_after_authoring_process_exits(tmp_path: Path) 
     script = """
 import sys
 from pathlib import Path
-from asago_artifact_generator.authoring import AuthoringOrchestrator, ScriptedAuthoringTransport
+from asago_artifact_generator.authoring import AuthoringOrchestrator
+from tests.support import ScriptedAuthoringTransport
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
 source, destination = map(Path, sys.argv[1:3])
@@ -1708,6 +1710,7 @@ raise SystemExit(0 if result.status == "failed" else 1)
 """
     completed = subprocess.run(
         [sys.executable, "-c", script, str(HANDOFF), str(package_dir)],
+        cwd=Path(__file__).resolve().parents[1],
         check=False,
         capture_output=True,
         text=True,

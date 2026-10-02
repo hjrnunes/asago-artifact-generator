@@ -10,7 +10,6 @@ import yaml
 
 from asago_artifact_generator.authoring import (
     AuthoringOrchestrator,
-    ScriptedAuthoringTransport,
     artifact_observation_guide,
     build_call1_packet_v2,
     build_call2_packet_v2,
@@ -25,6 +24,8 @@ from asago_artifact_generator.detector_controls import (
     uncited_trigger_observations,
 )
 from asago_artifact_generator.input_adapter import _framed_digest, load_input
+
+from .support import ScriptedAuthoringTransport
 
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _NOT_CALLED = (

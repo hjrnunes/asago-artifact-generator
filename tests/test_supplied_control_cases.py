@@ -19,11 +19,11 @@ import pytest
 from asago_artifact_generator.authoring import (
     AuthoringOrchestrator,
     AuthoringPolicy,
-    ScriptedAuthoringTransport,
     build_artifact_review_packet,
 )
 from asago_artifact_generator.detector_controls import ControlCase
 
+from .support import ScriptedAuthoringTransport
 from .test_versioned_authoring_wire import (
     _framed,
     _inventory,

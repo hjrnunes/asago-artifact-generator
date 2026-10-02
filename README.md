@@ -622,8 +622,8 @@ the model-authored detector source, user-only stimulus, exact runtime-binding
 declarations, observations, explanation, examples, and digest-bound evidence.
 The context guard estimates prompt tokens from the rendered UTF-8 system and
 user bytes using the calibration described above; it does not report estimated
-values as provider usage. Use `build_neutral_artifact_package` and the public
-`check` command for the neutral evidence-interface example before reviewing
+values as provider usage. Use the test helper `build_neutral_artifact_package`
+(`tests/support.py`) and the public `check` command for the neutral evidence-interface example before reviewing
 model-authored output.
 New v2 executable prerequisites use exactly `name`, `check`, `evidence_refs`,
 `binding`, and `equals`. The binding names a declared runtime binding, and

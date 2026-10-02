@@ -9,7 +9,6 @@ import pytest
 import asago_artifact_generator.detector_controls as detector_controls
 from asago_artifact_generator.authoring import (
     AuthoringOrchestrator,
-    ScriptedAuthoringTransport,
 )
 from asago_artifact_generator.detector_controls import (
     ControlCase,
@@ -17,6 +16,8 @@ from asago_artifact_generator.detector_controls import (
     build_detector_feedback_prompt_context,
 )
 from asago_artifact_generator.input_adapter import InputKind, load_input
+
+from .support import ScriptedAuthoringTransport
 
 
 def test_feedback_classification_covers_runtime_failures() -> None:

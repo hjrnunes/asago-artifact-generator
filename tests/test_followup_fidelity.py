@@ -7,15 +7,18 @@ from pathlib import Path
 
 from asago_artifact_generator.authoring import (
     AuthoringOrchestrator,
-    ScriptedAuthoringTransport,
-    build_neutral_artifact_package,
     collect_artifact_findings,
     neutral_artifact_plan,
-    neutral_artifact_response,
     neutral_observation_cases,
-    neutral_observation_results,
 )
 from asago_artifact_generator.detector_runtime import execute_detector
+
+from .support import (
+    ScriptedAuthoringTransport,
+    build_neutral_artifact_package,
+    neutral_artifact_response,
+    neutral_observation_results,
+)
 
 HANDOFF = (
     Path(__file__).resolve().parents[1]

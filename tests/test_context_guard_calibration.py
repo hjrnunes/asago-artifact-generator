@@ -18,12 +18,13 @@ from asago_artifact_generator.authoring import (
     AuthoringPolicy,
     PromptOverflowError,
     PromptPacket,
-    ScriptedAuthoringTransport,
     _context_budget_estimate,
     _context_guard_ratio,
     _enforce_context_budget,
 )
 from tests.test_versioned_authoring_wire import _inventory, _plan, _runtime_contract, _view
+
+from .support import ScriptedAuthoringTransport
 
 
 class _ContextGuardedScriptedTransport:

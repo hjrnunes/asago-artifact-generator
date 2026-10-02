@@ -6,9 +6,9 @@ from pathlib import Path
 
 from asago_artifact_generator.authoring import (
     AuthoringOrchestrator,
-    ScriptedAuthoringTransport,
 )
 
+from .support import ScriptedAuthoringTransport
 from .test_authoring_orchestration import _contract, _inventory, _view
 
 
