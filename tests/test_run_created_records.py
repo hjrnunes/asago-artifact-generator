@@ -32,12 +32,10 @@ def test_plan_author_guidance_routes_run_created_records_through_capture() -> No
     assert "empty setup_permissions list permits no setup" in _CURRENT_PLAN_AUTHOR_GUIDANCE
 
 
-def test_current_plan_prompt_carries_the_rule_and_legacy_does_not() -> None:
+def test_current_plan_prompt_carries_the_rule() -> None:
     view = load_input(_HANDOFF)
     inventory = {"facts": [], "operations": [], "source_handles": []}
 
     current = build_call1_packet_v2(view, inventory, _runtime())
-    legacy = build_call1_packet_v2(view, inventory, _runtime(), legacy=True)
 
     assert _RULE in current.user
-    assert _RULE not in legacy.user

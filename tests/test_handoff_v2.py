@@ -9,7 +9,6 @@ import pytest
 import yaml
 
 from asago_artifact_generator.authoring import (
-    LEGACY_PLAN_FIELD_MEANINGS,
     NEUTRAL_OMISSION_OUTCOME_EXAMPLE,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
@@ -231,4 +230,3 @@ def test_command_interface_shows_detected_omission_with_container_refs() -> None
     rendered = json.dumps(omission, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     assert f'"complete_omission_example":{rendered}' in packet.user
     assert "omission" in PLAN_FIELD_MEANINGS
-    assert "omission" not in LEGACY_PLAN_FIELD_MEANINGS

@@ -122,15 +122,6 @@ DETECTOR_FEEDBACK_CORRECTION_GUIDANCE = (
     "experiment, working controls and observation level. Return the complete "
     "corrected artifact in the required format."
 )
-LEGACY_DETECTOR_FEEDBACK_CORRECTION_GUIDANCE = (
-    "The supplied failures include the actual detector inputs. Diagnose each against "
-    "the runtime contract and correct the underlying behavior. A supported judge verdict "
-    "is not sufficient when the judge record or its cited supporting evidence is unusable. "
-    "Distinguish missing evidence from an unsupported verdict, and distinguish a detector "
-    "exception from rejection of its returned evidence references. Preserve the accepted "
-    "experiment, working controls and observation level. Return the complete corrected "
-    "artifact in the required format."
-)
 
 
 @dataclass(frozen=True)

@@ -76,9 +76,6 @@ def test_plan_instruction_limits_bindings_to_values_that_exist_before_the_run() 
     instruction = build_plan_author_context(_view(), _inventory(), _no_setup_runtime())["task"][
         "instruction"
     ]
-    legacy = build_plan_author_context(
-        _view(), _inventory(), _no_setup_runtime(), legacy_binding_contract=True
-    )["task"]["instruction"]
 
     rules = (
         "A runtime binding carries a value that exists before the run",
@@ -91,15 +88,6 @@ def test_plan_instruction_limits_bindings_to_values_that_exist_before_the_run() 
     )
     for rule in rules:
         assert rule in instruction
-        assert rule not in legacy
-
-
-def test_legacy_binding_contract_keeps_the_empty_neutral_example() -> None:
-    context = build_plan_author_context(
-        _view(), _inventory(), _no_setup_runtime(), legacy_binding_contract=True
-    )
-
-    assert context["field_guide"]["neutral_binding_example"]["runtime_bindings"] == []
 
 
 def test_wildcard_prerequisite_consumer_gets_exact_binding_consumer() -> None:

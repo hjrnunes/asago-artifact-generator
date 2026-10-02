@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 
 from asago_artifact_generator.authoring import (
-    CORRECTION_PROMPT_VERSION_V6,
-    CORRECTION_PROMPT_VERSION_V9,
     Finding,
     _binding_selector_type,
     _render_correction_packet,
@@ -22,22 +19,12 @@ def _context(
     inventory: dict,
     runtime_contract: dict,
     findings: list[Finding],
-    *,
-    legacy: bool = False,
-    legacy_binding_contract: bool | None = None,
 ):
     return build_correction_context(
         failed_stage="call1",
-        original_context=build_plan_author_context(
-            _view(),
-            inventory,
-            runtime_contract,
-            legacy_interface=legacy,
-            legacy_binding_contract=legacy_binding_contract,
-        ),
+        original_context=build_plan_author_context(_view(), inventory, runtime_contract),
         current_output=json.dumps(candidate),
         findings=findings,
-        legacy_interface=legacy,
     )
 
 
@@ -76,66 +63,6 @@ def _section(packet, title: str, next_title: str) -> str:
     start = packet.user.index(f"{title}\n")
     end = packet.user.index(f"\n\n{next_title}", start)
     return packet.user[start:end]
-
-
-def test_legacy_v9_render_matches_head_2097438() -> None:
-    inventory = _inventory()
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": "facts:not-present",
-            "selector": "value.missing",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    packet = _render_correction_packet(
-        _context(
-            candidate,
-            inventory,
-            _runtime_contract(),
-            [
-                Finding(
-                    "plan_binding_validation",
-                    "bad source",
-                    "runtime_bindings[0].source_ref",
-                ),
-                Finding(
-                    "plan_binding_validation",
-                    "bad selector",
-                    "runtime_bindings[0].selector",
-                ),
-            ],
-            legacy_binding_contract=True,
-        ),
-        legacy_v9=True,
-    )
-
-    assert packet.version == CORRECTION_PROMPT_VERSION_V9
-    assert hashlib.sha256((packet.system + "\x00" + packet.user).encode()).hexdigest() == (
-        "a77150943cfa36a468a07fde2dd7f755663e158034528c3ed1dca7699901c3a5"
-    )
-    assert packet.sha256 == "5ea3442d3d4b25d7c8f9daed1003ab7b33e376e77a7f85213b87bba4c139900c"
-
-
-def test_legacy_v10_without_binding_options_preserves_v9_prompt_bytes() -> None:
-    context = _context(
-        _candidate(),
-        _inventory(),
-        _runtime_contract(),
-        [],
-        legacy_binding_contract=True,
-    )
-
-    v9 = _render_correction_packet(context, legacy_v9=True)
-    v10 = _render_correction_packet(context, legacy_v10=True)
-
-    assert v9.version == CORRECTION_PROMPT_VERSION_V9
-    assert v10.version != v9.version
-    assert (v10.system, v10.user) == (v9.system, v9.user)
 
 
 def test_selector_repair_lists_documented_paths_and_compatible_types() -> None:
@@ -390,26 +317,6 @@ def test_selector_repair_marks_a_source_whose_supplied_value_is_empty() -> None:
     assert descriptions["supplied_value_empty_note"]
 
 
-def test_legacy_v9_selector_repair_does_not_mark_empty_supplied_values() -> None:
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [_empty_list_binding()]
-    packet = _render_correction_packet(
-        _context(
-            candidate,
-            _empty_list_inventory(),
-            _runtime_contract(),
-            [Finding("plan_binding_validation", "bad selector", "runtime_bindings[0].selector")],
-            legacy_binding_contract=True,
-        ),
-        legacy_v9=True,
-    )
-
-    option = _option(packet)
-    assert option["documented_selectors"] == {"value": "array"}
-    assert "supplied_value_empty" not in option
-    assert "supplied_value_empty" not in packet.user
-
-
 def test_source_repair_marks_referenced_facts_whose_supplied_value_is_empty() -> None:
     candidate = _candidate()
     binding = _empty_list_binding()
@@ -656,27 +563,6 @@ def test_repair_options_omit_named_record_fields_for_a_whole_fact_selector() -> 
     assert option["kind"] == "selector"
     assert "named_record_key" not in option
     assert "named_record_sources" not in option
-
-
-def test_legacy_v9_selector_repair_omits_named_record_fields() -> None:
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        _named_record_binding("facts:state:orders:ORD-201", "value.order_id")
-    ]
-    packet = _render_correction_packet(
-        _context(
-            candidate,
-            _keyed_orders_inventory(),
-            _runtime_contract(),
-            [Finding("plan_binding_validation", "bad selector", "runtime_bindings[0].selector")],
-            legacy_binding_contract=True,
-        ),
-        legacy_v9=True,
-    )
-
-    option = _option(packet)
-    assert "named_record_key" not in option
-    assert "named_record" not in packet.user
 
 
 def test_selector_only_finding_on_resolving_source_keeps_selector_option_shape() -> None:
@@ -1073,22 +959,6 @@ def test_selector_enumeration_is_capped_with_an_explicit_note() -> None:
     assert len(option["documented_selectors"]) == 40
     assert option["truncated"] is True
     assert "truncated after 40 selectors" in option["truncation_note"]
-
-
-def test_legacy_plan_correction_does_not_render_binding_options() -> None:
-    packet = _render_correction_packet(
-        _context(
-            _candidate(),
-            _inventory(),
-            _runtime_contract(),
-            [Finding("unknown_binding", "bad binding", "prerequisites[0].binding")],
-            legacy=True,
-        )
-    )
-
-    assert packet.version == CORRECTION_PROMPT_VERSION_V6
-    assert "BINDING REPAIR OPTIONS" not in packet.user
-    assert "binding_repair_options" not in packet.payload
 
 
 def test_static_repair_fields_are_case_independent_and_separate_from_options() -> None:

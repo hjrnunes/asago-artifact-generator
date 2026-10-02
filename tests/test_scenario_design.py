@@ -159,26 +159,9 @@ def test_structured_classification_is_copied_when_supplied() -> None:
     )
 
 
-def test_legacy_binding_contract_call1_has_no_scenario_design() -> None:
-    packet = build_call1_packet_v2(
-        _view(), _inventory(), _runtime_contract(), legacy_binding_contract=True
-    )
-
-    assert "\nSCENARIO DESIGN\n" not in packet.user
-    assert _section(packet.user, "TASK")["scenario"]["classification"] == {
-        "adversary": None,
-        "family": None,
-        "test_class": None,
-    }
-
-
 def test_current_call1_lists_operations_once() -> None:
     packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
 
     capabilities = _section(packet.user, "EXECUTION CAPABILITIES")
     assert "SOURCE CONTEXT operations" in capabilities["available_operations"]
-    legacy = build_call1_packet_v2(
-        _view(), _inventory(), _runtime_contract(), legacy_binding_contract=True
-    )
-    description = "Return a draft and its status."
-    assert packet.user.count(description) * 2 == legacy.user.count(description)
+    assert "Return a draft and its status." not in json.dumps(capabilities)

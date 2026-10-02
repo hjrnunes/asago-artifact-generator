@@ -8,10 +8,7 @@ from asago_artifact_generator.authoring import (
     _CURRENT_PLAN_AUTHOR_GUIDANCE,
     evidence_packet_contract,
 )
-from asago_artifact_generator.detector_controls import (
-    DETECTOR_FEEDBACK_CORRECTION_GUIDANCE,
-    LEGACY_DETECTOR_FEEDBACK_CORRECTION_GUIDANCE,
-)
+from asago_artifact_generator.detector_controls import DETECTOR_FEEDBACK_CORRECTION_GUIDANCE
 from asago_artifact_generator.detector_runtime import validate_detector_evidence_access
 
 _RULE = "artifact authoring cannot add"
@@ -77,8 +74,3 @@ def test_undeclared_access_findings_state_the_rule_without_a_condition() -> None
         assert _RULE in finding["detail"]
         assert "caller_id" in finding["detail"]
         assert _plan_only_advice(finding["detail"]) == []
-
-
-def test_legacy_guidance_is_unchanged() -> None:
-    assert "detector_access" not in evidence_packet_contract(legacy=True)
-    assert _RULE not in LEGACY_DETECTOR_FEEDBACK_CORRECTION_GUIDANCE

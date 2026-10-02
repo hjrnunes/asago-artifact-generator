@@ -96,22 +96,6 @@ def test_call1_schema_describes_every_reference_field() -> None:
     )
 
 
-def test_legacy_binding_contract_context_has_no_evidence_reference_section() -> None:
-    context = build_plan_author_context(
-        _view(), _inventory(), _runtime_contract(), legacy_binding_contract=True
-    )
-
-    assert "evidence_references" not in context
-    assert (
-        "description"
-        not in (
-            context["response_contract"]["schema"]["properties"]["interpretation"]["properties"][
-                "source_refs"
-            ]
-        )
-    )
-
-
 def _codes_at(findings: list[Finding], prefix: str) -> list[str]:
     return [finding.code for finding in findings if finding.path.startswith(prefix)]
 

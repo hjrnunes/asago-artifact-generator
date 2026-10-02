@@ -6,7 +6,6 @@ from pathlib import Path
 
 from asago_artifact_generator.authoring import (
     _PLAN_REVIEW_QUESTIONS,
-    LEGACY_PLAN_FIELD_MEANINGS,
     PLAN_FIELD_MEANINGS,
     build_call1_packet_v2,
     build_plan_review_packet,
@@ -68,8 +67,6 @@ def test_observability_question_accepts_supplied_fact_operands() -> None:
 
 def test_field_meanings_distinguish_pre_run_facts_from_captured_evidence() -> None:
     assert _RULE in PLAN_FIELD_MEANINGS
-    assert _RULE not in LEGACY_PLAN_FIELD_MEANINGS
-    assert "The first three do not prove the fourth exists." in LEGACY_PLAN_FIELD_MEANINGS
 
 
 def test_author_and_reviewer_prompts_state_the_fact_operand_rule() -> None:
