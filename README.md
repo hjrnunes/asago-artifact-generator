@@ -36,8 +36,7 @@ the input projection retains scenario/reference identities and narrative/Gherkin
 SHA-256 digests without repeating those texts.
 The accepted Call 1 plan owns setup, bindings, prerequisites, evidence,
 assumptions, observation requirements, and judge decisions; Call 2 cannot
-resubmit those fields. Historical v1 readers remain explicit for preserved
-packages.
+resubmit those fields.
 
 ### Private authoring profiles
 
@@ -557,16 +556,18 @@ explicitly `null`. Static judge `fact_refs` resolve from the supplied inventory
 into `judge.json` facts with their exact source reference before publication.
 Facts that depend on setup, live reads, or captured output remain declarations
 in `bindings.json`; the consumer never substitutes a static value for them.
-Historical v1 readers continue to accept their descriptive and
-`source`/`expected` prerequisite forms, but those aliases are not emitted by
-the v2 authoring path.
+The plan validator rejects the older `source` and `expected` prerequisite
+fields as unexpected, and reports `binding` and `equals` as missing when they
+are absent. `load_package` and `check` do not parse `prerequisites.json`; they
+verify the manifest, the member set, and each member's digest and length.
 If authoring fails before a package exists, the sibling
 `<package>.failure-evidence.json` sidecar is written atomically. It preserves
 each exact rendered prompt, available raw response bytes, provider usage,
 controls, transformations, and findings. Missing responses or usage use an
 explicit `unavailable` marker. Provider endpoint and secret metadata are
 redacted from the sidecar. The sidecar uses
-`authoring-failure-evidence-v2`; readers accept the prior v1 document as well.
+`authoring-failure-evidence-v2`; `load_failure_evidence` accepts the prior v1
+document as well.
 `attempts` retains the full history, while top-level `findings` contains only
 the findings that caused the terminal status. The `terminal` object records the
 logical stage, zero-based attempt index, and terminal reason.
