@@ -129,16 +129,6 @@ def author(
             help="YAML file containing the named private authoring profiles.",
         ),
     ] = Path("config/model-profiles.yaml"),
-    no_correction: Annotated[
-        bool,
-        typer.Option(
-            "--no-correction",
-            help=(
-                "Legacy no-correction mode: both stage allowances become zero. "
-                "Conflicts with an explicit nonzero stage allowance."
-            ),
-        ),
-    ] = False,
     prior_author_correction_spend: Annotated[
         int,
         typer.Option(
@@ -172,7 +162,6 @@ def author(
             artifact_max_corrections=artifact_max_corrections,
             review_plan=review_plan,
             review_artifact=review_artifact,
-            no_correction=no_correction,
             review_model_profile=effective_review_profile,
         )
     except ValueError as exc:

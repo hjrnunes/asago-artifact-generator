@@ -79,17 +79,6 @@ def test_policy_defaults_and_strict_correction_validation() -> None:
                 AuthoringPolicy(**{field_name: value})
 
 
-def test_legacy_no_correction_translates_both_stages_without_precedence() -> None:
-    policy = AuthoringPolicy(no_correction=True)
-    assert policy.plan_max_corrections == 0
-    assert policy.artifact_max_corrections == 0
-
-    with pytest.raises(ValueError, match="no_correction"):
-        AuthoringPolicy(no_correction=True, plan_max_corrections=1)
-    with pytest.raises(ValueError, match="no_correction"):
-        AuthoringPolicy(no_correction=True, artifact_max_corrections=2)
-
-
 def test_orchestrator_records_the_supplied_stage_policy(tmp_path: Path) -> None:
     transport = ScriptedAuthoringTransport([json.dumps(_plan()), _framed()])
     orchestrator = AuthoringOrchestrator(

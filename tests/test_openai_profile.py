@@ -398,7 +398,7 @@ def test_empty_length_completion_remains_typed_response_failure(
         transport=transport,
         package_dir=tmp_path / "empty-reasoning-package",
         task_id="empty-reasoning",
-        policy=unreviewed_policy(no_correction=True),
+        policy=unreviewed_policy(plan_max_corrections=0, artifact_max_corrections=0),
         budget=AuthoringBudget(aggregate_limit=1, task_limit=1),
     ).run(load_input(HANDOFF), {}, {})
 

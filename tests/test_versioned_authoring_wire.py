@@ -402,7 +402,7 @@ def test_v2_call1_rejects_unsupported_framing_through_orchestrator(
         transport=ScriptedAuthoringTransport([raw]),
         package_dir=tmp_path / finding_code,
         task_id=f"v2-reject-{finding_code}",
-        policy=unreviewed_policy(no_correction=True),
+        policy=unreviewed_policy(plan_max_corrections=0, artifact_max_corrections=0),
     ).run(_view(), _inventory(), _runtime_contract())
 
     assert result.status == "unresolved"

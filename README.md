@@ -137,11 +137,11 @@ uv run asago-artifact-generator author <scenario-handoff.json> \
 ```
 
 Correction allowances are nonnegative integers; booleans, negatives, and
-non-integers are rejected before dispatch and values are never clamped. The
-legacy `--no-correction` flag sets both stage allowances to zero and conflicts
-with an explicit nonzero stage allowance instead of choosing a precedence.
-Stage allowances are independent: a plan correction never consumes artifact
-allowance, and zero disables only its own stage.
+non-integers are rejected before dispatch and values are never clamped. Each
+allowance defaults to 1. Stage allowances are independent: a plan correction
+never consumes artifact allowance, and zero disables only its own stage. Pass
+`--plan-max-corrections 0 --artifact-max-corrections 0` to disable corrections
+in both stages.
 
 With reviews enabled, each stage runs deterministic checks (and, for the
 artifact stage, the isolated Docker detector controls) before its semantic

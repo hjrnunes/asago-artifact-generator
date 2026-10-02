@@ -1151,20 +1151,17 @@ class AuthoringPolicy:
     one and accept only nonnegative integers; booleans, negatives, and other
     types are rejected and values are never clamped.  ``review_plan`` and
     ``review_artifact`` default to enabled and are validated independently.
-    ``no_correction`` is the legacy global switch: used alone it sets both
-    stage counts to zero, and combined with an explicit nonzero stage limit it
-    is rejected instead of choosing a precedence.
+    Set a stage limit to zero to disable corrections for that stage.
     """
 
     plan_max_corrections: Any = _UNSET_CORRECTIONS
     artifact_max_corrections: Any = _UNSET_CORRECTIONS
     review_plan: bool = True
     review_artifact: bool = True
-    no_correction: bool = False
     review_model_profile: str | None = None
 
     def __post_init__(self) -> None:
-        for name in ("review_plan", "review_artifact", "no_correction"):
+        for name in ("review_plan", "review_artifact"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"{name} must be a boolean")
         if self.review_model_profile is not None and (
@@ -1179,23 +1176,9 @@ class AuthoringPolicy:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{name} must be a nonnegative integer, got {value!r}")
             explicit[name] = value
-        if self.no_correction:
-            conflicts = sorted(name for name, value in explicit.items() if value != 0)
-            if conflicts:
-                raise ValueError(
-                    "no_correction conflicts with an explicit nonzero correction limit ("
-                    + ", ".join(conflicts)
-                    + "); set the stage limit to zero or drop no_correction"
-                )
+        object.__setattr__(self, "plan_max_corrections", explicit.get("plan_max_corrections", 1))
         object.__setattr__(
-            self,
-            "plan_max_corrections",
-            explicit.get("plan_max_corrections", 0 if self.no_correction else 1),
-        )
-        object.__setattr__(
-            self,
-            "artifact_max_corrections",
-            explicit.get("artifact_max_corrections", 0 if self.no_correction else 1),
+            self, "artifact_max_corrections", explicit.get("artifact_max_corrections", 1)
         )
 
     @classmethod
@@ -1206,7 +1189,6 @@ class AuthoringPolicy:
         artifact_max_corrections: int | None = None,
         review_plan: bool = True,
         review_artifact: bool = True,
-        no_correction: bool = False,
         review_model_profile: str | None = None,
     ) -> AuthoringPolicy:
         """Build one policy from optional CLI values; ``None`` keeps defaults."""
@@ -1214,7 +1196,6 @@ class AuthoringPolicy:
         kwargs: dict[str, Any] = {
             "review_plan": review_plan,
             "review_artifact": review_artifact,
-            "no_correction": no_correction,
             "review_model_profile": review_model_profile,
         }
         if plan_max_corrections is not None:
