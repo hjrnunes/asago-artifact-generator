@@ -401,3 +401,95 @@ def test_empty_length_completion_remains_typed_response_failure(
 
     assert result.status == "unresolved"
     assert result.findings[0].code == "ambiguous_content"
+
+
+def _transport(**options: object) -> PrivateModelAuthoringTransport:
+    return PrivateModelAuthoringTransport(
+        base_url="https://private.invalid/v1",
+        api_key="secret-value",
+        model="luna",
+        **options,  # type: ignore[arg-type]
+    )
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"max_completion_tokens": True}, "max_completion_tokens must be a positive integer"),
+        ({"max_completion_tokens": 0}, "max_completion_tokens must be a positive integer"),
+        ({"max_completion_tokens": 1.5}, "max_completion_tokens must be a positive integer"),
+        ({"context_window_tokens": False}, "context_window_tokens must be a positive integer"),
+        ({"context_window_tokens": -1}, "context_window_tokens must be a positive integer"),
+        (
+            {"max_completion_tokens": 8_000, "context_window_tokens": 8_000},
+            "max_completion_tokens leaves no room for the prompt in the context window",
+        ),
+        ({"sampling_controls": 1}, "sampling_controls must be a boolean"),
+        ({"reasoning_effort": " "}, "reasoning_effort must be a nonblank string"),
+        ({"reasoning_effort": 3}, "reasoning_effort must be a nonblank string"),
+        ({"service_tier": ""}, "service_tier must be a nonblank string"),
+        ({"service_tier_fallback": "\t"}, "service_tier_fallback must be a nonblank string"),
+        ({"strict_json_schema": "yes"}, "strict_json_schema must be a boolean"),
+        ({"timeout": True}, "timeout must be a positive number"),
+        ({"timeout": 0}, "timeout must be a positive number"),
+        ({"timeout": "10"}, "timeout must be a positive number"),
+        ({"review_fill_context": True}, "review_fill_context requires context_window_tokens"),
+    ],
+)
+def test_transport_rejects_each_invalid_option(options: dict, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        _transport(**options)
+
+
+def test_transport_reports_the_first_invalid_option_in_a_fixed_order() -> None:
+    every_option_invalid = {
+        "max_completion_tokens": 0,
+        "context_window_tokens": 0,
+        "sampling_controls": None,
+        "reasoning_effort": "",
+        "service_tier": "",
+        "service_tier_fallback": "",
+        "strict_json_schema": "yes",
+        "timeout": 0,
+        "review_fill_context": True,
+    }
+    order = []
+    while every_option_invalid:
+        with pytest.raises(ValueError) as raised:
+            _transport(**every_option_invalid)
+        name = str(raised.value).split(" ", 1)[0]
+        order.append(name)
+        every_option_invalid.pop(name)
+
+    assert order == [
+        "max_completion_tokens",
+        "context_window_tokens",
+        "sampling_controls",
+        "reasoning_effort",
+        "service_tier",
+        "service_tier_fallback",
+        "strict_json_schema",
+        "timeout",
+        "review_fill_context",
+    ]
+
+
+def test_transport_keeps_valid_options_and_passes_the_timeout_to_the_client() -> None:
+    transport = _transport(
+        max_completion_tokens=1_000,
+        context_window_tokens=32_000,
+        review_fill_context=True,
+        reasoning_effort="high",
+        service_tier="flex",
+        service_tier_fallback="auto",
+        strict_json_schema=False,
+        timeout=2.5,
+    )
+
+    assert (transport.max_completion_tokens, transport.context_window_tokens) == (1_000, 32_000)
+    assert transport.review_fill_context is True
+    assert (transport.service_tier, transport.service_tier_fallback) == ("flex", "auto")
+    assert transport.strict_json_schema is False
+    assert transport.timeout == 2.5
+    assert transport._client.timeout == 2.5
+    assert transport._client.max_retries == 0

@@ -59,49 +59,20 @@ class PrivateModelAuthoringTransport:
 
         from openai import OpenAI
 
-        if max_completion_tokens is not None and (
-            isinstance(max_completion_tokens, bool)
-            or not isinstance(max_completion_tokens, int)
-            or max_completion_tokens <= 0
-        ):
-            raise ValueError("max_completion_tokens must be a positive integer when provided")
-        if context_window_tokens is not None and (
-            isinstance(context_window_tokens, bool)
-            or not isinstance(context_window_tokens, int)
-            or context_window_tokens <= 0
-        ):
-            raise ValueError("context_window_tokens must be a positive integer when provided")
-        if (
-            context_window_tokens is not None
-            and max_completion_tokens is not None
-            and max_completion_tokens + _CONTEXT_FRAMING_TOKEN_RESERVE >= context_window_tokens
-        ):
-            raise ValueError(
-                "max_completion_tokens leaves no room for the prompt in the context window"
-            )
+        _validate_transport_options(
+            max_completion_tokens=max_completion_tokens,
+            context_window_tokens=context_window_tokens,
+            sampling_controls=sampling_controls,
+            reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
+            service_tier_fallback=service_tier_fallback,
+            strict_json_schema=strict_json_schema,
+            timeout=timeout,
+            review_fill_context=review_fill_context,
+        )
         self.model = model
         self.profile_name = profile_name
         self.temperature = temperature
-        if not isinstance(sampling_controls, bool):
-            raise ValueError("sampling_controls must be a boolean")
-        if reasoning_effort is not None and (
-            not isinstance(reasoning_effort, str) or not reasoning_effort.strip()
-        ):
-            raise ValueError("reasoning_effort must be a nonblank string when provided")
-        if service_tier is not None and (
-            not isinstance(service_tier, str) or not service_tier.strip()
-        ):
-            raise ValueError("service_tier must be a nonblank string when provided")
-        if service_tier_fallback is not None and (
-            not isinstance(service_tier_fallback, str) or not service_tier_fallback.strip()
-        ):
-            raise ValueError("service_tier_fallback must be a nonblank string when provided")
-        if strict_json_schema is not None and not isinstance(strict_json_schema, bool):
-            raise ValueError("strict_json_schema must be a boolean when provided")
-        if timeout is not None and (
-            isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0
-        ):
-            raise ValueError("timeout must be a positive number when provided")
         self.reasoning_effort = reasoning_effort
         self.service_tier = service_tier
         self.service_tier_fallback = service_tier_fallback
@@ -113,12 +84,6 @@ class PrivateModelAuthoringTransport:
         self.review_extra_body = (
             deepcopy(review_extra_body) if review_extra_body is not None else None
         )
-        if review_fill_context and (
-            context_window_tokens is None or max_completion_tokens is None
-        ):
-            raise ValueError(
-                "review_fill_context requires context_window_tokens and max_completion_tokens"
-            )
         self.max_completion_tokens = max_completion_tokens
         self.context_window_tokens = context_window_tokens
         self.review_fill_context = review_fill_context
@@ -295,4 +260,82 @@ class PrivateModelAuthoringTransport:
             packet,
             context_window_tokens=self.context_window_tokens,
             max_completion_tokens=self.max_completion_tokens,
+        )
+
+
+def _is_positive_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _is_nonblank_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _validate_token_limits(max_completion_tokens: Any, context_window_tokens: Any) -> None:
+    if max_completion_tokens is not None and not _is_positive_int(max_completion_tokens):
+        raise ValueError("max_completion_tokens must be a positive integer when provided")
+    if context_window_tokens is not None and not _is_positive_int(context_window_tokens):
+        raise ValueError("context_window_tokens must be a positive integer when provided")
+    if (
+        context_window_tokens is not None
+        and max_completion_tokens is not None
+        and max_completion_tokens + _CONTEXT_FRAMING_TOKEN_RESERVE >= context_window_tokens
+    ):
+        raise ValueError(
+            "max_completion_tokens leaves no room for the prompt in the context window"
+        )
+
+
+def _validate_request_controls(
+    *,
+    sampling_controls: Any,
+    reasoning_effort: Any,
+    service_tier: Any,
+    service_tier_fallback: Any,
+    strict_json_schema: Any,
+    timeout: Any,
+) -> None:
+    if not isinstance(sampling_controls, bool):
+        raise ValueError("sampling_controls must be a boolean")
+    for name, value in (
+        ("reasoning_effort", reasoning_effort),
+        ("service_tier", service_tier),
+        ("service_tier_fallback", service_tier_fallback),
+    ):
+        if value is not None and not _is_nonblank_string(value):
+            raise ValueError(f"{name} must be a nonblank string when provided")
+    if strict_json_schema is not None and not isinstance(strict_json_schema, bool):
+        raise ValueError("strict_json_schema must be a boolean when provided")
+    if timeout is not None and (
+        isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0
+    ):
+        raise ValueError("timeout must be a positive number when provided")
+
+
+def _validate_transport_options(
+    *,
+    max_completion_tokens: Any,
+    context_window_tokens: Any,
+    sampling_controls: Any,
+    reasoning_effort: Any,
+    service_tier: Any,
+    service_tier_fallback: Any,
+    strict_json_schema: Any,
+    timeout: Any,
+    review_fill_context: bool,
+) -> None:
+    """Raise ValueError for the first invalid transport option, in a fixed order."""
+
+    _validate_token_limits(max_completion_tokens, context_window_tokens)
+    _validate_request_controls(
+        sampling_controls=sampling_controls,
+        reasoning_effort=reasoning_effort,
+        service_tier=service_tier,
+        service_tier_fallback=service_tier_fallback,
+        strict_json_schema=strict_json_schema,
+        timeout=timeout,
+    )
+    if review_fill_context and (context_window_tokens is None or max_completion_tokens is None):
+        raise ValueError(
+            "review_fill_context requires context_window_tokens and max_completion_tokens"
         )
