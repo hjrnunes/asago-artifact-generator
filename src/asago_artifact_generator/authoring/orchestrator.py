@@ -110,6 +110,17 @@ class _StageStop:
     findings: tuple[Finding, ...] = ()
 
 
+# Returned by ``_dispatch_correction`` when no correction response exists.
+_CORRECTION_NOT_DISPATCHED = object()
+
+
+@dataclass(frozen=True)
+class _ArtifactRevision:
+    """Semantic review findings that send the artifact back for a revision."""
+
+    findings: tuple[Finding, ...]
+
+
 @dataclass(frozen=True)
 class _ReviewOutcome:
     """One completed semantic-review dispatch and its closed classification."""
@@ -634,6 +645,65 @@ class AuthoringOrchestrator:
         the dispatched correction.
         """
 
+        packet = self._correction_packet(
+            failed_stage=failed_stage,
+            failed_packet=failed_packet,
+            failed_response=failed_response,
+            findings=findings,
+            view=view,
+            inventory=inventory,
+            runtime_contract=runtime_contract,
+        )
+        if packet is None:
+            return None
+        self._prompt_packets["correction"] = packet
+        response = self._dispatch_correction(packet, failed_stage)
+        if response is _CORRECTION_NOT_DISPATCHED:
+            return None
+        raw = self._record_correction_response(
+            response,
+            failed_stage=failed_stage,
+            failed_response=failed_response,
+            allowance_kind=allowance_kind,
+        )
+        validated = self._validate_correction_response(
+            raw, failed_stage, view, inventory, runtime_contract
+        )
+        if validated is None:
+            return None
+        validation_value, decoded, replacement_findings = validated
+        if replacement_findings:
+            return validation_value, replacement_findings, raw
+        self._ledger[-1]["validation"] = "passed"
+        self._persist_failure_evidence()
+        replacement_key = "call1" if failed_stage == "call1" else "call2"
+        self._raw_responses[replacement_key] = raw
+        self._decoded_responses[replacement_key] = decoded
+        self._prompt_packets[replacement_key] = (
+            build_call1_packet_v2(view, inventory, runtime_contract)
+            if failed_stage == "call1"
+            else build_call2_packet_v2(
+                view,
+                self._decoded_responses["call1"],
+                inventory,
+                runtime_contract,
+            )
+        )
+        return validation_value, [], raw
+
+    def _correction_packet(
+        self,
+        *,
+        failed_stage: str,
+        failed_packet: PromptPacket,
+        failed_response: bytes,
+        findings: list[Finding],
+        view: InputView,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> PromptPacket | None:
+        """Render the correction prompt; record a preflight failure and return None."""
+
         original_context = (
             build_plan_author_context(view, inventory, runtime_contract)
             if failed_stage == "call1"
@@ -684,16 +754,20 @@ class AuthoringOrchestrator:
             self._failure_evidence["findings"].append(finding.to_dict())
             self._persist_failure_evidence()
             return None
-        self._prompt_packets["correction"] = packet
+        return packet
+
+    def _dispatch_correction(self, packet: PromptPacket, failed_stage: str) -> Any:
+        """Dispatch the correction; record a refused or failed request and return the sentinel."""
+
         started = time.monotonic()
         try:
-            response = self._dispatch(packet)
+            return self._dispatch(packet)
         except PromptOverflowError as exc:
             finding = _prompt_overflow_finding(exc, packet.stage)
             self._findings.append(finding)
             self._failure_evidence["findings"].append(finding.to_dict())
             self._persist_failure_evidence()
-            return None
+            return _CORRECTION_NOT_DISPATCHED
         except BudgetExceeded as exc:
             # Budget stops happen before dispatch: no ledger record or stage
             # attempt exists for the refused correction request.
@@ -701,7 +775,7 @@ class AuthoringOrchestrator:
             self._findings.append(finding)
             self._failure_evidence["findings"].append(finding.to_dict())
             self._persist_failure_evidence()
-            return None
+            return _CORRECTION_NOT_DISPATCHED
         except Exception as exc:
             finding = Finding("correction_dispatch_failed", _safe_error(exc), failed_stage)
             if self._dispatch_recorded:
@@ -713,7 +787,18 @@ class AuthoringOrchestrator:
                 finding=finding,
                 elapsed_ms=(time.monotonic() - started) * 1000,
             )
-            return None
+            return _CORRECTION_NOT_DISPATCHED
+
+    def _record_correction_response(
+        self,
+        response: Any,
+        *,
+        failed_stage: str,
+        failed_response: bytes,
+        allowance_kind: str,
+    ) -> bytes:
+        """Record the correction response in the ledger and failure evidence; return its bytes."""
+
         raw, usage, controls, response_capture = _response_parts(response)
         raw_key = f"dispatch:{self._ledger[-1]['dispatch_index']}"
         self._raw_responses[raw_key] = raw
@@ -732,21 +817,47 @@ class AuthoringOrchestrator:
             reason="not_returned" if not failed_response else None,
         )
         self._record_available_response(raw, usage, controls, response_capture)
+        return raw
+
+    def _decode_correction_response(
+        self, raw: bytes, failed_stage: str
+    ) -> tuple[dict[str, Any] | ParsedCall2Response, Any]:
+        """Return the value to validate and the decoded output of a correction response."""
+
+        if failed_stage == "call2":
+            parsed = parse_call2_response(raw)
+            self._call2_python_bytes = parsed.python_bytes
+            self._raw_responses["call2-python"] = parsed.python_bytes
+            return parsed, parsed.metadata
+        decoded, transformation = _decode_v2_json_response(raw)
+        if transformation:
+            self._transformations.append(transformation)
+            self._failure_evidence["transformations"] = list(self._transformations)
+            self._ledger[-1]["transformation"] = transformation
+            self._failure_attempt()["transformation"] = transformation
+        return decoded, decoded
+
+    def _validate_correction_response(
+        self,
+        raw: bytes,
+        failed_stage: str,
+        view: InputView,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> tuple[dict[str, Any] | ParsedCall2Response, Any, list[Finding]] | None:
+        """Decode and validate a correction; record a failure and return None.
+
+        Returns the value to validate, the decoded output, and the recorded
+        validation findings.
+        """
+
+        checks_not_run = (
+            ["plan_validation"]
+            if failed_stage == "call1"
+            else ["artifact_validation", "detector_controls"]
+        )
         try:
-            if failed_stage == "call2":
-                parsed = parse_call2_response(raw)
-                self._call2_python_bytes = parsed.python_bytes
-                self._raw_responses["call2-python"] = parsed.python_bytes
-                validation_value: dict[str, Any] | ParsedCall2Response = parsed
-                decoded: Any = parsed.metadata
-            else:
-                decoded, transformation = _decode_v2_json_response(raw)
-                validation_value = decoded
-                if transformation:
-                    self._transformations.append(transformation)
-                    self._failure_evidence["transformations"] = list(self._transformations)
-                    self._ledger[-1]["transformation"] = transformation
-                    self._failure_attempt()["transformation"] = transformation
+            validation_value, decoded = self._decode_correction_response(raw, failed_stage)
             assert_no_secrets(
                 validation_value.metadata
                 if isinstance(validation_value, ParsedCall2Response)
@@ -783,14 +894,9 @@ class AuthoringOrchestrator:
                 ]
                 self._findings.extend(replacement_findings)
                 self._record_failures(replacement_findings)
-                return validation_value, replacement_findings, raw
         except (Call1FramingError, Call2FramingError) as exc:
             self._ledger[-1]["framing_findings"] = [finding.to_dict() for finding in exc.findings]
-            self._record_checks_not_run(
-                ["plan_validation"]
-                if failed_stage == "call1"
-                else ["artifact_validation", "detector_controls"]
-            )
+            self._record_checks_not_run(checks_not_run)
             self._findings.extend(exc.findings)
             self._record_failures(exc.findings)
             return None
@@ -799,30 +905,11 @@ class AuthoringOrchestrator:
             self._ledger[-1]["findings"] = [finding.to_dict()]
             if isinstance(exc, (UnicodeDecodeError, json.JSONDecodeError)):
                 self._ledger[-1]["parse_error"] = str(exc)
-                self._record_checks_not_run(
-                    ["plan_validation"]
-                    if failed_stage == "call1"
-                    else ["artifact_validation", "detector_controls"]
-                )
+                self._record_checks_not_run(checks_not_run)
             self._findings.append(finding)
             self._record_failure(finding)
             return None
-        self._ledger[-1]["validation"] = "passed"
-        self._persist_failure_evidence()
-        replacement_key = "call1" if failed_stage == "call1" else "call2"
-        self._raw_responses[replacement_key] = raw
-        self._decoded_responses[replacement_key] = decoded
-        self._prompt_packets[replacement_key] = (
-            build_call1_packet_v2(view, inventory, runtime_contract)
-            if failed_stage == "call1"
-            else build_call2_packet_v2(
-                view,
-                self._decoded_responses["call1"],
-                inventory,
-                runtime_contract,
-            )
-        )
-        return validation_value, [], raw
+        return validation_value, decoded, replacement_findings
 
     def _run_v2_policy(
         self,
@@ -1038,7 +1125,6 @@ class AuthoringOrchestrator:
     ) -> tuple[ParsedCall2Response, dict[str, Any], dict[str, Any]] | _StageStop:
         """Author, check, control, correct, and review the artifact stage."""
 
-        policy = self.policy
         try:
             packet = build_call2_packet_v2(view, plan, inventory, runtime_contract)
         except PromptPreflightError as exc:
@@ -1056,131 +1142,193 @@ class AuthoringOrchestrator:
             )
 
         parsed: ParsedCall2Response | None = None
-        pending: list[Finding] | None = None
+        pending: Sequence[Finding] | None = None
         review_driven = False
         raw = b""
         while True:
             if parsed is None:
                 if pending is None:
-                    candidate, pending, raw = self._request_and_validate_v2(packet, collector)
-                    recover = (
-                        candidate
-                        if isinstance(candidate, ParsedCall2Response)
-                        else (self._parse_candidate_for_controls(raw) if raw else None)
+                    parsed, pending, raw = self._first_artifact_candidate(
+                        packet, collector, plan, inventory, runtime_contract
                     )
-                    if recover is not None:
-                        # A runnable candidate is exercised where the isolated
-                        # control interface safely supports it, even beside
-                        # structural findings; every obtainable defect is
-                        # collected before any correction decision.
-                        pending = self._run_detector_controls(
-                            recover,
-                            plan,
-                            inventory,
-                            runtime_contract,
-                            pending,
-                        )
-                    if candidate is not None and not pending:
-                        parsed = candidate
                 if parsed is None:
-                    pending = pending or [
-                        Finding("call2_failed", "Call 2 did not return a valid artifact", "call2")
-                    ]
-                    stop = self._stop_for_author_findings(pending)
-                    if stop is not None:
-                        return stop
-                    if not self._consume_allowance("artifact", review_revision=review_driven):
-                        return _StageStop(
-                            "unresolved",
-                            (
-                                *pending,
-                                self._allowance_exhausted_finding(
-                                    "artifact", review_revision=review_driven
-                                ),
-                            ),
-                        )
-                    self._record_allowances()
-                    allowance_kind = "review_revision" if review_driven else "correction"
-                    review_driven = False
-                    correction = self._correction_v2(
-                        failed_stage="call2",
-                        failed_packet=packet,
-                        failed_response=raw,
-                        findings=list(pending),
-                        view=view,
-                        inventory=inventory,
-                        runtime_contract=runtime_contract,
-                        allowance_kind=allowance_kind,
-                    )
-                    if correction is None:
-                        stop = self._stop_for_author_findings(list(self._findings))
-                        if stop is not None:
-                            return stop
-                        return _StageStop("unresolved", tuple(self._findings or pending))
-                    corrected_candidate, correction_findings, raw = correction
-                    if not isinstance(corrected_candidate, ParsedCall2Response):
-                        stop = self._stop_for_author_findings(list(self._findings))
-                        if stop is not None:
-                            return stop
-                        return _StageStop(
-                            "unresolved",
-                            tuple(self._findings or correction_findings),
-                        )
-                    pending = self._run_detector_controls(
-                        corrected_candidate,
+                    step = self._correct_artifact_candidate(
+                        view,
+                        packet,
                         plan,
                         inventory,
                         runtime_contract,
-                        list(correction_findings),
+                        pending=pending,
+                        raw=raw,
+                        review_driven=review_driven,
                     )
-                    if pending:
-                        # A corrected candidate can fail deterministic checks,
-                        # controls, or both. Keep every finding and use the
-                        # latest candidate/control feedback for the next
-                        # correction while allowance remains.
-                        parsed = None
+                    if isinstance(step, _StageStop):
+                        return step
+                    review_driven = False
+                    parsed, pending, raw = step
+                    if parsed is None:
                         continue
-                    parsed = corrected_candidate
-            assert parsed is not None
-            if not policy.review_artifact:
-                self._review_status["artifact"] = "not_requested"
-                self._review_reuse["artifact"] = "not_requested"
-                return self._artifact_parts(parsed, plan)
-            self._review_reuse["artifact"] = "fresh_dispatch"
-            try:
-                review_packet = build_artifact_review_packet(
-                    view,
-                    plan,
-                    parsed.metadata,
-                    parsed.python_bytes,
-                    self._last_controls,
-                    inventory,
-                    runtime_contract,
-                )
-            except PromptPreflightError as exc:
-                finding = _prompt_preflight_finding(exc, "artifact_review")
-                status = "prompt_overflow" if finding.code == "prompt_overflow" else "failed"
-                return _StageStop(status, (finding,))
-            outcome = self._semantic_review("artifact", review_packet)
-            if outcome.stop is not None:
-                return outcome.stop
-            if outcome.decision == "accept":
-                self._review_status["artifact"] = "accepted"
-                return self._artifact_parts(parsed, plan)
-            if outcome.decision == "blocked":
-                # The accepted plan itself must change; never recurse back
-                # into plan authoring.
-                self._review_status["artifact"] = "blocked"
-                return _StageStop(
-                    "needs_plan_revision",
-                    self._semantic_finding_objects(outcome, "artifact"),
-                )
-            # Semantic revise findings join the stage correction path but spend
-            # the stage's separate review-revision allowance.
-            self._review_status["artifact"] = "revise"
-            pending = self._semantic_finding_objects(outcome, "artifact")
+            review = self._review_artifact_candidate(
+                view, plan, parsed, inventory, runtime_contract
+            )
+            if not isinstance(review, _ArtifactRevision):
+                return review
+            pending = review.findings
             review_driven = True
             parsed = None
+
+    def _first_artifact_candidate(
+        self,
+        packet: PromptPacket,
+        collector: Any,
+        plan: dict[str, Any],
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> tuple[ParsedCall2Response | None, list[Finding], bytes]:
+        """Request the artifact, run controls on any runnable candidate, and keep it if clean."""
+
+        candidate, pending, raw = self._request_and_validate_v2(packet, collector)
+        recover = (
+            candidate
+            if isinstance(candidate, ParsedCall2Response)
+            else (self._parse_candidate_for_controls(raw) if raw else None)
+        )
+        if recover is not None:
+            # A runnable candidate is exercised where the isolated
+            # control interface safely supports it, even beside
+            # structural findings; every obtainable defect is
+            # collected before any correction decision.
+            pending = self._run_detector_controls(
+                recover,
+                plan,
+                inventory,
+                runtime_contract,
+                pending,
+            )
+        parsed = candidate if candidate is not None and not pending else None
+        return parsed, pending, raw
+
+    def _correct_artifact_candidate(
+        self,
+        view: InputView,
+        packet: PromptPacket,
+        plan: dict[str, Any],
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+        *,
+        pending: Sequence[Finding] | None,
+        raw: bytes,
+        review_driven: bool,
+    ) -> tuple[ParsedCall2Response | None, list[Finding], bytes] | _StageStop:
+        """Spend one artifact allowance on a correction and run controls on its candidate.
+
+        The returned candidate is None while findings remain.
+        """
+
+        pending = pending or [
+            Finding("call2_failed", "Call 2 did not return a valid artifact", "call2")
+        ]
+        stop = self._stop_for_author_findings(pending)
+        if stop is not None:
+            return stop
+        if not self._consume_allowance("artifact", review_revision=review_driven):
+            return _StageStop(
+                "unresolved",
+                (
+                    *pending,
+                    self._allowance_exhausted_finding("artifact", review_revision=review_driven),
+                ),
+            )
+        self._record_allowances()
+        allowance_kind = "review_revision" if review_driven else "correction"
+        correction = self._correction_v2(
+            failed_stage="call2",
+            failed_packet=packet,
+            failed_response=raw,
+            findings=list(pending),
+            view=view,
+            inventory=inventory,
+            runtime_contract=runtime_contract,
+            allowance_kind=allowance_kind,
+        )
+        if correction is None:
+            stop = self._stop_for_author_findings(list(self._findings))
+            if stop is not None:
+                return stop
+            return _StageStop("unresolved", tuple(self._findings or pending))
+        corrected_candidate, correction_findings, raw = correction
+        if not isinstance(corrected_candidate, ParsedCall2Response):
+            stop = self._stop_for_author_findings(list(self._findings))
+            if stop is not None:
+                return stop
+            return _StageStop(
+                "unresolved",
+                tuple(self._findings or correction_findings),
+            )
+        controlled = self._run_detector_controls(
+            corrected_candidate,
+            plan,
+            inventory,
+            runtime_contract,
+            list(correction_findings),
+        )
+        if controlled:
+            # A corrected candidate can fail deterministic checks,
+            # controls, or both. Keep every finding and use the
+            # latest candidate/control feedback for the next
+            # correction while allowance remains.
+            return None, controlled, raw
+        return corrected_candidate, controlled, raw
+
+    def _review_artifact_candidate(
+        self,
+        view: InputView,
+        plan: dict[str, Any],
+        parsed: ParsedCall2Response,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> (
+        tuple[ParsedCall2Response, dict[str, Any], dict[str, Any]] | _StageStop | _ArtifactRevision
+    ):
+        """Accept a clean candidate, or review it and stop, accept, or ask for a revision."""
+
+        if not self.policy.review_artifact:
+            self._review_status["artifact"] = "not_requested"
+            self._review_reuse["artifact"] = "not_requested"
+            return self._artifact_parts(parsed, plan)
+        self._review_reuse["artifact"] = "fresh_dispatch"
+        try:
+            review_packet = build_artifact_review_packet(
+                view,
+                plan,
+                parsed.metadata,
+                parsed.python_bytes,
+                self._last_controls,
+                inventory,
+                runtime_contract,
+            )
+        except PromptPreflightError as exc:
+            finding = _prompt_preflight_finding(exc, "artifact_review")
+            status = "prompt_overflow" if finding.code == "prompt_overflow" else "failed"
+            return _StageStop(status, (finding,))
+        outcome = self._semantic_review("artifact", review_packet)
+        if outcome.stop is not None:
+            return outcome.stop
+        if outcome.decision == "accept":
+            self._review_status["artifact"] = "accepted"
+            return self._artifact_parts(parsed, plan)
+        if outcome.decision == "blocked":
+            # The accepted plan itself must change; never recurse back
+            # into plan authoring.
+            self._review_status["artifact"] = "blocked"
+            return _StageStop(
+                "needs_plan_revision",
+                self._semantic_finding_objects(outcome, "artifact"),
+            )
+        # Semantic revise findings join the stage correction path but spend
+        # the stage's separate review-revision allowance.
+        self._review_status["artifact"] = "revise"
+        return _ArtifactRevision(self._semantic_finding_objects(outcome, "artifact"))
 
     @staticmethod
     def _artifact_parts(
