@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Sequence
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,7 @@ from ..failure_evidence import (
     write_failure_evidence,
 )
 from ..input_adapter import InputView
-from ..package_io import ArtifactPackage, build_package, write_package
+from ..package_io import write_package
 from .checks import _binding_selector_type as _binding_selector_type
 from .checks import (
     _is_blocked_plan,
@@ -43,8 +43,10 @@ from .checks import (
     parse_call2_response,
 )
 from .context_budget import CONTEXT_GUARD_CALIBRATION as CONTEXT_GUARD_CALIBRATION
-from .context_budget import _context_budget_estimate, _enforce_context_budget, _enforce_prompt_size
+from .context_budget import _context_budget_estimate as _context_budget_estimate
 from .context_budget import _context_guard_ratio as _context_guard_ratio
+from .context_budget import _enforce_context_budget as _enforce_context_budget
+from .context_budget import _enforce_prompt_size
 from .contracts import _NEUTRAL_DETECTOR_SOURCE as _NEUTRAL_DETECTOR_SOURCE
 from .contracts import (
     NEUTRAL_ESTABLISHED_OMISSION_OUTCOME_EXAMPLE,
@@ -59,13 +61,18 @@ from .contracts import (
 )
 from .contracts import _binding_contract as _binding_contract
 from .contracts import _evidence_packet_contract as _evidence_packet_contract
+from .controls import (
+    SuppliedControlCases,
+    _deduplicate_control_cases,
+    _mark_control_origins,
+    _validate_supplied_control_cases,
+)
+from .core import _CONTEXT_FRAMING_TOKEN_RESERVE as _CONTEXT_FRAMING_TOKEN_RESERVE
 from .core import (
-    _CONTEXT_FRAMING_TOKEN_RESERVE,
     _REVIEW_STAGES,
     ARTIFACT_REVIEW_PROMPT_VERSION,
     ARTIFACT_REVIEW_PROMPT_VERSION_V16,
     AUTHORING_INTERFACE_VERSION_V2,
-    AUTHORING_MAX_COMPLETION_TOKENS,
     CALL1_PROMPT_VERSION_V18,
     CALL2_PROMPT_VERSION_V21,
     CORRECTION_PROMPT_VERSION_V25,
@@ -73,7 +80,6 @@ from .core import (
     MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK,
     MAX_AUTHORING_REQUESTS,
     MAX_RENDERED_PROMPT_BYTES,
-    MAX_REQUESTS_PER_TASK,
     MAX_REVIEW_REQUESTS_PER_TASK,
     PLAN_REVIEW_PROMPT_VERSION,
     PLAN_REVIEW_PROMPT_VERSION_V17,
@@ -94,8 +100,6 @@ from .core import (
     ReviewResponseError,
     TransportResponse,
     _canonical_json,
-    _json_bytes,
-    _model_dump,
     _prompt_overflow_finding,
     _prompt_preflight_finding,
     _safe_error,
@@ -104,18 +108,23 @@ from .core import (
     _sha256,
 )
 from .core import AUTHORING_CONTEXT_WINDOW_TOKENS as AUTHORING_CONTEXT_WINDOW_TOKENS
+from .core import AUTHORING_MAX_COMPLETION_TOKENS as AUTHORING_MAX_COMPLETION_TOKENS
 from .core import AUTHORING_THINKING_EXTRA_BODY as AUTHORING_THINKING_EXTRA_BODY
 from .core import REVIEW_THINKING_EXTRA_BODY as REVIEW_THINKING_EXTRA_BODY
+from .core import _json_bytes as _json_bytes
 from .correction import (
     _CURRENT_ARTIFACT_CORRECTION_GUIDANCE as _CURRENT_ARTIFACT_CORRECTION_GUIDANCE,
 )
 from .correction import _correction_detector_feedback_view as _correction_detector_feedback_view
 from .correction import _render_correction_packet, build_correction_context
-from .inventory import (
-    _expected_authoring_input_pins,
-    _input_view_payload,
-    _resolved_judge_spec,
-    _source_input_payload,
+from .package_assembly import _package_from_responses, _persist_blocked_plan
+from .policy import (
+    AuthoringBudget,
+    AuthoringPolicy,
+    AuthoringResult,
+    _validate_nonnegative_integer,
+    policy_max_dispatches,
+    policy_role_limits,
 )
 from .prompt_context import _CURRENT_PLAN_AUTHOR_GUIDANCE as _CURRENT_PLAN_AUTHOR_GUIDANCE
 from .prompt_context import (
@@ -127,8 +136,6 @@ from .prompt_context import (
 )
 from .prompt_packets import build_call1_packet_v2, build_call2_packet_v2
 from .prompt_safety import (
-    _endpoint_identity,
-    _endpoint_prompt_paths,
     assert_no_prompt_duplicates,
     assert_no_prompt_secrets,
     assert_no_secrets,
@@ -137,13 +144,7 @@ from .prompt_safety import (
     scan_for_secrets,
     scan_prompt_duplicates,
 )
-from .response_decode import (
-    _MISSING,
-    _decode_v2_json_response,
-    _provider_field,
-    _provider_response_capture,
-    _response_parts,
-)
+from .response_decode import _decode_v2_json_response, _response_parts
 from .review import _PLAN_REVIEW_QUESTIONS as _PLAN_REVIEW_QUESTIONS
 from .review import (
     ARTIFACT_REVIEW_QUESTION_IDS,
@@ -160,603 +161,7 @@ from .review import (
     build_plan_reviewer_context,
     parse_review_response,
 )
-
-
-@dataclass
-class AuthoringBudget:
-    """Shared aggregate and per-task request guard.
-
-    Reservation happens before invoking the transport, so transport failures
-    consume budget exactly like successful requests.
-    """
-
-    aggregate_limit: int = MAX_AUTHORING_REQUESTS
-    task_limit: int = MAX_REQUESTS_PER_TASK
-    author_limit: int = MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK
-    review_limit: int = MAX_REVIEW_REQUESTS_PER_TASK
-    total_dispatched: int = 0
-    dispatched_by_task: dict[str, int] = field(default_factory=dict)
-    dispatched_by_task_role: dict[str, dict[str, int]] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        for name in (
-            "aggregate_limit",
-            "task_limit",
-            "author_limit",
-            "review_limit",
-            "total_dispatched",
-        ):
-            _validate_nonnegative_integer(name, getattr(self, name))
-        if not isinstance(self.dispatched_by_task, dict):
-            raise ValueError("dispatched_by_task must be a mapping")
-        if not isinstance(self.dispatched_by_task_role, dict):
-            raise ValueError("dispatched_by_task_role must be a mapping")
-        for task_id, count in self.dispatched_by_task.items():
-            if not isinstance(task_id, str) or not task_id.strip():
-                raise ValueError("dispatched_by_task keys must be nonblank strings")
-            _validate_nonnegative_integer(f"dispatched_by_task[{task_id!r}]", count)
-        for task_id, roles in self.dispatched_by_task_role.items():
-            if not isinstance(task_id, str) or not task_id.strip():
-                raise ValueError("dispatched_by_task_role keys must be nonblank strings")
-            if not isinstance(roles, dict):
-                raise ValueError(f"dispatched_by_task_role[{task_id!r}] must be a mapping")
-            for role, count in roles.items():
-                if role not in {"author", "reviewer"}:
-                    raise ValueError(
-                        f"dispatched_by_task_role[{task_id!r}] has unsupported role {role!r}"
-                    )
-                _validate_nonnegative_integer(
-                    f"dispatched_by_task_role[{task_id!r}][{role!r}]",
-                    count,
-                )
-
-    @classmethod
-    def from_prior_spend(
-        cls,
-        *,
-        task_id: str,
-        prior_author_correction_spend: int = 0,
-        prior_review_spend: int = 0,
-        aggregate_limit: int = MAX_AUTHORING_REQUESTS,
-        task_limit: int = MAX_REQUESTS_PER_TASK,
-        author_limit: int = MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK,
-        review_limit: int = MAX_REVIEW_REQUESTS_PER_TASK,
-        author_limit_increment: int = 0,
-        review_limit_increment: int = 0,
-    ) -> AuthoringBudget:
-        """Create a guard seeded with caller-supplied spend for one task."""
-
-        if not isinstance(task_id, str) or not task_id.strip():
-            raise ValueError("task_id must be a nonblank string")
-        _validate_nonnegative_integer(
-            "prior_author_correction_spend",
-            prior_author_correction_spend,
-        )
-        _validate_nonnegative_integer("prior_review_spend", prior_review_spend)
-        _validate_nonnegative_integer("author_limit_increment", author_limit_increment)
-        _validate_nonnegative_integer("review_limit_increment", review_limit_increment)
-        total = prior_author_correction_spend + prior_review_spend
-        return cls(
-            aggregate_limit=aggregate_limit,
-            task_limit=task_limit,
-            author_limit=author_limit + author_limit_increment,
-            review_limit=review_limit + review_limit_increment,
-            total_dispatched=total,
-            dispatched_by_task={task_id: total},
-            dispatched_by_task_role={
-                task_id: {
-                    "author": prior_author_correction_spend,
-                    "reviewer": prior_review_spend,
-                }
-            },
-        )
-
-    def seed_prior_spend(
-        self,
-        *,
-        task_id: str,
-        prior_author_correction_spend: int = 0,
-        prior_review_spend: int = 0,
-        author_limit_increment: int = 0,
-        review_limit_increment: int = 0,
-    ) -> None:
-        """Add caller-supplied prior spend before the first dispatch."""
-
-        seeded = self.from_prior_spend(
-            task_id=task_id,
-            prior_author_correction_spend=prior_author_correction_spend,
-            prior_review_spend=prior_review_spend,
-            aggregate_limit=self.aggregate_limit,
-            task_limit=self.task_limit,
-            author_limit=self.author_limit,
-            review_limit=self.review_limit,
-            author_limit_increment=author_limit_increment,
-            review_limit_increment=review_limit_increment,
-        )
-        self.total_dispatched += seeded.total_dispatched
-        self.dispatched_by_task[task_id] = (
-            self.dispatched_by_task.get(task_id, 0) + seeded.dispatched_by_task[task_id]
-        )
-        current_roles = self.dispatched_by_task_role.setdefault(task_id, {})
-        for role, count in seeded.dispatched_by_task_role[task_id].items():
-            current_roles[role] = current_roles.get(role, 0) + count
-        self.author_limit = seeded.author_limit
-        self.review_limit = seeded.review_limit
-
-    def reserve(self, task_id: str, *, role: str = "author") -> int:
-        if role not in {"author", "reviewer"}:
-            raise ValueError(f"unsupported budget role: {role}")
-        if self.total_dispatched >= self.aggregate_limit:
-            raise BudgetExceeded(
-                "aggregate authoring budget exhausted",
-                scope="aggregate",
-                task_id=task_id,
-                role=role,
-                used=self.total_dispatched,
-                limit=self.aggregate_limit,
-            )
-        used = self.dispatched_by_task.get(task_id, 0)
-        if used >= self.task_limit:
-            raise BudgetExceeded(
-                f"per-task authoring budget exhausted: {task_id}",
-                scope="task",
-                task_id=task_id,
-                role=role,
-                used=used,
-                limit=self.task_limit,
-            )
-        roles = self.dispatched_by_task_role.get(task_id, {})
-        role_used = roles.get(role, 0)
-        role_limit = self.author_limit if role == "author" else self.review_limit
-        if role_used >= role_limit:
-            role_name = "author/correction" if role == "author" else "review"
-            raise BudgetExceeded(
-                f"per-task {role_name} budget exhausted: {task_id}",
-                scope=role,
-                task_id=task_id,
-                role=role,
-                used=role_used,
-                limit=role_limit,
-            )
-        self.total_dispatched += 1
-        self.dispatched_by_task[task_id] = used + 1
-        self.dispatched_by_task_role.setdefault(task_id, {})[role] = role_used + 1
-        return self.total_dispatched
-
-    def snapshot(self, task_id: str) -> dict[str, Any]:
-        """Return redacted accounting state for evidence and package metadata."""
-
-        task_spent = self.dispatched_by_task.get(task_id, 0)
-        roles = self.dispatched_by_task_role.get(task_id, {})
-        author_spent = roles.get("author", 0)
-        review_spent = roles.get("reviewer", 0)
-        return {
-            "aggregate_limit": self.aggregate_limit,
-            "aggregate_spent": self.total_dispatched,
-            "aggregate_remaining": max(self.aggregate_limit - self.total_dispatched, 0),
-            "task_limit": self.task_limit,
-            "task_spent": task_spent,
-            "task_remaining": max(self.task_limit - task_spent, 0),
-            "author_correction_limit": self.author_limit,
-            "author_correction_spent": author_spent,
-            "author_correction_remaining": max(self.author_limit - author_spent, 0),
-            "review_limit": self.review_limit,
-            "review_spent": review_spent,
-            "review_remaining": max(self.review_limit - review_spent, 0),
-            "task_id": task_id,
-        }
-
-
-_UNSET_CORRECTIONS = object()
-
-
-def _validate_nonnegative_integer(name: str, value: Any) -> None:
-    """Reject booleans and other nonnegative-integer budget inputs."""
-
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer, got {value!r}")
-
-
-@dataclass(frozen=True)
-class AuthoringPolicy:
-    """Stage-local correction allowances and review switches for one task.
-
-    ``plan_max_corrections`` and ``artifact_max_corrections`` each default to
-    one and accept only nonnegative integers; booleans, negatives, and other
-    types are rejected and values are never clamped.  ``review_plan`` and
-    ``review_artifact`` default to enabled and are validated independently.
-    Set a stage limit to zero to disable corrections for that stage.
-    """
-
-    plan_max_corrections: Any = _UNSET_CORRECTIONS
-    artifact_max_corrections: Any = _UNSET_CORRECTIONS
-    review_plan: bool = True
-    review_artifact: bool = True
-    review_model_profile: str | None = None
-
-    def __post_init__(self) -> None:
-        for name in ("review_plan", "review_artifact"):
-            if not isinstance(getattr(self, name), bool):
-                raise ValueError(f"{name} must be a boolean")
-        if self.review_model_profile is not None and (
-            not isinstance(self.review_model_profile, str) or not self.review_model_profile.strip()
-        ):
-            raise ValueError("review_model_profile must be a nonblank string when provided")
-        explicit: dict[str, int] = {}
-        for name in ("plan_max_corrections", "artifact_max_corrections"):
-            value = getattr(self, name)
-            if value is _UNSET_CORRECTIONS:
-                continue
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ValueError(f"{name} must be a nonnegative integer, got {value!r}")
-            explicit[name] = value
-        object.__setattr__(self, "plan_max_corrections", explicit.get("plan_max_corrections", 1))
-        object.__setattr__(
-            self, "artifact_max_corrections", explicit.get("artifact_max_corrections", 1)
-        )
-
-    @classmethod
-    def from_cli(
-        cls,
-        *,
-        plan_max_corrections: int | None = None,
-        artifact_max_corrections: int | None = None,
-        review_plan: bool = True,
-        review_artifact: bool = True,
-        review_model_profile: str | None = None,
-    ) -> AuthoringPolicy:
-        """Build one policy from optional CLI values; ``None`` keeps defaults."""
-
-        kwargs: dict[str, Any] = {
-            "review_plan": review_plan,
-            "review_artifact": review_artifact,
-            "review_model_profile": review_model_profile,
-        }
-        if plan_max_corrections is not None:
-            kwargs["plan_max_corrections"] = plan_max_corrections
-        if artifact_max_corrections is not None:
-            kwargs["artifact_max_corrections"] = artifact_max_corrections
-        return cls(**kwargs)
-
-
-def _stage_author_dispatches(corrections: int, reviewed: bool) -> int:
-    revisions = REVIEW_REVISION_ALLOWANCE_PER_STAGE if reviewed else 0
-    return corrections + 1 + revisions
-
-
-def policy_role_limits(policy: AuthoringPolicy) -> dict[str, int]:
-    """Return the closed worst-case author and review dispatches for one policy.
-
-    A stage's author responses are its initial attempt, its corrections, and,
-    when the stage is reviewed, its review revisions.  Each author response
-    can cost at most one review.
-    """
-
-    plan_author = _stage_author_dispatches(policy.plan_max_corrections, policy.review_plan)
-    artifact_author = _stage_author_dispatches(
-        policy.artifact_max_corrections, policy.review_artifact
-    )
-    return {
-        "author": plan_author + artifact_author,
-        "reviewer": (plan_author if policy.review_plan else 0)
-        + (artifact_author if policy.review_artifact else 0),
-    }
-
-
-def policy_max_dispatches(policy: AuthoringPolicy) -> int:
-    """Return the closed worst-case dispatch count one policy can spend.
-
-    A reviewed stage costs its initial attempt, its corrections, and its
-    review revisions, and each of those author responses can also cost one
-    review; an unreviewed stage costs at most ``corrections + 1``.  These are
-    upper bounds used for default budget guards, not spending targets.
-    """
-
-    limits = policy_role_limits(policy)
-    return limits["author"] + limits["reviewer"]
-
-
-@dataclass
-class AuthoringResult:
-    """Outcome and retained evidence from one bounded authoring task."""
-
-    status: str
-    task_id: str
-    plan: dict[str, Any] | None = None
-    artifact: dict[str, Any] | None = None
-    package: ArtifactPackage | None = None
-    package_path: Path | None = None
-    findings: list[Finding] = field(default_factory=list)
-    ledger: list[dict[str, Any]] = field(default_factory=list)
-    transformations: list[Any] = field(default_factory=list)
-    raw_responses: dict[str, bytes] = field(default_factory=dict)
-    decoded_responses: dict[str, Any] = field(default_factory=dict)
-    prompts: dict[str, PromptPacket] = field(default_factory=dict)
-    failure_evidence_path: Path | None = None
-    review_status: dict[str, str] = field(default_factory=dict)
-    allowances: dict[str, int] = field(default_factory=dict)
-    review_reuse: dict[str, str] = field(default_factory=dict)
-    budget: dict[str, Any] = field(default_factory=dict)
-    review_revision_allowances: dict[str, int] = field(default_factory=dict)
-
-
-class PrivateModelAuthoringTransport:
-    """Explicit OpenAI-compatible private authoring client with retries off."""
-
-    max_retries = 0
-
-    def __init__(
-        self,
-        *,
-        base_url: str,
-        api_key: str,
-        model: str,
-        profile_name: str | None = None,
-        temperature: float = 0.0,
-        extra_body: dict[str, Any] | None = None,
-        review_extra_body: dict[str, Any] | None = None,
-        max_completion_tokens: int | None = None,
-        context_window_tokens: int | None = None,
-        review_fill_context: bool = False,
-        reasoning_effort: str | None = None,
-        service_tier: str | None = None,
-        service_tier_fallback: str | None = None,
-        sampling_controls: bool = True,
-        strict_json_schema: bool | None = None,
-        timeout: float | int | None = None,
-    ) -> None:
-        """Create the client.
-
-        ``extra_body`` applies to author and correction requests.  When
-        ``review_extra_body`` is supplied it replaces ``extra_body`` for
-        semantic-review requests; otherwise reviews use ``extra_body`` too.
-
-        With ``review_fill_context``, a semantic-review request's completion
-        limit is the context window minus the conservative prompt estimate and
-        the framing reserve.  The context guard still reserves
-        ``max_completion_tokens``, so a review that passes the guard never
-        receives less than that limit.
-        """
-
-        from openai import OpenAI
-
-        if max_completion_tokens is not None and (
-            isinstance(max_completion_tokens, bool)
-            or not isinstance(max_completion_tokens, int)
-            or max_completion_tokens <= 0
-        ):
-            raise ValueError("max_completion_tokens must be a positive integer when provided")
-        if context_window_tokens is not None and (
-            isinstance(context_window_tokens, bool)
-            or not isinstance(context_window_tokens, int)
-            or context_window_tokens <= 0
-        ):
-            raise ValueError("context_window_tokens must be a positive integer when provided")
-        if (
-            context_window_tokens is not None
-            and max_completion_tokens is not None
-            and max_completion_tokens + _CONTEXT_FRAMING_TOKEN_RESERVE >= context_window_tokens
-        ):
-            raise ValueError(
-                "max_completion_tokens leaves no room for the prompt in the context window"
-            )
-        self.model = model
-        self.profile_name = profile_name
-        self.temperature = temperature
-        if not isinstance(sampling_controls, bool):
-            raise ValueError("sampling_controls must be a boolean")
-        if reasoning_effort is not None and (
-            not isinstance(reasoning_effort, str) or not reasoning_effort.strip()
-        ):
-            raise ValueError("reasoning_effort must be a nonblank string when provided")
-        if service_tier is not None and (
-            not isinstance(service_tier, str) or not service_tier.strip()
-        ):
-            raise ValueError("service_tier must be a nonblank string when provided")
-        if service_tier_fallback is not None and (
-            not isinstance(service_tier_fallback, str) or not service_tier_fallback.strip()
-        ):
-            raise ValueError("service_tier_fallback must be a nonblank string when provided")
-        if strict_json_schema is not None and not isinstance(strict_json_schema, bool):
-            raise ValueError("strict_json_schema must be a boolean when provided")
-        if timeout is not None and (
-            isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0
-        ):
-            raise ValueError("timeout must be a positive number when provided")
-        self.reasoning_effort = reasoning_effort
-        self.service_tier = service_tier
-        self.service_tier_fallback = service_tier_fallback
-        self.sampling_controls = sampling_controls
-        self.strict_json_schema = strict_json_schema
-        self.timeout = timeout
-        self.last_controls: dict[str, Any] | None = None
-        self.extra_body = deepcopy(extra_body) if extra_body is not None else None
-        self.review_extra_body = (
-            deepcopy(review_extra_body) if review_extra_body is not None else None
-        )
-        if review_fill_context and (
-            context_window_tokens is None or max_completion_tokens is None
-        ):
-            raise ValueError(
-                "review_fill_context requires context_window_tokens and max_completion_tokens"
-            )
-        self.max_completion_tokens = max_completion_tokens
-        self.context_window_tokens = context_window_tokens
-        self.review_fill_context = review_fill_context
-        self._endpoint_netloc, self._endpoint_hostname = _endpoint_identity(base_url)
-        client_options: dict[str, Any] = {
-            "base_url": base_url,
-            "api_key": api_key,
-            "max_retries": 0,
-        }
-        if timeout is not None:
-            client_options["timeout"] = timeout
-        self._client = OpenAI(**client_options)
-
-    def extra_body_for(self, packet: PromptPacket) -> dict[str, Any] | None:
-        """Return the extra_body controls for this packet's role."""
-
-        body = (
-            self.review_extra_body
-            if packet.stage in _REVIEW_STAGES and self.review_extra_body is not None
-            else self.extra_body
-        )
-        if body is None:
-            return None
-        result = deepcopy(body)
-        if not self.sampling_controls:
-            for key in ("chat_template_kwargs", "temperature", "top_p", "top_k", "seed"):
-                result.pop(key, None)
-        return result or None
-
-    def max_completion_tokens_for(self, packet: PromptPacket) -> int | None:
-        """Return the completion limit sent with this packet."""
-
-        if (
-            self.review_fill_context
-            and packet.stage in _REVIEW_STAGES
-            and self.context_window_tokens is not None
-            and self.max_completion_tokens is not None
-        ):
-            estimate = _context_budget_estimate(packet)["estimated_prompt_tokens"]
-            filled = self.context_window_tokens - int(estimate) - _CONTEXT_FRAMING_TOKEN_RESERVE
-            # The default completion limit is a floor that a review fills from
-            # the remaining context; treat a larger profile completion limit
-            # as the review role's explicit cap. A 1.05M context must not turn
-            # a review into a million-token request.
-            if self.max_completion_tokens > AUTHORING_MAX_COMPLETION_TOKENS:
-                return min(filled, self.max_completion_tokens)
-            return max(filled, self.max_completion_tokens)
-        return self.max_completion_tokens
-
-    def complete(self, packet: PromptPacket) -> TransportResponse:
-        self.preflight_context_budget(packet)
-        extra_body = self.extra_body_for(packet)
-        max_completion_tokens = self.max_completion_tokens_for(packet)
-        request: dict[str, Any] = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": packet.system},
-                {"role": "user", "content": packet.user},
-            ],
-        }
-        if self.sampling_controls:
-            request["temperature"] = self.temperature
-        if extra_body is not None:
-            request["extra_body"] = deepcopy(extra_body)
-        if max_completion_tokens is not None:
-            request["max_completion_tokens"] = max_completion_tokens
-        if self.reasoning_effort is not None:
-            request["reasoning_effort"] = self.reasoning_effort
-        if self.service_tier is not None:
-            request["service_tier"] = self.service_tier
-        fallback_used = False
-        self.last_controls = self._request_controls(
-            extra_body=extra_body,
-            max_completion_tokens=max_completion_tokens,
-            service_tier=request.get("service_tier"),
-            fallback_used=fallback_used,
-        )
-        try:
-            response = self._client.chat.completions.create(**request)
-        except self._rate_limit_error_type():
-            if self.service_tier is None or self.service_tier_fallback is None:
-                raise
-            fallback_request = deepcopy(request)
-            fallback_request["service_tier"] = self.service_tier_fallback
-            request = fallback_request
-            fallback_used = True
-            self.last_controls = self._request_controls(
-                extra_body=extra_body,
-                max_completion_tokens=max_completion_tokens,
-                service_tier=request.get("service_tier"),
-                fallback_used=fallback_used,
-            )
-            response = self._client.chat.completions.create(**fallback_request)
-        choice = response.choices[0]
-        message = choice.message
-        provider_model = getattr(response, "model", None)
-        if not isinstance(provider_model, str) or not provider_model.strip():
-            provider_model = None
-        content = _provider_field(message, "content")
-        if content is _MISSING or content is None:
-            raw = b""
-        elif isinstance(content, str):
-            raw = content.encode("utf-8")
-        else:
-            raw = b""
-        usage = _model_dump(getattr(response, "usage", None))
-        controls = deepcopy(self.last_controls) if self.last_controls is not None else {}
-        return TransportResponse(
-            raw=raw,
-            usage=usage,
-            controls=controls,
-            response_capture=_provider_response_capture(choice, message),
-            provider_model=provider_model,
-        )
-
-    def _request_controls(
-        self,
-        *,
-        extra_body: dict[str, Any] | None,
-        max_completion_tokens: int | None,
-        service_tier: Any,
-        fallback_used: bool,
-    ) -> dict[str, Any]:
-        """Return the non-secret controls for the request currently in flight."""
-
-        controls: dict[str, Any] = {"max_retries": 0}
-        if self.sampling_controls:
-            controls.update({"temperature": self.temperature, "extra_body": extra_body})
-        elif extra_body is not None:
-            controls["extra_body"] = extra_body
-        if max_completion_tokens is not None:
-            controls["max_completion_tokens"] = max_completion_tokens
-        if self.context_window_tokens is not None:
-            controls["context_window_tokens"] = self.context_window_tokens
-        if self.reasoning_effort is not None:
-            controls["reasoning_effort"] = self.reasoning_effort
-        if service_tier is not None:
-            controls["service_tier"] = service_tier
-            controls["service_tier_requested"] = self.service_tier
-        if self.service_tier_fallback is not None:
-            controls["service_tier_fallback"] = self.service_tier_fallback
-            controls["service_tier_fallback_used"] = fallback_used
-        if not self.sampling_controls:
-            controls["sampling_controls"] = False
-        if self.strict_json_schema is not None:
-            controls["strict_json_schema"] = self.strict_json_schema
-        if self.timeout is not None:
-            controls["timeout"] = self.timeout
-        return controls
-
-    @staticmethod
-    def _rate_limit_error_type() -> type[BaseException]:
-        """Resolve the SDK exception lazily so offline fakes remain simple."""
-
-        from openai import RateLimitError
-
-        return RateLimitError
-
-    def preflight_context_budget(
-        self, packet: PromptPacket
-    ) -> dict[str, int | float | str] | None:
-        """Expose the guard so orchestration can reject before reserving budget.
-
-        The guard also rejects a prompt that names this transport's configured
-        endpoint, whatever the provenance of the text that carries it.
-        """
-
-        paths = _endpoint_prompt_paths(packet, self._endpoint_netloc, self._endpoint_hostname)
-        if paths:
-            raise PromptPreflightError(f"secret-bearing authoring evidence: {', '.join(paths)}")
-        if self.context_window_tokens is None or self.max_completion_tokens is None:
-            return None
-        return _enforce_context_budget(
-            packet,
-            context_window_tokens=self.context_window_tokens,
-            max_completion_tokens=self.max_completion_tokens,
-        )
+from .transport import PrivateModelAuthoringTransport
 
 
 @dataclass(frozen=True)
@@ -775,97 +180,6 @@ class _ReviewOutcome:
     findings: tuple[dict[str, Any], ...] = ()
     stop: _StageStop | None = None
     raw: bytes = b""
-
-
-# Caller-supplied extra detector-control cases: either a static sequence of
-# ControlCase objects or a provider callable that receives the current
-# candidate plan and metadata and returns the extra cases for that candidate.
-SuppliedControlCases = (
-    Sequence[ControlCase] | Callable[[Mapping[str, Any], Mapping[str, Any]], Sequence[ControlCase]]
-)
-
-
-def _validate_supplied_control_cases(
-    supplied_control_cases: SuppliedControlCases,
-) -> SuppliedControlCases:
-    """Validate the static supplied-control form eagerly; providers self-report."""
-
-    if callable(supplied_control_cases):
-        return supplied_control_cases
-    if isinstance(supplied_control_cases, (str, bytes)) or not isinstance(
-        supplied_control_cases, Sequence
-    ):
-        raise ValueError(
-            "supplied_control_cases must be ControlCase instances or a callable that returns them"
-        )
-    for case in supplied_control_cases:
-        if not isinstance(case, ControlCase):
-            raise ValueError("supplied_control_cases must contain only ControlCase instances")
-    return supplied_control_cases
-
-
-def _mark_control_origins(
-    results: list[dict[str, Any]],
-    normal_count: int,
-) -> None:
-    """Label each combined control result with its mechanical or supplied origin."""
-
-    for index, record in enumerate(results):
-        record["origin"] = "normal" if index < normal_count else "supplied"
-
-
-def _deduplicate_control_cases(
-    normal_cases: Sequence[ControlCase],
-    supplied_cases: Sequence[ControlCase],
-) -> tuple[tuple[ControlCase, ...], dict[str, Any]]:
-    """Drop supplied cases that exactly duplicate generated expectations."""
-
-    generated = tuple(normal_cases)
-    supplied = tuple(supplied_cases)
-    selected = list(generated)
-    duplicates_dropped: list[dict[str, str]] = []
-    conflicts: list[dict[str, str]] = []
-    generated_by_evidence: dict[str, list[ControlCase]] = {}
-    for case in generated:
-        evidence_key = _canonical_json(case.evidence)
-        generated_by_evidence.setdefault(evidence_key, []).append(case)
-
-    for supplied_case in supplied:
-        evidence_key = _canonical_json(supplied_case.evidence)
-        matching_generated = generated_by_evidence.get(evidence_key, [])
-        exact_matches = [
-            case
-            for case in matching_generated
-            if (
-                case.expected_outcome == supplied_case.expected_outcome
-                and case.expected_claim_level == supplied_case.expected_claim_level
-            )
-        ]
-        if exact_matches:
-            duplicates_dropped.append(
-                {
-                    "supplied_name": supplied_case.name,
-                    "generated_name": exact_matches[0].name,
-                }
-            )
-            continue
-        for generated_case in matching_generated:
-            conflicts.append(
-                {
-                    "supplied_name": supplied_case.name,
-                    "generated_name": generated_case.name,
-                    "reason": "same_evidence_different_expectation",
-                }
-            )
-        selected.append(supplied_case)
-
-    return tuple(selected), {
-        "generated_count": len(generated),
-        "supplied_count": len(supplied),
-        "executed_count": len(selected),
-        "duplicates_dropped": duplicates_dropped,
-        "conflicts": conflicts,
-    }
 
 
 class AuthoringOrchestrator:
@@ -2521,224 +1835,6 @@ class AuthoringOrchestrator:
             if stage == "correction":
                 return "plan" if attempt.get("failed_stage") == "call1" else "artifact"
         return None
-
-
-def _package_from_responses(
-    *,
-    view: InputView,
-    plan: dict[str, Any],
-    artifact: dict[str, Any],
-    task_id: str,
-    ledger: list[dict[str, Any]],
-    raw_responses: dict[str, bytes],
-    decoded_responses: dict[str, Any],
-    prompt_packets: dict[str, PromptPacket],
-    transformations: list[Any],
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-    discovery_provenance: dict[str, Any] | None = None,
-    detector_bytes: bytes,
-    policy: dict[str, Any] | None = None,
-    budget: dict[str, Any] | None = None,
-    review_status: dict[str, str] | None = None,
-    preserved_reviews: dict[str, dict[str, Any]] | None = None,
-    terminal_status: str | None = None,
-) -> ArtifactPackage:
-    authoring_records: dict[str, bytes] = {}
-    for index, record in enumerate(ledger, start=1):
-        stage = record["stage"]
-        package_record = dict(record)
-        if terminal_status is not None:
-            package_record["terminal_status"] = terminal_status
-            package_record["stage_status"] = terminal_status
-        authoring_records[f"authoring/{index:02d}-{stage}.json"] = (
-            _canonical_json(package_record).encode("utf-8") + b"\n"
-        )
-        raw = raw_responses.get(record.get("raw_response_key", ""))
-        if raw is None:
-            raw = raw_responses.get(stage)
-        if raw is not None:
-            authoring_records[f"authoring/{index:02d}-{stage}.raw"] = raw
-        prompt_user = record.get("prompt_user")
-        if isinstance(prompt_user, str):
-            authoring_records[f"authoring/{index:02d}-{stage}.prompt"] = prompt_user.encode(
-                "utf-8"
-            )
-        else:
-            packet = prompt_packets.get(stage)
-            if packet is not None:
-                authoring_records[f"authoring/{index:02d}-{stage}.prompt"] = packet.user.encode(
-                    "utf-8"
-                )
-    authoring_records["authoring/transformations.json"] = (
-        _canonical_json(transformations).encode("utf-8") + b"\n"
-    )
-    review_records = _package_review_records(
-        ledger,
-        review_status=review_status,
-        preserved_reviews=preserved_reviews,
-    )
-    authoring_records["authoring/reviews.json"] = (
-        _canonical_json(review_records).encode("utf-8") + b"\n"
-    )
-    package_ledger = [
-        {
-            **record,
-            **(
-                {
-                    "terminal_status": terminal_status,
-                    "stage_status": terminal_status,
-                }
-                if terminal_status is not None
-                else {}
-            ),
-        }
-        for record in ledger
-    ]
-    authoring_records["authoring/ledger.json"] = (
-        _canonical_json(package_ledger).encode("utf-8") + b"\n"
-    )
-    authoring_input_pins = _expected_authoring_input_pins(
-        input_view=view,
-        inventory=inventory,
-        runtime_contract=runtime_contract,
-    )
-    members = {
-        "plan.json": _json_bytes(plan),
-        "stimulus.json": _json_bytes(artifact["stimulus"]),
-        "setup.json": _json_bytes(artifact["setup_recipe"]),
-        "bindings.json": _json_bytes(artifact["runtime_bindings"]),
-        "prerequisites.json": _json_bytes(artifact["prerequisites"]),
-        "detector.py": detector_bytes,
-        "checks.json": _json_bytes(
-            {"interface": AUTHORING_INTERFACE_VERSION_V2, "status": "structurally_valid"}
-        ),
-        "inputs.json": _json_bytes(
-            {
-                "model_facing_input": _input_view_payload(view),
-                "source_input": _source_input_payload(view),
-                "inventory": inventory,
-                "discovery_provenance": deepcopy(discovery_provenance or {}),
-                "runtime_contract": runtime_contract,
-                "authoring_input_pins": authoring_input_pins,
-            }
-        ),
-        "source-hashes.json": _json_bytes(view.source_digests),
-        "observations.json": _json_bytes(artifact["required_observations"]),
-        "explanation.json": _json_bytes({"text": artifact["explanation"]}),
-        "examples.json": _json_bytes(artifact["examples"]),
-        **authoring_records,
-    }
-    resolved_judge = _resolved_judge_spec(artifact["semantic_judge_spec"], inventory)
-    if resolved_judge is not None:
-        members["judge.json"] = _json_bytes(resolved_judge)
-    safe_ledger = [
-        {
-            key: value
-            for key, value in (
-                {
-                    **record,
-                    **(
-                        {
-                            "terminal_status": terminal_status,
-                            "stage_status": terminal_status,
-                        }
-                        if terminal_status is not None
-                        else {}
-                    ),
-                }
-            ).items()
-            if key not in {"prompt_system", "prompt_user"} and not (key == "usage" and not value)
-        }
-        for record in ledger
-    ]
-
-    def summary_usage(record: dict[str, Any]) -> dict[str, Any]:
-        usage = record.get("usage")
-        # Existing ledgers can already carry the failure-evidence metadata
-        # envelope. Preserve it so the manifest scanner validates the closed
-        # shape instead of treating the envelope as provider counters.
-        if isinstance(usage, dict) and "availability" in usage:
-            return deepcopy(usage)
-        return metadata_record(
-            usage if usage else None,
-            unavailable_reason="provider_did_not_report_usage",
-        )
-
-    authoring_summary = {
-        "interface": AUTHORING_INTERFACE_VERSION_V2,
-        "attempts": len(ledger),
-        "correction_used": any(record["stage"] == "correction" for record in ledger),
-        "max_retries": 0,
-        "usage": [summary_usage(record) for record in ledger],
-        "ledger": safe_ledger,
-        "authoring_input_pins": authoring_input_pins,
-    }
-    if policy is not None:
-        authoring_summary["policy"] = dict(policy)
-    if budget is not None:
-        authoring_summary["budget"] = dict(budget)
-    if review_status is not None:
-        authoring_summary["review_status"] = dict(review_status)
-    if terminal_status is not None:
-        authoring_summary["status"] = terminal_status
-        authoring_summary["terminal_status"] = terminal_status
-    creation_model = {"model": "configured-private-authoring", "controls": {"max_retries": 0}}
-    assert_no_secrets({"authoring": authoring_summary, "creation_model": creation_model})
-    package_id = f"{task_id}-{view.scenario_id}"
-    return build_package(
-        package_id=package_id,
-        scenario_id=view.scenario_id,
-        input_kind=view.kind.value,
-        source_digests=view.source_digests or {"input": view.source_sha256},
-        members=members,
-        authoring=authoring_summary,
-        runtime_capabilities=runtime_contract,
-        creation_model=creation_model,
-    )
-
-
-def _package_review_records(
-    ledger: list[dict[str, Any]],
-    *,
-    review_status: dict[str, str] | None,
-    preserved_reviews: dict[str, dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    """Return the package-owned review truth, including disabled stages."""
-
-    records: dict[str, Any] = {}
-    for stage, key in (("plan_review", "plan"), ("artifact_review", "artifact")):
-        requested_status = (review_status or {}).get(key)
-        matching = [
-            record.get("review")
-            for record in ledger
-            if record.get("stage") == stage and isinstance(record.get("review"), dict)
-        ]
-        if requested_status == "not_requested":
-            records[key] = {"status": "not_requested"}
-        elif matching:
-            records[key] = deepcopy(matching[-1])
-        elif isinstance(preserved_reviews, dict) and isinstance(preserved_reviews.get(key), dict):
-            records[key] = deepcopy(preserved_reviews[key])
-        else:
-            records[key] = {
-                "status": requested_status or "not_requested",
-            }
-    return {
-        "schema_version": "authoring-review-evidence-v1",
-        "plan": records["plan"],
-        "artifact": records["artifact"],
-    }
-
-
-def _persist_blocked_plan(destination: Path, plan: dict[str, Any]) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    target = destination.with_suffix(destination.suffix + ".blocked.json")
-    temporary = target.with_name(f".{target.name}.tmp")
-    temporary.write_bytes(
-        _json_bytes({"status": "blocked", "plan": plan, "package_path": str(destination)})
-    )
-    temporary.replace(target)
 
 
 __all__ = [
