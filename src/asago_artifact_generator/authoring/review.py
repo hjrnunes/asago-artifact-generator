@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Iterator
 from copy import deepcopy
 from typing import Any
 
@@ -491,6 +491,32 @@ def build_plan_reviewer_context(
     return _include_owner_scope(context, view)
 
 
+def _inventory_names(inventory: dict[str, Any], section: str, key: str) -> set[str]:
+    return {
+        item[key]
+        for item in inventory.get(section, [])
+        if isinstance(item, dict) and isinstance(item.get(key), str)
+    }
+
+
+def _artifact_plan_references(plan: dict[str, Any], fact_refs: Collection[str]) -> Iterator[Any]:
+    """Yield every inventory reference the accepted plan or the judge facts cite."""
+
+    interpretation = plan.get("interpretation")
+    if isinstance(interpretation, dict):
+        yield from interpretation.get("source_refs", [])
+    for assumption in plan.get("assumptions", []):
+        if isinstance(assumption, dict):
+            yield assumption.get("ref")
+    for prerequisite in plan.get("prerequisites", []):
+        if isinstance(prerequisite, dict):
+            yield from prerequisite.get("evidence_refs", [])
+    for operation in plan.get("setup_recipe", []):
+        if isinstance(operation, dict):
+            yield operation.get("name")
+    yield from fact_refs
+
+
 def _artifact_review_authoritative_context(
     plan: dict[str, Any],
     inventory: dict[str, Any],
@@ -502,25 +528,12 @@ def _artifact_review_authoritative_context(
     operation_names = set(selected["operations"])
     fact_names = set(selected["facts"])
     source_names = set(selected["sources"])
-    operation_map = {
-        item["name"]
-        for item in inventory.get("operations", [])
-        if isinstance(item, dict) and isinstance(item.get("name"), str)
-    }
-    fact_map = {
-        item["ref"]
-        for item in inventory.get("facts", [])
-        if isinstance(item, dict) and isinstance(item.get("ref"), str)
-    }
-    source_map = {
-        item["ref"]
-        for item in inventory.get("source_handles", [])
-        if isinstance(item, dict) and isinstance(item.get("ref"), str)
-    }
-
-    def add_reference(value: Any) -> None:
+    operation_map = _inventory_names(inventory, "operations", "name")
+    fact_map = _inventory_names(inventory, "facts", "ref")
+    source_map = _inventory_names(inventory, "source_handles", "ref")
+    for value in _artifact_plan_references(plan, fact_refs):
         if not isinstance(value, str):
-            return
+            continue
         if value in fact_map:
             fact_names.add(value)
         elif value in source_map:
@@ -529,23 +542,6 @@ def _artifact_review_authoritative_context(
             operation_names.add(value)
         elif value.startswith("operation:") and value.split(":", 1)[1] in operation_map:
             operation_names.add(value.split(":", 1)[1])
-
-    interpretation = plan.get("interpretation")
-    if isinstance(interpretation, dict):
-        for ref in interpretation.get("source_refs", []):
-            add_reference(ref)
-    for assumption in plan.get("assumptions", []):
-        if isinstance(assumption, dict):
-            add_reference(assumption.get("ref"))
-    for prerequisite in plan.get("prerequisites", []):
-        if isinstance(prerequisite, dict):
-            for ref in prerequisite.get("evidence_refs", []):
-                add_reference(ref)
-    for operation in plan.get("setup_recipe", []):
-        if isinstance(operation, dict):
-            add_reference(operation.get("name"))
-    for ref in fact_refs:
-        add_reference(ref)
 
     return {
         "facts": [
