@@ -26,8 +26,12 @@ options:
 | `--json FILE` | Also write per-item results to FILE. |
 
 The six Phase 0 re-baseline runs (219 authored items, 1,008 dispatches) take
-about 10 minutes with `--jobs 1` and about 3.5 minutes with `--jobs 4` on an
-Apple-silicon laptop; both settings give identical results.
+about 10 minutes with `--jobs 1`, 4.5 minutes with `--jobs 2`, and 3 minutes
+with `--jobs 4` on an Apple-silicon laptop. Use `--jobs 2`. At `--jobs 4`, a
+detector control occasionally exceeds its 10-second Docker limit under load,
+and that item reports a difference that does not reproduce. If one item
+differs only that way, replay it alone with `--item` before you treat the
+difference as real.
 
 A pass means that, for every replayed item:
 
