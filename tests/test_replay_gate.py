@@ -18,13 +18,17 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from asago_artifact_generator import cli
+from asago_artifact_generator import cli, replay_gate
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.replay_gate import (
     ALLOWED_DIFFERENCES,
+    Difference,
+    GateResult,
+    ItemResult,
     RecordedCall,
     ReplayChatClient,
     ReplayRecordError,
+    _summary,
     compare_item_outputs,
     load_recorded_calls,
     replay_environment,
@@ -435,3 +439,186 @@ def test_gate_fails_on_an_output_or_exit_code_difference(
         f"{TASK_ID}.failure-evidence.json"
     ]
     assert "$.status" in item.differences[0].detail
+
+
+# --- report and command line ------------------------------------------------------
+
+
+def _item(item_id: str, recorded_status: str, **changes: object) -> ItemResult:
+    values: dict[str, object] = {
+        "item_id": item_id,
+        "recorded_exit_code": 1,
+        "recorded_status": recorded_status,
+        "exit_code": 1,
+        "status": recorded_status,
+        "served": 3,
+        "files_compared": 4,
+    }
+    values.update(changes)
+    return ItemResult(**values)  # type: ignore[arg-type]
+
+
+def _failing_item() -> ItemResult:
+    return _item(
+        "SCN-2",
+        "unresolved",
+        exit_code=0,
+        status="accepted",
+        served=2,
+        unused=1,
+        error="the replayed item wrote no replay status",
+        mismatches=[{"dispatch_index": 2, "detail": "user message"}],
+        network_attempts=["resolve a.invalid", "resolve b.invalid"],
+        differences=[
+            Difference("SCN-2.failure-evidence.json", "$.status: a != b"),
+            Difference("items/SCN-2.log", "only in recording"),
+        ],
+        log_tail=["x" * 301],
+    )
+
+
+def test_stage_report_lists_totals_and_each_failure_in_order() -> None:
+    result = GateResult(
+        stage_dir=Path("/runs/r/stages/author"),
+        work=Path("/scratch/00-r"),
+        items=[_item("SCN-1", "accepted"), _failing_item(), _item("SCN-3", "unresolved")],
+        skipped=2,
+        seconds=12.345,
+    )
+
+    assert result.report(limit=1).splitlines() == [
+        "stage:      /runs/r/stages/author",
+        "scratch:    /scratch/00-r",
+        "items:      3 replayed, 2 skipped by the recording",
+        "statuses:   accepted 1, unresolved 2",
+        "dispatches: 8 served",
+        "files:      12 compared",
+        "time:       12.3s",
+        "failed:     1",
+        "  SCN-2: exit 0 (recorded 1), status accepted (recorded unresolved), unused records 1",
+        "    error: the replayed item wrote no replay status",
+        "    prompt mismatch: {'dispatch_index': 2, 'detail': 'user message'}",
+        "    network: resolve a.invalid",
+        "    SCN-2.failure-evidence.json: $.status: a != b",
+        "    log: " + "x" * 300,
+        "FAIL",
+    ]
+
+
+def test_stage_report_passes_only_when_every_item_passes() -> None:
+    passing = GateResult(stage_dir=Path("/s"), work=Path("/w"), items=[_item("SCN-1", "accepted")])
+    empty = GateResult(stage_dir=Path("/s"), work=Path("/w"))
+
+    assert passing.report().splitlines()[-2:] == ["failed:     0", "PASS"]
+    assert empty.report().splitlines()[-1] == "FAIL"
+
+
+def test_summary_totals_every_stage() -> None:
+    first = GateResult(stage_dir=Path("/a"), work=Path("/w"), items=[_item("SCN-1", "accepted")])
+    second = GateResult(
+        stage_dir=Path("/b"), work=Path("/w"), items=[_failing_item(), _item("SCN-3", "blocked")]
+    )
+
+    assert _summary([first, second], 61.04) == "\n".join(
+        [
+            "== summary",
+            "stages:          2",
+            "items:           3 replayed, 2 identical",
+            "statuses:        accepted 2, blocked 1",
+            "dispatches:      8 served",
+            "prompt mismatch: 1",
+            "wall time:       61.0s",
+            "FAIL",
+        ]
+    )
+    assert _summary([first], 0.0).splitlines()[-1] == "PASS"
+    assert _summary([], 0.0).splitlines()[-1] == "FAIL"
+
+
+def test_main_passes_a_recorded_stage_and_removes_its_temporary_scratch(
+    unresolved_stage: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    scratch = tmp_path / "scratch"
+    monkeypatch.setattr(replay_gate.tempfile, "mkdtemp", lambda prefix: str(scratch))
+    report = tmp_path / "items.json"
+
+    code = replay_gate.main(["check", str(unresolved_stage), "--json", str(report)])
+
+    assert code == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == f"== {unresolved_stage}"
+    assert "items:           1 replayed, 1 identical" in lines
+    assert lines[-3] == "prompt mismatch: 0"
+    assert lines[-1] == "PASS"
+    [stage] = json.loads(report.read_text(encoding="utf-8"))
+    assert stage["stage_dir"] == str(unresolved_stage.resolve())
+    assert [item["item_id"] for item in stage["items"]] == [TASK_ID]
+    assert stage["items"][0]["served"] == 2
+    assert not scratch.exists()
+
+
+def test_main_keeps_the_scratch_directory_when_asked(
+    unresolved_stage: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scratch = tmp_path / "scratch"
+    monkeypatch.setattr(replay_gate.tempfile, "mkdtemp", lambda prefix: str(scratch))
+
+    assert replay_gate.main(["check", str(unresolved_stage), "--keep"]) == 0
+
+    assert (scratch / "00-run-test" / "items" / f"{TASK_ID}.log").is_file()
+
+
+def test_main_fails_on_a_difference_and_keeps_the_work_dir(
+    unresolved_stage: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _rewrite_json(
+        _evidence_path(unresolved_stage), lambda document: document.update(status="accepted")
+    )
+    work = tmp_path / "work"
+
+    code = replay_gate.main(
+        ["check", str(unresolved_stage), "--work-dir", str(work), "--item", TASK_ID]
+    )
+
+    assert code == 1
+    output = capsys.readouterr().out
+    assert f"    {TASK_ID}.failure-evidence.json: $.status: " in output
+    assert output.splitlines()[-1] == "FAIL"
+    assert (work / "00-run-test" / "items" / f"{TASK_ID}.log").is_file()
+
+
+def test_main_rejects_missing_arguments(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as raised:
+        replay_gate.main(["check"])
+
+    assert raised.value.code == 2
+    assert "stage_dirs" in capsys.readouterr().err
+
+
+def test_main_reads_sys_argv_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["replay_gate", "unknown-command"])
+
+    with pytest.raises(SystemExit) as raised:
+        replay_gate.main()
+
+    assert raised.value.code == 2
+
+
+def test_main_runs_one_replay_item_with_the_author_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(replay_gate, "_replay_item", lambda *args: calls.append(args))
+
+    code = replay_gate.main(["_replay-item", "r.json", "s.json", "n.log", "--", "author", "x"])
+
+    assert code == 0
+    assert calls == [(Path("r.json"), Path("s.json"), Path("n.log"), ["author", "x"])]
+
+
+def test_main_rejects_a_replay_item_without_the_separator() -> None:
+    with pytest.raises(SystemExit, match="usage: _replay-item"):
+        replay_gate.main(["_replay-item", "r.json", "s.json", "n.log", "author"])
