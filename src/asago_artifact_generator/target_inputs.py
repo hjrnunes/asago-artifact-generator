@@ -349,50 +349,63 @@ def _validate_observations(value: Any, *, profile: dict[str, Any]) -> None:
         else set()
     )
     for index, observation in enumerate(read_observations):
-        if not isinstance(observation, dict):
-            raise TargetInputError(
-                f"target observations read_observations[{index}] must be an object"
-            )
-        if not isinstance(observation.get("profile_digest"), str) or (
-            observation["profile_digest"] != profile_digest
-        ):
-            raise TargetInputError(
-                f"target observations read_observations[{index}] profile digest does not match"
-            )
-        if not isinstance(observation.get("tool_name"), str) or not observation["tool_name"]:
-            raise TargetInputError(
-                f"target observations read_observations[{index}] requires tool_name"
-            )
-        if observation["tool_name"] not in profile_tool_names:
-            raise TargetInputError(
-                f"target observations read_observations[{index}] names an unknown tool"
-            )
-        arguments = observation.get("arguments")
-        if arguments is not None and (
-            not isinstance(arguments, dict)
-            or any(
-                not isinstance(key, str) or not isinstance(item, str)
-                for key, item in arguments.items()
-            )
-        ):
-            raise TargetInputError(
-                f"target observations read_observations[{index}] arguments "
-                "must be a string mapping"
-            )
-        status = observation.get("status")
-        if (
-            not isinstance(status, dict)
-            or status.get("transport") != "verified"
-            or status.get("content") != "untrusted"
-        ):
-            raise TargetInputError(
-                f"target observations read_observations[{index}] must be verified and untrusted"
-            )
-        result = observation.get("result")
-        if not isinstance(result, dict) or result.get("isError") is True:
-            raise TargetInputError(
-                f"target observations read_observations[{index}] result must be successful"
-            )
+        _validate_read_observation(
+            index,
+            observation,
+            profile_digest=profile_digest,
+            profile_tool_names=profile_tool_names,
+        )
+
+
+def _validate_read_observation(
+    index: int,
+    observation: Any,
+    *,
+    profile_digest: str,
+    profile_tool_names: set[Any],
+) -> None:
+    if not isinstance(observation, dict):
+        raise TargetInputError(f"target observations read_observations[{index}] must be an object")
+    if not isinstance(observation.get("profile_digest"), str) or (
+        observation["profile_digest"] != profile_digest
+    ):
+        raise TargetInputError(
+            f"target observations read_observations[{index}] profile digest does not match"
+        )
+    if not isinstance(observation.get("tool_name"), str) or not observation["tool_name"]:
+        raise TargetInputError(
+            f"target observations read_observations[{index}] requires tool_name"
+        )
+    if observation["tool_name"] not in profile_tool_names:
+        raise TargetInputError(
+            f"target observations read_observations[{index}] names an unknown tool"
+        )
+    if not _is_string_mapping_or_none(observation.get("arguments")):
+        raise TargetInputError(
+            f"target observations read_observations[{index}] arguments must be a string mapping"
+        )
+    status = observation.get("status")
+    if (
+        not isinstance(status, dict)
+        or status.get("transport") != "verified"
+        or status.get("content") != "untrusted"
+    ):
+        raise TargetInputError(
+            f"target observations read_observations[{index}] must be verified and untrusted"
+        )
+    result = observation.get("result")
+    if not isinstance(result, dict) or result.get("isError") is True:
+        raise TargetInputError(
+            f"target observations read_observations[{index}] result must be successful"
+        )
+
+
+def _is_string_mapping_or_none(value: Any) -> bool:
+    if value is None:
+        return True
+    return isinstance(value, dict) and all(
+        isinstance(key, str) and isinstance(item, str) for key, item in value.items()
+    )
 
 
 def _validate_profile_contract(profile: Any) -> None:
