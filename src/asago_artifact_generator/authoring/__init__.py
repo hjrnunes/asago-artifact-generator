@@ -9,19 +9,14 @@ It never contacts a target, setup transport, discovery service, or judge.
 from __future__ import annotations
 
 import ast
-import base64
-import hashlib
 import json
-import math
 import re
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
-from fractions import Fraction
 from pathlib import Path
-from typing import Any, Protocol
-from urllib.parse import urlsplit
+from typing import Any
 
 from ..bindings import (
     CLOSED_TYPES,
@@ -56,28 +51,94 @@ from ..failure_evidence import (
     redact_metadata,
     write_failure_evidence,
 )
-from ..input_adapter import (
-    InputView,
-    build_scenario_handoff_view,
-)
-from ..metadata_policy import prompt_secret_metadata_paths, secret_metadata_paths
+from ..input_adapter import InputView, build_scenario_handoff_view
 from ..package_io import ArtifactPackage, build_package, write_package
-
-AUTHORING_INTERFACE_VERSION_V2 = "artifact-authoring-v2"
-# The response wire remains v2, while its model-facing templates advance
-# independently; each constant names the template version dispatched now.
-CALL1_PROMPT_VERSION_V18 = "authoring-call1-v18"
-CALL2_PROMPT_VERSION_V21 = "authoring-call2-v21"
-CORRECTION_PROMPT_VERSION_V25 = "authoring-correction-v25"
-CORRECTION_PROMPT_VERSION_V27 = "authoring-correction-v27"
-# Semantic-review roles.  Each review is a separate provider request recorded
-# beside the author dispatches; the reviewer contract is the small closed
-# decision/summary/findings shape parsed by ``parse_review_response``.
-PLAN_REVIEW_PROMPT_VERSION_V17 = "authoring-plan-review-v17"
-ARTIFACT_REVIEW_PROMPT_VERSION_V16 = "authoring-artifact-review-v16"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V17
-ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V16
-_REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
+from .context_budget import CONTEXT_GUARD_CALIBRATION as CONTEXT_GUARD_CALIBRATION
+from .context_budget import _context_budget_estimate, _enforce_context_budget, _enforce_prompt_size
+from .context_budget import _context_guard_ratio as _context_guard_ratio
+from .core import (
+    _CONTEXT_FRAMING_TOKEN_RESERVE,
+    _REVIEW_STAGES,
+    _SLOT_RE,
+    ARTIFACT_REVIEW_PROMPT_VERSION,
+    ARTIFACT_REVIEW_PROMPT_VERSION_V16,
+    AUTHORING_INTERFACE_VERSION_V2,
+    AUTHORING_MAX_COMPLETION_TOKENS,
+    CALL1_PROMPT_VERSION_V18,
+    CALL2_PROMPT_VERSION_V21,
+    CORRECTION_PROMPT_VERSION_V25,
+    CORRECTION_PROMPT_VERSION_V27,
+    MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK,
+    MAX_AUTHORING_REQUESTS,
+    MAX_RENDERED_PROMPT_BYTES,
+    MAX_REQUESTS_PER_TASK,
+    MAX_REVIEW_REQUESTS_PER_TASK,
+    PLAN_REVIEW_PROMPT_VERSION,
+    PLAN_REVIEW_PROMPT_VERSION_V17,
+    REVIEW_REVISION_ALLOWANCE_PER_STAGE,
+    ArtifactValidationError,
+    AuthoringError,
+    AuthoringTransport,
+    BudgetExceeded,
+    Call1FramingError,
+    Call2FramingError,
+    Finding,
+    ParsedCall2Response,
+    PlanValidationError,
+    PromptOverflowError,
+    PromptPacket,
+    PromptPreflightError,
+    ReviewResponse,
+    ReviewResponseError,
+    TransportResponse,
+    _canonical_json,
+    _claim_levels,
+    _findings_from_error,
+    _is_json_value,
+    _json_bytes,
+    _json_value_type,
+    _matches_schema_type,
+    _model_dump,
+    _prompt_overflow_finding,
+    _prompt_preflight_finding,
+    _safe_error,
+    _safe_metadata,
+    _set_record_usage,
+    _sha256,
+    _supported_claim_levels,
+)
+from .core import AUTHORING_CONTEXT_WINDOW_TOKENS as AUTHORING_CONTEXT_WINDOW_TOKENS
+from .core import AUTHORING_THINKING_EXTRA_BODY as AUTHORING_THINKING_EXTRA_BODY
+from .core import REVIEW_THINKING_EXTRA_BODY as REVIEW_THINKING_EXTRA_BODY
+from .inventory import (
+    _expected_authoring_input_pins,
+    _input_view_payload,
+    _inventory_fact_map,
+    _inventory_references,
+    _resolved_judge_spec,
+    _selected_refs,
+    _source_input_payload,
+)
+from .prompt_safety import (
+    _endpoint_identity,
+    _endpoint_prompt_paths,
+    assert_no_prompt_duplicates,
+    assert_no_prompt_secrets,
+    assert_no_secrets,
+    prompt_data_urls,
+    scan_for_prompt_secrets,
+    scan_for_secrets,
+    scan_prompt_duplicates,
+)
+from .response_decode import (
+    _MISSING,
+    _decode_review_json_response,
+    _decode_v2_json_response,
+    _provider_field,
+    _provider_response_capture,
+    _readable_response,
+    _response_parts,
+)
 
 _PLAN_REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
     {
@@ -426,352 +487,6 @@ NEUTRAL_ESTABLISHED_OMISSION_OUTCOME_EXAMPLE = "\n\n".join(
         ),
     )
 )
-# New authoring/review dispatches share the approved aggregate ceiling.  A
-# policy-driven task derives its own per-task and per-role limits from
-# policy_max_dispatches/policy_role_limits; these constants are the defaults for
-# a budget built without a policy.
-MAX_AUTHORING_REQUESTS = 32
-# One revision requested by semantic review per reviewed stage, independent of
-# the stage's mechanical correction allowance.
-REVIEW_REVISION_ALLOWANCE_PER_STAGE = 1
-MAX_REQUESTS_PER_TASK = 8
-MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK = 4
-MAX_REVIEW_REQUESTS_PER_TASK = 4
-MAX_RENDERED_PROMPT_BYTES = 1_000_000
-AUTHORING_CONTEXT_WINDOW_TOKENS = 32_768
-AUTHORING_MAX_COMPLETION_TOKENS = 8_192
-_CONTEXT_FRAMING_TOKEN_RESERVE = 256
-# The provider request adds a small JSON message/schema envelope around the
-# rendered system and user content. This fixed UTF-8-byte allowance and the
-# separate framing-token reserve stay in every context estimate.
-_CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES = 128
-# Calibrate from provider measurements of dispatched authoring prompts. Each
-# record uses only provider-reported prompt_tokens and the same system+user+128
-# byte measurement as the guard, and is the lowest bytes/token ratio measured
-# for its stage on one of two measured open-weight models. A model whose
-# tokenizer needs more tokens per byte than both would exceed the estimate.
-# Prompt families tokenize differently (review prompts
-# hold more JSON punctuation than correction prompts), so each stage uses its
-# own lowest measured ratio; an unlisted stage uses the lowest ratio of all.
-# A 5% margin lowers each ratio further so the token estimate rounds up.
-_CONTEXT_GUARD_CALIBRATION_SOURCES = (
-    {
-        "stage": "call1",
-        "prompt_version": "authoring-call1-v14",
-        "model_facing_utf8_bytes": 76_665,
-        "provider_reported_prompt_tokens": 19_938,
-    },
-    {
-        "stage": "call2",
-        "prompt_version": "authoring-call2-v18",
-        "model_facing_utf8_bytes": 78_535,
-        "provider_reported_prompt_tokens": 20_412,
-    },
-    {
-        "stage": "correction",
-        "prompt_version": "authoring-correction-v21",
-        "model_facing_utf8_bytes": 84_275,
-        "provider_reported_prompt_tokens": 21_179,
-    },
-    {
-        "stage": "plan_review",
-        "prompt_version": "authoring-plan-review-v13",
-        "model_facing_utf8_bytes": 73_134,
-        "provider_reported_prompt_tokens": 19_642,
-    },
-    {
-        "stage": "artifact_review",
-        "prompt_version": "authoring-artifact-review-v6",
-        "model_facing_utf8_bytes": 80_079,
-        "provider_reported_prompt_tokens": 21_310,
-    },
-    {
-        "stage": "call1",
-        "prompt_version": "authoring-call1-v17",
-        "model_facing_utf8_bytes": 80_722,
-        "provider_reported_prompt_tokens": 18_946,
-    },
-    {
-        "stage": "correction",
-        "prompt_version": "authoring-correction-v25",
-        "model_facing_utf8_bytes": 81_894,
-        "provider_reported_prompt_tokens": 19_054,
-    },
-    {
-        "stage": "plan_review",
-        "prompt_version": "authoring-plan-review-v15",
-        "model_facing_utf8_bytes": 66_229,
-        "provider_reported_prompt_tokens": 15_503,
-    },
-)
-
-
-def _measured_ratio(record: Mapping[str, Any]) -> Fraction:
-    return Fraction(
-        record["model_facing_utf8_bytes"],
-        record["provider_reported_prompt_tokens"],
-    )
-
-
-_CONTEXT_GUARD_MARGIN = Fraction(5, 100)
-_CONTEXT_GUARD_OBSERVED_STAGE_RATIOS = {
-    stage: min(
-        _measured_ratio(record)
-        for record in _CONTEXT_GUARD_CALIBRATION_SOURCES
-        if record["stage"] == stage
-    )
-    for stage in dict.fromkeys(record["stage"] for record in _CONTEXT_GUARD_CALIBRATION_SOURCES)
-}
-_CONTEXT_GUARD_OBSERVED_RATIO = min(_CONTEXT_GUARD_OBSERVED_STAGE_RATIOS.values())
-_CONTEXT_GUARD_STAGE_RATIOS = {
-    stage: ratio * (1 - _CONTEXT_GUARD_MARGIN)
-    for stage, ratio in _CONTEXT_GUARD_OBSERVED_STAGE_RATIOS.items()
-}
-_CONTEXT_GUARD_CALIBRATED_RATIO = _CONTEXT_GUARD_OBSERVED_RATIO * (1 - _CONTEXT_GUARD_MARGIN)
-CONTEXT_GUARD_CALIBRATION = {
-    "formula": (
-        "estimated_prompt_tokens = ceil(total_model_facing_utf8_bytes / calibrated_ratio[stage])"
-    ),
-    "ratio_formula": "calibrated_ratio[stage] = observed_lowest_ratio[stage] * (1 - margin)",
-    "sources": _CONTEXT_GUARD_CALIBRATION_SOURCES,
-    "observed_lowest_bytes_per_token_by_stage": {
-        stage: float(ratio) for stage, ratio in _CONTEXT_GUARD_OBSERVED_STAGE_RATIOS.items()
-    },
-    "observed_conservative_bytes_per_token": float(_CONTEXT_GUARD_OBSERVED_RATIO),
-    "margin": float(_CONTEXT_GUARD_MARGIN),
-    "margin_fraction": str(_CONTEXT_GUARD_MARGIN),
-    "calibrated_bytes_per_token_by_stage": {
-        stage: float(ratio) for stage, ratio in _CONTEXT_GUARD_STAGE_RATIOS.items()
-    },
-    "calibrated_bytes_per_token": float(_CONTEXT_GUARD_CALIBRATED_RATIO),
-}
-
-
-def _context_guard_ratio(stage: str) -> Fraction:
-    """Return the calibrated bytes-per-token ratio for one prompt stage."""
-
-    return _CONTEXT_GUARD_STAGE_RATIOS.get(stage, _CONTEXT_GUARD_CALIBRATED_RATIO)
-
-
-# Normal private authoring sets thinking per role through the transport's
-# additive extra_body.  Every role currently runs with thinking off: with
-# thinking on, reviews on a measured open-weight model repeated the same reasoning lines
-# until the completion limit and returned no answer in 11 of 35 scenarios.
-# The values are non-secret and are recorded as per-call controls.
-AUTHORING_THINKING_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
-REVIEW_THINKING_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
-_SLOT_RE = re.compile(r"\{\{([^{}]*)\}\}")
-_PROMPT_URL_RE = re.compile(r"\bhttps?://[^\s\"'<>]+", re.IGNORECASE)
-_PROMPT_TOKEN_RE = re.compile(
-    r"\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_-]{12,}|xox[baprs]-[A-Za-z0-9-]{12,})\b"
-)
-
-
-class AuthoringTransport(Protocol):
-    """Adapter for one provider request. Implementations must not retry."""
-
-    max_retries: int
-
-    def complete(self, packet: PromptPacket) -> TransportResponse | str | bytes: ...
-
-
-class AuthoringError(ValueError):
-    """Base class for deterministic authoring failures."""
-
-    def __init__(self, message: str, path: str = "") -> None:
-        self.message = message
-        self.path = path
-        super().__init__(message)
-
-
-class PlanValidationError(AuthoringError):
-    """Raised for structural Call 1 response errors."""
-
-
-class ArtifactValidationError(AuthoringError):
-    """Raised for structural or plan-consistency Call 2 response errors."""
-
-
-class BudgetExceeded(AuthoringError):
-    """Raised before dispatch when an aggregate, task, or role cap is exhausted."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        scope: str | None = None,
-        task_id: str | None = None,
-        role: str | None = None,
-        used: int | None = None,
-        limit: int | None = None,
-    ) -> None:
-        self.scope = scope
-        self.task_id = task_id
-        self.role = role
-        self.used = used
-        self.limit = limit
-        super().__init__(message)
-
-
-class PromptPreflightError(AuthoringError):
-    """Raised when a rendered prompt fails a before-dispatch guard."""
-
-
-class PromptOverflowError(PromptPreflightError):
-    """Raised before dispatch when a complete prompt exceeds its explicit bound."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        estimated_prompt_tokens: int | None = None,
-        remaining_input_budget: int | None = None,
-        total_model_facing_utf8_bytes: int | None = None,
-    ) -> None:
-        self.estimated_prompt_tokens = estimated_prompt_tokens
-        self.remaining_input_budget = remaining_input_budget
-        self.total_model_facing_utf8_bytes = total_model_facing_utf8_bytes
-        super().__init__(message)
-
-
-@dataclass(frozen=True)
-class Finding:
-    """A typed, deterministic finding retained beside the failed response."""
-
-    code: str
-    detail: str
-    path: str = ""
-    details: dict[str, Any] = field(default_factory=dict, compare=False, hash=False)
-
-    def to_dict(self) -> dict[str, Any]:
-        result = {"code": self.code, "detail": self.detail}
-        if self.path:
-            result["path"] = self.path
-        if self.details:
-            result["details"] = deepcopy(self.details)
-        return result
-
-
-def _prompt_overflow_finding(exc: PromptOverflowError, stage: str) -> Finding:
-    """Retain the calibrated estimate and remaining input budget as data."""
-
-    details = {
-        key: value
-        for key, value in (
-            ("estimated_prompt_tokens", exc.estimated_prompt_tokens),
-            ("remaining_input_budget_estimate", exc.remaining_input_budget),
-            ("model_facing_utf8_bytes", exc.total_model_facing_utf8_bytes),
-        )
-        if value is not None
-    }
-    return Finding("prompt_overflow", str(exc), stage, details)
-
-
-def _prompt_preflight_finding(exc: PromptPreflightError, stage: str) -> Finding:
-    """Keep size and calibrated context rejections on one terminal path."""
-
-    if isinstance(exc, PromptOverflowError):
-        return _prompt_overflow_finding(exc, stage)
-    return Finding("prompt_preflight", str(exc), stage)
-
-
-@dataclass(frozen=True)
-class PromptPacket:
-    """A fully rendered, versioned prompt and its stage-local request payload."""
-
-    stage: str
-    version: str
-    system: str
-    user: str
-    payload: dict[str, Any]
-
-    @property
-    def byte_size(self) -> int:
-        """Return the exact UTF-8 bytes sent as the two prompt messages."""
-
-        return len(self.system.encode("utf-8")) + len(self.user.encode("utf-8"))
-
-    @property
-    def sha256(self) -> str:
-        """Return the digest of the exact rendered role prompt."""
-
-        rendered = "\0".join((self.stage, self.version, self.system, self.user))
-        return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
-
-    @property
-    def prompt_sha256(self) -> str:
-        """Compatibility spelling for evidence and review callers."""
-
-        return self.sha256
-
-    @property
-    def prompt_hash(self) -> str:
-        """Short compatibility spelling for rendered prompt consumers."""
-
-        return self.sha256
-
-
-@dataclass(frozen=True)
-class ParsedCall2Response:
-    """The v2 metadata object and exact bytes between the Python fences."""
-
-    metadata: dict[str, Any]
-    python_bytes: bytes
-
-    @property
-    def python_source(self) -> str:
-        """Decode the source for syntax validation without changing its bytes."""
-
-        return self.python_bytes.decode("utf-8")
-
-    @property
-    def detector_source(self) -> str:
-        """Compatibility name for callers that consume detector source text."""
-
-        return self.python_source
-
-
-class Call2FramingError(AuthoringError):
-    """Raised when a v2 Call 2 response is not exactly two fenced blocks."""
-
-    def __init__(self, findings: list[Finding]) -> None:
-        self.findings = list(findings)
-        detail = "; ".join(finding.detail for finding in self.findings)
-        super().__init__(detail or "invalid Call 2 framing", "call2")
-
-
-class Call1FramingError(AuthoringError):
-    """Raised when a v2 Call 1 response has unsupported outer framing."""
-
-    def __init__(self, findings: list[Finding]) -> None:
-        self.findings = list(findings)
-        detail = "; ".join(finding.detail for finding in self.findings)
-        super().__init__(detail or "invalid Call 1 framing", "call1")
-
-
-class ReviewResponseError(AuthoringError):
-    """Raised when a reviewer response fails framing, shape, or consistency."""
-
-    def __init__(self, findings: list[Finding]) -> None:
-        self.findings = list(findings)
-        detail = "; ".join(finding.detail for finding in self.findings)
-        super().__init__(detail or "invalid reviewer response", "review")
-
-
-@dataclass(frozen=True)
-class ReviewResponse:
-    """One validated semantic-review response.
-
-    ``decision`` is ``accept``, ``revise``, or ``blocked``; ``findings`` is a
-    tuple of complete finding objects with exactly ``question``, ``location``,
-    ``problem``, ``basis``, and ``required_change``. The question is scoped
-    against the stage's closed question list after parsing.
-    """
-
-    decision: str
-    summary: str
-    findings: tuple[dict[str, Any], ...] = ()
-    transformation: str | None = None
 
 
 _REVIEW_DECISIONS = ("accept", "revise", "blocked")
@@ -935,17 +650,6 @@ def _scope_review_response(
     if decision in {"revise", "blocked"} and not in_scope:
         decision = "accept"
     return decision, tuple(in_scope), tuple(out_of_scope)
-
-
-@dataclass(frozen=True)
-class TransportResponse:
-    """Raw provider response plus non-secret provider metadata."""
-
-    raw: bytes
-    usage: dict[str, Any] | None = None
-    controls: dict[str, Any] | None = None
-    response_capture: dict[str, Any] | None = None
-    provider_model: str | None = None
 
 
 @dataclass
@@ -8438,200 +8142,6 @@ def _operation_handles(inventory: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def scan_for_secrets(value: Any, path: str = "") -> list[str]:
-    """Return secret-bearing metadata paths without inspecting secret values."""
-
-    return secret_metadata_paths(value, path)
-
-
-def scan_for_prompt_secrets(
-    value: Any,
-    path: str = "",
-    *,
-    allowed_urls: Collection[str] = (),
-) -> list[str]:
-    """Return secret-bearing paths from a model-facing prompt view.
-
-    ``allowed_urls`` lists URLs with scenario or candidate provenance (see
-    :func:`prompt_data_urls`); every other URL in the rendered text is flagged.
-    """
-
-    if isinstance(value, PromptPacket):
-        paths = prompt_secret_metadata_paths(value.payload, "payload")
-        paths.extend(_prompt_secret_text_paths(value, allowed_urls=allowed_urls))
-        return paths
-    return prompt_secret_metadata_paths(value, path)
-
-
-def prompt_data_urls(*values: Any) -> frozenset[str]:
-    """Return the URLs that supplied scenario data or model-authored candidates contain.
-
-    A scenario can carry a URL as attack content, and an author can write one
-    into a stimulus; neither is an endpoint or credential. Prompts render these
-    strings inside JSON, so each string contributes its raw and JSON-escaped
-    matches.
-    """
-
-    found: set[str] = set()
-
-    def visit(item: Any) -> None:
-        if isinstance(item, InputView):
-            visit(item.payload)
-            visit(item.owner_scope)
-            visit(item.gherkin_text)
-        elif isinstance(item, ParsedCall2Response):
-            visit(item.metadata)
-            visit(item.python_bytes)
-        elif isinstance(item, Finding):
-            visit(item.to_dict())
-        elif isinstance(item, bytes):
-            visit(item.decode("utf-8", errors="replace"))
-        elif isinstance(item, str):
-            found.update(_PROMPT_URL_RE.findall(item))
-            found.update(_PROMPT_URL_RE.findall(json.dumps(item, ensure_ascii=False)[1:-1]))
-        elif isinstance(item, dict):
-            for key, child in item.items():
-                visit(key)
-                visit(child)
-        elif isinstance(item, (list, tuple)):
-            for child in item:
-                visit(child)
-
-    for value in values:
-        visit(value)
-    return frozenset(found)
-
-
-def assert_no_secrets(value: Any) -> None:
-    paths = scan_for_secrets(value)
-    if paths:
-        raise AuthoringError(f"secret-bearing authoring evidence: {', '.join(paths)}")
-
-
-def assert_no_prompt_secrets(value: Any, *, allowed_urls: Collection[str] = ()) -> None:
-    paths = scan_for_prompt_secrets(value, allowed_urls=allowed_urls)
-    if paths:
-        raise PromptPreflightError(f"secret-bearing authoring evidence: {', '.join(paths)}")
-
-
-def scan_prompt_duplicates(packet: PromptPacket) -> list[str]:
-    """Find repeated copies of bounded candidate chunks in one rendered prompt.
-
-    This intentionally scans only candidate-bearing fields.  Repeated ordinary
-    words in an instruction or schema are not duplicate candidate forms.
-    """
-
-    if not isinstance(packet, PromptPacket):
-        raise TypeError("duplicate scans require a PromptPacket")
-    findings: list[str] = []
-    for label, value in _duplicate_prompt_chunks(packet.payload):
-        if not isinstance(value, str) or len(value.strip()) < 8:
-            continue
-        forms = [("raw", value)]
-        escaped = json.dumps(value, ensure_ascii=False)[1:-1]
-        if escaped != value:
-            forms.append(("json-escaped", escaped))
-        encoded = base64.b64encode(value.encode("utf-8")).decode("ascii")
-        if encoded != value:
-            forms.append(("base64", encoded))
-        for form_name, form in forms:
-            if len(form.strip()) < 8:
-                continue
-            occurrences = packet.user.count(form)
-            if occurrences > 1:
-                findings.append(
-                    f"{label} {form_name} form appears {occurrences} times "
-                    "in rendered user context"
-                )
-    return findings
-
-
-def assert_no_prompt_duplicates(packet: PromptPacket) -> None:
-    """Fail closed when a bounded candidate chunk is rendered more than once."""
-
-    findings = scan_prompt_duplicates(packet)
-    if findings:
-        raise PromptPreflightError("duplicate prompt candidate forms: " + "; ".join(findings))
-
-
-def _duplicate_prompt_chunks(payload: dict[str, Any]) -> list[tuple[str, str]]:
-    chunks: list[tuple[str, str]] = []
-    candidate_keys = {
-        "candidate",
-        "candidate_plan",
-        "candidate_metadata",
-        "candidate_python_source",
-        "current_output",
-        "failed_response",
-        "accepted_plan",
-    }
-    for key, value in payload.items():
-        if key not in candidate_keys and "candidate" not in key and "current_output" not in key:
-            continue
-        if isinstance(value, str):
-            chunks.append((key, value))
-            continue
-        if isinstance(value, (dict, list)):
-            chunks.append((key, _canonical_json(value)))
-            chunks.append(
-                (
-                    f"{key}.pretty",
-                    json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True),
-                )
-            )
-    return chunks
-
-
-def _prompt_secret_text_paths(
-    packet: PromptPacket,
-    *,
-    allowed_urls: Collection[str] = (),
-) -> list[str]:
-    """Detect unprovenanced URLs and credential values without returning their contents."""
-
-    allowed = frozenset(allowed_urls)
-    paths: list[str] = []
-    for name, text in (("system", packet.system), ("user", packet.user)):
-        if any(url not in allowed for url in _PROMPT_URL_RE.findall(text)):
-            paths.append(f"prompt.{name}.url")
-        if _PROMPT_TOKEN_RE.search(text):
-            paths.append(f"prompt.{name}.credential")
-    return paths
-
-
-def _endpoint_identity(base_url: str) -> tuple[str, str]:
-    """Return the lowercase network location and hostname of a configured endpoint."""
-
-    try:
-        parts = urlsplit(base_url)
-        hostname = parts.hostname or ""
-    except ValueError:
-        return "", ""
-    netloc = parts.netloc.rpartition("@")[2].lower()
-    return netloc, hostname.lower()
-
-
-def _endpoint_prompt_paths(packet: PromptPacket, netloc: str, hostname: str) -> list[str]:
-    """Flag prompt text that names the configured endpoint's host."""
-
-    paths: list[str] = []
-    for name, text in (("system", packet.system), ("user", packet.user)):
-        lowered = text.lower()
-        named = bool(netloc) and netloc in lowered
-        if not named and hostname:
-            for url in _PROMPT_URL_RE.findall(text):
-                try:
-                    url_host = urlsplit(url).hostname
-                except ValueError:
-                    continue
-                if url_host is not None and url_host.lower() == hostname:
-                    named = True
-                    break
-        if named:
-            paths.append(f"prompt.{name}.endpoint")
-    return paths
-
-
 def collect_plan_findings(
     plan: Any,
     inventory: dict[str, Any],
@@ -9775,26 +9285,6 @@ def _declared_binding_expected_types(runtime_bindings: Any) -> dict[str, str]:
     }
 
 
-def _claim_levels() -> tuple[str, ...]:
-    return ("command_attempt", "reply", "returned_result", "state_effect")
-
-
-# Capturing a decoded tool result or a snapshot does not mean downstream
-# execution accepts a claim at that level, so result- and state-level claims
-# need an explicit runtime_contract.observation.claim_levels declaration.
-_DEFAULT_SUPPORTED_CLAIM_LEVELS = ("command_attempt", "reply")
-
-
-def _supported_claim_levels(runtime_contract: Any) -> tuple[str, ...]:
-    observation = (
-        runtime_contract.get("observation") if isinstance(runtime_contract, dict) else None
-    )
-    declared = observation.get("claim_levels") if isinstance(observation, dict) else None
-    if isinstance(declared, list):
-        return tuple(level for level in _claim_levels() if level in declared)
-    return _DEFAULT_SUPPORTED_CLAIM_LEVELS
-
-
 def _validate_setup_recipe(
     recipe: Any,
     inventory: dict[str, Any],
@@ -9855,176 +9345,6 @@ def _is_blocked_plan(plan: Any) -> bool:
         and item.get("source_kind") != "setup_output"
         for item in plan.get("unresolved_requirements", [])
     )
-
-
-def _mapping_sha256(value: dict[str, Any]) -> str:
-    return _sha256(_canonical_json(value).encode("utf-8"))
-
-
-def _expected_authoring_input_pins(
-    *,
-    input_view: InputView,
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-) -> dict[str, Any]:
-    """Return the source and contract pins for one authoring input set."""
-
-    return {
-        "schema_version": "authoring-input-pins-v1",
-        "scenario_id": input_view.scenario_id,
-        "input_sha256": input_view.source_sha256,
-        "source_digests": dict(input_view.source_digests),
-        "inventory_sha256": _mapping_sha256(inventory),
-        "runtime_contract_sha256": _mapping_sha256(runtime_contract),
-    }
-
-
-def _inventory_references(inventory: dict[str, Any]) -> set[str]:
-    references = {
-        str(item.get("ref"))
-        for item in inventory.get("facts", [])
-        if isinstance(item, dict) and item.get("ref")
-    }
-    references.update(
-        str(item.get("ref"))
-        for item in inventory.get("source_handles", [])
-        if isinstance(item, dict) and item.get("ref")
-    )
-    references.update(
-        f"operation:{item.get('name')}"
-        for item in inventory.get("operations", [])
-        if isinstance(item, dict) and item.get("name")
-    )
-    return references
-
-
-def _inventory_fact_map(inventory: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Return supplied static facts keyed by their authoritative reference."""
-
-    return {
-        item["ref"]: item
-        for item in inventory.get("facts", [])
-        if isinstance(item, dict) and isinstance(item.get("ref"), str) and item["ref"].strip()
-    }
-
-
-def _resolved_judge_spec(
-    judge_spec: Any,
-    inventory: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Replace model-selected fact references with immutable supplied facts."""
-
-    if judge_spec is None:
-        return None
-    if not isinstance(judge_spec, dict):
-        raise ArtifactValidationError("judge specification must be an object", "judge.json")
-    refs = judge_spec.get("fact_refs")
-    if not isinstance(refs, list):
-        raise ArtifactValidationError(
-            "judge specification fact_refs must be a list",
-            "judge.json.fact_refs",
-        )
-    fact_map = _inventory_fact_map(inventory)
-    facts: list[dict[str, Any]] = []
-    for index, ref in enumerate(refs):
-        path = f"judge.json.fact_refs[{index}]"
-        if not isinstance(ref, str) or not ref.strip():
-            raise ArtifactValidationError(
-                f"unknown static fact reference: {ref}",
-                path,
-            )
-        supplied = fact_map.get(ref)
-        if not isinstance(supplied, dict):
-            raise ArtifactValidationError(
-                f"unknown static fact reference: {ref}",
-                path,
-            )
-        if "value" not in supplied:
-            raise ArtifactValidationError(
-                f"static fact has no supplied value: {ref}",
-                path,
-            )
-        fact: dict[str, Any] = {
-            "ref": ref,
-            "value": supplied["value"],
-            "source": ref,
-        }
-        if "provenance" in supplied:
-            fact["provenance"] = supplied["provenance"]
-        facts.append(fact)
-    return {
-        "question": judge_spec.get("question"),
-        "criteria": judge_spec.get("criteria"),
-        "facts": facts,
-    }
-
-
-def _selected_refs(plan: dict[str, Any], inventory: dict[str, Any]) -> dict[str, set[str]]:
-    selected = {"operations": set(), "facts": set(), "sources": set()}
-    operation_names = {
-        item.get("name")
-        for item in inventory.get("operations", [])
-        if isinstance(item, dict) and item.get("name")
-    }
-    fact_refs = {
-        item.get("ref")
-        for item in inventory.get("facts", [])
-        if isinstance(item, dict) and item.get("ref")
-    }
-    for item in plan.get("selected_evidence", []):
-        ref = item.get("ref") if isinstance(item, dict) else ""
-        if ref in operation_names:
-            selected["operations"].add(ref)
-        elif ref.startswith("operation:") and ref.split(":", 1)[1] in operation_names:
-            selected["operations"].add(ref.split(":", 1)[1])
-        elif ref in fact_refs:
-            selected["facts"].add(ref)
-        else:
-            selected["sources"].add(ref)
-    for item in plan.get("runtime_bindings", []):
-        if isinstance(item, dict):
-            ref = item.get("source_ref", "")
-            if ref.startswith("setup:"):
-                selected["operations"].add(ref.split(":", 1)[1])
-            elif ref.startswith("facts:"):
-                selected["facts"].add(ref.split(":", 1)[1])
-    return selected
-
-
-def _input_view_payload(
-    view: InputView,
-    *,
-    include_scenario_handoff: bool = True,
-) -> dict[str, Any]:
-    """Build the meaning-preserving model-facing input projection."""
-
-    payload = {
-        "kind": view.kind.value,
-        "scenario_id": view.scenario_id,
-        "narrative": view.narrative,
-        "narrative_bytes_sha256": _sha256(view.narrative_bytes),
-        "gherkin_text": view.gherkin_text,
-        "gherkin_bytes_sha256": _sha256(view.gherkin_bytes),
-        "source_digests": view.source_digests,
-    }
-    if include_scenario_handoff:
-        payload["scenario_handoff"] = build_scenario_handoff_view(view)
-    return payload
-
-
-def _source_input_payload(view: InputView) -> dict[str, Any]:
-    """Build the complete source-bearing package record outside model context."""
-
-    return {
-        "kind": view.kind.value,
-        "scenario_id": view.scenario_id,
-        "payload": view.payload,
-        "narrative": view.narrative,
-        "narrative_bytes_sha256": _sha256(view.narrative_bytes),
-        "gherkin_text": view.gherkin_text,
-        "gherkin_bytes_sha256": _sha256(view.gherkin_bytes),
-        "source_digests": view.source_digests,
-    }
 
 
 def _package_from_responses(
@@ -10235,423 +9555,6 @@ def _package_review_records(
     }
 
 
-_MISSING = object()
-
-
-def _provider_field(value: Any, name: str) -> Any:
-    """Read a returned provider field without adding fields to the request."""
-
-    if isinstance(value, dict):
-        return value[name] if name in value else _MISSING
-    return getattr(value, name, _MISSING)
-
-
-def _captured_text_field(value: Any) -> dict[str, Any]:
-    """Classify text content without collapsing absent, null, and empty values."""
-
-    if value is _MISSING:
-        return {"state": "absent"}
-    if value is None:
-        return {"state": "null"}
-    if value == "":
-        return {"state": "empty", "content": ""}
-    if isinstance(value, str):
-        return {"state": "text", "content": value}
-    return {"state": "non_text", "value_type": type(value).__name__}
-
-
-def _captured_scalar_field(value: Any) -> dict[str, Any]:
-    """Classify optional scalar response metadata without inference."""
-
-    if value is _MISSING:
-        return {"state": "absent"}
-    if value is None:
-        return {"state": "null"}
-    return {"state": "value", "value": value}
-
-
-def _provider_response_capture(choice: Any, message: Any) -> dict[str, Any]:
-    """Keep provider response fields separate from final-answer parsing."""
-
-    reasoning_field = _MISSING
-    reasoning_source = None
-    for field_name in ("reasoning_content", "reasoning"):
-        value = _provider_field(message, field_name)
-        if value is not _MISSING:
-            reasoning_field = value
-            reasoning_source = field_name
-            break
-    reasoning = _captured_text_field(reasoning_field)
-    if reasoning_source is not None:
-        reasoning["source_field"] = reasoning_source
-    return {
-        "schema_version": "authoring-response-capture-v1",
-        "final_answer": _captured_text_field(_provider_field(message, "content")),
-        "reasoning": reasoning,
-        "finish_reason": _captured_scalar_field(_provider_field(choice, "finish_reason")),
-    }
-
-
-def _response_parts(
-    response: TransportResponse | str | bytes,
-) -> tuple[
-    bytes,
-    dict[str, Any] | None,
-    dict[str, Any] | None,
-    dict[str, Any] | None,
-]:
-    if isinstance(response, TransportResponse):
-        return (
-            response.raw,
-            response.usage,
-            response.controls,
-            response.response_capture,
-        )
-    if isinstance(response, str):
-        return response.encode("utf-8"), None, {"max_retries": 0}, None
-    if isinstance(response, bytes):
-        return response, None, {"max_retries": 0}, None
-    raise TypeError("authoring transport returned an unsupported response")
-
-
-def _readable_response(raw: bytes) -> tuple[str, str]:
-    """Return one readable correction copy without changing evidence bytes."""
-
-    try:
-        return raw.decode("utf-8"), "utf-8-exact"
-    except UnicodeDecodeError:
-        return raw.decode("utf-8", errors="replace"), "utf-8-replacement-inexact"
-
-
-def _decode_v2_json_response(raw: bytes) -> tuple[dict[str, Any], str | None]:
-    """Decode exactly one v2 Call 1 object without changing response bytes."""
-
-    return _decode_strict_single_json_response(
-        raw,
-        subject="Call 1",
-        error=Call1FramingError,
-        path="call1",
-    )
-
-
-def _decode_review_json_response(raw: bytes) -> tuple[dict[str, Any], str | None]:
-    """Decode exactly one reviewer object without changing response bytes."""
-
-    return _decode_strict_single_json_response(
-        raw,
-        subject="review response",
-        error=ReviewResponseError,
-        path="review",
-    )
-
-
-def _decode_strict_single_json_response(
-    raw: bytes,
-    *,
-    subject: str,
-    error: type[AuthoringError],
-    path: str,
-) -> tuple[dict[str, Any], str | None]:
-    """Accept one bare JSON object or exactly one lowercase ```json fence."""
-
-    text = raw.decode("utf-8").strip()
-    if text.startswith("```"):
-        first_line = text.splitlines()[0] if text.splitlines() else ""
-        if first_line == "```":
-            raise error(
-                [Finding("bare_fence", f"{subject} does not allow an untagged fence", path)]
-            )
-        if first_line != "```json":
-            raise error(
-                [
-                    Finding(
-                        "unsupported_fence",
-                        f"{subject} requires one lowercase ```json fence",
-                        path,
-                    )
-                ]
-            )
-        closed = re.match(
-            r"```json\r?\n(?P<body>.*?)\r?\n```(?P<tail>.*)\Z",
-            text,
-            re.DOTALL,
-        )
-        if closed is None:
-            code = "truncated_fence"
-            detail = f"{subject} lowercase ```json fence is not closed"
-            raise error([Finding(code, detail, path)])
-        tail = closed.group("tail").lstrip()
-        if tail:
-            code = "multiple_json_blocks" if tail.startswith("```") else "trailing_content"
-            detail = (
-                f"{subject} contains more than one fenced JSON block"
-                if code == "multiple_json_blocks"
-                else f"{subject} contains content outside its JSON fence"
-            )
-            raise error([Finding(code, detail, path)])
-        return (
-            _decode_strict_json_object(
-                closed.group("body").strip(),
-                subject=subject,
-                error=error,
-                path=path,
-            ),
-            "outer_fence_removed",
-        )
-    return _decode_strict_json_object(text, subject=subject, error=error, path=path), None
-
-
-def _decode_strict_json_object(
-    text: str,
-    *,
-    subject: str,
-    error: type[AuthoringError],
-    path: str,
-) -> dict[str, Any]:
-    """Decode one complete JSON object and classify framing-only failures."""
-
-    try:
-        decoder = json.JSONDecoder(parse_constant=_reject_json_constant)
-        value, end = decoder.raw_decode(text)
-    except (json.JSONDecodeError, ValueError) as exc:
-        code = "invalid_json" if text.startswith("{") else "ambiguous_content"
-        raise error([Finding(code, f"{subject} JSON object is invalid: {exc}", path)]) from exc
-    trailing = text[end:].strip()
-    if trailing:
-        code = "multiple_json_objects" if trailing.startswith(("{", "[")) else "trailing_content"
-        raise error(
-            [
-                Finding(
-                    code,
-                    f"{subject} must contain exactly one JSON object with no trailing content",
-                    path,
-                )
-            ]
-        )
-    if not isinstance(value, dict):
-        raise error(
-            [Finding("json_object_required", f"{subject} must decode to one JSON object", path)]
-        )
-    return value
-
-
-def _reject_json_constant(value: str) -> None:
-    """Reject Python-only numeric constants that are not JSON values."""
-
-    raise ValueError(f"invalid JSON constant: {value}")
-
-
-def _findings_from_error(exc: Exception) -> list[Finding]:
-    text = str(exc)
-    code = "plan_validation" if isinstance(exc, PlanValidationError) else "artifact_validation"
-    if text.startswith("unknown_reference:"):
-        code = "unknown_reference"
-    elif text.startswith("plan_conflict:"):
-        code = "plan_conflict"
-    elif text.startswith("undocumented selector"):
-        code = "undocumented_selector"
-    elif "type mismatch" in text:
-        code = "schema_type_mismatch"
-    elif text.startswith("schema_type_mismatch:"):
-        code = "schema_type_mismatch"
-    elif "not permitted" in text:
-        code = "unpermitted_setup"
-    elif text.startswith("non_user_history"):
-        code = "non_user_history"
-    return [Finding(code, text)]
-
-
-def _safe_metadata(value: Any) -> dict[str, Any]:
-    return redact_metadata(value) if isinstance(value, dict) else {}
-
-
-def _set_record_usage(record: dict[str, Any], usage: Any) -> None:
-    """Persist provider usage only when the transport supplied it."""
-
-    if usage is None:
-        record.pop("usage", None)
-    else:
-        record["usage"] = _safe_metadata(usage)
-
-
-def _safe_error(exc: BaseException) -> str:
-    text = str(exc)
-    text = re.sub(r"https?://[^\s)]+", "<redacted-url>", text)
-    text = re.sub(
-        r"(api[_-]?key|authorization|token|password)=?[^\s,;]+",
-        r"\1=<redacted>",
-        text,
-        flags=re.I,
-    )
-    return text
-
-
-def _enforce_prompt_size(
-    packet: PromptPacket,
-    maximum: int,
-    *,
-    allowed_urls: Collection[str] = (),
-) -> None:
-    assert_no_prompt_secrets(packet, allowed_urls=allowed_urls)
-    if packet.version in {
-        CALL1_PROMPT_VERSION_V18,
-        CALL2_PROMPT_VERSION_V21,
-        CORRECTION_PROMPT_VERSION_V25,
-        CORRECTION_PROMPT_VERSION_V27,
-        PLAN_REVIEW_PROMPT_VERSION_V17,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V16,
-    }:
-        assert_no_prompt_duplicates(packet)
-    if maximum <= 0:
-        raise PromptOverflowError("prompt size limit must be positive")
-    rendered = len(packet.system.encode("utf-8")) + len(packet.user.encode("utf-8"))
-    if rendered > maximum:
-        estimate = _context_budget_estimate(packet)
-        remaining_input_budget_estimate = (
-            AUTHORING_CONTEXT_WINDOW_TOKENS
-            - AUTHORING_MAX_COMPLETION_TOKENS
-            - _CONTEXT_FRAMING_TOKEN_RESERVE
-        )
-        raise PromptOverflowError(
-            f"{packet.stage} prompt exceeds the rendered-prompt byte limit: "
-            f"rendered_bytes={rendered}, limit_bytes={maximum}, "
-            f"estimated_prompt_tokens={estimate['estimated_prompt_tokens']}, "
-            f"remaining_input_budget_estimate={remaining_input_budget_estimate}; "
-            "supply an explicitly scoped input package",
-            estimated_prompt_tokens=estimate["estimated_prompt_tokens"],
-            remaining_input_budget=remaining_input_budget_estimate,
-            total_model_facing_utf8_bytes=estimate["model_facing_utf8_bytes"],
-        )
-
-
-def _enforce_context_budget(
-    packet: PromptPacket,
-    *,
-    context_window_tokens: int,
-    max_completion_tokens: int,
-) -> dict[str, int | float | str]:
-    """Estimate model-facing prompt tokens and reject before dispatch if needed."""
-
-    if context_window_tokens <= 0:
-        raise PromptOverflowError("context window token limit must be positive")
-    if max_completion_tokens <= 0:
-        raise PromptOverflowError("completion token limit must be positive")
-    estimate = _context_budget_estimate(packet)
-    estimated_prompt_tokens = estimate["estimated_prompt_tokens"]
-    model_facing_utf8_bytes = estimate["model_facing_utf8_bytes"]
-    reserved = max_completion_tokens + _CONTEXT_FRAMING_TOKEN_RESERVE
-    remaining_input_budget = context_window_tokens - reserved
-    if estimated_prompt_tokens > remaining_input_budget:
-        raise PromptOverflowError(
-            f"{packet.stage} prompt exceeds the context window: "
-            f"estimated_prompt_tokens={estimated_prompt_tokens}, "
-            f"remaining_input_budget_estimate={remaining_input_budget}, "
-            f"model-facing UTF-8-byte input estimate={model_facing_utf8_bytes}; "
-            f"input budget excludes {max_completion_tokens} completion tokens and "
-            f"{_CONTEXT_FRAMING_TOKEN_RESERVE} framing tokens in a "
-            f"{context_window_tokens}-token context window",
-            estimated_prompt_tokens=estimated_prompt_tokens,
-            remaining_input_budget=remaining_input_budget,
-            total_model_facing_utf8_bytes=model_facing_utf8_bytes,
-        )
-    return estimate
-
-
-def _context_budget_estimate(packet: PromptPacket) -> dict[str, int | float | str]:
-    """Return a conservative token estimate from every model-facing UTF-8 byte."""
-
-    system_utf8_bytes = len(packet.system.encode("utf-8"))
-    user_utf8_bytes = len(packet.user.encode("utf-8"))
-    model_facing_utf8_bytes = (
-        system_utf8_bytes + user_utf8_bytes + _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES
-    )
-    ratio = _context_guard_ratio(packet.stage)
-    return {
-        # Keep the byte fields explicit. Token estimates use the estimate
-        # suffix and calibrated ratio below.
-        "estimator": "utf8_bytes_conservative_prompt_estimate",
-        "system_bytes": system_utf8_bytes,
-        "user_bytes": user_utf8_bytes,
-        "schema_message_overhead_bytes": _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES,
-        "estimated_prompt_bytes": model_facing_utf8_bytes,
-        "system_utf8_bytes": system_utf8_bytes,
-        "user_utf8_bytes": user_utf8_bytes,
-        "schema_message_overhead_utf8_bytes": _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES,
-        "model_facing_utf8_bytes": model_facing_utf8_bytes,
-        "calibrated_bytes_per_token_estimate": float(ratio),
-        "estimated_prompt_tokens": math.ceil(Fraction(model_facing_utf8_bytes, 1) / ratio),
-    }
-
-
-def _model_dump(value: Any) -> dict[str, Any]:
-    if value is None:
-        return {}
-    if hasattr(value, "model_dump"):
-        try:
-            result = value.model_dump(exclude_none=True)
-        except TypeError:
-            result = value.model_dump()
-    elif isinstance(value, dict):
-        result = value
-    else:
-        result = {}
-    return result if isinstance(result, dict) else {}
-
-
-def _canonical_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def _json_bytes(value: Any) -> bytes:
-    return (_canonical_json(value) + "\n").encode("utf-8")
-
-
-def _is_json_value(value: Any) -> bool:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return not isinstance(value, float) or value == value
-    if isinstance(value, list):
-        return all(_is_json_value(item) for item in value)
-    if isinstance(value, dict):
-        return all(isinstance(key, str) and _is_json_value(item) for key, item in value.items())
-    return False
-
-
-def _json_value_type(value: Any) -> str:
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "boolean"
-    if isinstance(value, int):
-        return "integer"
-    if isinstance(value, float):
-        return "number"
-    if isinstance(value, str):
-        return "string"
-    if isinstance(value, list):
-        return "array"
-    if isinstance(value, dict):
-        return "object"
-    return type(value).__name__
-
-
-def _matches_schema_type(value: Any, schema_type: str) -> bool:
-    if isinstance(value, str) and _SLOT_RE.fullmatch(value):
-        return True
-    if schema_type == "string":
-        return isinstance(value, str)
-    if schema_type == "boolean":
-        return isinstance(value, bool)
-    if schema_type == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if schema_type == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
-    if schema_type == "object":
-        return isinstance(value, dict)
-    if schema_type == "array":
-        return isinstance(value, list)
-    return True
-
-
 def _persist_blocked_plan(destination: Path, plan: dict[str, Any]) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     target = destination.with_suffix(destination.suffix + ".blocked.json")
@@ -10660,10 +9563,6 @@ def _persist_blocked_plan(destination: Path, plan: dict[str, Any]) -> None:
         _json_bytes({"status": "blocked", "plan": plan, "package_path": str(destination)})
     )
     temporary.replace(target)
-
-
-def _sha256(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
 
 
 def _call1_contract_v1() -> dict[str, Any]:
