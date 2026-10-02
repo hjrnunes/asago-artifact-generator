@@ -382,7 +382,13 @@ def _validate_observation_metadata(value: Any) -> None:
     criteria = value["criteria"]
     if not isinstance(criteria, list) or not criteria:
         raise InputSourceError("handoff observation criteria must be a non-empty list")
-    criterion_keys = {
+    for criterion in criteria:
+        _validate_observation_criterion(criterion)
+    _validate_observation_assessment(value["assessment"])
+
+
+_OBSERVATION_CRITERION_KEYS = frozenset(
+    {
         "criterion_id",
         "outcome",
         "observable",
@@ -391,42 +397,52 @@ def _validate_observation_metadata(value: Any) -> None:
         "operation_name",
         "reason",
     }
-    required_criterion_keys = {
+)
+_REQUIRED_OBSERVATION_CRITERION_KEYS = frozenset(
+    {
         "criterion_id",
         "outcome",
         "observable",
         "reason",
     }
-    for criterion in criteria:
-        if not isinstance(criterion, dict):
-            raise InputSourceError("handoff observation criterion must be an object")
-        if not required_criterion_keys <= set(criterion) or not set(criterion) <= criterion_keys:
-            raise InputSourceError("handoff observation criterion fields are invalid")
-        if not all(
-            isinstance(criterion[key], str) and criterion[key].strip()
-            for key in ("criterion_id", "outcome", "reason")
-        ):
-            raise InputSourceError("handoff observation criterion text is invalid")
-        if not isinstance(criterion["observable"], bool):
-            raise InputSourceError("handoff observation criterion observable is invalid")
-        if criterion["observable"]:
-            if (
-                not isinstance(criterion.get("claim_level"), str)
-                or not criterion["claim_level"].strip()
-            ):
-                raise InputSourceError("observable criterion requires claim_level")
-            if not isinstance(criterion.get("evidence"), str) or not criterion["evidence"].strip():
-                raise InputSourceError("observable criterion requires evidence")
-        elif criterion.get("claim_level") is not None or criterion.get("evidence") is not None:
-            raise InputSourceError("analytical-only criterion must omit claim_level and evidence")
-        operation_name = criterion.get("operation_name")
-        if operation_name is not None and (
-            not isinstance(operation_name, str) or not operation_name.strip()
-        ):
-            raise InputSourceError("observation criterion operation_name is invalid")
-        if not criterion["observable"] and operation_name is not None:
-            raise InputSourceError("analytical-only criterion must omit operation_name")
-    assessment = value["assessment"]
+)
+
+
+def _is_nonblank_str(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _validate_observation_criterion(criterion: Any) -> None:
+    if not isinstance(criterion, dict):
+        raise InputSourceError("handoff observation criterion must be an object")
+    if (
+        not _REQUIRED_OBSERVATION_CRITERION_KEYS <= set(criterion)
+        or not set(criterion) <= _OBSERVATION_CRITERION_KEYS
+    ):
+        raise InputSourceError("handoff observation criterion fields are invalid")
+    if not all(_is_nonblank_str(criterion[key]) for key in ("criterion_id", "outcome", "reason")):
+        raise InputSourceError("handoff observation criterion text is invalid")
+    if not isinstance(criterion["observable"], bool):
+        raise InputSourceError("handoff observation criterion observable is invalid")
+    _validate_observation_criterion_claim(criterion)
+    operation_name = criterion.get("operation_name")
+    if operation_name is not None and not _is_nonblank_str(operation_name):
+        raise InputSourceError("observation criterion operation_name is invalid")
+    if not criterion["observable"] and operation_name is not None:
+        raise InputSourceError("analytical-only criterion must omit operation_name")
+
+
+def _validate_observation_criterion_claim(criterion: dict[str, Any]) -> None:
+    if criterion["observable"]:
+        if not _is_nonblank_str(criterion.get("claim_level")):
+            raise InputSourceError("observable criterion requires claim_level")
+        if not _is_nonblank_str(criterion.get("evidence")):
+            raise InputSourceError("observable criterion requires evidence")
+    elif criterion.get("claim_level") is not None or criterion.get("evidence") is not None:
+        raise InputSourceError("analytical-only criterion must omit claim_level and evidence")
+
+
+def _validate_observation_assessment(assessment: Any) -> None:
     if not isinstance(assessment, dict):
         raise InputSourceError("handoff observation assessment must be an object")
     assessment_keys = {
@@ -468,38 +484,46 @@ def _validate_safe_observable_outcome(value: Any) -> None:
         raise InputSourceError("handoff safe outcome observable is invalid")
     if not isinstance(value.get("statement"), str) or not value["statement"].strip():
         raise InputSourceError("handoff safe outcome statement is invalid")
+    _validate_safe_outcome_claim(value)
+    for key in ("record_refs", "fact_refs"):
+        _validate_safe_outcome_refs(key, value.get(key))
+    if not value["observable"] and any(value.get(key) for key in ("record_refs", "fact_refs")):
+        raise InputSourceError(
+            "analytical-only handoff safe outcome must omit record and fact references"
+        )
+
+
+_SAFE_OUTCOME_EXPECTED_EVIDENCE = {
+    "command_attempt": "tool_call",
+    "reply": "assistant_message",
+    "returned_result": "tool_result",
+    "state_effect": "snapshot",
+}
+
+
+def _validate_safe_outcome_claim(value: dict[str, Any]) -> None:
     claim_level = value.get("claim_level")
     evidence = value.get("evidence")
     operation_name = value.get("operation_name")
     if value["observable"]:
-        expected_evidence = {
-            "command_attempt": "tool_call",
-            "reply": "assistant_message",
-            "returned_result": "tool_result",
-            "state_effect": "snapshot",
-        }
-        if claim_level not in expected_evidence or evidence != expected_evidence[claim_level]:
-            raise InputSourceError("handoff safe outcome claim_level and evidence do not match")
-        if operation_name is not None and (
-            not isinstance(operation_name, str) or not operation_name.strip()
+        if (
+            claim_level not in _SAFE_OUTCOME_EXPECTED_EVIDENCE
+            or evidence != _SAFE_OUTCOME_EXPECTED_EVIDENCE[claim_level]
         ):
+            raise InputSourceError("handoff safe outcome claim_level and evidence do not match")
+        if operation_name is not None and not _is_nonblank_str(operation_name):
             raise InputSourceError("handoff safe outcome operation_name is invalid")
     elif any(value.get(key) is not None for key in ("claim_level", "evidence", "operation_name")):
         raise InputSourceError(
             "analytical-only handoff safe outcome must omit claim and operation"
         )
-    for key in ("record_refs", "fact_refs"):
-        refs = value.get(key)
-        if not isinstance(refs, list) or not all(
-            isinstance(item, str) and item.strip() for item in refs
-        ):
-            raise InputSourceError(f"handoff safe outcome {key} is invalid")
-        if len(refs) != len(set(refs)):
-            raise InputSourceError(f"handoff safe outcome {key} must be unique")
-    if not value["observable"] and any(value.get(key) for key in ("record_refs", "fact_refs")):
-        raise InputSourceError(
-            "analytical-only handoff safe outcome must omit record and fact references"
-        )
+
+
+def _validate_safe_outcome_refs(key: str, refs: Any) -> None:
+    if not isinstance(refs, list) or not all(_is_nonblank_str(item) for item in refs):
+        raise InputSourceError(f"handoff safe outcome {key} is invalid")
+    if len(refs) != len(set(refs)):
+        raise InputSourceError(f"handoff safe outcome {key} must be unique")
 
 
 def _validate_v2_fields(payload: dict[str, Any]) -> None:
@@ -539,7 +563,10 @@ def _validate_deduplication(value: Any, *, allow_condition: bool = False) -> Non
             raise InputSourceError("duplicate handoff requires duplicate_of")
     elif duplicate_of is not None:
         raise InputSourceError("canonical and analytical-only handoffs must omit duplicate_of")
-    key = value["key"]
+    _validate_deduplication_key(value["key"], allow_condition=allow_condition)
+
+
+def _validate_deduplication_key(key: Any, *, allow_condition: bool) -> None:
     key_required = {"uca_id", "control_action_id", "claim_level"}
     key_optional = {"operation_name", "condition"} if allow_condition else {"operation_name"}
     # The producer omits null fields, so a key without an operation has no
@@ -551,18 +578,11 @@ def _validate_deduplication(value: Any, *, allow_condition: bool = False) -> Non
     ):
         raise InputSourceError("handoff deduplication key is invalid")
     key = {"operation_name": None, "condition": None, **key}
-    if key["condition"] is not None and (
-        not isinstance(key["condition"], str) or not key["condition"].strip()
-    ):
+    if key["condition"] is not None and not _is_nonblank_str(key["condition"]):
         raise InputSourceError("handoff deduplication condition is invalid")
-    if not all(
-        isinstance(key[field], str) and key[field].strip()
-        for field in ("uca_id", "control_action_id")
-    ):
+    if not all(_is_nonblank_str(key[field]) for field in ("uca_id", "control_action_id")):
         raise InputSourceError("handoff deduplication key identity is invalid")
-    if key["operation_name"] is not None and (
-        not isinstance(key["operation_name"], str) or not key["operation_name"].strip()
-    ):
+    if key["operation_name"] is not None and not _is_nonblank_str(key["operation_name"]):
         raise InputSourceError("handoff deduplication operation_name is invalid")
     if key["claim_level"] not in {
         "command_attempt",
