@@ -424,7 +424,13 @@ def collect_plan_findings_v2(
     condition: Mapping[str, Any] | None = None,
     transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
-    """Validate a v2 plan while retaining the historical v1 validator.
+    """Return every structural finding for a v2 plan and normalize valid bindings.
+
+    The v2 root fields (``assumptions`` and ``required_observations``) are
+    checked here; the remaining fields go through ``collect_plan_findings``,
+    the shared field validator. Prerequisites are then checked against the
+    closed v2 form, followed by the omission-trigger, stimulus-slot, and
+    established-trigger cross-checks.
 
     ``provenance_ids`` are scenario lineage or attack-tree node IDs from the
     supplied handoff. They are valid in ``interpretation.source_refs`` and
