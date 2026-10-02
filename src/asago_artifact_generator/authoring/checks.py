@@ -2050,126 +2050,192 @@ def _collect_canonical_prerequisite_findings(
         transformations=transformations,
     )
     findings: list[Finding] = []
-    allowed_fields = {"name", "check", "evidence_refs", "binding", "equals"}
     for index, prerequisite in enumerate(prerequisites):
-        path = f"prerequisites[{index}]"
-        if not isinstance(prerequisite, dict):
-            findings.append(Finding("shape_error", "prerequisite must be an object", path))
-            continue
-        for field_name in sorted(set(prerequisite) - allowed_fields):
-            findings.append(
-                Finding(
-                    "unexpected_field",
-                    f"unexpected prerequisite field: {field_name}",
-                    f"{path}.{field_name}",
-                )
-            )
-        for field_name in sorted(allowed_fields - set(prerequisite)):
-            findings.append(
-                Finding(
-                    "missing_field",
-                    f"prerequisite missing field: {field_name}",
-                    f"{path}.{field_name}",
-                )
-            )
-        if (
-            not isinstance(prerequisite.get("name"), str)
-            or not prerequisite.get("name", "").strip()
-        ):
-            findings.append(
-                Finding("type_error", "prerequisite.name must be a string", f"{path}.name")
-            )
-        if "check" in prerequisite and not isinstance(prerequisite.get("check"), str):
-            findings.append(
-                Finding("type_error", "prerequisite.check must be a string", f"{path}.check")
-            )
-        elif _same_authored_text(prerequisite.get("check"), safe_behavior):
-            findings.append(
-                Finding(
-                    "desired_behavior_prerequisite",
-                    (
-                        "intended safe behavior is a detector criterion, "
-                        "not a starting-state prerequisite"
-                    ),
-                    f"{path}.check",
-                )
-            )
-        binding = prerequisite.get("binding")
-        if not isinstance(binding, str) or not binding.strip():
-            if "binding" in prerequisite:
-                findings.append(
-                    Finding(
-                        "type_error",
-                        "prerequisite.binding must be a non-empty binding name",
-                        f"{path}.binding",
-                    )
-                )
-        elif binding not in declared_bindings:
-            findings.append(
-                Finding(
-                    "unknown_binding",
-                    (
-                        f"prerequisite binding is not declared: {binding}; "
-                        "bare evidence IDs and bindings.<name> selectors are not executable"
-                    ),
-                    f"{path}.binding",
-                )
-            )
-        if "equals" in prerequisite and not _is_json_value(prerequisite["equals"]):
-            findings.append(
-                Finding(
-                    "type_error",
-                    "prerequisite.equals must be a JSON value",
-                    f"{path}.equals",
-                )
-            )
-        expected_types = _declared_binding_expected_types(runtime_bindings)
-        expected_type = expected_types.get(binding) if isinstance(binding, str) else None
-        if (
-            expected_type in CLOSED_TYPES
-            and "equals" in prerequisite
-            and prerequisite["equals"] is not None
-            and _is_json_value(prerequisite["equals"])
-        ):
-            equals_type = _json_value_type(prerequisite["equals"])
-            if not _binding_types_compatible(equals_type, expected_type):
-                findings.append(
-                    Finding(
-                        "prerequisite_type_mismatch",
-                        (
-                            f"prerequisite binding {binding} has expected_type "
-                            f"{expected_type}, but equals has JSON type {equals_type}"
-                        ),
-                        f"{path}.equals",
-                    )
-                )
-        evidence_refs = prerequisite.get("evidence_refs")
-        if isinstance(evidence_refs, list):
-            for ref_index, ref in enumerate(evidence_refs):
-                if not isinstance(ref, str) or not ref.strip() or ref not in references:
-                    findings.append(
-                        Finding(
-                            "unknown_reference",
-                            f"unknown_reference: {ref}",
-                            f"{path}.evidence_refs[{ref_index}]",
-                        )
-                    )
-        elif "evidence_refs" in prerequisite:
-            findings.append(
-                Finding(
-                    "type_error",
-                    "prerequisite evidence_refs must be a list",
-                    f"{path}.evidence_refs",
-                )
-            )
         findings.extend(
-            _validate_prerequisite_binding_consumer(
+            _canonical_prerequisite_item_findings(
                 prerequisite,
                 index=index,
+                references=references,
+                declared_bindings=declared_bindings,
                 runtime_bindings=runtime_bindings,
+                safe_behavior=safe_behavior,
             )
         )
     return findings
+
+
+_CANONICAL_PREREQUISITE_FIELDS = frozenset({"name", "check", "evidence_refs", "binding", "equals"})
+
+
+def _canonical_prerequisite_item_findings(
+    prerequisite: Any,
+    *,
+    index: int,
+    references: set[str],
+    declared_bindings: set[str],
+    runtime_bindings: Any,
+    safe_behavior: str | None,
+) -> list[Finding]:
+    path = f"prerequisites[{index}]"
+    if not isinstance(prerequisite, dict):
+        return [Finding("shape_error", "prerequisite must be an object", path)]
+    findings = _canonical_prerequisite_field_findings(prerequisite, path)
+    findings.extend(_prerequisite_check_findings(prerequisite, path, safe_behavior))
+    findings.extend(_prerequisite_binding_findings(prerequisite, path, declared_bindings))
+    findings.extend(_prerequisite_equals_findings(prerequisite, path, runtime_bindings))
+    findings.extend(_prerequisite_evidence_ref_findings(prerequisite, path, references))
+    findings.extend(
+        _validate_prerequisite_binding_consumer(
+            prerequisite,
+            index=index,
+            runtime_bindings=runtime_bindings,
+        )
+    )
+    return findings
+
+
+def _canonical_prerequisite_field_findings(
+    prerequisite: dict[str, Any],
+    path: str,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for field_name in sorted(set(prerequisite) - _CANONICAL_PREREQUISITE_FIELDS):
+        findings.append(
+            Finding(
+                "unexpected_field",
+                f"unexpected prerequisite field: {field_name}",
+                f"{path}.{field_name}",
+            )
+        )
+    for field_name in sorted(_CANONICAL_PREREQUISITE_FIELDS - set(prerequisite)):
+        findings.append(
+            Finding(
+                "missing_field",
+                f"prerequisite missing field: {field_name}",
+                f"{path}.{field_name}",
+            )
+        )
+    if not isinstance(prerequisite.get("name"), str) or not prerequisite.get("name", "").strip():
+        findings.append(
+            Finding("type_error", "prerequisite.name must be a string", f"{path}.name")
+        )
+    return findings
+
+
+def _prerequisite_check_findings(
+    prerequisite: dict[str, Any],
+    path: str,
+    safe_behavior: str | None,
+) -> list[Finding]:
+    if "check" in prerequisite and not isinstance(prerequisite.get("check"), str):
+        return [Finding("type_error", "prerequisite.check must be a string", f"{path}.check")]
+    if _same_authored_text(prerequisite.get("check"), safe_behavior):
+        return [
+            Finding(
+                "desired_behavior_prerequisite",
+                (
+                    "intended safe behavior is a detector criterion, "
+                    "not a starting-state prerequisite"
+                ),
+                f"{path}.check",
+            )
+        ]
+    return []
+
+
+def _prerequisite_binding_findings(
+    prerequisite: dict[str, Any],
+    path: str,
+    declared_bindings: set[str],
+) -> list[Finding]:
+    binding = prerequisite.get("binding")
+    if not isinstance(binding, str) or not binding.strip():
+        if "binding" in prerequisite:
+            return [
+                Finding(
+                    "type_error",
+                    "prerequisite.binding must be a non-empty binding name",
+                    f"{path}.binding",
+                )
+            ]
+        return []
+    if binding not in declared_bindings:
+        return [
+            Finding(
+                "unknown_binding",
+                (
+                    f"prerequisite binding is not declared: {binding}; "
+                    "bare evidence IDs and bindings.<name> selectors are not executable"
+                ),
+                f"{path}.binding",
+            )
+        ]
+    return []
+
+
+def _prerequisite_equals_findings(
+    prerequisite: dict[str, Any],
+    path: str,
+    runtime_bindings: Any,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    if "equals" in prerequisite and not _is_json_value(prerequisite["equals"]):
+        findings.append(
+            Finding(
+                "type_error",
+                "prerequisite.equals must be a JSON value",
+                f"{path}.equals",
+            )
+        )
+    binding = prerequisite.get("binding")
+    expected_types = _declared_binding_expected_types(runtime_bindings)
+    expected_type = expected_types.get(binding) if isinstance(binding, str) else None
+    if (
+        expected_type in CLOSED_TYPES
+        and "equals" in prerequisite
+        and prerequisite["equals"] is not None
+        and _is_json_value(prerequisite["equals"])
+    ):
+        equals_type = _json_value_type(prerequisite["equals"])
+        if not _binding_types_compatible(equals_type, expected_type):
+            findings.append(
+                Finding(
+                    "prerequisite_type_mismatch",
+                    (
+                        f"prerequisite binding {binding} has expected_type "
+                        f"{expected_type}, but equals has JSON type {equals_type}"
+                    ),
+                    f"{path}.equals",
+                )
+            )
+    return findings
+
+
+def _prerequisite_evidence_ref_findings(
+    prerequisite: dict[str, Any],
+    path: str,
+    references: set[str],
+) -> list[Finding]:
+    evidence_refs = prerequisite.get("evidence_refs")
+    if isinstance(evidence_refs, list):
+        return [
+            Finding(
+                "unknown_reference",
+                f"unknown_reference: {ref}",
+                f"{path}.evidence_refs[{ref_index}]",
+            )
+            for ref_index, ref in enumerate(evidence_refs)
+            if not isinstance(ref, str) or not ref.strip() or ref not in references
+        ]
+    if "evidence_refs" in prerequisite:
+        return [
+            Finding(
+                "type_error",
+                "prerequisite evidence_refs must be a list",
+                f"{path}.evidence_refs",
+            )
+        ]
+    return []
 
 
 def _plan_safe_behavior(plan: dict[str, Any]) -> str | None:
