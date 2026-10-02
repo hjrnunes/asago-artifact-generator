@@ -3,6 +3,11 @@ from __future__ import annotations
 import copy
 import json
 
+from asago_artifact_generator.authoring.binding_repair import (
+    _BINDING_REPAIR_SELECTOR_LIMIT,
+    _available_binding_source_refs,
+    _repair_selector_option,
+)
 from asago_artifact_generator.authoring.checks import _binding_selector_type
 from asago_artifact_generator.authoring.core import Finding
 from asago_artifact_generator.authoring.correction import (
@@ -1029,3 +1034,82 @@ def test_alternatives_text_points_to_response_contract_guidance() -> None:
     assert "prerequisites: []" not in fields["description"]
     assert "BINDING REPAIR OPTION FIELDS\n" in packet.user
     assert "BINDING REPAIR OPTIONS\n" in packet.user
+
+
+def _source_inventory() -> dict:
+    return {
+        "facts": [
+            {"ref": "zeta", "schema": {"type": "string"}},
+            {"ref": "alpha", "schema": {"type": "object"}},
+            {"ref": "", "schema": {"type": "string"}},
+            {"ref": "no-schema"},
+            {"ref": 7, "schema": {"type": "string"}},
+            "not a fact",
+        ],
+        "operations": [
+            {"name": "lookup", "result_schema": {"type": "object"}},
+            {"name": "unpermitted", "result_schema": {"type": "object"}},
+            {"name": "no_result_schema"},
+            {"name": 3, "result_schema": {"type": "object"}},
+            "not an operation",
+        ],
+    }
+
+
+def test_available_source_refs_list_sourced_facts_and_permitted_operations_sorted() -> None:
+    runtime_contract = {"setup_permissions": ["lookup", "no_result_schema"]}
+
+    refs, truncated = _available_binding_source_refs(_source_inventory(), runtime_contract)
+
+    assert refs == ["facts:alpha", "facts:zeta", "setup:lookup"]
+    assert truncated is False
+
+
+def test_available_source_refs_ignore_malformed_setup_permissions() -> None:
+    refs, _ = _available_binding_source_refs(_source_inventory(), {"setup_permissions": "lookup"})
+
+    assert refs == ["facts:alpha", "facts:zeta"]
+    assert _available_binding_source_refs({}, {}) == ([], False)
+
+
+def test_available_source_refs_cap_at_the_selector_limit() -> None:
+    inventory = {
+        "facts": [
+            {"ref": f"f{index:03d}", "schema": {"type": "string"}}
+            for index in range(_BINDING_REPAIR_SELECTOR_LIMIT + 1)
+        ]
+    }
+
+    refs, truncated = _available_binding_source_refs(inventory, {})
+
+    assert len(refs) == _BINDING_REPAIR_SELECTOR_LIMIT
+    assert refs[0] == "facts:f000"
+    assert refs[-1] == f"facts:f{_BINDING_REPAIR_SELECTOR_LIMIT - 1:03d}"
+    assert truncated is True
+
+
+def test_unresolved_selector_option_lists_available_source_ref_forms() -> None:
+    inventory = {
+        "facts": [
+            {"ref": f"f{index:03d}", "schema": {"type": "string"}}
+            for index in range(_BINDING_REPAIR_SELECTOR_LIMIT + 1)
+        ]
+    }
+    binding = {
+        "name": "record_value",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:not-present",
+    }
+    finding = Finding("plan_binding_validation", "bad selector", "runtime_bindings[0].selector")
+
+    option = _repair_selector_option(finding, binding, inventory, {})
+
+    assert option["kind"] == "selector"
+    assert option["resolved_source"] is False
+    assert option["available_source_ref_forms"][:2] == ["facts:f000", "facts:f001"]
+    assert option["available_source_ref_forms_truncated"] is True
+    assert option["truncation_note"] == (
+        f"source_ref form enumeration truncated after {_BINDING_REPAIR_SELECTOR_LIMIT} "
+        f"entries; only the first {_BINDING_REPAIR_SELECTOR_LIMIT} sorted entries are shown."
+    )
