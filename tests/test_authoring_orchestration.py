@@ -18,7 +18,7 @@ from asago_artifact_generator.authoring import (
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
     AUTHORING_THINKING_EXTRA_BODY,
-    CALL1_PROMPT_VERSION_V2,
+    CALL1_PROMPT_VERSION_V18,
     REVIEW_THINKING_EXTRA_BODY,
     AuthoringBudget,
     AuthoringResult,
@@ -621,7 +621,7 @@ def test_two_calls_build_an_immutable_package_with_exact_detector_bytes(tmp_path
     assert result.package.manifest.authoring["usage"][0]["availability"] == "unavailable"
     assert result.raw_responses["call1"] == json.dumps(_plan_v2()).encode()
     assert result.raw_responses["call2"] == _framed()
-    assert result.prompts["call1"].version == CALL1_PROMPT_VERSION_V2
+    assert result.prompts["call1"].version == CALL1_PROMPT_VERSION_V18
     assert transport.max_retries == 0
 
 

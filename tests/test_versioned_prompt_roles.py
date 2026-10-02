@@ -6,7 +6,6 @@ import pytest
 
 from asago_artifact_generator.authoring import (
     ARTIFACT_REVIEW_PROMPT_VERSION_V16,
-    CALL1_PROMPT_VERSION_V4,
     CALL1_PROMPT_VERSION_V18,
     CALL2_PROMPT_VERSION_V21,
     CORRECTION_PROMPT_VERSION_V27,
@@ -591,7 +590,7 @@ def test_artifact_roles_include_shared_normative_evidence_instructions() -> None
 def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V4,
+        version=CALL1_PROMPT_VERSION_V18,
         system="system",
         user="candidate once",
         payload={"candidate": "candidate once"},
@@ -601,7 +600,7 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
 
     duplicate = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V4,
+        version=CALL1_PROMPT_VERSION_V18,
         system="system",
         user="candidate once candidate once",
         payload={"candidate": "candidate once"},
@@ -622,7 +621,7 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
 def test_prompt_secret_guard_rejects_urls_and_tokens_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V4,
+        version=CALL1_PROMPT_VERSION_V18,
         system="system",
         user=(
             "endpoint "
