@@ -258,21 +258,8 @@ def canonical_binding_paths(
             if companion_source
             else ((base_ref, original), (companion_ref, companion))
         )
-        selector_parts = selector.split(".")
-        if _selector_repeats_record_key(selector_parts, record_key, field):
-            # The selector already names the full path from the fact root, so
-            # the key in source_ref is redundant rather than a second level.
-            target_selector = selector
-        elif field is None:
-            if selector == "value":
-                target_selector = f"value.{record_key}"
-            elif len(selector_parts) == 2 and selector_parts[0] == "value":
-                target_selector = f"value.{record_key}.{selector_parts[1]}"
-            else:
-                continue
-        elif selector == "value" or selector_parts == ["value", field]:
-            target_selector = f"value.{record_key}.{field}"
-        else:
+        target_selector = _keyed_target_selector(selector, record_key, field)
+        if target_selector is None:
             continue
         resolved = _keyed_resolution(
             sources,
@@ -288,6 +275,25 @@ def canonical_binding_paths(
         resolved_ref, resolved_selector = next(iter(fallback_targets))
         return f"facts:{resolved_ref}", resolved_selector
     return source_ref, selector
+
+
+def _keyed_target_selector(selector: str, record_key: str, field: str | None) -> str | None:
+    """Return the full selector a keyed-map shorthand names, or None if it names none."""
+
+    selector_parts = selector.split(".")
+    if _selector_repeats_record_key(selector_parts, record_key, field):
+        # The selector already names the full path from the fact root, so
+        # the key in source_ref is redundant rather than a second level.
+        return selector
+    if field is None:
+        if selector == "value":
+            return f"value.{record_key}"
+        if len(selector_parts) == 2 and selector_parts[0] == "value":
+            return f"value.{record_key}.{selector_parts[1]}"
+        return None
+    if selector == "value" or selector_parts == ["value", field]:
+        return f"value.{record_key}.{field}"
+    return None
 
 
 def _record_key_companion_path(
