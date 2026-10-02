@@ -1051,143 +1051,10 @@ def collect_plan_findings(
     if not isinstance(plan, dict):
         return [Finding("response_type_error", "plan must be an object", "response")]
 
-    required = _call1_contract_v1()["schema"]["required"]
-    allowed = set(required)
-    for field_name in sorted(set(plan) - allowed):
-        findings.append(
-            Finding(
-                "unexpected_field",
-                f"unexpected plan field: {field_name}",
-                field_name,
-            )
-        )
-    for field_name in required:
-        if field_name not in plan:
-            findings.append(
-                Finding("plan_validation", f"missing plan field: {field_name}", field_name)
-            )
-
-    list_fields = (
-        "selected_evidence",
-        "setup_recipe",
-        "runtime_bindings",
-        "prerequisites",
-        "unresolved_requirements",
-    )
-    for field_name in list_fields:
-        if field_name in plan and not isinstance(plan[field_name], list):
-            findings.append(
-                Finding(
-                    "type_error",
-                    f"{field_name} must be a list",
-                    field_name,
-                )
-            )
-
-    selected = plan.get("selected_evidence")
+    findings.extend(_plan_root_field_findings(plan))
     references = _inventory_references(inventory)
-    if isinstance(selected, list):
-        for index, item in enumerate(selected):
-            path = f"selected_evidence[{index}]"
-            if (
-                not isinstance(item, dict)
-                or not isinstance(item.get("ref"), str)
-                or not isinstance(item.get("role"), str)
-                or not isinstance(item.get("source"), str)
-            ):
-                findings.append(
-                    Finding(
-                        "shape_error",
-                        "selected evidence requires ref, role, and source strings",
-                        path,
-                    )
-                )
-                continue
-            for key in sorted(set(item) - {"ref", "role", "source"}):
-                findings.append(
-                    Finding(
-                        "unexpected_field",
-                        f"unexpected selected evidence field: {key}",
-                        path,
-                    )
-                )
-            if item["ref"] not in references:
-                findings.append(
-                    Finding("unknown_reference", f"unknown_reference: {item['ref']}", path)
-                )
-
-    interpretation = plan.get("interpretation")
-    if not isinstance(interpretation, dict):
-        if "interpretation" in plan:
-            findings.append(
-                Finding("type_error", "interpretation must be an object", "interpretation")
-            )
-    else:
-        for field_name in sorted(
-            set(interpretation) - {"failure", "safe_alternative", "conditions", "source_refs"}
-        ):
-            findings.append(
-                Finding(
-                    "unexpected_field",
-                    f"unexpected interpretation field: {field_name}",
-                    f"interpretation.{field_name}",
-                )
-            )
-        for field_name in ("failure", "safe_alternative"):
-            if not isinstance(interpretation.get(field_name), str):
-                findings.append(
-                    Finding(
-                        "shape_error",
-                        f"interpretation.{field_name} must be a string",
-                        f"interpretation.{field_name}",
-                    )
-                )
-        if not isinstance(interpretation.get("conditions"), list):
-            findings.append(
-                Finding(
-                    "type_error",
-                    "interpretation.conditions must be a list",
-                    "interpretation.conditions",
-                )
-            )
-        else:
-            for index, condition in enumerate(interpretation["conditions"]):
-                if not isinstance(condition, str):
-                    findings.append(
-                        Finding(
-                            "type_error",
-                            "interpretation.conditions items must be strings",
-                            f"interpretation.conditions[{index}]",
-                        )
-                    )
-        source_refs = interpretation.get("source_refs")
-        if not isinstance(source_refs, list):
-            findings.append(
-                Finding(
-                    "type_error",
-                    "interpretation.source_refs must be a list",
-                    "interpretation.source_refs",
-                )
-            )
-        else:
-            for index, ref in enumerate(source_refs):
-                if not isinstance(ref, str):
-                    findings.append(
-                        Finding(
-                            "type_error",
-                            "interpretation source reference must be a string",
-                            f"interpretation.source_refs[{index}]",
-                        )
-                    )
-                elif ref not in references and ref not in provenance_ids:
-                    findings.append(
-                        Finding(
-                            "unknown_reference",
-                            f"unknown_reference: {ref}",
-                            f"interpretation.source_refs[{index}]",
-                        )
-                    )
-
+    findings.extend(_selected_evidence_findings(plan.get("selected_evidence"), references))
+    findings.extend(_interpretation_findings(plan, references, provenance_ids))
     setup_recipe = plan.get("setup_recipe")
     if isinstance(setup_recipe, list):
         findings.extend(_collect_setup_findings(setup_recipe, inventory, runtime_contract))
@@ -1202,171 +1069,9 @@ def collect_plan_findings(
                 transformations=transformations,
             )
         )
-
-    approach = plan.get("stimulus_approach")
-    if not isinstance(approach, dict):
-        if "stimulus_approach" in plan:
-            findings.append(
-                Finding("type_error", "stimulus_approach must be an object", "stimulus_approach")
-            )
-    else:
-        if not isinstance(approach.get("request"), str):
-            findings.append(
-                Finding(
-                    "shape_error",
-                    "stimulus_approach.request must be a string",
-                    "stimulus_approach.request",
-                )
-            )
-        delivery = approach.get("delivery")
-        if delivery not in runtime_contract.get("delivery", []):
-            findings.append(
-                Finding(
-                    "closed_value_error",
-                    f"undocumented delivery capability: {delivery}",
-                    "stimulus_approach.delivery",
-                )
-            )
-        history = approach.get("history", [])
-        if not isinstance(history, list):
-            findings.append(
-                Finding(
-                    "type_error",
-                    "stimulus_approach.history must be a list",
-                    "stimulus_approach.history",
-                )
-            )
-        elif "history" not in approach:
-            findings.append(
-                Finding(
-                    "missing_field",
-                    "stimulus_approach missing field: history",
-                    "stimulus_approach.history",
-                )
-            )
-        else:
-            for index, item in enumerate(history):
-                if not isinstance(item, str):
-                    findings.append(
-                        Finding(
-                            "type_error",
-                            "stimulus_approach.history items must be strings",
-                            f"stimulus_approach.history[{index}]",
-                        )
-                    )
-        for field_name in sorted(set(approach) - {"request", "delivery", "history"}):
-            findings.append(
-                Finding(
-                    "unexpected_field",
-                    f"unexpected stimulus_approach field: {field_name}",
-                    f"stimulus_approach.{field_name}",
-                )
-            )
-
-    claim = plan.get("observation_claim")
-    if not isinstance(claim, dict):
-        if "observation_claim" in plan:
-            findings.append(
-                Finding("type_error", "observation_claim must be an object", "observation_claim")
-            )
-    else:
-        for field_name in sorted(
-            set(claim) - {"violation", "absence", "inconclusive", "claim_level"}
-        ):
-            findings.append(
-                Finding(
-                    "unexpected_field",
-                    f"unexpected observation_claim field: {field_name}",
-                    f"observation_claim.{field_name}",
-                )
-            )
-        for field_name in ("violation", "absence", "inconclusive"):
-            if not isinstance(claim.get(field_name), str):
-                findings.append(
-                    Finding(
-                        "shape_error",
-                        f"observation_claim.{field_name} must be a string",
-                        f"observation_claim.{field_name}",
-                    )
-                )
-        claim_level = claim.get("claim_level")
-        supported_levels = _supported_claim_levels(runtime_contract)
-        if claim_level not in _claim_levels():
-            findings.append(
-                Finding(
-                    "closed_value_error",
-                    "observation_claim must declare a closed claim_level",
-                    "observation_claim.claim_level",
-                )
-            )
-        elif claim_level not in supported_levels:
-            findings.append(
-                Finding(
-                    "unsupported_claim_level",
-                    f"observation_claim.claim_level {claim_level} is not supported by "
-                    "downstream execution; the supported claim levels are "
-                    f"{', '.join(supported_levels)}. Choose the supported claim level "
-                    "at which the failure criterion is observable, and state "
-                    "violation, absence, and inconclusive at that level.",
-                    "observation_claim.claim_level",
-                )
-            )
-
-    judge = plan.get("semantic_judge")
-    if not isinstance(judge, dict):
-        if "semantic_judge" in plan:
-            findings.append(
-                Finding("type_error", "semantic_judge must be an object", "semantic_judge")
-            )
-    else:
-        for field_name in sorted(set(judge) - {"needed", "scope"}):
-            findings.append(
-                Finding(
-                    "unexpected_field",
-                    f"unexpected semantic_judge field: {field_name}",
-                    f"semantic_judge.{field_name}",
-                )
-            )
-        if "needed" not in judge:
-            findings.append(
-                Finding(
-                    "missing_field",
-                    "semantic_judge missing field: needed",
-                    "semantic_judge.needed",
-                )
-            )
-        elif not isinstance(judge.get("needed"), bool):
-            findings.append(
-                Finding(
-                    "type_error",
-                    "semantic_judge.needed must be a boolean",
-                    "semantic_judge.needed",
-                )
-            )
-        if "scope" not in judge:
-            findings.append(
-                Finding(
-                    "missing_field",
-                    "semantic_judge missing field: scope",
-                    "semantic_judge.scope",
-                )
-            )
-        elif judge.get("scope") is not None and not isinstance(judge.get("scope"), str):
-            findings.append(
-                Finding(
-                    "type_error",
-                    "semantic_judge.scope must be a string or null",
-                    "semantic_judge.scope",
-                )
-            )
-        if judge.get("needed") is True and not isinstance(judge.get("scope"), str):
-            findings.append(
-                Finding(
-                    "shape_error",
-                    "semantic_judge.scope is required when needed",
-                    "semantic_judge.scope",
-                )
-            )
+    findings.extend(_stimulus_approach_findings(plan, runtime_contract))
+    findings.extend(_observation_claim_findings(plan, runtime_contract))
+    findings.extend(_semantic_judge_plan_findings(plan))
 
     prerequisites = plan.get("prerequisites")
     if isinstance(prerequisites, list):
@@ -1399,6 +1104,367 @@ def collect_plan_findings(
                         f"unresolved_requirements[{index}]",
                     )
                 )
+    return findings
+
+
+_PLAN_LIST_FIELDS = (
+    "selected_evidence",
+    "setup_recipe",
+    "runtime_bindings",
+    "prerequisites",
+    "unresolved_requirements",
+)
+
+
+def _plan_root_field_findings(plan: dict[str, Any]) -> list[Finding]:
+    findings: list[Finding] = []
+    required = _call1_contract_v1()["schema"]["required"]
+    allowed = set(required)
+    for field_name in sorted(set(plan) - allowed):
+        findings.append(
+            Finding(
+                "unexpected_field",
+                f"unexpected plan field: {field_name}",
+                field_name,
+            )
+        )
+    for field_name in required:
+        if field_name not in plan:
+            findings.append(
+                Finding("plan_validation", f"missing plan field: {field_name}", field_name)
+            )
+    for field_name in _PLAN_LIST_FIELDS:
+        if field_name in plan and not isinstance(plan[field_name], list):
+            findings.append(
+                Finding(
+                    "type_error",
+                    f"{field_name} must be a list",
+                    field_name,
+                )
+            )
+    return findings
+
+
+def _selected_evidence_findings(selected: Any, references: set[str]) -> list[Finding]:
+    if not isinstance(selected, list):
+        return []
+    findings: list[Finding] = []
+    for index, item in enumerate(selected):
+        path = f"selected_evidence[{index}]"
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("ref"), str)
+            or not isinstance(item.get("role"), str)
+            or not isinstance(item.get("source"), str)
+        ):
+            findings.append(
+                Finding(
+                    "shape_error",
+                    "selected evidence requires ref, role, and source strings",
+                    path,
+                )
+            )
+            continue
+        for key in sorted(set(item) - {"ref", "role", "source"}):
+            findings.append(
+                Finding(
+                    "unexpected_field",
+                    f"unexpected selected evidence field: {key}",
+                    path,
+                )
+            )
+        if item["ref"] not in references:
+            findings.append(
+                Finding("unknown_reference", f"unknown_reference: {item['ref']}", path)
+            )
+    return findings
+
+
+def _interpretation_findings(
+    plan: dict[str, Any],
+    references: set[str],
+    provenance_ids: Collection[str],
+) -> list[Finding]:
+    interpretation = plan.get("interpretation")
+    if not isinstance(interpretation, dict):
+        if "interpretation" in plan:
+            return [Finding("type_error", "interpretation must be an object", "interpretation")]
+        return []
+    findings: list[Finding] = []
+    for field_name in sorted(
+        set(interpretation) - {"failure", "safe_alternative", "conditions", "source_refs"}
+    ):
+        findings.append(
+            Finding(
+                "unexpected_field",
+                f"unexpected interpretation field: {field_name}",
+                f"interpretation.{field_name}",
+            )
+        )
+    for field_name in ("failure", "safe_alternative"):
+        if not isinstance(interpretation.get(field_name), str):
+            findings.append(
+                Finding(
+                    "shape_error",
+                    f"interpretation.{field_name} must be a string",
+                    f"interpretation.{field_name}",
+                )
+            )
+    findings.extend(_interpretation_condition_findings(interpretation.get("conditions")))
+    findings.extend(
+        _interpretation_source_ref_findings(
+            interpretation.get("source_refs"), references, provenance_ids
+        )
+    )
+    return findings
+
+
+def _interpretation_condition_findings(conditions: Any) -> list[Finding]:
+    if not isinstance(conditions, list):
+        return [
+            Finding(
+                "type_error",
+                "interpretation.conditions must be a list",
+                "interpretation.conditions",
+            )
+        ]
+    return [
+        Finding(
+            "type_error",
+            "interpretation.conditions items must be strings",
+            f"interpretation.conditions[{index}]",
+        )
+        for index, condition in enumerate(conditions)
+        if not isinstance(condition, str)
+    ]
+
+
+def _interpretation_source_ref_findings(
+    source_refs: Any,
+    references: set[str],
+    provenance_ids: Collection[str],
+) -> list[Finding]:
+    if not isinstance(source_refs, list):
+        return [
+            Finding(
+                "type_error",
+                "interpretation.source_refs must be a list",
+                "interpretation.source_refs",
+            )
+        ]
+    findings: list[Finding] = []
+    for index, ref in enumerate(source_refs):
+        if not isinstance(ref, str):
+            findings.append(
+                Finding(
+                    "type_error",
+                    "interpretation source reference must be a string",
+                    f"interpretation.source_refs[{index}]",
+                )
+            )
+        elif ref not in references and ref not in provenance_ids:
+            findings.append(
+                Finding(
+                    "unknown_reference",
+                    f"unknown_reference: {ref}",
+                    f"interpretation.source_refs[{index}]",
+                )
+            )
+    return findings
+
+
+def _stimulus_approach_findings(
+    plan: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[Finding]:
+    approach = plan.get("stimulus_approach")
+    if not isinstance(approach, dict):
+        if "stimulus_approach" in plan:
+            return [
+                Finding("type_error", "stimulus_approach must be an object", "stimulus_approach")
+            ]
+        return []
+    findings: list[Finding] = []
+    if not isinstance(approach.get("request"), str):
+        findings.append(
+            Finding(
+                "shape_error",
+                "stimulus_approach.request must be a string",
+                "stimulus_approach.request",
+            )
+        )
+    delivery = approach.get("delivery")
+    if delivery not in runtime_contract.get("delivery", []):
+        findings.append(
+            Finding(
+                "closed_value_error",
+                f"undocumented delivery capability: {delivery}",
+                "stimulus_approach.delivery",
+            )
+        )
+    findings.extend(_stimulus_approach_history_findings(approach))
+    for field_name in sorted(set(approach) - {"request", "delivery", "history"}):
+        findings.append(
+            Finding(
+                "unexpected_field",
+                f"unexpected stimulus_approach field: {field_name}",
+                f"stimulus_approach.{field_name}",
+            )
+        )
+    return findings
+
+
+def _stimulus_approach_history_findings(approach: dict[str, Any]) -> list[Finding]:
+    history = approach.get("history", [])
+    if not isinstance(history, list):
+        return [
+            Finding(
+                "type_error",
+                "stimulus_approach.history must be a list",
+                "stimulus_approach.history",
+            )
+        ]
+    if "history" not in approach:
+        return [
+            Finding(
+                "missing_field",
+                "stimulus_approach missing field: history",
+                "stimulus_approach.history",
+            )
+        ]
+    return [
+        Finding(
+            "type_error",
+            "stimulus_approach.history items must be strings",
+            f"stimulus_approach.history[{index}]",
+        )
+        for index, item in enumerate(history)
+        if not isinstance(item, str)
+    ]
+
+
+def _observation_claim_findings(
+    plan: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[Finding]:
+    claim = plan.get("observation_claim")
+    if not isinstance(claim, dict):
+        if "observation_claim" in plan:
+            return [
+                Finding("type_error", "observation_claim must be an object", "observation_claim")
+            ]
+        return []
+    findings: list[Finding] = []
+    for field_name in sorted(set(claim) - {"violation", "absence", "inconclusive", "claim_level"}):
+        findings.append(
+            Finding(
+                "unexpected_field",
+                f"unexpected observation_claim field: {field_name}",
+                f"observation_claim.{field_name}",
+            )
+        )
+    for field_name in ("violation", "absence", "inconclusive"):
+        if not isinstance(claim.get(field_name), str):
+            findings.append(
+                Finding(
+                    "shape_error",
+                    f"observation_claim.{field_name} must be a string",
+                    f"observation_claim.{field_name}",
+                )
+            )
+    findings.extend(_observation_claim_level_findings(claim.get("claim_level"), runtime_contract))
+    return findings
+
+
+def _observation_claim_level_findings(
+    claim_level: Any,
+    runtime_contract: dict[str, Any],
+) -> list[Finding]:
+    supported_levels = _supported_claim_levels(runtime_contract)
+    if claim_level not in _claim_levels():
+        return [
+            Finding(
+                "closed_value_error",
+                "observation_claim must declare a closed claim_level",
+                "observation_claim.claim_level",
+            )
+        ]
+    if claim_level not in supported_levels:
+        return [
+            Finding(
+                "unsupported_claim_level",
+                f"observation_claim.claim_level {claim_level} is not supported by "
+                "downstream execution; the supported claim levels are "
+                f"{', '.join(supported_levels)}. Choose the supported claim level "
+                "at which the failure criterion is observable, and state "
+                "violation, absence, and inconclusive at that level.",
+                "observation_claim.claim_level",
+            )
+        ]
+    return []
+
+
+def _semantic_judge_plan_findings(plan: dict[str, Any]) -> list[Finding]:
+    judge = plan.get("semantic_judge")
+    if not isinstance(judge, dict):
+        if "semantic_judge" in plan:
+            return [Finding("type_error", "semantic_judge must be an object", "semantic_judge")]
+        return []
+    findings: list[Finding] = []
+    for field_name in sorted(set(judge) - {"needed", "scope"}):
+        findings.append(
+            Finding(
+                "unexpected_field",
+                f"unexpected semantic_judge field: {field_name}",
+                f"semantic_judge.{field_name}",
+            )
+        )
+    if "needed" not in judge:
+        findings.append(
+            Finding(
+                "missing_field",
+                "semantic_judge missing field: needed",
+                "semantic_judge.needed",
+            )
+        )
+    elif not isinstance(judge.get("needed"), bool):
+        findings.append(
+            Finding(
+                "type_error",
+                "semantic_judge.needed must be a boolean",
+                "semantic_judge.needed",
+            )
+        )
+    findings.extend(_semantic_judge_scope_findings(judge))
+    return findings
+
+
+def _semantic_judge_scope_findings(judge: dict[str, Any]) -> list[Finding]:
+    findings: list[Finding] = []
+    if "scope" not in judge:
+        findings.append(
+            Finding(
+                "missing_field",
+                "semantic_judge missing field: scope",
+                "semantic_judge.scope",
+            )
+        )
+    elif judge.get("scope") is not None and not isinstance(judge.get("scope"), str):
+        findings.append(
+            Finding(
+                "type_error",
+                "semantic_judge.scope must be a string or null",
+                "semantic_judge.scope",
+            )
+        )
+    if judge.get("needed") is True and not isinstance(judge.get("scope"), str):
+        findings.append(
+            Finding(
+                "shape_error",
+                "semantic_judge.scope is required when needed",
+                "semantic_judge.scope",
+            )
+        )
     return findings
 
 
