@@ -1539,112 +1539,26 @@ def _collect_binding_nested_findings(
     if not isinstance(raw, dict):
         return [Finding(finding_code, "binding must be an object", path)]
 
-    required = {
-        "name",
-        "expected_type",
-        "source_kind",
-        "source_ref",
-        "selector",
-        "consumers",
-        "on_missing",
-    }
-    findings: list[Finding] = []
-    for field_name in sorted(required - set(raw)):
-        findings.append(
-            Finding(
-                finding_code,
-                f"binding missing field: {field_name}",
-                f"{path}.{field_name}",
-            )
-        )
-    for field_name in sorted(set(raw) - required):
-        findings.append(
-            Finding(
-                finding_code,
-                f"binding has unsupported field: {field_name}",
-                f"{path}.{field_name}",
-            )
-        )
-
-    string_fields = (
-        "name",
-        "expected_type",
-        "source_kind",
-        "source_ref",
-        "selector",
-        "on_missing",
-    )
-    for field_name in string_fields:
-        if field_name in raw and not isinstance(raw[field_name], str):
-            findings.append(
-                Finding(
-                    finding_code,
-                    f"binding {field_name} must be a string",
-                    f"{path}.{field_name}",
-                )
-            )
-
+    findings = _binding_field_findings(raw, path=path, finding_code=finding_code)
     name = raw.get("name")
-    if isinstance(name, str) and not name.strip():
-        findings.append(Finding(finding_code, "binding name is blank", f"{path}.name"))
-
     expected_type = raw.get("expected_type")
-    if isinstance(expected_type, str) and expected_type not in CLOSED_TYPES:
-        findings.append(
-            Finding(
-                finding_code,
-                f"binding expected_type is not closed: {name}",
-                f"{path}.expected_type",
-            )
-        )
-
     source_kind = raw.get("source_kind")
-    if isinstance(source_kind, str) and source_kind not in SOURCE_KINDS:
-        findings.append(
-            Finding(
-                finding_code,
-                f"binding source_kind is not closed: {name}",
-                f"{path}.source_kind",
-            )
+    findings.extend(
+        _binding_closed_value_findings(
+            name, expected_type, source_kind, path=path, finding_code=finding_code
         )
-
-    source_ref = raw.get("source_ref")
-    selector = raw.get("selector")
-    source_schema: dict[str, Any] | None = None
-    canonical_source_ref = source_ref
-    canonical_selector = selector
-    if isinstance(source_kind, str) and isinstance(source_ref, str) and isinstance(selector, str):
-        canonical_source_ref, canonical_selector = canonical_binding_paths(
-            source_kind,
-            source_ref,
-            selector,
-            inventory,
-        )
-        if (canonical_source_ref, canonical_selector) != (source_ref, selector):
-            raw["source_ref"] = canonical_source_ref
-            raw["selector"] = canonical_selector
-            source_ref = canonical_source_ref
-            selector = canonical_selector
-    if isinstance(source_ref, str):
-        if not source_ref.strip():
-            findings.append(
-                Finding(
-                    finding_code,
-                    f"binding source reference is blank: {name}",
-                    f"{path}.source_ref",
-                )
-            )
-        elif source_kind in SOURCE_KINDS:
-            source_schema, source_error = _binding_source_schema(
-                source_kind,
-                canonical_source_ref,
-                inventory,
-                runtime_contract,
-                name,
-            )
-            if source_error:
-                findings.append(Finding(finding_code, source_error, f"{path}.source_ref"))
-
+    )
+    source_ref, selector = _canonicalize_binding_source(raw, source_kind, inventory)
+    source_schema, source_findings = _binding_source_ref_findings(
+        source_kind,
+        source_ref,
+        name,
+        inventory=inventory,
+        runtime_contract=runtime_contract,
+        path=path,
+        finding_code=finding_code,
+    )
+    findings.extend(source_findings)
     on_missing = raw.get("on_missing")
     if isinstance(on_missing, str) and on_missing not in MISSING_POLICIES:
         findings.append(
@@ -1654,44 +1568,9 @@ def _collect_binding_nested_findings(
                 f"{path}.on_missing",
             )
         )
-
-    consumers = raw.get("consumers")
-    if not isinstance(consumers, list):
-        findings.append(
-            Finding(
-                finding_code,
-                "binding consumers must be a list",
-                f"{path}.consumers",
-            )
-        )
-    elif not consumers:
-        findings.append(
-            Finding(
-                finding_code,
-                "binding consumers must be non-empty strings",
-                f"{path}.consumers",
-            )
-        )
-    else:
-        for consumer_index, consumer in enumerate(consumers):
-            consumer_path = f"{path}.consumers[{consumer_index}]"
-            if not isinstance(consumer, str) or not consumer.strip():
-                findings.append(
-                    Finding(
-                        finding_code,
-                        "binding consumers must be non-empty strings",
-                        consumer_path,
-                    )
-                )
-            elif not _is_closed_consumer(consumer):
-                findings.append(
-                    Finding(
-                        finding_code,
-                        "binding consumer is not a closed path",
-                        consumer_path,
-                    )
-                )
-
+    findings.extend(
+        _binding_consumer_findings(raw.get("consumers"), path=path, finding_code=finding_code)
+    )
     if not isinstance(selector, str):
         if "selector" in raw:
             findings.append(
@@ -1701,16 +1580,231 @@ def _collect_binding_nested_findings(
                     f"{path}.selector",
                 )
             )
-    elif not selector.strip():
+    else:
+        findings.extend(
+            _binding_selector_findings(
+                selector,
+                name,
+                expected_type,
+                source_schema,
+                path=path,
+                finding_code=finding_code,
+            )
+        )
+    return findings
+
+
+_BINDING_REQUIRED_FIELDS = frozenset(
+    {
+        "name",
+        "expected_type",
+        "source_kind",
+        "source_ref",
+        "selector",
+        "consumers",
+        "on_missing",
+    }
+)
+_BINDING_STRING_FIELDS = (
+    "name",
+    "expected_type",
+    "source_kind",
+    "source_ref",
+    "selector",
+    "on_missing",
+)
+
+
+def _binding_field_findings(
+    raw: dict[str, Any],
+    *,
+    path: str,
+    finding_code: str,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for field_name in sorted(_BINDING_REQUIRED_FIELDS - set(raw)):
         findings.append(
+            Finding(
+                finding_code,
+                f"binding missing field: {field_name}",
+                f"{path}.{field_name}",
+            )
+        )
+    for field_name in sorted(set(raw) - _BINDING_REQUIRED_FIELDS):
+        findings.append(
+            Finding(
+                finding_code,
+                f"binding has unsupported field: {field_name}",
+                f"{path}.{field_name}",
+            )
+        )
+    for field_name in _BINDING_STRING_FIELDS:
+        if field_name in raw and not isinstance(raw[field_name], str):
+            findings.append(
+                Finding(
+                    finding_code,
+                    f"binding {field_name} must be a string",
+                    f"{path}.{field_name}",
+                )
+            )
+    return findings
+
+
+def _binding_closed_value_findings(
+    name: Any,
+    expected_type: Any,
+    source_kind: Any,
+    *,
+    path: str,
+    finding_code: str,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    if isinstance(name, str) and not name.strip():
+        findings.append(Finding(finding_code, "binding name is blank", f"{path}.name"))
+    if isinstance(expected_type, str) and expected_type not in CLOSED_TYPES:
+        findings.append(
+            Finding(
+                finding_code,
+                f"binding expected_type is not closed: {name}",
+                f"{path}.expected_type",
+            )
+        )
+    if isinstance(source_kind, str) and source_kind not in SOURCE_KINDS:
+        findings.append(
+            Finding(
+                finding_code,
+                f"binding source_kind is not closed: {name}",
+                f"{path}.source_kind",
+            )
+        )
+    return findings
+
+
+def _canonicalize_binding_source(
+    raw: dict[str, Any],
+    source_kind: Any,
+    inventory: dict[str, Any],
+) -> tuple[Any, Any]:
+    """Rewrite ``source_ref`` and ``selector`` in place to their canonical paths.
+
+    Returns the (possibly rewritten) source reference and selector.
+    """
+
+    source_ref = raw.get("source_ref")
+    selector = raw.get("selector")
+    if not (
+        isinstance(source_kind, str) and isinstance(source_ref, str) and isinstance(selector, str)
+    ):
+        return source_ref, selector
+    canonical_source_ref, canonical_selector = canonical_binding_paths(
+        source_kind,
+        source_ref,
+        selector,
+        inventory,
+    )
+    if (canonical_source_ref, canonical_selector) != (source_ref, selector):
+        raw["source_ref"] = canonical_source_ref
+        raw["selector"] = canonical_selector
+    return canonical_source_ref, canonical_selector
+
+
+def _binding_source_ref_findings(
+    source_kind: Any,
+    source_ref: Any,
+    name: Any,
+    *,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    path: str,
+    finding_code: str,
+) -> tuple[dict[str, Any] | None, list[Finding]]:
+    if not isinstance(source_ref, str):
+        return None, []
+    if not source_ref.strip():
+        return None, [
+            Finding(
+                finding_code,
+                f"binding source reference is blank: {name}",
+                f"{path}.source_ref",
+            )
+        ]
+    if source_kind not in SOURCE_KINDS:
+        return None, []
+    source_schema, source_error = _binding_source_schema(
+        source_kind,
+        source_ref,
+        inventory,
+        runtime_contract,
+        name,
+    )
+    if source_error:
+        return source_schema, [Finding(finding_code, source_error, f"{path}.source_ref")]
+    return source_schema, []
+
+
+def _binding_consumer_findings(
+    consumers: Any,
+    *,
+    path: str,
+    finding_code: str,
+) -> list[Finding]:
+    if not isinstance(consumers, list):
+        return [
+            Finding(
+                finding_code,
+                "binding consumers must be a list",
+                f"{path}.consumers",
+            )
+        ]
+    if not consumers:
+        return [
+            Finding(
+                finding_code,
+                "binding consumers must be non-empty strings",
+                f"{path}.consumers",
+            )
+        ]
+    findings: list[Finding] = []
+    for consumer_index, consumer in enumerate(consumers):
+        consumer_path = f"{path}.consumers[{consumer_index}]"
+        if not isinstance(consumer, str) or not consumer.strip():
+            findings.append(
+                Finding(
+                    finding_code,
+                    "binding consumers must be non-empty strings",
+                    consumer_path,
+                )
+            )
+        elif not _is_closed_consumer(consumer):
+            findings.append(
+                Finding(
+                    finding_code,
+                    "binding consumer is not a closed path",
+                    consumer_path,
+                )
+            )
+    return findings
+
+
+def _binding_selector_findings(
+    selector: str,
+    name: Any,
+    expected_type: Any,
+    source_schema: dict[str, Any] | None,
+    *,
+    path: str,
+    finding_code: str,
+) -> list[Finding]:
+    if not selector.strip():
+        return [
             Finding(
                 finding_code,
                 f"binding selector is blank: {name}",
                 f"{path}.selector",
             )
-        )
-    elif _selector_root(selector) is None:
-        findings.append(
+        ]
+    if _selector_root(selector) is None:
+        return [
             Finding(
                 finding_code,
                 (
@@ -1719,33 +1813,34 @@ def _collect_binding_nested_findings(
                 ),
                 f"{path}.selector",
             )
-        )
-    elif source_schema is not None:
-        actual_type = _binding_selector_type(source_schema, canonical_selector)
-        if actual_type is None:
-            findings.append(
-                Finding(
-                    finding_code,
-                    f"undocumented selector for binding {name}: {selector}",
-                    f"{path}.selector",
-                )
+        ]
+    if source_schema is None:
+        return []
+    actual_type = _binding_selector_type(source_schema, selector)
+    if actual_type is None:
+        return [
+            Finding(
+                finding_code,
+                f"undocumented selector for binding {name}: {selector}",
+                f"{path}.selector",
             )
-        elif (
-            isinstance(expected_type, str)
-            and expected_type in CLOSED_TYPES
-            and not _binding_types_compatible(actual_type, expected_type)
-        ):
-            findings.append(
-                Finding(
-                    finding_code,
-                    (
-                        f"binding type mismatch for {name}: expected {expected_type}, "
-                        f"source is {actual_type}"
-                    ),
-                    f"{path}.selector",
-                )
+        ]
+    if (
+        isinstance(expected_type, str)
+        and expected_type in CLOSED_TYPES
+        and not _binding_types_compatible(actual_type, expected_type)
+    ):
+        return [
+            Finding(
+                finding_code,
+                (
+                    f"binding type mismatch for {name}: expected {expected_type}, "
+                    f"source is {actual_type}"
+                ),
+                f"{path}.selector",
             )
-    return findings
+        ]
+    return []
 
 
 def _is_closed_consumer(value: str) -> bool:
