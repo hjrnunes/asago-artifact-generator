@@ -1053,81 +1053,66 @@ def _usable_judge_support(
     if _is_tool_result_reference(reference):
         return True
     if root == "messages":
-        message_index = _message_content_index(normalized)
-        if message_index is not None:
-            messages = evidence.get("messages")
-            if not isinstance(messages, list) or message_index >= len(messages):
-                return False
-            message = messages[message_index]
-            return (
-                isinstance(message, dict)
-                and isinstance(message.get("content"), str)
-                and message["content"] == value
-            )
-        if isinstance(value, list):
-            return bool(value) and all(
-                isinstance(item, dict) and isinstance(item.get("content"), str) for item in value
-            )
-        return isinstance(value, dict) and isinstance(value.get("content"), str)
-    if root == "tool_calls":
-        return False
+        return _usable_message_support(evidence, normalized, value)
     return False
 
 
+def _usable_message_support(evidence: dict[str, Any], normalized: str, value: Any) -> bool:
+    """Accept message content: one message's exact content, or whole message records."""
+
+    message_index = _message_content_index(normalized)
+    if message_index is not None:
+        messages = evidence.get("messages")
+        if not isinstance(messages, list) or message_index >= len(messages):
+            return False
+        message = messages[message_index]
+        return (
+            isinstance(message, dict)
+            and isinstance(message.get("content"), str)
+            and message["content"] == value
+        )
+    if isinstance(value, list):
+        return bool(value) and all(
+            isinstance(item, dict) and isinstance(item.get("content"), str) for item in value
+        )
+    return isinstance(value, dict) and isinstance(value.get("content"), str)
+
+
 _TOOL_RESULT_FIELDS = frozenset({"decoded_result", "raw_result", "result", "output"})
+
+
+# A tool-result path shape: each element is a literal part, a set of allowed
+# parts, or _INDEX for a list index.
+_INDEX = object()
+_RAW_ITEM = frozenset({"raw", "source_item"})
+_TOOL_RESULT_SHAPES: tuple[tuple[Any, ...], ...] = (
+    ("tool_calls", _INDEX, _TOOL_RESULT_FIELDS),
+    ("tool_calls", _INDEX, _RAW_ITEM, _TOOL_RESULT_FIELDS),
+    ("messages", _INDEX, _RAW_ITEM, "tool_calls", _INDEX, _TOOL_RESULT_FIELDS),
+    ("messages", _INDEX, _RAW_ITEM, "notes", "tool_calls", _INDEX, _TOOL_RESULT_FIELDS),
+    ("messages", _INDEX, _RAW_ITEM, "raw_response", "output", _INDEX, _TOOL_RESULT_FIELDS),
+)
+
+
+def _path_part_matches(part: str, expected: Any) -> bool:
+    if expected is _INDEX:
+        return part.isdigit()
+    if isinstance(expected, str):
+        return part == expected
+    return part in expected
 
 
 def _is_tool_result_reference(reference: str) -> bool:
     """Identify packet paths that name a captured tool-call result value."""
 
     parts = _reference_path_parts(reference)
-    if not parts:
-        return False
-    if (
-        len(parts) == 3
-        and parts[0] == "tool_calls"
-        and parts[1].isdigit()
-        and parts[2] in _TOOL_RESULT_FIELDS
-    ):
-        return True
-    if (
-        len(parts) == 4
-        and parts[0] == "tool_calls"
-        and parts[1].isdigit()
-        and parts[2] in {"raw", "source_item"}
-        and parts[3] in _TOOL_RESULT_FIELDS
-    ):
-        return True
-    if (
-        len(parts) in {6, 7}
-        and parts[0] == "messages"
-        and parts[1].isdigit()
-        and parts[2] in {"raw", "source_item"}
-    ):
-        if (
-            len(parts) == 6
-            and parts[3] == "tool_calls"
-            and parts[4].isdigit()
-            and parts[5] in _TOOL_RESULT_FIELDS
-        ):
-            return True
-        if (
-            len(parts) == 7
-            and parts[3] == "notes"
-            and parts[4] == "tool_calls"
-            and parts[5].isdigit()
-            and parts[6] in _TOOL_RESULT_FIELDS
-        ):
-            return True
-        if (
-            len(parts) == 7
-            and parts[3] == "raw_response"
-            and parts[4] == "output"
-            and parts[5].isdigit()
-            and parts[6] in _TOOL_RESULT_FIELDS
-        ):
-            return True
-    return False
+    return any(
+        len(parts) == len(shape)
+        and all(
+            _path_part_matches(part, expected) for part, expected in zip(parts, shape, strict=True)
+        )
+        for shape in _TOOL_RESULT_SHAPES
+    )
 
 
 def _reference_path_parts(reference: str) -> list[str]:
