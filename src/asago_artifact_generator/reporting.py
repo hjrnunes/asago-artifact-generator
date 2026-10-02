@@ -27,8 +27,4 @@ def garak_value(value: Any) -> int | None:
     return {"detected": 1, "not_detected": 0, "inconclusive": None}.get(outcome)
 
 
-map_to_garak = garak_value
-map_detector_result = garak_value
-to_garak_value = garak_value
-
-__all__ = ["garak_value", "map_detector_result", "map_to_garak", "to_garak_value"]
+__all__ = ["garak_value"]

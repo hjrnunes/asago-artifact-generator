@@ -313,12 +313,6 @@ def authoring_profile_from_environment(
     )
 
 
-# Keep the loader discoverable under the project-wide terminology used by the
-# producer while retaining the consumer-specific name at the primary seam.
-load_model_profile = load_authoring_profile
-load_profile = load_authoring_profile
-
-
 __all__ = [
     "AuthoringProfile",
     "ENVIRONMENT_API_KEY_NAMES",
@@ -330,6 +324,4 @@ __all__ = [
     "REQUIRED_PROFILE_FIELDS",
     "authoring_profile_from_environment",
     "load_authoring_profile",
-    "load_model_profile",
-    "load_profile",
 ]

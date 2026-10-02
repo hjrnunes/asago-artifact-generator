@@ -653,11 +653,6 @@ def _failed(
     )
 
 
-run_detector = execute_detector
-execute_generated_detector = execute_detector
-validate_result = validate_detector_result
-
-
 def evidence_packet_roots(
     observations: Mapping[str, Any] | None = None,
     *,
@@ -1311,11 +1306,8 @@ __all__ = [
     "PYTHON_IMAGE",
     "evidence_packet_roots",
     "execute_detector",
-    "execute_generated_detector",
     "normalize_evidence_packet",
     "resolve_docker_path",
-    "run_detector",
-    "validate_result",
     "validate_detector_evidence_access",
     "validate_detector_result",
 ]

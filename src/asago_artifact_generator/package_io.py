@@ -419,10 +419,3 @@ __all__ = [
     "write_package",
     "validate_artifact_package_contract",
 ]
-
-# Descriptive aliases keep the persistence seam readable at call sites.
-read_artifact_package = load_package
-write_artifact_package = write_package
-ArtifactPackageError = PackageIntegrityError
-
-__all__ += ["ArtifactPackageError", "read_artifact_package", "write_artifact_package"]
