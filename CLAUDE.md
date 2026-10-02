@@ -86,7 +86,10 @@ Deterministic tests must not contact a model endpoint or target.
 ## Where to look and when to stop
 
 - `README.md` and CLI help: author/check usage, profiles, policy, and package format.
-- `src/asago_artifact_generator/authoring.py`: orchestration and prompt builders.
+- `src/asago_artifact_generator/authoring/`: `orchestrator.py` runs the
+  stages; `prompt_context.py`, `prompt_packets.py`, `review.py`, and
+  `correction.py` build prompts; `contracts.py` and `checks.py` hold response
+  contracts and structural checks; `transport.py` is the provider client.
 - `src/asago_artifact_generator/bindings.py`: binding sources and destinations.
 - `src/asago_artifact_generator/detector_controls.py`: isolated control feedback.
 - `tests/`: executable examples and regression coverage for the changed behavior.
