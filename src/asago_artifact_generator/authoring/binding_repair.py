@@ -1072,6 +1072,199 @@ def _reference_repair_options_for_correction(
     }
 
 
+_BindingFindings = dict[int, dict[str, list[Finding | dict[str, Any]]]]
+_BindingFindingOrder = dict[int, list[Finding | dict[str, Any]]]
+
+
+def _finding_field(finding: Finding | dict[str, Any], name: str, default: Any = None) -> Any:
+    return getattr(finding, name) if isinstance(finding, Finding) else finding.get(name, default)
+
+
+def _group_binding_findings(
+    findings: list[Finding | dict[str, Any]],
+) -> tuple[_BindingFindings, _BindingFindingOrder]:
+    """Group findings on a binding's source_ref, source_kind, or selector by binding index."""
+
+    binding_findings: _BindingFindings = {}
+    binding_finding_order: _BindingFindingOrder = {}
+    for finding in findings:
+        path = _finding_field(finding, "path", "")
+        if not isinstance(path, str):
+            continue
+        for field_name, pattern in (
+            ("source_ref", _BINDING_SOURCE_REF_FINDING_PATH),
+            ("source_kind", _BINDING_SOURCE_KIND_FINDING_PATH),
+            ("selector", _BINDING_SELECTOR_FINDING_PATH),
+        ):
+            match = pattern.fullmatch(path)
+            if match:
+                index = int(match.group(1))
+                binding_findings.setdefault(index, {}).setdefault(field_name, []).append(finding)
+                binding_finding_order.setdefault(index, []).append(finding)
+                break
+    return binding_findings, binding_finding_order
+
+
+def _binding_field_repair_option(
+    grouped: dict[str, list[Finding | dict[str, Any]]],
+    ordered_findings: list[Finding | dict[str, Any]],
+    binding: dict[str, Any],
+    candidate: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return the source option, or the selector option when the source resolves."""
+
+    source_findings = grouped.get("source_ref", []) + grouped.get("source_kind", [])
+    selector_findings = grouped.get("selector", [])
+    source_schema = None
+    source_kind = binding.get("source_kind")
+    source_ref = binding.get("source_ref")
+    name = binding.get("name")
+    if isinstance(source_kind, str) and isinstance(source_ref, str):
+        source_schema, _ = _binding_source_schema(
+            source_kind,
+            source_ref,
+            inventory,
+            runtime_contract,
+            name,
+        )
+    if source_findings or source_schema is None:
+        return _repair_source_option(
+            ordered_findings,
+            binding,
+            candidate,
+            inventory,
+            runtime_contract,
+        )
+    if selector_findings:
+        return _repair_selector_option(
+            selector_findings[0],
+            binding,
+            inventory,
+            runtime_contract,
+            selected_record=True,
+        )
+    return None
+
+
+def _binding_field_repair_options(
+    binding_findings: _BindingFindings,
+    binding_finding_order: _BindingFindingOrder,
+    bindings: list[Any],
+    candidate: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    options: list[dict[str, Any]] = []
+    for index, grouped in binding_findings.items():
+        if index >= len(bindings) or not isinstance(bindings[index], dict):
+            continue
+        option = _binding_field_repair_option(
+            grouped,
+            binding_finding_order[index],
+            bindings[index],
+            candidate,
+            inventory,
+            runtime_contract,
+        )
+        if option is not None:
+            options.append(option)
+    return options
+
+
+def _review_binding_repair_options(
+    findings: list[Finding | dict[str, Any]],
+    bindings: list[Any],
+    reviewed: set[int],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return one review_binding option per binding a semantic review finding concerns.
+
+    *reviewed* holds the binding indices that already have an option; it is
+    extended in place.
+    """
+
+    options: list[dict[str, Any]] = []
+    for finding in findings:
+        if _finding_field(finding, "code") != "semantic_review":
+            continue
+        for index in _review_binding_indices(finding, bindings):
+            if index in reviewed or not isinstance(bindings[index], dict):
+                continue
+            review_option = _repair_review_binding_option(
+                finding,
+                index,
+                bindings[index],
+                inventory,
+                runtime_contract,
+            )
+            if review_option is not None:
+                reviewed.add(index)
+                options.append(review_option)
+    return options
+
+
+def _prerequisite_binding_repair_options(
+    findings: list[Finding | dict[str, Any]],
+    prerequisites: list[Any],
+    candidate: dict[str, Any],
+    inventory: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return unknown_binding and consumer_mismatch options for prerequisite bindings."""
+
+    options: list[dict[str, Any]] = []
+    for finding in findings:
+        code = _finding_field(finding, "code")
+        path = _finding_field(finding, "path", "")
+        prerequisite_match = (
+            _UNKNOWN_BINDING_FINDING_PATH.fullmatch(path) if isinstance(path, str) else None
+        )
+        if not prerequisite_match or code not in {"unknown_binding", "consumer_mismatch"}:
+            continue
+        index = int(prerequisite_match.group(1))
+        if index >= len(prerequisites) or not isinstance(prerequisites[index], dict):
+            continue
+        if code == "unknown_binding":
+            options.append(
+                _repair_unknown_binding_option(
+                    finding,
+                    prerequisites[index],
+                    candidate,
+                    inventory,
+                )
+            )
+        else:
+            options.append(
+                _repair_consumer_mismatch_option(
+                    finding,
+                    prerequisites[index],
+                )
+            )
+    return options
+
+
+def _deduplicated_repair_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduplicated: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for option in options:
+        if option.get("kind") == "source":
+            findings_key = tuple(
+                (item.get("code"), item.get("path"))
+                for item in option.get("findings", [])
+                if isinstance(item, dict)
+            )
+            key = (option.get("kind"), option.get("binding_name"), findings_key)
+        else:
+            key = (option.get("kind"), option.get("path"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduplicated.append(option)
+    return deduplicated
+
+
 def _binding_repair_options_for_correction(
     correction_context: dict[str, Any],
 ) -> dict[str, Any] | None:
@@ -1090,131 +1283,24 @@ def _binding_repair_options_for_correction(
     if candidate is not None and isinstance(findings, list):
         bindings = candidate.get("runtime_bindings", [])
         prerequisites = candidate.get("prerequisites", [])
-        binding_findings: dict[int, dict[str, list[Finding | dict[str, Any]]]] = {}
-        binding_finding_order: dict[int, list[Finding | dict[str, Any]]] = {}
-        for finding in findings:
-            path = finding.path if isinstance(finding, Finding) else finding.get("path", "")
-            if not isinstance(path, str):
-                continue
-            for field_name, pattern in (
-                ("source_ref", _BINDING_SOURCE_REF_FINDING_PATH),
-                ("source_kind", _BINDING_SOURCE_KIND_FINDING_PATH),
-                ("selector", _BINDING_SELECTOR_FINDING_PATH),
-            ):
-                match = pattern.fullmatch(path)
-                if match:
-                    index = int(match.group(1))
-                    binding_findings.setdefault(index, {}).setdefault(field_name, []).append(
-                        finding
-                    )
-                    binding_finding_order.setdefault(index, []).append(finding)
-                    break
-
+        binding_findings, binding_finding_order = _group_binding_findings(findings)
         if isinstance(bindings, list):
-            for index, grouped in binding_findings.items():
-                if index >= len(bindings) or not isinstance(bindings[index], dict):
-                    continue
-                binding = bindings[index]
-                source_findings = grouped.get("source_ref", []) + grouped.get("source_kind", [])
-                selector_findings = grouped.get("selector", [])
-                source_schema = None
-                source_kind = binding.get("source_kind")
-                source_ref = binding.get("source_ref")
-                name = binding.get("name")
-                if isinstance(source_kind, str) and isinstance(source_ref, str):
-                    source_schema, _ = _binding_source_schema(
-                        source_kind,
-                        source_ref,
-                        inventory,
-                        runtime_contract,
-                        name,
-                    )
-                if source_findings or source_schema is None:
-                    options.append(
-                        _repair_source_option(
-                            binding_finding_order[index],
-                            binding,
-                            candidate,
-                            inventory,
-                            runtime_contract,
-                        )
-                    )
-                elif selector_findings:
-                    options.append(
-                        _repair_selector_option(
-                            selector_findings[0],
-                            binding,
-                            inventory,
-                            runtime_contract,
-                            selected_record=True,
-                        )
-                    )
-            reviewed: set[int] = set(binding_findings)
-            for finding in findings:
-                code = finding.code if isinstance(finding, Finding) else finding.get("code")
-                if code != "semantic_review":
-                    continue
-                for index in _review_binding_indices(finding, bindings):
-                    if index in reviewed or not isinstance(bindings[index], dict):
-                        continue
-                    review_option = _repair_review_binding_option(
-                        finding,
-                        index,
-                        bindings[index],
-                        inventory,
-                        runtime_contract,
-                    )
-                    if review_option is not None:
-                        reviewed.add(index)
-                        options.append(review_option)
-
-        if isinstance(prerequisites, list):
-            for finding in findings:
-                code = finding.code if isinstance(finding, Finding) else finding.get("code")
-                path = finding.path if isinstance(finding, Finding) else finding.get("path", "")
-                prerequisite_match = (
-                    _UNKNOWN_BINDING_FINDING_PATH.fullmatch(path)
-                    if isinstance(path, str)
-                    else None
-                )
-                if not prerequisite_match or code not in {"unknown_binding", "consumer_mismatch"}:
-                    continue
-                index = int(prerequisite_match.group(1))
-                if index >= len(prerequisites) or not isinstance(prerequisites[index], dict):
-                    continue
-                if code == "unknown_binding":
-                    options.append(
-                        _repair_unknown_binding_option(
-                            finding,
-                            prerequisites[index],
-                            candidate,
-                            inventory,
-                        )
-                    )
-                else:
-                    options.append(
-                        _repair_consumer_mismatch_option(
-                            finding,
-                            prerequisites[index],
-                        )
-                    )
-
-    deduplicated: list[dict[str, Any]] = []
-    seen: set[tuple[Any, ...]] = set()
-    for option in options:
-        if option.get("kind") == "source":
-            findings_key = tuple(
-                (item.get("code"), item.get("path"))
-                for item in option.get("findings", [])
-                if isinstance(item, dict)
+            options += _binding_field_repair_options(
+                binding_findings,
+                binding_finding_order,
+                bindings,
+                candidate,
+                inventory,
+                runtime_contract,
             )
-            key = (option.get("kind"), option.get("binding_name"), findings_key)
-        else:
-            key = (option.get("kind"), option.get("path"))
-        if key in seen:
-            continue
-        seen.add(key)
-        deduplicated.append(option)
+            options += _review_binding_repair_options(
+                findings, bindings, set(binding_findings), inventory, runtime_contract
+            )
+        if isinstance(prerequisites, list):
+            options += _prerequisite_binding_repair_options(
+                findings, prerequisites, candidate, inventory
+            )
+    deduplicated = _deduplicated_repair_options(options)
     if not deduplicated:
         return None
     return {
