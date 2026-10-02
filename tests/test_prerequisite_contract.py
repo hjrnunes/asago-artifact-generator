@@ -1,74 +1,9 @@
 from __future__ import annotations
 
-from asago_artifact_generator.authoring.checks import (
-    collect_plan_findings,
-    collect_plan_findings_v2,
-)
+from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
 from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 
 from .test_authoring_orchestration import _contract, _inventory, _plan, _view
-
-
-def _executable_prerequisite(**overrides: object) -> dict[str, object]:
-    value: dict[str, object] = {
-        "name": "booking_state",
-        "source": "bindings.booking_state",
-        "equals": "awaiting_review",
-    }
-    value.update(overrides)
-    return value
-
-
-def test_executable_prerequisites_are_admitted_by_the_plan_validator() -> None:
-    plan = _plan(prerequisites=[_executable_prerequisite()])
-
-    assert collect_plan_findings(plan, _inventory(), _contract()) == []
-
-
-def test_binding_and_expected_prerequisite_fields_are_admitted() -> None:
-    prerequisite = {
-        "name": "booking_state",
-        "binding": "booking_state",
-        "expected": {"status": "awaiting_review", "attempts": 0},
-    }
-    plan = _plan(prerequisites=[prerequisite])
-
-    assert collect_plan_findings(plan, _inventory(), _contract()) == []
-
-
-def test_descriptive_prerequisites_remain_admitted_and_non_executable() -> None:
-    prerequisite = {
-        "name": "documented_policy",
-        "evidence_refs": ["order:owned"],
-        "check": "The supplied order is eligible.",
-    }
-    plan = _plan(prerequisites=[prerequisite])
-
-    assert collect_plan_findings(plan, _inventory(), _contract()) == []
-
-
-def test_prerequisite_contract_rejects_mistyped_executable_fields() -> None:
-    prerequisite = _executable_prerequisite(source=["bindings.booking_state"])
-    findings = collect_plan_findings(
-        _plan(prerequisites=[prerequisite]), _inventory(), _contract()
-    )
-
-    assert any(
-        finding.path == "prerequisites[0].source" and finding.code == "type_error"
-        for finding in findings
-    )
-
-
-def test_prerequisite_contract_rejects_unknown_fields() -> None:
-    prerequisite = _executable_prerequisite(operator="contains")
-    findings = collect_plan_findings(
-        _plan(prerequisites=[prerequisite]), _inventory(), _contract()
-    )
-
-    assert any(
-        finding.path == "prerequisites[0].operator" and finding.code == "unexpected_field"
-        for finding in findings
-    )
 
 
 def _v2_inventory_and_binding() -> tuple[dict[str, object], dict[str, object]]:
@@ -231,3 +166,55 @@ def test_v2_prerequisites_reject_closed_forms() -> None:
         )
         == []
     )
+
+
+def _canonical_prerequisite() -> dict[str, object]:
+    return {
+        "name": "booking_state",
+        "check": "The supplied booking is ready.",
+        "evidence_refs": ["order:owned"],
+        "binding": "booking_state",
+        "equals": {"status": "awaiting_review"},
+    }
+
+
+def _prerequisite_findings(prerequisite: dict[str, object]) -> list[tuple[str, str]]:
+    inventory, binding = _v2_inventory_and_binding()
+    findings = collect_plan_findings_v2(
+        _v2_plan(runtime_bindings=[binding], prerequisites=[prerequisite]),
+        inventory,
+        _contract(),
+    )
+    return [
+        (finding.code, finding.path)
+        for finding in findings
+        if finding.path.startswith("prerequisites[0]")
+    ]
+
+
+def test_v2_missing_prerequisite_name_yields_each_canonical_finding_once() -> None:
+    prerequisite = _canonical_prerequisite()
+    del prerequisite["name"]
+
+    findings = _prerequisite_findings(prerequisite)
+
+    assert sorted(findings) == [
+        ("missing_field", "prerequisites[0].name"),
+        ("type_error", "prerequisites[0].name"),
+    ]
+
+
+def test_v2_prerequisite_source_field_yields_only_the_canonical_finding() -> None:
+    prerequisite = {**_canonical_prerequisite(), "source": ["bindings.booking_state"]}
+
+    findings = _prerequisite_findings(prerequisite)
+
+    assert findings == [("unexpected_field", "prerequisites[0].source")]
+
+
+def test_v2_unknown_prerequisite_field_yields_only_the_canonical_finding() -> None:
+    prerequisite = {**_canonical_prerequisite(), "operator": "contains"}
+
+    findings = _prerequisite_findings(prerequisite)
+
+    assert findings == [("unexpected_field", "prerequisites[0].operator")]

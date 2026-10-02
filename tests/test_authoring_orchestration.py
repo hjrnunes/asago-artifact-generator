@@ -16,6 +16,7 @@ import pytest
 from asago_artifact_generator.authoring.checks import (
     collect_artifact_findings_v2,
     collect_plan_findings,
+    collect_plan_findings_v2,
 )
 from asago_artifact_generator.authoring.context_budget import (
     _context_budget_estimate,
@@ -508,29 +509,33 @@ def test_plan_validation_accumulates_all_structural_findings() -> None:
     malformed = {
         "interpretation": "wrong",
         "selected_evidence": ["wrong"],
+        "assumptions": "wrong",
         "setup_recipe": "wrong",
         "runtime_bindings": {"wrong": True},
         "prerequisites": ["wrong"],
         "stimulus_approach": "wrong",
         "observation_claim": "wrong",
+        "required_observations": "wrong",
         "semantic_judge": "wrong",
         "unresolved_requirements": "wrong",
     }
 
-    findings = collect_plan_findings(malformed, _inventory(), _contract())
+    findings = collect_plan_findings_v2(malformed, _inventory_v2(), _runtime_contract_v2())
 
-    assert len(findings) >= 9
+    assert len(findings) >= 11
     paths = {finding.path for finding in findings}
     assert all(
         any(path == expected or path.startswith(f"{expected}[") for path in paths)
         for expected in {
             "interpretation",
             "selected_evidence",
+            "assumptions",
             "setup_recipe",
             "runtime_bindings",
             "prerequisites",
             "stimulus_approach",
             "observation_claim",
+            "required_observations",
             "semantic_judge",
             "unresolved_requirements",
         }

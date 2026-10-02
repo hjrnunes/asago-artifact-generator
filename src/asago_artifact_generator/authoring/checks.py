@@ -452,9 +452,10 @@ def collect_plan_findings_v2(
 
     The v2 root fields (``assumptions`` and ``required_observations``) are
     checked here; the remaining fields go through ``collect_plan_findings``,
-    the shared field validator. Prerequisites are then checked against the
-    closed v2 form, followed by the omission-trigger, stimulus-slot, and
-    established-trigger cross-checks.
+    the shared field validator, which skips prerequisite contents.
+    Prerequisites are then checked once, against the closed v2 form,
+    followed by the omission-trigger, stimulus-slot, and established-trigger
+    cross-checks.
 
     ``provenance_ids`` are scenario lineage or attack-tree node IDs from the
     supplied handoff. They are valid in ``interpretation.source_refs`` and
@@ -1045,7 +1046,13 @@ def collect_plan_findings(
     provenance_ids: Collection[str] = frozenset(),
     transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
-    """Return every structural Call 1 finding and normalize valid bindings."""
+    """Return every structural Call 1 finding and normalize valid bindings.
+
+    This is the shared field validator behind ``collect_plan_findings_v2``. It
+    normalizes prerequisite binding consumers but does not validate
+    prerequisite contents; the canonical prerequisite validator runs only
+    from the v2 entry point.
+    """
 
     findings: list[Finding] = []
     if not isinstance(plan, dict):
@@ -1080,7 +1087,6 @@ def collect_plan_findings(
             runtime_bindings,
             transformations=transformations,
         )
-        findings.extend(_collect_prerequisite_findings(prerequisites, references))
     unresolved = plan.get("unresolved_requirements")
     if isinstance(unresolved, list):
         for index, item in enumerate(unresolved):
@@ -1935,104 +1941,6 @@ def _binding_types_compatible(actual: str, expected: str) -> bool:
     return actual == expected or (actual == "integer" and expected == "number")
 
 
-def _collect_prerequisite_findings(
-    prerequisites: list[Any],
-    references: set[str],
-) -> list[Finding]:
-    findings: list[Finding] = []
-    for index, prerequisite in enumerate(prerequisites):
-        path = f"prerequisites[{index}]"
-        if not isinstance(prerequisite, dict):
-            findings.append(Finding("shape_error", "prerequisite must be an object", path))
-            continue
-        missing = {"name"} - set(prerequisite)
-        for field_name in sorted(missing):
-            findings.append(
-                Finding(
-                    "missing_field",
-                    f"prerequisite missing field: {field_name}",
-                    f"{path}.{field_name}",
-                )
-            )
-        allowed_fields = {
-            "name",
-            "evidence_refs",
-            "check",
-            "source",
-            "binding",
-            "equals",
-            "expected",
-        }
-        for field_name in sorted(set(prerequisite) - allowed_fields):
-            findings.append(
-                Finding(
-                    "unexpected_field",
-                    f"unexpected prerequisite field: {field_name}",
-                    f"{path}.{field_name}",
-                )
-            )
-        if (
-            not isinstance(prerequisite.get("name"), str)
-            or not prerequisite.get("name", "").strip()
-        ):
-            findings.append(
-                Finding("type_error", "prerequisite.name must be a string", f"{path}.name")
-            )
-        if "check" in prerequisite and not isinstance(prerequisite.get("check"), str):
-            findings.append(
-                Finding("type_error", "prerequisite.check must be a string", f"{path}.check")
-            )
-        if "source" in prerequisite and (
-            not isinstance(prerequisite["source"], str) or not prerequisite["source"].strip()
-        ):
-            findings.append(
-                Finding(
-                    "type_error",
-                    "prerequisite.source must be a non-empty string",
-                    f"{path}.source",
-                )
-            )
-        if "binding" in prerequisite and (
-            not isinstance(prerequisite["binding"], str) or not prerequisite["binding"].strip()
-        ):
-            findings.append(
-                Finding(
-                    "type_error",
-                    "prerequisite.binding must be a non-empty string",
-                    f"{path}.binding",
-                )
-            )
-        for field_name in ("equals", "expected"):
-            if field_name in prerequisite and not _is_json_value(prerequisite[field_name]):
-                findings.append(
-                    Finding(
-                        "type_error",
-                        f"prerequisite.{field_name} must be a JSON value",
-                        f"{path}.{field_name}",
-                    )
-                )
-        evidence_refs = prerequisite.get("evidence_refs", [])
-        if not isinstance(evidence_refs, list):
-            findings.append(
-                Finding(
-                    "type_error",
-                    "prerequisite evidence_refs must be a list",
-                    f"{path}.evidence_refs",
-                )
-            )
-            continue
-        for ref_index, ref in enumerate(evidence_refs):
-            if not isinstance(ref, str) or not ref.strip() or ref not in references:
-                findings.append(
-                    Finding(
-                        "unknown_reference",
-                        f"unknown_reference: {ref}",
-                        f"{path}.evidence_refs[{ref_index}]",
-                    )
-                )
-    return findings
-
-
 def _collect_canonical_prerequisite_findings(
     prerequisites: list[Any],
     references: set[str],
@@ -2042,7 +1950,10 @@ def _collect_canonical_prerequisite_findings(
     safe_behavior: str | None = None,
     transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
-    """Validate the closed prerequisite form used by the v2 plan wire."""
+    """Validate the closed prerequisite form used by the v2 plan wire.
+
+    This is the only prerequisite validator.
+    """
 
     _normalize_prerequisite_binding_consumers(
         prerequisites,
