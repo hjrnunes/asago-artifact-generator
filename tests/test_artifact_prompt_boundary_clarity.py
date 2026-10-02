@@ -3,17 +3,23 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.core import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
     CALL2_PROMPT_VERSION_V21,
     CORRECTION_PROMPT_VERSION_V25,
+)
+from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
+    build_correction_context,
+)
+from asago_artifact_generator.authoring.prompt_context import (
     artifact_observation_guide,
     build_artifact_author_context,
+)
+from asago_artifact_generator.authoring.prompt_packets import build_call2_packet_v2
+from asago_artifact_generator.authoring.review import (
     build_artifact_review_packet,
     build_artifact_reviewer_context,
-    build_call2_packet_v2,
-    build_correction_context,
 )
 from tests.test_versioned_prompt_roles import (
     _inventory,

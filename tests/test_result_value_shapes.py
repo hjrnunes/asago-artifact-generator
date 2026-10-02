@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 
-from asago_artifact_generator.authoring import (
-    _correction_detector_feedback_view,
-    _evidence_packet_contract,
-)
+from asago_artifact_generator.authoring.contracts import _evidence_packet_contract
+from asago_artifact_generator.authoring.correction import _correction_detector_feedback_view
 from asago_artifact_generator.detector_controls import describe_input_shapes
 
 _RESULT_TEXT = '{"status": "closed", "items": []}'

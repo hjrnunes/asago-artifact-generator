@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from asago_artifact_generator.authoring import collect_plan_findings_v2
+from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
 from tests.test_versioned_prompt_roles import _inventory, _plan, _runtime_contract
 
 

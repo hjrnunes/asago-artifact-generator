@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 
-from asago_artifact_generator.authoring import (
-    ParsedCall2Response,
+from asago_artifact_generator.authoring.checks import collect_artifact_findings_v2
+from asago_artifact_generator.authoring.core import ParsedCall2Response
+from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
-    collect_artifact_findings_v2,
 )
 from asago_artifact_generator.detector_controls import build_control_cases
 from tests.test_evidence_contract_messages_judge import _inventory, _plan, _runtime_contract, _view

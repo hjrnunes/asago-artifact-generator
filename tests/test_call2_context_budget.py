@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import json
 
-from asago_artifact_generator.authoring import (
-    _context_budget_estimate,
-    build_call2_packet_v2,
-)
+from asago_artifact_generator.authoring.context_budget import _context_budget_estimate
+from asago_artifact_generator.authoring.prompt_packets import build_call2_packet_v2
 from tests.test_versioned_prompt_roles import _inventory, _plan, _runtime_contract, _view
 
 _SOURCE_TITLE = "ORIGINAL SCENARIO AND SOURCE CONTEXT"

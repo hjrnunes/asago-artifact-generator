@@ -3,16 +3,20 @@ from __future__ import annotations
 import hashlib
 import json
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.core import (
     CALL2_PROMPT_VERSION_V21,
     CORRECTION_PROMPT_VERSION_V25,
+)
+from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
-    artifact_observation_guide,
-    build_artifact_author_context,
-    build_artifact_review_packet,
-    build_call2_packet_v2,
     build_correction_context,
 )
+from asago_artifact_generator.authoring.prompt_context import (
+    artifact_observation_guide,
+    build_artifact_author_context,
+)
+from asago_artifact_generator.authoring.prompt_packets import build_call2_packet_v2
+from asago_artifact_generator.authoring.review import build_artifact_review_packet
 from asago_artifact_generator.detector_controls import (
     build_control_cases,
     run_detector_controls,

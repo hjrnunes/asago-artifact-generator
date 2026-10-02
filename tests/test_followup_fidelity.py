@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.contracts import (
     neutral_artifact_plan_v2,
     neutral_observation_cases,
 )

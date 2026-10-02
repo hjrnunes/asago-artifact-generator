@@ -19,7 +19,7 @@ import yaml
 from typer.testing import CliRunner
 
 from asago_artifact_generator import cli
-from asago_artifact_generator.authoring import PrivateModelAuthoringTransport
+from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.replay_gate import (
     ALLOWED_DIFFERENCES,
     RecordedCall,

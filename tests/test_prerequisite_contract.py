@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from asago_artifact_generator.authoring import (
-    build_call1_packet_v2,
+from asago_artifact_generator.authoring.checks import (
     collect_plan_findings,
     collect_plan_findings_v2,
 )
+from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 
 from .test_authoring_orchestration import _contract, _inventory, _plan, _view
 

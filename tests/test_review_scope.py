@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
+from asago_artifact_generator.authoring.policy import AuthoringPolicy
+from asago_artifact_generator.authoring.review import (
     ARTIFACT_REVIEW_QUESTION_IDS,
     PLAN_REVIEW_QUESTION_IDS,
-    AuthoringOrchestrator,
-    AuthoringPolicy,
     build_artifact_review_packet,
     build_plan_review_packet,
     parse_review_response,

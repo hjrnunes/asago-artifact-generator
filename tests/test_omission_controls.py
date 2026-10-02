@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from asago_artifact_generator.authoring import (
-    artifact_observation_guide,
+from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+from asago_artifact_generator.authoring.prompt_context import artifact_observation_guide
+from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
-    collect_plan_findings_v2,
 )
 from asago_artifact_generator.detector_controls import (
     _base_evidence,

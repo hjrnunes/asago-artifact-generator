@@ -7,14 +7,10 @@ from types import SimpleNamespace
 import openai
 import pytest
 
-from asago_artifact_generator.authoring import (
-    AuthoringBudget,
-    AuthoringOrchestrator,
-    AuthoringPolicy,
-    PrivateModelAuthoringTransport,
-    PromptPacket,
-    TransportResponse,
-)
+from asago_artifact_generator.authoring.core import PromptPacket, TransportResponse
+from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
+from asago_artifact_generator.authoring.policy import AuthoringBudget, AuthoringPolicy
+from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.failure_evidence import load_failure_evidence
 
 from .support import ScriptedAuthoringTransport

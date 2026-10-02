@@ -6,16 +6,20 @@ import copy
 import json
 from pathlib import Path
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.core import (
     CORRECTION_PROMPT_VERSION_V27,
     PLAN_REVIEW_PROMPT_VERSION_V17,
-    AuthoringOrchestrator,
-    AuthoringPolicy,
     Finding,
+)
+from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
-    _review_finding_to_finding,
     build_correction_context,
-    build_plan_author_context,
+)
+from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
+from asago_artifact_generator.authoring.policy import AuthoringPolicy
+from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
+from asago_artifact_generator.authoring.review import (
+    _review_finding_to_finding,
     build_plan_review_packet,
     build_plan_reviewer_context,
 )

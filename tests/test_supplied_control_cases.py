@@ -16,11 +16,9 @@ from pathlib import Path
 
 import pytest
 
-from asago_artifact_generator.authoring import (
-    AuthoringOrchestrator,
-    AuthoringPolicy,
-    build_artifact_review_packet,
-)
+from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
+from asago_artifact_generator.authoring.policy import AuthoringPolicy
+from asago_artifact_generator.authoring.review import build_artifact_review_packet
 from asago_artifact_generator.detector_controls import ControlCase
 
 from .support import ScriptedAuthoringTransport

@@ -4,17 +4,21 @@ from dataclasses import replace
 
 import pytest
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.core import (
     CALL1_PROMPT_VERSION_V18,
-    PrivateModelAuthoringTransport,
     PromptPacket,
     PromptPreflightError,
-    build_artifact_review_packet,
+)
+from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
-    build_plan_review_packet,
-    scan_for_prompt_secrets,
 )
+from asago_artifact_generator.authoring.prompt_safety import scan_for_prompt_secrets
+from asago_artifact_generator.authoring.review import (
+    build_artifact_review_packet,
+    build_plan_review_packet,
+)
+from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from tests.test_versioned_prompt_roles import _inventory, _plan, _runtime_contract, _view
 
 # Built by concatenation so repository scanners do not treat fixtures as live links.

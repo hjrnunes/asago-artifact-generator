@@ -4,7 +4,7 @@ import copy
 import dataclasses
 import json
 
-from asago_artifact_generator.authoring import build_call1_packet_v2
+from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 
 from .test_versioned_prompt_roles import _inventory, _runtime_contract, _view
 

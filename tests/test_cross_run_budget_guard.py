@@ -7,10 +7,10 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 from asago_artifact_generator import cli
-from asago_artifact_generator.authoring import (
-    MAX_AUTHORING_REQUESTS,
+from asago_artifact_generator.authoring.core import MAX_AUTHORING_REQUESTS
+from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
+from asago_artifact_generator.authoring.policy import (
     AuthoringBudget,
-    AuthoringOrchestrator,
     AuthoringPolicy,
     policy_role_limits,
 )

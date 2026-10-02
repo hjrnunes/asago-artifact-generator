@@ -10,12 +10,9 @@ import openai
 import pytest
 from openai.types.completion_usage import CompletionTokensDetails, CompletionUsage
 
-from asago_artifact_generator.authoring import (
-    AUTHORING_THINKING_EXTRA_BODY,
-    AuthoringBudget,
-    PrivateModelAuthoringTransport,
-    PromptPacket,
-)
+from asago_artifact_generator.authoring.core import AUTHORING_THINKING_EXTRA_BODY, PromptPacket
+from asago_artifact_generator.authoring.policy import AuthoringBudget
+from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.input_adapter import load_input
 
 from .support import stage_local_orchestrator, unreviewed_policy

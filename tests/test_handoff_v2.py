@@ -8,13 +8,17 @@ from pathlib import Path
 import pytest
 import yaml
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.contracts import (
     NEUTRAL_OMISSION_OUTCOME_EXAMPLE,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
-    build_artifact_review_packet,
+)
+from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
+)
+from asago_artifact_generator.authoring.review import (
+    build_artifact_review_packet,
     build_plan_review_packet,
 )
 from asago_artifact_generator.input_adapter import (

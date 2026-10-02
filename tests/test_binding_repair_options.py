@@ -3,13 +3,13 @@ from __future__ import annotations
 import copy
 import json
 
-from asago_artifact_generator.authoring import (
-    Finding,
-    _binding_selector_type,
+from asago_artifact_generator.authoring.checks import _binding_selector_type
+from asago_artifact_generator.authoring.core import Finding
+from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
     build_correction_context,
-    build_plan_author_context,
 )
+from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
 
 from .test_versioned_prompt_roles import _inventory, _runtime_contract, _view
 

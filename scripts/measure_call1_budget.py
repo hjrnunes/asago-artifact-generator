@@ -19,13 +19,13 @@ from pathlib import Path
 
 import yaml
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.context_budget import _context_budget_estimate
+from asago_artifact_generator.authoring.core import (
     _CONTEXT_FRAMING_TOKEN_RESERVE,
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
-    _context_budget_estimate,
-    build_call1_packet_v2,
 )
+from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 from asago_artifact_generator.input_adapter import load_input
 from asago_artifact_generator.target_inputs import load_target_inputs
 

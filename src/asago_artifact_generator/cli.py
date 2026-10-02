@@ -10,16 +10,15 @@ from typing import Annotated
 import typer
 import yaml
 
-from .authoring import (
+from .authoring.core import (
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
     AUTHORING_THINKING_EXTRA_BODY,
     REVIEW_THINKING_EXTRA_BODY,
-    AuthoringBudget,
-    AuthoringOrchestrator,
-    AuthoringPolicy,
-    PrivateModelAuthoringTransport,
 )
+from .authoring.orchestrator import AuthoringOrchestrator
+from .authoring.policy import AuthoringBudget, AuthoringPolicy
+from .authoring.transport import PrivateModelAuthoringTransport
 from .detector_runtime import execute_detector
 from .input_adapter import InputSourceError, load_input
 from .profiles import ProfileLoadError, load_authoring_profile

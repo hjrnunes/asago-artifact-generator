@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from asago_artifact_generator.authoring import AuthoringError, _package_from_responses
+from asago_artifact_generator.authoring.core import AuthoringError
+from asago_artifact_generator.authoring.package_assembly import _package_from_responses
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
 HANDOFF = (

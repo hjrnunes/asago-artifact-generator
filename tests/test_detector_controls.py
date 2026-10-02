@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import json
 
-from asago_artifact_generator.authoring import (
-    neutral_observation_cases,
-    parse_call2_response,
-)
+from asago_artifact_generator.authoring.checks import parse_call2_response
+from asago_artifact_generator.authoring.contracts import neutral_observation_cases
 from asago_artifact_generator.detector_controls import (
     ControlCase,
     build_control_cases,

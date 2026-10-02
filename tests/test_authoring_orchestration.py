@@ -13,28 +13,33 @@ from types import SimpleNamespace
 
 import pytest
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.checks import (
+    collect_artifact_findings_v2,
+    collect_plan_findings,
+)
+from asago_artifact_generator.authoring.context_budget import (
+    _context_budget_estimate,
+    _context_guard_ratio,
+)
+from asago_artifact_generator.authoring.core import (
     _CONTEXT_FRAMING_TOKEN_RESERVE,
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
     AUTHORING_THINKING_EXTRA_BODY,
     CALL1_PROMPT_VERSION_V18,
     REVIEW_THINKING_EXTRA_BODY,
-    AuthoringBudget,
-    AuthoringResult,
-    PrivateModelAuthoringTransport,
     PromptOverflowError,
     PromptPacket,
     TransportResponse,
-    _context_budget_estimate,
-    _context_guard_ratio,
+)
+from asago_artifact_generator.authoring.policy import AuthoringBudget, AuthoringResult
+from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
-    collect_artifact_findings_v2,
-    collect_plan_findings,
-    load_failure_evidence,
 )
+from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.bindings import validate_bindings
+from asago_artifact_generator.failure_evidence import load_failure_evidence
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
 from .support import ScriptedAuthoringTransport, stage_local_orchestrator, unreviewed_policy

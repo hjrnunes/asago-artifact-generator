@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from asago_artifact_generator.authoring import AuthoringError, assert_no_secrets
+from asago_artifact_generator.authoring.core import AuthoringError
+from asago_artifact_generator.authoring.prompt_safety import assert_no_secrets
 from asago_artifact_generator.package_io import (
     PackageIntegrityError,
     build_package,

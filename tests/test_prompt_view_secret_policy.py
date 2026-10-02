@@ -6,12 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from asago_artifact_generator.authoring import (
-    AuthoringError,
-    assert_no_prompt_secrets,
-    assert_no_secrets,
+from asago_artifact_generator.authoring.core import AuthoringError
+from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
+)
+from asago_artifact_generator.authoring.prompt_safety import (
+    assert_no_prompt_secrets,
+    assert_no_secrets,
     scan_for_prompt_secrets,
 )
 from asago_artifact_generator.input_adapter import load_input

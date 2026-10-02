@@ -5,12 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from asago_artifact_generator.authoring import (
-    AuthoringOrchestrator,
-    AuthoringPolicy,
-    load_failure_evidence,
-)
+from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
+from asago_artifact_generator.authoring.policy import AuthoringPolicy
 from asago_artifact_generator.detector_controls import ControlCase
+from asago_artifact_generator.failure_evidence import load_failure_evidence
 
 from .support import ScriptedAuthoringTransport
 from .test_versioned_authoring_wire import (

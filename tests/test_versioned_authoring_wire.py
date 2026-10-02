@@ -5,18 +5,22 @@ import json
 
 import pytest
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.checks import (
+    collect_artifact_findings_v2,
+    collect_plan_findings_v2,
+    parse_call2_response,
+)
+from asago_artifact_generator.authoring.contracts import neutral_artifact_response_without_source
+from asago_artifact_generator.authoring.core import (
     AUTHORING_INTERFACE_VERSION_V2,
     CALL1_PROMPT_VERSION_V18,
     CALL2_PROMPT_VERSION_V21,
     Call2FramingError,
     ParsedCall2Response,
+)
+from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
-    collect_artifact_findings_v2,
-    collect_plan_findings_v2,
-    neutral_artifact_response_without_source,
-    parse_call2_response,
 )
 from asago_artifact_generator.input_adapter import InputKind, load_input
 

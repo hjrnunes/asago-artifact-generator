@@ -6,23 +6,27 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.checks import (
+    collect_artifact_findings_v2,
+    collect_plan_findings_v2,
+    parse_call2_response,
+)
+from asago_artifact_generator.authoring.contracts import (
     _NEUTRAL_DETECTOR_SOURCE,
+    neutral_artifact_plan_v2,
+    neutral_artifact_response_without_source,
+)
+from asago_artifact_generator.authoring.core import (
     AUTHORING_INTERFACE_VERSION_V2,
-    AuthoringOrchestrator,
-    AuthoringPolicy,
     Finding,
     ParsedCall2Response,
     PromptPacket,
     TransportResponse,
     _json_bytes,
     _sha256,
-    collect_artifact_findings_v2,
-    collect_plan_findings_v2,
-    neutral_artifact_plan_v2,
-    neutral_artifact_response_without_source,
-    parse_call2_response,
 )
+from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
+from asago_artifact_generator.authoring.policy import AuthoringPolicy
 from asago_artifact_generator.package_io import build_package, write_package
 
 

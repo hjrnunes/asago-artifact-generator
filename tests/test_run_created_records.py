@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from asago_artifact_generator.authoring import (
-    _CURRENT_PLAN_AUTHOR_GUIDANCE,
-    build_call1_packet_v2,
-)
+from asago_artifact_generator.authoring.prompt_context import _CURRENT_PLAN_AUTHOR_GUIDANCE
+from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 from asago_artifact_generator.input_adapter import load_input
 
 _HANDOFF = (

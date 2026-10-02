@@ -3,18 +3,22 @@ from __future__ import annotations
 import copy
 import json
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+from asago_artifact_generator.authoring.core import (
     CALL1_PROMPT_VERSION_V18,
     CORRECTION_PROMPT_VERSION_V27,
     Finding,
+)
+from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
-    build_artifact_author_context,
-    build_call1_packet_v2,
     build_correction_context,
+)
+from asago_artifact_generator.authoring.prompt_context import (
+    build_artifact_author_context,
     build_plan_author_context,
-    collect_plan_findings_v2,
     scenario_provenance_ids,
 )
+from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 
 from .test_versioned_prompt_roles import _inventory, _plan, _runtime_contract, _view
 

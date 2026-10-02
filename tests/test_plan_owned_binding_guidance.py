@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import tests.test_owner_scope_block as osb
-from asago_artifact_generator.authoring import (
-    _CURRENT_ARTIFACT_CORRECTION_GUIDANCE,
-    _CURRENT_PLAN_AUTHOR_GUIDANCE,
-    evidence_packet_contract,
-)
+from asago_artifact_generator.authoring.contracts import evidence_packet_contract
+from asago_artifact_generator.authoring.correction import _CURRENT_ARTIFACT_CORRECTION_GUIDANCE
+from asago_artifact_generator.authoring.prompt_context import _CURRENT_PLAN_AUTHOR_GUIDANCE
 from asago_artifact_generator.detector_controls import DETECTOR_FEEDBACK_CORRECTION_GUIDANCE
 from asago_artifact_generator.detector_runtime import validate_detector_evidence_access
 

@@ -5,17 +5,17 @@ from pathlib import Path
 
 import pytest
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.core import ReviewResponseError
+from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
+from asago_artifact_generator.authoring.policy import (
     AuthoringBudget,
-    AuthoringOrchestrator,
     AuthoringPolicy,
-    ReviewResponseError,
-    load_failure_evidence,
-    parse_review_response,
     policy_max_dispatches,
     policy_role_limits,
 )
+from asago_artifact_generator.authoring.review import parse_review_response
 from asago_artifact_generator.detector_runtime import resolve_docker_path
+from asago_artifact_generator.failure_evidence import load_failure_evidence
 
 from .support import ScriptedAuthoringTransport
 from .test_versioned_authoring_wire import (

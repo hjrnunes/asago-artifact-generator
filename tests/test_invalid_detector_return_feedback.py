@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from asago_artifact_generator.authoring import _correction_detector_feedback_view
+from asago_artifact_generator.authoring.correction import _correction_detector_feedback_view
 from asago_artifact_generator.detector_controls import (
     ControlCase,
     _control_result,

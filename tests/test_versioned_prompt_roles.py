@@ -4,32 +4,44 @@ import json
 
 import pytest
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+from asago_artifact_generator.authoring.contracts import (
+    NEUTRAL_PLAN_OUTCOME_EXAMPLE,
+    PLAN_FIELD_MEANINGS,
+    evidence_packet_contract,
+)
+from asago_artifact_generator.authoring.core import (
     ARTIFACT_REVIEW_PROMPT_VERSION_V16,
     CALL1_PROMPT_VERSION_V18,
     CALL2_PROMPT_VERSION_V21,
     CORRECTION_PROMPT_VERSION_V27,
-    NEUTRAL_PLAN_OUTCOME_EXAMPLE,
-    PLAN_FIELD_MEANINGS,
     PLAN_REVIEW_PROMPT_VERSION_V17,
     PromptOverflowError,
     PromptPacket,
     PromptPreflightError,
+)
+from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
-    assert_no_prompt_duplicates,
-    assert_no_prompt_secrets,
+    build_correction_context,
+)
+from asago_artifact_generator.authoring.prompt_context import (
     build_artifact_author_context,
-    build_artifact_review_packet,
+    build_plan_author_context,
+)
+from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
-    build_correction_context,
-    build_plan_author_context,
-    build_plan_review_packet,
-    build_plan_reviewer_context,
-    collect_plan_findings_v2,
-    evidence_packet_contract,
+)
+from asago_artifact_generator.authoring.prompt_safety import (
+    assert_no_prompt_duplicates,
+    assert_no_prompt_secrets,
     scan_for_prompt_secrets,
     scan_prompt_duplicates,
+)
+from asago_artifact_generator.authoring.review import (
+    build_artifact_review_packet,
+    build_plan_review_packet,
+    build_plan_reviewer_context,
 )
 from asago_artifact_generator.detector_runtime import _resolve_evidence_ref
 from asago_artifact_generator.input_adapter import InputKind, load_input

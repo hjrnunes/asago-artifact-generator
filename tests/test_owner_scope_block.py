@@ -6,15 +6,21 @@ from dataclasses import replace
 
 import pytest
 
-from asago_artifact_generator.authoring import (
+from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
+    build_correction_context,
+)
+from asago_artifact_generator.authoring.prompt_context import (
     build_artifact_author_context,
-    build_artifact_review_packet,
-    build_artifact_reviewer_context,
+    build_plan_author_context,
+)
+from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
-    build_correction_context,
-    build_plan_author_context,
+)
+from asago_artifact_generator.authoring.review import (
+    build_artifact_review_packet,
+    build_artifact_reviewer_context,
     build_plan_review_packet,
     build_plan_reviewer_context,
 )

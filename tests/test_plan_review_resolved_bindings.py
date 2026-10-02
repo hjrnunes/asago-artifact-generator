@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from asago_artifact_generator.authoring import (
-    PLAN_REVIEW_PROMPT_VERSION_V17,
+from asago_artifact_generator.authoring.core import PLAN_REVIEW_PROMPT_VERSION_V17
+from asago_artifact_generator.authoring.review import (
     build_plan_review_packet,
     build_plan_reviewer_context,
 )
