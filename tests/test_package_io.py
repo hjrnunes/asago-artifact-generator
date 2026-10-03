@@ -98,7 +98,7 @@ def test_writer_rejects_secret_bearing_manifest_metadata(tmp_path: Path) -> None
 
 
 def test_interrupted_write_leaves_no_partial_package_and_preserves_previous(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     destination = write_package(tmp_path / "package", _package())
     original = load_package(destination).members["detector.py"]
@@ -113,8 +113,21 @@ def test_interrupted_write_leaves_no_partial_package_and_preserves_previous(
         },
     )
 
+    real_write_bytes = Path.write_bytes
+    written: list[Path] = []
+
+    def write_one_member_then_fail(self: Path, data: bytes) -> int:
+        if written:
+            raise RuntimeError("interrupted package write")
+        written.append(self)
+        return real_write_bytes(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", write_one_member_then_fail)
     with pytest.raises(RuntimeError, match="interrupted"):
-        write_package(destination, replacement, fail_after_members=1)
+        write_package(destination, replacement)
+    monkeypatch.undo()
+
+    assert len(written) == 1
 
     assert load_package(destination).members["detector.py"] == original
     assert not list(tmp_path.glob(".package.*.tmp"))

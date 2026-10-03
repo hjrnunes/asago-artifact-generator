@@ -117,14 +117,11 @@ def build_package(
 def write_package(
     destination: str | Path,
     package: ArtifactPackage,
-    *,
-    fail_after_members: int | None = None,
 ) -> Path:
     """Atomically replace ``destination`` with a complete verified package.
 
-    ``fail_after_members`` is a deterministic fault-injection hook used by
-    tests.  It raises before the destination is replaced and never leaves its
-    temporary directory behind.
+    A failure before the swap removes the temporary directory and leaves any
+    existing package in place.
     """
 
     destination = Path(destination)
@@ -134,7 +131,7 @@ def write_package(
     parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", suffix=".tmp", dir=parent))
     try:
-        _write_package_files(temporary, package, fail_after_members=fail_after_members)
+        _write_package_files(temporary, package)
         loaded = load_package(temporary)
         if loaded.manifest.to_dict() != package.manifest.to_dict():
             raise PackageIntegrityError("package changed while writing")
@@ -148,18 +145,11 @@ def write_package(
         raise
 
 
-def _write_package_files(
-    temporary: Path,
-    package: ArtifactPackage,
-    *,
-    fail_after_members: int | None,
-) -> None:
-    for index, (relative, content) in enumerate(package.members.items(), start=1):
+def _write_package_files(temporary: Path, package: ArtifactPackage) -> None:
+    for relative, content in package.members.items():
         target = _contained_path(temporary, relative)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
-        if fail_after_members is not None and index >= fail_after_members:
-            raise RuntimeError("interrupted package write")
     manifest_path = temporary / "manifest.json"
     manifest_path.write_bytes(_canonical_json(package.manifest.to_dict()) + b"\n")
 
