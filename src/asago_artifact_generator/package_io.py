@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .metadata_policy import secret_metadata_paths
+from .value_checks import is_sha256_hex
 
 PACKAGE_SCHEMA_VERSION = "artifact-package-v2"
 DETECTOR_INTERFACE_VERSION = "evaluate(evidence: dict) -> dict"
@@ -372,17 +373,9 @@ def _is_source_digest_map(value: Any) -> bool:
         isinstance(value, dict)
         and bool(value)
         and all(
-            isinstance(key, str) and bool(key) and _is_sha256_hex(digest)
+            isinstance(key, str) and bool(key) and is_sha256_hex(digest)
             for key, digest in value.items()
         )
-    )
-
-
-def _is_sha256_hex(value: Any) -> bool:
-    return (
-        isinstance(value, str)
-        and len(value) == 64
-        and all(character in "0123456789abcdef" for character in value)
     )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from ..value_checks import is_nonblank_str
 from .context_budget import _context_budget_estimate, _enforce_context_budget
 from .core import (
     _CONTEXT_FRAMING_TOKEN_RESERVE,
@@ -267,10 +268,6 @@ def _is_positive_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
-def _is_nonblank_string(value: Any) -> bool:
-    return isinstance(value, str) and bool(value.strip())
-
-
 def _validate_token_limits(max_completion_tokens: Any, context_window_tokens: Any) -> None:
     if max_completion_tokens is not None and not _is_positive_int(max_completion_tokens):
         raise ValueError("max_completion_tokens must be a positive integer when provided")
@@ -302,7 +299,7 @@ def _validate_request_controls(
         ("service_tier", service_tier),
         ("service_tier_fallback", service_tier_fallback),
     ):
-        if value is not None and not _is_nonblank_string(value):
+        if value is not None and not is_nonblank_str(value):
             raise ValueError(f"{name} must be a nonblank string when provided")
     if strict_json_schema is not None and not isinstance(strict_json_schema, bool):
         raise ValueError("strict_json_schema must be a boolean when provided")

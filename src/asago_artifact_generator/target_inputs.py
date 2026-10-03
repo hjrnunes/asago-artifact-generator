@@ -16,10 +16,11 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from .value_checks import SHA256_HEX_LENGTH, is_sha256_hex
+
 _CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "target-profile"
 _PROFILE_SCHEMA_VERSION = "execution-target-profile-v1"
 _PROFILE_DIGEST_DOMAIN = _PROFILE_SCHEMA_VERSION
-_SHA256_LENGTH = 64
 
 
 class TargetInputError(ValueError):
@@ -330,7 +331,7 @@ def _validate_observations(value: Any, *, profile: dict[str, Any]) -> None:
             "target observations contain unsupported fields: " + ", ".join(unknown)
         )
     profile_digest = value.get("target_profile_digest")
-    if not isinstance(profile_digest, str) or not _is_sha256(profile_digest):
+    if not is_sha256_hex(profile_digest):
         raise TargetInputError("target observations require target_profile_digest")
     state = value.get("state")
     if not isinstance(state, dict):
@@ -452,7 +453,7 @@ def _validate_contract_lock() -> Path:
 
 def _validate_profile_digest(profile: dict[str, Any]) -> None:
     digest = profile.get("semantic_digest")
-    if not isinstance(digest, str) or len(digest) != _SHA256_LENGTH:
+    if not isinstance(digest, str) or len(digest) != SHA256_HEX_LENGTH:
         raise TargetInputError("target profile semantic_digest is required")
     payload = deepcopy(profile)
     payload.pop("semantic_digest", None)
@@ -519,12 +520,6 @@ def _framed_digest(domain: str, value: Any) -> str:
 
 def _sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
-
-
-def _is_sha256(value: str) -> bool:
-    return len(value) == _SHA256_LENGTH and all(
-        character in "0123456789abcdef" for character in value
-    )
 
 
 __all__ = ["TargetInputError", "load_target_inputs"]
