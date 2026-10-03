@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from asago_artifact_generator import package_io
 from asago_artifact_generator.package_io import (
     ArtifactPackage,
     PackageIntegrityError,
@@ -117,3 +118,98 @@ def test_interrupted_write_leaves_no_partial_package_and_preserves_previous(
 
     assert load_package(destination).members["detector.py"] == original
     assert not list(tmp_path.glob(".package.*.tmp"))
+
+
+def _replacement_package() -> ArtifactPackage:
+    return build_package(
+        package_id="pkg-2",
+        scenario_id="scenario-1",
+        input_kind="scenario-handoff-v1",
+        source_digests={"scenario.json": "b" * 64},
+        members={**_package().members, "detector.py": b"replacement\n"},
+    )
+
+
+def _leftovers(parent: Path) -> list[Path]:
+    return sorted(parent.glob(".package.*.tmp"))
+
+
+def _fail_install(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    partial: str | None = None,
+) -> None:
+    """Make the move of the written package onto its destination fail.
+
+    ``partial`` leaves a directory or file at the destination first, as an
+    interrupted rename could.
+    """
+
+    real_replace = package_io.os.replace
+
+    def replace(source: str | Path, target: str | Path) -> None:
+        if Path(source).name.startswith(".package.") and ".backup." not in Path(source).name:
+            if partial == "dir":
+                Path(target).mkdir()
+                (Path(target) / "detector.py").write_bytes(b"partial\n")
+            elif partial == "file":
+                Path(target).write_bytes(b"partial\n")
+            raise OSError("install failed")
+        real_replace(source, target)
+
+    monkeypatch.setattr(package_io.os, "replace", replace)
+
+
+def test_overwrite_replaces_previous_package_and_removes_its_backup(tmp_path: Path) -> None:
+    destination = write_package(tmp_path / "package", _package())
+
+    write_package(destination, _replacement_package())
+
+    loaded = load_package(destination)
+    assert loaded.manifest.package_id == "pkg-2"
+    assert loaded.members["detector.py"] == b"replacement\n"
+    assert _leftovers(tmp_path) == []
+
+
+@pytest.mark.parametrize("partial", [None, "dir", "file"])
+def test_failed_install_restores_previous_package_and_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, partial: str | None
+) -> None:
+    destination = write_package(tmp_path / "package", _package())
+    _fail_install(monkeypatch, partial=partial)
+
+    with pytest.raises(OSError, match="install failed"):
+        write_package(destination, _replacement_package())
+
+    restored = load_package(destination)
+    assert restored.manifest.package_id == "pkg-1"
+    assert restored.members == _package().members
+    assert _leftovers(tmp_path) == []
+
+
+@pytest.mark.parametrize("partial", [None, "dir", "file"])
+def test_failed_first_install_leaves_no_package_and_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, partial: str | None
+) -> None:
+    _fail_install(monkeypatch, partial=partial)
+
+    with pytest.raises(OSError, match="install failed"):
+        write_package(tmp_path / "package", _package())
+
+    assert not (tmp_path / "package").exists()
+    assert _leftovers(tmp_path) == []
+
+
+def test_overwrite_replaces_a_symlinked_destination_without_touching_its_target(
+    tmp_path: Path,
+) -> None:
+    target = write_package(tmp_path / "target", _package())
+    destination = tmp_path / "package"
+    destination.symlink_to(target, target_is_directory=True)
+
+    write_package(destination, _replacement_package())
+
+    assert not destination.is_symlink()
+    assert load_package(destination).manifest.package_id == "pkg-2"
+    assert load_package(target).manifest.package_id == "pkg-1"
+    assert _leftovers(tmp_path) == []
