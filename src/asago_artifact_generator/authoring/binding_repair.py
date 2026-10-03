@@ -68,14 +68,6 @@ _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V9 = {
         "Explicitly states that no enumerated documented selector produces the "
         "candidate expected type."
     ),
-    "available_source_ref_forms": (
-        "The valid facts:<ref> and permitted setup:<operation> source_ref forms when "
-        "the candidate source does not resolve."
-    ),
-    "available_source_ref_forms_truncated": (
-        "Whether the available source_ref form list was capped at the deterministic "
-        "enumeration limit."
-    ),
     "declared_binding_names": (
         "The currently declared runtime binding names, sorted deterministically; an "
         "empty list means no bindings are declared."
@@ -108,12 +100,7 @@ _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V9 = {
     ),
 }
 _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS = {
-    # v10 lists unresolved sources in source options, never as bare source_ref forms.
-    **{
-        name: meaning
-        for name, meaning in _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V9.items()
-        if name not in {"available_source_ref_forms", "available_source_ref_forms_truncated"}
-    },
+    **_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V9,
     "findings": (
         "The grouped existing finding code and exact path entries for this binding, "
         "in finding order."
@@ -282,38 +269,6 @@ def _documented_binding_selectors(
     return discovered, has_more
 
 
-def _available_binding_source_refs(
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-) -> tuple[list[str], bool]:
-    """Return valid source_ref forms in stable lexical order."""
-
-    source_refs = {
-        f"facts:{fact['ref']}"
-        for fact in inventory.get("facts", [])
-        if (
-            isinstance(fact, dict)
-            and isinstance(fact.get("ref"), str)
-            and fact["ref"]
-            and isinstance(fact.get("schema"), dict)
-        )
-    }
-    permitted = runtime_contract.get("setup_permissions", [])
-    permitted_names = set(permitted) if isinstance(permitted, list) else set()
-    source_refs.update(
-        f"setup:{operation['name']}"
-        for operation in inventory.get("operations", [])
-        if (
-            isinstance(operation, dict)
-            and isinstance(operation.get("name"), str)
-            and operation["name"] in permitted_names
-            and isinstance(operation.get("result_schema"), dict)
-        )
-    )
-    ordered = sorted(source_refs)
-    return ordered[:_BINDING_REPAIR_SELECTOR_LIMIT], len(ordered) > _BINDING_REPAIR_SELECTOR_LIMIT
-
-
 def _repair_truncation_note(label: str) -> str:
     return (
         f"{label} enumeration truncated after {_BINDING_REPAIR_SELECTOR_LIMIT} entries; "
@@ -328,9 +283,11 @@ def _repair_selector_option(
     runtime_contract: dict[str, Any],
     *,
     selected_record: bool = False,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """Build selector repair choices from the exact source schema.
 
+    Returns None when the binding source does not resolve; an unresolved source
+    is repaired through a source option instead.
     ``selected_record`` also lists the named record sources when the selector,
     rather than source_ref, names one keyed record.
     """
@@ -360,19 +317,7 @@ def _repair_selector_option(
             name,
         )
     if schema is None:
-        available_sources, available_sources_truncated = _available_binding_source_refs(
-            inventory, runtime_contract
-        )
-        option.update(
-            {
-                "resolved_source": False,
-                "available_source_ref_forms": available_sources,
-                "available_source_ref_forms_truncated": available_sources_truncated,
-            }
-        )
-        if available_sources_truncated:
-            option["truncation_note"] = _repair_truncation_note("source_ref form")
-        return option
+        return None
 
     root = "value" if source_kind == "supplied_input" else "result"
     selectors, matching, truncated = _binding_selector_details(
@@ -642,7 +587,7 @@ def _repair_review_binding_option(
         runtime_contract,
         selected_record=True,
     )
-    if option.get("resolved_source") is not True:
+    if option is None:
         return None
     option["kind"] = "review_binding"
     option["selector"] = binding.get("selector")
