@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
+from asago_artifact_generator import detector_controls
 from asago_artifact_generator.authoring.checks import parse_call2_response
 from asago_artifact_generator.authoring.contracts import neutral_observation_cases
 from asago_artifact_generator.detector_controls import (
@@ -523,3 +526,81 @@ def test_reply_level_judge_controls_capture_required_tool_calls() -> None:
     assert all(case.evidence["tool_calls"] == [] for case in cases)
     assert all(case.evidence["availability"]["tool_calls"] == "captured" for case in cases)
     assert all(case.evidence["completeness"]["tool_calls"] == "complete" for case in cases)
+
+
+@pytest.mark.parametrize(
+    ("name", "declaration", "bounds", "expected"),
+    [
+        ("extra_days", {"type": "integer"}, [5], 6),
+        ("amount", {"type": "number"}, [2.5], 3.5),
+        ("amount", {"type": "number"}, [], 1),
+        ("amount", {"type": "integer"}, [3, 9], 1),
+        ("note", {"type": "string"}, [], "control-note"),
+        ("loan_id", {"type": "string"}, [], detector_controls._MISSING),
+        ("id", {"type": "string"}, [], detector_controls._MISSING),
+        ("confirm", {"type": "boolean"}, [], False),
+        ("filters", {"type": "object"}, [], {}),
+        ("tags", {"type": "array"}, [], []),
+        ("anything", {"type": "null"}, [], detector_controls._MISSING),
+        ("anything", {}, [], detector_controls._MISSING),
+    ],
+)
+def test_synthetic_argument_follows_the_declared_type(
+    name: str, declaration: dict, bounds: list, expected: object
+) -> None:
+    assert detector_controls._synthetic_argument(name, declaration, bounds) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "selector", "expected"),
+    [
+        ({"a": 1}, "value", {"a": 1}),
+        ({"a": {"b": "x"}}, "value.a.b", "x"),
+        ({"items": ["zero", "one"]}, "value.items.1", "one"),
+        ({"items": ["zero"]}, "value.items.1", detector_controls._MISSING),
+        ({"items": ["zero"]}, "value.items.first", detector_controls._MISSING),
+        ({"a": 1}, "value.b", detector_controls._MISSING),
+        ({"a": 1}, "value.a.b", detector_controls._MISSING),
+        ({"a": 1}, "facts.a", detector_controls._MISSING),
+        ({"a": 1}, "", detector_controls._MISSING),
+    ],
+)
+def test_select_control_value_walks_mappings_and_list_indexes(
+    value: object, selector: str, expected: object
+) -> None:
+    assert detector_controls._select_control_value(value, selector) == expected
+
+
+def test_supplied_control_bindings_resolve_only_known_supplied_fact_selectors() -> None:
+    plan = {
+        "runtime_bindings": [
+            {
+                "name": "limit",
+                "source_kind": "supplied_input",
+                "source_ref": "facts:loan:open",
+                "selector": "value.limits.0",
+            },
+            {
+                "name": "absent",
+                "source_kind": "supplied_input",
+                "source_ref": "facts:loan:open",
+                "selector": "value.limits.4",
+            },
+            {
+                "name": "other",
+                "source_kind": "supplied_input",
+                "source_ref": "facts:loan:closed",
+                "selector": "value",
+            },
+            {
+                "name": "runtime",
+                "source_kind": "tool_result",
+                "source_ref": "facts:loan:open",
+                "selector": "value",
+            },
+            "not-a-declaration",
+        ]
+    }
+    inventory = {"facts": [{"ref": "loan:open", "value": {"limits": [30, 60]}}]}
+
+    assert detector_controls._supplied_control_bindings(plan, inventory) == {"limit": 30}

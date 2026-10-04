@@ -154,47 +154,63 @@ def run_detector_controls(
 
     if not isinstance(detector_bytes, bytes):
         raise TypeError("detector_bytes must be bytes")
-    selected = (
-        list(cases)
-        if cases is not None
-        else list(
+    plan = plan or {}
+    metadata = metadata or {}
+    inventory = inventory or {}
+    if cases is not None:
+        selected = list(cases)
+    else:
+        selected = list(
             build_control_cases_for_runtime_contract(
-                runtime_contract or {},
-                plan or {},
-                metadata or {},
-                inventory or {},
-                condition=condition,
+                runtime_contract or {}, plan, metadata, inventory, condition=condition
             )
         )
-    )
-    judge_enabled = _judge_is_declared(plan or {}, metadata or {}) or any(
-        isinstance(case.evidence, Mapping) and "judge" in case.evidence for case in selected
-    )
+    judge_enabled = _controls_judge_enabled(plan, metadata, selected)
     static_findings = validate_detector_evidence_access(
         detector_bytes,
-        observations=_control_observations(plan or {}, metadata or {}),
-        bindings=(plan or {}).get("runtime_bindings", []),
+        observations=_control_observations(plan, metadata),
+        bindings=plan.get("runtime_bindings", []),
         judge_enabled=judge_enabled,
     )
     if static_findings:
-        operands = supplied_fact_operand_bindings(condition, inventory or {}, plan or {})
-        return [
-            _with_operand_binding_forms(item, operands, plan or {}) for item in static_findings
-        ], []
+        operands = supplied_fact_operand_bindings(condition, inventory, plan)
+        return [_with_operand_binding_forms(item, operands, plan) for item in static_findings], []
     if not selected:
         return [], []
+    return _execute_control_cases(
+        detector_bytes, selected, plan, metadata, judge_enabled=judge_enabled
+    )
+
+
+def _controls_judge_enabled(
+    plan: Mapping[str, Any], metadata: Mapping[str, Any], cases: Sequence[ControlCase]
+) -> bool:
+    return _judge_is_declared(plan, metadata) or any(
+        isinstance(case.evidence, Mapping) and "judge" in case.evidence for case in cases
+    )
+
+
+def _execute_control_cases(
+    detector_bytes: bytes,
+    cases: Sequence[ControlCase],
+    plan: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    *,
+    judge_enabled: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Run each case against one temporary control package of ``detector_bytes``."""
 
     with tempfile.TemporaryDirectory(prefix="asago-detector-controls-") as temporary:
         package = _write_control_package(
             Path(temporary),
             detector_bytes,
             judge_enabled=judge_enabled,
-            observations=_control_observations(plan or {}, metadata or {}),
-            bindings=(plan or {}).get("runtime_bindings", []),
+            observations=_control_observations(plan, metadata),
+            bindings=plan.get("runtime_bindings", []),
         )
-        findings: list[dict[str, str]] = []
+        findings: list[dict[str, Any]] = []
         results: list[dict[str, Any]] = []
-        for case in selected:
+        for case in cases:
             execution = execute_detector(package, case.evidence)
             result = _control_result(case, execution)
             results.append(result.as_dict())
@@ -250,6 +266,31 @@ def build_detector_feedback(
     duplicate_names = len({case.name for case in cases}) != len(cases)
     if duplicate_names and len(results) != len(cases):
         raise ValueError("duplicate control names require one result per case")
+    if judge_enabled is None:
+        judge_enabled = any(
+            isinstance(candidate.evidence, Mapping) and "judge" in candidate.evidence
+            for candidate in cases
+        )
+    if duplicate_names:
+        paired = [_result_mapping(result) for result in results]
+    else:
+        paired = _results_by_case_name(cases, results)
+    return tuple(
+        _case_feedback(case, result, judge_enabled=judge_enabled)
+        for case, result in zip(cases, paired, strict=False)
+    )
+
+
+def _result_mapping(result: ControlResult | Mapping[str, Any] | None) -> Any:
+    return result.as_dict() if isinstance(result, ControlResult) else result
+
+
+def _results_by_case_name(
+    cases: Sequence[ControlCase],
+    results: Sequence[ControlResult | Mapping[str, Any]],
+) -> list[Any]:
+    """Pair each case with the result of the same name, preferring ControlResult objects."""
+
     result_by_name = {
         result.name: result for result in results if isinstance(result, ControlResult)
     }
@@ -258,65 +299,48 @@ def build_detector_feedback(
         for result in results
         if isinstance(result, Mapping) and isinstance(result.get("name"), str)
     }
-    feedback: list[DetectorControlFeedback] = []
-    if judge_enabled is None:
-        judge_enabled = any(
-            isinstance(candidate.evidence, Mapping) and "judge" in candidate.evidence
-            for candidate in cases
-        )
-    for index, case in enumerate(cases):
-        if duplicate_names:
-            paired_result = results[index]
-            result = (
-                paired_result.as_dict()
-                if isinstance(paired_result, ControlResult)
-                else paired_result
-            )
-        else:
-            result_object = result_by_name.get(case.name)
-            result = (
-                result_object.as_dict()
-                if result_object is not None
-                else result_dicts.get(case.name)
-            )
-        result = result if isinstance(result, Mapping) else {}
-        status = result.get("status")
-        status = status if isinstance(status, str) else "runtime_failure"
-        error = result.get("failure")
-        error = error if isinstance(error, str) else None
-        actual_result = result.get("actual_result")
-        actual_result = dict(actual_result) if isinstance(actual_result, Mapping) else None
-        actual_outcome = result.get("observed_outcome")
-        actual_outcome = actual_outcome if isinstance(actual_outcome, str) else None
-        actual_claim_level = result.get("observed_claim_level")
-        actual_claim_level = actual_claim_level if isinstance(actual_claim_level, str) else None
-        feedback_evidence = normalize_evidence_packet(
-            case.evidence,
-            judge_enabled=judge_enabled,
-        )
-        outcome_class = _feedback_outcome_class(status, error)
-        feedback.append(
-            DetectorControlFeedback(
-                name=case.name,
-                evidence=_copy_mapping(feedback_evidence),
-                expected_outcome=case.expected_outcome,
-                expected_claim_level=case.expected_claim_level,
-                status=status,
-                actual_result=actual_result,
-                actual_outcome=actual_outcome,
-                actual_claim_level=actual_claim_level,
-                error=error,
-                outcome_class=outcome_class,
-                runtime_contract_explanation=_feedback_explanation(
-                    feedback_evidence,
-                    actual_result=actual_result,
-                    expected_claim_level=case.expected_claim_level,
-                    error=error,
-                    outcome_class=outcome_class,
-                ),
-            )
-        )
-    return tuple(feedback)
+    return [
+        _result_mapping(result_by_name[case.name])
+        if case.name in result_by_name
+        else result_dicts.get(case.name)
+        for case in cases
+    ]
+
+
+def _string_or_none(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _case_feedback(
+    case: ControlCase, result: Any, *, judge_enabled: bool
+) -> DetectorControlFeedback:
+    result = result if isinstance(result, Mapping) else {}
+    status = result.get("status")
+    status = status if isinstance(status, str) else "runtime_failure"
+    error = _string_or_none(result.get("failure"))
+    actual_result = result.get("actual_result")
+    actual_result = dict(actual_result) if isinstance(actual_result, Mapping) else None
+    feedback_evidence = normalize_evidence_packet(case.evidence, judge_enabled=judge_enabled)
+    outcome_class = _feedback_outcome_class(status, error)
+    return DetectorControlFeedback(
+        name=case.name,
+        evidence=_copy_mapping(feedback_evidence),
+        expected_outcome=case.expected_outcome,
+        expected_claim_level=case.expected_claim_level,
+        status=status,
+        actual_result=actual_result,
+        actual_outcome=_string_or_none(result.get("observed_outcome")),
+        actual_claim_level=_string_or_none(result.get("observed_claim_level")),
+        error=error,
+        outcome_class=outcome_class,
+        runtime_contract_explanation=_feedback_explanation(
+            feedback_evidence,
+            actual_result=actual_result,
+            expected_claim_level=case.expected_claim_level,
+            error=error,
+            outcome_class=outcome_class,
+        ),
+    )
 
 
 def build_detector_feedback_prompt_context(
@@ -1134,42 +1158,59 @@ def supplied_fact_operand_bindings(
     if not isinstance(condition, Mapping):
         return []
     comparisons = condition.get("comparisons")
-    bindings = plan.get("runtime_bindings")
-    declared = {
-        (item.get("source_ref"), item.get("selector")): item.get("name")
-        for item in (bindings if isinstance(bindings, list) else [])
-        if isinstance(item, Mapping) and item.get("source_kind") == "supplied_input"
-    }
+    declared = _declared_supplied_input_bindings(plan)
     forms: list[dict[str, Any]] = []
     seen: set[str] = set()
     for comparison in comparisons if isinstance(comparisons, list) else []:
         if not isinstance(comparison, Mapping):
             continue
         for side in ("left", "right"):
-            operand = comparison.get(side)
-            if not isinstance(operand, Mapping) or operand.get("source") != "fact":
-                continue
-            path = operand.get("path")
-            if not isinstance(path, str) or path in seen:
-                continue
-            parts = path.split(".")
-            if len(parts) < 2 or parts[0] != "TARGET-STATE":
-                continue
-            if _condition_path_value(path, None, inventory) is _MISSING:
+            path = _supplied_fact_operand_path(comparison.get(side), inventory)
+            if path is None or path in seen:
                 continue
             seen.add(path)
-            source_ref = f"facts:state:{parts[1]}"
-            selector = ".".join(["value", *parts[2:]])
-            forms.append(
-                {
-                    "path": path,
-                    "source_kind": "supplied_input",
-                    "source_ref": source_ref,
-                    "selector": selector,
-                    "declared_binding": declared.get((source_ref, selector)),
-                }
-            )
+            forms.append(_supplied_input_form(path, declared))
     return forms
+
+
+def _declared_supplied_input_bindings(plan: Mapping[str, Any]) -> dict[tuple[Any, Any], Any]:
+    """Map each supplied_input binding's (source_ref, selector) to its name."""
+
+    bindings = plan.get("runtime_bindings")
+    return {
+        (item.get("source_ref"), item.get("selector")): item.get("name")
+        for item in (bindings if isinstance(bindings, list) else [])
+        if isinstance(item, Mapping) and item.get("source_kind") == "supplied_input"
+    }
+
+
+def _supplied_fact_operand_path(operand: Any, inventory: Mapping[str, Any]) -> str | None:
+    """Return the TARGET-STATE path of a fact operand the supplied facts resolve."""
+
+    if not isinstance(operand, Mapping) or operand.get("source") != "fact":
+        return None
+    path = operand.get("path")
+    if not isinstance(path, str):
+        return None
+    parts = path.split(".")
+    if len(parts) < 2 or parts[0] != "TARGET-STATE":
+        return None
+    if _condition_path_value(path, None, inventory) is _MISSING:
+        return None
+    return path
+
+
+def _supplied_input_form(path: str, declared: Mapping[tuple[Any, Any], Any]) -> dict[str, Any]:
+    parts = path.split(".")
+    source_ref = f"facts:state:{parts[1]}"
+    selector = ".".join(["value", *parts[2:]])
+    return {
+        "path": path,
+        "source_kind": "supplied_input",
+        "source_ref": source_ref,
+        "selector": selector,
+        "declared_binding": declared.get((source_ref, selector)),
+    }
 
 
 def _with_operand_binding_forms(
@@ -1259,40 +1300,59 @@ def _pre_run_command_target(
     the command target and the names of its record arguments.
     """
 
-    if not isinstance(condition, Mapping):
+    if not isinstance(condition, Mapping) or not _compares_only_supplied_values(condition):
         return None
+    selection = condition.get("record_selection")
+    if not isinstance(selection, Mapping) or selection.get("status") != "observed":
+        return None
+    values = selection.get("argument_values")
+    if not isinstance(values, list):
+        return None
+    selected = _selected_record_values(values, selection.get("record_path"), inventory)
+    if selected is None:
+        return None
+    operation_name, record_values = selected
+    target = _operation_target(plan, inventory, operation_name, supplied=record_values)
+    if target is None:
+        return None
+    return target, frozenset(record_values)
+
+
+def _compares_only_supplied_values(condition: Mapping[str, Any]) -> bool:
+    """Whether every comparison is a value comparison between facts or literals."""
+
     comparisons = condition.get("comparisons")
     if not isinstance(comparisons, list) or not comparisons:
-        return None
+        return False
     for comparison in comparisons:
         if not isinstance(comparison, Mapping) or comparison.get("kind") != "value":
-            return None
+            return False
         for side in ("left", "right"):
             operand = comparison.get(side)
             if not isinstance(operand, Mapping) or operand.get("source") not in {
                 "fact",
                 "literal",
             }:
-                return None
-    selection = condition.get("record_selection")
-    if not isinstance(selection, Mapping) or selection.get("status") != "observed":
-        return None
-    record_path = selection.get("record_path")
-    values = selection.get("argument_values")
-    if not isinstance(values, list):
-        return None
+                return False
+    return True
+
+
+def _selected_record_values(
+    values: list[Any], record_path: Any, inventory: Mapping[str, Any]
+) -> tuple[str, dict[str, Any]] | None:
+    """Resolve the first named operation's record arguments from the supplied facts.
+
+    Returns None when an argument path does not resolve or no argument names
+    a record value.
+    """
+
     operation_name: str | None = None
     record_values: dict[str, Any] = {}
     for item in values:
-        if not isinstance(item, Mapping):
+        named = _record_argument_value(item)
+        if named is None:
             continue
-        operation = item.get("operation")
-        argument = item.get("argument")
-        path = item.get("path")
-        if not (
-            isinstance(operation, str) and isinstance(argument, str) and isinstance(path, str)
-        ):
-            continue
+        operation, argument, path = named
         if operation_name is None:
             operation_name = operation
         if operation != operation_name:
@@ -1303,10 +1363,18 @@ def _pre_run_command_target(
         record_values[argument] = value
     if operation_name is None or not record_values:
         return None
-    target = _operation_target(plan, inventory, operation_name, supplied=record_values)
-    if target is None:
+    return operation_name, record_values
+
+
+def _record_argument_value(item: Any) -> tuple[str, str, str] | None:
+    if not isinstance(item, Mapping):
         return None
-    return target, frozenset(record_values)
+    operation = item.get("operation")
+    argument = item.get("argument")
+    path = item.get("path")
+    if not (isinstance(operation, str) and isinstance(argument, str) and isinstance(path, str)):
+        return None
+    return operation, argument, path
 
 
 # Controls that call one fixture command a violation, or derive a negative or
@@ -1409,27 +1477,40 @@ def _condition_path_value(path: str, record_path: Any, inventory: Mapping[str, A
     parts = path.split(".")
     if len(parts) < 2 or parts[0] != "TARGET-STATE":
         return _MISSING
-    facts = inventory.get("facts")
-    fact = next(
-        (
-            item
-            for item in (facts if isinstance(facts, list) else [])
-            if isinstance(item, Mapping) and item.get("ref") == f"state:{parts[1]}"
-        ),
-        None,
-    )
+    fact = _state_fact(inventory, parts[1])
     if not isinstance(fact, Mapping) or "value" not in fact:
         return _MISSING
-    current = fact["value"]
-    for part in parts[2:]:
-        if not isinstance(current, Mapping) or part not in current:
-            return _MISSING
-        current = current[part]
+    current = _mapping_path_value(fact["value"], parts[2:])
+    if current is _MISSING:
+        return _MISSING
     if isinstance(current, Mapping):
         return parts[-1] if path == record_path and len(parts) > 2 else _MISSING
     if isinstance(current, (str, int, float, bool)):
         return current
     return _MISSING
+
+
+def _state_fact(inventory: Mapping[str, Any], key: str) -> Any:
+    """Return the first supplied fact whose ref is ``state:<key>``, or None."""
+
+    facts = inventory.get("facts")
+    return next(
+        (
+            item
+            for item in (facts if isinstance(facts, list) else [])
+            if isinstance(item, Mapping) and item.get("ref") == f"state:{key}"
+        ),
+        None,
+    )
+
+
+def _mapping_path_value(value: Any, parts: Sequence[str]) -> Any:
+    current = value
+    for part in parts:
+        if not isinstance(current, Mapping) or part not in current:
+            return _MISSING
+        current = current[part]
+    return current
 
 
 def _operation_target(
@@ -1439,6 +1520,29 @@ def _operation_target(
     *,
     supplied: Mapping[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any], dict[str, Any]] | None:
+    schema = _operation_argument_schema(inventory, operation_name)
+    if schema is None:
+        return None
+    properties, required = schema
+    arguments = _operation_arguments(
+        properties,
+        required,
+        _selected_fact_values(plan, inventory),
+        _detector_bound_numbers(plan, inventory),
+        supplied,
+    )
+    if arguments is None:
+        return None
+    if any(name not in arguments for name in required if isinstance(name, str)):
+        return None
+    return operation_name, arguments, dict(properties)
+
+
+def _operation_argument_schema(
+    inventory: Mapping[str, Any], operation_name: str
+) -> tuple[Mapping[str, Any], list[Any]] | None:
+    """Return the named inventory operation's argument properties and required names."""
+
     operations = inventory.get("operations")
     if not isinstance(operations, list):
         return None
@@ -1453,13 +1557,27 @@ def _operation_target(
     if not isinstance(operation, Mapping):
         return None
     schema = operation.get("arguments")
-    properties = schema.get("properties") if isinstance(schema, Mapping) else None
-    required = schema.get("required", []) if isinstance(schema, Mapping) else []
+    if not isinstance(schema, Mapping):
+        return None
+    properties = schema.get("properties")
+    required = schema.get("required", [])
     if not isinstance(properties, Mapping) or not isinstance(required, list):
         return None
+    return properties, required
 
-    fact_values = _selected_fact_values(plan, inventory)
-    bounds = _detector_bound_numbers(plan, inventory)
+
+def _operation_arguments(
+    properties: Mapping[str, Any],
+    required: list[Any],
+    fact_values: list[Any],
+    bounds: Sequence[int | float],
+    supplied: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Choose each argument from ``supplied``, then plan facts, then a synthetic value.
+
+    Returns None when a required argument has no synthetic value.
+    """
+
     arguments: dict[str, Any] = {}
     for name, declaration in properties.items():
         if not isinstance(name, str) or not isinstance(declaration, Mapping):
@@ -1476,9 +1594,7 @@ def _operation_target(
             if generated is _MISSING:
                 return None
             arguments[name] = generated
-    if any(name not in arguments for name in required if isinstance(name, str)):
-        return None
-    return operation_name, arguments, dict(properties)
+    return arguments
 
 
 def _command_cases(
@@ -1504,73 +1620,17 @@ def _command_cases(
         status="rejected",
         error="backend refusal is an observed command attempt",
     )
-    safe_args = dict(arguments)
-    numeric_key = next(
-        (
-            key
-            for key, declaration in properties.items()
-            if isinstance(declaration, Mapping)
-            and declaration.get("type") in {"number", "integer"}
-            and key in safe_args
-        ),
-        None,
+    equal_call = _tool_call(
+        "control-equal",
+        operation_name,
+        _equal_bound_arguments(arguments, properties),
+        status="completed",
     )
-    if numeric_key is not None:
-        value = safe_args[numeric_key]
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            safe_args[numeric_key] = value - 1 if value else 0
-    equal_call = _tool_call("control-equal", operation_name, safe_args, status="completed")
 
     wrong_args = dict(arguments)
-    identity_key = next(
-        (
-            key
-            for key, value in arguments.items()
-            if isinstance(value, str)
-            and (
-                key in record_arguments
-                if record_arguments is not None
-                else key.endswith("_id") or key == "id"
-            )
-        ),
-        None,
-    )
+    identity_key = _identity_argument(arguments, record_arguments)
     if identity_key is None:
-        return [
-            ControlCase(
-                "command-positive-refusal",
-                _base_evidence(
-                    tool_calls=[positive_call],
-                    availability={"tool_calls": "captured"},
-                    completeness={"tool_calls": "complete"},
-                    bindings=bindings,
-                ),
-                "detected",
-                claim_level,
-            ),
-            ControlCase(
-                "command-complete-empty",
-                _base_evidence(
-                    tool_calls=[],
-                    availability={"tool_calls": "captured"},
-                    completeness={"tool_calls": "complete"},
-                    bindings=bindings,
-                ),
-                "not_detected",
-                claim_level,
-            ),
-            ControlCase(
-                "command-unavailable",
-                _base_evidence(
-                    tool_calls=[],
-                    availability={"tool_calls": "not_captured"},
-                    completeness={"tool_calls": "unknown"},
-                    bindings=bindings,
-                ),
-                "inconclusive",
-                claim_level,
-            ),
-        ]
+        return _identity_free_command_cases(positive_call, claim_level, bindings=bindings)
     wrong_args[identity_key] = f"other-record:{wrong_args[identity_key]}"
     wrong_call = _tool_call("control-wrong-record", operation_name, wrong_args, status="completed")
     malformed = _malformed_command_cases(
@@ -1708,30 +1768,131 @@ def _command_cases(
         ),
     ]
     if record_arguments is not None:
-        cases = [
-            case
-            for case in cases
-            if case.name != "command-equal-bound-negative"
-            and case.name not in PRE_RUN_WITHHELD_CONTROLS
-        ]
-        unanswered = _tool_call("control-no-lookup", operation_name, arguments, status="completed")
-        unanswered.update({"raw_result": None, "decoded_result": None})
-        cases.insert(
-            1,
-            ControlCase(
-                "command-selected-record-no-lookup",
-                _base_evidence(
-                    tool_calls=[unanswered],
-                    availability={"tool_calls": "captured"},
-                    completeness={"tool_calls": "complete"},
-                    bindings=bindings,
-                ),
-                "detected",
-                claim_level,
-            ),
+        return _pre_run_command_cases(
+            cases, operation_name, arguments, claim_level, bindings=bindings
         )
-        return cases
     cases.extend(malformed)
+    return cases
+
+
+def _equal_bound_arguments(
+    arguments: Mapping[str, Any], properties: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Lower the first numeric argument by one, or to zero from zero, to meet the bound."""
+
+    safe_args = dict(arguments)
+    numeric_key = next(
+        (
+            key
+            for key, declaration in properties.items()
+            if isinstance(declaration, Mapping)
+            and declaration.get("type") in {"number", "integer"}
+            and key in safe_args
+        ),
+        None,
+    )
+    if numeric_key is not None:
+        value = safe_args[numeric_key]
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            safe_args[numeric_key] = value - 1 if value else 0
+    return safe_args
+
+
+def _identity_argument(
+    arguments: Mapping[str, Any], record_arguments: frozenset[str] | None
+) -> str | None:
+    """Name the first string argument that identifies the record the command acts on."""
+
+    return next(
+        (
+            key
+            for key, value in arguments.items()
+            if isinstance(value, str)
+            and (
+                key in record_arguments
+                if record_arguments is not None
+                else key.endswith("_id") or key == "id"
+            )
+        ),
+        None,
+    )
+
+
+def _identity_free_command_cases(
+    positive_call: dict[str, Any],
+    claim_level: str,
+    *,
+    bindings: Mapping[str, Any] | None,
+) -> list[ControlCase]:
+    return [
+        ControlCase(
+            "command-positive-refusal",
+            _base_evidence(
+                tool_calls=[positive_call],
+                availability={"tool_calls": "captured"},
+                completeness={"tool_calls": "complete"},
+                bindings=bindings,
+            ),
+            "detected",
+            claim_level,
+        ),
+        ControlCase(
+            "command-complete-empty",
+            _base_evidence(
+                tool_calls=[],
+                availability={"tool_calls": "captured"},
+                completeness={"tool_calls": "complete"},
+                bindings=bindings,
+            ),
+            "not_detected",
+            claim_level,
+        ),
+        ControlCase(
+            "command-unavailable",
+            _base_evidence(
+                tool_calls=[],
+                availability={"tool_calls": "not_captured"},
+                completeness={"tool_calls": "unknown"},
+                bindings=bindings,
+            ),
+            "inconclusive",
+            claim_level,
+        ),
+    ]
+
+
+def _pre_run_command_cases(
+    cases: list[ControlCase],
+    operation_name: str,
+    arguments: dict[str, Any],
+    claim_level: str,
+    *,
+    bindings: Mapping[str, Any] | None,
+) -> list[ControlCase]:
+    """Keep the decisive cases and add the selected-record call without a lookup result."""
+
+    cases = [
+        case
+        for case in cases
+        if case.name != "command-equal-bound-negative"
+        and case.name not in PRE_RUN_WITHHELD_CONTROLS
+    ]
+    unanswered = _tool_call("control-no-lookup", operation_name, arguments, status="completed")
+    unanswered.update({"raw_result": None, "decoded_result": None})
+    cases.insert(
+        1,
+        ControlCase(
+            "command-selected-record-no-lookup",
+            _base_evidence(
+                tool_calls=[unanswered],
+                availability={"tool_calls": "captured"},
+                completeness={"tool_calls": "complete"},
+                bindings=bindings,
+            ),
+            "detected",
+            claim_level,
+        ),
+    )
     return cases
 
 
@@ -1914,30 +2075,47 @@ def _plan_cited_fact_refs(plan: Mapping[str, Any]) -> list[str]:
     """Fact refs the plan cites or binds from supplied inputs, in plan order."""
 
     refs: list[str] = []
-
-    def add(ref: Any) -> None:
+    for ref in (
+        *_selected_evidence_refs(plan),
+        *_supplied_binding_fact_refs(plan),
+        *_prerequisite_evidence_refs(plan),
+    ):
         if isinstance(ref, str) and ref not in refs:
             refs.append(ref)
-
-    selected = plan.get("selected_evidence")
-    for item in selected if isinstance(selected, list) else []:
-        if isinstance(item, Mapping):
-            add(item.get("ref"))
-    bindings = plan.get("runtime_bindings")
-    for item in bindings if isinstance(bindings, list) else []:
-        if (
-            isinstance(item, Mapping)
-            and item.get("source_kind") == "supplied_input"
-            and isinstance(item.get("source_ref"), str)
-            and item["source_ref"].startswith("facts:")
-        ):
-            add(item["source_ref"].removeprefix("facts:"))
-    prerequisites = plan.get("prerequisites")
-    for item in prerequisites if isinstance(prerequisites, list) else []:
-        if isinstance(item, Mapping) and isinstance(item.get("evidence_refs"), list):
-            for ref in item["evidence_refs"]:
-                add(ref)
     return refs
+
+
+def _plan_list(plan: Mapping[str, Any], key: str) -> list[Any]:
+    value = plan.get(key)
+    return value if isinstance(value, list) else []
+
+
+def _selected_evidence_refs(plan: Mapping[str, Any]) -> list[Any]:
+    return [
+        item.get("ref")
+        for item in _plan_list(plan, "selected_evidence")
+        if isinstance(item, Mapping)
+    ]
+
+
+def _supplied_binding_fact_refs(plan: Mapping[str, Any]) -> list[str]:
+    return [
+        item["source_ref"].removeprefix("facts:")
+        for item in _plan_list(plan, "runtime_bindings")
+        if isinstance(item, Mapping)
+        and item.get("source_kind") == "supplied_input"
+        and isinstance(item.get("source_ref"), str)
+        and item["source_ref"].startswith("facts:")
+    ]
+
+
+def _prerequisite_evidence_refs(plan: Mapping[str, Any]) -> list[Any]:
+    return [
+        ref
+        for item in _plan_list(plan, "prerequisites")
+        if isinstance(item, Mapping) and isinstance(item.get("evidence_refs"), list)
+        for ref in item["evidence_refs"]
+    ]
 
 
 def _trigger_call(
@@ -2075,11 +2253,6 @@ def _omission_triggers(
         name for name in established_trigger_operations(plan, inventory) if name in trigger_names
     ]
     run_time_names = [name for name in trigger_names if name not in established]
-    run_time_prefix = [
-        call
-        for name, call in zip(trigger_names, trigger_calls, strict=True)
-        if name in run_time_names and call is not None
-    ]
     missing_triggers = [
         name for name, call in zip(trigger_names, trigger_calls, strict=True) if call is None
     ]
@@ -2087,7 +2260,7 @@ def _omission_triggers(
         names=trigger_names,
         established=established,
         run_time_names=run_time_names,
-        run_time_prefix=run_time_prefix,
+        run_time_prefix=_run_time_trigger_prefix(trigger_names, trigger_calls, run_time_names),
         triggers=(
             None if missing_triggers else [call for call in trigger_calls if call is not None]
         ),
@@ -2096,6 +2269,18 @@ def _omission_triggers(
             "result for them; a trigger fixture would need an invented result"
         ),
     )
+
+
+def _run_time_trigger_prefix(
+    trigger_names: list[str],
+    trigger_calls: list[dict[str, Any] | None],
+    run_time_names: list[str],
+) -> list[dict[str, Any]]:
+    return [
+        call
+        for name, call in zip(trigger_names, trigger_calls, strict=True)
+        if name in run_time_names and call is not None
+    ]
 
 
 def _omission_evidence(
@@ -2401,26 +2586,35 @@ def _supplied_control_bindings(
     }
     result: dict[str, Any] = {}
     for declaration in declarations:
-        if not isinstance(declaration, Mapping):
+        supplied = _supplied_fact_selection(declaration)
+        if supplied is None:
             continue
-        name = declaration.get("name")
-        source_ref = declaration.get("source_ref")
-        selector = declaration.get("selector")
-        if (
-            not isinstance(name, str)
-            or not isinstance(source_ref, str)
-            or not isinstance(selector, str)
-            or declaration.get("source_kind") != "supplied_input"
-            or not source_ref.startswith("facts:")
-        ):
-            continue
-        fact_ref = source_ref.removeprefix("facts:")
+        name, fact_ref, selector = supplied
         if fact_ref not in fact_by_ref:
             continue
         value = _select_control_value(fact_by_ref[fact_ref], selector)
         if value is not _MISSING:
             result[name] = value
     return result
+
+
+def _supplied_fact_selection(declaration: Any) -> tuple[str, str, str] | None:
+    """Return (name, fact ref, selector) of a supplied_input binding on a fact."""
+
+    if not isinstance(declaration, Mapping):
+        return None
+    name = declaration.get("name")
+    source_ref = declaration.get("source_ref")
+    selector = declaration.get("selector")
+    if (
+        not isinstance(name, str)
+        or not isinstance(source_ref, str)
+        or not isinstance(selector, str)
+        or declaration.get("source_kind") != "supplied_input"
+        or not source_ref.startswith("facts:")
+    ):
+        return None
+    return name, source_ref.removeprefix("facts:"), selector
 
 
 def _select_control_value(value: Any, selector: str) -> Any:
