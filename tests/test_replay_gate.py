@@ -622,3 +622,106 @@ def test_main_runs_one_replay_item_with_the_generate_arguments(
 def test_main_rejects_a_replay_item_without_the_separator() -> None:
     with pytest.raises(SystemExit, match="usage: _replay-item"):
         replay_gate.main(["_replay-item", "r.json", "s.json", "n.log", "generate"])
+
+
+def _attempt(content: str | None = '{"ok":true}', **changes: object) -> dict:
+    import base64
+    import hashlib
+
+    raw = content.encode("utf-8") if content is not None else b""
+    attempt = {
+        "dispatch_index": 3,
+        "stage": "author",
+        "raw_response": {
+            "availability": "available",
+            "base64": base64.b64encode(raw).decode("ascii"),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        },
+        "response_capture": {
+            "final_answer": (
+                {"state": "text", "content": content} if content else {"state": "absent"}
+            ),
+            "reasoning": {"state": "absent"},
+            "finish_reason": {"state": "value", "value": "stop"},
+        },
+        "prompt": {"version": "v1", "system": "system text", "user": "user text"},
+        "model_identity": {
+            "requested_model": "model-a",
+            "returned_model": {"availability": "available", "value": "model-a-1"},
+        },
+        "usage": {"availability": "unavailable"},
+    }
+    attempt.update(changes)
+    return attempt
+
+
+def _capture(**states: dict) -> dict:
+    capture = {
+        "final_answer": {"state": "text", "content": '{"ok":true}'},
+        "reasoning": {"state": "absent"},
+        "finish_reason": {"state": "value", "value": "stop"},
+    }
+    capture.update(states)
+    return capture
+
+
+def test_recorded_call_rebuilds_the_attempt_fields() -> None:
+    call = replay_gate._recorded_call(_attempt())
+
+    assert call.dispatch_index == 3
+    assert call.raw == b'{"ok":true}'
+    assert call.prompt_version == "v1"
+    assert call.returned_model == "model-a-1"
+    assert call.usage is None
+    assert replay_gate._recorded_call(_attempt(None)).raw == b""
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"raw_response": None}, "dispatch 3 \\(author\\): raw_response is not available"),
+        ({"raw_response": {"availability": "unavailable"}}, "raw_response is not available"),
+        (
+            {"raw_response": {"availability": "available", "base64": "", "sha256": "0"}},
+            "raw_response bytes do not match their sha256",
+        ),
+        ({"response_capture": None}, "final_answer state cannot be rebuilt: {}"),
+        (
+            {"response_capture": _capture(reasoning={"state": "redacted"})},
+            "reasoning state cannot be rebuilt",
+        ),
+        (
+            {"response_capture": _capture(finish_reason={"state": "text"})},
+            "finish_reason cannot be rebuilt",
+        ),
+        (
+            {"response_capture": _capture(final_answer={"state": "null"})},
+            "raw_response differs from final_answer content",
+        ),
+    ],
+)
+def test_recorded_call_rejects_an_attempt_it_cannot_rebuild(changes: dict, message: str) -> None:
+    with pytest.raises(ReplayRecordError, match=message):
+        replay_gate._recorded_call(_attempt(**changes))
+
+
+@pytest.mark.parametrize(
+    ("left", "right", "expected"),
+    [
+        ({"a": 1}, {"a": 1}, None),
+        ([1, [2]], [1, [2]], None),
+        (1, "1", '$: 1 != "1"'),
+        ({"a": 1}, {"a": 2}, "$.a: 1 != 2"),
+        ({"a": 1}, {"a": 1, "b": 2}, "$.b: only in replay"),
+        ({"a": 1, "b": 2}, {"a": 1}, "$.b: only in recording"),
+        ({"a": 1, "b": 2}, {"b": 2, "a": 1}, "$: key order ['a', 'b'] != ['b', 'a']"),
+        ({"a": [1, {"b": "x"}]}, {"a": [1, {"b": "y"}]}, '$.a[1].b: "x" != "y"'),
+        ([1, 2], [1], "$: length 2 != 1"),
+        ("x" * 200, "y", '$: "' + "x" * 159 + '... != "y"'),
+    ],
+)
+def test_first_difference_names_the_first_differing_location(
+    left: object, right: object, expected: str | None
+) -> None:
+    # Callers pass the recording as the left side and the replay as the right.
+    assert replay_gate._first_difference(left, right) == expected
