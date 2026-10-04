@@ -88,6 +88,42 @@ def load_authoring_profile(
     """
 
     path = Path(profiles_file)
+    entry = _profile_lookup(path, profile_name)[profile_name]
+    if not isinstance(entry, dict):
+        raise ProfileFieldError(
+            f"profile {profile_name!r} is not a mapping",
+            path=path,
+            profile_name=profile_name,
+        )
+    values: dict[str, Any] = {}
+    for field_name in REQUIRED_PROFILE_FIELDS:
+        value = entry.get(field_name)
+        if not isinstance(value, str) or not value.strip():
+            raise ProfileFieldError(
+                f"profile {profile_name!r} is missing required field {field_name!r}",
+                path=path,
+                profile_name=profile_name,
+                field=field_name,
+            )
+        values[field_name] = value
+    readers: tuple[tuple[str, Any, dict[str, Any]], ...] = (
+        ("reasoning_effort", _optional_nonblank_string, {}),
+        ("service_tier", _optional_nonblank_string, {}),
+        ("service_tier_fallback", _optional_nonblank_string, {}),
+        ("sampling_controls", _optional_boolean, {"default": True}),
+        ("strict_json_schema", _optional_boolean, {"default": None}),
+        ("context_window", _optional_positive_integer, {}),
+        ("max_completion_tokens", _optional_positive_integer, {}),
+        ("timeout", _optional_positive_number, {}),
+    )
+    optional = {
+        name: read(entry, name, path=path, profile_name=profile_name, **extra)
+        for name, read, extra in readers
+    }
+    return AuthoringProfile(name=profile_name, **values, **optional)
+
+
+def _profile_lookup(path: Path, profile_name: str) -> dict[Any, Any]:
     if not isinstance(profile_name, str) or not profile_name.strip():
         raise ProfileNotFoundError(
             "profile name must be a nonblank string",
@@ -109,75 +145,20 @@ def load_authoring_profile(
             path=path,
             profile_name=profile_name,
         )
-    if "profiles" in raw:
-        lookup = raw["profiles"]
-        if not isinstance(lookup, dict):
-            raise ProfileFileError(
-                f"profiles entry is not a mapping: {path}",
-                path=path,
-                profile_name=profile_name,
-            )
-    else:
-        lookup = raw
+    lookup = raw["profiles"] if "profiles" in raw else raw
+    if not isinstance(lookup, dict):
+        raise ProfileFileError(
+            f"profiles entry is not a mapping: {path}",
+            path=path,
+            profile_name=profile_name,
+        )
     if profile_name not in lookup:
         raise ProfileNotFoundError(
             f"profile {profile_name!r} not found in {path}",
             path=path,
             profile_name=profile_name,
         )
-    entry = lookup[profile_name]
-    if not isinstance(entry, dict):
-        raise ProfileFieldError(
-            f"profile {profile_name!r} is not a mapping",
-            path=path,
-            profile_name=profile_name,
-        )
-    values: dict[str, Any] = {}
-    for field_name in REQUIRED_PROFILE_FIELDS:
-        value = entry.get(field_name)
-        if not isinstance(value, str) or not value.strip():
-            raise ProfileFieldError(
-                f"profile {profile_name!r} is missing required field {field_name!r}",
-                path=path,
-                profile_name=profile_name,
-                field=field_name,
-            )
-        values[field_name] = value
-    optional = {
-        "reasoning_effort": _optional_nonblank_string(
-            entry, "reasoning_effort", path=path, profile_name=profile_name
-        ),
-        "service_tier": _optional_nonblank_string(
-            entry, "service_tier", path=path, profile_name=profile_name
-        ),
-        "service_tier_fallback": _optional_nonblank_string(
-            entry, "service_tier_fallback", path=path, profile_name=profile_name
-        ),
-        "sampling_controls": _optional_boolean(
-            entry,
-            "sampling_controls",
-            default=True,
-            path=path,
-            profile_name=profile_name,
-        ),
-        "strict_json_schema": _optional_boolean(
-            entry,
-            "strict_json_schema",
-            default=None,
-            path=path,
-            profile_name=profile_name,
-        ),
-        "context_window": _optional_positive_integer(
-            entry, "context_window", path=path, profile_name=profile_name
-        ),
-        "max_completion_tokens": _optional_positive_integer(
-            entry, "max_completion_tokens", path=path, profile_name=profile_name
-        ),
-        "timeout": _optional_positive_number(
-            entry, "timeout", path=path, profile_name=profile_name
-        ),
-    }
-    return AuthoringProfile(name=profile_name, **values, **optional)
+    return lookup
 
 
 def _optional_nonblank_string(
