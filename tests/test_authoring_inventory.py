@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from asago_artifact_generator.authoring.core import ArtifactValidationError
-from asago_artifact_generator.authoring.inventory import _resolved_judge_spec
+from asago_artifact_generator.authoring.inventory import _first_fact_named, _resolved_judge_spec
 
 _INVENTORY = {
     "facts": [
@@ -62,3 +62,11 @@ def test_resolved_judge_spec_resolves_supplied_facts() -> None:
             {"ref": "fact:b", "value": "two", "source": "fact:b"},
         ],
     }
+
+
+def test_first_fact_named_returns_the_first_matching_fact_or_none() -> None:
+    inventory = {"facts": ["skip", {"ref": "a", "n": 1}, {"ref": "a", "n": 2}]}
+
+    assert _first_fact_named(inventory, "a") == {"ref": "a", "n": 1}
+    assert _first_fact_named(inventory, "b") is None
+    assert _first_fact_named({}, "a") is None

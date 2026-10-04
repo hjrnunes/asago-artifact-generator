@@ -45,6 +45,19 @@ def _inventory_references(inventory: dict[str, Any]) -> set[str]:
     return references
 
 
+def _first_fact_named(inventory: dict[str, Any], reference: Any) -> dict[str, Any] | None:
+    """Return the first supplied fact whose ref equals ``reference``."""
+
+    return next(
+        (
+            item
+            for item in inventory.get("facts", [])
+            if isinstance(item, dict) and item.get("ref") == reference
+        ),
+        None,
+    )
+
+
 def _inventory_fact_map(inventory: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Return supplied static facts keyed by their authoritative reference."""
 

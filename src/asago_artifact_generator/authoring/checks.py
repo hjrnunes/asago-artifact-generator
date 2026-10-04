@@ -37,7 +37,7 @@ from .core import (
     _matches_schema_type,
     _supported_claim_levels,
 )
-from .inventory import _inventory_fact_map, _inventory_references
+from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
 
 
 def parse_call2_response(raw: bytes | str) -> ParsedCall2Response:
@@ -1959,14 +1959,7 @@ def _supplied_input_source_schema(
 ) -> tuple[Any, str | None]:
     """Return a supplied fact's raw schema, or why the fact is unknown."""
 
-    fact = next(
-        (
-            item
-            for item in inventory.get("facts", [])
-            if isinstance(item, dict) and item.get("ref") == reference
-        ),
-        None,
-    )
+    fact = _first_fact_named(inventory, reference)
     if fact is None:
         return None, f"unknown supplied fact: {reference}"
     return fact.get("schema"), None

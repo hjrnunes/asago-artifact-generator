@@ -14,6 +14,7 @@ from typing import Any
 from ..bindings import CLOSED_TYPES, canonical_binding_paths, named_record_facts
 from .checks import _binding_selector_type, _binding_source_schema, _binding_types_compatible
 from .core import Call1FramingError, Finding
+from .inventory import _first_fact_named
 from .response_decode import _decode_v2_json_response
 
 _BINDING_REPAIR_SELECTOR_LIMIT = 40
@@ -362,17 +363,6 @@ def _selector_notes(
     return notes
 
 
-def _first_fact_named(inventory: dict[str, Any], reference: str) -> dict[str, Any] | None:
-    return next(
-        (
-            item
-            for item in inventory.get("facts", [])
-            if isinstance(item, dict) and item.get("ref") == reference
-        ),
-        None,
-    )
-
-
 def _supplied_value_empty_fields(
     source_kind: Any,
     source_ref: Any,
@@ -685,14 +675,7 @@ def _supplied_fact_selector_source(
 ) -> dict[str, Any] | None:
     """Return one evidence fact's selector choices, if it is bindable."""
 
-    fact = next(
-        (
-            item
-            for item in inventory.get("facts", [])
-            if isinstance(item, dict) and item.get("ref") == reference
-        ),
-        None,
-    )
+    fact = _first_fact_named(inventory, reference)
     if not isinstance(fact, dict) or not isinstance(fact.get("schema"), dict):
         return None
     selectors, _, truncated = _binding_selector_details(
