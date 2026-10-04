@@ -226,3 +226,83 @@ def test_overwrite_replaces_a_symlinked_destination_without_touching_its_target(
     assert load_package(destination).manifest.package_id == "pkg-2"
     assert load_package(target).manifest.package_id == "pkg-1"
     assert _leftovers(tmp_path) == []
+
+
+def _rewrite_manifest(destination: Path, mutate, *, redigest: bool = True) -> None:
+    import json
+
+    manifest_path = destination / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    mutate(manifest)
+    if redigest:
+        manifest["manifest_digest"] = package_io._manifest_digest(manifest)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def _set_field(name: str, value: object):
+    return lambda manifest: manifest.__setitem__(name, value)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "redigest", "message"),
+    [
+        (_set_field("schema_version", "artifact-package-v1"), True, "unknown artifact package"),
+        (_set_field("manifest_digest", ""), False, "manifest digest is missing"),
+        (_set_field("manifest_digest", "0" * 64), False, "manifest digest mismatch"),
+        (_set_field("package_id", ""), True, "manifest field is blank: package_id"),
+        (_set_field("detector_interface", 3), True, "manifest field is blank: detector_interface"),
+        (_set_field("input_kind", "other"), True, "unsupported package input kind: other"),
+        (_set_field("source_digests", {}), True, "source_digests must contain SHA-256 strings"),
+        (_set_field("authoring", "notes"), True, "manifest metadata must be objects"),
+        (_set_field("members", "plan.json"), True, "manifest members must be a list"),
+        (lambda manifest: manifest.pop("authoring"), True, "package manifest fields invalid"),
+        (
+            lambda manifest: manifest["members"].append(manifest["members"][0]),
+            True,
+            "duplicate package member: ",
+        ),
+        (
+            lambda manifest: manifest["members"][0].__setitem__("length", 0),
+            True,
+            "length mismatch for package member: ",
+        ),
+    ],
+)
+def test_loader_rejects_an_invalid_manifest(
+    tmp_path: Path, mutate, redigest: bool, message: str
+) -> None:
+    destination = write_package(tmp_path / "package", _package())
+    _rewrite_manifest(destination, mutate, redigest=redigest)
+
+    with pytest.raises(PackageIntegrityError, match=message):
+        load_package(destination)
+
+
+def test_loader_rejects_a_package_whose_layout_differs_from_the_manifest(
+    tmp_path: Path,
+) -> None:
+    extra_file = write_package(tmp_path / "extra-file", _package())
+    (extra_file / "notes.json").write_bytes(b"{}")
+    extra_directory = write_package(tmp_path / "extra-directory", _package())
+    (extra_directory / "authoring" / "empty").mkdir()
+    missing_member = write_package(tmp_path / "missing-member", _package())
+    (missing_member / "plan.json").unlink()
+    linked = write_package(tmp_path / "linked", _package())
+    (linked / "authoring" / "link.json").symlink_to(linked / "plan.json")
+    unreadable = write_package(tmp_path / "unreadable", _package())
+    (unreadable / "manifest.json").write_text("{", encoding="utf-8")
+    not_object = write_package(tmp_path / "not-object", _package())
+    (not_object / "manifest.json").write_text("[]", encoding="utf-8")
+
+    cases = [
+        (extra_file, "package member set does not match manifest"),
+        (extra_directory, "package directory set does not match manifest"),
+        (missing_member, "missing package member: plan.json"),
+        (linked, "symlink is not allowed in package"),
+        (unreadable, "invalid package manifest"),
+        (not_object, "package manifest must be an object"),
+        (tmp_path / "absent", "package directory is unavailable"),
+    ]
+    for destination, message in cases:
+        with pytest.raises(PackageIntegrityError, match=message):
+            load_package(destination)

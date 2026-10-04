@@ -204,21 +204,35 @@ def load_package(path: str | Path) -> ArtifactPackage:
         if candidate.is_symlink():
             raise PackageIntegrityError(f"symlink is not allowed in package: {candidate}")
     members: dict[str, bytes] = {}
-    expected_paths: set[str] = set()
     for record in manifest.members:
-        relative = _validate_member_path(record.get("path"))
-        if relative in expected_paths:
-            raise PackageIntegrityError(f"duplicate package member: {relative}")
-        expected_paths.add(relative)
-        member_path = _contained_path(root, relative)
-        if not member_path.is_file() or member_path.is_symlink():
-            raise PackageIntegrityError(f"missing package member: {relative}")
-        content = member_path.read_bytes()
-        if record.get("sha256") != _sha256(content):
-            raise PackageIntegrityError(f"digest mismatch for package member: {relative}")
-        if record.get("length") != len(content):
-            raise PackageIntegrityError(f"length mismatch for package member: {relative}")
+        relative, content = _load_member(root, record, members)
         members[relative] = content
+    _verify_package_layout(root, set(members))
+    package = ArtifactPackage(manifest, members)
+    _validate_package(package)
+    return package
+
+
+def _load_member(root: Path, record: Any, loaded: dict[str, bytes]) -> tuple[str, bytes]:
+    """Read one manifest member and verify its path, digest, and length."""
+
+    relative = _validate_member_path(record.get("path"))
+    if relative in loaded:
+        raise PackageIntegrityError(f"duplicate package member: {relative}")
+    member_path = _contained_path(root, relative)
+    if not member_path.is_file() or member_path.is_symlink():
+        raise PackageIntegrityError(f"missing package member: {relative}")
+    content = member_path.read_bytes()
+    if record.get("sha256") != _sha256(content):
+        raise PackageIntegrityError(f"digest mismatch for package member: {relative}")
+    if record.get("length") != len(content):
+        raise PackageIntegrityError(f"length mismatch for package member: {relative}")
+    return relative, content
+
+
+def _verify_package_layout(root: Path, expected_paths: set[str]) -> None:
+    """Require the package's files and directories to be exactly the manifest's."""
+
     actual_paths = {
         path.relative_to(root).as_posix()
         for path in root.rglob("*")
@@ -237,9 +251,6 @@ def load_package(path: str | Path) -> ArtifactPackage:
     }
     if actual_directories != expected_directories:
         raise PackageIntegrityError("package directory set does not match manifest")
-    package = ArtifactPackage(manifest, members)
-    _validate_package(package)
-    return package
 
 
 def _normalize_members(members: dict[str, bytes]) -> dict[str, bytes]:
