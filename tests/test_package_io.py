@@ -306,3 +306,23 @@ def test_loader_rejects_a_package_whose_layout_differs_from_the_manifest(
     for destination, message in cases:
         with pytest.raises(PackageIntegrityError, match=message):
             load_package(destination)
+
+
+@pytest.mark.parametrize(
+    ("name", "message"),
+    [
+        ("a\\b.json", "invalid package member path: 'a\\\\b.json'"),
+        ("./plan.json", "non-canonical package member path: './plan.json'"),
+        ("notes.txt", "unexpected package member path: notes.txt"),
+    ],
+)
+def test_build_package_names_the_rejected_member_path(name: str, message: str) -> None:
+    with pytest.raises(PackagePathError) as caught:
+        build_package(
+            package_id="pkg-1",
+            scenario_id="scenario-1",
+            input_kind="scenario-handoff-v1",
+            source_digests={"source": "a" * 64},
+            members={name: b"x"},
+        )
+    assert str(caught.value) == message

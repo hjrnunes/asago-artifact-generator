@@ -240,17 +240,20 @@ def _verify_package_layout(root: Path, expected_paths: set[str]) -> None:
     }
     if actual_paths != expected_paths:
         raise PackageIntegrityError("package member set does not match manifest")
-    expected_directories = {
-        parent.as_posix()
-        for relative in expected_paths
-        for parent in Path(relative).parents
-        if str(parent) != "."
-    }
     actual_directories = {
         path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_dir()
     }
-    if actual_directories != expected_directories:
+    if actual_directories != _member_directories(expected_paths):
         raise PackageIntegrityError("package directory set does not match manifest")
+
+
+def _member_directories(paths: set[str]) -> set[str]:
+    return {
+        parent.as_posix()
+        for relative in paths
+        for parent in Path(relative).parents
+        if str(parent) != "."
+    }
 
 
 def _normalize_members(members: dict[str, bytes]) -> dict[str, bytes]:
@@ -352,11 +355,7 @@ def _validate_manifest_fields(manifest: PackageManifest) -> None:
         raise PackageIntegrityError("manifest digest is missing")
     if manifest.manifest_digest != _manifest_digest(manifest.to_dict()):
         raise PackageIntegrityError("manifest digest mismatch")
-    for name in ("package_id", "scenario_id", "input_kind", "detector_interface"):
-        if not isinstance(getattr(manifest, name), str) or not getattr(manifest, name):
-            raise PackageIntegrityError(f"manifest field is blank: {name}")
-    if manifest.input_kind not in _INPUT_KINDS:
-        raise PackageIntegrityError(f"unsupported package input kind: {manifest.input_kind}")
+    _validate_manifest_names(manifest)
     if not _is_source_digest_map(manifest.source_digests):
         raise PackageIntegrityError("manifest source_digests must contain SHA-256 strings")
     for value in (
@@ -367,6 +366,14 @@ def _validate_manifest_fields(manifest: PackageManifest) -> None:
         _validate_manifest_metadata(value)
     if not isinstance(manifest.members, list):
         raise PackageIntegrityError("manifest members must be a list")
+
+
+def _validate_manifest_names(manifest: PackageManifest) -> None:
+    for name in ("package_id", "scenario_id", "input_kind", "detector_interface"):
+        if not isinstance(getattr(manifest, name), str) or not getattr(manifest, name):
+            raise PackageIntegrityError(f"manifest field is blank: {name}")
+    if manifest.input_kind not in _INPUT_KINDS:
+        raise PackageIntegrityError(f"unsupported package input kind: {manifest.input_kind}")
 
 
 def _is_source_digest_map(value: Any) -> bool:
