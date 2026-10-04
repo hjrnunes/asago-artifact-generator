@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..package_io import ArtifactPackage
+from ..value_checks import is_nonblank_str
 from .core import (
     MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK,
     MAX_AUTHORING_REQUESTS,
@@ -44,28 +45,15 @@ class AuthoringBudget:
             "total_dispatched",
         ):
             _validate_nonnegative_integer(name, getattr(self, name))
-        if not isinstance(self.dispatched_by_task, dict):
-            raise ValueError("dispatched_by_task must be a mapping")
-        if not isinstance(self.dispatched_by_task_role, dict):
-            raise ValueError("dispatched_by_task_role must be a mapping")
+        for name in ("dispatched_by_task", "dispatched_by_task_role"):
+            if not isinstance(getattr(self, name), dict):
+                raise ValueError(f"{name} must be a mapping")
         for task_id, count in self.dispatched_by_task.items():
-            if not isinstance(task_id, str) or not task_id.strip():
-                raise ValueError("dispatched_by_task keys must be nonblank strings")
+            _validate_task_key("dispatched_by_task", task_id)
             _validate_nonnegative_integer(f"dispatched_by_task[{task_id!r}]", count)
         for task_id, roles in self.dispatched_by_task_role.items():
-            if not isinstance(task_id, str) or not task_id.strip():
-                raise ValueError("dispatched_by_task_role keys must be nonblank strings")
-            if not isinstance(roles, dict):
-                raise ValueError(f"dispatched_by_task_role[{task_id!r}] must be a mapping")
-            for role, count in roles.items():
-                if role not in {"author", "reviewer"}:
-                    raise ValueError(
-                        f"dispatched_by_task_role[{task_id!r}] has unsupported role {role!r}"
-                    )
-                _validate_nonnegative_integer(
-                    f"dispatched_by_task_role[{task_id!r}][{role!r}]",
-                    count,
-                )
+            _validate_task_key("dispatched_by_task_role", task_id)
+            _validate_role_counts(task_id, roles)
 
     @classmethod
     def from_prior_spend(
@@ -214,6 +202,20 @@ def _validate_nonnegative_integer(name: str, value: Any) -> None:
         raise ValueError(f"{name} must be a nonnegative integer, got {value!r}")
 
 
+def _validate_task_key(name: str, task_id: Any) -> None:
+    if not is_nonblank_str(task_id):
+        raise ValueError(f"{name} keys must be nonblank strings")
+
+
+def _validate_role_counts(task_id: str, roles: Any) -> None:
+    if not isinstance(roles, dict):
+        raise ValueError(f"dispatched_by_task_role[{task_id!r}] must be a mapping")
+    for role, count in roles.items():
+        if role not in {"author", "reviewer"}:
+            raise ValueError(f"dispatched_by_task_role[{task_id!r}] has unsupported role {role!r}")
+        _validate_nonnegative_integer(f"dispatched_by_task_role[{task_id!r}][{role!r}]", count)
+
+
 @dataclass(frozen=True)
 class AuthoringPolicy:
     """Stage-local correction allowances and review switches for one task.
@@ -235,22 +237,17 @@ class AuthoringPolicy:
         for name in ("review_plan", "review_artifact"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"{name} must be a boolean")
-        if self.review_model_profile is not None and (
-            not isinstance(self.review_model_profile, str) or not self.review_model_profile.strip()
+        if self.review_model_profile is not None and not is_nonblank_str(
+            self.review_model_profile
         ):
             raise ValueError("review_model_profile must be a nonblank string when provided")
-        explicit: dict[str, int] = {}
         for name in ("plan_max_corrections", "artifact_max_corrections"):
             value = getattr(self, name)
             if value is _UNSET_CORRECTIONS:
-                continue
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ValueError(f"{name} must be a nonnegative integer, got {value!r}")
-            explicit[name] = value
-        object.__setattr__(self, "plan_max_corrections", explicit.get("plan_max_corrections", 1))
-        object.__setattr__(
-            self, "artifact_max_corrections", explicit.get("artifact_max_corrections", 1)
-        )
+                value = 1
+            else:
+                _validate_nonnegative_integer(name, value)
+            object.__setattr__(self, name, value)
 
     @classmethod
     def from_cli(

@@ -264,3 +264,25 @@ def test_budget_accepts_well_formed_dispatch_counters() -> None:
     )
 
     assert budget.dispatched_by_task_role == {"task": {"author": 2, "reviewer": 1}}
+
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        ({"review_plan": 1}, "review_plan must be a boolean"),
+        ({"review_artifact": "yes"}, "review_artifact must be a boolean"),
+        ({"review_model_profile": " "}, "review_model_profile must be a nonblank string"),
+        ({"review_model_profile": 3}, "review_model_profile must be a nonblank string"),
+        ({"plan_max_corrections": True}, "plan_max_corrections must be a nonnegative integer"),
+        ({"artifact_max_corrections": -1}, "artifact_max_corrections must be a nonnegative"),
+    ],
+)
+def test_policy_rejects_malformed_fields(fields: dict[str, object], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        AuthoringPolicy(**fields)
+
+
+def test_policy_defaults_unset_corrections_to_one() -> None:
+    policy = AuthoringPolicy(artifact_max_corrections=0)
+
+    assert (policy.plan_max_corrections, policy.artifact_max_corrections) == (1, 0)
