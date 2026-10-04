@@ -108,26 +108,12 @@ def _resolved_judge_spec(
 
 def _selected_refs(plan: dict[str, Any], inventory: dict[str, Any]) -> dict[str, set[str]]:
     selected = {"operations": set(), "facts": set(), "sources": set()}
-    operation_names = {
-        item.get("name")
-        for item in inventory.get("operations", [])
-        if isinstance(item, dict) and item.get("name")
-    }
-    fact_refs = {
-        item.get("ref")
-        for item in inventory.get("facts", [])
-        if isinstance(item, dict) and item.get("ref")
-    }
+    operation_names = _truthy_inventory_keys(inventory, "operations", "name")
+    fact_refs = _truthy_inventory_keys(inventory, "facts", "ref")
     for item in plan.get("selected_evidence", []):
         ref = item.get("ref") if isinstance(item, dict) else ""
-        if ref in operation_names:
-            selected["operations"].add(ref)
-        elif ref.startswith("operation:") and ref.split(":", 1)[1] in operation_names:
-            selected["operations"].add(ref.split(":", 1)[1])
-        elif ref in fact_refs:
-            selected["facts"].add(ref)
-        else:
-            selected["sources"].add(ref)
+        kind, name = _selected_evidence_ref(ref, operation_names, fact_refs)
+        selected[kind].add(name)
     for item in plan.get("runtime_bindings", []):
         if isinstance(item, dict):
             ref = item.get("source_ref", "")
@@ -136,6 +122,28 @@ def _selected_refs(plan: dict[str, Any], inventory: dict[str, Any]) -> dict[str,
             elif ref.startswith("facts:"):
                 selected["facts"].add(ref.split(":", 1)[1])
     return selected
+
+
+def _truthy_inventory_keys(inventory: dict[str, Any], section: str, key: str) -> set[Any]:
+    return {
+        item.get(key)
+        for item in inventory.get(section, [])
+        if isinstance(item, dict) and item.get(key)
+    }
+
+
+def _selected_evidence_ref(
+    ref: Any, operation_names: set[Any], fact_refs: set[Any]
+) -> tuple[str, Any]:
+    """Classify one selected evidence ref as an operation, a fact, or a source."""
+
+    if ref in operation_names:
+        return "operations", ref
+    if ref.startswith("operation:") and ref.split(":", 1)[1] in operation_names:
+        return "operations", ref.split(":", 1)[1]
+    if ref in fact_refs:
+        return "facts", ref
+    return "sources", ref
 
 
 def _input_view_payload(
