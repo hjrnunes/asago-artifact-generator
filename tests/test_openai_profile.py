@@ -493,3 +493,19 @@ def test_transport_keeps_valid_options_and_passes_the_timeout_to_the_client() ->
     assert transport.timeout == 2.5
     assert transport._client.timeout == 2.5
     assert transport._client.max_retries == 0
+
+
+def test_controls_record_extra_body_that_survives_disabled_sampling_controls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completions = _FakeCompletions([_response()])
+    monkeypatch.setattr("openai.OpenAI", lambda **kwargs: _FakeOpenAI(completions, **kwargs))
+
+    response = _transport(sampling_controls=False, extra_body={"custom": 1}).complete(_packet())
+
+    assert completions.requests[0]["extra_body"] == {"custom": 1}
+    assert response.controls == {
+        "max_retries": 0,
+        "extra_body": {"custom": 1},
+        "sampling_controls": False,
+    }

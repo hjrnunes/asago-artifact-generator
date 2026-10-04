@@ -17,7 +17,7 @@ from .core import (
     _model_dump,
 )
 from .prompt_safety import _endpoint_identity, _endpoint_prompt_paths
-from .response_decode import _MISSING, _provider_field, _provider_response_capture
+from .response_decode import _provider_field, _provider_response_capture
 
 
 class PrivateModelAuthoringTransport:
@@ -155,50 +155,47 @@ class PrivateModelAuthoringTransport:
             request["reasoning_effort"] = self.reasoning_effort
         if self.service_tier is not None:
             request["service_tier"] = self.service_tier
-        fallback_used = False
+        response = self._create(request, extra_body, max_completion_tokens)
+        choice = response.choices[0]
+        message = choice.message
+        provider_model = getattr(response, "model", None)
+        content = _provider_field(message, "content")
+        return TransportResponse(
+            raw=content.encode("utf-8") if isinstance(content, str) else b"",
+            usage=_model_dump(getattr(response, "usage", None)),
+            controls=deepcopy(self.last_controls) if self.last_controls is not None else {},
+            response_capture=_provider_response_capture(choice, message),
+            provider_model=provider_model if is_nonblank_str(provider_model) else None,
+        )
+
+    def _create(
+        self,
+        request: dict[str, Any],
+        extra_body: dict[str, Any] | None,
+        max_completion_tokens: int | None,
+    ) -> Any:
+        """Send one request, retrying once on the fallback tier after a rate limit."""
+
         self.last_controls = self._request_controls(
             extra_body=extra_body,
             max_completion_tokens=max_completion_tokens,
             service_tier=request.get("service_tier"),
-            fallback_used=fallback_used,
+            fallback_used=False,
         )
         try:
-            response = self._client.chat.completions.create(**request)
+            return self._client.chat.completions.create(**request)
         except self._rate_limit_error_type():
             if self.service_tier is None or self.service_tier_fallback is None:
                 raise
             fallback_request = deepcopy(request)
             fallback_request["service_tier"] = self.service_tier_fallback
-            request = fallback_request
-            fallback_used = True
             self.last_controls = self._request_controls(
                 extra_body=extra_body,
                 max_completion_tokens=max_completion_tokens,
-                service_tier=request.get("service_tier"),
-                fallback_used=fallback_used,
+                service_tier=fallback_request["service_tier"],
+                fallback_used=True,
             )
-            response = self._client.chat.completions.create(**fallback_request)
-        choice = response.choices[0]
-        message = choice.message
-        provider_model = getattr(response, "model", None)
-        if not isinstance(provider_model, str) or not provider_model.strip():
-            provider_model = None
-        content = _provider_field(message, "content")
-        if content is _MISSING or content is None:
-            raw = b""
-        elif isinstance(content, str):
-            raw = content.encode("utf-8")
-        else:
-            raw = b""
-        usage = _model_dump(getattr(response, "usage", None))
-        controls = deepcopy(self.last_controls) if self.last_controls is not None else {}
-        return TransportResponse(
-            raw=raw,
-            usage=usage,
-            controls=controls,
-            response_capture=_provider_response_capture(choice, message),
-            provider_model=provider_model,
-        )
+            return self._client.chat.completions.create(**fallback_request)
 
     def _request_controls(
         self,
@@ -215,12 +212,13 @@ class PrivateModelAuthoringTransport:
             controls.update({"temperature": self.temperature, "extra_body": extra_body})
         elif extra_body is not None:
             controls["extra_body"] = extra_body
-        if max_completion_tokens is not None:
-            controls["max_completion_tokens"] = max_completion_tokens
-        if self.context_window_tokens is not None:
-            controls["context_window_tokens"] = self.context_window_tokens
-        if self.reasoning_effort is not None:
-            controls["reasoning_effort"] = self.reasoning_effort
+        controls.update(
+            _present_controls(
+                max_completion_tokens=max_completion_tokens,
+                context_window_tokens=self.context_window_tokens,
+                reasoning_effort=self.reasoning_effort,
+            )
+        )
         if service_tier is not None:
             controls["service_tier"] = service_tier
             controls["service_tier_requested"] = self.service_tier
@@ -229,10 +227,9 @@ class PrivateModelAuthoringTransport:
             controls["service_tier_fallback_used"] = fallback_used
         if not self.sampling_controls:
             controls["sampling_controls"] = False
-        if self.strict_json_schema is not None:
-            controls["strict_json_schema"] = self.strict_json_schema
-        if self.timeout is not None:
-            controls["timeout"] = self.timeout
+        controls.update(
+            _present_controls(strict_json_schema=self.strict_json_schema, timeout=self.timeout)
+        )
         return controls
 
     @staticmethod
@@ -264,6 +261,10 @@ class PrivateModelAuthoringTransport:
         )
 
 
+def _present_controls(**values: Any) -> dict[str, Any]:
+    return {name: value for name, value in values.items() if value is not None}
+
+
 def _is_positive_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
@@ -281,6 +282,10 @@ def _validate_token_limits(max_completion_tokens: Any, context_window_tokens: An
         raise ValueError(
             "max_completion_tokens leaves no room for the prompt in the context window"
         )
+
+
+def _is_valid_timeout(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and not value <= 0
 
 
 def _validate_request_controls(
@@ -303,9 +308,7 @@ def _validate_request_controls(
             raise ValueError(f"{name} must be a nonblank string when provided")
     if strict_json_schema is not None and not isinstance(strict_json_schema, bool):
         raise ValueError("strict_json_schema must be a boolean when provided")
-    if timeout is not None and (
-        isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0
-    ):
+    if timeout is not None and not _is_valid_timeout(timeout):
         raise ValueError("timeout must be a positive number when provided")
 
 
