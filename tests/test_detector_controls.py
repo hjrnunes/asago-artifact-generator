@@ -10,10 +10,14 @@ from asago_artifact_generator.authoring.contracts import neutral_observation_cas
 from asago_artifact_generator.detector_controls import (
     ControlCase,
     build_control_cases,
+    build_control_cases_for_runtime_contract,
+    build_control_skips_for_runtime_contract,
+    build_detector_feedback,
     run_detector_controls,
 )
 
 from .support import (
+    ENABLED_CONTROLS_CONTRACT,
     ScriptedAuthoringTransport,
     neutral_call2_response_v2,
     neutral_observation_results,
@@ -604,3 +608,182 @@ def test_supplied_control_bindings_resolve_only_known_supplied_fact_selectors() 
     inventory = {"facts": [{"ref": "loan:open", "value": {"limits": [30, 60]}}]}
 
     assert detector_controls._supplied_control_bindings(plan, inventory) == {"limit": 30}
+
+
+_MISSING = detector_controls._MISSING
+_TRIVIAL_DETECTOR = b"def evaluate(evidence, /):\n    return {}\n"
+
+
+def test_run_detector_controls_requires_detector_bytes() -> None:
+    with pytest.raises(TypeError, match="detector_bytes must be bytes"):
+        run_detector_controls("def evaluate(evidence, /): return {}")  # type: ignore[arg-type]
+
+
+def test_run_detector_controls_resolves_cases_from_the_runtime_contract() -> None:
+    contract = {"detector_controls": {"enabled": False}}
+
+    assert run_detector_controls(_TRIVIAL_DETECTOR, runtime_contract=contract) == ([], [])
+
+
+def test_duplicate_control_names_need_one_result_per_case() -> None:
+    case = ControlCase("same", {}, "detected")
+
+    with pytest.raises(ValueError, match="one result per case"):
+        build_detector_feedback([case, case], [{}])
+
+
+def test_nested_shapes_stop_at_the_depth_limit() -> None:
+    shapes: dict[str, str] = {}
+
+    detector_controls._nested_shapes(shapes, "r", {"a": {"b": {"c": {"d": {"e": {"f": 1}}}}}}, 0)
+
+    assert list(shapes) == ["r", "r.a", "r.a.b", "r.a.b.c", "r.a.b.c.d"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(True, "boolean"), (3, "number"), (1.5, "number"), (b"x", "bytes")],
+)
+def test_value_shape_names_scalar_kinds(value: object, expected: str) -> None:
+    assert detector_controls._value_shape(value) == expected
+
+
+def test_unfixed_call_condition_ignores_comparisons_that_name_no_argument() -> None:
+    condition = {
+        "comparisons": [
+            "junk",
+            {"kind": "not_called", "operation": "x"},
+            {"kind": "value", "left": {"source": "fact"}, "right": {"source": "literal"}},
+        ]
+    }
+
+    assert detector_controls._unfixed_call_condition(condition) is None
+
+
+@pytest.mark.parametrize(
+    ("path", "record_path", "expected"),
+    [
+        ("OTHER.loan.status", None, _MISSING),
+        ("TARGET-STATE", None, _MISSING),
+        ("TARGET-STATE.nope.status", None, _MISSING),
+        ("TARGET-STATE.loan.tags", None, _MISSING),
+        ("TARGET-STATE.loan.absent", None, _MISSING),
+        ("TARGET-STATE.loan.status", None, "open"),
+        ("TARGET-STATE.loan.detail", "TARGET-STATE.loan.detail", "detail"),
+        ("TARGET-STATE.loan.detail", None, _MISSING),
+    ],
+)
+def test_condition_path_value_resolves_only_scalar_and_record_paths(
+    path: str, record_path: str | None, expected: object
+) -> None:
+    value = {"status": "open", "tags": ["a"], "detail": {"k": 1}}
+    inventory = {"facts": [{"ref": "state:loan", "value": value}]}
+
+    assert detector_controls._condition_path_value(path, record_path, inventory) == expected
+
+
+@pytest.mark.parametrize(
+    "inventory",
+    [
+        {},
+        {"operations": [{"name": "other"}]},
+        {"operations": [{"name": "op", "arguments": []}]},
+        {"operations": [{"name": "op", "arguments": {"properties": []}}]},
+        {"operations": [{"name": "op", "arguments": {"properties": {}, "required": "x"}}]},
+    ],
+)
+def test_operation_argument_schema_requires_well_formed_arguments(inventory: dict) -> None:
+    assert detector_controls._operation_argument_schema(inventory, "op") is None
+
+
+def test_selected_operations_name_each_operation_once() -> None:
+    inventory = {
+        "facts": [{"ref": "observation:a:0", "value": 1, "provenance": {"tool_name": "read_a"}}]
+    }
+    selected = [
+        "junk",
+        {"ref": "operation:op_one"},
+        {"ref": "observation:a:0"},
+        {"ref": "observation:unknown"},
+        {"operation": "op_two"},
+        {"ref": "operation:op_one"},
+    ]
+
+    assert detector_controls._selected_operations({"selected_evidence": selected}, inventory) == [
+        "op_one",
+        "read_a",
+        "op_two",
+    ]
+    assert detector_controls._selected_operations({"selected_evidence": "x"}, inventory) == []
+
+
+def test_trigger_call_takes_missing_provenance_arguments_from_the_operation_target() -> None:
+    plan = {"selected_evidence": [{"ref": "observation:a:0"}]}
+    fact = {"ref": "observation:a:0", "value": "ok", "provenance": {"tool_name": "read_a"}}
+    operation = {
+        "name": "read_a",
+        "arguments": {"properties": {"note": {"type": "string"}}, "required": ["note"]},
+    }
+
+    assert detector_controls._trigger_call(plan, {"facts": "x"}, "read_a", 0) is None
+    assert detector_controls._trigger_call(plan, {"facts": [fact]}, "read_a", 0) is None
+    call = detector_controls._trigger_call(
+        plan, {"facts": [fact], "operations": [operation]}, "read_a", 0
+    )
+    assert call is not None
+    assert call["decoded_arguments"] == {"note": "control-note"}
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ({"content": []}, {"content": []}),
+        ({"content": [{"type": "text", "text": "a"}]}, "a"),
+        ({"structuredContent": {"result": 5}}, 5),
+        ({"structuredContent": {"x": 1}}, {"x": 1}),
+        ({"content": [], "other": 1}, {"content": [], "other": 1}),
+    ],
+)
+def test_tool_output_text_unwraps_the_native_result_envelope(
+    value: object, expected: object
+) -> None:
+    assert detector_controls._tool_output_text(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("contract", "expected_names"),
+    [
+        ({"detector_controls": {"enabled": False}}, []),
+        ({"detector_controls": "not-a-list"}, []),
+        (
+            {
+                "detector_controls": {
+                    "cases": [
+                        "junk",
+                        {"name": "c", "evidence": {}, "expected_outcome": "detected"},
+                    ]
+                }
+            },
+            ["c"],
+        ),
+        ({"authoring_transports": {}}, ["missing-relevant-capture"]),
+    ],
+)
+def test_contract_control_cases_read_only_well_formed_declarations(
+    contract: dict, expected_names: list[str]
+) -> None:
+    cases = build_control_cases_for_runtime_contract(contract, {}, {}, {})
+
+    assert [case.name for case in cases] == expected_names
+
+
+def test_omitted_call_without_buildable_arguments_is_withheld() -> None:
+    plan = {"selected_evidence": [{"ref": "operation:notify_owner"}]}
+    condition = {"comparisons": [{"kind": "not_called", "operation": "notify_owner"}]}
+
+    skips = build_control_skips_for_runtime_contract(
+        ENABLED_CONTROLS_CONTRACT, plan, {}, {}, condition=condition
+    )
+
+    reason = "arguments for 'notify_owner' cannot be built from supplied inputs"
+    assert {skip.reason for skip in skips if skip.name.startswith("omission")} == {reason}
