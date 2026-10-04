@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from asago_artifact_generator import target_inputs
 from asago_artifact_generator.bindings import validate_bindings
 from asago_artifact_generator.target_inputs import TargetInputError, load_target_inputs
 
@@ -504,3 +505,57 @@ def test_operations_reject_invalid_and_duplicate_tools_and_use_the_first_interpr
         {"inventory": {"tools": [tool]}, "interpretations": "none"}
     )
     assert "interpretation" not in without_interpretations[0]
+
+
+def _digested(profile: dict) -> dict:
+    payload = json.dumps(profile, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest = hashlib.sha256(b"execution-target-profile-v1\0" + payload).hexdigest()
+    return {**profile, "semantic_digest": digest}
+
+
+@pytest.mark.parametrize(
+    ("profile", "message"),
+    [
+        ({"semantic_digest": "short"}, "semantic_digest is required"),
+        ({"semantic_digest": "a" * 64, "x": float("nan")}, "cannot be canonically encoded"),
+        ({"semantic_digest": "a" * 64}, "semantic_digest does not match canonical"),
+        (
+            _digested(
+                {"source_inventory_digest": "b" * 64, "inventory": {"semantic_digest": "c" * 64}}
+            ),
+            "source_inventory_digest does not match inventory",
+        ),
+    ],
+)
+def test_profile_digest_rejections(profile: dict, message: str) -> None:
+    with pytest.raises(TargetInputError, match=message):
+        target_inputs._validate_profile_digest(profile)
+
+
+_LOCK_METADATA = {
+    "authority": "asago-scenario-generator",
+    "contract": "target-profile",
+    "schema_version": "execution-target-profile-v1",
+    "digest_domain": "execution-target-profile-v1",
+}
+
+
+@pytest.mark.parametrize(
+    ("lock", "message"),
+    [
+        (None, "cannot read target profile contract lock"),
+        ({**_LOCK_METADATA, "authority": "other"}, "contract lock metadata is invalid"),
+        (
+            {**_LOCK_METADATA, "files": {"schema.json": "0" * 64}},
+            "contract digest mismatch: schema.json",
+        ),
+    ],
+)
+def test_contract_lock_rejections(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lock: dict | None, message: str
+) -> None:
+    monkeypatch.setattr(target_inputs, "_CONTRACT_ROOT", tmp_path)
+    if lock is not None:
+        (tmp_path / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
+    with pytest.raises(TargetInputError, match=message):
+        target_inputs._validate_contract_lock()

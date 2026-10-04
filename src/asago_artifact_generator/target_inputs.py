@@ -229,6 +229,14 @@ def _facts(
             facts.append(companion)
 
     read_observations = observations.get("read_observations") or []
+    facts.extend(_read_facts(read_observations, provenance_base))
+    return facts
+
+
+def _read_facts(
+    read_observations: list[dict[str, Any]], provenance_base: dict[str, Any]
+) -> list[dict[str, Any]]:
+    facts: list[dict[str, Any]] = []
     for index, observation in enumerate(read_observations):
         tool_name = observation["tool_name"]
         observation_provenance = {
@@ -296,34 +304,38 @@ def _keyed_records_fact(
     }
 
 
+# bool precedes int because bool is an int subclass.
+_SCALAR_SCHEMA_TYPES = (
+    (type(None), "null"),
+    (bool, "boolean"),
+    (int, "integer"),
+    (float, "number"),
+    (str, "string"),
+)
+
+
 def _infer_schema(value: Any) -> dict[str, Any]:
-    if value is None:
-        return {"type": "null"}
-    if isinstance(value, bool):
-        return {"type": "boolean"}
-    if isinstance(value, int):
-        return {"type": "integer"}
-    if isinstance(value, float):
-        return {"type": "number"}
-    if isinstance(value, str):
-        return {"type": "string"}
+    for kind, name in _SCALAR_SCHEMA_TYPES:
+        if isinstance(value, kind):
+            return {"type": name}
     if isinstance(value, list):
-        schemas = [_infer_schema(item) for item in value]
-        unique = {_canonical_json(schema): schema for schema in schemas}
-        items: dict[str, Any]
-        if not unique:
-            items = {}
-        elif len(unique) == 1:
-            items = next(iter(unique.values()))
-        else:
-            items = {"anyOf": [unique[key] for key in sorted(unique)]}
-        return {"type": "array", "items": items}
+        return {"type": "array", "items": _array_items_schema(value)}
     if isinstance(value, dict):
         return {
             "type": "object",
             "properties": {key: _infer_schema(value[key]) for key in sorted(value)},
         }
     raise TargetInputError(f"cannot infer JSON schema for value of type {type(value).__name__}")
+
+
+def _array_items_schema(value: list[Any]) -> dict[str, Any]:
+    schemas = [_infer_schema(item) for item in value]
+    unique = {_canonical_json(schema): schema for schema in schemas}
+    if not unique:
+        return {}
+    if len(unique) == 1:
+        return next(iter(unique.values()))
+    return {"anyOf": [unique[key] for key in sorted(unique)]}
 
 
 def _validate_observations(value: Any, *, profile: dict[str, Any]) -> None:
@@ -347,13 +359,7 @@ def _validate_observations(value: Any, *, profile: dict[str, Any]) -> None:
     state = value.get("state")
     if not isinstance(state, dict):
         raise TargetInputError("target observations state must be an object")
-    read_observations = value.get("read_observations", [])
-    if read_observations is None:
-        read_observations = []
-    if not isinstance(read_observations, list):
-        raise TargetInputError("target observations read_observations must be a list")
-    if len(read_observations) > 15:
-        raise TargetInputError("target observations cannot contain more than 15 reads")
+    read_observations = _read_observation_list(value)
     inventory = profile.get("inventory")
     profile_tool_names = (
         {tool.get("name") for tool in inventory.get("tools", []) if isinstance(tool, dict)}
@@ -367,6 +373,17 @@ def _validate_observations(value: Any, *, profile: dict[str, Any]) -> None:
             profile_digest=profile_digest,
             profile_tool_names=profile_tool_names,
         )
+
+
+def _read_observation_list(value: dict[str, Any]) -> list[Any]:
+    read_observations = value.get("read_observations", [])
+    if read_observations is None:
+        read_observations = []
+    if not isinstance(read_observations, list):
+        raise TargetInputError("target observations read_observations must be a list")
+    if len(read_observations) > 15:
+        raise TargetInputError("target observations cannot contain more than 15 reads")
+    return read_observations
 
 
 def _validate_read_observation(
@@ -392,6 +409,10 @@ def _validate_read_observation(
         raise TargetInputError(
             f"target observations read_observations[{index}] names an unknown tool"
         )
+    _validate_read_outcome(index, observation)
+
+
+def _validate_read_outcome(index: int, observation: dict[str, Any]) -> None:
     if not _is_string_mapping_or_none(observation.get("arguments")):
         raise TargetInputError(
             f"target observations read_observations[{index}] arguments must be a string mapping"
