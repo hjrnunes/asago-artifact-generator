@@ -329,6 +329,5 @@ class AuthoringResult:
     failure_evidence_path: Path | None = None
     review_status: dict[str, str] = field(default_factory=dict)
     allowances: dict[str, int] = field(default_factory=dict)
-    review_reuse: dict[str, str] = field(default_factory=dict)
     budget: dict[str, Any] = field(default_factory=dict)
     review_revision_allowances: dict[str, int] = field(default_factory=dict)

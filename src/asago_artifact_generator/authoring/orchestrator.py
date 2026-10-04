@@ -204,7 +204,6 @@ class AuthoringOrchestrator:
         self._allowances: dict[str, int] | None = None
         self._review_revision_allowances: dict[str, int] | None = None
         self._review_status: dict[str, str] | None = None
-        self._review_reuse: dict[str, str] = {}
         self._review_evidence: dict[str, dict[str, Any]] = {}
         self._saved_plan_review_packet: PromptPacket | None = None
         self._last_controls: list[dict[str, Any]] | None = None
@@ -220,7 +219,6 @@ class AuthoringOrchestrator:
         self._failure_evidence = new_failure_evidence(self.task_id, self.package_dir)
         self._failure_evidence["budget"] = self.budget.snapshot(self.task_id)
         self._failure_evidence_file: Path | None = None
-        self._call2_python_bytes: bytes | None = None
 
     def run(
         self,
@@ -436,7 +434,6 @@ class AuthoringOrchestrator:
 
         if stage == "call2":
             decoded = parse_call2_response(raw)
-            self._call2_python_bytes = decoded.python_bytes
             self._raw_responses["call2-python"] = decoded.python_bytes
             record["framing"] = "two-block-v2"
             record["decoded_output"] = decoded.metadata
@@ -905,7 +902,6 @@ class AuthoringOrchestrator:
 
         if failed_stage == "call2":
             parsed = parse_call2_response(raw)
-            self._call2_python_bytes = parsed.python_bytes
             self._raw_responses["call2-python"] = parsed.python_bytes
             return parsed, parsed.metadata
         decoded, transformation = _decode_v2_json_response(raw)
@@ -1074,7 +1070,6 @@ class AuthoringOrchestrator:
             review_status=dict(self._review_status),
             allowances=dict(self._allowances),
             review_revision_allowances=dict(self._review_revision_allowances or {}),
-            review_reuse=dict(self._review_reuse),
             failure_evidence_path=None,
             budget=self.budget.snapshot(self.task_id),
         )
@@ -1221,9 +1216,7 @@ class AuthoringOrchestrator:
             return _StageStop("blocked")
         if not self.policy.review_plan:
             self._review_status["plan"] = "not_requested"
-            self._review_reuse["plan"] = "not_requested"
             return candidate
-        self._review_reuse["plan"] = "fresh_dispatch"
         try:
             review_packet = build_plan_review_packet(view, candidate, inventory, runtime_contract)
         except PromptPreflightError as exc:
@@ -1418,9 +1411,7 @@ class AuthoringOrchestrator:
 
         if not self.policy.review_artifact:
             self._review_status["artifact"] = "not_requested"
-            self._review_reuse["artifact"] = "not_requested"
             return self._artifact_parts(parsed, plan)
-        self._review_reuse["artifact"] = "fresh_dispatch"
         try:
             review_packet = build_artifact_review_packet(
                 view,
@@ -1842,7 +1833,6 @@ class AuthoringOrchestrator:
         result.review_revision_allowances = (
             dict(self._review_revision_allowances) if self._review_revision_allowances else {}
         )
-        result.review_reuse = dict(self._review_reuse)
         result.budget = self.budget.snapshot(self.task_id)
         return result
 
