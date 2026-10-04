@@ -1061,3 +1061,111 @@ def test_review_binding_option_is_none_when_the_source_does_not_resolve() -> Non
     )
 
     assert option is None
+
+
+def _unknown_binding_option(declared: int, evidence: int) -> dict:
+    inventory = {
+        "facts": [
+            {
+                "ref": f"fact:{index:02d}",
+                "value": f"value-{index}",
+                "schema": {"type": "string"},
+                "provenance": "test",
+            }
+            for index in range(evidence)
+        ],
+        "operations": [],
+    }
+    candidate = _candidate()
+    candidate["runtime_bindings"] = [
+        {
+            "name": f"binding_{index:02d}",
+            "expected_type": "string",
+            "source_kind": "supplied_input",
+            "source_ref": "facts:fact:00",
+            "selector": "value",
+            "consumers": ["stimulus.user_text"],
+            "on_missing": "stop",
+        }
+        for index in range(declared)
+    ]
+    candidate["prerequisites"] = [
+        {
+            "name": "record_ready",
+            "check": "The record is ready.",
+            "evidence_refs": [f"fact:{index:02d}" for index in range(evidence)],
+            "binding": "missing_binding",
+            "equals": "ready",
+        }
+    ]
+    packet = _render_correction_packet(
+        _context(
+            candidate,
+            inventory,
+            _runtime_contract(),
+            [Finding("unknown_binding", "binding is not declared", "prerequisites[0].binding")],
+        )
+    )
+    return _option(packet)
+
+
+def test_unknown_binding_caps_declared_names_and_fact_sources_with_a_note() -> None:
+    option = _unknown_binding_option(declared=41, evidence=41)
+
+    assert len(option["declared_binding_names"]) == 40
+    assert option["declared_binding_names_truncated"] is True
+    assert len(option["evidence_ref_sources"]) == 40
+    assert option["evidence_ref_sources_truncated"] is True
+    assert "binding name and supplied fact source" in option["truncation_note"]
+
+
+def test_unknown_binding_note_names_only_the_truncated_list() -> None:
+    option = _unknown_binding_option(declared=41, evidence=1)
+
+    assert option["declared_binding_names_truncated"] is True
+    assert option["evidence_ref_sources_truncated"] is False
+    assert "binding name" in option["truncation_note"]
+    assert "supplied fact source" not in option["truncation_note"]
+
+
+def test_unknown_binding_without_truncation_has_no_note() -> None:
+    option = _unknown_binding_option(declared=1, evidence=1)
+
+    assert option["declared_binding_names"] == ["binding_00"]
+    assert "truncation_note" not in option
+
+
+def test_source_repair_lists_a_repeated_setup_operation_once() -> None:
+    operation = {
+        "name": "lookup_record",
+        "result_schema": {"type": "string"},
+        "description": "test operation",
+    }
+    inventory = {"facts": [], "operations": [operation, copy.deepcopy(operation)]}
+    candidate = _candidate()
+    candidate["runtime_bindings"] = [
+        {
+            "name": "record_value",
+            "expected_type": "string",
+            "source_kind": "setup_output",
+            "source_ref": "setup:not-present",
+            "selector": "result",
+            "consumers": ["stimulus.user_text"],
+            "on_missing": "stop",
+        }
+    ]
+    packet = _render_correction_packet(
+        _context(
+            candidate,
+            inventory,
+            {"setup_permissions": ["lookup_record"]},
+            [Finding("plan_binding_validation", "bad source", "runtime_bindings[0].source_ref")],
+        )
+    )
+
+    option = _option(packet)
+    assert [source["source_ref"] for source in option["permitted_setup_sources"]] == [
+        "setup:lookup_record"
+    ]
+    assert option["permitted_setup_sources_truncated"] is False
+    assert "truncation_note" not in option

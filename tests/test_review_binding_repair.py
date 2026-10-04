@@ -259,3 +259,19 @@ def test_orchestrated_binding_review_revision_carries_repair_options(tmp_path: P
     assert "BINDING REPAIR OPTIONS\n" in correction["user"]
     assert '"kind":"review_binding"' in correction["user"]
     assert '"source_ref":"facts:state:orders:records"' in correction["user"]
+
+
+def test_review_binding_option_omits_selector_checks_when_the_change_names_no_selector() -> None:
+    finding = _review_finding_to_finding(
+        _review_record(
+            "candidate_plan.runtime_bindings[0]",
+            "Bind 'target_order_id' to the order identifier instead of the owner field.",
+        ),
+        "plan",
+    )
+
+    packet = _correction_packet(_field_binding_plan(), [finding])
+
+    (option,) = packet.payload["binding_repair_options"]["options"]
+    assert option["kind"] == "review_binding"
+    assert "review_selector_checks" not in option

@@ -475,28 +475,29 @@ def _selected_record_source_fields(
     )
 
 
-def _review_selector_checks(
-    required_change: str,
+def _review_binding_schema(
     binding: dict[str, Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Check the selector paths a review's required change names against documented sources.
+) -> dict[str, Any] | None:
+    """Return the schema of the binding's declared source, if it resolves."""
 
-    This is a structural lookup of exact dot paths; it makes no judgment about
-    which selector the scenario needs.
-    """
-
-    selectors = list(dict.fromkeys(_REVIEW_SELECTOR_TOKEN.findall(required_change)))
-    if not selectors:
-        return []
     source_kind = binding.get("source_kind")
     source_ref = binding.get("source_ref")
-    binding_schema = None
-    if isinstance(source_kind, str) and isinstance(source_ref, str):
-        binding_schema, _ = _binding_source_schema(
-            source_kind, source_ref, inventory, runtime_contract, binding.get("name")
-        )
+    if not (isinstance(source_kind, str) and isinstance(source_ref, str)):
+        return None
+    binding_schema, _ = _binding_source_schema(
+        source_kind, source_ref, inventory, runtime_contract, binding.get("name")
+    )
+    return binding_schema
+
+
+def _review_documented_sources(
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Return every supplied fact and permitted setup result with its schema."""
+
     documented_sources: list[tuple[str, dict[str, Any]]] = [
         (f"facts:{fact['ref']}", fact["schema"])
         for fact in inventory.get("facts", [])
@@ -515,6 +516,26 @@ def _review_selector_checks(
         and operation["name"] in permitted_names
         and isinstance(operation.get("result_schema"), dict)
     )
+    return documented_sources
+
+
+def _review_selector_checks(
+    required_change: str,
+    binding: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Check the selector paths a review's required change names against documented sources.
+
+    This is a structural lookup of exact dot paths; it makes no judgment about
+    which selector the scenario needs.
+    """
+
+    selectors = list(dict.fromkeys(_REVIEW_SELECTOR_TOKEN.findall(required_change)))
+    if not selectors:
+        return []
+    binding_schema = _review_binding_schema(binding, inventory, runtime_contract)
+    documented_sources = _review_documented_sources(inventory, runtime_contract)
     checks: list[dict[str, Any]] = []
     for selector in selectors[:_BINDING_REPAIR_SELECTOR_LIMIT]:
         root = "value" if selector.startswith("value") else "result"
@@ -688,13 +709,7 @@ def _repair_unknown_binding_option(
     )
     declared_names = all_declared_names[:_BINDING_REPAIR_SELECTOR_LIMIT]
     declared_names_truncated = len(all_declared_names) > _BINDING_REPAIR_SELECTOR_LIMIT
-    evidence_sources: list[dict[str, Any]] = []
-    evidence_refs = prerequisite.get("evidence_refs", [])
-    if isinstance(evidence_refs, list):
-        for reference in sorted({ref for ref in evidence_refs if isinstance(ref, str)}):
-            source = _supplied_fact_selector_source(reference, inventory)
-            if source is not None:
-                evidence_sources.append(source)
+    evidence_sources = _prerequisite_evidence_sources(prerequisite, inventory)
     evidence_sources_truncated = len(evidence_sources) > _BINDING_REPAIR_SELECTOR_LIMIT
     option = {
         "code": code,
@@ -710,14 +725,35 @@ def _repair_unknown_binding_option(
         "evidence_ref_sources": evidence_sources[:_BINDING_REPAIR_SELECTOR_LIMIT],
         "evidence_ref_sources_truncated": evidence_sources_truncated,
     }
-    if declared_names_truncated or evidence_sources_truncated:
-        labels = []
-        if declared_names_truncated:
-            labels.append("binding name")
-        if evidence_sources_truncated:
-            labels.append("supplied fact source")
+    labels = _truncated_labels(
+        (declared_names_truncated, "binding name"),
+        (evidence_sources_truncated, "supplied fact source"),
+    )
+    if labels:
         option["truncation_note"] = _repair_truncation_note(" and ".join(labels))
     return option
+
+
+def _prerequisite_evidence_sources(
+    prerequisite: dict[str, Any],
+    inventory: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return selector choices for each bindable fact a prerequisite cites."""
+
+    evidence_sources: list[dict[str, Any]] = []
+    evidence_refs = prerequisite.get("evidence_refs", [])
+    if isinstance(evidence_refs, list):
+        for reference in sorted({ref for ref in evidence_refs if isinstance(ref, str)}):
+            source = _supplied_fact_selector_source(reference, inventory)
+            if source is not None:
+                evidence_sources.append(source)
+    return evidence_sources
+
+
+def _truncated_labels(*flags: tuple[bool, str]) -> list[str]:
+    """Return the labels whose truncation flag is set, in argument order."""
+
+    return [label for truncated, label in flags if truncated]
 
 
 def _repair_consumer_mismatch_option(
@@ -816,7 +852,56 @@ def _repair_source_option(
             binding_name,
         )
 
-    cited_values = _candidate_string_values(candidate)
+    referenced_fact_sources, other_fact_source_refs = _fact_repair_sources(
+        _candidate_string_values(candidate), inventory, expected_type
+    )
+    permitted_setup_sources = _permitted_setup_repair_sources(
+        inventory, runtime_contract, expected_type
+    )
+
+    referenced_fact_sources_truncated = (
+        len(referenced_fact_sources) > _BINDING_REPAIR_SELECTOR_LIMIT
+    )
+    permitted_setup_sources_truncated = (
+        len(permitted_setup_sources) > _BINDING_REPAIR_SELECTOR_LIMIT
+    )
+    other_fact_source_refs_truncated = len(other_fact_source_refs) > _BINDING_REPAIR_SELECTOR_LIMIT
+    option: dict[str, Any] = {
+        "kind": "source",
+        "findings": [
+            {"code": _finding_field(finding, "code"), "path": _finding_field(finding, "path", "")}
+            for finding in findings
+        ],
+        "binding_name": binding_name,
+        "expected_type": expected_type,
+        "source_kind": source_kind,
+        "source_ref": source_ref,
+        "resolved_source": resolved_schema is not None,
+        "referenced_fact_sources": referenced_fact_sources[:_BINDING_REPAIR_SELECTOR_LIMIT],
+        "referenced_fact_sources_truncated": referenced_fact_sources_truncated,
+        "permitted_setup_sources": permitted_setup_sources[:_BINDING_REPAIR_SELECTOR_LIMIT],
+        "permitted_setup_sources_truncated": permitted_setup_sources_truncated,
+        "other_fact_source_refs": other_fact_source_refs[:_BINDING_REPAIR_SELECTOR_LIMIT],
+        "other_fact_source_refs_truncated": other_fact_source_refs_truncated,
+        **_named_record_source_fields(source_kind, source_ref, expected_type, inventory),
+    }
+    truncated_labels = _truncated_labels(
+        (referenced_fact_sources_truncated, "referenced fact source"),
+        (permitted_setup_sources_truncated, "permitted setup source"),
+        (other_fact_source_refs_truncated, "other fact source"),
+    )
+    if truncated_labels:
+        option["truncation_note"] = _repair_truncation_note(" and ".join(truncated_labels))
+    return option
+
+
+def _fact_repair_sources(
+    cited_values: set[str],
+    inventory: dict[str, Any],
+    expected_type: Any,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Split supplied facts into full choices for cited ones and refs for the rest."""
+
     referenced_fact_sources: list[dict[str, Any]] = []
     other_fact_source_refs: list[str] = []
     for fact in sorted(
@@ -849,6 +934,15 @@ def _repair_source_option(
             )
         else:
             other_fact_source_refs.append(f"facts:{reference}")
+    return referenced_fact_sources, other_fact_source_refs
+
+
+def _permitted_setup_repair_sources(
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    expected_type: Any,
+) -> list[dict[str, Any]]:
+    """Return one source choice per permitted setup operation with a result schema."""
 
     permitted_names = {
         operation
@@ -882,48 +976,7 @@ def _repair_source_option(
                 expected_type=expected_type,
             )
         )
-
-    referenced_fact_sources_truncated = (
-        len(referenced_fact_sources) > _BINDING_REPAIR_SELECTOR_LIMIT
-    )
-    permitted_setup_sources_truncated = (
-        len(permitted_setup_sources) > _BINDING_REPAIR_SELECTOR_LIMIT
-    )
-    other_fact_source_refs_truncated = len(other_fact_source_refs) > _BINDING_REPAIR_SELECTOR_LIMIT
-    option: dict[str, Any] = {
-        "kind": "source",
-        "findings": [
-            {
-                "code": (finding.code if isinstance(finding, Finding) else finding.get("code")),
-                "path": (
-                    finding.path if isinstance(finding, Finding) else finding.get("path", "")
-                ),
-            }
-            for finding in findings
-        ],
-        "binding_name": binding_name,
-        "expected_type": expected_type,
-        "source_kind": source_kind,
-        "source_ref": source_ref,
-        "resolved_source": resolved_schema is not None,
-        "referenced_fact_sources": referenced_fact_sources[:_BINDING_REPAIR_SELECTOR_LIMIT],
-        "referenced_fact_sources_truncated": referenced_fact_sources_truncated,
-        "permitted_setup_sources": permitted_setup_sources[:_BINDING_REPAIR_SELECTOR_LIMIT],
-        "permitted_setup_sources_truncated": permitted_setup_sources_truncated,
-        "other_fact_source_refs": other_fact_source_refs[:_BINDING_REPAIR_SELECTOR_LIMIT],
-        "other_fact_source_refs_truncated": other_fact_source_refs_truncated,
-        **_named_record_source_fields(source_kind, source_ref, expected_type, inventory),
-    }
-    truncated_labels = []
-    if referenced_fact_sources_truncated:
-        truncated_labels.append("referenced fact source")
-    if permitted_setup_sources_truncated:
-        truncated_labels.append("permitted setup source")
-    if other_fact_source_refs_truncated:
-        truncated_labels.append("other fact source")
-    if truncated_labels:
-        option["truncation_note"] = _repair_truncation_note(" and ".join(truncated_labels))
-    return option
+    return permitted_setup_sources
 
 
 _REFERENCE_FIELD_PATTERNS = (
@@ -959,6 +1012,73 @@ _REFERENCE_VALUE_KIND_REPAIRS = {
 }
 
 
+def _listed_provenance_ids(references: dict[str, Any]) -> set[str]:
+    """Return the provenance IDs listed in the rendered evidence references."""
+
+    provenance = references.get("provenance_ids", {})
+    listed = provenance.get("ids", {}) if isinstance(provenance, dict) else {}
+    return set(listed) if isinstance(listed, dict) else set()
+
+
+def _observation_scope_names(original: dict[str, Any]) -> set[str]:
+    """Return the observation scopes, including the always-available message scopes."""
+
+    capabilities = original.get("execution_capabilities")
+    observation = capabilities.get("observation") if isinstance(capabilities, dict) else None
+    scopes = set(observation) if isinstance(observation, dict) else set()
+    scopes.update({"assistant_messages", "messages", "tool_calls"})
+    return scopes
+
+
+def _reference_field(path: Any) -> str | None:
+    """Return the reference field rule name whose pattern matches a finding path."""
+
+    return next(
+        (
+            name
+            for name, pattern in _REFERENCE_FIELD_PATTERNS
+            if isinstance(path, str) and pattern.fullmatch(path)
+        ),
+        None,
+    )
+
+
+def _reference_value_kind(value: str, provenance_ids: set[str], scopes: set[str]) -> str:
+    """Classify a rejected reference value as provenance, observation scope, or unlisted."""
+
+    if value in provenance_ids:
+        return "provenance_id"
+    if value in scopes or value.partition(":")[2] in scopes:
+        return "observation_scope"
+    return "unlisted"
+
+
+def _reference_repair_option(
+    finding: Any,
+    provenance_ids: set[str],
+    scopes: set[str],
+    field_rules: Any,
+) -> dict[str, Any] | None:
+    """Explain one unknown_reference finding, or return None for any other finding."""
+
+    if not isinstance(finding, dict) or finding.get("code") != "unknown_reference":
+        return None
+    path = finding.get("path")
+    field = _reference_field(path)
+    if field is None:
+        return None
+    detail = str(finding.get("detail", ""))
+    value = detail.split(": ", 1)[1] if detail.startswith("unknown_reference: ") else detail
+    kind = _reference_value_kind(value, provenance_ids, scopes)
+    return {
+        "path": path,
+        "rejected_value": value,
+        "rejected_value_kind": kind,
+        "field_rule": field_rules.get(field),
+        "repair": _REFERENCE_VALUE_KIND_REPAIRS[kind],
+    }
+
+
 def _reference_repair_options_for_correction(
     correction_context: dict[str, Any],
 ) -> dict[str, Any] | None:
@@ -968,46 +1088,14 @@ def _reference_repair_options_for_correction(
     references = original.get("evidence_references") if isinstance(original, dict) else None
     if not isinstance(references, dict):
         return None
-    provenance = references.get("provenance_ids", {})
-    listed = provenance.get("ids", {}) if isinstance(provenance, dict) else {}
-    provenance_ids = set(listed) if isinstance(listed, dict) else set()
-    capabilities = original.get("execution_capabilities")
-    observation = capabilities.get("observation") if isinstance(capabilities, dict) else None
-    scopes = set(observation) if isinstance(observation, dict) else set()
-    scopes.update({"assistant_messages", "messages", "tool_calls"})
+    provenance_ids = _listed_provenance_ids(references)
+    scopes = _observation_scope_names(original)
     field_rules = references.get("field_rules", {})
     options: list[dict[str, Any]] = []
     for finding in correction_context.get("findings", []):
-        if not isinstance(finding, dict) or finding.get("code") != "unknown_reference":
-            continue
-        path = finding.get("path")
-        field = next(
-            (
-                name
-                for name, pattern in _REFERENCE_FIELD_PATTERNS
-                if isinstance(path, str) and pattern.fullmatch(path)
-            ),
-            None,
-        )
-        if field is None:
-            continue
-        detail = str(finding.get("detail", ""))
-        value = detail.split(": ", 1)[1] if detail.startswith("unknown_reference: ") else detail
-        if value in provenance_ids:
-            kind = "provenance_id"
-        elif value in scopes or value.partition(":")[2] in scopes:
-            kind = "observation_scope"
-        else:
-            kind = "unlisted"
-        options.append(
-            {
-                "path": path,
-                "rejected_value": value,
-                "rejected_value_kind": kind,
-                "field_rule": field_rules.get(field),
-                "repair": _REFERENCE_VALUE_KIND_REPAIRS[kind],
-            }
-        )
+        option = _reference_repair_option(finding, provenance_ids, scopes, field_rules)
+        if option is not None:
+            options.append(option)
     if not options:
         return None
     return {

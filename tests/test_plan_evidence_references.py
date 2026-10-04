@@ -204,3 +204,45 @@ def test_artifact_correction_explains_provenance_ids_outside_source_refs() -> No
     assert option["rejected_value_kind"] == "provenance_id"
     assert "attack-tree node ID" in option["repair"]
     assert "interpretation.source_refs" in option["repair"]
+
+
+def test_correction_without_rendered_reference_rules_has_no_reference_options() -> None:
+    context = build_plan_author_context(_view(), _inventory(), _runtime_contract())
+    del context["evidence_references"]
+    packet = _render_correction_packet(
+        build_correction_context(
+            failed_stage="call1",
+            original_context=context,
+            current_output=json.dumps(_plan()),
+            findings=[
+                {
+                    "code": "unknown_reference",
+                    "detail": "unknown_reference: missing:fact",
+                    "path": "selected_evidence[0]",
+                }
+            ],
+        )
+    )
+
+    assert "reference_repair_options" not in packet.payload
+    assert "REFERENCE REPAIR OPTIONS" not in packet.user
+
+
+def test_reference_options_skip_findings_outside_reference_fields() -> None:
+    packet = _render_correction_packet(
+        build_correction_context(
+            failed_stage="call1",
+            original_context=build_plan_author_context(_view(), _inventory(), _runtime_contract()),
+            current_output=json.dumps(_plan()),
+            findings=[
+                {
+                    "code": "unknown_reference",
+                    "detail": "unknown_reference: missing:fact",
+                    "path": "stimulus.user_text",
+                },
+                {"code": "invalid_shape", "detail": "bad", "path": "selected_evidence[0]"},
+            ],
+        )
+    )
+
+    assert "reference_repair_options" not in packet.payload
