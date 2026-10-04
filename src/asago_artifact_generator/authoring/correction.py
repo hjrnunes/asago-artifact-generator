@@ -452,18 +452,22 @@ def _compact_feedback_explanation(item: dict[str, Any]) -> str:
     if outcome_class == "detector_exception":
         return "detector raised an exception before returning a result"
     if outcome_class == "invalid_returned_result":
-        verdict_note = (
-            f" Its outcome {actual_outcome!r} also differs from expected {expected_outcome!r}."
-            if actual_outcome is not None and actual_outcome != expected_outcome
-            else ""
-        )
-        return f"Runtime rejected the unvalidated return: {error}." + verdict_note
+        return _invalid_return_explanation(error, actual_outcome, expected_outcome)
     if outcome_class == "container/evaluator_failure_before_result":
         return "container or evaluator failed before exposing a result"
     runtime_explanation = item.get("runtime_contract_explanation")
     if isinstance(runtime_explanation, str) and runtime_explanation:
         return runtime_explanation
     return "returned outcome or claim level differs from the expected control result"
+
+
+def _invalid_return_explanation(error: Any, actual_outcome: Any, expected_outcome: Any) -> str:
+    verdict_note = (
+        f" Its outcome {actual_outcome!r} also differs from expected {expected_outcome!r}."
+        if actual_outcome is not None and actual_outcome != expected_outcome
+        else ""
+    )
+    return f"Runtime rejected the unvalidated return: {error}." + verdict_note
 
 
 def _feedback_actual_field(item: dict[str, Any], name: str, result_key: str) -> Any:

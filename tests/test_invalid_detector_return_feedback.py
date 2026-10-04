@@ -2,7 +2,11 @@ import json
 
 import pytest
 
-from asago_artifact_generator.authoring.correction import _correction_detector_feedback_view
+from asago_artifact_generator.authoring.correction import (
+    _correction_detector_feedback_view,
+    _correction_findings_view,
+    _scope_correction_authoritative_context,
+)
 from asago_artifact_generator.detector_controls import (
     ControlCase,
     _control_result,
@@ -275,3 +279,49 @@ def test_correction_context_rejects_an_unknown_stage():
             current_output="text",
             findings=[],
         )
+
+
+def test_findings_view_keeps_other_findings_and_drops_control_details():
+    findings = [
+        "plain text",
+        {"code": "x", "path": "detector_controls.a"},
+        {"code": "semantic_review", "detail": "d", "details": {"k": 1}},
+        {"code": "other", "details": {"k": 1}},
+    ]
+
+    assert _correction_findings_view(findings) == [
+        "plain text",
+        {"code": "semantic_review", "detail": "d"},
+        {"code": "other", "details": {"k": 1}},
+    ]
+    assert _correction_findings_view("not a list") == "not a list"
+    assert findings[2]["details"] == {"k": 1}
+
+
+def test_correction_scope_keeps_only_operations_the_plan_names():
+    authoritative = {
+        "operations": [
+            {"name": "refund", "description": "d", "extra": 1},
+            {"name": "unused", "description": "u"},
+            "not a dict",
+        ],
+        "facts": [1],
+        "source_handles": [2],
+        "runtime_capabilities": [3],
+        "kept": True,
+    }
+
+    _scope_correction_authoritative_context(authoritative, {"step": "call refund"})
+
+    assert authoritative == {
+        "operations": [{"name": "refund", "description": "d"}],
+        "kept": True,
+    }
+
+
+def test_correction_scope_leaves_the_context_unchanged_without_a_plan_mapping():
+    authoritative = {"operations": [{"name": "refund"}], "facts": [1]}
+
+    _scope_correction_authoritative_context(authoritative, None)
+
+    assert authoritative == {"operations": [{"name": "refund"}], "facts": [1]}
