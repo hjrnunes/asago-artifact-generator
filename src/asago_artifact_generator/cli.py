@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 import yaml
@@ -17,11 +17,11 @@ from .authoring.core import (
     REVIEW_THINKING_EXTRA_BODY,
 )
 from .authoring.orchestrator import AuthoringOrchestrator
-from .authoring.policy import AuthoringBudget, AuthoringPolicy
+from .authoring.policy import AuthoringBudget, AuthoringPolicy, AuthoringResult
 from .authoring.transport import PrivateModelAuthoringTransport
 from .detector_runtime import execute_detector
 from .input_adapter import InputSourceError, load_input
-from .profiles import ProfileLoadError, load_authoring_profile
+from .profiles import AuthoringProfile, ProfileLoadError, load_authoring_profile
 from .reporting import garak_value
 from .target_inputs import TargetInputError, load_target_inputs
 
@@ -152,19 +152,15 @@ def generate(
 ) -> None:
     """Author one immutable package from a producer scenario handoff and discovery output."""
 
-    effective_review_profile = (
-        review_model_profile if review_model_profile is not None else profile
+    policy = _authoring_policy(
+        plan_max_corrections=plan_max_corrections,
+        artifact_max_corrections=artifact_max_corrections,
+        review_plan=review_plan,
+        review_artifact=review_artifact,
+        review_model_profile=(
+            review_model_profile if review_model_profile is not None else profile
+        ),
     )
-    try:
-        policy = AuthoringPolicy.from_cli(
-            plan_max_corrections=plan_max_corrections,
-            artifact_max_corrections=artifact_max_corrections,
-            review_plan=review_plan,
-            review_artifact=review_artifact,
-            review_model_profile=effective_review_profile,
-        )
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from None
     try:
         view = load_input(source)
     except InputSourceError as exc:
@@ -193,6 +189,36 @@ def generate(
         connection = load_authoring_profile(profiles_file, profile)
     except ProfileLoadError as exc:
         raise typer.BadParameter(str(exc), param_hint="--profile/--profiles-file") from None
+    sampling_controls = connection.sampling_controls
+    transport = PrivateModelAuthoringTransport(
+        **_transport_options(connection),
+        extra_body=(deepcopy(AUTHORING_THINKING_EXTRA_BODY) if sampling_controls else None),
+        review_extra_body=(deepcopy(REVIEW_THINKING_EXTRA_BODY) if sampling_controls else None),
+        review_fill_context=True,
+    )
+    package_dir = output_dir / stable_task_id
+    result = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=package_dir,
+        task_id=stable_task_id,
+        policy=policy,
+        prior_author_correction_spend=prior_author_correction_spend,
+        prior_review_spend=prior_review_spend,
+        discovery_provenance=discovery_provenance,
+    ).run(view, inventory_data, runtime_data)
+    _report_result(result)
+
+
+def _authoring_policy(**options: Any) -> AuthoringPolicy:
+    try:
+        return AuthoringPolicy.from_cli(**options)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from None
+
+
+def _transport_options(connection: AuthoringProfile) -> dict[str, object]:
+    """Map a loaded profile to transport keywords, omitting unset optional controls."""
+
     transport_options: dict[str, object] = {
         "base_url": connection.base_url,
         "api_key": connection.api_key,
@@ -221,23 +247,10 @@ def generate(
         transport_options["strict_json_schema"] = connection.strict_json_schema
     if connection.timeout is not None:
         transport_options["timeout"] = connection.timeout
-    sampling_controls = connection.sampling_controls
-    transport = PrivateModelAuthoringTransport(
-        **transport_options,
-        extra_body=(deepcopy(AUTHORING_THINKING_EXTRA_BODY) if sampling_controls else None),
-        review_extra_body=(deepcopy(REVIEW_THINKING_EXTRA_BODY) if sampling_controls else None),
-        review_fill_context=True,
-    )
-    package_dir = output_dir / stable_task_id
-    result = AuthoringOrchestrator(
-        transport=transport,
-        package_dir=package_dir,
-        task_id=stable_task_id,
-        policy=policy,
-        prior_author_correction_spend=prior_author_correction_spend,
-        prior_review_spend=prior_review_spend,
-        discovery_provenance=discovery_provenance,
-    ).run(view, inventory_data, runtime_data)
+    return transport_options
+
+
+def _report_result(result: AuthoringResult) -> None:
     typer.echo(
         json.dumps(
             {
