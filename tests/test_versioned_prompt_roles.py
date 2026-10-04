@@ -34,6 +34,7 @@ from asago_artifact_generator.authoring.prompt_packets import (
     build_call2_packet_v2,
 )
 from asago_artifact_generator.authoring.prompt_safety import (
+    _endpoint_prompt_paths,
     assert_no_prompt_duplicates,
     assert_no_prompt_secrets,
     scan_for_prompt_secrets,
@@ -661,3 +662,22 @@ def test_call1_contract_view_without_binding_declaration_is_an_unchanged_copy() 
 
     assert view == contract
     assert view is not contract
+
+
+def test_duplicate_scan_requires_a_prompt_packet() -> None:
+    with pytest.raises(TypeError, match="duplicate scans require a PromptPacket"):
+        scan_prompt_duplicates("not a packet")  # type: ignore[arg-type]
+
+
+def test_endpoint_prompt_paths_skip_malformed_urls_and_find_the_host() -> None:
+    packet = PromptPacket(
+        stage="call1",
+        version=CALL1_PROMPT_VERSION_V18,
+        system="no urls here",
+        user="bad http://[::1 then https://API.example.com/x",
+        payload={},
+    )
+
+    assert _endpoint_prompt_paths(packet, "api.example.com:8443", "api.example.com") == [
+        "prompt.user.endpoint"
+    ]

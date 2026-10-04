@@ -98,6 +98,17 @@ def assert_no_prompt_secrets(value: Any, *, allowed_urls: Collection[str] = ()) 
         raise PromptPreflightError(f"secret-bearing authoring evidence: {', '.join(paths)}")
 
 
+def _duplicate_search_forms(value: str) -> list[tuple[str, str]]:
+    forms = [("raw", value)]
+    escaped = json.dumps(value, ensure_ascii=False)[1:-1]
+    if escaped != value:
+        forms.append(("json-escaped", escaped))
+    encoded = base64.b64encode(value.encode("utf-8")).decode("ascii")
+    if encoded != value:
+        forms.append(("base64", encoded))
+    return forms
+
+
 def scan_prompt_duplicates(packet: PromptPacket) -> list[str]:
     """Find repeated copies of bounded candidate chunks in one rendered prompt.
 
@@ -111,14 +122,7 @@ def scan_prompt_duplicates(packet: PromptPacket) -> list[str]:
     for label, value in _duplicate_prompt_chunks(packet.payload):
         if not isinstance(value, str) or len(value.strip()) < 8:
             continue
-        forms = [("raw", value)]
-        escaped = json.dumps(value, ensure_ascii=False)[1:-1]
-        if escaped != value:
-            forms.append(("json-escaped", escaped))
-        encoded = base64.b64encode(value.encode("utf-8")).decode("ascii")
-        if encoded != value:
-            forms.append(("base64", encoded))
-        for form_name, form in forms:
+        for form_name, form in _duplicate_search_forms(value):
             if len(form.strip()) < 8:
                 continue
             occurrences = packet.user.count(form)
