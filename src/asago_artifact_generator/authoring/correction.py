@@ -387,50 +387,13 @@ def _correction_detector_feedback_view(value: Any) -> Any:
     failed = value.get("failed_controls")
     if not isinstance(failed, list):
         return value
-    rendered: list[dict[str, Any]] = []
-    for item in failed:
-        if not isinstance(item, dict):
-            continue
-        actual = item.get("actual_result")
-        if actual is None and isinstance(item.get("error"), str):
-            outcome_class = item.get("outcome_class")
-            error = item["error"]
-            if "timeout" in error.casefold():
-                actual = {"timeout": error}
-            elif outcome_class == "detector_exception":
-                actual = {"exception": error}
-            elif outcome_class == "invalid_returned_result":
-                actual = {"invalid_result": error}
-            else:
-                actual = {"pre_result_failure": error}
-        evidence = item.get("evidence")
-        entry: dict[str, Any] = {"name": item.get("name"), "input": evidence}
-        entry["input_shapes"] = (
-            describe_input_shapes(evidence) if isinstance(evidence, dict) else {}
-        )
-        entry.update(
-            {
-                "expected": {
-                    "outcome": item.get("expected_outcome"),
-                    "claim_level": item.get("expected_claim_level"),
-                },
-                "actual": actual,
-                "explanation": _compact_feedback_explanation(item),
-            }
-        )
-        rendered.append(entry)
+    rendered = [_failed_control_view(item) for item in failed if isinstance(item, dict)]
     passing = value.get("passing_controls")
-    passing_rendered: list[dict[str, Any]] = []
-    if isinstance(passing, list):
-        for item in passing:
-            if not isinstance(item, dict):
-                continue
-            passing_rendered.append(
-                {
-                    "name": item.get("name"),
-                    "outcome": item.get("observed_outcome"),
-                }
-            )
+    passing_rendered = [
+        {"name": item.get("name"), "outcome": item.get("observed_outcome")}
+        for item in (passing if isinstance(passing, list) else [])
+        if isinstance(item, dict)
+    ]
     return {
         "failed_controls": rendered,
         "passing_controls": passing_rendered,
@@ -438,29 +401,52 @@ def _correction_detector_feedback_view(value: Any) -> Any:
     }
 
 
+def _failed_control_view(item: dict[str, Any]) -> dict[str, Any]:
+    """Render one failed control's input, expectation, actual return, and explanation."""
+
+    actual = _failed_control_actual(item)
+    evidence = item.get("evidence")
+    entry: dict[str, Any] = {"name": item.get("name"), "input": evidence}
+    entry["input_shapes"] = describe_input_shapes(evidence) if isinstance(evidence, dict) else {}
+    entry.update(
+        {
+            "expected": {
+                "outcome": item.get("expected_outcome"),
+                "claim_level": item.get("expected_claim_level"),
+            },
+            "actual": actual,
+            "explanation": _compact_feedback_explanation(item),
+        }
+    )
+    return entry
+
+
+def _failed_control_actual(item: dict[str, Any]) -> Any:
+    """Return the control's actual result, or its error keyed by the failure class."""
+
+    actual = item.get("actual_result")
+    if actual is not None or not isinstance(item.get("error"), str):
+        return actual
+    outcome_class = item.get("outcome_class")
+    error = item["error"]
+    if "timeout" in error.casefold():
+        return {"timeout": error}
+    if outcome_class == "detector_exception":
+        return {"exception": error}
+    if outcome_class == "invalid_returned_result":
+        return {"invalid_result": error}
+    return {"pre_result_failure": error}
+
+
 def _compact_feedback_explanation(item: dict[str, Any]) -> str:
     """Keep each feedback explanation explicit without repeating result fields."""
 
     outcome_class = item.get("outcome_class")
     error = item.get("error")
-    actual_result = item.get("actual_result")
-    actual_outcome = item.get("actual_outcome")
-    if not isinstance(actual_outcome, str) and isinstance(actual_result, dict):
-        actual_outcome = actual_result.get("outcome")
+    actual_outcome = _feedback_actual_field(item, "actual_outcome", "outcome")
     expected_outcome = item.get("expected_outcome")
-    actual_claim_level = item.get("actual_claim_level")
-    if not isinstance(actual_claim_level, str) and isinstance(actual_result, dict):
-        actual_claim_level = actual_result.get("claim_level")
-    expected_claim_level = item.get("expected_claim_level")
     if outcome_class == "structurally_valid_wrong_outcome":
-        if actual_outcome != expected_outcome:
-            return f"returned outcome {actual_outcome!r}; expected outcome {expected_outcome!r}"
-        if actual_claim_level != expected_claim_level:
-            return (
-                f"returned claim level {actual_claim_level!r}; "
-                f"expected claim level {expected_claim_level!r}"
-            )
-        return "returned result differs from the expected control result"
+        return _wrong_outcome_explanation(item, actual_outcome, expected_outcome)
     if isinstance(error, str) and "timeout" in error.casefold():
         return "detector timed out before returning a result"
     if outcome_class == "detector_exception":
@@ -478,6 +464,33 @@ def _compact_feedback_explanation(item: dict[str, Any]) -> str:
     if isinstance(runtime_explanation, str) and runtime_explanation:
         return runtime_explanation
     return "returned outcome or claim level differs from the expected control result"
+
+
+def _feedback_actual_field(item: dict[str, Any], name: str, result_key: str) -> Any:
+    """Return the control's top-level actual field, falling back to its returned result."""
+
+    value = item.get(name)
+    actual_result = item.get("actual_result")
+    if not isinstance(value, str) and isinstance(actual_result, dict):
+        return actual_result.get(result_key)
+    return value
+
+
+def _wrong_outcome_explanation(
+    item: dict[str, Any], actual_outcome: Any, expected_outcome: Any
+) -> str:
+    """Name the first result field where a structurally valid return differs."""
+
+    if actual_outcome != expected_outcome:
+        return f"returned outcome {actual_outcome!r}; expected outcome {expected_outcome!r}"
+    actual_claim_level = _feedback_actual_field(item, "actual_claim_level", "claim_level")
+    expected_claim_level = item.get("expected_claim_level")
+    if actual_claim_level != expected_claim_level:
+        return (
+            f"returned claim level {actual_claim_level!r}; "
+            f"expected claim level {expected_claim_level!r}"
+        )
+    return "returned result differs from the expected control result"
 
 
 def _correction_findings_view(value: Any) -> Any:
@@ -644,52 +657,13 @@ def build_correction_context(
 ) -> dict[str, Any]:
     """Build a stage-aware correction context without competing formats."""
 
-    stage = (
-        "plan"
-        if failed_stage in {"plan", "call1", "plan_review"}
-        else "artifact"
-        if failed_stage in {"artifact", "call2", "artifact_review"}
-        else failed_stage
-    )
+    stage = _correction_stage(failed_stage)
     if isinstance(current_output, bytes):
         output_text, output_encoding = _readable_response(current_output)
     else:
         output_text, output_encoding = current_output, "text-input"
-    normalized_findings = [
-        finding.to_dict() if isinstance(finding, Finding) else deepcopy(finding)
-        for finding in findings
-    ]
-    if detector_feedback:
-        control_summaries = [
-            {
-                "code": finding.get("code", "detector_control_failure"),
-                "detail": "See the shared feedback section for the exact executed case.",
-                "path": finding.get("path", "detector_controls"),
-            }
-            for finding in normalized_findings
-            if str(finding.get("path", "")).startswith("detector_controls.")
-        ]
-        normalized_findings = [
-            finding
-            for finding in normalized_findings
-            if not str(finding.get("path", "")).startswith("detector_controls.")
-        ]
-        normalized_findings.extend(control_summaries)
-    instruction = (
-        "Address every substantiated finding together. Verify criticism against "
-        "the original scenario and supplied evidence, preserve supported meaning, "
-        "and retain an essential unsupported requirement as unresolved instead "
-        "of inventing facts."
-    )
-    if failed_stage in {"plan_review", "artifact_review"} or any(
-        isinstance(finding, Finding) and finding.code == "semantic_review" for finding in findings
-    ):
-        instruction += (
-            " The CURRENT FINDINGS contain only semantic-review findings whose "
-            "question IDs are in the closed scope for this stage. Out-of-scope "
-            "review findings are intentionally omitted; do not reconstruct or "
-            "address them."
-        )
+    normalized_findings = _normalized_correction_findings(findings, detector_feedback)
+    instruction = _correction_instruction(failed_stage, findings)
     context: dict[str, Any] = {
         "stage": stage,
         "failed_stage": failed_stage,
@@ -700,27 +674,7 @@ def build_correction_context(
         "instruction": instruction,
     }
     if stage == "artifact":
-        accepted_plan = original_context.get("accepted_plan")
-        runtime_evidence_interface = original_context.get("runtime_evidence_interface")
-        runtime_contract = (
-            runtime_evidence_interface.get("runtime_contract")
-            if isinstance(runtime_evidence_interface, dict)
-            else None
-        )
-        context["observation_guide"] = artifact_observation_guide(
-            accepted_plan if isinstance(accepted_plan, dict) else {},
-            runtime_contract if isinstance(runtime_contract, dict) else None,
-            omission=_context_has_not_called(original_context),
-        )
-        context["evidence_packet_interface"] = _render_evidence_packet_interface(
-            claim_level=_plan_claim_level(accepted_plan),
-            required_observations=(
-                accepted_plan.get("required_observations")
-                if isinstance(accepted_plan, dict)
-                else None
-            ),
-            semantic_judge_needed=_plan_semantic_judge_needed(accepted_plan),
-        )
+        context.update(_artifact_correction_interfaces(original_context))
     if detector_feedback:
         context["detector_feedback"] = build_detector_feedback_prompt_context(detector_feedback)
     if prior_unresolved_findings:
@@ -762,6 +716,98 @@ def build_correction_context(
     else:
         raise ValueError(f"unsupported correction stage: {failed_stage}")
     return context
+
+
+def _correction_stage(failed_stage: str) -> str:
+    """Map a failed stage name to the plan or artifact correction it belongs to."""
+
+    if failed_stage in {"plan", "call1", "plan_review"}:
+        return "plan"
+    if failed_stage in {"artifact", "call2", "artifact_review"}:
+        return "artifact"
+    return failed_stage
+
+
+def _normalized_correction_findings(
+    findings: list[dict[str, Any]] | tuple[dict[str, Any], ...] | list[Finding],
+    detector_feedback: Any,
+) -> list[dict[str, Any]]:
+    """Copy findings as dicts; with control feedback, summarize control findings last."""
+
+    normalized_findings = [
+        finding.to_dict() if isinstance(finding, Finding) else deepcopy(finding)
+        for finding in findings
+    ]
+    if not detector_feedback:
+        return normalized_findings
+
+    def is_control(finding: dict[str, Any]) -> bool:
+        return str(finding.get("path", "")).startswith("detector_controls.")
+
+    control_summaries = [
+        {
+            "code": finding.get("code", "detector_control_failure"),
+            "detail": "See the shared feedback section for the exact executed case.",
+            "path": finding.get("path", "detector_controls"),
+        }
+        for finding in normalized_findings
+        if is_control(finding)
+    ]
+    return [finding for finding in normalized_findings if not is_control(finding)] + (
+        control_summaries
+    )
+
+
+def _correction_instruction(
+    failed_stage: str,
+    findings: list[dict[str, Any]] | tuple[dict[str, Any], ...] | list[Finding],
+) -> str:
+    """Return the shared instruction, scoped to review findings when a review failed."""
+
+    instruction = (
+        "Address every substantiated finding together. Verify criticism against "
+        "the original scenario and supplied evidence, preserve supported meaning, "
+        "and retain an essential unsupported requirement as unresolved instead "
+        "of inventing facts."
+    )
+    if failed_stage in {"plan_review", "artifact_review"} or any(
+        isinstance(finding, Finding) and finding.code == "semantic_review" for finding in findings
+    ):
+        instruction += (
+            " The CURRENT FINDINGS contain only semantic-review findings whose "
+            "question IDs are in the closed scope for this stage. Out-of-scope "
+            "review findings are intentionally omitted; do not reconstruct or "
+            "address them."
+        )
+    return instruction
+
+
+def _artifact_correction_interfaces(original_context: dict[str, Any]) -> dict[str, Any]:
+    """Return the observation guide and evidence packet interface for the fixed plan."""
+
+    accepted_plan = original_context.get("accepted_plan")
+    runtime_evidence_interface = original_context.get("runtime_evidence_interface")
+    runtime_contract = (
+        runtime_evidence_interface.get("runtime_contract")
+        if isinstance(runtime_evidence_interface, dict)
+        else None
+    )
+    observation_guide = artifact_observation_guide(
+        accepted_plan if isinstance(accepted_plan, dict) else {},
+        runtime_contract if isinstance(runtime_contract, dict) else None,
+        omission=_context_has_not_called(original_context),
+    )
+    evidence_packet_interface = _render_evidence_packet_interface(
+        claim_level=_plan_claim_level(accepted_plan),
+        required_observations=(
+            accepted_plan.get("required_observations") if isinstance(accepted_plan, dict) else None
+        ),
+        semantic_judge_needed=_plan_semantic_judge_needed(accepted_plan),
+    )
+    return {
+        "observation_guide": observation_guide,
+        "evidence_packet_interface": evidence_packet_interface,
+    }
 
 
 def _render_correction_sections(sections: tuple[tuple[str, Any], ...]) -> str:
