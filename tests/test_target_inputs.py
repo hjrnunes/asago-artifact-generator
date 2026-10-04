@@ -325,3 +325,169 @@ def test_record_key_companion_bindings_must_select_the_key_string(
     assert "target_order" in message
     assert "value.<key>.record_key" in message
     assert "facts:state:orders" in message
+
+
+def _observations(profile_digest: str) -> dict:
+    return {
+        "state": {"enabled": True},
+        "target_profile_digest": profile_digest,
+        "read_observations": [
+            {
+                "profile_digest": profile_digest,
+                "tool_name": "lookup_record",
+                "arguments": {"record_id": "record-1"},
+                "result": {"status": "ok"},
+                "status": {"transport": "verified", "content": "untrusted"},
+            }
+        ],
+    }
+
+
+def _read(**changes: object):
+    def mutate(observations: dict) -> None:
+        observations["read_observations"][0].update(changes)
+
+    return mutate
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda o: o.update(bogus=1, extra=2), "unsupported fields: bogus, extra"),
+        (lambda o: o.update(target_profile_digest="abc"), "require target_profile_digest"),
+        (lambda o: o.update(state=[]), "state must be an object"),
+        (lambda o: o.update(read_observations={}), "read_observations must be a list"),
+        (
+            lambda o: o.update(read_observations=o["read_observations"] * 16),
+            "cannot contain more than 15 reads",
+        ),
+        (lambda o: o.update(read_observations=["x"]), r"read_observations\[0\] must be an object"),
+        (_read(profile_digest="d" * 64), r"read_observations\[0\] profile digest does not match"),
+        (_read(profile_digest=None), r"read_observations\[0\] profile digest does not match"),
+        (_read(tool_name=""), r"read_observations\[0\] requires tool_name"),
+        (_read(tool_name="delete_record"), r"read_observations\[0\] names an unknown tool"),
+        (_read(arguments={"record_id": 1}), "arguments must be a string mapping"),
+        (_read(arguments=["record-1"]), "arguments must be a string mapping"),
+        (_read(status={"transport": "unverified", "content": "untrusted"}), "verified and"),
+        (_read(status={"transport": "verified", "content": "trusted"}), "verified and"),
+        (_read(status="verified"), "must be verified and untrusted"),
+        (_read(result={"isError": True}), r"read_observations\[0\] result must be successful"),
+        (_read(result=["ok"]), r"read_observations\[0\] result must be successful"),
+    ],
+)
+def test_target_observations_are_rejected_at_the_first_invalid_field(
+    tmp_path: Path, mutate, message: str
+) -> None:
+    profile = tmp_path / "profile.json"
+    _write_profile(profile)
+    observations = _observations(_profile_digest(profile))
+    mutate(observations)
+    observations_path = tmp_path / "runtime-context.json"
+    observations_path.write_text(json.dumps(observations), encoding="utf-8")
+
+    with pytest.raises(TargetInputError, match=message):
+        load_target_inputs(profile, observations_path)
+
+
+def test_target_observations_must_be_an_object(tmp_path: Path) -> None:
+    profile = tmp_path / "profile.json"
+    _write_profile(profile)
+    observations_path = tmp_path / "runtime-context.json"
+    observations_path.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(TargetInputError, match="target observations must be an object"):
+        load_target_inputs(profile, observations_path)
+
+
+def test_read_observations_may_be_null_or_absent_for_the_validator() -> None:
+    from asago_artifact_generator.target_inputs import _validate_observations
+
+    digest = "a" * 64
+    _validate_observations(
+        {"state": {}, "target_profile_digest": digest, "read_observations": None},
+        profile={},
+    )
+    _validate_observations({"state": {}, "target_profile_digest": digest}, profile={})
+    with pytest.raises(TargetInputError, match="names an unknown tool"):
+        _validate_observations(
+            {
+                "state": {},
+                "target_profile_digest": digest,
+                "read_observations": [
+                    {
+                        "profile_digest": digest,
+                        "tool_name": "lookup_record",
+                        "arguments": None,
+                        "result": {},
+                        "status": {"transport": "verified", "content": "untrusted"},
+                    }
+                ],
+            },
+            profile={"inventory": "not-an-object"},
+        )
+
+
+def test_state_fact_schemas_cover_every_json_type(tmp_path: Path) -> None:
+    profile = tmp_path / "profile.json"
+    _write_profile(profile)
+    observations = _observations(_profile_digest(profile))
+    observations["state"] = {
+        "nothing": None,
+        "ratio": 0.5,
+        "count": 3,
+        "empty": [],
+        "names": ["a", "b"],
+        "mixed": [1, "one", None, 1],
+    }
+    observations_path = tmp_path / "runtime-context.json"
+    observations_path.write_text(json.dumps(observations), encoding="utf-8")
+
+    inventory, _ = load_target_inputs(profile, observations_path)
+
+    schemas = {fact["ref"]: fact["schema"] for fact in inventory["facts"]}
+    assert schemas["state:nothing"] == {"type": "null"}
+    assert schemas["state:ratio"] == {"type": "number"}
+    assert schemas["state:count"] == {"type": "integer"}
+    assert schemas["state:empty"] == {"type": "array", "items": {}}
+    assert schemas["state:names"] == {"type": "array", "items": {"type": "string"}}
+    assert schemas["state:mixed"] == {
+        "type": "array",
+        "items": {"anyOf": [{"type": "integer"}, {"type": "null"}, {"type": "string"}]},
+    }
+
+
+def test_schema_inference_rejects_non_json_values() -> None:
+    from asago_artifact_generator.target_inputs import _infer_schema
+
+    with pytest.raises(TargetInputError, match="cannot infer JSON schema for value of type set"):
+        _infer_schema({"tags": {"a"}})
+
+
+def test_operations_reject_invalid_and_duplicate_tools_and_use_the_first_interpretation() -> None:
+    from asago_artifact_generator.target_inputs import _operations
+
+    profile = _profile()
+    tool = profile["inventory"]["tools"][0]
+    profile["interpretations"].append(
+        {**profile["interpretations"][0], "disposition": "unsupported"}
+    )
+    profile["interpretations"].append("not-an-interpretation")
+    profile["inventory"]["tools"].append({**tool, "name": "archive_record", "output_schema": None})
+
+    operations = _operations(profile)
+
+    assert [operation["name"] for operation in operations] == [
+        "archive_record",
+        "lookup_record",
+    ]
+    assert "result_schema" not in operations[0]
+    assert "interpretation" not in operations[0]
+    assert operations[1]["interpretation"]["disposition"] == "supported"
+    with pytest.raises(TargetInputError, match="duplicates tool: lookup_record"):
+        _operations({"inventory": {"tools": [tool, tool]}})
+    with pytest.raises(TargetInputError, match="contains an invalid tool"):
+        _operations({"inventory": {"tools": [{"title": "unnamed"}]}})
+    without_interpretations = _operations(
+        {"inventory": {"tools": [tool]}, "interpretations": "none"}
+    )
+    assert "interpretation" not in without_interpretations[0]

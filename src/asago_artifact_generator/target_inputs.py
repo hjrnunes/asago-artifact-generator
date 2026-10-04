@@ -122,6 +122,20 @@ def _build_inventory(
 def _operations(profile: dict[str, Any]) -> list[dict[str, Any]]:
     inventory = profile.get("inventory")
     tools = inventory.get("tools", []) if isinstance(inventory, dict) else []
+    interpretation_by_tool = _interpretations_by_tool(profile)
+    operations: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for tool in tools:
+        if not isinstance(tool, dict) or not isinstance(tool.get("name"), str):
+            raise TargetInputError("target profile inventory contains an invalid tool")
+        if tool["name"] in seen_names:
+            raise TargetInputError(f"target profile inventory duplicates tool: {tool['name']}")
+        seen_names.add(tool["name"])
+        operations.append(_operation_record(tool, interpretation_by_tool.get(tool["name"], [])))
+    return sorted(operations, key=lambda item: item["name"])
+
+
+def _interpretations_by_tool(profile: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     interpretations = profile.get("interpretations", [])
     interpretation_by_tool: dict[str, list[dict[str, Any]]] = {}
     if isinstance(interpretations, list):
@@ -132,41 +146,38 @@ def _operations(profile: dict[str, Any]) -> list[dict[str, Any]]:
                 interpretation_by_tool.setdefault(interpretation["tool_name"], []).append(
                     interpretation
                 )
+    return interpretation_by_tool
 
-    operations: list[dict[str, Any]] = []
-    seen_names: set[str] = set()
-    for tool in tools:
-        if not isinstance(tool, dict) or not isinstance(tool.get("name"), str):
-            raise TargetInputError("target profile inventory contains an invalid tool")
-        if tool["name"] in seen_names:
-            raise TargetInputError(f"target profile inventory duplicates tool: {tool['name']}")
-        seen_names.add(tool["name"])
-        operation: dict[str, Any] = {
-            "name": tool["name"],
-            "title": tool.get("title"),
-            "description": tool.get("description"),
-            "arguments": deepcopy(tool.get("input_schema", {})),
-            "annotations": deepcopy(tool.get("annotations")),
+
+def _operation_record(
+    tool: dict[str, Any], interpretations: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Map one inventory tool to an operation, with its first interpretation's summary."""
+
+    operation: dict[str, Any] = {
+        "name": tool["name"],
+        "title": tool.get("title"),
+        "description": tool.get("description"),
+        "arguments": deepcopy(tool.get("input_schema", {})),
+        "annotations": deepcopy(tool.get("annotations")),
+    }
+    if tool.get("output_schema") is not None:
+        operation["result_schema"] = deepcopy(tool["output_schema"])
+    if interpretations:
+        interpretation = interpretations[0]
+        selected = {
+            key: interpretation[key]
+            for key in (
+                "disposition",
+                "likely_effect",
+                "likely_state_effect",
+                "interpreter_verifier_agreement",
+            )
+            if key in interpretation
         }
-        if tool.get("output_schema") is not None:
-            operation["result_schema"] = deepcopy(tool["output_schema"])
-        matches = interpretation_by_tool.get(tool["name"], [])
-        if matches:
-            interpretation = matches[0]
-            selected = {
-                key: interpretation[key]
-                for key in (
-                    "disposition",
-                    "likely_effect",
-                    "likely_state_effect",
-                    "interpreter_verifier_agreement",
-                )
-                if key in interpretation
-            }
-            if selected:
-                operation["interpretation"] = selected
-        operations.append(operation)
-    return sorted(operations, key=lambda item: item["name"])
+        if selected:
+            operation["interpretation"] = selected
+    return operation
 
 
 def _source_handles(profile: dict[str, Any]) -> list[dict[str, Any]]:
