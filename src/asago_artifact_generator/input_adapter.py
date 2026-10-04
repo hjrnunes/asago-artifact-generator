@@ -131,6 +131,22 @@ def load_input(
     """Load one producer scenario handoff and produce a source-pinned view."""
 
     path = Path(source_path)
+    requested_kind = _requested_kind(kind, input_kind)
+    source_bytes = _read_source(path)
+    source = (
+        snapshot_input(path, snapshot_dir)
+        if snapshot_dir is not None
+        else SourceSnapshot(str(path), _sha256(source_bytes), len(source_bytes))
+    )
+    selected_kind = requested_kind or _infer_kind(path, source_bytes)
+    if selected_kind is InputKind.SCENARIO_HANDOFF_V1:
+        return _handoff_view(path, source_bytes, source)
+    raise InputSourceError(f"unsupported input kind: {selected_kind}")
+
+
+def _requested_kind(
+    kind: InputKind | str | None, input_kind: InputKind | str | None
+) -> InputKind | None:
     try:
         explicit_kind = _coerce_kind(kind) if kind is not None else None
         alternate_kind = _coerce_kind(input_kind) if input_kind is not None else None
@@ -142,16 +158,7 @@ def load_input(
         and explicit_kind != alternate_kind
     ):
         raise InputSourceError("kind and input_kind disagree")
-    source_bytes = _read_source(path)
-    source = (
-        snapshot_input(path, snapshot_dir)
-        if snapshot_dir is not None
-        else SourceSnapshot(str(path), _sha256(source_bytes), len(source_bytes))
-    )
-    selected_kind = explicit_kind or alternate_kind or _infer_kind(path, source_bytes)
-    if selected_kind is InputKind.SCENARIO_HANDOFF_V1:
-        return _handoff_view(path, source_bytes, source)
-    raise InputSourceError(f"unsupported input kind: {selected_kind}")
+    return explicit_kind or alternate_kind
 
 
 def build_scenario_handoff_view(view: InputView) -> dict[str, Any]:
@@ -387,6 +394,16 @@ def _validate_observation_metadata(value: Any) -> None:
             "handoff observation metadata is invalid "
             f"(missing={sorted(missing)}, unknown={sorted(unknown)})"
         )
+    _validate_observation_contract(value)
+    criteria = value["criteria"]
+    if not isinstance(criteria, list) or not criteria:
+        raise InputSourceError("handoff observation criteria must be a non-empty list")
+    for criterion in criteria:
+        _validate_observation_criterion(criterion)
+    _validate_observation_assessment(value["assessment"])
+
+
+def _validate_observation_contract(value: dict[str, Any]) -> None:
     for key in ("contract_schema", "contract_id", "contract_digest"):
         if not isinstance(value[key], str) or not value[key].strip():
             raise InputSourceError(f"handoff observation field is blank or mistyped: {key}")
@@ -394,12 +411,6 @@ def _validate_observation_metadata(value: Any) -> None:
         raise InputSourceError("handoff observation contract_digest is not a SHA-256 hex digest")
     if value["contract_schema"] != "observation-contract-v1":
         raise InputSourceError("unknown observation contract schema")
-    criteria = value["criteria"]
-    if not isinstance(criteria, list) or not criteria:
-        raise InputSourceError("handoff observation criteria must be a non-empty list")
-    for criterion in criteria:
-        _validate_observation_criterion(criterion)
-    _validate_observation_assessment(value["assessment"])
 
 
 _OBSERVATION_CRITERION_KEYS = frozenset(
@@ -436,6 +447,10 @@ def _validate_observation_criterion(criterion: Any) -> None:
     if not isinstance(criterion["observable"], bool):
         raise InputSourceError("handoff observation criterion observable is invalid")
     _validate_observation_criterion_claim(criterion)
+    _validate_observation_criterion_operation(criterion)
+
+
+def _validate_observation_criterion_operation(criterion: dict[str, Any]) -> None:
     operation_name = criterion.get("operation_name")
     if operation_name is not None and not is_nonblank_str(operation_name):
         raise InputSourceError("observation criterion operation_name is invalid")
@@ -469,10 +484,14 @@ def _validate_observation_assessment(assessment: Any) -> None:
     if not isinstance(assessment["reason"], str) or not assessment["reason"].strip():
         raise InputSourceError("handoff observation assessment reason is invalid")
     for key in ("supported_criteria", "unsupported_criteria"):
-        if not isinstance(assessment[key], list) or not all(
-            isinstance(item, str) and item.strip() for item in assessment[key]
-        ):
+        if not _is_nonblank_text_list(assessment[key]):
             raise InputSourceError(f"handoff observation assessment {key} is invalid")
+
+
+def _is_nonblank_text_list(value: Any) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, str) and bool(item.strip()) for item in value
+    )
 
 
 def _validate_safe_observable_outcome(value: Any) -> None:
@@ -568,13 +587,16 @@ def _validate_deduplication(value: Any, *, allow_condition: bool = False) -> Non
     status = value["status"]
     if status not in {"canonical", "duplicate", "analytical_only"}:
         raise InputSourceError("handoff deduplication status is invalid")
-    duplicate_of = value.get("duplicate_of")
+    _validate_duplicate_of(status, value.get("duplicate_of"))
+    _validate_deduplication_key(value["key"], allow_condition=allow_condition)
+
+
+def _validate_duplicate_of(status: str, duplicate_of: Any) -> None:
     if status == "duplicate":
         if not isinstance(duplicate_of, str) or not duplicate_of.strip():
             raise InputSourceError("duplicate handoff requires duplicate_of")
     elif duplicate_of is not None:
         raise InputSourceError("canonical and analytical-only handoffs must omit duplicate_of")
-    _validate_deduplication_key(value["key"], allow_condition=allow_condition)
 
 
 def _validate_deduplication_key(key: Any, *, allow_condition: bool) -> None:
@@ -588,7 +610,10 @@ def _validate_deduplication_key(key: Any, *, allow_condition: bool) -> None:
         or not set(key) <= key_required | key_optional
     ):
         raise InputSourceError("handoff deduplication key is invalid")
-    key = {"operation_name": None, "condition": None, **key}
+    _validate_deduplication_key_fields({"operation_name": None, "condition": None, **key})
+
+
+def _validate_deduplication_key_fields(key: dict[str, Any]) -> None:
     if key["condition"] is not None and not is_nonblank_str(key["condition"]):
         raise InputSourceError("handoff deduplication condition is invalid")
     if not all(is_nonblank_str(key[field]) for field in ("uca_id", "control_action_id")):

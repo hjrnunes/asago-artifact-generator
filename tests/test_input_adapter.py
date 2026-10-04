@@ -349,6 +349,20 @@ _ABSENT = object()
             _set("deduplication.key.claim_level", "belief"),
             "handoff deduplication claim_level is invalid",
         ),
+        (_set("safe_observable_outcome", "x"), "handoff safe_observable_outcome must be"),
+        (_set("safe_observable_outcome", {"x": 1}), "handoff safe_observable_outcome fields"),
+        (_set("safe_observable_outcome", {}), "handoff safe outcome observable is invalid"),
+        (
+            _set("safe_observable_outcome", {"observable": True, "statement": " "}),
+            "handoff safe outcome statement is invalid",
+        ),
+        (
+            _set(
+                "safe_observable_outcome",
+                {"observable": False, "statement": "s", "record_refs": ["r"], "fact_refs": []},
+            ),
+            "analytical-only handoff safe outcome must omit record and fact references",
+        ),
     ],
 )
 def test_handoff_validation_names_the_first_invalid_field(
@@ -403,3 +417,8 @@ def test_v2_handoff_validation_checks_the_condition_fields(
         load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V1)
 
     assert str(raised.value).startswith(message)
+
+
+def test_unknown_input_kind_is_rejected() -> None:
+    with pytest.raises(InputSourceError, match="^unsupported input kind: bogus$"):
+        load_input(CONTRACT_HANDOFF, kind="bogus")
