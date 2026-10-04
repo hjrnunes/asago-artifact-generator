@@ -291,24 +291,25 @@ def _mapping_sha256(value: dict[str, Any]) -> str:
     return _sha256(_canonical_json(value).encode("utf-8"))
 
 
+# The first matching pattern wins, so the order is part of the contract.
+_ERROR_CODE_PATTERNS = tuple(
+    (re.compile(pattern), code)
+    for pattern, code in (
+        (r"^unknown_reference:", "unknown_reference"),
+        (r"^plan_conflict:", "plan_conflict"),
+        (r"^undocumented selector", "undocumented_selector"),
+        (r"type mismatch", "schema_type_mismatch"),
+        (r"^schema_type_mismatch:", "schema_type_mismatch"),
+        (r"not permitted", "unpermitted_setup"),
+        (r"^non_user_history", "non_user_history"),
+    )
+)
+
+
 def _findings_from_error(exc: Exception) -> list[Finding]:
     text = str(exc)
-    code = "plan_validation" if isinstance(exc, PlanValidationError) else "artifact_validation"
-    if text.startswith("unknown_reference:"):
-        code = "unknown_reference"
-    elif text.startswith("plan_conflict:"):
-        code = "plan_conflict"
-    elif text.startswith("undocumented selector"):
-        code = "undocumented_selector"
-    elif "type mismatch" in text:
-        code = "schema_type_mismatch"
-    elif text.startswith("schema_type_mismatch:"):
-        code = "schema_type_mismatch"
-    elif "not permitted" in text:
-        code = "unpermitted_setup"
-    elif text.startswith("non_user_history"):
-        code = "non_user_history"
-    return [Finding(code, text)]
+    default = "plan_validation" if isinstance(exc, PlanValidationError) else "artifact_validation"
+    return [Finding(next((c for p, c in _ERROR_CODE_PATTERNS if p.search(text)), default), text)]
 
 
 def _safe_metadata(value: Any) -> dict[str, Any]:
@@ -387,22 +388,25 @@ def _json_value_type(value: Any) -> str:
     return type(value).__name__
 
 
+# Pairs rather than a dict: a schema type that is not a string (for example a
+# list of types) is unhashable and must match no entry instead of raising.
+_SCHEMA_PYTHON_TYPES = (
+    ("string", str),
+    ("boolean", bool),
+    ("integer", int),
+    ("number", (int, float)),
+    ("object", dict),
+    ("array", list),
+)
+
+
 def _matches_schema_type(value: Any, schema_type: str) -> bool:
     if isinstance(value, str) and _SLOT_RE.fullmatch(value):
         return True
-    if schema_type == "string":
-        return isinstance(value, str)
-    if schema_type == "boolean":
-        return isinstance(value, bool)
-    if schema_type == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if schema_type == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
-    if schema_type == "object":
-        return isinstance(value, dict)
-    if schema_type == "array":
-        return isinstance(value, list)
-    return True
+    python_type = next((t for name, t in _SCHEMA_PYTHON_TYPES if name == schema_type), None)
+    if python_type is None:
+        return True
+    return isinstance(value, python_type) and (python_type is bool or not isinstance(value, bool))
 
 
 def _sha256(value: bytes) -> str:
