@@ -911,18 +911,20 @@ class _EvidenceAccessVisitor(ast.NodeVisitor):
 
 def _literal_evidence_path(node: ast.AST) -> tuple[str, ...] | None:
     if isinstance(node, ast.Subscript):
-        base = _literal_evidence_path(node.value)
-        key = _literal_string_or_integer(node.slice)
-        return (*base, key) if base is not None and key is not None else None
+        return _extend_evidence_path(node.value, node.slice)
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr == "get" and node.args:
-            base = _literal_evidence_path(node.func.value)
-            key = _literal_string_or_integer(node.args[0])
-            return (*base, key) if base is not None and key is not None else None
+            return _extend_evidence_path(node.func.value, node.args[0])
         return None
     if isinstance(node, ast.Name) and node.id == "evidence":
         return ()
     return None
+
+
+def _extend_evidence_path(base_node: ast.AST, key_node: ast.AST) -> tuple[str, ...] | None:
+    base = _literal_evidence_path(base_node)
+    key = _literal_string_or_integer(key_node)
+    return (*base, key) if base is not None and key is not None else None
 
 
 def _literal_string_or_integer(node: ast.AST) -> str | None:
@@ -965,18 +967,25 @@ def normalize_evidence_packet(
     return packet
 
 
-def _normalize_judge(value: Any, evidence: dict[str, Any]) -> dict[str, Any]:
+def _judge_shape_failure(value: Any) -> str | None:
     if value is _MISSING:
-        return _unresolved_judge("judge_missing")
+        return "judge_missing"
     if not isinstance(value, dict):
-        return _unresolved_judge("judge_invalid")
-    verdict = value.get("verdict")
+        return "judge_invalid"
+    if value.get("verdict") not in JUDGE_VERDICTS:
+        return "judge_response_invalid"
     refs = value.get("evidence_refs")
-    if verdict not in JUDGE_VERDICTS:
-        return _unresolved_judge("judge_response_invalid")
     if not isinstance(refs, list) or not all(isinstance(ref, str) and ref.strip() for ref in refs):
-        return _unresolved_judge("judge_evidence_invalid")
-    references = list(refs)
+        return "judge_evidence_invalid"
+    return None
+
+
+def _normalize_judge(value: Any, evidence: dict[str, Any]) -> dict[str, Any]:
+    failure = _judge_shape_failure(value)
+    if failure is not None:
+        return _unresolved_judge(failure)
+    verdict = value["verdict"]
+    references = list(value["evidence_refs"])
     if verdict in {"supported", "contradicted"}:
         references = [_map_message_id_reference(evidence, reference) for reference in references]
         unsupported = _judge_support_failure(evidence, references)
@@ -1036,6 +1045,21 @@ def _map_message_id_reference(evidence: dict[str, Any], reference: str) -> str:
     return reference
 
 
+def _judge_support_withheld(evidence: dict[str, Any], root: str, normalized: str) -> bool:
+    availability = evidence.get("availability")
+    completeness = evidence.get("completeness")
+    if isinstance(availability, dict) and availability.get(root) != "captured":
+        return True
+    specific_item = "[" in normalized or (
+        normalized.startswith("/") and any(part.isdigit() for part in normalized.split("/")[2:])
+    )
+    return (
+        not specific_item
+        and isinstance(completeness, dict)
+        and completeness.get(root) in {"unknown", "partial"}
+    )
+
+
 def _usable_judge_support(
     evidence: dict[str, Any],
     reference: str,
@@ -1052,18 +1076,7 @@ def _usable_judge_support(
         return False
     normalized = reference[2:] if reference.startswith("$.") else reference
     root = normalized.lstrip("/").split("/", 1)[0].split("[", 1)[0].split(".", 1)[0]
-    availability = evidence.get("availability")
-    completeness = evidence.get("completeness")
-    if isinstance(availability, dict) and availability.get(root) != "captured":
-        return False
-    specific_item = "[" in normalized or (
-        normalized.startswith("/") and any(part.isdigit() for part in normalized.split("/")[2:])
-    )
-    if (
-        not specific_item
-        and isinstance(completeness, dict)
-        and completeness.get(root) in {"unknown", "partial"}
-    ):
+    if _judge_support_withheld(evidence, root, normalized):
         return False
     if _is_tool_result_reference(reference):
         return True
@@ -1072,20 +1085,23 @@ def _usable_judge_support(
     return False
 
 
+def _message_content_equals(messages: Any, index: int, value: Any) -> bool:
+    if not isinstance(messages, list) or index >= len(messages):
+        return False
+    message = messages[index]
+    return (
+        isinstance(message, dict)
+        and isinstance(message.get("content"), str)
+        and message["content"] == value
+    )
+
+
 def _usable_message_support(evidence: dict[str, Any], normalized: str, value: Any) -> bool:
     """Accept message content: one message's exact content, or whole message records."""
 
     message_index = _message_content_index(normalized)
     if message_index is not None:
-        messages = evidence.get("messages")
-        if not isinstance(messages, list) or message_index >= len(messages):
-            return False
-        message = messages[message_index]
-        return (
-            isinstance(message, dict)
-            and isinstance(message.get("content"), str)
-            and message["content"] == value
-        )
+        return _message_content_equals(evidence.get("messages"), message_index, value)
     if isinstance(value, list):
         return bool(value) and all(
             isinstance(item, dict) and isinstance(item.get("content"), str) for item in value

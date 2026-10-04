@@ -794,3 +794,47 @@ def test_execute_detector_needs_a_persisted_package_and_a_positive_timeout(
     assert absent.package_digest_after is None
     with pytest.raises(ValueError, match="timeout_seconds must be positive"):
         execute_detector(tmp_path / "absent", _evidence(), timeout_seconds=0)
+
+
+@pytest.mark.parametrize(
+    ("judge", "reason"),
+    [
+        ("not-an-object", "judge_invalid"),
+        ({"verdict": "maybe", "evidence_refs": []}, "judge_response_invalid"),
+        ({"verdict": "supported", "evidence_refs": [" "]}, "judge_evidence_invalid"),
+        ({"verdict": "supported", "evidence_refs": []}, "judge_support_missing"),
+    ],
+)
+def test_normalize_evidence_packet_rejects_malformed_judge_objects(
+    judge: object, reason: str
+) -> None:
+    normalized = normalize_evidence_packet({"judge": judge}, judge_enabled=True)
+
+    assert normalized["judge"] == {"verdict": "unresolved", "evidence_refs": [], "reason": reason}
+
+
+@pytest.mark.parametrize(
+    ("reference", "expected"),
+    [
+        ("/bindings/limit/value", "limit"),
+        ("/messages/0", None),
+        ("/bindings", None),
+        ("$.bindings.limit", "limit"),
+        ("bindings.1bad", None),
+        ('bindings["limit"]', "limit"),
+        ("bindings[limit]", "limit"),
+        ("bindings[0]", None),
+        ("messages[0]", None),
+    ],
+)
+def test_evidence_reference_binding_name_reads_each_reference_form(
+    reference: str, expected: str | None
+) -> None:
+    assert detector_runtime._evidence_reference_binding_name(reference) == expected
+
+
+def test_bounded_communicate_needs_both_process_pipes() -> None:
+    process = SimpleNamespace(stdout=None, stderr=None)
+
+    with pytest.raises(OSError, match="detector process pipes are unavailable"):
+        detector_runtime._bounded_communicate(process, 1.0)  # type: ignore[arg-type]
