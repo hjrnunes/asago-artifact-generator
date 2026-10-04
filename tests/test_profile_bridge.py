@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 from asago_artifact_generator import cli
 from asago_artifact_generator.profiles import (
     ProfileFieldError,
+    ProfileFileError,
     ProfileNotFoundError,
     load_authoring_profile,
 )
@@ -382,3 +383,59 @@ def test_profile_secret_is_redacted_from_failure_evidence(
     assert values["api_key"] not in persisted
     assert values["base_url"] not in persisted
     assert values["model"] not in persisted
+
+
+@pytest.mark.parametrize(
+    ("content", "name", "error", "message"),
+    [
+        ("gemma4-oc: {}\n", "  ", ProfileNotFoundError, "profile name must be a nonblank string"),
+        ("gemma4-oc: {}\n", None, ProfileNotFoundError, "profile name must be a nonblank string"),
+        (None, "gemma4-oc", ProfileFileError, "could not read model profiles file"),
+        ("key: [unclosed\n", "gemma4-oc", ProfileFileError, "could not read model profiles file"),
+        ("- gemma4-oc\n", "gemma4-oc", ProfileFileError, "model profiles file is not a mapping"),
+        ("profiles: []\n", "gemma4-oc", ProfileFileError, "profiles entry is not a mapping"),
+        ("profiles: {}\n", "gemma4-oc", ProfileNotFoundError, "profile 'gemma4-oc' not found"),
+        ("gemma4-oc: model\n", "gemma4-oc", ProfileFieldError, "'gemma4-oc' is not a mapping"),
+    ],
+)
+def test_loader_rejects_unreadable_files_and_malformed_profile_entries(
+    tmp_path: Path, content: str | None, name: object, error: type, message: str
+) -> None:
+    profiles_file = tmp_path / "profiles.yaml"
+    if content is not None:
+        profiles_file.write_text(content, encoding="utf-8")
+
+    with pytest.raises(error, match=message):
+        load_authoring_profile(profiles_file, name)
+
+
+def test_loader_reads_profiles_nested_under_a_profiles_key(tmp_path: Path) -> None:
+    _, values = _profile_file(tmp_path)
+    profiles_file = tmp_path / "nested.yaml"
+    profiles_file.write_text(yaml.safe_dump({"profiles": {"gemma4-oc": values}}), encoding="utf-8")
+
+    assert load_authoring_profile(profiles_file, "gemma4-oc").model == values["model"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("reasoning_effort", " "),
+        ("service_tier", 3),
+        ("sampling_controls", "no"),
+        ("strict_json_schema", 1),
+        ("context_window", 0),
+        ("max_completion_tokens", True),
+        ("timeout", -1),
+        ("timeout", "fast"),
+    ],
+)
+def test_loader_rejects_an_invalid_optional_request_control(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    profiles_file, _ = _profile_file(tmp_path, **{field: value})
+
+    with pytest.raises(ProfileFieldError, match=f"has invalid field '{field}'") as exc_info:
+        load_authoring_profile(profiles_file, "gemma4-oc")
+
+    assert exc_info.value.field == field
