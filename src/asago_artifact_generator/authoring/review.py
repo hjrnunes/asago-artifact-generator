@@ -153,6 +153,32 @@ def parse_review_response(raw: bytes | str) -> ReviewResponse:
         raise ReviewResponseError(
             [Finding("invalid_json", f"review response is not valid UTF-8: {exc}", "review")]
         ) from exc
+    decision = decoded.get("decision")
+    summary = decoded.get("summary")
+    problems = _review_envelope_problems(decoded, decision, summary)
+    raw_findings = decoded.get("findings")
+    if not isinstance(raw_findings, list):
+        problems.append(Finding("review_schema", "review findings must be a list", "review"))
+        raw_findings = []
+    else:
+        for index, item in enumerate(raw_findings):
+            problems.extend(_review_finding_shape_problems(item, index))
+    problems.extend(_review_decision_contradictions(decision, raw_findings))
+    if problems:
+        raise ReviewResponseError(problems)
+    return ReviewResponse(
+        decision=decision,
+        summary=summary,
+        findings=tuple(dict(item) for item in raw_findings),
+        transformation=transformation,
+    )
+
+
+def _review_envelope_problems(
+    decoded: dict[str, Any], decision: Any, summary: Any
+) -> list[Finding]:
+    """Return problems with the review's field set, decision, and summary."""
+
     problems: list[Finding] = []
     unknown = set(decoded) - {"decision", "summary", "findings"}
     if unknown:
@@ -163,7 +189,6 @@ def parse_review_response(raw: bytes | str) -> ReviewResponse:
                 "review",
             )
         )
-    decision = decoded.get("decision")
     if decision not in _REVIEW_DECISIONS:
         problems.append(
             Finding(
@@ -172,42 +197,33 @@ def parse_review_response(raw: bytes | str) -> ReviewResponse:
                 "review",
             )
         )
-    summary = decoded.get("summary")
     if not isinstance(summary, str) or not summary.strip():
         problems.append(
             Finding("review_schema", "review summary must be a nonblank string", "review")
         )
-    raw_findings = decoded.get("findings")
-    if not isinstance(raw_findings, list):
-        problems.append(Finding("review_schema", "review findings must be a list", "review"))
-        raw_findings = []
-    else:
-        for index, item in enumerate(raw_findings):
-            problems.extend(_review_finding_shape_problems(item, index))
+    return problems
+
+
+def _review_decision_contradictions(decision: Any, raw_findings: list[Any]) -> list[Finding]:
+    """Return a problem when the decision disagrees with whether findings are present."""
+
     if decision == "accept" and raw_findings:
-        problems.append(
+        return [
             Finding(
                 "review_contradiction",
                 "accept requires an empty findings array",
                 "review",
             )
-        )
+        ]
     if decision in {"revise", "blocked"} and not raw_findings:
-        problems.append(
+        return [
             Finding(
                 "review_contradiction",
                 f"{decision} requires at least one complete finding",
                 "review",
             )
-        )
-    if problems:
-        raise ReviewResponseError(problems)
-    return ReviewResponse(
-        decision=decision,
-        summary=summary,
-        findings=tuple(dict(item) for item in raw_findings),
-        transformation=transformation,
-    )
+        ]
+    return []
 
 
 def _review_finding_shape_problems(item: Any, index: int) -> list[Finding]:
@@ -517,12 +533,12 @@ def _artifact_plan_references(plan: dict[str, Any], fact_refs: Collection[str]) 
     yield from fact_refs
 
 
-def _artifact_review_authoritative_context(
+def _artifact_review_cited_names(
     plan: dict[str, Any],
     inventory: dict[str, Any],
     fact_refs: Collection[str],
-) -> dict[str, Any]:
-    """Keep only inventory material referenced by the accepted artifact plan."""
+) -> tuple[set[str], set[str], set[str]]:
+    """Return the operation, fact, and source names the accepted plan selects or cites."""
 
     selected = _selected_refs(plan, inventory)
     operation_names = set(selected["operations"])
@@ -542,7 +558,19 @@ def _artifact_review_authoritative_context(
             operation_names.add(value)
         elif value.startswith("operation:") and value.split(":", 1)[1] in operation_map:
             operation_names.add(value.split(":", 1)[1])
+    return operation_names, fact_names, source_names
 
+
+def _artifact_review_authoritative_context(
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    fact_refs: Collection[str],
+) -> dict[str, Any]:
+    """Keep only inventory material referenced by the accepted artifact plan."""
+
+    operation_names, fact_names, source_names = _artifact_review_cited_names(
+        plan, inventory, fact_refs
+    )
     return {
         "facts": [
             deepcopy(fact)

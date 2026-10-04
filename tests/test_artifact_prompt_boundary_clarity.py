@@ -177,3 +177,38 @@ def test_correction_renders_optional_stage_context_and_current_review_view() -> 
     assert correction.user.count("OBSERVATION DECISION GUIDE\n") == 1
     assert review.version == ARTIFACT_REVIEW_PROMPT_VERSION
     assert "OBSERVATION DECISION GUIDE\n" in review.user
+
+
+def test_artifact_review_inventory_keeps_only_records_the_plan_cites() -> None:
+    from asago_artifact_generator.authoring.review import _artifact_review_authoritative_context
+
+    inventory = {
+        "operations": [
+            {"name": "lookup", "description": "Look up."},
+            {"name": "refund", "description": "Refund."},
+            {"name": "unused", "description": "Not cited."},
+        ],
+        "facts": [
+            {"ref": "order:1", "value": 1, "schema": {"type": "integer"}},
+            {"ref": "order:2", "value": 2, "schema": {"type": "integer"}},
+        ],
+        "source_handles": [
+            {"ref": "source:case", "meaning": "Case."},
+            {"ref": "source:other", "meaning": "Not cited."},
+        ],
+    }
+    plan = {
+        "interpretation": {"source_refs": ["source:case", "SC-1"]},
+        "assumptions": [{"reason": "an assumption without a ref"}],
+        "prerequisites": [{"evidence_refs": ["operation:refund"]}],
+        "setup_recipe": [{"name": "lookup"}],
+        "selected_evidence": [],
+        "runtime_bindings": [],
+    }
+
+    context = _artifact_review_authoritative_context(plan, inventory, ["order:2"])
+
+    assert context["facts"] == [{"ref": "order:2", "value": 2, "schema": {"type": "integer"}}]
+    assert [operation["name"] for operation in context["operations"]] == ["lookup", "refund"]
+    assert context["source_handles"] == [{"ref": "source:case", "meaning": "Case."}]
+    assert "not repeated" in context["runtime_capabilities"]["note"]

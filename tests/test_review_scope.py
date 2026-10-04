@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from asago_artifact_generator.authoring.core import ReviewResponseError
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 from asago_artifact_generator.authoring.review import (
@@ -153,3 +156,80 @@ def test_review_prompts_render_closed_questions_guarantees_and_one_object_exampl
         assert "no text before or after" in packet.user
         assert "example_finding" in packet.user
         assert "value.<key>.record_key" in packet.user
+
+
+def _review_problems(raw: object) -> list[dict]:
+    with pytest.raises(ReviewResponseError) as error:
+        parse_review_response(raw)
+    return [finding.to_dict() for finding in error.value.findings]
+
+
+def test_review_response_must_be_bytes_or_text() -> None:
+    with pytest.raises(TypeError, match="review response must be bytes or text"):
+        parse_review_response(42)  # type: ignore[arg-type]
+
+
+def test_review_response_must_be_utf8() -> None:
+    (problem,) = _review_problems(b'{"decision": "\xff"}')
+
+    assert problem["code"] == "invalid_json"
+    assert problem["detail"].startswith("review response is not valid UTF-8: ")
+    assert problem["path"] == "review"
+
+
+def test_review_envelope_problems_are_reported_together_in_order() -> None:
+    raw = json.dumps({"decision": "maybe", "summary": " ", "findings": {}, "extra": 1, "more": 2})
+
+    assert _review_problems(raw) == [
+        {
+            "code": "review_schema",
+            "detail": "review response has unknown fields: extra, more",
+            "path": "review",
+        },
+        {
+            "code": "review_schema",
+            "detail": "review decision must be one of accept, revise, blocked",
+            "path": "review",
+        },
+        {
+            "code": "review_schema",
+            "detail": "review summary must be a nonblank string",
+            "path": "review",
+        },
+        {"code": "review_schema", "detail": "review findings must be a list", "path": "review"},
+    ]
+
+
+def test_review_decision_must_agree_with_its_findings() -> None:
+    accept = json.loads(_review("accept", [_finding("scenario_fidelity")]))
+    blocked = json.loads(_review("blocked"))
+    revise_without_list = {"decision": "revise", "summary": "s"}
+
+    assert _review_problems(json.dumps(accept)) == [
+        {
+            "code": "review_contradiction",
+            "detail": "accept requires an empty findings array",
+            "path": "review",
+        }
+    ]
+    assert _review_problems(json.dumps(blocked)) == [
+        {
+            "code": "review_contradiction",
+            "detail": "blocked requires at least one complete finding",
+            "path": "review",
+        }
+    ]
+    assert _review_problems(json.dumps(revise_without_list)) == [
+        {"code": "review_schema", "detail": "review findings must be a list", "path": "review"},
+        {
+            "code": "review_contradiction",
+            "detail": "revise requires at least one complete finding",
+            "path": "review",
+        },
+    ]
+
+
+def test_accepted_review_keeps_decision_summary_and_no_findings() -> None:
+    parsed = parse_review_response(_review("accept"))
+
+    assert (parsed.decision, parsed.summary, parsed.findings) == ("accept", "scripted accept", ())
