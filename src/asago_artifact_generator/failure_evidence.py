@@ -135,9 +135,7 @@ def redact_metadata(value: Any) -> Any:
             else:
                 result[key_text] = redact_metadata(item)
         return result
-    if isinstance(value, list):
-        return [redact_metadata(item) for item in value]
-    if isinstance(value, tuple):
+    if isinstance(value, (list, tuple)):
         return [redact_metadata(item) for item in value]
     if isinstance(value, str) and value.lower().startswith(("http://", "https://")):
         return "<redacted>"
