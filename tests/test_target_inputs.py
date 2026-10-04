@@ -427,6 +427,19 @@ def test_read_observations_may_be_null_or_absent_for_the_validator() -> None:
         )
 
 
+def test_null_read_observations_load_as_an_empty_list(tmp_path: Path) -> None:
+    profile = tmp_path / "profile.json"
+    _write_profile(profile)
+    observations = _observations(_profile_digest(profile))
+    observations["read_observations"] = None
+    observations_path = tmp_path / "runtime-context.json"
+    observations_path.write_text(json.dumps(observations), encoding="utf-8")
+
+    inventory, _ = load_target_inputs(profile, observations_path)
+
+    assert [fact["ref"] for fact in inventory["facts"]] == ["state:enabled"]
+
+
 def test_state_fact_schemas_cover_every_json_type(tmp_path: Path) -> None:
     profile = tmp_path / "profile.json"
     _write_profile(profile)

@@ -228,7 +228,7 @@ def _facts(
         if companion is not None:
             facts.append(companion)
 
-    read_observations = observations.get("read_observations", [])
+    read_observations = observations.get("read_observations") or []
     for index, observation in enumerate(read_observations):
         tool_name = observation["tool_name"]
         observation_provenance = {
