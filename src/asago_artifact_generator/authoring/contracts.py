@@ -1618,10 +1618,45 @@ def _render_evidence_packet_interface(
     """Render one stable model-facing copy of the maintained packet contract."""
 
     contract = evidence_packet_contract()
-    paths = deepcopy(contract["paths"])
-    # Keep one spelling for the declared binding path. The alias adds no
-    # information and has repeatedly made the interface harder to scan.
-    paths.pop("bindings.<name>", None)
+    include_messages, include_judge = _interface_inclusions(
+        claim_level, required_observations, semantic_judge_needed
+    )
+    prompt_contract = {
+        "paths": _interface_paths(contract, include_messages, include_judge),
+        "full_example_label": contract["full_example_label"],
+        "full_example": _interface_full_example(contract, include_messages, include_judge),
+        "result": _interface_result_contract(
+            contract, claim_level, include_messages, include_judge
+        ),
+    }
+    if include_messages:
+        prompt_contract["message_record"] = contract["message_record"]
+        prompt_contract["observation_name_mapping"] = {
+            "assistant_messages": (
+                "The runtime contract and accepted plan may call this observation "
+                "assistant_messages; the evidence packet delivers it as messages, "
+                "including availability.messages and completeness.messages."
+            )
+        }
+    if include_judge:
+        prompt_contract["judge"] = contract["judge"]
+    if claim_level != "command_attempt":
+        prompt_contract["semantics"] = contract["semantics"]
+    return json.dumps(
+        prompt_contract,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _interface_inclusions(
+    claim_level: str | None,
+    required_observations: Mapping[str, Any] | None,
+    semantic_judge_needed: bool,
+) -> tuple[bool, bool]:
+    """Return whether the interface includes message paths and judge paths."""
+
     required_keys = (
         [
             key
@@ -1637,6 +1672,18 @@ def _render_evidence_packet_interface(
         or "assistant_messages" in required_keys
     )
     include_judge = semantic_judge_needed or "semantic_judge" in required_keys
+    return include_messages, include_judge
+
+
+def _interface_paths(
+    contract: dict[str, Any], include_messages: bool, include_judge: bool
+) -> dict[str, Any]:
+    """Return the packet paths, without message or judge paths the plan does not use."""
+
+    paths = deepcopy(contract["paths"])
+    # Keep one spelling for the declared binding path. The alias adds no
+    # information and has repeatedly made the interface harder to scan.
+    paths.pop("bindings.<name>", None)
     if not include_messages:
         for key in (
             "messages",
@@ -1650,6 +1697,12 @@ def _render_evidence_packet_interface(
     if not include_judge:
         for key in ("judge", "judge.verdict", "judge.evidence_refs", "judge.reason"):
             paths.pop(key, None)
+    return paths
+
+
+def _interface_reference_examples(
+    contract: dict[str, Any], include_messages: bool, include_judge: bool
+) -> list[str]:
     reference_syntax_examples = list(contract["result"]["reference_syntax_examples"])
     if include_messages:
         reference_syntax_examples.extend(
@@ -1667,6 +1720,17 @@ def _render_evidence_packet_interface(
             "messages[0].raw.notes.tool_calls[0].output",
             *reference_syntax_examples,
         ]
+    return reference_syntax_examples
+
+
+def _interface_result_contract(
+    contract: dict[str, Any],
+    claim_level: str | None,
+    include_messages: bool,
+    include_judge: bool,
+) -> dict[str, Any]:
+    """Return the detector result contract, with absence examples for command attempts."""
+
     result_contract = {
         "fields": ["outcome", "reason", "claim_level", "evidence_refs"],
         "allowed_outcomes": contract["result"]["outcomes"],
@@ -1679,7 +1743,9 @@ def _render_evidence_packet_interface(
         "reason": contract["result"]["reason"],
         "evidence_refs": contract["result"]["evidence_refs"],
         "decisive_reference_rule": contract["result"]["decisive_reference_rule"],
-        "reference_syntax_examples": reference_syntax_examples,
+        "reference_syntax_examples": _interface_reference_examples(
+            contract, include_messages, include_judge
+        ),
         "judge_reference_rule": (
             "judge and judge.* paths are valid only when this interface includes the "
             "runner-normalized judge object for a judge-enabled package. Use "
@@ -1697,34 +1763,6 @@ def _render_evidence_packet_interface(
         ),
         "resolver": contract["result"]["resolver"],
     }
-    full_example = deepcopy(contract["full_example"])
-    if not include_messages:
-        full_example.pop("messages", None)
-    if not include_judge:
-        full_example.pop("judge", None)
-    else:
-        full_example["judge"] = {
-            "verdict": "unresolved",
-            "evidence_refs": [],
-            "reason": "judge_missing",
-        }
-    prompt_contract = {
-        "paths": paths,
-        "full_example_label": contract["full_example_label"],
-        "full_example": full_example,
-        "result": result_contract,
-    }
-    if include_messages:
-        prompt_contract["message_record"] = contract["message_record"]
-        prompt_contract["observation_name_mapping"] = {
-            "assistant_messages": (
-                "The runtime contract and accepted plan may call this observation "
-                "assistant_messages; the evidence packet delivers it as messages, "
-                "including availability.messages and completeness.messages."
-            )
-        }
-    if include_judge:
-        prompt_contract["judge"] = contract["judge"]
     if claim_level == "command_attempt":
         result_contract["complete_absence_example"] = {
             "outcome": "not_detected",
@@ -1744,14 +1782,26 @@ def _render_evidence_packet_interface(
             "claim_level": "command_attempt",
             "evidence_refs": ["tool_calls", "completeness.tool_calls"],
         }
-    if claim_level != "command_attempt":
-        prompt_contract["semantics"] = contract["semantics"]
-    return json.dumps(
-        prompt_contract,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
+    return result_contract
+
+
+def _interface_full_example(
+    contract: dict[str, Any], include_messages: bool, include_judge: bool
+) -> dict[str, Any]:
+    """Return the full packet example, with judge unresolved when the judge is included."""
+
+    full_example = deepcopy(contract["full_example"])
+    if not include_messages:
+        full_example.pop("messages", None)
+    if not include_judge:
+        full_example.pop("judge", None)
+    else:
+        full_example["judge"] = {
+            "verdict": "unresolved",
+            "evidence_refs": [],
+            "reason": "judge_missing",
+        }
+    return full_example
 
 
 def neutral_observation_cases() -> dict[str, dict[str, Any]]:
