@@ -6,6 +6,7 @@ import pytest
 
 from asago_artifact_generator.authoring.core import AuthoringError
 from asago_artifact_generator.authoring.prompt_safety import assert_no_secrets
+from asago_artifact_generator.metadata_policy import secret_metadata_paths
 from asago_artifact_generator.package_io import (
     PackageIntegrityError,
     build_package,
@@ -167,3 +168,19 @@ def test_unavailable_usage_marker_is_allowed() -> None:
     direct_marker = {"usage": {"availability": "unavailable", "reason": "not reported"}}
     assert_no_secrets({"authoring": direct_marker})
     assert _package(authoring=direct_marker).manifest.authoring == direct_marker
+
+
+@pytest.mark.parametrize(
+    ("usage", "expected"),
+    [
+        ({"zeta": 1, "alpha": 2}, ["usage.alpha", "usage.zeta", "usage"]),
+        ({"prompt_tokens": 1, "prompt_tokens_details": None}, []),
+        ({"prompt_tokens": 1, "prompt_tokens_details": 5}, ["usage.prompt_tokens_details"]),
+        (
+            {"prompt_tokens": 1, "prompt_tokens_details": {"cached_tokens": "1"}},
+            ["usage.prompt_tokens_details.cached_tokens"],
+        ),
+    ],
+)
+def test_usage_violation_paths(usage: dict, expected: list[str]) -> None:
+    assert secret_metadata_paths({"usage": usage}) == expected

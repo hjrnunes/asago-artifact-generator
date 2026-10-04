@@ -154,14 +154,9 @@ def _validate_usage_entry(value: Any, path: str) -> list[str]:
 
 
 def _validate_usage_value(value: Any, path: str) -> list[str]:
-    if not isinstance(value, dict):
+    if not isinstance(value, dict) or not value:
         return [path]
-    violations: list[str] = []
-    if not value:
-        return [path]
-    unknown = [key for key in value if key not in _USAGE_KEYS]
-    if unknown:
-        violations.extend(f"{path}.{key}" for key in sorted(unknown, key=str))
+    violations = [f"{path}.{key}" for key in sorted(set(value) - _USAGE_KEYS, key=str)]
     if not _USAGE_COUNTER_KEYS.intersection(value):
         violations.append(path)
     for key in _USAGE_COUNTER_KEYS & set(value):
