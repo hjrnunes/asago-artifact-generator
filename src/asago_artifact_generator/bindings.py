@@ -209,65 +209,17 @@ def canonical_binding_paths(
     if source_kind != "supplied_input" or not source_ref.startswith("facts:"):
         return source_ref, selector
     reference = source_ref.removeprefix("facts:")
-    fact_by_ref = {
-        item["ref"]: item
-        for item in inventory.get("facts", [])
-        if isinstance(item, dict) and isinstance(item.get("ref"), str)
-    }
+    fact_by_ref = _facts_by_ref(inventory)
     fallback_targets: set[tuple[str, str]] = set()
     if reference in fact_by_ref:
-        exact_fact = fact_by_ref[reference]
-        if (
-            _schema_at_selector(
-                exact_fact.get("schema", {}) if isinstance(exact_fact, dict) else {},
-                selector,
-            )
-            is not None
-        ):
-            return source_ref, selector
-        if reference.endswith(":records"):
-            base_ref = reference.removesuffix(":records")
-            base_fact = fact_by_ref.get(base_ref)
-            selector_parts = selector.split(".")
-            if len(selector_parts) >= 2 and selector_parts[0] == "value":
-                targets = _documented_targets(
-                    ((reference, exact_fact), (base_ref, base_fact)),
-                    selector,
-                )
-                if len(targets) == 1 and targets[0][0] == base_ref:
-                    fallback_targets.add((base_ref, selector))
-        if not reference.endswith(":records"):
-            return _record_key_companion_path(reference, selector, fact_by_ref) or (
-                source_ref,
-                selector,
-            )
-
+        exact = _exact_fact_paths(source_ref, reference, selector, fact_by_ref, fallback_targets)
+        if exact is not None:
+            return exact
     for companion_ref in sorted(fact_by_ref):
         if not companion_ref.endswith(":records"):
             continue
-        base_ref = companion_ref.removesuffix(":records")
-        parsed = _keyed_source_suffix(reference, companion_ref, base_ref)
-        if parsed is None:
-            continue
-        record_key, field = parsed
-        original = fact_by_ref.get(base_ref)
-        companion = fact_by_ref[companion_ref]
-        companion_source = reference == companion_ref or reference.startswith(f"{companion_ref}:")
-        sources = (
-            ((companion_ref, companion), (base_ref, original))
-            if companion_source
-            else ((base_ref, original), (companion_ref, companion))
-        )
-        target_selector = _keyed_target_selector(selector, record_key, field)
-        if target_selector is None:
-            continue
-        resolved = _keyed_resolution(
-            sources,
-            companion_source=companion_source,
-            companion_ref=companion_ref,
-            base_ref=base_ref,
-            selector=target_selector,
-            fallback_targets=fallback_targets,
+        resolved = _companion_shorthand_paths(
+            reference, selector, companion_ref, fact_by_ref, fallback_targets
         )
         if resolved is not None:
             return resolved
@@ -275,6 +227,89 @@ def canonical_binding_paths(
         resolved_ref, resolved_selector = next(iter(fallback_targets))
         return f"facts:{resolved_ref}", resolved_selector
     return source_ref, selector
+
+
+def _facts_by_ref(inventory: dict[str, Any]) -> dict[str, Any]:
+    return {
+        item["ref"]: item
+        for item in inventory.get("facts", [])
+        if isinstance(item, dict) and isinstance(item.get("ref"), str)
+    }
+
+
+def _exact_fact_paths(
+    source_ref: str,
+    reference: str,
+    selector: str,
+    fact_by_ref: dict[str, Any],
+    fallback_targets: set[tuple[str, str]],
+) -> tuple[str, str] | None:
+    """Resolve a reference that names a supplied fact exactly.
+
+    Returns None only for an undocumented selector on a records companion,
+    after recording its base fact as a fallback when only the base documents
+    the selector; the keyed shorthand search then continues.
+    """
+
+    exact_fact = fact_by_ref[reference]
+    if (
+        _schema_at_selector(
+            exact_fact.get("schema", {}) if isinstance(exact_fact, dict) else {},
+            selector,
+        )
+        is not None
+    ):
+        return source_ref, selector
+    if not reference.endswith(":records"):
+        return _record_key_companion_path(reference, selector, fact_by_ref) or (
+            source_ref,
+            selector,
+        )
+    base_ref = reference.removesuffix(":records")
+    selector_parts = selector.split(".")
+    if len(selector_parts) >= 2 and selector_parts[0] == "value":
+        targets = _documented_targets(
+            ((reference, exact_fact), (base_ref, fact_by_ref.get(base_ref))),
+            selector,
+        )
+        if len(targets) == 1 and targets[0][0] == base_ref:
+            fallback_targets.add((base_ref, selector))
+    return None
+
+
+def _companion_shorthand_paths(
+    reference: str,
+    selector: str,
+    companion_ref: str,
+    fact_by_ref: dict[str, Any],
+    fallback_targets: set[tuple[str, str]],
+) -> tuple[str, str] | None:
+    """Resolve a keyed-map shorthand under one records companion and its base fact."""
+
+    base_ref = companion_ref.removesuffix(":records")
+    parsed = _keyed_source_suffix(reference, companion_ref, base_ref)
+    if parsed is None:
+        return None
+    record_key, field = parsed
+    original = fact_by_ref.get(base_ref)
+    companion = fact_by_ref[companion_ref]
+    companion_source = reference == companion_ref or reference.startswith(f"{companion_ref}:")
+    sources = (
+        ((companion_ref, companion), (base_ref, original))
+        if companion_source
+        else ((base_ref, original), (companion_ref, companion))
+    )
+    target_selector = _keyed_target_selector(selector, record_key, field)
+    if target_selector is None:
+        return None
+    return _keyed_resolution(
+        sources,
+        companion_source=companion_source,
+        companion_ref=companion_ref,
+        base_ref=base_ref,
+        selector=target_selector,
+        fallback_targets=fallback_targets,
+    )
 
 
 def _keyed_target_selector(selector: str, record_key: str, field: str | None) -> str | None:
@@ -520,11 +555,7 @@ def named_record_facts(
     if source_kind != "supplied_input" or not source_ref.startswith("facts:"):
         return None
     reference = source_ref.removeprefix("facts:")
-    fact_by_ref = {
-        item["ref"]: item
-        for item in inventory.get("facts", [])
-        if isinstance(item, dict) and isinstance(item.get("ref"), str)
-    }
+    fact_by_ref = _facts_by_ref(inventory)
     if reference in fact_by_ref:
         return None
     for companion_ref in sorted(fact_by_ref):
@@ -535,20 +566,28 @@ def named_record_facts(
         if parsed is None:
             continue
         record_key = parsed[0]
-        documented: list[tuple[str, dict[str, Any]]] = []
-        for fact_ref in (base_ref, companion_ref):
-            fact = fact_by_ref.get(fact_ref)
-            schema = fact.get("schema") if isinstance(fact, dict) else None
-            properties = schema.get("properties") if isinstance(schema, dict) else None
-            if (
-                isinstance(schema, dict)
-                and schema.get("type") == "object"
-                and isinstance(properties, dict)
-                and isinstance(properties.get(record_key), dict)
-            ):
-                documented.append((fact_ref, properties[record_key]))
+        documented = [
+            (fact_ref, record_schema)
+            for fact_ref in (base_ref, companion_ref)
+            if (record_schema := _record_schema(fact_by_ref.get(fact_ref), record_key)) is not None
+        ]
         if documented:
             return record_key, tuple(documented)
+    return None
+
+
+def _record_schema(fact: Any, record_key: str) -> dict[str, Any] | None:
+    """Return the schema an object-typed fact documents for one record key."""
+
+    schema = fact.get("schema") if isinstance(fact, dict) else None
+    properties = schema.get("properties") if isinstance(schema, dict) else None
+    if (
+        isinstance(schema, dict)
+        and schema.get("type") == "object"
+        and isinstance(properties, dict)
+        and isinstance(properties.get(record_key), dict)
+    ):
+        return properties[record_key]
     return None
 
 
@@ -608,17 +647,10 @@ def supplied_binding_values(
         inventory=dict(inventory),
     )
     for raw in normalized_declarations:
-        if not isinstance(raw, dict):
+        declared = _supplied_declaration_paths(raw)
+        if declared is None:
             continue
-        name = raw.get("name")
-        if not isinstance(name, str):
-            continue
-        if raw.get("source_kind") != "supplied_input":
-            continue
-        source_ref = raw.get("source_ref")
-        selector = raw.get("selector")
-        if not isinstance(source_ref, str) or not isinstance(selector, str):
-            continue
+        name, source_ref, selector = declared
         canonical_source_ref, canonical_selector = canonical_binding_paths(
             "supplied_input", source_ref, selector, dict(inventory)
         )
@@ -631,6 +663,23 @@ def supplied_binding_values(
         except (BindingValidationError, KeyError, IndexError, TypeError):
             continue
     return values
+
+
+def _supplied_declaration_paths(raw: Any) -> tuple[str, str, str] | None:
+    """Return (name, source_ref, selector) of a well-formed supplied_input declaration."""
+
+    if not isinstance(raw, dict):
+        return None
+    name = raw.get("name")
+    if not isinstance(name, str):
+        return None
+    if raw.get("source_kind") != "supplied_input":
+        return None
+    source_ref = raw.get("source_ref")
+    selector = raw.get("selector")
+    if not isinstance(source_ref, str) or not isinstance(selector, str):
+        return None
+    return name, source_ref, selector
 
 
 def find_stimulus_user_text_consumer_mismatches(
@@ -703,49 +752,61 @@ def _source_schema(
     runtime_contract: dict[str, Any],
 ) -> dict[str, Any]:
     if binding.source_kind == "setup_output":
-        prefix, _, operation = binding.source_ref.partition(":")
-        if prefix != "setup" or not operation:
-            raise BindingValidationError(
-                f"setup binding source_ref must be setup:<operation>: {binding.name}"
-            )
-        operations = inventory.get("operations", [])
-        operation_record = next(
-            (
-                item
-                for item in operations
-                if isinstance(item, dict) and item.get("name") == operation
-            ),
-            None,
-        )
-        if operation_record is None:
-            raise BindingValidationError(f"unknown setup operation: {operation}")
-        permissions = runtime_contract.get("setup_permissions", [])
-        if operation not in permissions:
-            raise BindingValidationError(f"setup operation is not permitted: {operation}")
-        schema = operation_record.get("result_schema")
+        schema = _setup_output_schema(binding, inventory, runtime_contract)
     else:
-        source_ref, _ = canonical_binding_paths(
-            binding.source_kind,
-            binding.source_ref,
-            binding.selector,
-            inventory,
-        )
-        prefix, _, reference = source_ref.partition(":")
-        if prefix != "facts" or not reference:
-            raise BindingValidationError(
-                f"supplied binding source_ref must be facts:<ref>: {binding.name}"
-            )
-        facts = inventory.get("facts", [])
-        fact = next(
-            (item for item in facts if isinstance(item, dict) and item.get("ref") == reference),
-            None,
-        )
-        if fact is None:
-            raise BindingValidationError(f"unknown supplied fact: {reference}")
-        schema = fact.get("schema")
+        schema = _supplied_fact_schema(binding, inventory)
     if not isinstance(schema, dict):
         raise BindingValidationError(f"missing source schema for binding: {binding.name}")
     return schema
+
+
+def _setup_output_schema(
+    binding: RuntimeBinding,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> Any:
+    """Return the result schema of the permitted setup operation a binding names."""
+
+    prefix, _, operation = binding.source_ref.partition(":")
+    if prefix != "setup" or not operation:
+        raise BindingValidationError(
+            f"setup binding source_ref must be setup:<operation>: {binding.name}"
+        )
+    operations = inventory.get("operations", [])
+    operation_record = next(
+        (item for item in operations if isinstance(item, dict) and item.get("name") == operation),
+        None,
+    )
+    if operation_record is None:
+        raise BindingValidationError(f"unknown setup operation: {operation}")
+    permissions = runtime_contract.get("setup_permissions", [])
+    if operation not in permissions:
+        raise BindingValidationError(f"setup operation is not permitted: {operation}")
+    return operation_record.get("result_schema")
+
+
+def _supplied_fact_schema(binding: RuntimeBinding, inventory: dict[str, Any]) -> Any:
+    """Return the schema of the supplied fact a binding's canonical source names."""
+
+    source_ref, _ = canonical_binding_paths(
+        binding.source_kind,
+        binding.source_ref,
+        binding.selector,
+        inventory,
+    )
+    prefix, _, reference = source_ref.partition(":")
+    if prefix != "facts" or not reference:
+        raise BindingValidationError(
+            f"supplied binding source_ref must be facts:<ref>: {binding.name}"
+        )
+    facts = inventory.get("facts", [])
+    fact = next(
+        (item for item in facts if isinstance(item, dict) and item.get("ref") == reference),
+        None,
+    )
+    if fact is None:
+        raise BindingValidationError(f"unknown supplied fact: {reference}")
+    return fact.get("schema")
 
 
 def _schema_at_selector(schema: dict[str, Any], selector: str) -> str | None:
