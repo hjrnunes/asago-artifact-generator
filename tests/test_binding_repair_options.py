@@ -1253,3 +1253,32 @@ def test_review_documented_sources_list_facts_and_permitted_setup_results(
     sources = _review_documented_sources(inventory, {"setup_permissions": permissions})
 
     assert sources == [("facts:f", {"type": "array"}), *expected_setup]
+
+
+_ITEMS_SCHEMA = {
+    "type": "object",
+    "properties": {"rows": {"type": "array", "items": {"type": "string"}}},
+}
+
+
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        ("value", "object"),
+        ("value.rows", "array"),
+        ("value.rows.items", "string"),
+        ("value.rows.first", None),
+        ("value.rows.items.deeper", None),
+        ("value.", None),
+        ("", None),
+    ],
+)
+def test_binding_selector_type_follows_properties_and_array_items(
+    selector: str, expected: str | None
+) -> None:
+    assert _binding_selector_type(_ITEMS_SCHEMA, selector) == expected
+
+
+def test_binding_selector_type_stops_at_an_undocumented_schema() -> None:
+    assert _binding_selector_type({"type": "string"}, "value.field") is None
+    assert _binding_selector_type({"type": "object", "properties": []}, "value.field") is None

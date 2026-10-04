@@ -294,40 +294,25 @@ def _call2_root_field_findings(value: dict[str, Any]) -> list[Finding]:
 def _call2_stimulus_findings(stimulus: Any) -> list[Finding]:
     if not isinstance(stimulus, dict):
         return [Finding("type_error", "stimulus must be an object", "stimulus")]
-    findings: list[Finding] = []
     required = {"user_text", "history", "slots", "delivery"}
-    for field_name in sorted(required - set(stimulus)):
-        findings.append(
-            Finding(
-                "missing_field",
-                f"stimulus missing field: {field_name}",
-                f"stimulus.{field_name}",
+    findings = [
+        Finding("missing_field", f"stimulus missing field: {name}", f"stimulus.{name}")
+        for name in sorted(required - set(stimulus))
+    ]
+    findings.extend(
+        Finding("unexpected_field", f"unexpected stimulus field: {name}", f"stimulus.{name}")
+        for name in sorted(set(stimulus) - required)
+    )
+    for name, valid, noun in (
+        ("user_text", isinstance(stimulus.get("user_text"), str), "a string"),
+        ("delivery", isinstance(stimulus.get("delivery"), str), "a string"),
+        ("history", isinstance(stimulus.get("history"), list), "a list"),
+        ("slots", _is_string_list(stimulus.get("slots")), "a list of strings"),
+    ):
+        if not valid:
+            findings.append(
+                Finding("type_error", f"stimulus.{name} must be {noun}", f"stimulus.{name}")
             )
-        )
-    for field_name in sorted(set(stimulus) - required):
-        findings.append(
-            Finding(
-                "unexpected_field",
-                f"unexpected stimulus field: {field_name}",
-                f"stimulus.{field_name}",
-            )
-        )
-    if not isinstance(stimulus.get("user_text"), str):
-        findings.append(
-            Finding("type_error", "stimulus.user_text must be a string", "stimulus.user_text")
-        )
-    if not isinstance(stimulus.get("delivery"), str):
-        findings.append(
-            Finding("type_error", "stimulus.delivery must be a string", "stimulus.delivery")
-        )
-    if not isinstance(stimulus.get("history"), list):
-        findings.append(
-            Finding("type_error", "stimulus.history must be a list", "stimulus.history")
-        )
-    if not _is_string_list(stimulus.get("slots")):
-        findings.append(
-            Finding("type_error", "stimulus.slots must be a list of strings", "stimulus.slots")
-        )
     return findings
 
 
@@ -346,41 +331,37 @@ def _call2_semantic_judge_spec_findings(spec: Any) -> list[Finding]:
                 "semantic_judge_spec",
             )
         ]
-    findings: list[Finding] = []
-    for field_name in sorted(set(spec) - {"question", "criteria", "fact_refs"}):
-        findings.append(
-            Finding(
-                "unexpected_field",
-                f"unexpected semantic_judge_spec field: {field_name}",
-                f"semantic_judge_spec.{field_name}",
-            )
+    fields = ("question", "criteria", "fact_refs")
+    findings = [
+        Finding(
+            "unexpected_field",
+            f"unexpected semantic_judge_spec field: {name}",
+            f"semantic_judge_spec.{name}",
         )
-    for field_name in ("question", "criteria", "fact_refs"):
-        if field_name not in spec:
-            findings.append(
-                Finding(
-                    "missing_field",
-                    f"semantic_judge_spec missing field: {field_name}",
-                    f"semantic_judge_spec.{field_name}",
-                )
-            )
-    for field_name in ("question", "criteria"):
-        if field_name in spec and not isinstance(spec.get(field_name), str):
+        for name in sorted(set(spec) - set(fields))
+    ]
+    findings.extend(
+        Finding(
+            "missing_field",
+            f"semantic_judge_spec missing field: {name}",
+            f"semantic_judge_spec.{name}",
+        )
+        for name in fields
+        if name not in spec
+    )
+    for name, valid, noun in (
+        ("question", isinstance(spec.get("question"), str), "a string"),
+        ("criteria", isinstance(spec.get("criteria"), str), "a string"),
+        ("fact_refs", _is_string_list(spec.get("fact_refs")), "a list of strings"),
+    ):
+        if name in spec and not valid:
             findings.append(
                 Finding(
                     "type_error",
-                    f"semantic_judge_spec.{field_name} must be a string",
-                    f"semantic_judge_spec.{field_name}",
+                    f"semantic_judge_spec.{name} must be {noun}",
+                    f"semantic_judge_spec.{name}",
                 )
             )
-    if "fact_refs" in spec and not _is_string_list(spec.get("fact_refs")):
-        findings.append(
-            Finding(
-                "type_error",
-                "semantic_judge_spec.fact_refs must be a list of strings",
-                "semantic_judge_spec.fact_refs",
-            )
-        )
     return findings
 
 
@@ -1141,27 +1122,33 @@ def collect_plan_findings(
         )
     unresolved = plan.get("unresolved_requirements")
     if isinstance(unresolved, list):
-        for index, item in enumerate(unresolved):
-            if not isinstance(item, dict):
-                findings.append(
-                    Finding(
-                        "shape_error",
-                        "unresolved requirement must be an object",
-                        f"unresolved_requirements[{index}]",
-                    )
+        findings.extend(_unresolved_requirement_findings(unresolved))
+    return findings
+
+
+def _unresolved_requirement_findings(unresolved: list[Any]) -> list[Finding]:
+    findings: list[Finding] = []
+    for index, item in enumerate(unresolved):
+        if not isinstance(item, dict):
+            findings.append(
+                Finding(
+                    "shape_error",
+                    "unresolved requirement must be an object",
+                    f"unresolved_requirements[{index}]",
                 )
-            elif (
-                not isinstance(item.get("name"), str)
-                or not isinstance(item.get("essential"), bool)
-                or not isinstance(item.get("reason"), str)
-            ):
-                findings.append(
-                    Finding(
-                        "shape_error",
-                        "unresolved requirement requires name, essential, and reason",
-                        f"unresolved_requirements[{index}]",
-                    )
+            )
+        elif (
+            not isinstance(item.get("name"), str)
+            or not isinstance(item.get("essential"), bool)
+            or not isinstance(item.get("reason"), str)
+        ):
+            findings.append(
+                Finding(
+                    "shape_error",
+                    "unresolved requirement requires name, essential, and reason",
+                    f"unresolved_requirements[{index}]",
                 )
+            )
     return findings
 
 
@@ -1996,18 +1983,21 @@ def _binding_selector_type(schema: dict[str, Any], selector: str) -> str | None:
     if not parts or any(not part for part in parts):
         return None
     for part in parts[1:]:
-        if not isinstance(current, dict):
-            return None
-        if current.get("type") == "object":
-            properties = current.get("properties")
-            if not isinstance(properties, dict) or part not in properties:
-                return None
-            current = properties[part]
-        elif current.get("type") == "array" and part == "items":
-            current = current.get("items")
-        else:
-            return None
+        current = _selector_child_schema(current, part)
     return current.get("type") if isinstance(current, dict) else None
+
+
+def _selector_child_schema(schema: Any, part: str) -> Any:
+    """Return the sub-schema one selector part names, or None when it names nothing."""
+
+    if not isinstance(schema, dict):
+        return None
+    if schema.get("type") == "object":
+        properties = schema.get("properties")
+        return properties.get(part) if isinstance(properties, dict) else None
+    if schema.get("type") == "array" and part == "items":
+        return schema.get("items")
+    return None
 
 
 def _binding_types_compatible(actual: str, expected: str) -> bool:
@@ -2276,6 +2266,18 @@ def _validate_prerequisite_binding_consumer(
     return []
 
 
+def _consumer_declarations_by_name(runtime_bindings: list[Any]) -> dict[str, dict[str, Any]]:
+    return {
+        item["name"]: item
+        for item in runtime_bindings
+        if (
+            isinstance(item, dict)
+            and isinstance(item.get("name"), str)
+            and isinstance(item.get("consumers"), list)
+        )
+    }
+
+
 def _normalize_prerequisite_binding_consumers(
     prerequisites: Any,
     runtime_bindings: Any,
@@ -2286,15 +2288,7 @@ def _normalize_prerequisite_binding_consumers(
 
     if not isinstance(prerequisites, list) or not isinstance(runtime_bindings, list):
         return
-    by_name = {
-        item["name"]: item
-        for item in runtime_bindings
-        if (
-            isinstance(item, dict)
-            and isinstance(item.get("name"), str)
-            and isinstance(item.get("consumers"), list)
-        )
-    }
+    by_name = _consumer_declarations_by_name(runtime_bindings)
     for index, prerequisite in enumerate(prerequisites):
         if not isinstance(prerequisite, dict):
             continue
