@@ -5,7 +5,7 @@ Usage:
         --target-profile PROFILE.json --runtime-contract CONTRACT.json \
         [--target-observations RUNTIME_CONTEXT.json] [--sections] SCENARIO.yaml...
 
-The script renders the call1 packet exactly as ``author`` does and applies the
+The script renders the call1 packet exactly as ``generate`` does and applies the
 same estimator as the pre-dispatch context guard. It prints one tab-separated
 row per scenario: id, estimated tokens, remaining input budget, headroom.
 """

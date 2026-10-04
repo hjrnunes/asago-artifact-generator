@@ -1,6 +1,6 @@
 # Replay gate
 
-The replay gate proves that a code change leaves recorded `author` items
+The replay gate proves that a code change leaves recorded `generate` items
 unchanged. It re-runs every item of a recorded orch author stage through the
 current code, offline, and compares every output file and console log with the
 recording.
@@ -62,7 +62,7 @@ for each item, the gate:
    every item writes. Each dispatch holds the system and user prompt, the
    requested and returned model, the raw response bytes, the response capture,
    and usage.
-3. Runs `author` with the rewritten arguments in a new process, as orch does,
+3. Runs `generate` with the rewritten arguments in a new process, as orch does,
    with stdout and stderr in one log. The process:
    - starts from an environment without `ASAGO_*`, `OPENAI_*`,
      `OPENROUTER_*`, `REDTEAM_*`, `*_API_KEY`, `GEMINI_API_KEY`,

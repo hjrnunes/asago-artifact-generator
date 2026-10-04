@@ -98,14 +98,14 @@ def _profile_file(tmp_path: Path, **changes: object) -> tuple[Path, dict[str, ob
     return path, values
 
 
-def _invoke_author(
+def _invoke_generate(
     tmp_path: Path,
     *,
     extra_args: list[str] | None = None,
 ) -> object:
     target_profile, runtime_contract = _inputs(tmp_path)
     arguments = [
-        "author",
+        "generate",
         str(HANDOFF),
         "--target-profile",
         str(target_profile),
@@ -210,7 +210,7 @@ def test_author_cli_passes_profile_values_directly_to_transport(
     monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FakeTransport)
     monkeypatch.setattr(cli, "AuthoringOrchestrator", FakeOrchestrator)
 
-    result = _invoke_author(
+    result = _invoke_generate(
         tmp_path,
         extra_args=[
             "--profile",
@@ -278,7 +278,7 @@ def test_author_cli_passes_optional_profile_controls_to_transport(
     monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FakeTransport)
     monkeypatch.setattr(cli, "AuthoringOrchestrator", FakeOrchestrator)
 
-    result = _invoke_author(
+    result = _invoke_generate(
         tmp_path,
         extra_args=[
             "--profile",
@@ -314,7 +314,7 @@ def test_author_cli_rejects_missing_named_profile_before_transport(
 
     monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", fail_if_constructed)
 
-    result = _invoke_author(
+    result = _invoke_generate(
         tmp_path,
         extra_args=[
             "--profile",
@@ -342,7 +342,7 @@ def test_author_cli_requires_a_named_profile_before_transport(
     monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", fail_if_constructed)
     monkeypatch.setenv("OPENAI_API_KEY", "environment-secret-value")
 
-    result = _invoke_author(tmp_path)
+    result = _invoke_generate(tmp_path)
 
     assert result.exit_code == 2
     assert "--profile" in result.output
@@ -366,7 +366,7 @@ def test_profile_secret_is_redacted_from_failure_evidence(
 
     monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FailingTransport)
 
-    result = _invoke_author(
+    result = _invoke_generate(
         tmp_path,
         extra_args=[
             "--profile",

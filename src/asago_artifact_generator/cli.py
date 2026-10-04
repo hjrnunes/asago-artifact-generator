@@ -1,4 +1,4 @@
-"""CLI: target-free artifact authoring (`author`) and offline detector checks (`check`)."""
+"""CLI: target-free artifact authoring (`generate`) and offline detector checks (`check`)."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _main() -> None:
 
 
 @app.command()
-def author(
+def generate(
     source: Annotated[
         Path,
         typer.Argument(help="Producer scenario-handoff-v1 or scenario-handoff-v2 JSON/YAML file."),

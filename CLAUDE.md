@@ -18,7 +18,7 @@ contracts and historical experiment details belong in their own documents.
   failure criterion, safe alternative, and metadata.
 - This consumer designs concrete stimuli, setup declarations, runtime bindings,
   and detector Python using supplied facts and documented capabilities.
-- `author` is target-free. The plan owns the experiment; artifact authoring turns
+- `generate` is target-free. The plan owns the experiment; artifact authoring turns
   the accepted plan into a frozen package. Code checks and detector controls run
   before the applicable semantic review. Corrections stay within their stage.
 - `check` evaluates a package against supplied evidence in the existing isolated
@@ -31,11 +31,11 @@ contracts and historical experiment details belong in their own documents.
 
 ## Commands
 
-Run from this checkout; read `author --help` for configuration and limits.
+Run from this checkout; read `generate --help` for configuration and limits.
 
 ```bash
 uv sync --locked
-uv run asago-artifact-generator author --help
+uv run asago-artifact-generator generate --help
 uv run asago-artifact-generator check --help
 uv run pytest tests/path_to_changed_test.py -q
 ./scripts/quality.sh

@@ -1,4 +1,4 @@
-"""Replay gate: prove a code change leaves recorded ``author`` items unchanged.
+"""Replay gate: prove a code change leaves recorded ``generate`` items unchanged.
 
 An orch author stage directory (``runs/<id>/stages/author``) holds the exact
 command line of every item in ``stage.json``, each item's console log under
@@ -312,7 +312,7 @@ def install_network_guard(log_path: Path) -> None:
 def _replay_item(
     failure_evidence: Path, status_path: Path, network_log: Path, arguments: list[str]
 ) -> None:
-    """Run one ``author`` command with the recorded responses (child process)."""
+    """Run one ``generate`` command with the recorded responses (child process)."""
 
     install_network_guard(network_log)
     client = ReplayChatClient(load_recorded_calls(failure_evidence))
@@ -616,11 +616,11 @@ class _PreparedItem:
     recorded_exit_code: int | None
 
 
-def _author_arguments(argv: Sequence[str]) -> list[str]:
+def _generate_arguments(argv: Sequence[str]) -> list[str]:
     try:
-        start = list(argv).index("author")
+        start = list(argv).index("generate")
     except ValueError as error:
-        raise ValueError(f"recorded argv has no 'author' command: {list(argv)}") from error
+        raise ValueError(f"recorded argv has no 'generate' command: {list(argv)}") from error
     return list(argv[start:])
 
 
@@ -646,7 +646,7 @@ class _InputCopies:
 
 
 def _prepare_item(item: dict[str, Any], copies: _InputCopies, output_dir: Path) -> _PreparedItem:
-    arguments = _author_arguments(item["argv"])
+    arguments = _generate_arguments(item["argv"])
     rewritten: list[str] = []
     recorded_output: str | None = None
     index = 0

@@ -11,7 +11,7 @@ Run the target-free consumer workflow from this repository root:
 ```bash
 cd <consumer-repo-root>
 uv sync --locked
-uv run asago-artifact-generator author <scenario-handoff.json> \
+uv run asago-artifact-generator generate <scenario-handoff.json> \
   --target-profile <execution-target-profile.json> \
   --target-observations <runtime-context.json> \
   --runtime-contract <runtime-contract.json> \
@@ -22,7 +22,7 @@ uv run asago-artifact-generator check runs/authoring/<case-id>/<case-id> \
   --evidence <evidence.json>
 ```
 
-`author` uses the versioned v2 authoring wire. Call 1 returns one closed plan
+`generate` uses the versioned v2 authoring wire. Call 1 returns one closed plan
 root as either one bare JSON object or exactly one lowercase `json` fenced
 object, with optional surrounding whitespace. Untagged, uppercase, or other
 fences, multiple objects or blocks, prose, trailing content, and malformed JSON
@@ -41,10 +41,10 @@ resubmit those fields.
 ### Private authoring profiles
 
 For live private authoring, pass the approved named profile and the producer
-profile file directly to `author`:
+profile file directly to `generate`:
 
 ```bash
-uv run asago-artifact-generator author <scenario-handoff.json> \
+uv run asago-artifact-generator generate <scenario-handoff.json> \
   --target-profile <execution-target-profile.json> \
   --target-observations <runtime-context.json> \
   --runtime-contract <runtime-contract.json> \
@@ -113,16 +113,16 @@ rejects the request. The measurement values live in
 Every guard result labels the value `estimated_prompt_tokens`; provider usage
 remains separate. A rejected prompt returns `prompt_overflow` and spends no
 provider request or author/reviewer dispatch.
-`author` requires `--profile`; it reads no endpoint, model, or API key from
+`generate` requires `--profile`; it reads no endpoint, model, or API key from
 the environment.
 
 ### Stage-local corrections and semantic review
 
-By default `author` allows one plan correction and one artifact correction and
+By default `generate` allows one plan correction and one artifact correction and
 enables both semantic reviews. Configure the stages independently:
 
 ```bash
-uv run asago-artifact-generator author <scenario-handoff.json> \
+uv run asago-artifact-generator generate <scenario-handoff.json> \
   --target-profile <execution-target-profile.json> \
   --target-observations <runtime-context.json> \
   --runtime-contract <runtime-contract.json> \
@@ -391,7 +391,7 @@ remain distinct, and reasoning is never parsed as the final answer.
 
 The producer owns scenario meaning. From the producer repository root, run the
 normal producer command and then hand the resulting `scenario-handoff-v2`
-(or older `scenario-handoff-v1`) input to `author`:
+(or older `scenario-handoff-v1`) input to `generate`:
 
 ```bash
 cd <producer-repo-root>
@@ -445,7 +445,7 @@ uv sync --locked
 
 The installed command is `asago-artifact-generator` and the Python package is
 `asago_artifact_generator`. Live authoring reads its endpoint, model, and
-credential from the named profile passed to `author --profile`.
+credential from the named profile passed to `generate --profile`.
 
 ## Source-pinned artifact foundation
 
@@ -524,11 +524,11 @@ not in detector input. Runtime receipts remain outside the immutable package.
 
 ### Target-free authoring
 
-Use `author` to run the bounded Call 1 plan and Call 2 package sequence. Supply
+Use `generate` to run the bounded Call 1 plan and Call 2 package sequence. Supply
 the scenario handoff, producer discovery profile, and runtime contract:
 
 ```bash
-uv run asago-artifact-generator author scenario-handoff.json \
+uv run asago-artifact-generator generate scenario-handoff.json \
   --target-profile execution-target-profile.json \
   --target-observations runtime-context.json \
   --runtime-contract runtime-contract.json \

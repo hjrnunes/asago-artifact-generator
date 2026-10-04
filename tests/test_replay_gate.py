@@ -92,7 +92,7 @@ def _record_author_stage(
     output = stage / "output"
     argv = [
         "/venv/bin/asago-artifact-generator",
-        "author",
+        "generate",
         str(scenario),
         "--output-dir",
         str(output),
@@ -607,18 +607,18 @@ def test_main_reads_sys_argv_by_default(monkeypatch: pytest.MonkeyPatch) -> None
     assert raised.value.code == 2
 
 
-def test_main_runs_one_replay_item_with_the_author_arguments(
+def test_main_runs_one_replay_item_with_the_generate_arguments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple] = []
     monkeypatch.setattr(replay_gate, "_replay_item", lambda *args: calls.append(args))
 
-    code = replay_gate.main(["_replay-item", "r.json", "s.json", "n.log", "--", "author", "x"])
+    code = replay_gate.main(["_replay-item", "r.json", "s.json", "n.log", "--", "generate", "x"])
 
     assert code == 0
-    assert calls == [(Path("r.json"), Path("s.json"), Path("n.log"), ["author", "x"])]
+    assert calls == [(Path("r.json"), Path("s.json"), Path("n.log"), ["generate", "x"])]
 
 
 def test_main_rejects_a_replay_item_without_the_separator() -> None:
     with pytest.raises(SystemExit, match="usage: _replay-item"):
-        replay_gate.main(["_replay-item", "r.json", "s.json", "n.log", "author"])
+        replay_gate.main(["_replay-item", "r.json", "s.json", "n.log", "generate"])

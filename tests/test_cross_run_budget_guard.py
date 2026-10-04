@@ -163,7 +163,7 @@ def test_author_cli_threads_prior_spend_to_orchestrator_without_provider_contact
     result = CliRunner().invoke(
         cli.app,
         [
-            "author",
+            "generate",
             str(HANDOFF),
             "--target-profile",
             str(target_profile),
@@ -205,7 +205,7 @@ def test_author_cli_rejects_negative_prior_spend_before_transport(
     result = CliRunner().invoke(
         cli.app,
         [
-            "author",
+            "generate",
             str(HANDOFF),
             "--target-profile",
             str(target_profile),
