@@ -32,7 +32,7 @@ from .contracts import (
     neutral_artifact_response_without_source,
 )
 from .core import AUTHORING_INTERFACE_VERSION_V2, _sha256
-from .inventory import _inventory_fact_map, _inventory_references
+from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
 
 
 def _authoritative_context(
@@ -304,6 +304,25 @@ def _original_scenario_context(view: InputView) -> dict[str, Any]:
     return meaning
 
 
+def _permitted_status_operation(operation: Any, permitted: Any) -> str | None:
+    """Return the name of a permitted operation whose result documents a string status."""
+
+    if not isinstance(operation, dict):
+        return None
+    name = operation.get("name")
+    result_schema = operation.get("result_schema")
+    properties = result_schema.get("properties", {}) if isinstance(result_schema, dict) else {}
+    status_schema = properties.get("status") if isinstance(properties, dict) else None
+    if (
+        not isinstance(name, str)
+        or name not in permitted
+        or not isinstance(status_schema, dict)
+        or status_schema.get("type") != "string"
+    ):
+        return None
+    return name
+
+
 def _neutral_status_binding_example(
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
@@ -317,18 +336,8 @@ def _neutral_status_binding_example(
     permitted = runtime_contract.get("setup_permissions", [])
     references = _inventory_references(inventory)
     for operation in inventory.get("operations", []):
-        if not isinstance(operation, dict):
-            continue
-        name = operation.get("name")
-        result_schema = operation.get("result_schema")
-        properties = result_schema.get("properties", {}) if isinstance(result_schema, dict) else {}
-        status_schema = properties.get("status") if isinstance(properties, dict) else None
-        if (
-            not isinstance(name, str)
-            or name not in permitted
-            or not isinstance(status_schema, dict)
-            or status_schema.get("type") != "string"
-        ):
+        name = _permitted_status_operation(operation, permitted)
+        if name is None:
             continue
         binding = {
             "name": "setup_status",
@@ -385,6 +394,24 @@ def _neutral_status_binding_example(
 _SCALAR_SCHEMA_TYPES = frozenset({"boolean", "integer", "number", "string"})
 
 
+def _scalar_fact_binding_name(fact: dict[str, Any]) -> str | None:
+    """Return the binding name a supplied scalar fact yields, or None when it has none."""
+
+    ref = fact.get("ref")
+    schema = fact.get("schema")
+    if (
+        not isinstance(ref, str)
+        or not isinstance(schema, dict)
+        or schema.get("type") not in _SCALAR_SCHEMA_TYPES
+        or "value" not in fact
+    ):
+        return None
+    name = re.sub(r"[^A-Za-z0-9_]", "_", ref.rsplit(":", 1)[-1]).strip("_")
+    if not name or not re.match(r"[A-Za-z_]", name):
+        return None
+    return name
+
+
 def _supplied_fact_binding_example(
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
@@ -396,21 +423,13 @@ def _supplied_fact_binding_example(
         (item for item in inventory.get("facts", []) if isinstance(item, dict)),
         key=lambda item: str(item.get("ref")),
     ):
-        ref = fact.get("ref")
-        schema = fact.get("schema")
-        if (
-            not isinstance(ref, str)
-            or not isinstance(schema, dict)
-            or schema.get("type") not in _SCALAR_SCHEMA_TYPES
-            or "value" not in fact
-        ):
+        name = _scalar_fact_binding_name(fact)
+        if name is None:
             continue
-        name = re.sub(r"[^A-Za-z0-9_]", "_", ref.rsplit(":", 1)[-1]).strip("_")
-        if not name or not re.match(r"[A-Za-z_]", name):
-            continue
+        ref = fact["ref"]
         binding = {
             "name": name,
-            "expected_type": schema["type"],
+            "expected_type": fact["schema"]["type"],
             "source_kind": "supplied_input",
             "source_ref": f"facts:{ref}",
             "selector": "value",
@@ -450,6 +469,50 @@ def _supplied_fact_binding_example(
     return None
 
 
+def _first_record_field(value: Any) -> tuple[Any, str] | None:
+    """Return the first record key and its first field of a non-empty map of records."""
+
+    if not _is_record_map(value):
+        return None
+    record_key = sorted(value, key=str)[0]
+    fields = sorted(
+        field for field in value[record_key] if isinstance(field, str) and field != "record_key"
+    )
+    return (record_key, fields[0]) if fields else None
+
+
+def _is_record_map(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and bool(value)
+        and all(isinstance(record, dict) for record in value.values())
+    )
+
+
+def _keyed_record_example(ref: str, facts: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    selected = _first_record_field(facts[ref].get("value"))
+    if selected is None:
+        return None
+    record_key, field = selected
+    shorthand = {
+        "record_field": (
+            f"facts:{ref}:{record_key}:{field} -> facts:{ref} + value.{record_key}.{field}"
+        )
+    }
+    companion_ref = f"{ref}:records"
+    if companion_ref in facts:
+        shorthand["record_key"] = (
+            f"facts:{companion_ref}:{record_key}:record_key -> "
+            f"facts:{companion_ref} + value.{record_key}.record_key"
+        )
+    return {
+        "fact_ref": ref,
+        "record_key": record_key,
+        "field": field,
+        "accepted_to_canonical": shorthand,
+    }
+
+
 def _keyed_map_binding_forms(inventory: dict[str, Any]) -> dict[str, Any]:
     """Render compact, source-derived keyed-record binding examples."""
 
@@ -458,45 +521,11 @@ def _keyed_map_binding_forms(inventory: dict[str, Any]) -> dict[str, Any]:
         for item in inventory.get("facts", [])
         if isinstance(item, dict) and isinstance(item.get("ref"), str)
     }
-    examples: list[dict[str, Any]] = []
-    for ref in sorted(facts):
-        fact = facts[ref]
-        value = fact.get("value")
-        if (
-            not isinstance(value, dict)
-            or not value
-            or not all(isinstance(record, dict) for record in value.values())
-        ):
-            continue
-        record_key = sorted(value, key=str)[0]
-        record = value[record_key]
-        fields = sorted(
-            field for field in record if isinstance(field, str) and field != "record_key"
-        )
-        if not fields:
-            continue
-        field = fields[0]
-        companion_ref = f"{ref}:records"
-        record_key_binding = (
-            f"facts:{companion_ref}:{record_key}:record_key -> "
-            f"facts:{companion_ref} + value.{record_key}.record_key"
-            if companion_ref in facts
-            else None
-        )
-        record_field = (
-            f"facts:{ref}:{record_key}:{field} -> facts:{ref} + value.{record_key}.{field}"
-        )
-        shorthand: dict[str, str] = {"record_field": record_field}
-        if record_key_binding is not None:
-            shorthand["record_key"] = record_key_binding
-        examples.append(
-            {
-                "fact_ref": ref,
-                "record_key": record_key,
-                "field": field,
-                "accepted_to_canonical": shorthand,
-            }
-        )
+    examples = [
+        example
+        for example in (_keyed_record_example(ref, facts) for ref in sorted(facts))
+        if example is not None
+    ]
     return {
         "rule": (
             "Existing keyed records accept key[:field] shorthands; code canonicalizes "
@@ -580,23 +609,20 @@ def scenario_provenance_ids(view: InputView) -> frozenset[str]:
     return frozenset(item["id"] for item in _scenario_provenance_index(view))
 
 
+def _string_field_values(items: Any, key: str) -> list[str]:
+    return [
+        item[key] for item in items if isinstance(item, dict) and isinstance(item.get(key), str)
+    ]
+
+
 def _plan_evidence_references(view: InputView, inventory: dict[str, Any]) -> dict[str, Any]:
     """Explain every citable reference form and where each form is valid."""
 
-    facts = sorted(
-        fact["ref"]
-        for fact in inventory.get("facts", [])
-        if isinstance(fact, dict) and isinstance(fact.get("ref"), str)
-    )
-    handles = sorted(
-        handle["ref"]
-        for handle in inventory.get("source_handles", [])
-        if isinstance(handle, dict) and isinstance(handle.get("ref"), str)
-    )
+    facts = sorted(_string_field_values(inventory.get("facts", []), "ref"))
+    handles = sorted(_string_field_values(inventory.get("source_handles", []), "ref"))
     operations = sorted(
-        f"operation:{operation['name']}"
-        for operation in inventory.get("operations", [])
-        if isinstance(operation, dict) and isinstance(operation.get("name"), str)
+        f"operation:{name}"
+        for name in _string_field_values(inventory.get("operations", []), "name")
     )
     return {
         "purpose": (
@@ -948,27 +974,25 @@ def _record_key_source(
         return None
     record_key = parts[1]
     companion_ref = f"{reference}:records"
-    companion = next(
-        (
-            item
-            for item in inventory.get("facts", [])
-            if isinstance(item, dict) and item.get("ref") == companion_ref
-        ),
-        None,
-    )
+    companion = _first_fact_named(dict(inventory), companion_ref)
     if not isinstance(companion, dict) or not isinstance(companion.get("schema"), dict):
         return None
     key_selector = f"value.{record_key}.record_key"
     if _binding_selector_type(companion["schema"], key_selector) is None:
         return None
-    value = companion.get("value")
-    record = value.get(record_key) if isinstance(value, dict) else None
-    resolved = record.get("record_key") if isinstance(record, dict) else None
     return {
         "source_ref": f"facts:{companion_ref}",
         "selector": key_selector,
-        "resolved_value": resolved if resolved is not None else record_key,
+        "resolved_value": _record_key_value(companion.get("value"), record_key),
     }
+
+
+def _record_key_value(value: Any, record_key: str) -> Any:
+    """Return the record_key a record states for itself, else the key it sits under."""
+
+    record = value.get(record_key) if isinstance(value, dict) else None
+    resolved = record.get("record_key") if isinstance(record, dict) else None
+    return resolved if resolved is not None else record_key
 
 
 def _resolved_supplied_binding_values(
@@ -1138,6 +1162,30 @@ def _established_trigger_refs(plan: Mapping[str, Any]) -> list[str]:
     ]
 
 
+def _expected_capture_inventory(
+    plan: dict[str, Any], runtime_contract: dict[str, Any] | None
+) -> dict[str, Any]:
+    required_keys = _required_observation_keys(plan)
+    runtime_observation = (
+        runtime_contract.get("observation") if isinstance(runtime_contract, dict) else {}
+    )
+    runtime_keys = (
+        list(_matching_runtime_observations(required_keys, runtime_observation))
+        if isinstance(runtime_observation, dict)
+        else []
+    )
+    packet_keys = {
+        key: _packet_observation_key(key)
+        for key in required_keys
+        if key in {"assistant_messages", "messages"}
+    }
+    return {
+        "plan": [f"accepted_plan.required_observations.{key}" for key in required_keys],
+        "runtime_contract": [f"runtime_contract.observation.{key}" for key in runtime_keys],
+        "packet": packet_keys,
+    }
+
+
 def artifact_observation_guide(
     plan: dict[str, Any],
     runtime_contract: dict[str, Any] | None = None,
@@ -1246,20 +1294,6 @@ def artifact_observation_guide(
                 "prerequisites, bindings, or evidence are missing or unusable."
             ),
         }
-    required_keys = _required_observation_keys(plan)
-    runtime_observation = (
-        runtime_contract.get("observation") if isinstance(runtime_contract, dict) else {}
-    )
-    runtime_keys = (
-        list(_matching_runtime_observations(required_keys, runtime_observation))
-        if isinstance(runtime_observation, dict)
-        else []
-    )
-    packet_keys = {
-        key: _packet_observation_key(key)
-        for key in required_keys
-        if key in {"assistant_messages", "messages"}
-    }
     return {
         "fixed_claim_level": claim_level,
         "claim_conditions": {
@@ -1267,11 +1301,7 @@ def artifact_observation_guide(
             "not_detected": "accepted_plan.observation_claim.absence",
             "inconclusive": "accepted_plan.observation_claim.inconclusive",
         },
-        "expected_capture_inventory": {
-            "plan": [f"accepted_plan.required_observations.{key}" for key in required_keys],
-            "runtime_contract": [f"runtime_contract.observation.{key}" for key in runtime_keys],
-            "packet": packet_keys,
-        },
+        "expected_capture_inventory": _expected_capture_inventory(plan, runtime_contract),
         "inventory_vs_decision": inventory_vs_decision,
         "outcome_requirements": outcome_requirements,
     }
@@ -1446,6 +1476,14 @@ def _explained_inventory_references(inventory: dict[str, Any]) -> list[dict[str,
     return result
 
 
+def _operations_by_name(inventory: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        operation["name"]: operation
+        for operation in inventory.get("operations", [])
+        if isinstance(operation, dict) and isinstance(operation.get("name"), str)
+    }
+
+
 def _explained_evidence(
     selected: list[Any],
     inventory: dict[str, Any],
@@ -1456,11 +1494,7 @@ def _explained_evidence(
         if isinstance(item.get("handle"), str)
     }
     result: list[dict[str, Any]] = []
-    operations = {
-        operation["name"]: operation
-        for operation in inventory.get("operations", [])
-        if isinstance(operation, dict) and isinstance(operation.get("name"), str)
-    }
+    operations = _operations_by_name(inventory)
     for item in selected:
         if not isinstance(item, dict):
             continue

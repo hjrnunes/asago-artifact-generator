@@ -25,6 +25,8 @@ from asago_artifact_generator.authoring.correction import (
     build_correction_context,
 )
 from asago_artifact_generator.authoring.prompt_context import (
+    _permitted_status_operation,
+    _supplied_fact_binding_example,
     build_artifact_author_context,
     build_plan_author_context,
 )
@@ -681,3 +683,61 @@ def test_endpoint_prompt_paths_skip_malformed_urls_and_find_the_host() -> None:
     assert _endpoint_prompt_paths(packet, "api.example.com:8443", "api.example.com") == [
         "prompt.user.endpoint"
     ]
+
+
+_STATUS_SCHEMA = {"properties": {"status": {"type": "string"}}}
+
+
+@pytest.mark.parametrize(
+    ("operation", "expected"),
+    [
+        ({"name": "lookup", "result_schema": _STATUS_SCHEMA}, "lookup"),
+        ("not a dict", None),
+        ({"name": 3, "result_schema": _STATUS_SCHEMA}, None),
+        ({"name": "other", "result_schema": _STATUS_SCHEMA}, None),
+        ({"name": "lookup"}, None),
+        ({"name": "lookup", "result_schema": {"properties": []}}, None),
+        (
+            {"name": "lookup", "result_schema": {"properties": {"status": {"type": "integer"}}}},
+            None,
+        ),
+    ],
+)
+def test_permitted_status_operation_needs_a_permitted_string_status(
+    operation: object, expected: str | None
+) -> None:
+    assert _permitted_status_operation(operation, ["lookup"]) == expected
+
+
+@pytest.mark.parametrize(
+    ("facts", "expected_name"),
+    [
+        ([], None),
+        (["not a dict", {"ref": "k:obj", "schema": {"type": "object"}, "value": {}}], None),
+        (
+            [
+                {"ref": "a:no_value", "schema": {"type": "string"}},
+                {"ref": "b:!!", "schema": {"type": "string"}, "value": "v"},
+                {"ref": "c:1st", "schema": {"type": "string"}, "value": "v"},
+                {"ref": "e:amount", "schema": {"type": "integer"}, "value": 3},
+                {"ref": "d:z", "schema": {"type": "string"}, "value": "zz"},
+            ],
+            "z",
+        ),
+        ([{"ref": "e:amount", "schema": {"type": "integer"}, "value": 3}], "amount"),
+    ],
+)
+def test_supplied_fact_binding_example_uses_the_first_usable_scalar_fact(
+    facts: list, expected_name: str | None
+) -> None:
+    inventory = {"facts": facts}
+    references = {fact["ref"] for fact in facts if isinstance(fact, dict)}
+
+    example = _supplied_fact_binding_example(inventory, {}, references)
+
+    if expected_name is None:
+        assert example is None
+    else:
+        (binding,) = example["runtime_bindings"]
+        assert binding["name"] == expected_name
+        assert example["prerequisites"][0]["binding"] == expected_name
