@@ -214,6 +214,15 @@ def _optional_summary_fields(
     return fields
 
 
+def _latest_stage_review(ledger: list[dict[str, Any]], stage: str) -> dict[str, Any] | None:
+    reviews = [
+        record.get("review")
+        for record in ledger
+        if record.get("stage") == stage and isinstance(record.get("review"), dict)
+    ]
+    return reviews[-1] if reviews else None
+
+
 def _package_review_records(
     ledger: list[dict[str, Any]],
     *,
@@ -225,17 +234,14 @@ def _package_review_records(
     records: dict[str, Any] = {}
     for stage, key in (("plan_review", "plan"), ("artifact_review", "artifact")):
         requested_status = (review_status or {}).get(key)
-        matching = [
-            record.get("review")
-            for record in ledger
-            if record.get("stage") == stage and isinstance(record.get("review"), dict)
-        ]
+        latest = _latest_stage_review(ledger, stage)
+        preserved = preserved_reviews.get(key) if isinstance(preserved_reviews, dict) else None
         if requested_status == "not_requested":
             records[key] = {"status": "not_requested"}
-        elif matching:
-            records[key] = deepcopy(matching[-1])
-        elif isinstance(preserved_reviews, dict) and isinstance(preserved_reviews.get(key), dict):
-            records[key] = deepcopy(preserved_reviews[key])
+        elif latest is not None:
+            records[key] = deepcopy(latest)
+        elif isinstance(preserved, dict):
+            records[key] = deepcopy(preserved)
         else:
             records[key] = {
                 "status": requested_status or "not_requested",
