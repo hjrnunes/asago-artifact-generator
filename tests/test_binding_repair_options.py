@@ -3,9 +3,14 @@ from __future__ import annotations
 import copy
 import json
 
+import pytest
+
 from asago_artifact_generator.authoring.binding_repair import (
     _repair_review_binding_option,
     _repair_selector_option,
+    _review_binding_indices,
+    _review_documented_sources,
+    _supplied_value_empty_fields,
 )
 from asago_artifact_generator.authoring.checks import _binding_selector_type
 from asago_artifact_generator.authoring.core import Finding
@@ -1169,3 +1174,82 @@ def test_source_repair_lists_a_repeated_setup_operation_once() -> None:
     ]
     assert option["permitted_setup_sources_truncated"] is False
     assert "truncation_note" not in option
+
+
+def _facts(*facts: object) -> dict:
+    return {"facts": list(facts)}
+
+
+@pytest.mark.parametrize(
+    ("source_kind", "source_ref", "inventory", "shape"),
+    [
+        ("supplied_input", "facts:f", _facts({"ref": "f", "value": []}), "list"),
+        ("supplied_input", "facts:f", _facts({"ref": "f", "value": {}}), "object"),
+        ("supplied_input", "facts:f", _facts({"ref": "f", "value": [1]}), None),
+        ("supplied_input", "facts:f", _facts({"ref": "f", "value": ""}), None),
+        ("supplied_input", "facts:f", _facts({"ref": "f"}), None),
+        ("supplied_input", "facts:f", _facts("not a dict", {"ref": "g", "value": []}), None),
+        ("supplied_input", 3, _facts({"ref": "f", "value": []}), None),
+        ("setup_result", "setup:f", _facts({"ref": "f", "value": []}), None),
+    ],
+)
+def test_supplied_value_empty_fields_name_only_empty_lists_and_objects(
+    source_kind: str, source_ref: object, inventory: dict, shape: str | None
+) -> None:
+    fields = _supplied_value_empty_fields(source_kind, source_ref, inventory)
+
+    if shape is None:
+        assert fields == {}
+    else:
+        assert fields["supplied_value_empty"] is True
+        assert f"is an empty {shape};" in fields["supplied_value_empty_note"]
+
+
+@pytest.mark.parametrize(
+    ("details", "bindings", "expected"),
+    [
+        (None, [{"name": "a"}], []),
+        ({"review_location": "plan.runtime_bindings[1].selector"}, [{}, {}], [1]),
+        ({"review_location": "runtime_bindings[2]"}, [{}, {}], []),
+        (
+            {"review_location": 3, "review_required_change": "bind order_id, not order_ids"},
+            ["text", {"name": ""}, {"name": 4}, {"name": "order_id"}, {"name": "order"}],
+            [3],
+        ),
+        ({"review_location": "uses order_id"}, [{"name": "order_id"}, {"name": "x"}], [0]),
+    ],
+)
+def test_review_binding_indices_follow_the_pointer_or_exact_identifiers(
+    details: object, bindings: list, expected: list[int]
+) -> None:
+    finding = Finding("semantic_review", "detail", "plan", details)
+
+    assert _review_binding_indices(finding, bindings) == expected
+    assert _review_binding_indices({"details": details}, bindings) == expected
+
+
+@pytest.mark.parametrize(
+    ("permissions", "expected_setup"),
+    [(["lookup"], [("setup:lookup", {"type": "object"})]), ("lookup", []), ([], [])],
+)
+def test_review_documented_sources_list_facts_and_permitted_setup_results(
+    permissions: object, expected_setup: list
+) -> None:
+    inventory = {
+        "facts": [
+            {"ref": "f", "schema": {"type": "array"}},
+            {"ref": "", "schema": {}},
+            {"ref": "g", "schema": "not a dict"},
+            "not a dict",
+        ],
+        "operations": [
+            {"name": "lookup", "result_schema": {"type": "object"}},
+            {"name": "other", "result_schema": {}},
+            {"name": "lookup2", "result_schema": "not a dict"},
+            {"result_schema": {}},
+        ],
+    }
+
+    sources = _review_documented_sources(inventory, {"setup_permissions": permissions})
+
+    assert sources == [("facts:f", {"type": "array"}), *expected_setup]

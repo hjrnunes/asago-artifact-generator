@@ -341,17 +341,36 @@ def _repair_selector_option(
             source_kind, source_ref, binding.get("selector"), expected_type, inventory
         )
     option.update(named_fields)
+    option.update(_selector_notes(truncated, matching, source_ref, expected_type))
+    return option
+
+
+def _selector_notes(
+    truncated: bool, matching: Any, source_ref: Any, expected_type: Any
+) -> dict[str, str]:
+    notes: dict[str, str] = {}
     if truncated:
-        option["truncation_note"] = (
+        notes["truncation_note"] = (
             "Documented selector enumeration truncated after "
             f"{_BINDING_REPAIR_SELECTOR_LIMIT} selectors; only the first "
             f"{_BINDING_REPAIR_SELECTOR_LIMIT} sorted paths are shown."
         )
     if not matching:
-        option["no_matching_selector_note"] = (
+        notes["no_matching_selector_note"] = (
             f"No documented selector of source {source_ref} yields expected_type {expected_type}."
         )
-    return option
+    return notes
+
+
+def _first_fact_named(inventory: dict[str, Any], reference: str) -> dict[str, Any] | None:
+    return next(
+        (
+            item
+            for item in inventory.get("facts", [])
+            if isinstance(item, dict) and item.get("ref") == reference
+        ),
+        None,
+    )
 
 
 def _supplied_value_empty_fields(
@@ -369,23 +388,13 @@ def _supplied_value_empty_fields(
         return {}
     canonical_ref, _ = canonical_binding_paths(source_kind, source_ref, "value", inventory)
     reference = canonical_ref.removeprefix("facts:")
-    fact = next(
-        (
-            item
-            for item in inventory.get("facts", [])
-            if isinstance(item, dict) and item.get("ref") == reference
-        ),
-        None,
-    )
+    fact = _first_fact_named(inventory, reference)
     if not isinstance(fact, dict) or "value" not in fact:
         return {}
     value = fact["value"]
-    if isinstance(value, list) and not value:
-        shape = "list"
-    elif isinstance(value, dict) and not value:
-        shape = "object"
-    else:
+    if not isinstance(value, (list, dict)) or value:
         return {}
+    shape = "list" if isinstance(value, list) else "object"
     return {
         "supplied_value_empty": True,
         "supplied_value_empty_note": (
@@ -498,7 +507,14 @@ def _review_documented_sources(
 ) -> list[tuple[str, dict[str, Any]]]:
     """Return every supplied fact and permitted setup result with its schema."""
 
-    documented_sources: list[tuple[str, dict[str, Any]]] = [
+    return [
+        *_documented_fact_sources(inventory),
+        *_documented_setup_sources(inventory, runtime_contract),
+    ]
+
+
+def _documented_fact_sources(inventory: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    return [
         (f"facts:{fact['ref']}", fact["schema"])
         for fact in inventory.get("facts", [])
         if isinstance(fact, dict)
@@ -506,17 +522,22 @@ def _review_documented_sources(
         and fact["ref"]
         and isinstance(fact.get("schema"), dict)
     ]
+
+
+def _documented_setup_sources(
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[tuple[str, dict[str, Any]]]:
     permitted = runtime_contract.get("setup_permissions", [])
     permitted_names = set(permitted) if isinstance(permitted, list) else set()
-    documented_sources.extend(
+    return [
         (f"setup:{operation['name']}", operation["result_schema"])
         for operation in inventory.get("operations", [])
         if isinstance(operation, dict)
         and isinstance(operation.get("name"), str)
         and operation["name"] in permitted_names
         and isinstance(operation.get("result_schema"), dict)
-    )
-    return documented_sources
+    ]
 
 
 def _review_selector_checks(
@@ -573,14 +594,22 @@ def _review_binding_indices(
     details = finding.details if isinstance(finding, Finding) else finding.get("details")
     if not isinstance(details, dict):
         return []
-    location = details.get("review_location")
-    required_change = details.get("review_required_change")
-    location = location if isinstance(location, str) else ""
-    required_change = required_change if isinstance(required_change, str) else ""
+    location = _str_or_empty(details.get("review_location"))
+    required_change = _str_or_empty(details.get("review_required_change"))
     match = _REVIEW_BINDING_LOCATION.match(location.strip())
     if match:
         index = int(match.group(1))
         return [index] if index < len(bindings) else []
+    return _bindings_naming_identifier(bindings, location, required_change)
+
+
+def _str_or_empty(value: Any) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _bindings_naming_identifier(
+    bindings: list[Any], location: str, required_change: str
+) -> list[int]:
     indices: list[int] = []
     for index, binding in enumerate(bindings):
         name = binding.get("name") if isinstance(binding, dict) else None
