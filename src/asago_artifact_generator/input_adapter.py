@@ -276,6 +276,28 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
     if schema_version not in _HANDOFF_DIGEST_DOMAINS:
         raise InputSourceError("unknown scenario handoff schema version")
     is_v2 = schema_version == _HANDOFF_SCHEMA_VERSION_V2
+    _validate_handoff_field_names(payload, is_v2=is_v2)
+    if payload.get("kind") not in {"adversarial", "functional"}:
+        raise InputSourceError("handoff kind is invalid")
+    for key in (
+        "scenario_id",
+        "hypothesis_framing",
+        "narrative",
+        "semantic_failure_criterion",
+        "safe_alternative",
+    ):
+        if not isinstance(payload[key], str) or not payload[key].strip():
+            raise InputSourceError(f"handoff field is blank or mistyped: {key}")
+    if not isinstance(payload["attack_tree"], dict) or not isinstance(payload["lineage"], dict):
+        raise InputSourceError("handoff attack_tree and lineage must be objects")
+    _validate_handoff_metadata(payload, is_v2=is_v2)
+    _validate_handoff_gherkin(payload["gherkin"])
+    violations = _ownership_violations(payload)
+    if violations:
+        raise InputSourceError(f"handoff ownership violation: {', '.join(violations)}")
+
+
+def _validate_handoff_field_names(payload: dict[str, Any], *, is_v2: bool) -> None:
     required = {
         "scenario_id",
         "kind",
@@ -316,19 +338,11 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
         raise InputSourceError(
             f"handoff schema invalid (missing={sorted(missing)}, unknown={sorted(unknown)})"
         )
-    if payload.get("kind") not in {"adversarial", "functional"}:
-        raise InputSourceError("handoff kind is invalid")
-    for key in (
-        "scenario_id",
-        "hypothesis_framing",
-        "narrative",
-        "semantic_failure_criterion",
-        "safe_alternative",
-    ):
-        if not isinstance(payload[key], str) or not payload[key].strip():
-            raise InputSourceError(f"handoff field is blank or mistyped: {key}")
-    if not isinstance(payload["attack_tree"], dict) or not isinstance(payload["lineage"], dict):
-        raise InputSourceError("handoff attack_tree and lineage must be objects")
+
+
+def _validate_handoff_metadata(payload: dict[str, Any], *, is_v2: bool) -> None:
+    """Validate the optional producer metadata and, for v2, the condition fields."""
+
     if payload.get("observation") is not None:
         _validate_observation_metadata(payload["observation"])
     if payload.get("safe_observable_outcome") is not None:
@@ -337,7 +351,9 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
         _validate_deduplication(payload["deduplication"], allow_condition=is_v2)
     if is_v2:
         _validate_v2_fields(payload)
-    gherkin = payload["gherkin"]
+
+
+def _validate_handoff_gherkin(gherkin: Any) -> None:
     if (
         not isinstance(gherkin, dict)
         or not isinstance(gherkin.get("feature"), str)
@@ -356,9 +372,6 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
             raise InputSourceError(f"handoff Gherkin has unknown field: {key}")
         if key not in {"feature", "scenario"} and not isinstance(value, list):
             raise InputSourceError(f"handoff Gherkin field is not a list: {key}")
-    violations = _ownership_violations(payload)
-    if violations:
-        raise InputSourceError(f"handoff ownership violation: {', '.join(violations)}")
 
 
 def _validate_observation_metadata(value: Any) -> None:

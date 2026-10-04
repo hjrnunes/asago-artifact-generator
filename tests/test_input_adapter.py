@@ -166,3 +166,240 @@ def test_analytical_observation_criterion_may_omit_optional_fields(
     view = load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V1)
 
     assert view.payload["observation"]["assessment"]["disposition"] == "analytical_only"
+
+
+CONTRACT_HANDOFF_V2 = (
+    CONTRACT_HANDOFF.parents[2] / "handoff-v2" / "valid" / "adversarial-observed-record.json"
+)
+
+
+def _observation() -> dict:
+    return {
+        "contract_schema": "observation-contract-v1",
+        "contract_id": "qualification-live-v1",
+        "contract_digest": "a" * 64,
+        "criteria": [
+            {
+                "criterion_id": "reply-visible",
+                "outcome": "The assistant reply contains the unsafe response.",
+                "observable": True,
+                "claim_level": "reply",
+                "evidence": "assistant_message",
+                "reason": "The live contract captures assistant messages.",
+            }
+        ],
+        "assessment": {
+            "disposition": "executable",
+            "reason": "observable_outcome_supported",
+            "supported_criteria": ["reply-visible"],
+            "unsupported_criteria": [],
+        },
+    }
+
+
+def _deduplication(scenario_id: str) -> dict:
+    return {
+        "scenario_id": scenario_id,
+        "status": "canonical",
+        "key": {
+            "uca_id": "RESP-1:CA-1-1:INCORRECT",
+            "control_action_id": "CA-1-1",
+            "claim_level": "reply",
+        },
+    }
+
+
+def _set(path: str, value: object):
+    def mutate(payload: dict) -> None:
+        *parents, leaf = path.split(".")
+        target = payload
+        for part in parents:
+            target = target[int(part)] if isinstance(target, list) else target[part]
+        target[leaf] = value
+
+    return mutate
+
+
+def _drop(path: str):
+    def mutate(payload: dict) -> None:
+        *parents, leaf = path.split(".")
+        target = payload
+        for part in parents:
+            target = target[int(part)] if isinstance(target, list) else target[part]
+        del target[leaf]
+
+    return mutate
+
+
+def _criterion(**changes: object):
+    def mutate(payload: dict) -> None:
+        criterion = payload["observation"]["criteria"][0]
+        for key, value in changes.items():
+            if value is _ABSENT:
+                criterion.pop(key, None)
+            else:
+                criterion[key] = value
+
+    return mutate
+
+
+_ABSENT = object()
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (_set("schema_version", "scenario-handoff-v9"), "unknown scenario handoff schema version"),
+        (_drop("narrative"), "handoff schema invalid (missing=['narrative'], unknown=[])"),
+        (_set("bogus", 1), "handoff schema invalid (missing=[], unknown=['bogus'])"),
+        (_set("kind", "other"), "handoff kind is invalid"),
+        (_set("narrative", "  "), "handoff field is blank or mistyped: narrative"),
+        (_set("safe_alternative", 3), "handoff field is blank or mistyped: safe_alternative"),
+        (_set("attack_tree", []), "handoff attack_tree and lineage must be objects"),
+        (_set("lineage", "x"), "handoff attack_tree and lineage must be objects"),
+        (_set("gherkin", "Feature: x"), "handoff Gherkin is invalid"),
+        (_set("gherkin.scenario", None), "handoff Gherkin is invalid"),
+        (_set("gherkin.extra", []), "handoff Gherkin has unknown field: extra"),
+        (_set("gherkin.given", "a step"), "handoff Gherkin field is not a list: given"),
+        (_set("lineage.detector", "x"), "handoff ownership violation: "),
+        (_set("observation", "x"), "handoff observation metadata must be an object"),
+        (
+            _drop("observation.criteria"),
+            "handoff observation metadata is invalid (missing=['criteria'], unknown=[])",
+        ),
+        (
+            _set("observation.extra", 1),
+            "handoff observation metadata is invalid (missing=[], unknown=['extra'])",
+        ),
+        (
+            _set("observation.contract_id", " "),
+            "handoff observation field is blank or mistyped: contract_id",
+        ),
+        (
+            _set("observation.contract_digest", "abc"),
+            "handoff observation contract_digest is not a SHA-256 hex digest",
+        ),
+        (_set("observation.contract_schema", "other"), "unknown observation contract schema"),
+        (
+            _set("observation.criteria", []),
+            "handoff observation criteria must be a non-empty list",
+        ),
+        (
+            _set("observation.criteria", ["x"]),
+            "handoff observation criterion must be an object",
+        ),
+        (_criterion(reason=_ABSENT), "handoff observation criterion fields are invalid"),
+        (_criterion(extra=1), "handoff observation criterion fields are invalid"),
+        (_criterion(outcome=" "), "handoff observation criterion text is invalid"),
+        (_criterion(observable="yes"), "handoff observation criterion observable is invalid"),
+        (_criterion(operation_name=" "), "observation criterion operation_name is invalid"),
+        (_criterion(claim_level=_ABSENT), "observable criterion requires claim_level"),
+        (
+            _criterion(
+                observable=False, claim_level=_ABSENT, evidence=_ABSENT, operation_name="op"
+            ),
+            "analytical-only criterion must omit operation_name",
+        ),
+        (
+            _set("observation.assessment", []),
+            "handoff observation assessment must be an object",
+        ),
+        (
+            _drop("observation.assessment.reason"),
+            "handoff observation assessment fields are invalid",
+        ),
+        (
+            _set("observation.assessment.disposition", "maybe"),
+            "handoff observation disposition is invalid",
+        ),
+        (
+            _set("observation.assessment.reason", " "),
+            "handoff observation assessment reason is invalid",
+        ),
+        (
+            _set("observation.assessment.supported_criteria", "reply-visible"),
+            "handoff observation assessment supported_criteria is invalid",
+        ),
+        (
+            _set("observation.assessment.unsupported_criteria", [""]),
+            "handoff observation assessment unsupported_criteria is invalid",
+        ),
+        (_set("deduplication", []), "handoff deduplication must be an object"),
+        (_drop("deduplication.key"), "handoff deduplication fields are invalid"),
+        (_set("deduplication.extra", 1), "handoff deduplication fields are invalid"),
+        (_set("deduplication.scenario_id", ""), "handoff deduplication scenario_id is invalid"),
+        (_set("deduplication.status", "other"), "handoff deduplication status is invalid"),
+        (_set("deduplication.status", "duplicate"), "duplicate handoff requires duplicate_of"),
+        (
+            _set("deduplication.duplicate_of", "SCN-0"),
+            "canonical and analytical-only handoffs must omit duplicate_of",
+        ),
+        (_set("deduplication.key", "k"), "handoff deduplication key is invalid"),
+        (_drop("deduplication.key.claim_level"), "handoff deduplication key is invalid"),
+        (_set("deduplication.key.condition", "c"), "handoff deduplication key is invalid"),
+        (
+            _set("deduplication.key.uca_id", " "),
+            "handoff deduplication key identity is invalid",
+        ),
+        (
+            _set("deduplication.key.operation_name", ""),
+            "handoff deduplication operation_name is invalid",
+        ),
+        (
+            _set("deduplication.key.claim_level", "belief"),
+            "handoff deduplication claim_level is invalid",
+        ),
+    ],
+)
+def test_handoff_validation_names_the_first_invalid_field(
+    tmp_path: Path, mutate, message: str
+) -> None:
+    payload = json.loads(CONTRACT_HANDOFF.read_text(encoding="utf-8"))
+    payload["observation"] = _observation()
+    payload["deduplication"] = _deduplication(payload["scenario_id"])
+    mutate(payload)
+    source_path = tmp_path / "handoff.json"
+    source_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(InputSourceError) as raised:
+        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V1)
+
+    assert str(raised.value).startswith(message)
+
+
+def test_valid_duplicate_metadata_passes_validation_and_reaches_the_digest_check(
+    tmp_path: Path,
+) -> None:
+    payload = json.loads(CONTRACT_HANDOFF.read_text(encoding="utf-8"))
+    payload["deduplication"] = {
+        **_deduplication(payload["scenario_id"]),
+        "status": "duplicate",
+        "duplicate_of": "SCN-0",
+    }
+    payload["deduplication"]["key"]["operation_name"] = "process_refund"
+    source_path = tmp_path / "handoff.json"
+    source_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(InputSourceError, match="content_digest does not match"):
+        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V1)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (_set("deduplication.key.condition", " "), "handoff deduplication condition is invalid"),
+        (_set("discriminating_condition", "x"), "handoff schema invalid: schema_violation:"),
+    ],
+)
+def test_v2_handoff_validation_checks_the_condition_fields(
+    tmp_path: Path, mutate, message: str
+) -> None:
+    payload = json.loads(CONTRACT_HANDOFF_V2.read_text(encoding="utf-8"))
+    mutate(payload)
+    source_path = tmp_path / "handoff.json"
+    source_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(InputSourceError) as raised:
+        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V1)
+
+    assert str(raised.value).startswith(message)
