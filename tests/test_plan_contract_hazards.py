@@ -334,3 +334,232 @@ def test_current_prompt_digests_pin_rendered_contract_evidence() -> None:
     assert {name: _prompt_digest(packet) for name, packet in packets.items()} == (
         _CURRENT_PROMPT_DIGESTS
     )
+
+
+def _hazard_inventory() -> dict:
+    from .test_versioned_prompt_roles import _inventory
+
+    inventory = _inventory()
+    inventory["operations"].append(
+        {
+            "name": "typed_lookup",
+            "description": "Look up a record with typed arguments.",
+            "arguments": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "active": {"type": "boolean"},
+                    "count": {"type": "integer"},
+                    "ratio": {"type": "number"},
+                    "filters": {"type": "object"},
+                    "ids": {"type": "array"},
+                    "free": {"type": "custom"},
+                    "untyped": {},
+                },
+                "required": [],
+            },
+            "result_schema": {"type": "string"},
+        }
+    )
+    inventory["operations"].append(
+        {"name": "locked", "arguments": {}, "result_schema": {"type": "string"}}
+    )
+    return inventory
+
+
+def _hazard_runtime_contract() -> dict:
+    from .test_versioned_prompt_roles import _runtime_contract
+
+    contract = _runtime_contract()
+    contract["setup_permissions"] = ["summarize_for_ehr", "typed_lookup"]
+    return contract
+
+
+def _setup_findings(step: object) -> list[dict]:
+    from .test_versioned_prompt_roles import _plan
+
+    plan = copy.deepcopy(_plan())
+    plan["setup_recipe"] = [step]
+    return [
+        finding.to_dict()
+        for finding in collect_plan_findings_v2(
+            plan, _hazard_inventory(), _hazard_runtime_contract()
+        )
+        if finding.path.startswith("setup_recipe")
+    ]
+
+
+def test_setup_step_shape_errors_are_reported_at_the_step() -> None:
+    cases = {
+        "x": "setup_recipe[0] must name an operation",
+        "{}": "setup_recipe[0] must name an operation",
+        "extra": "setup_recipe[0] has unsupported fields: ['extra']",
+        "no_arguments": "setup_recipe[0] must include arguments",
+        "unknown": "unknown setup operation: other",
+        "list_arguments": "setup_recipe[0].arguments must be an object",
+        "missing": "missing setup argument: patient_id",
+        "unknown_argument": "unknown setup argument: x",
+    }
+    steps = {
+        "x": "x",
+        "{}": {},
+        "extra": {"operation": "summarize_for_ehr", "arguments": {}, "extra": 1},
+        "no_arguments": {"operation": "summarize_for_ehr"},
+        "unknown": {"operation": "other", "arguments": {}},
+        "list_arguments": {"operation": "summarize_for_ehr", "arguments": []},
+        "missing": {"operation": "summarize_for_ehr", "arguments": {}},
+        "unknown_argument": {
+            "operation": "summarize_for_ehr",
+            "arguments": {"patient_id": "P1", "x": 1},
+        },
+    }
+
+    for name, detail in cases.items():
+        assert _setup_findings(steps[name]) == [
+            {"code": "plan_validation", "detail": detail, "path": "setup_recipe[0]"}
+        ], name
+
+
+def test_unpermitted_setup_step_is_an_unpermitted_setup_finding() -> None:
+    assert _setup_findings({"operation": "locked", "arguments": {}}) == [
+        {
+            "code": "unpermitted_setup",
+            "detail": "setup operation is not permitted: locked",
+            "path": "setup_recipe[0]",
+        }
+    ]
+
+
+def test_setup_arguments_matching_their_schema_types_are_accepted() -> None:
+    step = {
+        "operation": "typed_lookup",
+        "arguments": {
+            "label": "{{record_label}}",
+            "active": True,
+            "count": 2,
+            "ratio": 0.5,
+            "filters": {},
+            "ids": [],
+            "free": None,
+            "untyped": 1,
+        },
+    }
+
+    assert _setup_findings(step) == []
+
+
+def test_setup_argument_type_mismatches_name_the_expected_type() -> None:
+    mismatches = {
+        "label": (3, "string"),
+        "active": ("yes", "boolean"),
+        "count": (True, "integer"),
+        "ratio": (False, "number"),
+        "filters": ([], "object"),
+        "ids": ({}, "array"),
+    }
+
+    for argument, (value, expected) in mismatches.items():
+        step = {"operation": "typed_lookup", "arguments": {argument: value}}
+        assert _setup_findings(step) == [
+            {
+                "code": "schema_type_mismatch",
+                "detail": (f"schema_type_mismatch: setup argument {argument} expects {expected}"),
+                "path": "setup_recipe[0]",
+            }
+        ], argument
+
+
+def test_plan_root_type_errors_for_assumptions_and_required_observations() -> None:
+    from .test_versioned_prompt_roles import _inventory, _plan, _runtime_contract
+
+    plan = copy.deepcopy(_plan())
+    plan["assumptions"] = "none"
+    plan["required_observations"] = []
+
+    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+
+    assert [finding.to_dict() for finding in findings] == [
+        {"code": "type_error", "detail": "assumptions must be a list", "path": "assumptions"},
+        {
+            "code": "type_error",
+            "detail": "required_observations must be an object",
+            "path": "required_observations",
+        },
+    ]
+
+
+def test_each_malformed_assumption_is_reported_in_order() -> None:
+    from .test_versioned_prompt_roles import _inventory, _plan, _runtime_contract
+
+    plan = copy.deepcopy(_plan())
+    plan["assumptions"] = [
+        "x",
+        {"ref": 3, "reason": 4, "extra": 1},
+        {"ref": "nope", "reason": "r"},
+    ]
+
+    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+
+    assert [finding.to_dict() for finding in findings] == [
+        {
+            "code": "shape_error",
+            "detail": "assumption must be an object",
+            "path": "assumptions[0]",
+        },
+        {
+            "code": "unexpected_field",
+            "detail": "unexpected assumption field: extra",
+            "path": "assumptions[1].extra",
+        },
+        {
+            "code": "type_error",
+            "detail": "assumption.ref must be a string",
+            "path": "assumptions[1].ref",
+        },
+        {
+            "code": "type_error",
+            "detail": "assumption.reason must be a string",
+            "path": "assumptions[1].reason",
+        },
+        {
+            "code": "unknown_reference",
+            "detail": "unknown_reference: nope",
+            "path": "assumptions[2].ref",
+        },
+    ]
+
+
+def test_binding_sources_report_unknown_facts_and_unpermitted_setup() -> None:
+    from .test_versioned_prompt_roles import _plan
+
+    def binding(name: str, kind: str, ref: str, selector: str) -> dict:
+        return {
+            "name": name,
+            "expected_type": "string",
+            "source_kind": kind,
+            "source_ref": ref,
+            "selector": selector,
+            "consumers": ["detector.value"],
+            "on_missing": "stop",
+        }
+
+    plan = copy.deepcopy(_plan())
+    plan["runtime_bindings"] = [
+        binding("a", "supplied_input", "facts:missing", "value"),
+        binding("b", "setup_output", "setup:locked", "result"),
+    ]
+
+    findings = collect_plan_findings_v2(plan, _hazard_inventory(), _hazard_runtime_contract())
+
+    assert [finding.to_dict() for finding in findings if finding.path.endswith(".source_ref")] == [
+        {
+            "code": "plan_binding_validation",
+            "detail": "unknown supplied fact: missing",
+            "path": "runtime_bindings[0].source_ref",
+        },
+        {
+            "code": "plan_binding_validation",
+            "detail": "setup operation is not permitted: locked",
+            "path": "runtime_bindings[1].source_ref",
+        },
+    ]

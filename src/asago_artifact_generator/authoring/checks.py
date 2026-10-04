@@ -486,8 +486,23 @@ def _established_trigger_findings(
     """Require each established_trigger item to cite a supplied result observation."""
 
     selected = plan.get("selected_evidence")
+    observations = _supplied_result_observations(inventory)
+    findings: list[Finding] = []
+    for index, item in enumerate(selected if isinstance(selected, list) else []):
+        if not isinstance(item, dict) or item.get("role") != ESTABLISHED_TRIGGER_ROLE:
+            continue
+        ref = item.get("ref")
+        if isinstance(ref, str) and ref in observations:
+            continue
+        findings.append(_established_trigger_finding(index, ref, observations))
+    return findings
+
+
+def _supplied_result_observations(inventory: dict[str, Any]) -> dict[str, str]:
+    """Map each supplied fact that records a tool result to that tool's name."""
+
     facts = inventory.get("facts")
-    observations = {
+    return {
         item["ref"]: item["provenance"]["tool_name"]
         for item in (facts if isinstance(facts, list) else [])
         if isinstance(item, dict)
@@ -496,40 +511,35 @@ def _established_trigger_findings(
         and isinstance(item.get("provenance"), dict)
         and isinstance(item["provenance"].get("tool_name"), str)
     }
-    findings: list[Finding] = []
-    for index, item in enumerate(selected if isinstance(selected, list) else []):
-        if not isinstance(item, dict) or item.get("role") != ESTABLISHED_TRIGGER_ROLE:
-            continue
-        ref = item.get("ref")
-        if isinstance(ref, str) and ref in observations:
-            continue
-        operation = (
-            ref.removeprefix("operation:")
-            if isinstance(ref, str) and ref.startswith("operation:")
-            else None
-        )
-        candidates = [
-            name for name, tool in observations.items() if operation is None or tool == operation
-        ]
-        options = (
-            f"; supplied observations{' of ' + repr(operation) if operation else ''}: "
-            f"{', '.join(candidates)}"
-            if candidates
-            else "; the inventory supplies no such observation, so use role trigger"
-        )
-        findings.append(
-            Finding(
-                "established_trigger_not_observation",
-                (
-                    f"selected_evidence[{index}] has role {ESTABLISHED_TRIGGER_ROLE!r} but its "
-                    f"ref {ref!r} is not a supplied result observation. An established "
-                    "trigger cites the observation that already shows the triggering result "
-                    f"before the run{options}"
-                ),
-                f"selected_evidence[{index}].role",
-            )
-        )
-    return findings
+
+
+def _established_trigger_finding(index: int, ref: Any, observations: dict[str, str]) -> Finding:
+    """Report an established trigger whose ref is not a supplied result observation."""
+
+    operation = (
+        ref.removeprefix("operation:")
+        if isinstance(ref, str) and ref.startswith("operation:")
+        else None
+    )
+    candidates = [
+        name for name, tool in observations.items() if operation is None or tool == operation
+    ]
+    options = (
+        f"; supplied observations{' of ' + repr(operation) if operation else ''}: "
+        f"{', '.join(candidates)}"
+        if candidates
+        else "; the inventory supplies no such observation, so use role trigger"
+    )
+    return Finding(
+        "established_trigger_not_observation",
+        (
+            f"selected_evidence[{index}] has role {ESTABLISHED_TRIGGER_ROLE!r} but its "
+            f"ref {ref!r} is not a supplied result observation. An established "
+            "trigger cites the observation that already shows the triggering result "
+            f"before the run{options}"
+        ),
+        f"selected_evidence[{index}].role",
+    )
 
 
 def _plan_stimulus_slot_findings(
@@ -913,62 +923,18 @@ def _collect_plan_findings_with_contract(
 
     if not isinstance(plan, dict):
         return [Finding("response_type_error", "plan must be an object", "response")]
-    required = contract["schema"]["required"]
-    findings: list[Finding] = []
-    for field_name in sorted(set(plan) - set(required)):
+    findings = _v2_root_field_findings(plan, contract["schema"]["required"])
+    findings.extend(_plan_assumptions_findings(plan, inventory, provenance_ids))
+    if not isinstance(plan.get("required_observations"), dict) and (
+        "required_observations" in plan
+    ):
         findings.append(
-            Finding("unexpected_field", f"unexpected plan field: {field_name}", field_name)
+            Finding(
+                "type_error",
+                "required_observations must be an object",
+                "required_observations",
+            )
         )
-    for field_name in required:
-        if field_name not in plan:
-            findings.append(
-                Finding("plan_validation", f"missing plan field: {field_name}", field_name)
-            )
-    assumptions = plan.get("assumptions")
-    if not isinstance(assumptions, list):
-        if "assumptions" in plan:
-            findings.append(Finding("type_error", "assumptions must be a list", "assumptions"))
-    else:
-        references = _inventory_references(inventory)
-        for index, assumption in enumerate(assumptions):
-            path = f"assumptions[{index}]"
-            if not isinstance(assumption, dict):
-                findings.append(Finding("shape_error", "assumption must be an object", path))
-                continue
-            for field_name in sorted(set(assumption) - {"ref", "reason"}):
-                findings.append(
-                    Finding(
-                        "unexpected_field",
-                        f"unexpected assumption field: {field_name}",
-                        f"{path}.{field_name}",
-                    )
-                )
-            if not isinstance(assumption.get("ref"), str):
-                findings.append(
-                    Finding("type_error", "assumption.ref must be a string", f"{path}.ref")
-                )
-            elif assumption["ref"] not in references and assumption["ref"] not in provenance_ids:
-                findings.append(
-                    Finding(
-                        "unknown_reference",
-                        f"unknown_reference: {assumption['ref']}",
-                        f"{path}.ref",
-                    )
-                )
-            if not isinstance(assumption.get("reason"), str):
-                findings.append(
-                    Finding("type_error", "assumption.reason must be a string", f"{path}.reason")
-                )
-    required_observations = plan.get("required_observations")
-    if not isinstance(required_observations, dict):
-        if "required_observations" in plan:
-            findings.append(
-                Finding(
-                    "type_error",
-                    "required_observations must be an object",
-                    "required_observations",
-                )
-            )
     # Validate all legacy plan fields after the v2 root additions.  Removing
     # only the additions keeps the old nested validators and their findings.
     legacy_plan = dict(plan)
@@ -986,56 +952,142 @@ def _collect_plan_findings_with_contract(
     findings = [
         finding
         for finding in findings
-        if not (
-            finding.path
-            in {
-                "interpretation",
-                "selected_evidence",
-                "setup_recipe",
-                "runtime_bindings",
-                "prerequisites",
-                "stimulus_approach",
-                "observation_claim",
-                "semantic_judge",
-                "unresolved_requirements",
-            }
-            and finding.code == "missing_field"
-        )
+        if not (finding.path in _V2_ROOT_FIELDS_REPORTED_ONCE and finding.code == "missing_field")
     ]
-    unresolved = plan.get("unresolved_requirements")
-    if isinstance(unresolved, list):
-        for index, item in enumerate(unresolved):
-            if (
-                isinstance(item, dict)
-                and item.get("essential") is True
-                and item.get("obtainable_via_setup") is False
-                and item.get("source_kind") == "setup_output"
-            ):
-                findings.append(
-                    Finding(
-                        "unobtainable_essential_requirement",
-                        (
-                            "an essential requirement that cannot be obtained blocks "
-                            "the plan; a requirement that is not needed for the "
-                            "experiment is not essential"
-                        ),
-                        f"unresolved_requirements[{index}]",
-                    )
-                )
-    declared_bindings = _declared_binding_names(plan.get("runtime_bindings"))
-    prerequisites = plan.get("prerequisites")
-    if isinstance(prerequisites, list):
+    findings.extend(_unobtainable_requirement_findings(plan))
+    findings.extend(_plan_canonical_prerequisite_findings(plan, inventory, transformations))
+    return findings
+
+
+# The v2 root check reports these missing fields as plan_validation, so the
+# legacy validator's missing_field duplicates are dropped.
+_V2_ROOT_FIELDS_REPORTED_ONCE = frozenset(
+    {
+        "interpretation",
+        "selected_evidence",
+        "setup_recipe",
+        "runtime_bindings",
+        "prerequisites",
+        "stimulus_approach",
+        "observation_claim",
+        "semantic_judge",
+        "unresolved_requirements",
+    }
+)
+
+
+def _v2_root_field_findings(plan: dict[str, Any], required: list[str]) -> list[Finding]:
+    """Report root fields outside the contract, then required root fields that are absent."""
+
+    findings = [
+        Finding("unexpected_field", f"unexpected plan field: {field_name}", field_name)
+        for field_name in sorted(set(plan) - set(required))
+    ]
+    findings.extend(
+        Finding("plan_validation", f"missing plan field: {field_name}", field_name)
+        for field_name in required
+        if field_name not in plan
+    )
+    return findings
+
+
+def _plan_assumptions_findings(
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    provenance_ids: Collection[str],
+) -> list[Finding]:
+    """Validate the v2 assumptions list and each assumption's shape and reference."""
+
+    assumptions = plan.get("assumptions")
+    if not isinstance(assumptions, list):
+        if "assumptions" in plan:
+            return [Finding("type_error", "assumptions must be a list", "assumptions")]
+        return []
+    references = _inventory_references(inventory)
+    findings: list[Finding] = []
+    for index, assumption in enumerate(assumptions):
         findings.extend(
-            _collect_canonical_prerequisite_findings(
-                prerequisites,
-                _inventory_references(inventory),
-                declared_bindings,
-                plan.get("runtime_bindings"),
-                safe_behavior=_plan_safe_behavior(plan),
-                transformations=transformations,
-            )
+            _assumption_findings(f"assumptions[{index}]", assumption, references, provenance_ids)
         )
     return findings
+
+
+def _assumption_findings(
+    path: str,
+    assumption: Any,
+    references: Collection[str],
+    provenance_ids: Collection[str],
+) -> list[Finding]:
+    if not isinstance(assumption, dict):
+        return [Finding("shape_error", "assumption must be an object", path)]
+    findings = [
+        Finding(
+            "unexpected_field",
+            f"unexpected assumption field: {field_name}",
+            f"{path}.{field_name}",
+        )
+        for field_name in sorted(set(assumption) - {"ref", "reason"})
+    ]
+    if not isinstance(assumption.get("ref"), str):
+        findings.append(Finding("type_error", "assumption.ref must be a string", f"{path}.ref"))
+    elif assumption["ref"] not in references and assumption["ref"] not in provenance_ids:
+        findings.append(
+            Finding(
+                "unknown_reference",
+                f"unknown_reference: {assumption['ref']}",
+                f"{path}.ref",
+            )
+        )
+    if not isinstance(assumption.get("reason"), str):
+        findings.append(
+            Finding("type_error", "assumption.reason must be a string", f"{path}.reason")
+        )
+    return findings
+
+
+def _unobtainable_requirement_findings(plan: dict[str, Any]) -> list[Finding]:
+    """Report essential setup-output requirements that the plan marks as unobtainable."""
+
+    unresolved = plan.get("unresolved_requirements")
+    if not isinstance(unresolved, list):
+        return []
+    return [
+        Finding(
+            "unobtainable_essential_requirement",
+            (
+                "an essential requirement that cannot be obtained blocks "
+                "the plan; a requirement that is not needed for the "
+                "experiment is not essential"
+            ),
+            f"unresolved_requirements[{index}]",
+        )
+        for index, item in enumerate(unresolved)
+        if (
+            isinstance(item, dict)
+            and item.get("essential") is True
+            and item.get("obtainable_via_setup") is False
+            and item.get("source_kind") == "setup_output"
+        )
+    ]
+
+
+def _plan_canonical_prerequisite_findings(
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    transformations: list[dict[str, Any]] | None,
+) -> list[Finding]:
+    declared_bindings = _declared_binding_names(plan.get("runtime_bindings"))
+    prerequisites = plan.get("prerequisites")
+    if not isinstance(prerequisites, list):
+        return []
+    return _collect_canonical_prerequisite_findings(
+        prerequisites,
+        _inventory_references(inventory),
+        declared_bindings,
+        plan.get("runtime_bindings"),
+        safe_behavior=_plan_safe_behavior(plan),
+        transformations=transformations,
+    )
 
 
 def collect_plan_findings(
@@ -1882,34 +1934,55 @@ def _binding_source_schema(
             ),
         )
     if source_kind == "setup_output":
-        operation = next(
-            (
-                item
-                for item in inventory.get("operations", [])
-                if isinstance(item, dict) and item.get("name") == reference
-            ),
-            None,
-        )
-        if operation is None:
-            return None, f"unknown setup operation: {reference}"
-        if reference not in runtime_contract.get("setup_permissions", []):
-            return None, f"setup operation is not permitted: {reference}"
-        schema = operation.get("result_schema")
+        schema, error = _setup_output_source_schema(reference, inventory, runtime_contract)
     else:
-        fact = next(
-            (
-                item
-                for item in inventory.get("facts", [])
-                if isinstance(item, dict) and item.get("ref") == reference
-            ),
-            None,
-        )
-        if fact is None:
-            return None, f"unknown supplied fact: {reference}"
-        schema = fact.get("schema")
+        schema, error = _supplied_input_source_schema(reference, inventory)
+    if error is not None:
+        return None, error
     if not isinstance(schema, dict):
         return None, f"missing source schema for binding: {name}"
     return schema, None
+
+
+def _setup_output_source_schema(
+    reference: str,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> tuple[Any, str | None]:
+    """Return a permitted setup operation's raw result schema, or why it is unusable."""
+
+    operation = next(
+        (
+            item
+            for item in inventory.get("operations", [])
+            if isinstance(item, dict) and item.get("name") == reference
+        ),
+        None,
+    )
+    if operation is None:
+        return None, f"unknown setup operation: {reference}"
+    if reference not in runtime_contract.get("setup_permissions", []):
+        return None, f"setup operation is not permitted: {reference}"
+    return operation.get("result_schema"), None
+
+
+def _supplied_input_source_schema(
+    reference: str,
+    inventory: dict[str, Any],
+) -> tuple[Any, str | None]:
+    """Return a supplied fact's raw schema, or why the fact is unknown."""
+
+    fact = next(
+        (
+            item
+            for item in inventory.get("facts", [])
+            if isinstance(item, dict) and item.get("ref") == reference
+        ),
+        None,
+    )
+    if fact is None:
+        return None, f"unknown supplied fact: {reference}"
+    return fact.get("schema"), None
 
 
 def _selector_root(selector: str) -> str | None:
@@ -2332,15 +2405,7 @@ def _validate_setup_recipe(
     }
     permissions = runtime_contract.get("setup_permissions", [])
     for index, step in enumerate(recipe):
-        if not isinstance(step, dict) or not isinstance(step.get("operation"), str):
-            raise PlanValidationError(f"setup_recipe[{index}] must name an operation")
-        unexpected = set(step) - {"operation", "arguments"}
-        if unexpected:
-            raise PlanValidationError(
-                f"setup_recipe[{index}] has unsupported fields: {sorted(unexpected)}"
-            )
-        if "arguments" not in step:
-            raise PlanValidationError(f"setup_recipe[{index}] must include arguments")
+        _validate_setup_step_shape(index, step)
         name = step["operation"]
         if name not in operations:
             raise PlanValidationError(f"unknown setup operation: {name}")
@@ -2349,25 +2414,44 @@ def _validate_setup_recipe(
         supplied_args = step.get("arguments", {})
         if not isinstance(supplied_args, dict):
             raise PlanValidationError(f"setup_recipe[{index}].arguments must be an object")
-        schema = operations[name].get("arguments", {})
-        properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
-        required = schema.get("required", []) if isinstance(schema, dict) else []
-        missing = set(required) - set(supplied_args)
-        if missing:
-            raise PlanValidationError(f"missing setup argument: {sorted(missing)[0]}")
-        unknown = set(supplied_args) - set(properties)
-        if unknown:
-            raise PlanValidationError(f"unknown setup argument: {sorted(unknown)[0]}")
-        for argument, value in supplied_args.items():
-            schema_type = (
-                properties.get(argument, {}).get("type")
-                if isinstance(properties.get(argument), dict)
-                else None
+        _validate_setup_arguments(supplied_args, operations[name].get("arguments", {}))
+
+
+def _validate_setup_step_shape(index: int, step: Any) -> None:
+    """Require one setup step to name an operation and carry only operation and arguments."""
+
+    if not isinstance(step, dict) or not isinstance(step.get("operation"), str):
+        raise PlanValidationError(f"setup_recipe[{index}] must name an operation")
+    unexpected = set(step) - {"operation", "arguments"}
+    if unexpected:
+        raise PlanValidationError(
+            f"setup_recipe[{index}] has unsupported fields: {sorted(unexpected)}"
+        )
+    if "arguments" not in step:
+        raise PlanValidationError(f"setup_recipe[{index}] must include arguments")
+
+
+def _validate_setup_arguments(supplied_args: dict[str, Any], schema: Any) -> None:
+    """Check supplied setup arguments against the operation's argument schema."""
+
+    properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+    required = schema.get("required", []) if isinstance(schema, dict) else []
+    missing = set(required) - set(supplied_args)
+    if missing:
+        raise PlanValidationError(f"missing setup argument: {sorted(missing)[0]}")
+    unknown = set(supplied_args) - set(properties)
+    if unknown:
+        raise PlanValidationError(f"unknown setup argument: {sorted(unknown)[0]}")
+    for argument, value in supplied_args.items():
+        schema_type = (
+            properties.get(argument, {}).get("type")
+            if isinstance(properties.get(argument), dict)
+            else None
+        )
+        if schema_type and not _matches_schema_type(value, schema_type):
+            raise PlanValidationError(
+                f"schema_type_mismatch: setup argument {argument} expects {schema_type}"
             )
-            if schema_type and not _matches_schema_type(value, schema_type):
-                raise PlanValidationError(
-                    f"schema_type_mismatch: setup argument {argument} expects {schema_type}"
-                )
 
 
 def _is_blocked_plan(plan: Any) -> bool:
