@@ -29,6 +29,7 @@ from asago_artifact_generator.authoring.prompt_context import (
     build_plan_author_context,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
+    _call1_response_contract_prompt_view,
     build_call1_packet_v2,
     build_call2_packet_v2,
 )
@@ -651,3 +652,12 @@ def test_prompt_secret_guard_rejects_urls_and_tokens_before_dispatch() -> None:
     ]
     with pytest.raises(PromptPreflightError):
         assert_no_prompt_secrets(packet)
+
+
+def test_call1_contract_view_without_binding_declaration_is_an_unchanged_copy() -> None:
+    contract = {"selector_rule": "rule", "schema": {"properties": {}}}
+
+    view = _call1_response_contract_prompt_view(contract)
+
+    assert view == contract
+    assert view is not contract
