@@ -110,6 +110,14 @@ class _StageStop:
     findings: tuple[Finding, ...] = ()
 
 
+def _preflight_stop(exc: PromptPreflightError, stage: str) -> _StageStop:
+    """Return the stage stop for a prompt that failed its pre-dispatch checks."""
+
+    finding = _prompt_preflight_finding(exc, stage)
+    status = "prompt_overflow" if finding.code == "prompt_overflow" else "failed"
+    return _StageStop(status, (finding,))
+
+
 # Returned by ``_dispatch_correction`` when no correction response exists.
 _CORRECTION_NOT_DISPATCHED = object()
 
@@ -344,104 +352,24 @@ class AuthoringOrchestrator:
         started = time.monotonic()
         try:
             response = self._dispatch(packet)
-        except PromptOverflowError as exc:
-            finding = _prompt_overflow_finding(exc, stage)
-            self._findings.append(finding)
-            self._failure_evidence["findings"].append(finding.to_dict())
-            self._persist_failure_evidence()
-            return None, [finding], b""
-        except BudgetExceeded as exc:
-            # Budget stops happen before dispatch: no ledger record exists to
-            # annotate, and no stage attempt was created for this request.
-            finding = Finding("budget_exhausted", _safe_error(exc), stage)
-            self._findings.append(finding)
-            self._failure_evidence["findings"].append(finding.to_dict())
-            self._persist_failure_evidence()
-            return None, [finding], b""
         except Exception as exc:
-            finding = Finding("transport_failure", _safe_error(exc), stage)
-            self._findings.append(finding)
-            if self._dispatch_recorded:
-                self._ledger[-1]["error"] = _safe_error(exc)
-            self._record_unavailable_response(
-                reason="provider_failure",
-                detail=_safe_error(exc),
-                finding=finding,
-                elapsed_ms=(time.monotonic() - started) * 1000,
-            )
-            return None, [finding], b""
-        raw, usage, controls, response_capture = _response_parts(response)
-        self._raw_responses[stage] = raw
-        record = self._ledger[-1]
-        raw_key = f"dispatch:{record['dispatch_index']}"
-        self._raw_responses[raw_key] = raw
-        record["raw_response_key"] = raw_key
-        _set_record_usage(record, usage)
-        record["controls"] = _safe_metadata(controls or {"max_retries": 0})
-        if response_capture is not None:
-            record["response_capture"] = deepcopy(response_capture)
-        self._record_available_response(raw, usage, controls, response_capture)
+            return None, [self._record_v2_dispatch_failure(exc, stage, started)], b""
+        raw, record = self._record_v2_response(stage, response)
         try:
-            if stage == "call2":
-                decoded: Any = parse_call2_response(raw)
-                self._call2_python_bytes = decoded.python_bytes
-                self._raw_responses["call2-python"] = decoded.python_bytes
-                validation_value: dict[str, Any] | ParsedCall2Response = decoded
-                record["framing"] = "two-block-v2"
-                record["decoded_output"] = decoded.metadata
-                self._decoded_responses[stage] = decoded.metadata
-                self._failure_attempt()["decoded_output"] = decoded.metadata
-                self._record_candidate_digest(decoded)
-            else:
-                decoded, transformation = _decode_v2_json_response(raw)
-                validation_value = decoded
-                if transformation:
-                    self._transformations.append(transformation)
-                    record["transformation"] = transformation
-                    self._failure_attempt()["transformation"] = transformation
-                    self._failure_evidence["transformations"] = list(self._transformations)
-                self._decoded_responses[stage] = decoded
-                record["decoded_output"] = decoded
-                self._failure_attempt()["decoded_output"] = decoded
-                if isinstance(decoded, dict):
-                    self._record_candidate_digest(decoded)
-        except (Call1FramingError, Call2FramingError) as exc:
-            self._findings.extend(exc.findings)
-            record["framing_findings"] = [finding.to_dict() for finding in exc.findings]
-            self._record_checks_not_run(
-                ["plan_validation"]
-                if stage == "call1"
-                else ["artifact_validation", "detector_controls"]
-            )
-            self._record_failures(exc.findings)
-            return None, exc.findings, raw
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-            finding = Finding("response_parse_error", str(exc), stage)
-            record["parse_error"] = str(exc)
-            self._record_checks_not_run(
-                ["plan_validation"]
-                if stage == "call1"
-                else ["artifact_validation", "detector_controls"]
-            )
-            self._findings.append(finding)
-            self._record_failure(finding)
-            return None, [finding], raw
-        try:
-            assert_no_secrets(
-                validation_value.metadata
-                if isinstance(validation_value, ParsedCall2Response)
-                else validation_value
-            )
-        except AuthoringError as exc:
-            finding = Finding("secret_in_response", str(exc), stage)
-            self._findings.append(finding)
-            self._record_failure(finding)
-            return None, [finding], raw
-        if stage == "call1" and not isinstance(validation_value, dict):
-            finding = Finding("response_type_error", "plan must decode to an object", stage)
-            self._findings.append(finding)
-            self._record_failure(finding)
-            return None, [finding], raw
+            validation_value = self._decode_v2_stage(stage, raw, record)
+        except (
+            Call1FramingError,
+            Call2FramingError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            ValueError,
+        ) as exc:
+            return None, self._record_v2_decode_failure(exc, stage, record), raw
+        rejection = self._v2_response_rejection(stage, validation_value)
+        if rejection is not None:
+            self._findings.append(rejection)
+            self._record_failure(rejection)
+            return None, [rejection], raw
         transformation_count = len(self._transformations)
         findings = findings_collector(validation_value)
         self._record_validation_transformations(transformation_count)
@@ -453,6 +381,122 @@ class AuthoringOrchestrator:
         record["validation"] = "passed"
         self._persist_failure_evidence()
         return validation_value, [], raw
+
+    def _record_v2_dispatch_failure(self, exc: Exception, stage: str, started: float) -> Finding:
+        """Record a v2 stage request that returned no response and return its finding."""
+
+        if isinstance(exc, PromptOverflowError):
+            finding = _prompt_overflow_finding(exc, stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            return finding
+        if isinstance(exc, BudgetExceeded):
+            # Budget stops happen before dispatch: no ledger record exists to
+            # annotate, and no stage attempt was created for this request.
+            finding = Finding("budget_exhausted", _safe_error(exc), stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            return finding
+        finding = Finding("transport_failure", _safe_error(exc), stage)
+        self._findings.append(finding)
+        if self._dispatch_recorded:
+            self._ledger[-1]["error"] = _safe_error(exc)
+        self._record_unavailable_response(
+            reason="provider_failure",
+            detail=_safe_error(exc),
+            finding=finding,
+            elapsed_ms=(time.monotonic() - started) * 1000,
+        )
+        return finding
+
+    def _record_v2_response(
+        self, stage: str, response: TransportResponse | str | bytes
+    ) -> tuple[bytes, dict[str, Any]]:
+        """Store a v2 stage response on its ledger record; return the raw bytes and record."""
+
+        raw, usage, controls, response_capture = _response_parts(response)
+        self._raw_responses[stage] = raw
+        record = self._ledger[-1]
+        raw_key = f"dispatch:{record['dispatch_index']}"
+        self._raw_responses[raw_key] = raw
+        record["raw_response_key"] = raw_key
+        _set_record_usage(record, usage)
+        record["controls"] = _safe_metadata(controls or {"max_retries": 0})
+        if response_capture is not None:
+            record["response_capture"] = deepcopy(response_capture)
+        self._record_available_response(raw, usage, controls, response_capture)
+        return raw, record
+
+    def _decode_v2_stage(
+        self, stage: str, raw: bytes, record: dict[str, Any]
+    ) -> dict[str, Any] | ParsedCall2Response:
+        """Decode one v2 stage response and record the decoded output."""
+
+        if stage == "call2":
+            decoded = parse_call2_response(raw)
+            self._call2_python_bytes = decoded.python_bytes
+            self._raw_responses["call2-python"] = decoded.python_bytes
+            record["framing"] = "two-block-v2"
+            record["decoded_output"] = decoded.metadata
+            self._decoded_responses[stage] = decoded.metadata
+            self._failure_attempt()["decoded_output"] = decoded.metadata
+            self._record_candidate_digest(decoded)
+            return decoded
+        decoded_json, transformation = _decode_v2_json_response(raw)
+        if transformation:
+            self._transformations.append(transformation)
+            record["transformation"] = transformation
+            self._failure_attempt()["transformation"] = transformation
+            self._failure_evidence["transformations"] = list(self._transformations)
+        self._decoded_responses[stage] = decoded_json
+        record["decoded_output"] = decoded_json
+        self._failure_attempt()["decoded_output"] = decoded_json
+        if isinstance(decoded_json, dict):
+            self._record_candidate_digest(decoded_json)
+        return decoded_json
+
+    def _record_v2_decode_failure(
+        self, exc: Exception, stage: str, record: dict[str, Any]
+    ) -> list[Finding]:
+        """Record a framing or parse failure for a v2 stage and return its findings."""
+
+        checks_not_run = (
+            ["plan_validation"]
+            if stage == "call1"
+            else ["artifact_validation", "detector_controls"]
+        )
+        if isinstance(exc, (Call1FramingError, Call2FramingError)):
+            self._findings.extend(exc.findings)
+            record["framing_findings"] = [finding.to_dict() for finding in exc.findings]
+            self._record_checks_not_run(checks_not_run)
+            self._record_failures(exc.findings)
+            return exc.findings
+        finding = Finding("response_parse_error", str(exc), stage)
+        record["parse_error"] = str(exc)
+        self._record_checks_not_run(checks_not_run)
+        self._findings.append(finding)
+        self._record_failure(finding)
+        return [finding]
+
+    @staticmethod
+    def _v2_response_rejection(
+        stage: str, validation_value: dict[str, Any] | ParsedCall2Response
+    ) -> Finding | None:
+        """Return the finding that rejects a decoded value before its stage checks run."""
+
+        try:
+            assert_no_secrets(
+                validation_value.metadata
+                if isinstance(validation_value, ParsedCall2Response)
+                else validation_value
+            )
+        except AuthoringError as exc:
+            return Finding("secret_in_response", str(exc), stage)
+        if stage == "call1" and not isinstance(validation_value, dict):
+            return Finding("response_type_error", "plan must decode to an object", stage)
+        return None
 
     def _dispatch(self, packet: PromptPacket) -> TransportResponse | str | bytes:
         # Reject an over-budget request before reserving an author/reviewer slot.
@@ -472,13 +516,27 @@ class AuthoringOrchestrator:
         dispatch_index = self._dispatch_count + 1
         self._dispatch_count = dispatch_index
         self._failure_evidence["budget"] = self.budget.snapshot(self.task_id)
+        record = self._open_dispatch_records(packet, dispatch_index, role)
+        self._persist_failure_evidence()
+        try:
+            response = self.transport.complete(packet)
+        except Exception:
+            self._record_transport_failure_controls(record)
+            raise
+        self._record_dispatch_response(record, dispatch_index, response)
+        self._persist_failure_evidence()
+        return response
+
+    def _dispatch_attempt_indices(self, packet: PromptPacket) -> tuple[int, int]:
+        """Return the stage attempt index and the per-failed-stage correction index."""
+
         stage_attempt_index = (
             sum(1 for prior in self._ledger if prior.get("stage") == packet.stage) + 1
         )
+        if packet.stage != "correction":
+            return stage_attempt_index, 0
         failed_stage = (
-            packet.payload.get("failed_stage")
-            if packet.stage == "correction" and isinstance(packet.payload, dict)
-            else None
+            packet.payload.get("failed_stage") if isinstance(packet.payload, dict) else None
         )
         correction_index = (
             sum(
@@ -487,20 +545,31 @@ class AuthoringOrchestrator:
                 if prior.get("stage") == "correction" and prior.get("failed_stage") == failed_stage
             )
             + 1
-            if packet.stage == "correction"
-            else 0
         )
+        return stage_attempt_index, correction_index
+
+    def _dispatch_model_identity(self) -> dict[str, Any]:
+        """Return the requested model identity before the provider reports its own."""
+
         profile_alias = getattr(self.transport, "profile_name", None)
         if not isinstance(profile_alias, str) or not profile_alias.strip():
             profile_alias = None
         requested_model = getattr(self.transport, "model", None)
         if not isinstance(requested_model, str) or not requested_model.strip():
             requested_model = None
-        model_identity = {
+        return {
             "profile_alias": profile_alias,
             "requested_model": requested_model,
             "returned_model": metadata_record(None, unavailable_reason="not_returned"),
         }
+
+    def _open_dispatch_records(
+        self, packet: PromptPacket, dispatch_index: int, role: str
+    ) -> dict[str, Any]:
+        """Append the in-progress ledger record and failure-evidence attempt for a dispatch."""
+
+        stage_attempt_index, correction_index = self._dispatch_attempt_indices(packet)
+        model_identity = self._dispatch_model_identity()
         policy_record = self._effective_policy_record()
         record = {
             "dispatch_index": dispatch_index,
@@ -522,29 +591,7 @@ class AuthoringOrchestrator:
             "terminal_status": "in_progress",
         }
         if packet.stage in _REVIEW_STAGES:
-            input_digest, candidate_digest = _review_packet_digests(packet)
-            effective_controls = self._review_controls(None)
-            record.update(
-                {
-                    "reviewed_input_sha256": input_digest,
-                    "reviewed_candidate_sha256": candidate_digest,
-                    "candidate_bytes_sha256": candidate_digest,
-                    "review": {
-                        "status": "pending",
-                        "prompt_version": packet.version,
-                        "prompt_sha256": packet.sha256,
-                        "reviewed_input_sha256": input_digest,
-                        "reviewed_candidate_sha256": candidate_digest,
-                        "candidate_bytes_sha256": candidate_digest,
-                        "contract_sha256": _review_contract_digest(packet),
-                        "configuration_sha256": _review_configuration_digest(
-                            effective_controls,
-                            self._effective_policy_record(),
-                        ),
-                        "effective_controls": effective_controls,
-                    },
-                }
-            )
+            record.update(self._review_dispatch_fields(packet))
         self._ledger.append(record)
         self._failure_evidence["attempts"].append(
             {
@@ -580,18 +627,52 @@ class AuthoringOrchestrator:
             self._failure_attempt()["reviewed_candidate_sha256"] = record[
                 "reviewed_candidate_sha256"
             ]
-        self._persist_failure_evidence()
-        try:
-            response = self.transport.complete(packet)
-        except Exception:
-            last_controls = getattr(self.transport, "last_controls", None)
-            if isinstance(last_controls, dict):
-                record["controls"] = _safe_metadata(last_controls)
-                self._failure_attempt()["controls"] = metadata_record(
-                    last_controls,
-                    unavailable_reason="provider_did_not_return_response",
-                )
-            raise
+        return record
+
+    def _review_dispatch_fields(self, packet: PromptPacket) -> dict[str, Any]:
+        """Return the pending review fields that a review dispatch adds to its record."""
+
+        input_digest, candidate_digest = _review_packet_digests(packet)
+        effective_controls = self._review_controls(None)
+        return {
+            "reviewed_input_sha256": input_digest,
+            "reviewed_candidate_sha256": candidate_digest,
+            "candidate_bytes_sha256": candidate_digest,
+            "review": {
+                "status": "pending",
+                "prompt_version": packet.version,
+                "prompt_sha256": packet.sha256,
+                "reviewed_input_sha256": input_digest,
+                "reviewed_candidate_sha256": candidate_digest,
+                "candidate_bytes_sha256": candidate_digest,
+                "contract_sha256": _review_contract_digest(packet),
+                "configuration_sha256": _review_configuration_digest(
+                    effective_controls,
+                    self._effective_policy_record(),
+                ),
+                "effective_controls": effective_controls,
+            },
+        }
+
+    def _record_transport_failure_controls(self, record: dict[str, Any]) -> None:
+        """Keep the controls a transport reports for a request that raised."""
+
+        last_controls = getattr(self.transport, "last_controls", None)
+        if isinstance(last_controls, dict):
+            record["controls"] = _safe_metadata(last_controls)
+            self._failure_attempt()["controls"] = metadata_record(
+                last_controls,
+                unavailable_reason="provider_did_not_return_response",
+            )
+
+    def _record_dispatch_response(
+        self,
+        record: dict[str, Any],
+        dispatch_index: int,
+        response: TransportResponse | str | bytes,
+    ) -> None:
+        """Record the returned model, raw bytes, usage, and controls of a response."""
+
         provider_model = (
             response.provider_model if isinstance(response, TransportResponse) else None
         )
@@ -621,8 +702,6 @@ class AuthoringOrchestrator:
         )
         if response_capture is not None:
             attempt["response_capture"] = deepcopy(response_capture)
-        self._persist_failure_evidence()
-        return response
 
     def _correction_v2(
         self,
@@ -1008,13 +1087,53 @@ class AuthoringOrchestrator:
     ) -> dict[str, Any] | _StageStop:
         """Author, check, correct, and review the plan within its allowance."""
 
-        policy = self.policy
         try:
             packet = build_call1_packet_v2(view, inventory, runtime_contract)
         except PromptPreflightError as exc:
-            finding = _prompt_preflight_finding(exc, "call1")
-            status = "prompt_overflow" if finding.code == "prompt_overflow" else "failed"
-            return _StageStop(status, (finding,))
+            return _preflight_stop(exc, "call1")
+        collector = self._plan_findings_collector(view, inventory, runtime_contract)
+        candidate: dict[str, Any] | None = None
+        pending: Sequence[Finding] | None = None
+        review_driven = False
+        raw = b""
+        while True:
+            if candidate is None:
+                if pending is None:
+                    decoded, pending, raw = self._request_and_validate_v2(packet, collector)
+                    candidate = decoded if isinstance(decoded, dict) else None
+                if candidate is None:
+                    corrected = self._plan_correction_round(
+                        packet,
+                        pending,
+                        raw,
+                        review_driven=review_driven,
+                        view=view,
+                        inventory=inventory,
+                        runtime_contract=runtime_contract,
+                    )
+                    if isinstance(corrected, _StageStop):
+                        return corrected
+                    review_driven = False
+                    candidate, pending, raw = corrected
+                    if pending is not None:
+                        continue
+            assert candidate is not None
+            reviewed = self._review_plan_candidate(view, candidate, inventory, runtime_contract)
+            if not isinstance(reviewed, tuple):
+                return reviewed
+            # Semantic revise findings join the stage correction path but spend
+            # the stage's separate review-revision allowance.
+            pending = reviewed
+            review_driven = True
+            candidate = None
+
+    def _plan_findings_collector(
+        self,
+        view: InputView,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> Any:
+        """Return the plan checks bound to this scenario, inventory, and contract."""
 
         provenance_ids = scenario_provenance_ids(view)
 
@@ -1028,93 +1147,98 @@ class AuthoringOrchestrator:
                 transformations=self._transformations,
             )
 
-        candidate: dict[str, Any] | None = None
-        pending: list[Finding] | None = None
-        review_driven = False
-        raw = b""
-        while True:
-            if candidate is None:
-                if pending is None:
-                    decoded, pending, raw = self._request_and_validate_v2(packet, collector)
-                    candidate = decoded if isinstance(decoded, dict) else None
-                if candidate is None:
-                    pending = pending or [
-                        Finding("call1_failed", "Call 1 did not return a plan", "call1")
-                    ]
-                    blocked = candidate or self._decoded_responses.get("call1")
-                    if _is_blocked_plan(blocked):
-                        _persist_blocked_plan(self.package_dir, blocked)
-                        return _StageStop("blocked")
-                    stop = self._stop_for_author_findings(pending)
-                    if stop is not None:
-                        return stop
-                    if not self._consume_allowance("plan", review_revision=review_driven):
-                        return _StageStop(
-                            "unresolved",
-                            (
-                                *pending,
-                                self._allowance_exhausted_finding(
-                                    "plan", review_revision=review_driven
-                                ),
-                            ),
-                        )
-                    self._record_allowances()
-                    allowance_kind = "review_revision" if review_driven else "correction"
-                    review_driven = False
-                    corrected = self._correction_v2(
-                        failed_stage="call1",
-                        failed_packet=packet,
-                        failed_response=raw,
-                        findings=list(pending),
-                        view=view,
-                        inventory=inventory,
-                        runtime_contract=runtime_contract,
-                        allowance_kind=allowance_kind,
-                    )
-                    if corrected is None:
-                        stop = self._stop_for_author_findings(list(self._findings))
-                        if stop is not None:
-                            return stop
-                        return _StageStop("unresolved", tuple(self._findings or pending))
-                    candidate, correction_findings, raw = corrected
-                    if correction_findings:
-                        pending = list(correction_findings)
-                        candidate = None
-                        continue
-                    else:
-                        pending = None
-            assert candidate is not None
-            if _is_blocked_plan(candidate):
-                _persist_blocked_plan(self.package_dir, candidate)
-                return _StageStop("blocked")
-            if not policy.review_plan:
-                self._review_status["plan"] = "not_requested"
-                self._review_reuse["plan"] = "not_requested"
-                return candidate
-            self._review_reuse["plan"] = "fresh_dispatch"
-            try:
-                review_packet = build_plan_review_packet(
-                    view, candidate, inventory, runtime_contract
-                )
-            except PromptPreflightError as exc:
-                finding = _prompt_preflight_finding(exc, "plan_review")
-                status = "prompt_overflow" if finding.code == "prompt_overflow" else "failed"
-                return _StageStop(status, (finding,))
-            outcome = self._semantic_review("plan", review_packet)
-            if outcome.stop is not None:
-                return outcome.stop
-            if outcome.decision == "accept":
-                self._review_status["plan"] = "accepted"
-                return candidate
-            if outcome.decision == "blocked":
-                self._review_status["plan"] = "blocked"
-                return _StageStop("blocked", self._semantic_finding_objects(outcome, "plan"))
-            # Semantic revise findings join the stage correction path but spend
-            # the stage's separate review-revision allowance.
-            self._review_status["plan"] = "revise"
-            pending = self._semantic_finding_objects(outcome, "plan")
-            review_driven = True
-            candidate = None
+        return collector
+
+    def _plan_correction_round(
+        self,
+        packet: PromptPacket,
+        pending: Sequence[Finding] | None,
+        raw: bytes,
+        *,
+        review_driven: bool,
+        view: InputView,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, list[Finding] | None, bytes] | _StageStop:
+        """Spend one plan correction on the pending findings, or return the stage stop.
+
+        The returned findings are ``None`` when the correction passed its checks;
+        otherwise the candidate is ``None`` and the findings drive the next round.
+        """
+
+        pending = pending or [Finding("call1_failed", "Call 1 did not return a plan", "call1")]
+        blocked = self._decoded_responses.get("call1")
+        if _is_blocked_plan(blocked):
+            _persist_blocked_plan(self.package_dir, blocked)
+            return _StageStop("blocked")
+        stop = self._stop_for_author_findings(pending)
+        if stop is not None:
+            return stop
+        if not self._consume_allowance("plan", review_revision=review_driven):
+            return _StageStop(
+                "unresolved",
+                (
+                    *pending,
+                    self._allowance_exhausted_finding("plan", review_revision=review_driven),
+                ),
+            )
+        self._record_allowances()
+        corrected = self._correction_v2(
+            failed_stage="call1",
+            failed_packet=packet,
+            failed_response=raw,
+            findings=list(pending),
+            view=view,
+            inventory=inventory,
+            runtime_contract=runtime_contract,
+            allowance_kind="review_revision" if review_driven else "correction",
+        )
+        if corrected is None:
+            stop = self._stop_for_author_findings(list(self._findings))
+            if stop is not None:
+                return stop
+            return _StageStop("unresolved", tuple(self._findings or pending))
+        candidate, correction_findings, raw = corrected
+        if correction_findings:
+            return None, list(correction_findings), raw
+        return candidate, None, raw
+
+    def _review_plan_candidate(
+        self,
+        view: InputView,
+        candidate: dict[str, Any],
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> dict[str, Any] | _StageStop | tuple[Finding, ...]:
+        """Review a checked plan.
+
+        Return the accepted plan, the stage stop, or the revise findings that
+        send the plan back through correction.
+        """
+
+        if _is_blocked_plan(candidate):
+            _persist_blocked_plan(self.package_dir, candidate)
+            return _StageStop("blocked")
+        if not self.policy.review_plan:
+            self._review_status["plan"] = "not_requested"
+            self._review_reuse["plan"] = "not_requested"
+            return candidate
+        self._review_reuse["plan"] = "fresh_dispatch"
+        try:
+            review_packet = build_plan_review_packet(view, candidate, inventory, runtime_contract)
+        except PromptPreflightError as exc:
+            return _preflight_stop(exc, "plan_review")
+        outcome = self._semantic_review("plan", review_packet)
+        if outcome.stop is not None:
+            return outcome.stop
+        if outcome.decision == "accept":
+            self._review_status["plan"] = "accepted"
+            return candidate
+        if outcome.decision == "blocked":
+            self._review_status["plan"] = "blocked"
+            return _StageStop("blocked", self._semantic_finding_objects(outcome, "plan"))
+        self._review_status["plan"] = "revise"
+        return self._semantic_finding_objects(outcome, "plan")
 
     def _artifact_stage_policy(
         self,
@@ -1356,121 +1480,19 @@ class AuthoringOrchestrator:
         started = time.monotonic()
         try:
             response = self._dispatch(packet)
-        except PromptOverflowError as exc:
-            finding = _prompt_overflow_finding(exc, packet.stage)
-            self._findings.append(finding)
-            self._failure_evidence["findings"].append(finding.to_dict())
-            self._persist_failure_evidence()
-            self._review_status[review_key] = "prompt_overflow"
-            return _ReviewOutcome(
-                decision="",
-                stop=_StageStop("prompt_overflow", (finding,)),
-            )
-        except BudgetExceeded as exc:
-            # Budget stops happen before dispatch: no ledger record or stage
-            # attempt exists for the refused review request.
-            finding = Finding("budget_exhausted", _safe_error(exc), packet.stage)
-            self._findings.append(finding)
-            self._failure_evidence["findings"].append(finding.to_dict())
-            self._persist_failure_evidence()
-            self._review_status[review_key] = "unavailable"
-            return _ReviewOutcome(
-                decision="",
-                stop=_StageStop("budget_exhausted", (finding,)),
-            )
         except Exception as exc:
-            finding = Finding("transport_failure", _safe_error(exc), packet.stage)
-            self._findings.append(finding)
-            if self._dispatch_recorded:
-                self._ledger[-1]["error"] = _safe_error(exc)
-                effective_controls = self._review_controls(self._ledger[-1].get("controls"))
-                self._ledger[-1]["controls"] = effective_controls
-                self._failure_attempt()["controls"] = metadata_record(
-                    effective_controls,
-                    unavailable_reason="controls_not_recorded",
-                )
-                input_digest, candidate_digest = _review_packet_digests(packet)
-                self._ledger[-1]["reviewed_input_sha256"] = input_digest
-                self._ledger[-1]["reviewed_candidate_sha256"] = candidate_digest
-                self._failure_attempt()["reviewed_input_sha256"] = input_digest
-                self._failure_attempt()["reviewed_candidate_sha256"] = candidate_digest
-                self._set_review_evidence(
-                    status="unavailable",
-                    effective_controls=effective_controls,
-                    packet=packet,
-                )
-            self._record_unavailable_response(
-                reason="provider_failure",
-                detail=_safe_error(exc),
-                finding=finding,
-                elapsed_ms=(time.monotonic() - started) * 1000,
+            stop = self._review_dispatch_stop(exc, packet, started)
+            self._review_status[review_key] = (
+                "prompt_overflow" if stop.status == "prompt_overflow" else "unavailable"
             )
-            self._review_status[review_key] = "unavailable"
-            return _ReviewOutcome(
-                decision="",
-                stop=_StageStop("review_unavailable", (finding,)),
-            )
-        raw, usage, controls, response_capture = _response_parts(response)
-        record = self._ledger[-1]
-        raw_key = f"dispatch:{record['dispatch_index']}"
-        self._raw_responses[raw_key] = raw
-        self._raw_responses[packet.stage] = raw
-        record["raw_response_key"] = raw_key
-        _set_record_usage(record, usage)
-        effective_controls = self._review_controls(controls)
-        record["controls"] = effective_controls
-        if response_capture is not None:
-            record["response_capture"] = deepcopy(response_capture)
-        input_digest, candidate_digest = _review_packet_digests(packet)
-        record["reviewed_input_sha256"] = input_digest
-        record["reviewed_candidate_sha256"] = candidate_digest
-        record["candidate_bytes_sha256"] = candidate_digest
-        self._failure_attempt()["reviewed_input_sha256"] = input_digest
-        self._failure_attempt()["reviewed_candidate_sha256"] = candidate_digest
-        if response_capture is not None:
-            self._failure_attempt()["response_capture"] = deepcopy(response_capture)
-        self._set_review_evidence(
-            status="pending",
-            effective_controls=effective_controls,
-            packet=packet,
-        )
-        self._record_available_response(
-            raw,
-            usage,
-            effective_controls,
-            response_capture,
-        )
+            return _ReviewOutcome(decision="", stop=stop)
+        raw, record, effective_controls = self._record_review_response(packet, response)
         try:
             review = parse_review_response(raw)
         except ReviewResponseError as exc:
-            finding = Finding("review_unavailable", _safe_error(exc), packet.stage)
-            self._findings.append(finding)
-            if self._dispatch_recorded:
-                self._ledger[-1]["review_error"] = [item.to_dict() for item in exc.findings]
-            self._set_review_evidence(
-                status="unavailable",
-                effective_controls=effective_controls,
-                packet=packet,
-            )
-            self._record_failures(list(exc.findings))
-            if self._dispatch_recorded:
-                self._ledger[-1]["failure"] = {
-                    "phase": "post_response",
-                    "code": finding.code,
-                    "detail": finding.detail,
-                }
-            self._failure_attempt()["failure"] = {
-                "phase": "post_response",
-                "code": finding.code,
-                "detail": finding.detail,
-            }
-            self._failure_evidence["findings"].append(finding.to_dict())
-            self._persist_failure_evidence()
+            stop = self._review_parse_stop(exc, packet, effective_controls)
             self._review_status[review_key] = "unavailable"
-            return _ReviewOutcome(
-                decision="",
-                stop=_StageStop("review_unavailable", (finding,)),
-            )
+            return _ReviewOutcome(decision="", stop=stop)
         decision_after_scope_filter, in_scope_findings, out_of_scope_findings = (
             _scope_review_response(review, stage=packet.stage)
         )
@@ -1507,6 +1529,128 @@ class AuthoringOrchestrator:
             findings=in_scope_findings,
             raw=raw,
         )
+
+    def _review_dispatch_stop(
+        self, exc: Exception, packet: PromptPacket, started: float
+    ) -> _StageStop:
+        """Record a review request that returned no response and return its stop."""
+
+        if isinstance(exc, PromptOverflowError):
+            finding = _prompt_overflow_finding(exc, packet.stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            return _StageStop("prompt_overflow", (finding,))
+        if isinstance(exc, BudgetExceeded):
+            # Budget stops happen before dispatch: no ledger record or stage
+            # attempt exists for the refused review request.
+            finding = Finding("budget_exhausted", _safe_error(exc), packet.stage)
+            self._findings.append(finding)
+            self._failure_evidence["findings"].append(finding.to_dict())
+            self._persist_failure_evidence()
+            return _StageStop("budget_exhausted", (finding,))
+        finding = Finding("transport_failure", _safe_error(exc), packet.stage)
+        self._findings.append(finding)
+        if self._dispatch_recorded:
+            self._record_unavailable_review_dispatch(exc, packet)
+        self._record_unavailable_response(
+            reason="provider_failure",
+            detail=_safe_error(exc),
+            finding=finding,
+            elapsed_ms=(time.monotonic() - started) * 1000,
+        )
+        return _StageStop("review_unavailable", (finding,))
+
+    def _record_unavailable_review_dispatch(self, exc: Exception, packet: PromptPacket) -> None:
+        """Annotate a dispatched review that raised with its error, controls, and digests."""
+
+        self._ledger[-1]["error"] = _safe_error(exc)
+        effective_controls = self._review_controls(self._ledger[-1].get("controls"))
+        self._ledger[-1]["controls"] = effective_controls
+        self._failure_attempt()["controls"] = metadata_record(
+            effective_controls,
+            unavailable_reason="controls_not_recorded",
+        )
+        input_digest, candidate_digest = _review_packet_digests(packet)
+        self._ledger[-1]["reviewed_input_sha256"] = input_digest
+        self._ledger[-1]["reviewed_candidate_sha256"] = candidate_digest
+        self._failure_attempt()["reviewed_input_sha256"] = input_digest
+        self._failure_attempt()["reviewed_candidate_sha256"] = candidate_digest
+        self._set_review_evidence(
+            status="unavailable",
+            effective_controls=effective_controls,
+            packet=packet,
+        )
+
+    def _record_review_response(
+        self, packet: PromptPacket, response: TransportResponse | str | bytes
+    ) -> tuple[bytes, dict[str, Any], dict[str, Any]]:
+        """Store a review response as pending evidence.
+
+        Return the raw bytes, the ledger record, and the effective controls.
+        """
+
+        raw, usage, controls, response_capture = _response_parts(response)
+        record = self._ledger[-1]
+        raw_key = f"dispatch:{record['dispatch_index']}"
+        self._raw_responses[raw_key] = raw
+        self._raw_responses[packet.stage] = raw
+        record["raw_response_key"] = raw_key
+        _set_record_usage(record, usage)
+        effective_controls = self._review_controls(controls)
+        record["controls"] = effective_controls
+        if response_capture is not None:
+            record["response_capture"] = deepcopy(response_capture)
+        input_digest, candidate_digest = _review_packet_digests(packet)
+        record["reviewed_input_sha256"] = input_digest
+        record["reviewed_candidate_sha256"] = candidate_digest
+        record["candidate_bytes_sha256"] = candidate_digest
+        self._failure_attempt()["reviewed_input_sha256"] = input_digest
+        self._failure_attempt()["reviewed_candidate_sha256"] = candidate_digest
+        if response_capture is not None:
+            self._failure_attempt()["response_capture"] = deepcopy(response_capture)
+        self._set_review_evidence(
+            status="pending",
+            effective_controls=effective_controls,
+            packet=packet,
+        )
+        self._record_available_response(
+            raw,
+            usage,
+            effective_controls,
+            response_capture,
+        )
+        return raw, record, effective_controls
+
+    def _review_parse_stop(
+        self,
+        exc: ReviewResponseError,
+        packet: PromptPacket,
+        effective_controls: dict[str, Any],
+    ) -> _StageStop:
+        """Record a review response that failed to parse and return its stop."""
+
+        finding = Finding("review_unavailable", _safe_error(exc), packet.stage)
+        self._findings.append(finding)
+        if self._dispatch_recorded:
+            self._ledger[-1]["review_error"] = [item.to_dict() for item in exc.findings]
+        self._set_review_evidence(
+            status="unavailable",
+            effective_controls=effective_controls,
+            packet=packet,
+        )
+        self._record_failures(list(exc.findings))
+        failure = {
+            "phase": "post_response",
+            "code": finding.code,
+            "detail": finding.detail,
+        }
+        if self._dispatch_recorded:
+            self._ledger[-1]["failure"] = dict(failure)
+        self._failure_attempt()["failure"] = failure
+        self._failure_evidence["findings"].append(finding.to_dict())
+        self._persist_failure_evidence()
+        return _StageStop("review_unavailable", (finding,))
 
     def _consume_allowance(self, stage: str, *, review_revision: bool = False) -> bool:
         """Spend one correction from the named stage's independent allowance.
