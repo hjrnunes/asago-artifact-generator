@@ -230,3 +230,45 @@ def test_owner_scope_is_separate_and_labeled_in_every_source_context_stage() -> 
     field_guide = build_plan_author_context(view, inventory, runtime)["field_guide"]
     assert "owner_supplied_scope" in field_guide
     assert "not an observed target fact" in field_guide["owner_supplied_scope"]
+
+
+@pytest.mark.parametrize(
+    ("owner_scope", "message"),
+    [
+        (["not a mapping"], "owner_scope must be a mapping"),
+        ({"other": [], "extra": []}, "owner_scope has unsupported categories: ['extra', 'other']"),
+        (
+            {"scenario_premises": {"text": "t", "source": "s"}},
+            "owner_scope.scenario_premises must be a sequence",
+        ),
+        (
+            {"scenario_premises": ["plain text"]},
+            "owner_scope.scenario_premises[0] must contain exactly text and source",
+        ),
+        (
+            {"evaluation_instructions": [{"text": 3, "source": "owner.md"}]},
+            "owner_scope.evaluation_instructions[0].text must be nonblank",
+        ),
+        (
+            {
+                "scenario_premises": [
+                    {"text": "first", "source": "owner.md"},
+                    {"text": "second", "source": " "},
+                ]
+            },
+            "owner_scope.scenario_premises[1].source must be nonblank",
+        ),
+    ],
+)
+def test_owner_scope_errors_name_the_rejected_entry(owner_scope, message) -> None:
+    view = replace(_view(), owner_scope=owner_scope)
+
+    with pytest.raises(ValueError) as error:
+        build_plan_author_context(view, _inventory(), _runtime_contract())
+    assert str(error.value) == message
+
+
+def test_owner_scope_with_only_empty_categories_adds_no_section() -> None:
+    view = replace(_view(), owner_scope={"scenario_premises": [], "evaluation_instructions": ()})
+
+    assert "owner_scope" not in build_plan_author_context(view, _inventory(), _runtime_contract())

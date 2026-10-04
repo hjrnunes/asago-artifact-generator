@@ -80,19 +80,10 @@ def _owner_scope_section(view: InputView) -> dict[str, Any] | None:
             raise ValueError(f"owner_scope.{category} must be a sequence")
         if not items:
             continue
-        normalized_items: list[dict[str, str]] = []
-        for index, item in enumerate(items):
-            if not isinstance(item, dict) or set(item) != {"text", "source"}:
-                raise ValueError(
-                    f"owner_scope.{category}[{index}] must contain exactly text and source"
-                )
-            text, source = item["text"], item["source"]
-            if not isinstance(text, str) or not text.strip():
-                raise ValueError(f"owner_scope.{category}[{index}].text must be nonblank")
-            if not isinstance(source, str) or not source.strip():
-                raise ValueError(f"owner_scope.{category}[{index}].source must be nonblank")
-            normalized_items.append({"text": text, "source": source})
-        categories[category] = normalized_items
+        categories[category] = [
+            _owner_scope_item(f"owner_scope.{category}[{index}]", item)
+            for index, item in enumerate(items)
+        ]
     if not categories:
         return None
     return {
@@ -102,6 +93,19 @@ def _owner_scope_section(view: InputView) -> dict[str, Any] | None:
         ),
         **categories,
     }
+
+
+def _owner_scope_item(path: str, item: Any) -> dict[str, str]:
+    """Validate one owner scope entry as exactly a nonblank text and source."""
+
+    if not isinstance(item, dict) or set(item) != {"text", "source"}:
+        raise ValueError(f"{path} must contain exactly text and source")
+    text, source = item["text"], item["source"]
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(f"{path}.text must be nonblank")
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError(f"{path}.source must be nonblank")
+    return {"text": text, "source": source}
 
 
 def _include_owner_scope(context: dict[str, Any], view: InputView) -> dict[str, Any]:
