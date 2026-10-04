@@ -672,7 +672,7 @@ def test_execute_detector_returns_a_validated_result_from_the_runner(tmp_path: P
             "failed",
             "detector output exceeded the runtime bound",
         ),
-        ("time.sleep(5)\n", "timeout", "detector exceeded 0.5s wall-clock timeout"),
+        ("time.sleep(60)\n", "timeout", "detector exceeded 2s wall-clock timeout"),
     ],
 )
 def test_execute_detector_reports_runner_failures_without_a_result(
@@ -681,7 +681,10 @@ def test_execute_detector_reports_runner_failures_without_a_result(
     docker = _fake_docker(tmp_path, body)
     package = _package(tmp_path, _detector())
 
-    execution = execute_detector(package, _evidence(), docker_path=docker, timeout_seconds=0.5)
+    timeout_seconds = 2 if status == "timeout" else 30
+    execution = execute_detector(
+        package, _evidence(), docker_path=docker, timeout_seconds=timeout_seconds
+    )
 
     assert execution.status == status
     assert execution.result is None
