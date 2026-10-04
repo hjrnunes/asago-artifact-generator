@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from typer.testing import CliRunner
 
 from asago_artifact_generator import cli
@@ -227,3 +228,39 @@ def test_author_cli_rejects_negative_prior_spend_before_transport(
     assert result.exit_code == 2
     assert "nonnegative integer" in result.output
     assert constructed is False
+
+
+def test_budget_rejects_malformed_dispatch_counters() -> None:
+    cases = [
+        ({"dispatched_by_task": []}, "dispatched_by_task must be a mapping"),
+        ({"dispatched_by_task_role": []}, "dispatched_by_task_role must be a mapping"),
+        ({"dispatched_by_task": {" ": 1}}, "dispatched_by_task keys must be nonblank strings"),
+        ({"dispatched_by_task": {3: 1}}, "dispatched_by_task keys must be nonblank strings"),
+        (
+            {"dispatched_by_task_role": {"": {"author": 1}}},
+            "dispatched_by_task_role keys must be nonblank strings",
+        ),
+        (
+            {"dispatched_by_task_role": {"task": 1}},
+            "dispatched_by_task_role['task'] must be a mapping",
+        ),
+        (
+            {"dispatched_by_task_role": {"task": {"judge": 1}}},
+            "dispatched_by_task_role['task'] has unsupported role 'judge'",
+        ),
+    ]
+
+    for fields, message in cases:
+        with pytest.raises(ValueError) as error:
+            AuthoringBudget(**fields)
+        assert str(error.value) == message
+
+
+def test_budget_accepts_well_formed_dispatch_counters() -> None:
+    budget = AuthoringBudget(
+        total_dispatched=3,
+        dispatched_by_task={"task": 3},
+        dispatched_by_task_role={"task": {"author": 2, "reviewer": 1}},
+    )
+
+    assert budget.dispatched_by_task_role == {"task": {"author": 2, "reviewer": 1}}
