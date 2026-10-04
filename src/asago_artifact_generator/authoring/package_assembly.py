@@ -40,32 +40,7 @@ def _package_from_responses(
     preserved_reviews: dict[str, dict[str, Any]] | None = None,
     terminal_status: str | None = None,
 ) -> ArtifactPackage:
-    authoring_records: dict[str, bytes] = {}
-    for index, record in enumerate(ledger, start=1):
-        stage = record["stage"]
-        package_record = dict(record)
-        if terminal_status is not None:
-            package_record["terminal_status"] = terminal_status
-            package_record["stage_status"] = terminal_status
-        authoring_records[f"authoring/{index:02d}-{stage}.json"] = (
-            _canonical_json(package_record).encode("utf-8") + b"\n"
-        )
-        raw = raw_responses.get(record.get("raw_response_key", ""))
-        if raw is None:
-            raw = raw_responses.get(stage)
-        if raw is not None:
-            authoring_records[f"authoring/{index:02d}-{stage}.raw"] = raw
-        prompt_user = record.get("prompt_user")
-        if isinstance(prompt_user, str):
-            authoring_records[f"authoring/{index:02d}-{stage}.prompt"] = prompt_user.encode(
-                "utf-8"
-            )
-        else:
-            packet = prompt_packets.get(stage)
-            if packet is not None:
-                authoring_records[f"authoring/{index:02d}-{stage}.prompt"] = packet.user.encode(
-                    "utf-8"
-                )
+    authoring_records = _attempt_records(ledger, raw_responses, prompt_packets, terminal_status)
     authoring_records["authoring/transformations.json"] = (
         _canonical_json(transformations).encode("utf-8") + b"\n"
     )
@@ -77,20 +52,7 @@ def _package_from_responses(
     authoring_records["authoring/reviews.json"] = (
         _canonical_json(review_records).encode("utf-8") + b"\n"
     )
-    package_ledger = [
-        {
-            **record,
-            **(
-                {
-                    "terminal_status": terminal_status,
-                    "stage_status": terminal_status,
-                }
-                if terminal_status is not None
-                else {}
-            ),
-        }
-        for record in ledger
-    ]
+    package_ledger = [{**record, **_terminal_fields(terminal_status)} for record in ledger]
     authoring_records["authoring/ledger.json"] = (
         _canonical_json(package_ledger).encode("utf-8") + b"\n"
     )
@@ -128,57 +90,18 @@ def _package_from_responses(
     resolved_judge = _resolved_judge_spec(artifact["semantic_judge_spec"], inventory)
     if resolved_judge is not None:
         members["judge.json"] = _json_bytes(resolved_judge)
-    safe_ledger = [
-        {
-            key: value
-            for key, value in (
-                {
-                    **record,
-                    **(
-                        {
-                            "terminal_status": terminal_status,
-                            "stage_status": terminal_status,
-                        }
-                        if terminal_status is not None
-                        else {}
-                    ),
-                }
-            ).items()
-            if key not in {"prompt_system", "prompt_user"} and not (key == "usage" and not value)
-        }
-        for record in ledger
-    ]
-
-    def summary_usage(record: dict[str, Any]) -> dict[str, Any]:
-        usage = record.get("usage")
-        # Existing ledgers can already carry the failure-evidence metadata
-        # envelope. Preserve it so the manifest scanner validates the closed
-        # shape instead of treating the envelope as provider counters.
-        if isinstance(usage, dict) and "availability" in usage:
-            return deepcopy(usage)
-        return metadata_record(
-            usage if usage else None,
-            unavailable_reason="provider_did_not_report_usage",
-        )
-
     authoring_summary = {
         "interface": AUTHORING_INTERFACE_VERSION_V2,
         "attempts": len(ledger),
         "correction_used": any(record["stage"] == "correction" for record in ledger),
         "max_retries": 0,
-        "usage": [summary_usage(record) for record in ledger],
-        "ledger": safe_ledger,
+        "usage": [_summary_usage(record) for record in ledger],
+        "ledger": _safe_ledger(ledger, terminal_status),
         "authoring_input_pins": authoring_input_pins,
     }
-    if policy is not None:
-        authoring_summary["policy"] = dict(policy)
-    if budget is not None:
-        authoring_summary["budget"] = dict(budget)
-    if review_status is not None:
-        authoring_summary["review_status"] = dict(review_status)
-    if terminal_status is not None:
-        authoring_summary["status"] = terminal_status
-        authoring_summary["terminal_status"] = terminal_status
+    authoring_summary.update(
+        _optional_summary_fields(policy, budget, review_status, terminal_status)
+    )
     creation_model = {"model": "configured-private-authoring", "controls": {"max_retries": 0}}
     assert_no_secrets({"authoring": authoring_summary, "creation_model": creation_model})
     package_id = f"{task_id}-{view.scenario_id}"
@@ -192,6 +115,103 @@ def _package_from_responses(
         runtime_capabilities=runtime_contract,
         creation_model=creation_model,
     )
+
+
+def _terminal_fields(terminal_status: str | None) -> dict[str, str]:
+    if terminal_status is None:
+        return {}
+    return {"terminal_status": terminal_status, "stage_status": terminal_status}
+
+
+def _attempt_records(
+    ledger: list[dict[str, Any]],
+    raw_responses: dict[str, bytes],
+    prompt_packets: dict[str, PromptPacket],
+    terminal_status: str | None,
+) -> dict[str, bytes]:
+    """Return each ledger attempt's record, raw response, and user prompt files."""
+
+    authoring_records: dict[str, bytes] = {}
+    for index, record in enumerate(ledger, start=1):
+        prefix = f"authoring/{index:02d}-{record['stage']}"
+        package_record = dict(record)
+        package_record.update(_terminal_fields(terminal_status))
+        authoring_records[f"{prefix}.json"] = (
+            _canonical_json(package_record).encode("utf-8") + b"\n"
+        )
+        raw = _attempt_raw_response(record, raw_responses)
+        if raw is not None:
+            authoring_records[f"{prefix}.raw"] = raw
+        prompt = _attempt_user_prompt(record, prompt_packets)
+        if prompt is not None:
+            authoring_records[f"{prefix}.prompt"] = prompt.encode("utf-8")
+    return authoring_records
+
+
+def _attempt_raw_response(record: dict[str, Any], raw_responses: dict[str, bytes]) -> bytes | None:
+    raw = raw_responses.get(record.get("raw_response_key", ""))
+    if raw is None:
+        raw = raw_responses.get(record["stage"])
+    return raw
+
+
+def _attempt_user_prompt(
+    record: dict[str, Any], prompt_packets: dict[str, PromptPacket]
+) -> str | None:
+    """Return the recorded user prompt, or the stage packet's prompt when none was recorded."""
+
+    prompt_user = record.get("prompt_user")
+    if isinstance(prompt_user, str):
+        return prompt_user
+    packet = prompt_packets.get(record["stage"])
+    return packet.user if packet is not None else None
+
+
+def _safe_ledger(
+    ledger: list[dict[str, Any]], terminal_status: str | None
+) -> list[dict[str, Any]]:
+    """Return ledger records without prompts or empty usage for the authoring summary."""
+
+    return [
+        {
+            key: value
+            for key, value in {**record, **_terminal_fields(terminal_status)}.items()
+            if key not in {"prompt_system", "prompt_user"} and not (key == "usage" and not value)
+        }
+        for record in ledger
+    ]
+
+
+def _summary_usage(record: dict[str, Any]) -> dict[str, Any]:
+    usage = record.get("usage")
+    # Existing ledgers can already carry the failure-evidence metadata
+    # envelope. Preserve it so the manifest scanner validates the closed
+    # shape instead of treating the envelope as provider counters.
+    if isinstance(usage, dict) and "availability" in usage:
+        return deepcopy(usage)
+    return metadata_record(
+        usage if usage else None,
+        unavailable_reason="provider_did_not_report_usage",
+    )
+
+
+def _optional_summary_fields(
+    policy: dict[str, Any] | None,
+    budget: dict[str, Any] | None,
+    review_status: dict[str, str] | None,
+    terminal_status: str | None,
+) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    if policy is not None:
+        fields["policy"] = dict(policy)
+    if budget is not None:
+        fields["budget"] = dict(budget)
+    if review_status is not None:
+        fields["review_status"] = dict(review_status)
+    if terminal_status is not None:
+        fields["status"] = terminal_status
+        fields["terminal_status"] = terminal_status
+    return fields
 
 
 def _package_review_records(
