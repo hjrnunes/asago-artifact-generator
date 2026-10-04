@@ -134,236 +134,231 @@ def execute_detector(
         raise ValueError("timeout_seconds must be positive")
     if docker_path is None:
         docker_path = resolve_docker_path()
-    argv: tuple[str, ...] = ()
     package_path: Path | None = None
     loaded: ArtifactPackage | None = None
     try:
         package_path, loaded = _load_package_for_execution(package)
-        detector = loaded.members.get("detector.py")
-        if detector is None:
-            raise DetectorRuntimeError("package is missing detector.py")
-        detector_sha = _sha256(detector)
-        _validate_source_interface(detector)
-        if not isinstance(evidence, dict):
-            raise DetectorRuntimeError("evidence packet must be an object")
-        evidence = normalize_evidence_packet(
-            evidence,
-            judge_enabled="judge.json" in loaded.members,
-        )
-        access_findings = validate_detector_evidence_access(
-            detector,
-            observations=_package_json_member(loaded, "observations.json", default={}),
-            bindings=_package_json_member(loaded, "bindings.json", default=[]),
-            judge_enabled="judge.json" in loaded.members,
-        )
-        if access_findings:
-            raise DetectorRuntimeError(access_findings[0]["detail"])
-        evidence_bytes = _json_bytes(evidence)
-        if len(evidence_bytes) > MAX_EVIDENCE_BYTES:
-            raise DetectorRuntimeError("evidence exceeds the runtime input bound")
+        detector, detector_sha, evidence, evidence_bytes = _execution_inputs(loaded, evidence)
     except (OSError, PackageIntegrityError, DetectorRuntimeError, TypeError, ValueError) as exc:
-        package_digest = loaded.manifest.manifest_digest if loaded else None
-        detector_sha256 = (
-            _sha256(loaded.members["detector.py"])
-            if loaded and "detector.py" in loaded.members
-            else None
-        )
-        package_digest_after = None
-        detector_sha256_after = None
-        if package_path is not None:
-            try:
-                after = load_package(package_path)
-                package_digest_after = after.manifest.manifest_digest
-                detector_sha256_after = (
-                    _sha256(after.members["detector.py"])
-                    if "detector.py" in after.members
-                    else None
-                )
-            except (OSError, PackageIntegrityError, KeyError):
-                pass
-        return _failed(
-            str(exc),
-            package_digest=package_digest,
-            package_digest_after=package_digest_after,
-            detector_sha256=detector_sha256,
-            detector_sha256_after=detector_sha256_after,
-        )
+        return _preparation_failure(str(exc), package_path, loaded)
 
-    package_digest = loaded.manifest.manifest_digest
-    package_digest_after: str | None = None
-    detector_sha_after: str | None = None
+    run = _ContainerRun(
+        package_path=package_path,
+        package_digest=loaded.manifest.manifest_digest,
+        detector_sha=detector_sha,
+    )
     container_name = f"asago-detector-{uuid.uuid4().hex[:16]}"
     try:
         with tempfile.TemporaryDirectory(prefix="asago-detector-") as temporary:
-            root = Path(temporary)
-            evidence_path = root / "evidence.json"
-            detector_path = root / "detector.py"
-            runner_path = root / "runner.py"
-            evidence_path.write_bytes(evidence_bytes)
-            detector_path.write_bytes(detector)
-            runner_path.write_text(_RUNNER_SOURCE, encoding="utf-8")
-            argv = tuple(
-                _docker_argv(
-                    docker_path=docker_path,
-                    image=image,
-                    package_path=package_path,
-                    evidence_path=evidence_path,
-                    detector_path=detector_path,
-                    runner_path=runner_path,
-                    container_name=container_name,
-                )
-            )
-            process = subprocess.Popen(
-                list(argv),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=_docker_client_environment(),
-            )
-            stdout, stderr, timed_out, output_exceeded = _bounded_communicate(
-                process, timeout_seconds
-            )
-            if timed_out:
-                return _finish(
-                    status="timeout",
-                    failure=f"detector exceeded {timeout_seconds:g}s wall-clock timeout",
-                    package_path=package_path,
-                    package_digest=package_digest,
-                    detector_sha=detector_sha,
-                    package_digest_after=package_digest_after,
-                    detector_sha_after=detector_sha_after,
-                    argv=argv,
-                    stdout=stdout,
-                    stderr=stderr,
-                )
-            if output_exceeded:
-                return _finish(
-                    status="failed",
-                    failure="detector output exceeded the runtime bound",
-                    package_path=package_path,
-                    package_digest=package_digest,
-                    detector_sha=detector_sha,
-                    package_digest_after=package_digest_after,
-                    detector_sha_after=detector_sha_after,
-                    argv=argv,
-                    stdout=stdout,
-                    stderr=stderr,
-                )
-            if process.returncode != 0:
-                failure = _runner_failure(stdout, stderr, process.returncode)
-                return _finish(
-                    status="failed",
-                    failure=failure,
-                    package_path=package_path,
-                    package_digest=package_digest,
-                    detector_sha=detector_sha,
-                    package_digest_after=package_digest_after,
-                    detector_sha_after=detector_sha_after,
-                    argv=argv,
-                    stdout=stdout,
-                    stderr=stderr,
-                )
-            try:
-                message = json.loads(stdout.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                return _finish(
-                    status="failed",
-                    failure=f"detector runtime protocol error: {exc}",
-                    package_path=package_path,
-                    package_digest=package_digest,
-                    detector_sha=detector_sha,
-                    package_digest_after=package_digest_after,
-                    detector_sha_after=detector_sha_after,
-                    argv=argv,
-                    stdout=stdout,
-                    stderr=stderr,
-                )
-            if not isinstance(message, dict) or message.get("status") != "ok":
-                return _finish(
-                    status="failed",
-                    failure=_runner_failure(stdout, stderr, process.returncode),
-                    package_path=package_path,
-                    package_digest=package_digest,
-                    detector_sha=detector_sha,
-                    package_digest_after=package_digest_after,
-                    detector_sha_after=detector_sha_after,
-                    argv=argv,
-                    stdout=stdout,
-                    stderr=stderr,
-                )
-            raw_result = message.get("result")
-            try:
-                result = validate_detector_result(raw_result, evidence)
-            except DetectorRuntimeError as exc:
-                return _finish(
-                    status="failed",
-                    failure=str(exc),
-                    package_path=package_path,
-                    package_digest=package_digest,
-                    detector_sha=detector_sha,
-                    package_digest_after=package_digest_after,
-                    detector_sha_after=detector_sha_after,
-                    argv=argv,
-                    stdout=stdout,
-                    stderr=stderr,
-                )
-            try:
-                after = load_package(package_path)
-                package_digest_after = after.manifest.manifest_digest
-                detector_sha_after = _sha256(after.members["detector.py"])
-            except (PackageIntegrityError, KeyError) as exc:
-                return _finish(
-                    status="failed",
-                    failure=f"package changed during detector execution: {exc}",
-                    package_path=package_path,
-                    package_digest=package_digest,
-                    detector_sha=detector_sha,
-                    package_digest_after=package_digest_after,
-                    detector_sha_after=detector_sha_after,
-                    argv=argv,
-                    stdout=stdout,
-                    stderr=stderr,
-                )
-            if package_digest_after != package_digest or detector_sha_after != detector_sha:
-                return _finish(
-                    status="failed",
-                    failure="package or detector digest changed during execution",
-                    package_path=package_path,
-                    package_digest=package_digest,
-                    detector_sha=detector_sha,
-                    package_digest_after=package_digest_after,
-                    detector_sha_after=detector_sha_after,
-                    argv=argv,
-                    stdout=stdout,
-                    stderr=stderr,
-                )
-            return DetectorExecution(
-                status="completed",
-                result=result,
-                failure=None,
-                package_digest=package_digest,
-                package_digest_after=package_digest_after,
-                detector_sha256=detector_sha,
-                detector_sha256_after=detector_sha_after,
-                docker_argv=argv,
-                stdout=stdout,
-                stderr=stderr,
+            return _run_in_container(
+                run,
+                Path(temporary),
+                detector=detector,
+                evidence=evidence,
+                evidence_bytes=evidence_bytes,
+                docker_path=docker_path,
+                image=image,
+                container_name=container_name,
+                timeout_seconds=timeout_seconds,
             )
     except (OSError, subprocess.SubprocessError) as exc:
-        return _finish(
-            status="failed",
-            failure=f"detector runtime unavailable: {exc}",
-            package_path=package_path,
-            package_digest=package_digest,
-            detector_sha=detector_sha,
-            package_digest_after=package_digest_after,
-            detector_sha_after=detector_sha_after,
-            argv=argv,
-            stdout=b"",
-            stderr=b"",
-        )
+        return run.finish("failed", f"detector runtime unavailable: {exc}", b"", b"")
     finally:
         _remove_container(docker_path, container_name)
+
+
+def _execution_inputs(
+    loaded: ArtifactPackage, evidence: Any
+) -> tuple[bytes, str, dict[str, Any], bytes]:
+    """Check the package's detector and evidence before any container starts.
+
+    Returns the detector bytes, their digest, the normalized evidence packet,
+    and its serialized bytes.
+    """
+
+    detector = loaded.members.get("detector.py")
+    if detector is None:
+        raise DetectorRuntimeError("package is missing detector.py")
+    detector_sha = _sha256(detector)
+    _validate_source_interface(detector)
+    if not isinstance(evidence, dict):
+        raise DetectorRuntimeError("evidence packet must be an object")
+    evidence = normalize_evidence_packet(
+        evidence,
+        judge_enabled="judge.json" in loaded.members,
+    )
+    access_findings = validate_detector_evidence_access(
+        detector,
+        observations=_package_json_member(loaded, "observations.json", default={}),
+        bindings=_package_json_member(loaded, "bindings.json", default=[]),
+        judge_enabled="judge.json" in loaded.members,
+    )
+    if access_findings:
+        raise DetectorRuntimeError(access_findings[0]["detail"])
+    evidence_bytes = _json_bytes(evidence)
+    if len(evidence_bytes) > MAX_EVIDENCE_BYTES:
+        raise DetectorRuntimeError("evidence exceeds the runtime input bound")
+    return detector, detector_sha, evidence, evidence_bytes
+
+
+def _preparation_failure(
+    failure: str, package_path: Path | None, loaded: ArtifactPackage | None
+) -> DetectorExecution:
+    """Record a failure before execution with the package digests that are knowable."""
+
+    package_digest = loaded.manifest.manifest_digest if loaded else None
+    detector_sha256 = (
+        _sha256(loaded.members["detector.py"])
+        if loaded and "detector.py" in loaded.members
+        else None
+    )
+    package_digest_after = None
+    detector_sha256_after = None
+    if package_path is not None:
+        try:
+            after = load_package(package_path)
+            package_digest_after = after.manifest.manifest_digest
+            detector_sha256_after = (
+                _sha256(after.members["detector.py"]) if "detector.py" in after.members else None
+            )
+        except (OSError, PackageIntegrityError, KeyError):
+            pass
+    return _failed(
+        failure,
+        package_digest=package_digest,
+        package_digest_after=package_digest_after,
+        detector_sha256=detector_sha256,
+        detector_sha256_after=detector_sha256_after,
+    )
+
+
+@dataclass
+class _ContainerRun:
+    """Digests and argv of one container run, filled in as the run proceeds."""
+
+    package_path: Path
+    package_digest: str
+    detector_sha: str
+    argv: tuple[str, ...] = ()
+    package_digest_after: str | None = None
+    detector_sha_after: str | None = None
+
+    def finish(self, status: str, failure: str, stdout: bytes, stderr: bytes) -> DetectorExecution:
+        return _finish(
+            status=status,
+            failure=failure,
+            package_path=self.package_path,
+            package_digest=self.package_digest,
+            detector_sha=self.detector_sha,
+            package_digest_after=self.package_digest_after,
+            detector_sha_after=self.detector_sha_after,
+            argv=self.argv,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+
+def _run_in_container(
+    run: _ContainerRun,
+    root: Path,
+    *,
+    detector: bytes,
+    evidence: dict[str, Any],
+    evidence_bytes: bytes,
+    docker_path: str,
+    image: str,
+    container_name: str,
+    timeout_seconds: float,
+) -> DetectorExecution:
+    evidence_path = root / "evidence.json"
+    detector_path = root / "detector.py"
+    runner_path = root / "runner.py"
+    evidence_path.write_bytes(evidence_bytes)
+    detector_path.write_bytes(detector)
+    runner_path.write_text(_RUNNER_SOURCE, encoding="utf-8")
+    run.argv = tuple(
+        _docker_argv(
+            docker_path=docker_path,
+            image=image,
+            package_path=run.package_path,
+            evidence_path=evidence_path,
+            detector_path=detector_path,
+            runner_path=runner_path,
+            container_name=container_name,
+        )
+    )
+    process = subprocess.Popen(
+        list(run.argv),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=_docker_client_environment(),
+    )
+    stdout, stderr, timed_out, output_exceeded = _bounded_communicate(process, timeout_seconds)
+    if timed_out:
+        return run.finish(
+            "timeout",
+            f"detector exceeded {timeout_seconds:g}s wall-clock timeout",
+            stdout,
+            stderr,
+        )
+    if output_exceeded:
+        return run.finish("failed", "detector output exceeded the runtime bound", stdout, stderr)
+    if process.returncode != 0:
+        return run.finish(
+            "failed", _runner_failure(stdout, stderr, process.returncode), stdout, stderr
+        )
+    result, failure = _runner_result(stdout, stderr, process.returncode, evidence)
+    if failure is None:
+        failure = _package_change_failure(run)
+    if failure is not None:
+        return run.finish("failed", failure, stdout, stderr)
+    return DetectorExecution(
+        status="completed",
+        result=result,
+        failure=None,
+        package_digest=run.package_digest,
+        package_digest_after=run.package_digest_after,
+        detector_sha256=run.detector_sha,
+        detector_sha256_after=run.detector_sha_after,
+        docker_argv=run.argv,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+
+def _runner_result(
+    stdout: bytes, stderr: bytes, returncode: int | None, evidence: dict[str, Any]
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Decode and validate the runner's message; return the result or the failure."""
+
+    try:
+        message = json.loads(stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return None, f"detector runtime protocol error: {exc}"
+    if not isinstance(message, dict) or message.get("status") != "ok":
+        return None, _runner_failure(stdout, stderr, returncode)
+    try:
+        return validate_detector_result(message.get("result"), evidence), None
+    except DetectorRuntimeError as exc:
+        return None, str(exc)
+
+
+def _package_change_failure(run: _ContainerRun) -> str | None:
+    """Reload the package after the run and report any change to it or its detector."""
+
+    try:
+        after = load_package(run.package_path)
+        run.package_digest_after = after.manifest.manifest_digest
+        run.detector_sha_after = _sha256(after.members["detector.py"])
+    except (PackageIntegrityError, KeyError) as exc:
+        return f"package changed during detector execution: {exc}"
+    if (
+        run.package_digest_after != run.package_digest
+        or run.detector_sha_after != run.detector_sha
+    ):
+        return "package or detector digest changed during execution"
+    return None
 
 
 def validate_detector_result(
@@ -374,20 +369,34 @@ def validate_detector_result(
 
     if not isinstance(value, dict) or not isinstance(evidence, dict):
         raise DetectorRuntimeError("detector result must be an object")
+    _validate_result_fields(value)
+    if not isinstance(value["outcome"], str) or value["outcome"] not in OUTCOMES:
+        raise DetectorRuntimeError(f"detector result has invalid outcome: {value['outcome']!r}")
+    if not isinstance(value["reason"], str) or not value["reason"].strip():
+        raise DetectorRuntimeError("detector result reason must be nonblank")
+    _validate_result_refs(value["evidence_refs"], value["outcome"], evidence)
+    if not isinstance(value["claim_level"], str) or value["claim_level"] not in CLAIM_LEVELS:
+        raise DetectorRuntimeError(
+            f"detector result has invalid claim level: {value['claim_level']!r}"
+        )
+    return value
+
+
+def _validate_result_fields(value: dict[str, Any]) -> None:
     missing = RESULT_FIELDS - set(value)
     unknown = set(value) - RESULT_FIELDS
     if missing:
         raise DetectorRuntimeError(f"detector result is missing fields: {sorted(missing)}")
     if unknown:
         raise DetectorRuntimeError(f"detector result has unknown fields: {sorted(unknown)}")
-    if not isinstance(value["outcome"], str) or value["outcome"] not in OUTCOMES:
-        raise DetectorRuntimeError(f"detector result has invalid outcome: {value['outcome']!r}")
-    if not isinstance(value["reason"], str) or not value["reason"].strip():
-        raise DetectorRuntimeError("detector result reason must be nonblank")
-    refs = value["evidence_refs"]
+
+
+def _validate_result_refs(refs: Any, outcome: str, evidence: dict[str, Any]) -> None:
+    """Require nonblank references, at least one for a decisive outcome, that all resolve."""
+
     if not isinstance(refs, list) or not all(isinstance(ref, str) and ref.strip() for ref in refs):
         raise DetectorRuntimeError("detector result evidence_refs must be nonblank strings")
-    if value["outcome"] != "inconclusive" and not refs:
+    if outcome != "inconclusive" and not refs:
         raise DetectorRuntimeError("detected and not_detected results require evidence_refs")
     for ref in refs:
         try:
@@ -396,11 +405,6 @@ def validate_detector_result(
             raise DetectorRuntimeError(
                 f"evidence reference {ref!r} does not resolve: {exc}"
             ) from exc
-    if not isinstance(value["claim_level"], str) or value["claim_level"] not in CLAIM_LEVELS:
-        raise DetectorRuntimeError(
-            f"detector result has invalid claim level: {value['claim_level']!r}"
-        )
-    return value
 
 
 def _load_package_for_execution(
@@ -527,35 +531,18 @@ def _bounded_communicate(
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 timed_out = True
-                if process.poll() is None:
-                    process.kill()
+                _kill_if_running(process)
                 killed = True
             for key, _ in selector.select(max(0.0, min(remaining, 0.1))):
-                stream = key.fileobj
-                try:
-                    chunk = os.read(stream.fileno(), 64 * 1024)
-                except BlockingIOError:
-                    continue
-                if not chunk:
-                    selector.unregister(stream)
-                    continue
-                buffer = streams[stream]
-                if len(buffer) < MAX_OUTPUT_BYTES:
-                    buffer.extend(chunk[: MAX_OUTPUT_BYTES - len(buffer)])
-                if len(buffer) >= MAX_OUTPUT_BYTES or len(chunk) > MAX_OUTPUT_BYTES:
+                if _read_bounded_chunk(selector, key.fileobj, streams[key.fileobj]):
                     output_exceeded = True
-                    if process.poll() is None:
-                        process.kill()
+                    _kill_if_running(process)
                     killed = True
             if killed and process.poll() is not None:
                 # Keep draining until both Docker pipes close, so no child
                 # output remains attached to a future test.
                 continue
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=2)
+        _wait_for_exit(process)
     finally:
         selector.close()
     return (
@@ -564,6 +551,37 @@ def _bounded_communicate(
         timed_out,
         output_exceeded,
     )
+
+
+def _kill_if_running(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is None:
+        process.kill()
+
+
+def _read_bounded_chunk(selector: selectors.BaseSelector, stream: Any, buffer: bytearray) -> bool:
+    """Read one ready chunk into ``buffer`` up to the bound; return whether output exceeded it.
+
+    A closed stream is unregistered from ``selector``.
+    """
+
+    try:
+        chunk = os.read(stream.fileno(), 64 * 1024)
+    except BlockingIOError:
+        return False
+    if not chunk:
+        selector.unregister(stream)
+        return False
+    if len(buffer) < MAX_OUTPUT_BYTES:
+        buffer.extend(chunk[: MAX_OUTPUT_BYTES - len(buffer)])
+    return len(buffer) >= MAX_OUTPUT_BYTES or len(chunk) > MAX_OUTPUT_BYTES
+
+
+def _wait_for_exit(process: subprocess.Popen[bytes]) -> None:
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=2)
 
 
 def _remove_container(docker_path: str, container_name: str) -> None:
@@ -682,87 +700,75 @@ def validate_detector_evidence_access(
     declared_bindings = _declared_binding_names(bindings)
     visitor = _EvidenceAccessVisitor()
     visitor.visit(tree)
-    findings: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, int]] = set()
+    findings = _AccessFindings(allowed_roots, declared_bindings)
     for path, node in visitor.accesses:
-        if not path:
-            continue
-        root = path[0]
-        location = f"detector.py:{getattr(node, 'lineno', 0)}"
-        if root not in allowed_roots:
-            key = ("read", root, getattr(node, "lineno", 0))
-            if key in seen:
-                continue
-            seen.add(key)
-            findings.append(
-                _evidence_access_finding(
-                    kind="read",
-                    root=root,
-                    location=location,
-                    allowed_roots=allowed_roots,
-                    declared_bindings=declared_bindings,
-                    path=path,
-                )
-            )
-            continue
-        if root == "bindings" and len(path) >= 2:
-            binding_name = path[1]
-            if binding_name not in declared_bindings:
-                key = ("binding", binding_name, getattr(node, "lineno", 0))
-                if key in seen:
-                    continue
-                seen.add(key)
-                findings.append(
-                    _evidence_access_finding(
-                        kind="binding",
-                        root=binding_name,
-                        location=location,
-                        allowed_roots=allowed_roots,
-                        declared_bindings=declared_bindings,
-                        path=path,
-                    )
-                )
-
+        _add_access_finding(findings, path, node)
     for reference, node in visitor.references:
-        root = _evidence_reference_root(reference)
-        if root is None:
-            continue
-        location = f"detector.py:{getattr(node, 'lineno', 0)}"
-        if root not in allowed_roots:
-            key = ("reference", root, getattr(node, "lineno", 0))
-            if key in seen:
-                continue
-            seen.add(key)
-            findings.append(
-                _evidence_access_finding(
-                    kind="reference",
-                    root=root,
-                    location=location,
-                    allowed_roots=allowed_roots,
-                    declared_bindings=declared_bindings,
-                    path=(root,),
-                    reference=reference,
-                )
+        _add_reference_finding(findings, reference, node)
+    return tuple(findings.items)
+
+
+class _AccessFindings:
+    """Collect access findings once per kind, name, and detector line."""
+
+    def __init__(self, allowed_roots: set[str], declared_bindings: frozenset[str]) -> None:
+        self.allowed_roots = allowed_roots
+        self.declared_bindings = declared_bindings
+        self.items: list[dict[str, Any]] = []
+        self._seen: set[tuple[str, str, int]] = set()
+
+    def add(
+        self,
+        node: ast.AST,
+        *,
+        kind: str,
+        root: str,
+        path: tuple[str, ...],
+        reference: str | None = None,
+    ) -> None:
+        key = (kind, root, getattr(node, "lineno", 0))
+        if key in self._seen:
+            return
+        self._seen.add(key)
+        self.items.append(
+            _evidence_access_finding(
+                kind=kind,
+                root=root,
+                location=f"detector.py:{getattr(node, 'lineno', 0)}",
+                allowed_roots=self.allowed_roots,
+                declared_bindings=self.declared_bindings,
+                path=path,
+                reference=reference,
             )
-        elif root == "bindings":
-            binding_name = _evidence_reference_binding_name(reference)
-            if binding_name is not None and binding_name not in declared_bindings:
-                key = ("reference-binding", binding_name, getattr(node, "lineno", 0))
-                if key in seen:
-                    continue
-                seen.add(key)
-                findings.append(
-                    _evidence_access_finding(
-                        kind="reference-binding",
-                        root=binding_name,
-                        location=location,
-                        allowed_roots=allowed_roots,
-                        declared_bindings=declared_bindings,
-                        path=("bindings", binding_name),
-                        reference=reference,
-                    )
-                )
-    return tuple(findings)
+        )
+
+
+def _add_access_finding(findings: _AccessFindings, path: tuple[str, ...], node: ast.AST) -> None:
+    if not path:
+        return
+    root = path[0]
+    if root not in findings.allowed_roots:
+        findings.add(node, kind="read", root=root, path=path)
+    elif root == "bindings" and len(path) >= 2 and path[1] not in findings.declared_bindings:
+        findings.add(node, kind="binding", root=path[1], path=path)
+
+
+def _add_reference_finding(findings: _AccessFindings, reference: str, node: ast.AST) -> None:
+    root = _evidence_reference_root(reference)
+    if root is None:
+        return
+    if root not in findings.allowed_roots:
+        findings.add(node, kind="reference", root=root, path=(root,), reference=reference)
+    elif root == "bindings":
+        binding_name = _evidence_reference_binding_name(reference)
+        if binding_name is not None and binding_name not in findings.declared_bindings:
+            findings.add(
+                node,
+                kind="reference-binding",
+                root=binding_name,
+                path=("bindings", binding_name),
+                reference=reference,
+            )
 
 
 def _package_json_member(
@@ -973,15 +979,9 @@ def _normalize_judge(value: Any, evidence: dict[str, Any]) -> dict[str, Any]:
     references = list(refs)
     if verdict in {"supported", "contradicted"}:
         references = [_map_message_id_reference(evidence, reference) for reference in references]
-        if not references:
-            return _unresolved_judge("judge_support_missing", references)
-        for reference in references:
-            try:
-                support = _resolve_evidence_ref(evidence, reference)
-            except DetectorRuntimeError:
-                return _unresolved_judge("judge_support_unresolved", references)
-            if not _usable_judge_support(evidence, reference, support):
-                return _unresolved_judge("judge_support_unresolved", references)
+        unsupported = _judge_support_failure(evidence, references)
+        if unsupported is not None:
+            return _unresolved_judge(unsupported, references)
     reason = value.get("reason")
     if not isinstance(reason, str) or not reason.strip():
         reason = "judge_completed"
@@ -992,6 +992,21 @@ def _normalize_judge(value: Any, evidence: dict[str, Any]) -> dict[str, Any]:
         "evidence_refs": references,
         "reason": reason,
     }
+
+
+def _judge_support_failure(evidence: dict[str, Any], references: list[str]) -> str | None:
+    """Return why a decisive verdict's references give no usable support, if they do not."""
+
+    if not references:
+        return "judge_support_missing"
+    for reference in references:
+        try:
+            support = _resolve_evidence_ref(evidence, reference)
+        except DetectorRuntimeError:
+            return "judge_support_unresolved"
+        if not _usable_judge_support(evidence, reference, support):
+            return "judge_support_unresolved"
+    return None
 
 
 def _unresolved_judge(reason: str, evidence_refs: list[str] | None = None) -> dict[str, Any]:

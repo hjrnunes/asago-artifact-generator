@@ -506,3 +506,288 @@ def test_check_command_runs_offline_package_and_returns_rich_result(tmp_path: Pa
     assert payload["status"] == "completed"
     assert payload["result"]["outcome"] == "detected"
     assert payload["garak_value"] == 1
+
+
+@pytest.mark.parametrize(
+    ("source", "message"),
+    [
+        (b"\xff\xfe", "invalid detector.py:"),
+        (b"def evaluate(:\n", "invalid detector.py:"),
+        (b"def other(evidence):\n    return {}\n", "detector.py must define evaluate"),
+        (
+            b"async def evaluate(evidence):\n    return {}\n",
+            "detector.py evaluate must be synchronous",
+        ),
+        (b"def evaluate():\n    return {}\n", "detector.py evaluate must accept exactly evidence"),
+        (
+            b"def evaluate(evidence, extra):\n    return {}\n",
+            "detector.py evaluate must accept exactly evidence",
+        ),
+        (
+            b"def evaluate(packet):\n    return {}\n",
+            "detector.py evaluate must accept exactly evidence",
+        ),
+        (
+            b"def evaluate(evidence, *rest):\n    return {}\n",
+            "detector.py evaluate must accept exactly evidence",
+        ),
+    ],
+)
+def test_source_interface_requires_one_synchronous_evaluate_of_evidence(
+    source: bytes, message: str
+) -> None:
+    with pytest.raises(DetectorRuntimeError) as raised:
+        detector_runtime._validate_source_interface(source)
+
+    assert str(raised.value).startswith(message)
+
+
+def test_source_interface_accepts_positional_only_evidence() -> None:
+    detector_runtime._validate_source_interface(b"def evaluate(evidence, /):\n    return {}\n")
+
+
+def _result(**changes: object) -> dict:
+    result = {
+        "outcome": "detected",
+        "reason": "command is present",
+        "evidence_refs": ["tool_calls[0]"],
+        "claim_level": "command_attempt",
+    }
+    result.update(changes)
+    return result
+
+
+@pytest.mark.parametrize(
+    ("result", "message"),
+    [
+        (
+            {"outcome": "detected"},
+            "detector result is missing fields: ['claim_level', 'evidence_refs', 'reason']",
+        ),
+        ({**_result(), "extra": 1}, "detector result has unknown fields: ['extra']"),
+        (_result(outcome=1), "detector result has invalid outcome: 1"),
+        (_result(reason="  "), "detector result reason must be nonblank"),
+        (_result(reason=None), "detector result reason must be nonblank"),
+        (_result(evidence_refs="tool_calls"), "detector result evidence_refs must be nonblank"),
+        (_result(evidence_refs=[" "]), "detector result evidence_refs must be nonblank"),
+        (
+            _result(outcome="not_detected", evidence_refs=[]),
+            "detected and not_detected results require evidence_refs",
+        ),
+        (
+            _result(evidence_refs=["tool_calls[4]"]),
+            "evidence reference 'tool_calls[4]' does not resolve: missing path segment '4'",
+        ),
+        (_result(claim_level="belief"), "detector result has invalid claim level: 'belief'"),
+        (_result(claim_level=None), "detector result has invalid claim level: None"),
+    ],
+)
+def test_validate_result_names_the_first_contract_violation(result: dict, message: str) -> None:
+    with pytest.raises(DetectorRuntimeError) as raised:
+        validate_detector_result(result, _evidence())
+
+    assert str(raised.value) == message or str(raised.value).startswith(message)
+
+
+def test_validate_result_requires_an_evidence_object() -> None:
+    with pytest.raises(DetectorRuntimeError, match="detector result must be an object"):
+        validate_detector_result(_result(), [])  # type: ignore[arg-type]
+
+
+def _fake_docker(tmp_path: Path, body: str) -> str:
+    """Write a stand-in Docker CLI whose ``run`` executes ``body``; ``rm`` succeeds."""
+
+    import sys
+    import textwrap
+
+    script = tmp_path / "fake-docker"
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import pathlib, sys, time\n"
+        "args = sys.argv[1:]\n"
+        "if args[:1] == ['rm']:\n"
+        "    sys.exit(0)\n"
+        "package = next(\n"
+        "    pathlib.Path(arg.split(',')[1].removeprefix('src='))\n"
+        "    for arg in args\n"
+        "    if arg.startswith('type=bind,') and ',dst=/package,' in arg\n"
+        ")\n" + textwrap.dedent(body),
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return str(script)
+
+
+_OK_RESULT = json.dumps(
+    {
+        "status": "ok",
+        "result": {
+            "outcome": "detected",
+            "reason": "fixture result",
+            "evidence_refs": ["tool_calls[0]"],
+            "claim_level": "command_attempt",
+        },
+    }
+)
+
+
+def test_execute_detector_returns_a_validated_result_from_the_runner(tmp_path: Path) -> None:
+    docker = _fake_docker(tmp_path, f"sys.stdout.write({_OK_RESULT!r})\n")
+    package = _package(tmp_path, _detector())
+
+    execution = execute_detector(package, _evidence(), docker_path=docker)
+
+    assert execution.status == "completed"
+    assert execution.failure is None
+    assert execution.result["outcome"] == "detected"
+    assert execution.docker_argv[0] == docker
+    assert execution.package_digest == execution.package_digest_after
+    assert execution.detector_sha256 == execution.detector_sha256_after
+    assert execution.stdout == _OK_RESULT.encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    ("body", "status", "failure"),
+    [
+        ("sys.stdout.write('not json')\n", "failed", "detector runtime protocol error: "),
+        (
+            'sys.stdout.write(\'{"status": "error", "error": "boom"}\')\n',
+            "failed",
+            "detector runtime error: boom",
+        ),
+        ("sys.stdout.write('[1]')\n", "failed", "detector container failed with exit code 0"),
+        (
+            'sys.stderr.write(\'{"error": "crashed"}\')\nsys.exit(3)\n',
+            "failed",
+            "detector runtime error: crashed",
+        ),
+        ("sys.exit(5)\n", "failed", "detector container failed with exit code 5"),
+        (
+            'sys.stdout.write(\'{"status": "ok", "result": {}}\')\n',
+            "failed",
+            "detector result is missing fields:",
+        ),
+        (
+            "sys.stdout.write('x' * 70000)\n",
+            "failed",
+            "detector output exceeded the runtime bound",
+        ),
+        ("time.sleep(5)\n", "timeout", "detector exceeded 0.5s wall-clock timeout"),
+    ],
+)
+def test_execute_detector_reports_runner_failures_without_a_result(
+    tmp_path: Path, body: str, status: str, failure: str
+) -> None:
+    docker = _fake_docker(tmp_path, body)
+    package = _package(tmp_path, _detector())
+
+    execution = execute_detector(package, _evidence(), docker_path=docker, timeout_seconds=0.5)
+
+    assert execution.status == status
+    assert execution.result is None
+    assert execution.failure.startswith(failure)
+    assert execution.docker_argv[0] == docker
+    assert execution.package_digest == execution.package_digest_after
+    assert execution.detector_sha256 == execution.detector_sha256_after
+
+
+def test_execute_detector_reports_a_package_corrupted_during_the_run(tmp_path: Path) -> None:
+    docker = _fake_docker(
+        tmp_path,
+        "(package / 'detector.py').write_text('# changed\\n')\n"
+        f"sys.stdout.write({_OK_RESULT!r})\n",
+    )
+    package = _package(tmp_path, _detector())
+
+    execution = execute_detector(package, _evidence(), docker_path=docker)
+
+    assert execution.status == "failed"
+    assert execution.failure.startswith("package changed during detector execution: ")
+    assert execution.package_digest_after is None
+    assert execution.detector_sha256_after is None
+
+
+def test_execute_detector_reports_a_package_replaced_during_the_run(tmp_path: Path) -> None:
+    docker = _fake_docker(
+        tmp_path,
+        "from asago_artifact_generator.package_io import build_package, write_package\n"
+        "write_package(package, build_package(\n"
+        "    package_id='package', scenario_id='scenario-1',\n"
+        "    input_kind='scenario-handoff-v1', source_digests={'input': 'a' * 64},\n"
+        "    members={'detector.py': b'def evaluate(evidence):\\n    return {}\\n'},\n"
+        "    runtime_capabilities={'detector': {'timeout_seconds': 3}},\n"
+        "))\n"
+        f"sys.stdout.write({_OK_RESULT!r})\n",
+    )
+    package = _package(tmp_path, _detector())
+
+    execution = execute_detector(package, _evidence(), docker_path=docker)
+
+    assert execution.status == "failed"
+    assert execution.failure == "package or detector digest changed during execution"
+    assert execution.package_digest_after != execution.package_digest
+    assert execution.detector_sha256_after != execution.detector_sha256
+
+
+def test_execute_detector_reports_an_unavailable_runtime(tmp_path: Path) -> None:
+    package = _package(tmp_path, _detector())
+
+    execution = execute_detector(
+        package, _evidence(), docker_path=str(tmp_path / "no-such-docker")
+    )
+
+    assert execution.status == "failed"
+    assert execution.failure.startswith("detector runtime unavailable: ")
+    assert execution.stdout == b""
+    assert execution.package_digest == execution.package_digest_after
+
+
+def test_execute_detector_rejects_inputs_before_starting_a_container(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    docker = _fake_docker(tmp_path, "raise SystemExit('the container must not start')\n")
+    package = _package(tmp_path, _detector())
+    reads_secret = _package(
+        tmp_path,
+        "def evaluate(evidence):\n    return evidence['secret']\n",
+        name="reads-secret",
+    )
+
+    not_object = execute_detector(package, [], docker_path=docker)  # type: ignore[arg-type]
+    undeclared = execute_detector(reads_secret, _evidence(), docker_path=docker)
+    monkeypatch.setattr(detector_runtime, "MAX_EVIDENCE_BYTES", 10)
+    too_large = execute_detector(package, _evidence(), docker_path=docker)
+
+    assert not_object.failure == "evidence packet must be an object"
+    assert undeclared.failure.startswith("detector reads undeclared evidence root 'secret'")
+    assert too_large.failure == "evidence exceeds the runtime input bound"
+    for execution in (not_object, undeclared, too_large):
+        assert execution.status == "failed"
+        assert execution.docker_argv == ()
+        assert execution.package_digest is not None
+        assert execution.package_digest == execution.package_digest_after
+        assert execution.detector_sha256 == execution.detector_sha256_after
+
+
+def test_execute_detector_needs_a_persisted_package_and_a_positive_timeout(
+    tmp_path: Path,
+) -> None:
+    built = build_package(
+        package_id="package",
+        scenario_id="scenario-1",
+        input_kind="scenario-handoff-v1",
+        source_digests={"input": "a" * 64},
+        members={"detector.py": _detector().encode("utf-8")},
+        runtime_capabilities={"detector": {"timeout_seconds": 3}},
+    )
+
+    in_memory = execute_detector(built, _evidence())
+    absent = execute_detector(tmp_path / "absent", _evidence())
+
+    assert in_memory.failure == "execution requires a persisted package directory"
+    assert in_memory.package_digest is None
+    assert absent.status == "failed"
+    assert absent.package_digest is None
+    assert absent.package_digest_after is None
+    with pytest.raises(ValueError, match="timeout_seconds must be positive"):
+        execute_detector(tmp_path / "absent", _evidence(), timeout_seconds=0)
