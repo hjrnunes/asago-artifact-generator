@@ -4,7 +4,8 @@
   "digest_domain": "scenario-handoff-v1",
   "digest_domains": {
     "scenario-handoff-v1": "scenario-handoff-v1",
-    "scenario-handoff-v2": "scenario-handoff-v2"
+    "scenario-handoff-v2": "scenario-handoff-v2",
+    "scenario-handoff-v3": "scenario-handoff-v3"
   },
   "files": {
     "handoff-v1/canonical-digests.json": "b1c4419876214ac94e06ccecd27f8f5f292000da3fe97cd8b243c53afdcd424c",
@@ -26,12 +27,23 @@
     "handoff-v2/valid/analytical-only.json": "d4df036661951529924c60dfa9009281324b86d5e54f2c35acc3c37301600579",
     "handoff-v2/valid/functional-record-unavailable.json": "de566df8067efef80b7301f2037264ed860ddbe648e3c73326a0131c0cd99dd9",
     "handoff-v2/valid/adversarial-condition-omitted.json": "980e7ec876997c1eed149fee362bd5d524d1dc3397ca0024bd0703e8f6b2fd20",
-    "handoff-v2/valid/functional-not-called.json": "b9923321da8643cb8dddd00ceb9864944214cbc1c16420e4cb256aa0c9488743"
+    "handoff-v2/valid/functional-not-called.json": "b9923321da8643cb8dddd00ceb9864944214cbc1c16420e4cb256aa0c9488743",
+    "handoff-v3/canonical-digests.json": "3b703c9c80f4e76af14b660da8b5477c9ed960dc66dbb649af069afa2290ad6c",
+    "handoff-v3/expected-violations.json": "df389cd3f04783316c85c0bab466e7ee51ec20f9ad3e4151e951247c1a5a1702",
+    "handoff-v3/invalid/bound-without-condition.json": "d2995a2fdc1e97e2d793821e4d7c07e32817679026fd2c02ee6fc09b176207e2",
+    "handoff-v3/invalid/fact-operand-in-condition.json": "9d642def3741221e91676b90bbea35eef7308176d4ff6d0c0b7e32f0cc58a003",
+    "handoff-v3/schema.json": "c6fd2083ff70bf0810be58e395385d39a2ad06c3bb40c5fde998c8375b92fb2c",
+    "handoff-v3/valid/adversarial-condition-omitted.json": "5134b1ca4db4d73c8b51dc4548e6b0f7571e9afd54809c22340b577b01ca3bb9",
+    "handoff-v3/valid/adversarial-observed-record.json": "daff74e22be44244e79c47c0a88c24d8965f119f735fb7dbfe6578368b32dbb2",
+    "handoff-v3/valid/analytical-only.json": "0bc8ced30c9f7377f89eed2b153d92bb35503831a05e53983768b04394ca7a15",
+    "handoff-v3/valid/functional-not-called.json": "89524cb5185fd7a27920b0b45a5a0ab61c0c8f44eb8d53d76891762b01b90ae7",
+    "handoff-v3/valid/functional-record-unavailable.json": "070cfdf9916fb20ad94141c86aa3e1289e6eaabe240e8657dea351bd7009dd4e"
   },
   "handoff_schema_version": "scenario-handoff-v1",
   "handoff_schema_versions": [
     "scenario-handoff-v1",
-    "scenario-handoff-v2"
+    "scenario-handoff-v2",
+    "scenario-handoff-v3"
   ],
   "metadata_fields": [
     "schema_version",
@@ -52,7 +64,9 @@
     "observation",
     "discriminating_condition",
     "condition_check",
-    "condition_omitted_reason"
+    "condition_omitted_reason",
+    "tool_call_condition_status",
+    "tool_call_condition"
   ],
   "representations": [
     "narrative",

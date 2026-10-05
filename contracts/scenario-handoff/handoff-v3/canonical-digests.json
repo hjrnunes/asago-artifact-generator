@@ -1,0 +1,20 @@
+{
+  "content_sha256": {
+    "expected-violations.json": "df389cd3f04783316c85c0bab466e7ee51ec20f9ad3e4151e951247c1a5a1702",
+    "invalid/bound-without-condition.json": "d2995a2fdc1e97e2d793821e4d7c07e32817679026fd2c02ee6fc09b176207e2",
+    "invalid/fact-operand-in-condition.json": "9d642def3741221e91676b90bbea35eef7308176d4ff6d0c0b7e32f0cc58a003",
+    "schema.json": "c6fd2083ff70bf0810be58e395385d39a2ad06c3bb40c5fde998c8375b92fb2c",
+    "valid/adversarial-condition-omitted.json": "5134b1ca4db4d73c8b51dc4548e6b0f7571e9afd54809c22340b577b01ca3bb9",
+    "valid/adversarial-observed-record.json": "daff74e22be44244e79c47c0a88c24d8965f119f735fb7dbfe6578368b32dbb2",
+    "valid/analytical-only.json": "0bc8ced30c9f7377f89eed2b153d92bb35503831a05e53983768b04394ca7a15",
+    "valid/functional-not-called.json": "89524cb5185fd7a27920b0b45a5a0ab61c0c8f44eb8d53d76891762b01b90ae7",
+    "valid/functional-record-unavailable.json": "070cfdf9916fb20ad94141c86aa3e1289e6eaabe240e8657dea351bd7009dd4e"
+  },
+  "handoff_digests": {
+    "valid/adversarial-condition-omitted.json": "7e942dc7c230780c04c7741bcd4335969ce6e4d90ffa89a7e6aacc7a78b5a04e",
+    "valid/adversarial-observed-record.json": "e8c8d84ff01156a647975e065956dfb985f3f3a9df5bba3a53016ffb6ecd63f9",
+    "valid/analytical-only.json": "577341c10f8f56dd422a74e885492f1faf4a9650afbc84a06d853abd53bd5ab7",
+    "valid/functional-not-called.json": "31717e4bdf8f855dbf140c86d22c4c8dd38bfb0812dc7a19e74b805be31219bb",
+    "valid/functional-record-unavailable.json": "c0b66557e205333e7a5aab51b25efb490cc679c9ce580656c42860e3159bf15c"
+  }
+}

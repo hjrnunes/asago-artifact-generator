@@ -1,0 +1,8 @@
+{
+  "invalid/bound-without-condition.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/fact-operand-in-condition.json": [
+    "schema_violation:tool_call_condition"
+  ]
+}
