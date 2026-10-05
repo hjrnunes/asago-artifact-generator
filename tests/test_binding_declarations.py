@@ -52,42 +52,17 @@ def test_binding_uses_exact_setup_selector_and_declared_consumers() -> None:
     assert validated[0].selector == "result.draft.id"
 
 
-def test_binding_rejects_undocumented_selector_and_open_type() -> None:
-    with pytest.raises(BindingValidationError, match="closed"):
+@pytest.mark.parametrize(
+    ("expected_type", "message"),
+    [("any", "closed"), ("string", "undocumented selector")],
+)
+def test_binding_rejects_undocumented_selector(expected_type: str, message: str) -> None:
+    with pytest.raises(BindingValidationError, match=message):
         validate_bindings(
             [
                 {
                     "name": "draft_id",
-                    "expected_type": "any",
-                    "source_kind": "setup_output",
-                    "source_ref": "setup:summarize_for_ehr",
-                    "selector": "result.draft.guessed_id",
-                    "consumers": ["stimulus.user_text"],
-                    "on_missing": "stop",
-                }
-            ],
-            inventory={
-                "operations": [
-                    {
-                        "name": "summarize_for_ehr",
-                        "result_schema": {
-                            "type": "object",
-                            "properties": {"draft": {"type": "object", "properties": {}}},
-                        },
-                    }
-                ]
-            },
-            runtime_contract={"setup_permissions": ["summarize_for_ehr"]},
-        )
-
-
-def test_binding_rejects_unknown_selector_with_closed_type() -> None:
-    with pytest.raises(BindingValidationError, match="undocumented selector"):
-        validate_bindings(
-            [
-                {
-                    "name": "draft_id",
-                    "expected_type": "string",
+                    "expected_type": expected_type,
                     "source_kind": "setup_output",
                     "source_ref": "setup:summarize_for_ehr",
                     "selector": "result.draft.guessed_id",
@@ -125,43 +100,34 @@ def test_binding_rejects_non_string_declaration_fields() -> None:
         )
 
 
-def _keyed_inventory() -> dict:
+def _keyed_fact(ref: str, key: str, fields: dict[str, str]) -> dict:
+    """Return a fact whose value maps ``key`` to string ``fields``, with its schema."""
+
+    properties = {name: {"type": "string"} for name in fields}
+    return {
+        "ref": ref,
+        "value": {key: fields},
+        "schema": {
+            "type": "object",
+            "properties": {key: {"type": "object", "properties": properties}},
+        },
+    }
+
+
+def _records_inventory(ref: str, key: str, fields: dict[str, str]) -> dict:
+    """Return a keyed base fact and its ``:records`` companion naming ``key``."""
+
     return {
         "operations": [],
         "facts": [
-            {
-                "ref": "state:orders",
-                "value": {
-                    "ORD-1": {"customer_id": "CUST-1", "status": "open"},
-                },
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "ORD-1": {
-                            "type": "object",
-                            "properties": {
-                                "customer_id": {"type": "string"},
-                                "status": {"type": "string"},
-                            },
-                        }
-                    },
-                },
-            },
-            {
-                "ref": "state:orders:records",
-                "value": {"ORD-1": {"record_key": "ORD-1"}},
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "ORD-1": {
-                            "type": "object",
-                            "properties": {"record_key": {"type": "string"}},
-                        }
-                    },
-                },
-            },
+            _keyed_fact(ref, key, fields),
+            _keyed_fact(f"{ref}:records", key, {"record_key": key}),
         ],
     }
+
+
+def _keyed_inventory() -> dict:
+    return _records_inventory("state:orders", "ORD-1", {"customer_id": "CUST-1", "status": "open"})
 
 
 def test_keyed_source_shorthands_normalize_to_documented_paths() -> None:
@@ -349,40 +315,7 @@ def test_repeated_record_key_selectors_fail_closed_on_conflicts_and_unknown_path
 
 
 def _companion_inventory() -> dict:
-    return {
-        "operations": [],
-        "facts": [
-            {
-                "ref": "catalog:items",
-                "value": {"ITEM-A": {"owner": "OWNER-A", "label": "Sample"}},
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "ITEM-A": {
-                            "type": "object",
-                            "properties": {
-                                "owner": {"type": "string"},
-                                "label": {"type": "string"},
-                            },
-                        }
-                    },
-                },
-            },
-            {
-                "ref": "catalog:items:records",
-                "value": {"ITEM-A": {"record_key": "ITEM-A"}},
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "ITEM-A": {
-                            "type": "object",
-                            "properties": {"record_key": {"type": "string"}},
-                        }
-                    },
-                },
-            },
-        ],
-    }
+    return _records_inventory("catalog:items", "ITEM-A", {"owner": "OWNER-A", "label": "Sample"})
 
 
 @pytest.mark.parametrize(
@@ -538,19 +471,7 @@ def test_companion_fallback_fails_closed_for_undocumented_fields() -> None:
 def test_companion_fallback_fails_closed_when_two_targets_are_documented() -> None:
     inventory = _companion_inventory()
     inventory["facts"].append(
-        {
-            "ref": "catalog:items:records:records",
-            "value": {"ITEM-A": {"owner": "OWNER-B"}},
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "ITEM-A": {
-                        "type": "object",
-                        "properties": {"owner": {"type": "string"}},
-                    }
-                },
-            },
-        }
+        _keyed_fact("catalog:items:records:records", "ITEM-A", {"owner": "OWNER-B"})
     )
     source_ref = "facts:catalog:items:records:ITEM-A:owner"
     selector = "value.owner"

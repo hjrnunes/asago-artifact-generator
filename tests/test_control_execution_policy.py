@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 from pathlib import Path
 
-from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 from asago_artifact_generator.detector_controls import ControlCase
 
-from .support import ScriptedAuthoringTransport, load_failure_evidence
+from .support import load_failure_evidence, scripted_orchestrator
 from .test_versioned_authoring_wire import (
     _framed,
     _inventory,
@@ -91,22 +91,7 @@ def _framed_with(*, source: bytes = _source(), delivery: str = "direct_user_mess
     )
 
 
-def _orchestrator(
-    tmp_path: Path,
-    responses: list[object],
-    *,
-    policy: AuthoringPolicy,
-    supplied_control_cases: object = None,
-) -> tuple[AuthoringOrchestrator, ScriptedAuthoringTransport]:
-    transport = ScriptedAuthoringTransport(responses)
-    orchestrator = AuthoringOrchestrator(
-        transport=transport,
-        package_dir=tmp_path / "package",
-        task_id="control-execution-policy",
-        policy=policy,
-        supplied_control_cases=supplied_control_cases,
-    )
-    return orchestrator, transport
+_orchestrator = partial(scripted_orchestrator, task_id="control-execution-policy")
 
 
 def test_policy_correction_records_controls_for_structurally_invalid_candidate(

@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -21,7 +22,7 @@ from asago_artifact_generator.authoring.policy import AuthoringPolicy
 from asago_artifact_generator.authoring.review import build_artifact_review_packet
 from asago_artifact_generator.detector_controls import ControlCase
 
-from .support import ScriptedAuthoringTransport
+from .support import ScriptedAuthoringTransport, scripted_orchestrator
 from .test_versioned_authoring_wire import (
     _framed,
     _inventory,
@@ -82,20 +83,11 @@ def _review(decision: str = "accept") -> bytes:
 
 
 def _orchestrator(
-    tmp_path: Path,
-    responses: list[object],
-    *,
-    supplied_control_cases: object = None,
+    tmp_path: Path, responses: list[object], **kwargs: Any
 ) -> tuple[AuthoringOrchestrator, ScriptedAuthoringTransport]:
-    transport = ScriptedAuthoringTransport(responses)
-    orchestrator = AuthoringOrchestrator(
-        transport=transport,
-        package_dir=tmp_path / "package",
-        task_id="supplied-controls",
-        policy=AuthoringPolicy(),
-        supplied_control_cases=supplied_control_cases,
+    return scripted_orchestrator(
+        tmp_path, responses, task_id="supplied-controls", policy=AuthoringPolicy(), **kwargs
     )
-    return orchestrator, transport
 
 
 def _control_runtime() -> dict:

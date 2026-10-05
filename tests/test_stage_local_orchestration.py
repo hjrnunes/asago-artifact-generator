@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,7 @@ from asago_artifact_generator.authoring.policy import (
 from asago_artifact_generator.authoring.review import parse_review_response
 from asago_artifact_generator.detector_runtime import resolve_docker_path
 
-from .support import ScriptedAuthoringTransport, load_failure_evidence
+from .support import ScriptedAuthoringTransport, load_failure_evidence, scripted_orchestrator
 from .test_versioned_authoring_wire import (
     _framed,
     _inventory,
@@ -46,22 +47,7 @@ def _finding(question: str = "scenario_fidelity") -> dict[str, str]:
     }
 
 
-def _orchestrator(
-    tmp_path: Path,
-    responses: list[object],
-    *,
-    policy: AuthoringPolicy,
-    budget: AuthoringBudget | None = None,
-) -> tuple[AuthoringOrchestrator, ScriptedAuthoringTransport]:
-    transport = ScriptedAuthoringTransport(responses)
-    orchestrator = AuthoringOrchestrator(
-        transport=transport,
-        package_dir=tmp_path / "package",
-        task_id="stage-local",
-        budget=budget,
-        policy=policy,
-    )
-    return orchestrator, transport
+_orchestrator = partial(scripted_orchestrator, task_id="stage-local")
 
 
 def test_policy_defaults_and_strict_correction_validation() -> None:

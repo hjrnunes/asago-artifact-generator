@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from asago_artifact_generator.bindings import (
     find_stimulus_user_text_consumer_mismatches,
     supplied_binding_values,
@@ -62,7 +64,10 @@ def evaluate(evidence):
     assert "returns evidence_refs root 'state'" in findings[1]["detail"]
 
 
-def test_declared_detector_binding_access_is_accepted() -> None:
+@pytest.mark.parametrize("consumer", ["detector.owner", "stimulus.user_text"])
+def test_declared_binding_access_is_accepted_with_or_without_detector_consumer(
+    consumer: str,
+) -> None:
     source = b"""
 def evaluate(evidence):
     owner = evidence["bindings"].get("owner")
@@ -78,30 +83,7 @@ def evaluate(evidence):
         validate_detector_evidence_access(
             source,
             observations={"tool_calls": {"availability": "captured"}},
-            bindings=[_owner_binding(consumers=["detector.owner"])],
-            judge_enabled=False,
-        )
-        == ()
-    )
-
-
-def test_declared_binding_access_is_accepted_without_detector_consumer() -> None:
-    source = b"""
-def evaluate(evidence):
-    owner = evidence["bindings"].get("owner")
-    return {
-        "outcome": "inconclusive",
-        "reason": str(owner),
-        "evidence_refs": ["bindings.owner"],
-        "claim_level": "command_attempt",
-    }
-"""
-
-    assert (
-        validate_detector_evidence_access(
-            source,
-            observations={"tool_calls": {"availability": "captured"}},
-            bindings=[_owner_binding(consumers=["stimulus.user_text"])],
+            bindings=[_owner_binding(consumers=[consumer])],
             judge_enabled=False,
         )
         == ()

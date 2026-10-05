@@ -63,6 +63,18 @@ class ScriptedAuthoringTransport:
         return response
 
 
+def scripted_orchestrator(
+    tmp_path: Path, responses: list[Any], *, task_id: str, **kwargs: Any
+) -> tuple[AuthoringOrchestrator, ScriptedAuthoringTransport]:
+    """Build an orchestrator that replays ``responses`` and packages under ``tmp_path``."""
+
+    transport = ScriptedAuthoringTransport(responses)
+    orchestrator = AuthoringOrchestrator(
+        transport=transport, package_dir=tmp_path / "package", task_id=task_id, **kwargs
+    )
+    return orchestrator, transport
+
+
 def unreviewed_policy(**changes: Any) -> AuthoringPolicy:
     """Return a stage-local policy whose runs dispatch no semantic reviews."""
 
