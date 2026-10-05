@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -838,3 +840,57 @@ def test_bounded_communicate_needs_both_process_pipes() -> None:
 
     with pytest.raises(OSError, match="detector process pipes are unavailable"):
         detector_runtime._bounded_communicate(process, 1.0)  # type: ignore[arg-type]
+
+
+class _PipeProcess:
+    """A process stand-in that has exited once killed but writes a late tail.
+
+    Like a Docker client whose container still flushes output, stdout stays
+    open briefly after the kill; stderr closes at once.
+    """
+
+    def __init__(self, stdout: bytes, late_stdout: bytes) -> None:
+        out_read, self._out_write = os.pipe()
+        err_read, self._err_write = os.pipe()
+        os.write(self._out_write, stdout)
+        self._late_stdout = late_stdout
+        self.stdout = os.fdopen(out_read, "rb", buffering=0)
+        self.stderr = os.fdopen(err_read, "rb", buffering=0)
+        self.kills = 0
+        self.returncode: int | None = None
+        self._writer: threading.Thread | None = None
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def kill(self) -> None:
+        self.kills += 1
+        self.returncode = -9
+        os.close(self._err_write)
+        self._writer = threading.Thread(target=self._write_late_tail)
+        self._writer.start()
+
+    def _write_late_tail(self) -> None:
+        time.sleep(0.05)
+        os.write(self._out_write, self._late_stdout)
+        os.close(self._out_write)
+
+    def wait(self, timeout: float | None = None) -> int | None:
+        return self.returncode
+
+    def close(self) -> None:
+        if self._writer is not None:
+            self._writer.join()
+        self.stdout.close()
+        self.stderr.close()
+
+
+def test_bounded_communicate_keeps_draining_after_a_timeout_kill() -> None:
+    process = _PipeProcess(b"partial output", b" and its late tail")
+    try:
+        result = detector_runtime._bounded_communicate(process, 0.0)  # type: ignore[arg-type]
+    finally:
+        process.close()
+
+    assert result == (b"partial output and its late tail", b"", True, False)
+    assert process.kills == 1
