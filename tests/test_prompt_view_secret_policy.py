@@ -21,6 +21,7 @@ from asago_artifact_generator.metadata_policy import prompt_secret_metadata_path
 from asago_artifact_generator.package_io import PackageIntegrityError, build_package
 
 from .support import ScriptedAuthoringTransport, stage_local_orchestrator
+from .test_authoring_orchestration import _contract as _runtime_contract
 
 
 def _operation_inventory() -> dict:
@@ -62,18 +63,6 @@ def _operation_inventory() -> dict:
                 "meaning": "The supplied record must remain within its balance.",
             }
         ],
-    }
-
-
-def _runtime_contract() -> dict:
-    return {
-        "delivery": ["direct_user_message"],
-        "observation": {
-            "tool_calls": {"availability": "captured_or_unavailable"},
-            "assistant_messages": {"availability": "captured_or_unavailable"},
-        },
-        "setup_permissions": [],
-        "limits": {"max_turns": 2},
     }
 
 

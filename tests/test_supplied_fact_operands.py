@@ -12,20 +12,13 @@ from asago_artifact_generator.authoring.review import (
 )
 from asago_artifact_generator.input_adapter import load_input
 
+from .test_run_created_records import _runtime
+
 _HANDOFF = (
     Path(__file__).resolve().parents[1]
     / "contracts/scenario-handoff/handoff-v2/valid/functional-not-called.json"
 )
 _RULE = "established by its supplied_input binding"
-
-
-def _runtime() -> dict:
-    return {
-        "delivery": ["direct_user_message"],
-        "setup_permissions": [],
-        "observation": {"tool_calls": {"availability": "captured_or_unavailable"}},
-        "limits": {"max_turns": 2},
-    }
 
 
 def _plan() -> dict:
