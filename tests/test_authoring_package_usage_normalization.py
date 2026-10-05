@@ -41,7 +41,6 @@ def _package_with_usage(usage: object) -> object:
         transformations=[],
         inventory={},
         runtime_contract={},
-        detector_bytes=b"def evaluate(evidence): return {}\n",
     )
 
 

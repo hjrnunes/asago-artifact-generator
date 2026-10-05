@@ -1,13 +1,11 @@
 """Closed structural checks for plan and artifact responses.
 
-This module parses the fenced Call 2 response and collects the deterministic
-findings that run before semantic review.
+This module collects the deterministic findings that run before semantic
+review.
 """
 
 from __future__ import annotations
 
-import ast
-import json
 from collections.abc import Collection, Mapping
 from typing import Any
 
@@ -24,13 +22,10 @@ from ..bindings import (
     supplied_binding_values,
     validate_bindings,
 )
-from ..detector_controls import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
 from .contracts import _SEMANTIC_JUDGE_SPEC_RULES, _call1_contract_v1, _call1_contract_v2
 from .core import (
     _SLOT_RE,
-    Call2FramingError,
     Finding,
-    ParsedCall2Response,
     PlanValidationError,
     _claim_levels,
     _findings_from_error,
@@ -40,199 +35,12 @@ from .core import (
     _supported_claim_levels,
 )
 from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
-
-
-def parse_call2_response(raw: bytes | str) -> ParsedCall2Response:
-    """Parse exactly one JSON block followed by one raw Python block.
-
-    The parser works on bytes until metadata decoding is complete.  It never
-    routes Python through JSON, so escapes, quotes, blank lines, and source
-    encoding remain exactly as returned by the provider.
-    """
-
-    source = raw.encode("utf-8") if isinstance(raw, str) else raw
-    if not isinstance(source, bytes):
-        raise TypeError("Call 2 response must be bytes or text")
-    findings: list[Finding] = []
-    lines = source.splitlines(keepends=True)
-    _require_json_opening_fence(lines, findings)
-    json_lines, json_close_index = _read_fenced_block(lines, 1, "json", findings)
-    if json_close_index is None:
-        findings.append(
-            Finding("truncated_block", "Call 2 JSON block is not closed", "call2.json")
-        )
-        raise Call2FramingError(findings)
-    index = _python_block_start(lines, json_close_index + 1, findings)
-    python_lines, python_close_index = _read_fenced_block(lines, index, "python", findings)
-    if python_close_index is None:
-        findings.append(
-            Finding("truncated_block", "Call 2 Python block is not closed", "call2.python")
-        )
-        raise Call2FramingError(findings)
-    _require_no_trailing_content(lines, python_close_index + 1, findings)
-    metadata = _decode_call2_metadata(b"".join(json_lines), findings)
-    findings.extend(_validate_call2_metadata_shape(metadata))
-    python_bytes = b"".join(python_lines)
-    tree = _parse_call2_python(python_bytes, findings)
-    findings.extend(_evaluate_signature_findings(tree))
-    if findings:
-        raise Call2FramingError(findings)
-    return ParsedCall2Response(metadata=metadata, python_bytes=python_bytes)
-
-
-_DUPLICATE_BLOCK_FINDINGS = {
-    "json": ("duplicate_json_block", "Call 2 contains more than one JSON block"),
-    "python": ("duplicate_python_block", "Call 2 contains more than one Python block"),
-}
-
-
-def _duplicate_block_finding(language: str) -> Finding:
-    code, message = _DUPLICATE_BLOCK_FINDINGS[language]
-    return Finding(code, message, "call2")
-
-
-def _require_json_opening_fence(lines: list[bytes], findings: list[Finding]) -> None:
-    if lines and _is_fence_line(lines[0], "json", opening=True):
-        return
-    missing_json = bool(lines) and _is_fence_line(lines[0], "python", opening=True)
-    findings.append(
-        Finding(
-            "missing_json_block" if not lines or missing_json else "ambiguous_content",
-            "Call 2 must start with one ```json opening fence",
-            "call2",
-        )
-    )
-    raise Call2FramingError(findings)
-
-
-def _read_fenced_block(
-    lines: list[bytes],
-    index: int,
-    language: str,
-    findings: list[Finding],
-) -> tuple[list[bytes], int | None]:
-    """Collect body lines from ``index`` up to the next closing fence.
-
-    Returns the body and the closing fence index, or ``None`` when the block
-    is not closed. A nested opening fence of the same language is recorded as
-    a duplicate block and kept in the body.
-    """
-
-    block_lines: list[bytes] = []
-    while index < len(lines):
-        line = lines[index]
-        if _is_closing_fence(line):
-            return block_lines, index
-        if _is_fence_line(line, language, opening=True):
-            findings.append(_duplicate_block_finding(language))
-        block_lines.append(line)
-        index += 1
-    return block_lines, None
-
-
-def _python_block_start(lines: list[bytes], index: int, findings: list[Finding]) -> int:
-    while index < len(lines) and not lines[index].strip():
-        index += 1
-    if index >= len(lines):
-        findings.append(
-            Finding("missing_python_block", "Call 2 must contain one Python block", "call2")
-        )
-        raise Call2FramingError(findings)
-    if _is_fence_line(lines[index], "json", opening=True):
-        findings.append(_duplicate_block_finding("json"))
-        raise Call2FramingError(findings)
-    if not _is_fence_line(lines[index], "python", opening=True):
-        findings.append(
-            Finding(
-                "ambiguous_content",
-                "Call 2 must place exactly one ```python block after JSON",
-                "call2",
-            )
-        )
-        raise Call2FramingError(findings)
-    return index + 1
-
-
-def _require_no_trailing_content(lines: list[bytes], index: int, findings: list[Finding]) -> None:
-    if index == len(lines):
-        return
-    for language in ("python", "json"):
-        if any(_is_fence_line(line, language, opening=True) for line in lines[index:]):
-            findings.append(_duplicate_block_finding(language))
-    findings.append(
-        Finding(
-            "closing_fence_in_python",
-            "a closing fence line terminates Python before the response ends",
-            "call2.python",
-        )
-    )
-    findings.append(
-        Finding("extra_content", "Call 2 contains content outside its two blocks", "call2")
-    )
-    raise Call2FramingError(findings)
-
-
-def _decode_call2_metadata(metadata_bytes: bytes, findings: list[Finding]) -> Any:
-    try:
-        return json.loads(metadata_bytes.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        findings.append(Finding("invalid_metadata_json", str(exc), "call2.json"))
-        raise Call2FramingError(findings) from exc
-
-
-def _parse_call2_python(python_bytes: bytes, findings: list[Finding]) -> ast.Module:
-    try:
-        python_source = python_bytes.decode("utf-8")
-        return ast.parse(python_source)
-    except (UnicodeDecodeError, SyntaxError) as exc:
-        findings.append(Finding("invalid_python", str(exc), "call2.python"))
-        raise Call2FramingError(findings) from exc
-
-
-def _evaluate_signature_findings(tree: ast.Module) -> list[Finding]:
-    evaluate = next(
-        (
-            node
-            for node in tree.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "evaluate"
-        ),
-        None,
-    )
-    if evaluate is None:
-        return [
-            Finding(
-                "missing_function",
-                "Python block must define evaluate(evidence)",
-                "call2.python",
-            )
-        ]
-    if len(evaluate.args.args) != 1 or evaluate.args.args[0].arg != "evidence":
-        return [
-            Finding(
-                "function_signature",
-                "evaluate must accept exactly one evidence argument",
-                "call2.python.evaluate",
-            )
-        ]
-    return []
-
-
-def _is_fence_line(line: bytes, language: str, *, opening: bool) -> bool:
-    if not opening:
-        return _is_closing_fence(line)
-    return line in {f"```{language}\n".encode(), f"```{language}\r\n".encode()}
-
-
-def _is_closing_fence(line: bytes) -> bool:
-    return line in {b"```\n", b"```\r\n", b"```"}
+from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
 
 
 def _validate_call2_metadata_shape(value: Any) -> list[Finding]:
     if not isinstance(value, dict):
-        return [
-            Finding("metadata_type_error", "Call 2 JSON block must be an object", "call2.json")
-        ]
+        return [Finding("metadata_type_error", "Call 2 response must be a JSON object", "call2")]
     findings = _call2_root_field_findings(value)
     if "stimulus" in value:
         findings.extend(_call2_stimulus_findings(value["stimulus"]))
@@ -279,7 +87,7 @@ def _call2_root_field_findings(value: dict[str, Any]) -> list[Finding]:
                     if field_name in _CALL2_PLAN_OWNED_FIELDS
                     else f"unexpected Call 2 metadata field: {field_name}"
                 ),
-                f"call2.json.{field_name}",
+                f"call2.{field_name}",
             )
         )
     for field_name in sorted(_CALL2_METADATA_FIELDS - set(value)):
@@ -287,7 +95,7 @@ def _call2_root_field_findings(value: dict[str, Any]) -> list[Finding]:
             Finding(
                 "missing_field",
                 f"Call 2 metadata missing field: {field_name}",
-                f"call2.json.{field_name}",
+                f"call2.{field_name}",
             )
         )
     return findings
@@ -591,8 +399,8 @@ def _omission_trigger_findings(
 ) -> list[Finding]:
     """Require an omission plan to cite the supplied result of each trigger it names.
 
-    Detector controls replay the cited observation as the trigger call; without
-    one, the controls that check the missing call cannot run.
+    The cited observation is the evidence that the trigger fired; without it a
+    missing call cannot be attributed to the omission.
     """
 
     return [
@@ -612,7 +420,7 @@ def _omission_trigger_findings(
 
 
 def collect_artifact_findings_v2(
-    response: ParsedCall2Response | dict[str, Any],
+    metadata: dict[str, Any],
     plan: dict[str, Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
@@ -621,12 +429,7 @@ def collect_artifact_findings_v2(
 ) -> list[Finding]:
     """Validate v2 metadata and normalize its plan-owned context."""
 
-    if isinstance(response, ParsedCall2Response):
-        findings = _validate_call2_metadata_shape(response.metadata)
-        metadata = response.metadata
-    else:
-        findings = _validate_call2_metadata_shape(response)
-        metadata = response
+    findings = _validate_call2_metadata_shape(metadata)
     if findings:
         return findings
     if not isinstance(metadata, dict):
@@ -847,6 +650,16 @@ def _stimulus_consumer_findings(
 
 
 def _semantic_judge_decision_findings(plan: dict[str, Any], judge_spec: Any) -> list[Finding]:
+    if judge_spec is None and _plan_claim_level(plan) == "reply":
+        return [
+            Finding(
+                "semantic_judge_spec_required",
+                "the accepted plan claims reply, and a reply package is scored only by "
+                "the semantic judge; return a semantic_judge_spec object with question, "
+                "criteria, and fact_refs",
+                "semantic_judge_spec",
+            )
+        ]
     needed = (
         plan.get("semantic_judge", {}).get("needed")
         if isinstance(plan.get("semantic_judge"), dict)
@@ -1451,6 +1264,11 @@ def _observation_claim_level_findings(
     return []
 
 
+def _plan_claim_level(plan: Any) -> Any:
+    claim = plan.get("observation_claim") if isinstance(plan, dict) else None
+    return claim.get("claim_level") if isinstance(claim, dict) else None
+
+
 def _semantic_judge_plan_findings(plan: dict[str, Any]) -> list[Finding]:
     judge = plan.get("semantic_judge")
     if not isinstance(judge, dict):
@@ -1458,6 +1276,16 @@ def _semantic_judge_plan_findings(plan: dict[str, Any]) -> list[Finding]:
             return [Finding("type_error", "semantic_judge must be an object", "semantic_judge")]
         return []
     findings: list[Finding] = []
+    if judge.get("needed") is False and _plan_claim_level(plan) == "reply":
+        findings.append(
+            Finding(
+                "semantic_judge_required",
+                "observation_claim.claim_level is reply, and a reply claim is scored only "
+                "by the semantic judge; set semantic_judge.needed to true and state its "
+                "scope",
+                "semantic_judge.needed",
+            )
+        )
     for field_name in sorted(set(judge) - {"needed", "scope"}):
         findings.append(
             Finding(

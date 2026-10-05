@@ -71,8 +71,6 @@ def test_artifact_review_accepts_urls_from_the_plan_and_candidate() -> None:
         _view(),
         _plan_with_lure(),
         _metadata_with_lure(),
-        b"def evaluate(evidence):\n    return {}\n",
-        [],
         _inventory(),
         _runtime_contract(),
     )

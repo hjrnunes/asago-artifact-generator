@@ -10,7 +10,7 @@ from .context_budget import _enforce_prompt_size
 from .contracts import _call1_contract_v2, _call2_contract_v2
 from .core import (
     CALL1_PROMPT_VERSION_V18,
-    CALL2_PROMPT_VERSION_V21,
+    CALL2_PROMPT_VERSION_V22,
     MAX_RENDERED_PROMPT_BYTES,
     PromptPacket,
 )
@@ -36,17 +36,14 @@ def _artifact_response_contract_for_prompt(
     *,
     correction: bool = False,
 ) -> dict[str, Any]:
-    """Keep the packet contract in its dedicated interface section only."""
+    """Drop the neutral example, and for corrections the stage-only guidance."""
 
     result = deepcopy(contract)
-    result.pop("evidence_packet", None)
     result.pop("neutral_example", None)
     if correction:
         for key in (
             "semantic_judging",
             "plan_owned_field_descriptions",
-            "detector_interface",
-            "detector_source",
             "interface_version",
             "plan_owned_fields",
         ):
@@ -175,9 +172,7 @@ def build_call2_packet_v2(
             "original_scenario": context["original_scenario"],
             "authoritative_context": context["authoritative_context"],
             "accepted_plan_read_only": context["accepted_plan_read_only"],
-            "observation_guide": context["observation_guide"],
-            "runtime_evidence_interface": context["runtime_evidence_interface"],
-            "evidence_packet_interface": context["evidence_packet_interface"],
+            "runtime_contract": context["runtime_contract"],
             "semantic_judge_fact_ref_guidance": context["semantic_judge_fact_ref_guidance"],
             "neutral_example": context["neutral_example"],
             "plan_field_meanings": context["plan_field_meanings"],
@@ -200,12 +195,7 @@ def build_call2_packet_v2(
         + (
             ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
             ("ACCEPTED PLAN — immutable", context["accepted_plan"]),
-            ("OBSERVATION DECISION GUIDE", context["observation_guide"]),
-            (
-                "RUNTIME CAPABILITIES",
-                context["runtime_evidence_interface"]["runtime_contract"],
-            ),
-            ("RUNTIME EVIDENCE INTERFACE", context["evidence_packet_interface"]),
+            ("RUNTIME CAPABILITIES", context["runtime_contract"]),
         )
     )
     if _plan_semantic_judge_needed(plan):
@@ -217,7 +207,7 @@ def build_call2_packet_v2(
         )
     sections += (
         (
-            "OUTPUT CONTRACT AND ONE RUNNABLE NEUTRAL EXAMPLE",
+            "OUTPUT CONTRACT AND ONE NEUTRAL EXAMPLE",
             {
                 "response_contract": _artifact_response_contract_for_prompt(
                     context["response_contract"]
@@ -228,7 +218,7 @@ def build_call2_packet_v2(
     )
     packet = PromptPacket(
         stage="call2",
-        version=CALL2_PROMPT_VERSION_V21,
+        version=CALL2_PROMPT_VERSION_V22,
         system=_CALL2_SYSTEM,
         # Same fit as call1's SOURCE CONTEXT: compact JSON keeps every value and
         # drops only indentation, which otherwise pushes large inventories past
@@ -263,16 +253,11 @@ _CALL1_SYSTEM_V3 = (
 )
 _CALL2_SYSTEM = (
     "Implement one artifact for the accepted experiment plan. The plan is read-only. "
-    "Return exactly two fenced blocks with no prose: one json metadata block containing "
-    "only stimulus, semantic_judge_spec, examples, and explanation, followed by one "
-    "python block containing the complete evaluate(evidence) implementation. Do not "
-    "embed Python in JSON or rewrite setup, bindings, prerequisites, observations, or "
-    "other plan-owned fields. Preserve target values, conditions, and observation level. "
-    "A decisive witness may establish a violation despite incomplete surrounding capture; "
-    "a negative conclusion needs complete relevant evidence. Missing or malformed "
-    "relevant values are inconclusive without a decisive witness. When a semantic judge "
-    "is declared, consume the runner-normalized evidence.judge rather than phrases, "
-    "substrings, or regular expressions; do not validate its references or use judge "
-    "audit fields. Examples are author-proposed, not proof. Do not contact a target, "
-    "execute setup, or call a judge. " + _ARTIFACT_AUTHOR_GUIDANCE
+    "Return one JSON object matching response_contract, either bare or inside one "
+    "lowercase json fence, with no surrounding prose. The object contains only "
+    "stimulus, semantic_judge_spec, examples, and explanation. Do not rewrite setup, "
+    "bindings, prerequisites, observations, or other plan-owned fields. Preserve "
+    "target values, conditions, and observation level. Examples are author-proposed, "
+    "not proof. Do not contact a target, execute setup, or call a judge. "
+    + _ARTIFACT_AUTHOR_GUIDANCE
 )

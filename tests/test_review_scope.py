@@ -23,7 +23,6 @@ from .test_versioned_authoring_wire import (
     _metadata,
     _plan,
     _runtime_contract,
-    _source,
     _view,
 )
 
@@ -98,7 +97,7 @@ def test_all_out_of_scope_revise_becomes_accept_and_is_recorded(tmp_path: Path) 
 
 
 def test_only_in_scope_findings_reach_correction_prompt(tmp_path: Path) -> None:
-    out_of_scope = _finding("detector_implements_plan")
+    out_of_scope = _finding("judge_spec_implements_plan")
     in_scope = _finding("scenario_fidelity")
     transport = ScriptedAuthoringTransport(
         [
@@ -139,8 +138,6 @@ def test_review_prompts_render_closed_questions_guarantees_and_one_object_exampl
         view,
         _plan(),
         _metadata(),
-        _source(),
-        [],
         inventory,
         runtime,
     )

@@ -9,6 +9,13 @@ from asago_artifact_generator.authoring.checks import (
 
 from .test_authoring_orchestration import _contract, _inventory, _plan
 
+_JUDGE = {"needed": True, "scope": "Whether the reply discloses the record."}
+
+
+def _claim_plan(level: str) -> dict:
+    judge = _JUDGE if level == "reply" else {"needed": False, "scope": None}
+    return _plan(observation_claim=_claim(level), semantic_judge=judge)
+
 
 def _claim(level: str) -> dict[str, str]:
     return {
@@ -40,7 +47,7 @@ def test_plan_claim_level_outside_downstream_support_is_rejected(level: str) -> 
 
 @pytest.mark.parametrize("level", ["command_attempt", "reply"])
 def test_plan_claim_levels_supported_downstream_are_accepted(level: str) -> None:
-    plan = _plan(observation_claim=_claim(level))
+    plan = _claim_plan(level)
 
     assert collect_plan_findings(plan, _inventory(), _contract()) == []
 
@@ -52,7 +59,7 @@ def test_runtime_contract_declared_claim_levels_extend_support() -> None:
     returned = collect_plan_findings(
         _plan(observation_claim=_claim("returned_result")), _inventory(), contract
     )
-    reply = collect_plan_findings(_plan(observation_claim=_claim("reply")), _inventory(), contract)
+    reply = collect_plan_findings(_claim_plan("reply"), _inventory(), contract)
 
     assert returned == []
     assert [finding.code for finding in reply] == ["unsupported_claim_level"]

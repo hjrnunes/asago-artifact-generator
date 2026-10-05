@@ -48,7 +48,7 @@ from .support import (
     stage_local_orchestrator,
     unreviewed_policy,
 )
-from .test_versioned_authoring_wire import _framed, _metadata, _source
+from .test_versioned_authoring_wire import _framed, _metadata
 from .test_versioned_authoring_wire import _inventory as _inventory_v2
 from .test_versioned_authoring_wire import _plan as _plan_v2
 from .test_versioned_authoring_wire import _runtime_contract as _runtime_contract_v2
@@ -188,7 +188,7 @@ def test_rendered_contracts_expose_complete_validator_shapes_and_empty_permissio
     )
     call2_contract = call2.payload["response_contract"]
     assert call2_contract["schema"]["properties"]["explanation"]["type"] == "string"
-    assert call2_contract["detector_interface"] == "evaluate(evidence: dict) -> dict"
+    assert "detector_interface" not in call2_contract
 
 
 def test_rendered_binding_contract_explains_direction_grammar_and_example() -> None:
@@ -608,7 +608,7 @@ def test_stage_correction_contains_complete_contract_and_all_findings(
     assert result.decoded_responses["call1"] == malformed
 
 
-def test_two_calls_build_an_immutable_package_with_exact_detector_bytes(tmp_path: Path) -> None:
+def test_two_calls_build_an_immutable_package_without_detector_code(tmp_path: Path) -> None:
     transport = ScriptedAuthoringTransport([json.dumps(_plan_v2()), _framed()])
     result = stage_local_orchestrator(
         transport=transport,
@@ -620,7 +620,8 @@ def test_two_calls_build_an_immutable_package_with_exact_detector_bytes(tmp_path
     assert result.status == "accepted"
     assert result.package_path == tmp_path / "package"
     assert result.package is not None
-    assert result.package.members["detector.py"] == _source()
+    assert "detector.py" not in result.package.members
+    assert "tool_call_condition.json" in result.package.members
     assert json.loads(result.package.members["explanation.json"])["text"]
     assert json.loads(result.package.members["examples.json"])["unsafe"]["label"] == (
         "author-proposed"
@@ -779,7 +780,7 @@ def test_transport_failure_is_not_eligible_for_normal_correction(
     [
         ([b"", json.dumps(_plan_v2()), _framed()], ["call1", "correction", "call2"]),
         (
-            [json.dumps(_plan_v2()), b"```json\n{broken}\n```\n```python\nx\n```\n", _framed()],
+            [json.dumps(_plan_v2()), b"```json\n{broken}\n```\n", _framed()],
             ["call1", "call2", "correction"],
         ),
     ],

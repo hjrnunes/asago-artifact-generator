@@ -19,16 +19,16 @@ AUTHORING_INTERFACE_VERSION_V2 = "artifact-authoring-v2"
 # The response wire remains v2, while its model-facing templates advance
 # independently; each constant names the template version dispatched now.
 CALL1_PROMPT_VERSION_V18 = "authoring-call1-v18"
-CALL2_PROMPT_VERSION_V21 = "authoring-call2-v21"
-CORRECTION_PROMPT_VERSION_V25 = "authoring-correction-v25"
+CALL2_PROMPT_VERSION_V22 = "authoring-call2-v22"
+CORRECTION_PROMPT_VERSION_V28 = "authoring-correction-v28"
 CORRECTION_PROMPT_VERSION_V27 = "authoring-correction-v27"
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
 PLAN_REVIEW_PROMPT_VERSION_V17 = "authoring-plan-review-v17"
-ARTIFACT_REVIEW_PROMPT_VERSION_V16 = "authoring-artifact-review-v16"
+ARTIFACT_REVIEW_PROMPT_VERSION_V17 = "authoring-artifact-review-v17"
 PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V17
-ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V16
+ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V17
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 
 
@@ -199,22 +199,8 @@ class PromptPacket:
         return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
 
 
-@dataclass(frozen=True)
-class ParsedCall2Response:
-    """The v2 metadata object and exact bytes between the Python fences."""
-
-    metadata: dict[str, Any]
-    python_bytes: bytes
-
-    @property
-    def python_source(self) -> str:
-        """Decode the source for syntax validation without changing its bytes."""
-
-        return self.python_bytes.decode("utf-8")
-
-
 class Call2FramingError(AuthoringError):
-    """Raised when a v2 Call 2 response is not exactly two fenced blocks."""
+    """Raised when a v2 Call 2 response is not exactly one JSON object."""
 
     def __init__(self, findings: list[Finding]) -> None:
         self.findings = list(findings)

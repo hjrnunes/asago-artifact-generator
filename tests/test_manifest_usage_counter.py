@@ -19,7 +19,7 @@ def _package(*, authoring: dict) -> object:
         scenario_id="usage-policy",
         input_kind="scenario-handoff-v3",
         source_digests={"input": "a" * 64},
-        members={"detector.py": b"source\n"},
+        members={"explanation.json": b"{}\n"},
         authoring=authoring,
     )
 

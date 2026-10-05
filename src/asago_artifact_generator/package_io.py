@@ -14,15 +14,14 @@ from typing import Any
 from .metadata_policy import secret_metadata_paths
 from .value_checks import is_sha256_hex
 
-PACKAGE_SCHEMA_VERSION = "artifact-package-v2"
-DETECTOR_INTERFACE_VERSION = "evaluate(evidence: dict) -> dict"
+PACKAGE_SCHEMA_VERSION = "artifact-package-v3"
+TOOL_CALL_CONDITION_MEMBER = "tool_call_condition.json"
 _ALLOWED_MEMBER_NAMES = {
     "plan.json",
     "stimulus.json",
     "setup.json",
     "bindings.json",
     "prerequisites.json",
-    "detector.py",
     "checks.json",
     "inputs.json",
     "source-hashes.json",
@@ -30,6 +29,12 @@ _ALLOWED_MEMBER_NAMES = {
     "judge.json",
     "explanation.json",
     "examples.json",
+    TOOL_CALL_CONDITION_MEMBER,
+}
+# Each claim level names the member that downstream detection reads.
+_CLAIM_LEVEL_MEMBERS = {
+    "command_attempt": TOOL_CALL_CONDITION_MEMBER,
+    "reply": "judge.json",
 }
 _CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "artifact-package"
 _INPUT_KINDS = {"scenario-handoff-v3"}
@@ -53,7 +58,6 @@ class PackageManifest:
     source_digests: dict[str, str]
     members: list[dict[str, Any]]
     authoring: dict[str, Any] = field(default_factory=dict)
-    detector_interface: str = DETECTOR_INTERFACE_VERSION
     runtime_capabilities: dict[str, Any] = field(default_factory=dict)
     creation_model: dict[str, Any] = field(default_factory=dict)
     manifest_digest: str = ""
@@ -68,7 +72,6 @@ class PackageManifest:
             "source_digests": self.source_digests,
             "members": self.members,
             "authoring": self.authoring,
-            "detector_interface": self.detector_interface,
             "runtime_capabilities": self.runtime_capabilities,
             "creation_model": self.creation_model,
         }
@@ -301,8 +304,6 @@ def _member_record(path: str, content: bytes) -> dict[str, Any]:
 
 
 def _media_type(path: str) -> str:
-    if path.endswith(".py"):
-        return "text/x-python"
     if path.endswith(".json"):
         return "application/json"
     if path.endswith(".yaml") or path.endswith(".yml"):
@@ -321,7 +322,6 @@ def _manifest_from_dict(value: Any) -> PackageManifest:
         "source_digests",
         "members",
         "authoring",
-        "detector_interface",
         "runtime_capabilities",
         "creation_model",
     }
@@ -338,7 +338,6 @@ def _manifest_from_dict(value: Any) -> PackageManifest:
         source_digests=value["source_digests"],
         members=value["members"],
         authoring=value["authoring"],
-        detector_interface=value["detector_interface"],
         runtime_capabilities=value["runtime_capabilities"],
         creation_model=value["creation_model"],
         manifest_digest=value.get("manifest_digest", ""),
@@ -369,7 +368,7 @@ def _validate_manifest_fields(manifest: PackageManifest) -> None:
 
 
 def _validate_manifest_names(manifest: PackageManifest) -> None:
-    for name in ("package_id", "scenario_id", "input_kind", "detector_interface"):
+    for name in ("package_id", "scenario_id", "input_kind"):
         if not isinstance(getattr(manifest, name), str) or not getattr(manifest, name):
             raise PackageIntegrityError(f"manifest field is blank: {name}")
     if manifest.input_kind not in _INPUT_KINDS:
@@ -409,6 +408,29 @@ def _validate_package(package: ArtifactPackage) -> None:
         expected = _member_record(relative, normalized[relative])
         if record != expected:
             raise PackageIntegrityError(f"member digest or metadata mismatch: {relative}")
+    _validate_claim_level_member(normalized)
+
+
+def _validate_claim_level_member(members: dict[str, bytes]) -> None:
+    plan_bytes = members.get("plan.json")
+    if plan_bytes is None:
+        return
+    try:
+        plan = json.loads(plan_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PackageIntegrityError(f"package plan.json is not JSON: {exc}") from exc
+    claim = plan.get("observation_claim") if isinstance(plan, dict) else None
+    level = claim.get("claim_level") if isinstance(claim, dict) else None
+    required = _CLAIM_LEVEL_MEMBERS.get(level)
+    if required is not None and required not in members:
+        raise PackageIntegrityError(f"{level} package requires member: {required}")
+
+
+def tool_call_condition_bytes(condition: dict[str, Any]) -> bytes:
+    """Serialize the handoff tool-call condition as the package member bytes."""
+
+    text = json.dumps(condition, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+    return text.encode("utf-8")
 
 
 def _sha256(value: bytes) -> str:
@@ -445,13 +467,14 @@ def _canonical_json(value: Any) -> bytes:
 
 __all__ = [
     "ArtifactPackage",
-    "DETECTOR_INTERFACE_VERSION",
     "PACKAGE_SCHEMA_VERSION",
     "PackageIntegrityError",
     "PackageManifest",
     "PackagePathError",
+    "TOOL_CALL_CONDITION_MEMBER",
     "build_package",
     "load_package",
+    "tool_call_condition_bytes",
     "write_package",
     "validate_artifact_package_contract",
 ]

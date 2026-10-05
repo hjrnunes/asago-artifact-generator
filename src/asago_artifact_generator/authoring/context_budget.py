@@ -12,13 +12,13 @@ from typing import Any
 from .core import (
     _CONTEXT_FRAMING_TOKEN_RESERVE,
     _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES,
-    ARTIFACT_REVIEW_PROMPT_VERSION_V16,
+    ARTIFACT_REVIEW_PROMPT_VERSION_V17,
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
     CALL1_PROMPT_VERSION_V18,
-    CALL2_PROMPT_VERSION_V21,
-    CORRECTION_PROMPT_VERSION_V25,
+    CALL2_PROMPT_VERSION_V22,
     CORRECTION_PROMPT_VERSION_V27,
+    CORRECTION_PROMPT_VERSION_V28,
     PLAN_REVIEW_PROMPT_VERSION_V17,
     PromptOverflowError,
     PromptPacket,
@@ -73,7 +73,7 @@ _CONTEXT_GUARD_CALIBRATION_SOURCES = (
     },
     {
         "stage": "correction",
-        "prompt_version": "authoring-correction-v25",
+        "prompt_version": "authoring-correction-v28",
         "model_facing_utf8_bytes": 81_894,
         "provider_reported_prompt_tokens": 19_054,
     },
@@ -125,11 +125,11 @@ def _enforce_prompt_size(
     assert_no_prompt_secrets(packet, allowed_urls=allowed_urls)
     if packet.version in {
         CALL1_PROMPT_VERSION_V18,
-        CALL2_PROMPT_VERSION_V21,
-        CORRECTION_PROMPT_VERSION_V25,
+        CALL2_PROMPT_VERSION_V22,
+        CORRECTION_PROMPT_VERSION_V28,
         CORRECTION_PROMPT_VERSION_V27,
         PLAN_REVIEW_PROMPT_VERSION_V17,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V16,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V17,
     }:
         assert_no_prompt_duplicates(packet)
     if maximum <= 0:

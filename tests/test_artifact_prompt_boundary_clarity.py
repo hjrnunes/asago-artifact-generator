@@ -1,21 +1,17 @@
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 
 from asago_artifact_generator.authoring.core import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
-    CALL2_PROMPT_VERSION_V21,
-    CORRECTION_PROMPT_VERSION_V25,
+    CALL2_PROMPT_VERSION_V22,
+    CORRECTION_PROMPT_VERSION_V28,
 )
 from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
     build_correction_context,
 )
-from asago_artifact_generator.authoring.prompt_context import (
-    artifact_observation_guide,
-    build_artifact_author_context,
-)
+from asago_artifact_generator.authoring.prompt_context import build_artifact_author_context
 from asago_artifact_generator.authoring.prompt_packets import build_call2_packet_v2
 from asago_artifact_generator.authoring.review import (
     build_artifact_review_packet,
@@ -26,7 +22,6 @@ from tests.test_versioned_prompt_roles import (
     _metadata,
     _plan,
     _runtime_contract,
-    _source,
     _view,
 )
 
@@ -54,18 +49,11 @@ def _tool_call_shaped_inputs() -> tuple[dict, dict]:
     return plan, runtime
 
 
-def _interface_section(user: str) -> str:
-    marker = "RUNTIME EVIDENCE INTERFACE\n"
-    assert user.count(marker) == 1
-    return user.split(marker, 1)[1].split("\n\n", 1)[0]
-
-
-def test_artifact_prompt_separates_capture_inventory_from_branch_requirements() -> None:
+def test_artifact_prompt_states_the_fixed_plan_without_a_detector_interface() -> None:
     plan, runtime = _tool_call_shaped_inputs()
     original_plan = deepcopy(plan)
     view, inventory = _view(), _inventory()
     context = build_artifact_author_context(view, plan, inventory, runtime)
-    guide = artifact_observation_guide(plan, runtime)
     author = build_call2_packet_v2(view, plan, inventory, runtime)
     correction = _render_correction_packet(
         build_correction_context(
@@ -76,55 +64,16 @@ def test_artifact_prompt_separates_capture_inventory_from_branch_requirements() 
         )
     )
 
-    assert guide["fixed_claim_level"] == "command_attempt"
-    assert guide["expected_capture_inventory"]["plan"] == [
-        "accepted_plan.required_observations.tool_calls"
-    ]
-    assert guide["expected_capture_inventory"]["runtime_contract"] == [
-        "runtime_contract.observation.tool_calls"
-    ]
-    assert "missing decoded_result" in guide["outcome_requirements"]["detected"]
-    assert (
-        "availability is captured and completeness is complete"
-        in guide["outcome_requirements"]["not_detected"]
-    )
-    assert "prerequisite" in guide["outcome_requirements"]["inconclusive"]
-    assert "OBSERVATION DECISION GUIDE" in author.user
-    assert "OBSERVATION DECISION GUIDE" in correction.user
-    assert "needs_plan_revision" not in author.system + author.user
-    assert "needs_plan_revision" not in correction.system + correction.user
+    assert context["runtime_contract"] == runtime
+    for packet in (author, correction):
+        assert "OBSERVATION DECISION GUIDE" not in packet.user
+        assert "RUNTIME EVIDENCE INTERFACE" not in packet.user
+        assert "needs_plan_revision" not in packet.system + packet.user
+    assert "RUNTIME CAPABILITIES" in author.user
+    assert "tool-call condition" in author.system
     assert plan == original_plan
-    assert author.version == CALL2_PROMPT_VERSION_V21
-    assert correction.version == CORRECTION_PROMPT_VERSION_V25
-
-
-def test_runtime_interface_has_one_path_table_and_a_valid_absence_result_example() -> None:
-    plan, runtime = _tool_call_shaped_inputs()
-    packet = build_call2_packet_v2(_view(), plan, _inventory(), runtime)
-    interface = _interface_section(packet.user)
-
-    assert '"synthetic_excerpt"' not in interface
-    assert '"bindings.<name>"' not in interface
-    assert '"outcomes":' not in interface
-    assert '"claim_level":["command_attempt"]' in interface
-    assert '"complete_absence_example"' in interface
-    assert (
-        json.dumps(
-            ["tool_calls", "availability.tool_calls", "completeness.tool_calls"],
-            separators=(",", ":"),
-        )
-        in interface
-    )
-
-
-def test_artifact_prompt_explains_reference_namespaces_and_runtime_bindings() -> None:
-    plan, runtime = _tool_call_shaped_inputs()
-    packet = build_call2_packet_v2(_view(), plan, _inventory(), runtime)
-
-    assert "Plan source handles and prerequisite source citations are provenance" in packet.system
-    assert "evidence.bindings.<declared name>" in packet.system
-    assert "Detector result evidence_refs must resolve within the actual evidence" in packet.system
-    assert "Synthetic examples and controls substitute their own values" in packet.system
+    assert author.version == CALL2_PROMPT_VERSION_V22
+    assert correction.version == CORRECTION_PROMPT_VERSION_V28
 
 
 def test_artifact_review_does_not_replay_unrelated_judge_facts_or_capabilities() -> None:
@@ -132,8 +81,6 @@ def test_artifact_review_does_not_replay_unrelated_judge_facts_or_capabilities()
         _view(),
         _plan(),
         _metadata(),
-        _source(),
-        [],
         _inventory(),
         _runtime_contract(),
     )
@@ -167,16 +114,14 @@ def test_correction_renders_optional_stage_context_and_current_review_view() -> 
         view,
         plan,
         _metadata(),
-        _source(),
-        [],
         inventory,
         runtime,
     )
     assert correction.user.count("SUPPLIED STAGE CONTEXT\n") == 1
     assert "raw result unavailable; verdict read from source" in correction.user
-    assert correction.user.count("OBSERVATION DECISION GUIDE\n") == 1
+    assert "OBSERVATION DECISION GUIDE\n" not in correction.user
     assert review.version == ARTIFACT_REVIEW_PROMPT_VERSION
-    assert "OBSERVATION DECISION GUIDE\n" in review.user
+    assert "OBSERVATION DECISION GUIDE\n" not in review.user
 
 
 def test_artifact_review_inventory_keeps_only_records_the_plan_cites() -> None:

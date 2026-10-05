@@ -14,9 +14,9 @@ from the environment, and outbound sockets refused.  Only the OpenAI client
 inside ``PrivateModelAuthoringTransport`` is replaced: it checks every request
 against the recorded prompt and answers with the recorded response.  Argument
 parsing, profile loading, request controls, response capture, validation,
-corrections, reviews, and detector controls (in Docker) all run for real.  The
-gate then compares every output file and the item log with the recording.
-Only the differences in :data:`ALLOWED_DIFFERENCES` are permitted.
+corrections, and reviews all run for real.  The gate then compares every
+output file and the item log with the recording.  Only the differences in
+:data:`ALLOWED_DIFFERENCES` are permitted.
 """
 
 from __future__ import annotations
@@ -289,8 +289,7 @@ def replay_environment(base: dict[str, str] | None = None) -> dict[str, str]:
 def install_network_guard(log_path: Path) -> None:
     """Refuse and log every outbound IP connection and name lookup in this process.
 
-    Unix sockets stay open; detector controls start Docker through its CLI,
-    which runs in its own process.
+    Unix sockets stay open.
     """
 
     def refuse(target: object) -> None:

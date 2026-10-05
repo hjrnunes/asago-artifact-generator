@@ -15,7 +15,6 @@ from .core import (
     _PROMPT_URL_RE,
     AuthoringError,
     Finding,
-    ParsedCall2Response,
     PromptPacket,
     PromptPreflightError,
     _canonical_json,
@@ -63,9 +62,6 @@ def prompt_data_urls(*values: Any) -> frozenset[str]:
             visit(item.payload)
             visit(item.owner_scope)
             visit(item.gherkin_text)
-        elif isinstance(item, ParsedCall2Response):
-            visit(item.metadata)
-            visit(item.python_bytes)
         elif isinstance(item, Finding):
             visit(item.to_dict())
         elif isinstance(item, bytes):

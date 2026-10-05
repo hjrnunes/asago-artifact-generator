@@ -12,14 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..detector_controls import (
-    ControlCase,
-    DetectorControlFeedback,
-    build_control_cases_for_runtime_contract,
-    build_control_skips_for_runtime_contract,
-    build_detector_feedback,
-    run_detector_controls,
-)
 from ..failure_evidence import (
     failure_evidence_path,
     metadata_record,
@@ -31,17 +23,11 @@ from ..input_adapter import InputView
 from ..package_io import write_package
 from .checks import (
     _is_blocked_plan,
+    _plan_claim_level,
     collect_artifact_findings_v2,
     collect_plan_findings_v2,
-    parse_call2_response,
 )
 from .context_budget import _enforce_prompt_size
-from .controls import (
-    SuppliedControlCases,
-    _deduplicate_control_cases,
-    _mark_control_origins,
-    _validate_supplied_control_cases,
-)
 from .core import (
     _REVIEW_STAGES,
     MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK,
@@ -56,7 +42,6 @@ from .core import (
     Call1FramingError,
     Call2FramingError,
     Finding,
-    ParsedCall2Response,
     PromptOverflowError,
     PromptPacket,
     PromptPreflightError,
@@ -81,14 +66,17 @@ from .policy import (
     policy_role_limits,
 )
 from .prompt_context import (
-    _plan_semantic_judge_needed,
     build_artifact_author_context,
     build_plan_author_context,
     scenario_provenance_ids,
 )
 from .prompt_packets import build_call1_packet_v2, build_call2_packet_v2
 from .prompt_safety import assert_no_secrets, prompt_data_urls
-from .response_decode import _decode_v2_json_response, _response_parts
+from .response_decode import (
+    _decode_call2_json_response,
+    _decode_v2_json_response,
+    _response_parts,
+)
 from .review import (
     _review_configuration_digest,
     _review_contract_digest,
@@ -120,14 +108,11 @@ def _preflight_stop(exc: PromptPreflightError, stage: str) -> _StageStop:
 
 def _validate_orchestrator_arguments(
     transport: AuthoringTransport,
-    supplied_control_cases: SuppliedControlCases | None,
     discovery_provenance: dict[str, Any] | None,
     policy: AuthoringPolicy,
 ) -> None:
     if getattr(transport, "max_retries", None) != 0:
         raise ValueError("authoring transport must set max_retries=0")
-    if supplied_control_cases is not None:
-        _validate_supplied_control_cases(supplied_control_cases)
     if discovery_provenance is not None and not isinstance(discovery_provenance, dict):
         raise ValueError("discovery_provenance must be a mapping")
     if not isinstance(policy, AuthoringPolicy):
@@ -150,28 +135,10 @@ def _default_budget(policy: AuthoringPolicy) -> AuthoringBudget:
     )
 
 
-def _record_control_evidence(
-    record: dict[str, Any],
-    controls: list[dict[str, Any]],
-    deduplication: Any,
-    skips: list[dict[str, Any]],
-) -> None:
-    record["detector_controls"] = controls
-    record["control_deduplication"] = deepcopy(deduplication)
-    if skips:
-        record["detector_control_skips"] = deepcopy(skips)
-
-
 def _correction_checks_not_run(failed_stage: str) -> list[str]:
     if failed_stage == "call1":
         return ["plan_validation"]
-    return ["artifact_validation", "detector_controls"]
-
-
-def _secret_scan_target(validation_value: dict[str, Any] | ParsedCall2Response) -> Any:
-    if isinstance(validation_value, ParsedCall2Response):
-        return validation_value.metadata
-    return validation_value
+    return ["artifact_validation"]
 
 
 _REVIEW_EVIDENCE_KEYS = (
@@ -203,14 +170,15 @@ def _finding_from_record(item: Any) -> Finding | None:
     )
 
 
+def _decode_stage_json(stage: str, raw: bytes) -> tuple[dict[str, Any], str | None]:
+    if stage == "call2":
+        return _decode_call2_json_response(raw)
+    return _decode_v2_json_response(raw)
+
+
 def _handoff_claim_level(view: InputView) -> Any:
     outcome = view.payload.get("safe_observable_outcome")
     return outcome.get("claim_level") if isinstance(outcome, dict) else None
-
-
-def _plan_claim_level(plan: dict[str, Any]) -> Any:
-    claim = plan.get("observation_claim")
-    return claim.get("claim_level") if isinstance(claim, dict) else None
 
 
 def _tool_call_condition_missing(view: InputView) -> Finding | None:
@@ -284,8 +252,8 @@ class _ReviewOutcome:
 class AuthoringOrchestrator:
     """Run target-free authoring under a stage-local correction policy.
 
-    Each stage keeps its own correction allowance, deterministic checks and
-    detector controls precede every semantic review, and review decisions
+    Each stage keeps its own correction allowance, deterministic checks
+    precede every semantic review, and review decisions
     route corrections without shared state.
     """
 
@@ -299,12 +267,9 @@ class AuthoringOrchestrator:
         prior_author_correction_spend: int = 0,
         prior_review_spend: int = 0,
         policy: AuthoringPolicy,
-        supplied_control_cases: SuppliedControlCases | None = None,
         discovery_provenance: dict[str, Any] | None = None,
     ) -> None:
-        _validate_orchestrator_arguments(
-            transport, supplied_control_cases, discovery_provenance, policy
-        )
+        _validate_orchestrator_arguments(transport, discovery_provenance, policy)
         self.transport = transport
         self.package_dir = Path(package_dir)
         self.task_id = task_id
@@ -333,10 +298,6 @@ class AuthoringOrchestrator:
         self._review_revision_allowances: dict[str, int] | None = None
         self._review_status: dict[str, str] | None = None
         self._review_evidence: dict[str, dict[str, Any]] = {}
-        self._last_controls: list[dict[str, Any]] | None = None
-        self._control_condition: dict[str, Any] | None = None
-        self._last_detector_feedback: tuple[DetectorControlFeedback, ...] = ()
-        self._supplied_control_cases = supplied_control_cases
         self._raw_responses: dict[str, bytes] = {}
         self._decoded_responses: dict[str, Any] = {}
         self._prompt_packets: dict[str, PromptPacket] = {}
@@ -351,117 +312,13 @@ class AuthoringOrchestrator:
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
     ) -> AuthoringResult:
-        condition = view.payload.get("discriminating_condition")
-        self._control_condition = deepcopy(condition) if isinstance(condition, dict) else None
         return self._run_v2_policy(view, inventory, runtime_contract)
-
-    def _run_detector_controls(
-        self,
-        parsed: ParsedCall2Response,
-        plan: dict[str, Any],
-        inventory: dict[str, Any],
-        runtime_contract: dict[str, Any],
-        findings: list[Finding],
-    ) -> list[Finding]:
-        """Run finite controls before correction or package publication."""
-
-        normal_cases = build_control_cases_for_runtime_contract(
-            runtime_contract,
-            plan,
-            parsed.metadata,
-            inventory,
-            condition=self._control_condition,
-        )
-        skips = [
-            skip.as_dict()
-            for skip in build_control_skips_for_runtime_contract(
-                runtime_contract,
-                plan,
-                parsed.metadata,
-                inventory,
-                condition=self._control_condition,
-            )
-        ]
-        supplied_cases = self._resolve_supplied_control_cases(plan, parsed.metadata)
-        cases, deduplication = _deduplicate_control_cases(normal_cases, supplied_cases)
-        raw_findings, controls = run_detector_controls(
-            parsed.python_bytes,
-            cases=cases,
-            plan=plan,
-            metadata=parsed.metadata,
-            inventory=inventory,
-            runtime_contract=runtime_contract,
-            condition=self._control_condition,
-        )
-        if self._supplied_control_cases is not None:
-            _mark_control_origins(controls, len(normal_cases))
-        self._last_controls = controls
-        self._last_detector_feedback = build_detector_feedback(
-            cases,
-            controls,
-            judge_enabled=(
-                _plan_semantic_judge_needed(plan)
-                or parsed.metadata.get("semantic_judge_spec") is not None
-            ),
-        )
-        if self._ledger:
-            _record_control_evidence(self._ledger[-1], controls, deduplication, skips)
-        if self._failure_evidence.get("attempts"):
-            _record_control_evidence(self._failure_attempt(), controls, deduplication, skips)
-        control_findings = [
-            Finding(item["code"], item["detail"], item.get("path", "")) for item in raw_findings
-        ]
-        if control_findings:
-            self._findings.extend(control_findings)
-            if self._ledger:
-                prior = self._ledger[-1].get("findings", [])
-                self._ledger[-1]["findings"] = [
-                    *prior,
-                    *(finding.to_dict() for finding in control_findings),
-                ]
-            self._record_failures(control_findings)
-            return [*findings, *control_findings]
-        self._persist_failure_evidence()
-        return findings
-
-    def _resolve_supplied_control_cases(
-        self,
-        plan: dict[str, Any],
-        metadata: dict[str, Any],
-    ) -> tuple[ControlCase, ...]:
-        """Resolve the caller's supplied-control hook for one candidate.
-
-        A provider callable receives the current candidate plan and metadata so
-        the caller can mechanically remap candidate-local names and dynamic
-        record IDs into its case evidence.
-        """
-
-        hook = self._supplied_control_cases
-        if hook is None:
-            return ()
-        resolved = hook(plan, metadata) if callable(hook) else hook
-        if isinstance(resolved, (str, bytes)) or not isinstance(resolved, Sequence):
-            raise ValueError("supplied_control_cases must resolve to ControlCase instances")
-        cases = tuple(resolved)
-        for case in cases:
-            if not isinstance(case, ControlCase):
-                raise ValueError("supplied_control_cases must resolve to ControlCase instances")
-        return cases
-
-    @staticmethod
-    def _parse_candidate_for_controls(raw: bytes) -> ParsedCall2Response | None:
-        """Recover a syntactically complete candidate without repairing it."""
-
-        try:
-            return parse_call2_response(raw)
-        except (Call2FramingError, UnicodeDecodeError, ValueError):
-            return None
 
     def _request_and_validate_v2(
         self,
         packet: PromptPacket,
         findings_collector: Any,
-    ) -> tuple[dict[str, Any] | ParsedCall2Response | None, list[Finding], bytes]:
+    ) -> tuple[dict[str, Any] | None, list[Finding], bytes]:
         """Dispatch and validate one v2 stage without changing response bytes."""
 
         stage = packet.stage
@@ -546,21 +403,10 @@ class AuthoringOrchestrator:
         self._record_available_response(raw, usage, controls, response_capture)
         return raw, record
 
-    def _decode_v2_stage(
-        self, stage: str, raw: bytes, record: dict[str, Any]
-    ) -> dict[str, Any] | ParsedCall2Response:
+    def _decode_v2_stage(self, stage: str, raw: bytes, record: dict[str, Any]) -> dict[str, Any]:
         """Decode one v2 stage response and record the decoded output."""
 
-        if stage == "call2":
-            decoded = parse_call2_response(raw)
-            self._raw_responses["call2-python"] = decoded.python_bytes
-            record["framing"] = "two-block-v2"
-            record["decoded_output"] = decoded.metadata
-            self._decoded_responses[stage] = decoded.metadata
-            self._failure_attempt()["decoded_output"] = decoded.metadata
-            self._record_candidate_digest(decoded)
-            return decoded
-        decoded_json, transformation = _decode_v2_json_response(raw)
+        decoded_json, transformation = _decode_stage_json(stage, raw)
         if transformation:
             self._transformations.append(transformation)
             record["transformation"] = transformation
@@ -578,11 +424,7 @@ class AuthoringOrchestrator:
     ) -> list[Finding]:
         """Record a framing or parse failure for a v2 stage and return its findings."""
 
-        checks_not_run = (
-            ["plan_validation"]
-            if stage == "call1"
-            else ["artifact_validation", "detector_controls"]
-        )
+        checks_not_run = _correction_checks_not_run(stage)
         if isinstance(exc, (Call1FramingError, Call2FramingError)):
             self._findings.extend(exc.findings)
             record["framing_findings"] = [finding.to_dict() for finding in exc.findings]
@@ -597,17 +439,11 @@ class AuthoringOrchestrator:
         return [finding]
 
     @staticmethod
-    def _v2_response_rejection(
-        stage: str, validation_value: dict[str, Any] | ParsedCall2Response
-    ) -> Finding | None:
+    def _v2_response_rejection(stage: str, validation_value: dict[str, Any]) -> Finding | None:
         """Return the finding that rejects a decoded value before its stage checks run."""
 
         try:
-            assert_no_secrets(
-                validation_value.metadata
-                if isinstance(validation_value, ParsedCall2Response)
-                else validation_value
-            )
+            assert_no_secrets(validation_value)
         except AuthoringError as exc:
             return Finding("secret_in_response", str(exc), stage)
         if stage == "call1" and not isinstance(validation_value, dict):
@@ -830,12 +666,11 @@ class AuthoringOrchestrator:
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
         allowance_kind: str,
-    ) -> tuple[dict[str, Any] | ParsedCall2Response | None, list[Finding], bytes] | None:
+    ) -> tuple[dict[str, Any] | None, list[Finding], bytes] | None:
         """Replace one failed v2 response in its original stage format.
 
         The caller owns the stage-local allowance decision. A syntactically
-        valid candidate is returned with its validation findings so the caller
-        can run controls before deciding whether to correct again.
+        valid candidate is returned with its validation findings.
         ``allowance_kind`` records which stage allowance the caller spent on
         the dispatched correction.
         """
@@ -914,7 +749,6 @@ class AuthoringOrchestrator:
             original_context=original_context,
             current_output=failed_response,
             findings=findings,
-            detector_feedback=(self._last_detector_feedback if failed_stage == "call2" else None),
         )
         # Preserve the generic compatibility members consumed by historical
         # offline evidence readers.  They are not rendered into the new
@@ -1014,22 +848,16 @@ class AuthoringOrchestrator:
         self._record_available_response(raw, usage, controls, response_capture)
         return raw
 
-    def _decode_correction_response(
-        self, raw: bytes, failed_stage: str
-    ) -> tuple[dict[str, Any] | ParsedCall2Response, Any]:
-        """Return the value to validate and the decoded output of a correction response."""
+    def _decode_correction_response(self, raw: bytes, failed_stage: str) -> dict[str, Any]:
+        """Return the decoded output of a correction response."""
 
-        if failed_stage == "call2":
-            parsed = parse_call2_response(raw)
-            self._raw_responses["call2-python"] = parsed.python_bytes
-            return parsed, parsed.metadata
-        decoded, transformation = _decode_v2_json_response(raw)
+        decoded, transformation = _decode_stage_json(failed_stage, raw)
         if transformation:
             self._transformations.append(transformation)
             self._failure_evidence["transformations"] = list(self._transformations)
             self._ledger[-1]["transformation"] = transformation
             self._failure_attempt()["transformation"] = transformation
-        return decoded, decoded
+        return decoded
 
     def _validate_correction_response(
         self,
@@ -1038,7 +866,7 @@ class AuthoringOrchestrator:
         view: InputView,
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
-    ) -> tuple[dict[str, Any] | ParsedCall2Response, Any, list[Finding]] | None:
+    ) -> tuple[dict[str, Any], Any, list[Finding]] | None:
         """Decode and validate a correction; record a failure and return None.
 
         Returns the value to validate, the decoded output, and the recorded
@@ -1047,17 +875,17 @@ class AuthoringOrchestrator:
 
         checks_not_run = _correction_checks_not_run(failed_stage)
         try:
-            validation_value, decoded = self._decode_correction_response(raw, failed_stage)
-            assert_no_secrets(_secret_scan_target(validation_value))
+            decoded = self._decode_correction_response(raw, failed_stage)
+            assert_no_secrets(decoded)
             self._decoded_responses[f"correction-{failed_stage}"] = decoded
             self._failure_attempt()["decoded_output"] = decoded
-            self._record_candidate_digest(validation_value)
+            self._record_candidate_digest(decoded)
             self._persist_failure_evidence()
             if not isinstance(decoded, dict):
                 raise ValueError("correction response must decode to an object")
             transformation_count = len(self._transformations)
             replacement_findings = self._correction_findings(
-                failed_stage, decoded, validation_value, view, inventory, runtime_contract
+                failed_stage, decoded, view, inventory, runtime_contract
             )
             self._record_validation_transformations(transformation_count)
             if replacement_findings:
@@ -1075,13 +903,12 @@ class AuthoringOrchestrator:
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError, AuthoringError) as exc:
             self._record_correction_failure(exc, failed_stage, checks_not_run)
             return None
-        return validation_value, decoded, replacement_findings
+        return decoded, decoded, replacement_findings
 
     def _correction_findings(
         self,
         failed_stage: str,
         decoded: dict[str, Any],
-        validation_value: dict[str, Any] | ParsedCall2Response,
         view: InputView,
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
@@ -1098,7 +925,7 @@ class AuthoringOrchestrator:
                 transformations=self._transformations,
             )
         return collect_artifact_findings_v2(
-            validation_value,
+            decoded,
             self._decoded_responses["call1"],
             inventory,
             runtime_contract,
@@ -1124,8 +951,8 @@ class AuthoringOrchestrator:
     ) -> AuthoringResult:
         """Run the stage-local correction and review state machine.
 
-        Each stage owns its correction allowance; deterministic checks and
-        detector controls precede every semantic review; and review decisions
+        Each stage owns its correction allowance; deterministic checks precede
+        every semantic review; and review decisions
         route corrections without shared state or hidden retries.
         """
 
@@ -1158,7 +985,7 @@ class AuthoringOrchestrator:
         artifact = self._artifact_stage_policy(view, plan, inventory, runtime_contract)
         if isinstance(artifact, _StageStop):
             return self._policy_result(artifact.status, plan, artifact.findings)
-        parsed, metadata, artifact_definition = artifact
+        metadata, artifact_definition = artifact
         try:
             package = _package_from_responses(
                 view=view,
@@ -1173,7 +1000,6 @@ class AuthoringOrchestrator:
                 inventory=inventory,
                 runtime_contract=runtime_contract,
                 discovery_provenance=self.discovery_provenance,
-                detector_bytes=parsed.python_bytes,
                 policy=self._effective_policy_record(),
                 review_status=dict(self._review_status),
                 preserved_reviews=self._review_evidence,
@@ -1383,8 +1209,8 @@ class AuthoringOrchestrator:
         plan: dict[str, Any],
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
-    ) -> tuple[ParsedCall2Response, dict[str, Any], dict[str, Any]] | _StageStop:
-        """Author, check, control, correct, and review the artifact stage."""
+    ) -> tuple[dict[str, Any], dict[str, Any]] | _StageStop:
+        """Author, check, correct, and review the artifact stage."""
 
         try:
             packet = build_call2_packet_v2(view, plan, inventory, runtime_contract)
@@ -1400,16 +1226,14 @@ class AuthoringOrchestrator:
                 transformations=self._transformations,
             )
 
-        parsed: ParsedCall2Response | None = None
+        parsed: dict[str, Any] | None = None
         pending: Sequence[Finding] | None = None
         review_driven = False
         raw = b""
         while True:
             if parsed is None:
                 if pending is None:
-                    parsed, pending, raw = self._first_artifact_candidate(
-                        packet, collector, plan, inventory, runtime_contract
-                    )
+                    parsed, pending, raw = self._request_and_validate_v2(packet, collector)
                 if parsed is None:
                     step = self._correct_artifact_candidate(
                         view,
@@ -1436,37 +1260,6 @@ class AuthoringOrchestrator:
             review_driven = True
             parsed = None
 
-    def _first_artifact_candidate(
-        self,
-        packet: PromptPacket,
-        collector: Any,
-        plan: dict[str, Any],
-        inventory: dict[str, Any],
-        runtime_contract: dict[str, Any],
-    ) -> tuple[ParsedCall2Response | None, list[Finding], bytes]:
-        """Request the artifact, run controls on any runnable candidate, and keep it if clean."""
-
-        candidate, pending, raw = self._request_and_validate_v2(packet, collector)
-        recover = (
-            candidate
-            if isinstance(candidate, ParsedCall2Response)
-            else (self._parse_candidate_for_controls(raw) if raw else None)
-        )
-        if recover is not None:
-            # A runnable candidate is exercised where the isolated
-            # control interface safely supports it, even beside
-            # structural findings; every obtainable defect is
-            # collected before any correction decision.
-            pending = self._run_detector_controls(
-                recover,
-                plan,
-                inventory,
-                runtime_contract,
-                pending,
-            )
-        parsed = candidate if candidate is not None and not pending else None
-        return parsed, pending, raw
-
     def _author_stop_or_unresolved(self, fallback: Sequence[Finding]) -> _StageStop:
         """Stop for a transport or budget finding, else report the recorded findings."""
 
@@ -1486,8 +1279,8 @@ class AuthoringOrchestrator:
         pending: Sequence[Finding] | None,
         raw: bytes,
         review_driven: bool,
-    ) -> tuple[ParsedCall2Response | None, list[Finding], bytes] | _StageStop:
-        """Spend one artifact allowance on a correction and run controls on its candidate.
+    ) -> tuple[dict[str, Any] | None, list[Finding], bytes] | _StageStop:
+        """Spend one artifact allowance on a correction of the pending findings.
 
         The returned candidate is None while findings remain.
         """
@@ -1521,33 +1314,20 @@ class AuthoringOrchestrator:
         if correction is None:
             return self._author_stop_or_unresolved(pending)
         corrected_candidate, correction_findings, raw = correction
-        if not isinstance(corrected_candidate, ParsedCall2Response):
+        if not isinstance(corrected_candidate, dict):
             return self._author_stop_or_unresolved(correction_findings)
-        controlled = self._run_detector_controls(
-            corrected_candidate,
-            plan,
-            inventory,
-            runtime_contract,
-            list(correction_findings),
-        )
-        if controlled:
-            # A corrected candidate can fail deterministic checks,
-            # controls, or both. Keep every finding and use the
-            # latest candidate/control feedback for the next
-            # correction while allowance remains.
-            return None, controlled, raw
-        return corrected_candidate, controlled, raw
+        if correction_findings:
+            return None, list(correction_findings), raw
+        return corrected_candidate, [], raw
 
     def _review_artifact_candidate(
         self,
         view: InputView,
         plan: dict[str, Any],
-        parsed: ParsedCall2Response,
+        parsed: dict[str, Any],
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
-    ) -> (
-        tuple[ParsedCall2Response, dict[str, Any], dict[str, Any]] | _StageStop | _ArtifactRevision
-    ):
+    ) -> tuple[dict[str, Any], dict[str, Any]] | _StageStop | _ArtifactRevision:
         """Accept a clean candidate, or review it and stop, accept, or ask for a revision."""
 
         if not self.policy.review_artifact:
@@ -1557,9 +1337,7 @@ class AuthoringOrchestrator:
             review_packet = build_artifact_review_packet(
                 view,
                 plan,
-                parsed.metadata,
-                parsed.python_bytes,
-                self._last_controls,
+                parsed,
                 inventory,
                 runtime_contract,
             )
@@ -1588,12 +1366,11 @@ class AuthoringOrchestrator:
 
     @staticmethod
     def _artifact_parts(
-        parsed: ParsedCall2Response,
+        metadata: dict[str, Any],
         plan: dict[str, Any],
-    ) -> tuple[ParsedCall2Response, dict[str, Any], dict[str, Any]]:
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Join the validated candidate with the accepted plan-owned fields."""
 
-        metadata = parsed.metadata
         artifact = {
             **metadata,
             # These values are copied from the accepted plan.  Call 2 and its
@@ -1603,7 +1380,7 @@ class AuthoringOrchestrator:
             "prerequisites": plan["prerequisites"],
             "required_observations": plan["required_observations"],
         }
-        return parsed, metadata, artifact
+        return metadata, artifact
 
     def _semantic_review(self, review_key: str, packet: PromptPacket) -> _ReviewOutcome:
         """Dispatch one semantic review and classify its closed outcome."""
@@ -1995,17 +1772,10 @@ class AuthoringOrchestrator:
     def _failure_attempt(self) -> dict[str, Any]:
         return self._failure_evidence["attempts"][-1]
 
-    def _record_candidate_digest(self, candidate: dict[str, Any] | ParsedCall2Response) -> None:
+    def _record_candidate_digest(self, candidate: dict[str, Any]) -> None:
         """Pin the normalized candidate bytes to the current dispatch event."""
 
-        if isinstance(candidate, ParsedCall2Response):
-            digest = _sha256(
-                _canonical_json(candidate.metadata).encode("utf-8")
-                + b"\0"
-                + candidate.python_bytes
-            )
-        else:
-            digest = _sha256(_canonical_json(candidate).encode("utf-8"))
+        digest = _sha256(_canonical_json(candidate).encode("utf-8"))
         self._ledger[-1]["candidate_sha256"] = digest
         self._failure_attempt()["candidate_sha256"] = digest
 

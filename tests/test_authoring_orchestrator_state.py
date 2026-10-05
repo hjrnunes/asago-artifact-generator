@@ -41,11 +41,6 @@ def test_orchestrator_rejects_invalid_arguments(
         _orchestrator(tmp_path, **overrides)
 
 
-def test_supplied_control_cases_are_kept_as_given(tmp_path: Path) -> None:
-    orchestrator = _orchestrator(tmp_path)
-    assert orchestrator._supplied_control_cases is None
-
-
 @pytest.mark.parametrize(
     ("codes", "expected_status", "expected_codes"),
     [

@@ -8,12 +8,11 @@ from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
 from asago_artifact_generator.authoring.contracts import (
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
-    evidence_packet_contract,
 )
 from asago_artifact_generator.authoring.core import (
-    ARTIFACT_REVIEW_PROMPT_VERSION_V16,
+    ARTIFACT_REVIEW_PROMPT_VERSION_V17,
     CALL1_PROMPT_VERSION_V18,
-    CALL2_PROMPT_VERSION_V21,
+    CALL2_PROMPT_VERSION_V22,
     CORRECTION_PROMPT_VERSION_V27,
     PLAN_REVIEW_PROMPT_VERSION_V17,
     PromptOverflowError,
@@ -47,7 +46,6 @@ from asago_artifact_generator.authoring.review import (
     build_plan_review_packet,
     build_plan_reviewer_context,
 )
-from asago_artifact_generator.detector_runtime import _resolve_evidence_ref
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
 
@@ -173,26 +171,12 @@ def _metadata() -> dict:
                 "description": "missing capture",
             },
         },
-        "explanation": "The detector reports only the supported attempt observation.",
+        "explanation": "The stimulus requests the documented operation at command level.",
     }
 
 
-def _source() -> bytes:
-    return (
-        b"def evaluate(evidence: dict) -> dict:\n"
-        b"    return {'outcome': 'inconclusive', 'reason': 'missing', "
-        b"'evidence_refs': ['tool_calls'], 'claim_level': 'command_attempt'}\n"
-    )
-
-
 def _framed() -> bytes:
-    return (
-        b"```json\n"
-        + json.dumps(_metadata(), sort_keys=True).encode()
-        + b"\n```\n```python\n"
-        + _source()
-        + b"```\n"
-    )
+    return b"```json\n" + json.dumps(_metadata(), sort_keys=True).encode() + b"\n```\n"
 
 
 def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_sections() -> None:
@@ -209,8 +193,6 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
             view,
             plan,
             _metadata(),
-            _source(),
-            [{"name": "positive", "status": "passed"}],
             inventory,
             runtime,
         ),
@@ -227,8 +209,8 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     assert [packet.version for packet in packets] == [
         CALL1_PROMPT_VERSION_V18,
         PLAN_REVIEW_PROMPT_VERSION_V17,
-        CALL2_PROMPT_VERSION_V21,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V16,
+        CALL2_PROMPT_VERSION_V22,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V17,
         CORRECTION_PROMPT_VERSION_V27,
     ]
     assert all(packet.sha256 for packet in packets)
@@ -254,8 +236,6 @@ def test_all_dispatched_initial_roles_render_shared_meanings_once() -> None:
         view,
         plan,
         _metadata(),
-        _source(),
-        [{"name": "positive", "status": "passed"}],
         inventory,
         runtime,
     )
@@ -269,8 +249,8 @@ def test_all_dispatched_initial_roles_render_shared_meanings_once() -> None:
     assert NEUTRAL_PLAN_OUTCOME_EXAMPLE not in artifact_review.user
     assert "Write the three observation_claim branches as decision conditions." in call1.user
     assert "Apply PLAN FIELD MEANINGS when interpreting the candidate." in plan_review.system
-    assert "Implement the accepted plan's alternative decision conditions" in call2.system
-    assert "Use PLAN FIELD MEANINGS to compare the detector" in artifact_review.system
+    assert "The artifact contains no detector code." in call2.system
+    assert "Use PLAN FIELD MEANINGS to compare the artifact" in artifact_review.system
 
 
 def test_correction_packets_render_relevant_meanings_once() -> None:
@@ -294,7 +274,7 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
     artifact_correction = build_correction_context(
         failed_stage="call2",
         original_context=build_artifact_author_context(view, plan, inventory, runtime),
-        current_output="```json\n{}\n```\n```python\npass\n```\n",
+        current_output="```json\n{}\n```\n",
         findings=[],
     )
     artifact_packet = _render_correction_packet(artifact_correction)
@@ -402,7 +382,7 @@ def test_reviewer_contexts_are_fresh_and_include_authoritative_facts_and_bounds(
         "explanation",
     ]
     assert "setup_recipe" not in artifact_context["response_contract"]["fields"]
-    assert artifact_context["neutral_example"]["metadata"]["stimulus"]
+    assert artifact_context["neutral_example"]["artifact"]["stimulus"]
 
 
 def test_reviewer_systems_keep_normative_bounded_decision_instructions() -> None:
@@ -416,8 +396,6 @@ def test_reviewer_systems_keep_normative_bounded_decision_instructions() -> None
         view,
         plan,
         _metadata(),
-        _source(),
-        [{"name": "positive", "status": "passed"}],
         inventory,
         runtime,
     ).system
@@ -449,53 +427,32 @@ def test_artifact_reviewer_and_correction_contexts_bound_candidate_and_active_fo
     inventory = _inventory()
     runtime = _runtime_contract()
     plan = _plan()
-    review = build_artifact_review_packet(
-        view,
-        plan,
-        _metadata(),
-        _source(),
-        [
-            {
-                "name": "positive",
-                "expected_outcome": "detected",
-                "observed_outcome": "detected",
-                "status": "passed",
-                "provenance": "independent offline Docker control",
-            }
-        ],
-        inventory,
-        runtime,
-    )
+    review = build_artifact_review_packet(view, plan, _metadata(), inventory, runtime)
 
-    assert review.payload["candidate_python_source"] == _source().decode()
-    assert review.user.count(_source().decode()) == 1
+    assert review.payload["candidate_artifact"] == _metadata()
+    assert "candidate_python_source" not in review.payload
+    assert "EXACT DETECTOR PYTHON" not in review.user
+    assert "ACTUAL OFFLINE CONTROL RESULTS" not in review.user
     correction = build_correction_context(
         failed_stage="artifact",
         original_context=build_artifact_author_context(view, plan, inventory, runtime),
         current_output=_framed(),
         findings=[
             {
-                "code": "detector_control_failure",
-                "detail": "the tested result did not match the expected result",
+                "code": "semantic_judge_spec_required",
+                "detail": "a reply claim needs a semantic judge spec",
             }
         ],
     )
     assert correction["stage"] == "artifact"
     assert correction["accepted_plan_fixed"] is True
     assert correction["current_output"] == _framed().decode()
-    assert "```json metadata block followed by one raw python block" in correction["format"]
-    assert "one bare JSON object" not in correction["format"]
-    assert correction["findings"][0]["code"] == "detector_control_failure"
+    assert "one bare JSON object" in correction["format"]
+    assert "python" not in correction["format"]
+    assert correction["findings"][0]["code"] == "semantic_judge_spec_required"
 
 
-def _evidence_interface_section(user: str) -> str:
-    marker = "RUNTIME EVIDENCE INTERFACE\n"
-    assert user.count(marker) == 1
-    remainder = user.split(marker, 1)[1]
-    return remainder.split("\n\n", 1)[0]
-
-
-def test_artifact_author_correction_and_review_share_one_evidence_interface() -> None:
+def test_artifact_roles_drop_the_detector_evidence_interface() -> None:
     view = _view()
     inventory = _inventory()
     runtime = _runtime_contract()
@@ -509,98 +466,17 @@ def test_artifact_author_correction_and_review_share_one_evidence_interface() ->
             findings=[],
         )
     )
-    review = build_artifact_review_packet(
-        view,
-        plan,
-        _metadata(),
-        _source(),
-        [],
-        inventory,
-        runtime,
-    )
+    review = build_artifact_review_packet(view, plan, _metadata(), inventory, runtime)
 
-    sections = [
-        _evidence_interface_section(packet.user) for packet in (author, correction, review)
-    ]
-    assert sections[0] == sections[1] == sections[2]
-    section = sections[0]
-    for path in (
-        "bindings.<declared name>",
-        "availability.tool_calls",
-        "completeness.tool_calls",
-        "tool_calls",
-        "tool_calls[i].name",
-        "tool_calls[i].decoded_arguments",
-        "tool_calls[i].parse_errors",
-        "tool_calls[i].status",
-    ):
-        assert path in section
-    assert "SYNTHETIC EXCERPT" not in section
-    assert "FULL SYNTHETIC EXAMPLE" in section
-    assert "per-scope strings" not in section
-    assert "tool_calls_availability" not in section
-    for forbidden in (
-        "setup_draft_id",
-        "commit_to_ehr",
-        "summarize_for_ehr",
-        "PAT-104",
-        "AWAITING_REVIEW",
-        "case-specific identifiers",
-    ):
-        assert forbidden not in section
-
-
-def test_evidence_interface_reference_forms_resolve_against_its_full_example() -> None:
-    contract = evidence_packet_contract()
-    example = contract["full_example"]
-    for reference in ("tool_calls[0]", "/tool_calls/0", "availability.tool_calls"):
-        assert _resolve_evidence_ref(example, reference) is not None
-    result_contract = contract["result"]
-    assert result_contract["outcomes"] == ["detected", "not_detected", "inconclusive"]
-    assert "observation_claim.claim_level" in result_contract["claim_level_source"]
-    assert "nonblank" in result_contract["reason"]
-
-
-def test_artifact_roles_include_shared_normative_evidence_instructions() -> None:
-    view = _view()
-    inventory = _inventory()
-    runtime = _runtime_contract()
-    plan = _plan()
-    author = build_call2_packet_v2(view, plan, inventory, runtime)
-    correction = _render_correction_packet(
-        build_correction_context(
-            failed_stage="call2",
-            original_context=build_artifact_author_context(view, plan, inventory, runtime),
-            current_output=_framed(),
-            findings=[],
-        )
-    )
-    review = build_artifact_review_packet(
-        view,
-        plan,
-        _metadata(),
-        _source(),
-        [],
-        inventory,
-        runtime,
-    )
-
-    assert "For command_attempt, a valid, attributable call" in author.system
-    assert (
-        "a missing decoded_result or backend rejection does not undo that invocation"
-        in author.system
-    )
-    assert "Completeness is required for not_detected" in author.system
-    assert "makes the experiment inconclusive" in author.system
-    assert "Correct the supplied candidate against the fixed accepted plan" in correction.user
-    assert (
-        "Each control includes its exact input, expected outcome, actual return or "
-        "exception, and explanation."
-    ) in correction.user
+    for packet in (author, correction, review):
+        assert "RUNTIME EVIDENCE INTERFACE" not in packet.user
+        assert "OBSERVATION DECISION GUIDE" not in packet.user
+        assert "def evaluate" not in packet.user
+        assert "def evaluate" not in packet.system
+    assert "Return the complete artifact as one JSON object." in author.system
+    assert "Keep the accepted plan fixed." in correction.user
     assert "Keep an accepted no-judge decision as null judge metadata" in correction.user
-    assert "Inspect metadata as well as Python" in review.system
-    assert "Compare evidence access with the actual nested interface." in review.system
-    assert "Control success is evidence, not automatic approval." in review.system
+    assert "the artifact contains no detector code" in review.system
 
 
 def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -> None:

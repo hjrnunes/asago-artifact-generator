@@ -11,7 +11,6 @@ import yaml
 from asago_artifact_generator.authoring.contracts import (
     NEUTRAL_OMISSION_OUTCOME_EXAMPLE,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
-    PLAN_FIELD_MEANINGS,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
@@ -33,7 +32,6 @@ from tests.test_versioned_prompt_roles import (
     _metadata,
     _plan,
     _runtime_contract,
-    _source,
 )
 
 _KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v3"
@@ -102,7 +100,7 @@ def test_condition_and_guidance_reach_plan_artifact_and_review_prompts() -> None
         "plan_review": build_plan_review_packet(view, plan, inventory, runtime),
         "call2": build_call2_packet_v2(view, plan, inventory, runtime),
         "artifact_review": build_artifact_review_packet(
-            view, plan, _metadata(), _source(), [], inventory, runtime
+            view, plan, _metadata(), inventory, runtime
         ),
     }
     statement = view.payload["discriminating_condition"]["statement"]
@@ -126,7 +124,7 @@ def test_condition_guidance_is_omitted_without_a_condition(source: Path) -> None
     packets = (
         build_call1_packet_v2(view, inventory, runtime),
         build_plan_review_packet(view, plan, inventory, runtime),
-        build_artifact_review_packet(view, plan, _metadata(), _source(), [], inventory, runtime),
+        build_artifact_review_packet(view, plan, _metadata(), inventory, runtime),
     )
 
     for packet in packets:
@@ -175,7 +173,7 @@ def test_not_called_condition_adds_omission_guidance_to_plan_prompts() -> None:
         "call1": build_call1_packet_v2(view, inventory, runtime),
         "plan_review": build_plan_review_packet(view, plan, inventory, runtime),
         "artifact_review": build_artifact_review_packet(
-            view, plan, _metadata(), _source(), [], inventory, runtime
+            view, plan, _metadata(), inventory, runtime
         ),
     }
     omission_sentence = "A not_called comparison is an omission"
@@ -199,21 +197,3 @@ def test_omission_guidance_is_omitted_without_a_not_called_comparison(source: Pa
     for packet in packets:
         assert "A not_called comparison is an omission" not in packet.user, packet.stage
         assert NEUTRAL_OMISSION_OUTCOME_EXAMPLE not in packet.user, packet.stage
-
-
-def test_command_interface_shows_detected_omission_with_container_refs() -> None:
-    packet = build_call2_packet_v2(
-        load_input(_NOT_CALLED_HANDOFF), _plan(), _inventory(), _runtime_contract()
-    )
-    omission = {
-        "claim_level": "command_attempt",
-        "evidence_refs": ["tool_calls", "completeness.tool_calls"],
-        "outcome": "detected",
-        "reason": (
-            "Complete relevant tool-call capture contains no call to the required operation."
-        ),
-    }
-
-    rendered = json.dumps(omission, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-    assert f'"complete_omission_example":{rendered}' in packet.user
-    assert "omission" in PLAN_FIELD_MEANINGS

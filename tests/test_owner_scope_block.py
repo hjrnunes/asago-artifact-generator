@@ -30,24 +30,23 @@ from tests.test_versioned_prompt_roles import (
     _metadata,
     _plan,
     _runtime_contract,
-    _source,
     _view,
 )
 
 _OWNER_SCOPE_LABEL = "OWNER-SUPPLIED SCOPE (NOT OBSERVED TARGET FACTS)"
 # SHA-256 of system + NUL + user bytes captured for these prompt contracts.
 _BASE_REVISION = (
-    "authoring-call1-v18 / authoring-call2-v21 / authoring-correction-v27 (plan) / "
-    "authoring-correction-v25 (artifact) / authoring-plan-review-v17 / "
-    "authoring-artifact-review-v16"
+    "authoring-call1-v18 / authoring-call2-v22 / authoring-correction-v27 (plan) / "
+    "authoring-correction-v28 (artifact) / authoring-plan-review-v17 / "
+    "authoring-artifact-review-v17"
 )
 _BASE_STAGE_DIGESTS = {
     "call1": "360badaeb0bf63f97616a7486056e1bb13260c149808a9cca8b0072337638058",
     "plan_review": "4320f809299d88271625131f6f2b02a6ae129eaf104557968e4074e95304cf10",
-    "call2": "86635e851ab6f27ff733788aeb7362fe574af47c786fbe1991c72f768b20e8b6",
-    "artifact_review": "38e3e3a88fa5c2d7832782c18f68b20a12e56e19a285b6b36091a210c91e398c",
+    "call2": "e57d2312c551f4191ba5cf966908fce3d337a4ca25b94b3d119eed4a4d541372",
+    "artifact_review": "26c3e0ae6d2132f2621c7fd391e9d88073ee3964b637d148d81a6df0e7639fe6",
     "plan_correction": "c2ff111ae0e5db1f43e0f208fbcafdae511032b84c1daa70da09e59f33835b52",
-    "artifact_correction": "89d2bc48c59d23c83cf169f39bb901ebdb440241942c233883129ccb67da2204",
+    "artifact_correction": "d552204a05b0dd027cada22fab86c87d7dd91f6aebe6191446f8332e1ce51ef8",
 }
 _OWNER_SCOPE = {
     "scenario_premises": [
@@ -72,7 +71,7 @@ def _render_all_stage_packets(view):
         "plan_review": build_plan_review_packet(view, plan, inventory, runtime),
         "call2": build_call2_packet_v2(view, plan, inventory, runtime),
         "artifact_review": build_artifact_review_packet(
-            view, plan, _metadata(), _source(), [], inventory, runtime
+            view, plan, _metadata(), inventory, runtime
         ),
         "plan_correction": _render_correction_packet(
             build_correction_context(
@@ -157,8 +156,6 @@ def test_owner_scope_is_separate_and_labeled_in_every_source_context_stage() -> 
         view,
         plan,
         _metadata(),
-        _source(),
-        [],
         inventory,
         runtime,
     )
@@ -196,8 +193,6 @@ def test_owner_scope_is_separate_and_labeled_in_every_source_context_stage() -> 
             view,
             plan,
             _metadata(),
-            _source(),
-            [],
             inventory,
             runtime,
         ),

@@ -680,3 +680,55 @@ def test_named_record_facts_searches_every_records_companion() -> None:
         "K",
         (("state:b", record), ("state:b:records", record)),
     )
+
+
+def _owner_user_text_binding(*, consumers: list[str]) -> dict:
+    return {
+        "name": "owner",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:order",
+        "selector": "value.customer_id",
+        "consumers": consumers,
+        "on_missing": "stop",
+    }
+
+
+def _owner_inventory() -> dict:
+    return {
+        "facts": [
+            {
+                "ref": "order",
+                "value": {"customer_id": "customer-a"},
+                "schema": {
+                    "type": "object",
+                    "properties": {"customer_id": {"type": "string"}},
+                },
+            }
+        ]
+    }
+
+
+def test_user_text_consumer_fails_when_value_is_absent_and_passes_when_present() -> None:
+    binding = _owner_user_text_binding(consumers=["stimulus.user_text"])
+    values = supplied_binding_values([binding], _owner_inventory())
+
+    absent = find_stimulus_user_text_consumer_mismatches(
+        [binding],
+        "Please process the order.",
+        resolved_values=values,
+    )
+    present = find_stimulus_user_text_consumer_mismatches(
+        [binding],
+        "Please process the order for customer-a.",
+        resolved_values=values,
+    )
+    slot = find_stimulus_user_text_consumer_mismatches(
+        [binding],
+        "Please process {{owner}}'s order.",
+        resolved_values=values,
+    )
+
+    assert absent[0]["binding_name"] == "owner"
+    assert present == ()
+    assert slot == ()

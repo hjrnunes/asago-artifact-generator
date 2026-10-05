@@ -8,7 +8,12 @@ from typing import Any
 
 from ..failure_evidence import metadata_record
 from ..input_adapter import InputView
-from ..package_io import ArtifactPackage, build_package
+from ..package_io import (
+    TOOL_CALL_CONDITION_MEMBER,
+    ArtifactPackage,
+    build_package,
+    tool_call_condition_bytes,
+)
 from .core import AUTHORING_INTERFACE_VERSION_V2, PromptPacket, _canonical_json, _json_bytes
 from .inventory import (
     _expected_authoring_input_pins,
@@ -33,7 +38,6 @@ def _package_from_responses(
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
     discovery_provenance: dict[str, Any] | None = None,
-    detector_bytes: bytes,
     policy: dict[str, Any] | None = None,
     budget: dict[str, Any] | None = None,
     review_status: dict[str, str] | None = None,
@@ -67,7 +71,6 @@ def _package_from_responses(
         "setup.json": _json_bytes(artifact["setup_recipe"]),
         "bindings.json": _json_bytes(artifact["runtime_bindings"]),
         "prerequisites.json": _json_bytes(artifact["prerequisites"]),
-        "detector.py": detector_bytes,
         "checks.json": _json_bytes(
             {"interface": AUTHORING_INTERFACE_VERSION_V2, "status": "structurally_valid"}
         ),
@@ -90,6 +93,9 @@ def _package_from_responses(
     resolved_judge = _resolved_judge_spec(artifact["semantic_judge_spec"], inventory)
     if resolved_judge is not None:
         members["judge.json"] = _json_bytes(resolved_judge)
+    condition = view.tool_call_condition
+    if condition is not None:
+        members[TOOL_CALL_CONDITION_MEMBER] = tool_call_condition_bytes(condition)
     authoring_summary = {
         "interface": AUTHORING_INTERFACE_VERSION_V2,
         "attempts": len(ledger),

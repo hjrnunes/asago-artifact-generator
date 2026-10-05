@@ -1,7 +1,8 @@
-"""Atomic, contained artifact-package-v2 persistence."""
+"""Atomic, contained artifact-package-v3 persistence."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from asago_artifact_generator.package_io import (
     PackagePathError,
     build_package,
     load_package,
+    tool_call_condition_bytes,
     write_package,
 )
 
@@ -26,11 +28,7 @@ def _package() -> ArtifactPackage:
         members={
             "plan.json": b'{"plan":"exact"}\n',
             "stimulus.json": b'{"user_text":"hello"}\n',
-            "detector.py": (
-                b"def evaluate(evidence: dict) -> dict:\n"
-                b"    return {'outcome': 'inconclusive', 'reason': 'no evidence', "
-                b"'evidence_refs': [], 'claim_level': 'reply'}\n"
-            ),
+            "explanation.json": b'{"text":"exact explanation"}\n',
             "authoring/raw-response.json": b'{"raw":true}\n',
         },
     )
@@ -43,10 +41,10 @@ def test_package_round_trip_reloads_and_preserves_raw_member_bytes(tmp_path: Pat
     written = write_package(destination, package)
     loaded = load_package(written)
 
-    assert loaded.manifest.schema_version == "artifact-package-v2"
+    assert loaded.manifest.schema_version == "artifact-package-v3"
     assert loaded.manifest.package_id == "pkg-1"
     assert loaded.members["authoring/raw-response.json"] == b'{"raw":true}\n'
-    assert loaded.members["detector.py"] == package.members["detector.py"]
+    assert loaded.members["explanation.json"] == package.members["explanation.json"]
 
 
 @pytest.mark.parametrize("name", ["/absolute.json", "../escape.json", "a/../../escape.json"])
@@ -66,7 +64,7 @@ def test_package_rejects_absolute_and_traversal_members(tmp_path: Path, name: st
 
 def test_loader_rejects_member_tampering_before_exposing_content(tmp_path: Path) -> None:
     destination = write_package(tmp_path / "package", _package())
-    (destination / "detector.py").write_bytes(b"def evaluate(evidence): return {}\n")
+    (destination / "explanation.json").write_bytes(b'{"text":"tampered"}\n')
 
     with pytest.raises(PackageIntegrityError, match="mismatch"):
         load_package(destination)
@@ -91,7 +89,7 @@ def test_writer_rejects_secret_bearing_manifest_metadata(tmp_path: Path) -> None
                 scenario_id="scenario-1",
                 input_kind="scenario-handoff-v3",
                 source_digests={"source": "a" * 64},
-                members={"detector.py": b"source\n"},
+                members={"explanation.json": b"{}\n"},
                 creation_model={"api_key": "not persisted"},
             ),
         )
@@ -101,7 +99,7 @@ def test_interrupted_write_leaves_no_partial_package_and_preserves_previous(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     destination = write_package(tmp_path / "package", _package())
-    original = load_package(destination).members["detector.py"]
+    original = load_package(destination).members["explanation.json"]
     replacement = build_package(
         package_id="pkg-1",
         scenario_id="scenario-1",
@@ -109,7 +107,7 @@ def test_interrupted_write_leaves_no_partial_package_and_preserves_previous(
         source_digests={"scenario.json": "a" * 64},
         members={
             **_package().members,
-            "detector.py": b"replacement\n",
+            "explanation.json": b"replacement\n",
         },
     )
 
@@ -129,7 +127,7 @@ def test_interrupted_write_leaves_no_partial_package_and_preserves_previous(
 
     assert len(written) == 1
 
-    assert load_package(destination).members["detector.py"] == original
+    assert load_package(destination).members["explanation.json"] == original
     assert not list(tmp_path.glob(".package.*.tmp"))
 
 
@@ -139,7 +137,7 @@ def _replacement_package() -> ArtifactPackage:
         scenario_id="scenario-1",
         input_kind="scenario-handoff-v3",
         source_digests={"scenario.json": "b" * 64},
-        members={**_package().members, "detector.py": b"replacement\n"},
+        members={**_package().members, "explanation.json": b"replacement\n"},
     )
 
 
@@ -164,7 +162,7 @@ def _fail_install(
         if Path(source).name.startswith(".package.") and ".backup." not in Path(source).name:
             if partial == "dir":
                 Path(target).mkdir()
-                (Path(target) / "detector.py").write_bytes(b"partial\n")
+                (Path(target) / "explanation.json").write_bytes(b"partial\n")
             elif partial == "file":
                 Path(target).write_bytes(b"partial\n")
             raise OSError("install failed")
@@ -180,7 +178,7 @@ def test_overwrite_replaces_previous_package_and_removes_its_backup(tmp_path: Pa
 
     loaded = load_package(destination)
     assert loaded.manifest.package_id == "pkg-2"
-    assert loaded.members["detector.py"] == b"replacement\n"
+    assert loaded.members["explanation.json"] == b"replacement\n"
     assert _leftovers(tmp_path) == []
 
 
@@ -247,10 +245,12 @@ def _set_field(name: str, value: object):
     ("mutate", "redigest", "message"),
     [
         (_set_field("schema_version", "artifact-package-v1"), True, "unknown artifact package"),
+        (_set_field("schema_version", "artifact-package-v2"), True, "unknown artifact package"),
         (_set_field("manifest_digest", ""), False, "manifest digest is missing"),
         (_set_field("manifest_digest", "0" * 64), False, "manifest digest mismatch"),
         (_set_field("package_id", ""), True, "manifest field is blank: package_id"),
-        (_set_field("detector_interface", 3), True, "manifest field is blank: detector_interface"),
+        (_set_field("scenario_id", ""), True, "manifest field is blank: scenario_id"),
+        (_set_field("detector_interface", "v1"), True, "package manifest fields invalid"),
         (_set_field("input_kind", "other"), True, "unsupported package input kind: other"),
         (_set_field("source_digests", {}), True, "source_digests must contain SHA-256 strings"),
         (_set_field("authoring", "notes"), True, "manifest metadata must be objects"),
@@ -326,3 +326,81 @@ def test_build_package_names_the_rejected_member_path(name: str, message: str) -
             members={name: b"x"},
         )
     assert str(caught.value) == message
+
+
+def _claim_package(claim_level: str, extra: dict[str, bytes]) -> ArtifactPackage:
+    plan = {"observation_claim": {"claim_level": claim_level}}
+    return build_package(
+        package_id="pkg-claim",
+        scenario_id="scenario-1",
+        input_kind="scenario-handoff-v3",
+        source_digests={"scenario.json": "a" * 64},
+        members={"plan.json": json.dumps(plan).encode() + b"\n", **extra},
+    )
+
+
+def test_manifest_carries_no_detector_interface_and_rejects_a_detector_member(
+    tmp_path: Path,
+) -> None:
+    destination = write_package(tmp_path / "package", _package())
+    manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest["schema_version"] == "artifact-package-v3"
+    assert "detector_interface" not in manifest
+    assert set(manifest) == {
+        "schema_version",
+        "package_id",
+        "scenario_id",
+        "input_kind",
+        "source_digests",
+        "authoring",
+        "runtime_capabilities",
+        "creation_model",
+        "members",
+        "manifest_digest",
+    }
+    with pytest.raises(PackagePathError, match="unexpected package member path: detector.py"):
+        _claim_package("reply", {"judge.json": b"{}\n", "detector.py": b"x\n"})
+
+
+def test_tool_call_condition_bytes_are_sorted_indented_json_with_a_newline() -> None:
+    condition = {"comparisons": [{"op": "gt", "kind": "value", "right": {"value": "é"}}]}
+
+    assert tool_call_condition_bytes(condition) == (
+        b'{\n  "comparisons": [\n    {\n      "kind": "value",\n      "op": "gt",\n'
+        b'      "right": {\n        "value": "\xc3\xa9"\n      }\n    }\n  ]\n}\n'
+    )
+
+
+@pytest.mark.parametrize(
+    ("claim_level", "member"),
+    [("command_attempt", "tool_call_condition.json"), ("reply", "judge.json")],
+)
+def test_claim_level_requires_its_scoring_member(
+    tmp_path: Path, claim_level: str, member: str
+) -> None:
+    with pytest.raises(
+        PackageIntegrityError, match=f"{claim_level} package requires member: {member}"
+    ):
+        write_package(tmp_path / "missing", _claim_package(claim_level, {}))
+
+    written = write_package(tmp_path / "present", _claim_package(claim_level, {member: b"{}\n"}))
+    assert load_package(written).members[member] == b"{}\n"
+
+
+def test_written_manifest_matches_the_locked_v3_schema(tmp_path: Path) -> None:
+    import jsonschema
+
+    root = Path(package_io.__file__).resolve().parents[2] / "contracts" / "artifact-package"
+    lock = json.loads((root / "CONTRACT.lock").read_text(encoding="utf-8"))
+    schema = json.loads((root / "artifact-package-v3" / "schema.json").read_text(encoding="utf-8"))
+    destination = write_package(tmp_path / "package", _package())
+    manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
+
+    assert lock["package_schema_version"] == package_io.PACKAGE_SCHEMA_VERSION
+    assert lock["digest_domain"] == "artifact-package-v3"
+    assert "artifact-package-v3/schema.json" in lock["files"]
+    assert "artifact-package-v2/schema.json" not in lock["files"]
+    jsonschema.validate(manifest, schema)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({**manifest, "detector_interface": "x"}, schema)

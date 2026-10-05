@@ -5,19 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from asago_artifact_generator.authoring.contracts import (
-    neutral_artifact_plan_v2,
-    neutral_observation_cases,
-)
-from asago_artifact_generator.detector_runtime import execute_detector
+from asago_artifact_generator.authoring.contracts import neutral_artifact_plan_v2
 
-from .support import (
-    ScriptedAuthoringTransport,
-    build_neutral_artifact_package,
-    neutral_observation_results,
-    stage_local_orchestrator,
-    validate_neutral_example,
-)
+from .support import ScriptedAuthoringTransport, stage_local_orchestrator
 
 HANDOFF = (
     Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "handoff-v3" / "refund-bound.json"
@@ -54,39 +44,8 @@ def _view():
     return load_input(HANDOFF)
 
 
-def test_neutral_detector_scans_decisive_event_before_partial_capture(tmp_path: Path) -> None:
-    package = build_neutral_artifact_package(tmp_path / "neutral")
-    cases = neutral_observation_cases()
-    results = neutral_observation_results()
-
-    assert len(cases) == 7
-    assert set(results) == set(cases)
-    assert results["decisive_event_with_partial_capture"]["claim_level"] == "command_attempt"
-    assert results["decisive_event_with_partial_capture"]["outcome"] == "detected"
-    for name, evidence in cases.items():
-        execution = execute_detector(package, evidence)
-        assert execution.status == "completed", (name, execution.failure)
-        assert execution.result == results[name]
-
-
-def test_neutral_example_is_complete_and_runs_with_exact_detector_bytes(
-    tmp_path: Path,
-) -> None:
-    package = build_neutral_artifact_package(tmp_path / "neutral")
-    assert validate_neutral_example() == []
-
-    execution = execute_detector(
-        package,
-        neutral_observation_cases()["decisive_event"],
-    )
-
-    assert execution.status == "completed"
-    assert execution.result == neutral_observation_results()["decisive_event"]
-    assert "def evaluate(evidence: dict) -> dict" in package.joinpath("detector.py").read_text()
-
-
 def test_correction_size_accounting_is_evidence_only(tmp_path: Path) -> None:
-    invalid = b"```json\n{}\n```\n```python\nnot python\n```\n"
+    invalid = b"```json\n{}\n```\n"
     result = stage_local_orchestrator(
         transport=ScriptedAuthoringTransport(
             [json.dumps(neutral_artifact_plan_v2()), invalid, invalid]

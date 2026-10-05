@@ -11,6 +11,7 @@ from typing import Any
 from .core import (
     AuthoringError,
     Call1FramingError,
+    Call2FramingError,
     Finding,
     ReviewResponseError,
     TransportResponse,
@@ -112,6 +113,17 @@ def _decode_v2_json_response(raw: bytes) -> tuple[dict[str, Any], str | None]:
         subject="Call 1",
         error=Call1FramingError,
         path="call1",
+    )
+
+
+def _decode_call2_json_response(raw: bytes) -> tuple[dict[str, Any], str | None]:
+    """Decode exactly one Call 2 artifact object without changing response bytes."""
+
+    return _decode_strict_single_json_response(
+        raw,
+        subject="Call 2",
+        error=Call2FramingError,
+        path="call2",
     )
 
 

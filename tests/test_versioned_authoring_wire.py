@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 
 import pytest
@@ -8,21 +7,21 @@ import pytest
 from asago_artifact_generator.authoring.checks import (
     collect_artifact_findings_v2,
     collect_plan_findings_v2,
-    parse_call2_response,
 )
 from asago_artifact_generator.authoring.contracts import neutral_artifact_response_without_source
 from asago_artifact_generator.authoring.core import (
     AUTHORING_INTERFACE_VERSION_V2,
     CALL1_PROMPT_VERSION_V18,
-    CALL2_PROMPT_VERSION_V21,
+    CALL2_PROMPT_VERSION_V22,
     Call2FramingError,
-    ParsedCall2Response,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
 )
+from asago_artifact_generator.authoring.response_decode import _decode_call2_json_response
 from asago_artifact_generator.input_adapter import InputKind, load_input
+from asago_artifact_generator.package_io import tool_call_condition_bytes
 
 from .support import (
     ScriptedAuthoringTransport,
@@ -140,21 +139,6 @@ def _plan() -> dict:
     }
 
 
-def _source() -> bytes:
-    return (
-        b"def evaluate(evidence: dict) -> dict:\n"
-        b"    quote = \"quote \\\\ and 'single'\"\n"
-        b'    blank = ""\n'
-        b"\n"
-        b"    return {\n"
-        b"        'outcome': 'inconclusive',\n"
-        b"        'reason': quote + blank,\n"
-        b"        'evidence_refs': [],\n"
-        b"        'claim_level': 'command_attempt',\n"
-        b"    }\n"
-    )
-
-
 def _metadata() -> dict:
     return {
         "stimulus": {
@@ -169,21 +153,13 @@ def _metadata() -> dict:
             "safe": {"label": "author-proposed", "description": "at balance"},
             "inconclusive": {"label": "author-proposed", "description": "missing calls"},
         },
-        "explanation": "The detector preserves command-attempt meaning.",
+        "explanation": "The stimulus asks for a refund above the supplied balance.",
     }
 
 
-def _framed(metadata: dict | None = None, source: bytes | None = None) -> bytes:
+def _framed(metadata: dict | None = None) -> bytes:
     metadata = _metadata() if metadata is None else metadata
-    source = _source() if source is None else source
-    return (
-        b"```json\n"
-        + json.dumps(metadata, sort_keys=True, indent=2).encode()
-        + b"\n```\n"
-        + b"```python\n"
-        + source
-        + b"```\n"
-    )
+    return json.dumps(metadata, sort_keys=True, indent=2).encode() + b"\n"
 
 
 def test_call1_v2_has_closed_root_and_reports_all_root_faults() -> None:
@@ -443,65 +419,35 @@ def test_v2_call1_correction_rejects_unsupported_framing(
     assert any(finding.code == finding_code for finding in result.findings)
 
 
-def test_call2_v2_extracts_python_bytes_without_json_round_trip() -> None:
-    parsed = parse_call2_response(_framed())
-    assert isinstance(parsed, ParsedCall2Response)
-    assert parsed.metadata == _metadata()
-    assert parsed.python_bytes == _source()
-    assert hashlib.sha256(parsed.python_bytes).hexdigest() == hashlib.sha256(_source()).hexdigest()
+def test_call2_decodes_a_fenced_or_bare_object_to_the_same_artifact() -> None:
+    fenced, transformation = _decode_call2_json_response(b"```json\n" + _framed() + b"```\n")
+    bare, no_transformation = _decode_call2_json_response(_framed())
 
-
-def test_saved_artifacts_accept_whitespace_separators_without_byte_drift() -> None:
-    raw_variants = [
-        _framed().replace(b"```\n```python", b"```\n\n```python", 1),
-        _framed(),
-        _framed().replace(b"```\n```python", b"```\n \n\t\n```python", 1),
-    ]
-    expected = parse_call2_response(raw_variants[0])
-
-    for raw in raw_variants:
-        parsed = parse_call2_response(raw)
-        assert parsed.metadata == expected.metadata
-        assert parsed.python_bytes == expected.python_bytes
+    assert fenced == bare == _metadata()
+    assert transformation == "outer_fence_removed"
+    assert no_transformation is None
 
 
 @pytest.mark.parametrize(
     ("raw", "code"),
     [
-        (b"", "missing_json_block"),
-        (b"```python\nx\n```\n```json\n{}\n```\n", "missing_json_block"),
-        (b"```json\n{}\n```\n", "missing_python_block"),
-        (b"```json\n{}\n```\n```json\n{}\n```\n```python\nx\n```\n", "duplicate_json_block"),
-        (b"```json\n{}\n", "truncated_block"),
-        (b"prefix\n```json\n{}\n```\n```python\nx\n```\n", "ambiguous_content"),
-        (b"```json\n{broken}\n```\n```python\nx\n```\n", "invalid_metadata_json"),
-        (b"```json\n{}\n```\n```python\nx\n", "truncated_block"),
-        (b"```json\n{}\n```\n```python\nx\n```\nextra\n", "extra_content"),
-        (b"```json\n{}\n```\n```python\nx\n```\n```python\ny\n```\n", "duplicate_python_block"),
+        (b"```\n{}\n```", "bare_fence"),
+        (b"```python\nx\n```\n", "unsupported_fence"),
+        (b"```json\n{}\n```\n```json\n{}\n```", "multiple_json_blocks"),
+        (b"```json\n{}\n```\n```python\nx\n```\n", "multiple_json_blocks"),
+        (b"prefix\n{}", "ambiguous_content"),
+        (b"{}\ntrailing", "trailing_content"),
+        (b"```json\n{broken}\n```", "invalid_json"),
     ],
 )
-def test_call2_v2_rejects_each_malformed_framing_class(raw: bytes, code: str) -> None:
+def test_call2_rejects_each_malformed_framing_class(raw: bytes, code: str) -> None:
     with pytest.raises(Call2FramingError) as caught:
-        parse_call2_response(raw)
-    assert any(finding.code == code for finding in caught.value.findings)
+        _decode_call2_json_response(raw)
+    assert [finding.code for finding in caught.value.findings] == [code]
+    assert caught.value.findings[0].path == "call2"
 
 
-def test_call2_v2_rejects_a_closing_fence_line_inside_python() -> None:
-    raw = (
-        b"```json\n"
-        + json.dumps(_metadata()).encode()
-        + b"\n```\n```python\n"
-        + b"def evaluate(evidence: dict) -> dict:\n"
-        + b"    return {}\n"
-        + b"```\n"
-        + b"still python\n"
-    )
-    with pytest.raises(Call2FramingError) as caught:
-        parse_call2_response(raw)
-    assert any(finding.code == "extra_content" for finding in caught.value.findings)
-
-
-def test_new_orchestrator_copies_plan_owned_fields_and_exact_detector_bytes(tmp_path) -> None:
+def test_new_orchestrator_copies_plan_owned_fields_and_the_tool_call_condition(tmp_path) -> None:
     plan = _plan()
     transport = ScriptedAuthoringTransport([json.dumps(plan), _framed()])
     result = stage_local_orchestrator(
@@ -512,13 +458,16 @@ def test_new_orchestrator_copies_plan_owned_fields_and_exact_detector_bytes(tmp_
 
     assert result.status == "accepted"
     assert result.package is not None
-    assert result.package.members["detector.py"] == _source()
+    assert "detector.py" not in result.package.members
+    assert result.package.members["tool_call_condition.json"] == tool_call_condition_bytes(
+        _view().tool_call_condition
+    )
     assert json.loads(result.package.members["setup.json"]) == plan["setup_recipe"]
     assert json.loads(result.package.members["bindings.json"]) == plan["runtime_bindings"]
     assert json.loads(result.package.members["prerequisites.json"]) == plan["prerequisites"]
     assert json.loads(result.package.members["observations.json"]) == plan["required_observations"]
     assert result.prompts["call1"].version == CALL1_PROMPT_VERSION_V18
-    assert result.prompts["call2"].version == CALL2_PROMPT_VERSION_V21
+    assert result.prompts["call2"].version == CALL2_PROMPT_VERSION_V22
 
 
 def test_v2_assembly_resolves_static_judge_facts_with_source_provenance(tmp_path) -> None:
@@ -738,16 +687,15 @@ def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
 
 def test_neutral_v2_example_uses_real_framing_and_package_check(tmp_path) -> None:
     assert validate_neutral_example() == []
-    parsed = parse_call2_response(neutral_call2_response_v2())
-    assert parsed.python_bytes
     destination = build_neutral_artifact_package(tmp_path / "neutral")
-    assert destination.joinpath("detector.py").read_bytes() == parsed.python_bytes
+    assert not destination.joinpath("detector.py").exists()
+    assert destination.joinpath("tool_call_condition.json").is_file()
     assert json.loads(destination.joinpath("checks.json").read_text())["interface"] == (
         AUTHORING_INTERFACE_VERSION_V2
     )
 
 
 def test_neutral_artifact_response_without_source_matches_v2_metadata() -> None:
-    parsed = parse_call2_response(neutral_call2_response_v2())
+    decoded, _ = _decode_call2_json_response(neutral_call2_response_v2())
 
-    assert parsed.metadata == neutral_artifact_response_without_source()
+    assert decoded == neutral_artifact_response_without_source()
