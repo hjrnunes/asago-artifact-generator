@@ -649,7 +649,7 @@ def _build_controls(
     condition: Mapping[str, Any] | None,
 ) -> tuple[list[ControlCase], list[ControlSkip]]:
     claim_level = _claim_level(plan)
-    required = _required_observations(plan, metadata)
+    required = _control_observations(plan, metadata)
     bindings = _supplied_control_bindings(plan, inventory)
     cases = [
         ControlCase(
@@ -906,16 +906,6 @@ def _claim_level(plan: Mapping[str, Any]) -> str:
     if isinstance(observation, Mapping) and isinstance(observation.get("claim_level"), str):
         return observation["claim_level"]
     return "command_attempt"
-
-
-def _required_observations(
-    plan: Mapping[str, Any], metadata: Mapping[str, Any]
-) -> Mapping[str, Any]:
-    value = metadata.get("required_observations")
-    if isinstance(value, Mapping):
-        return value
-    value = plan.get("required_observations")
-    return value if isinstance(value, Mapping) else {}
 
 
 def _missing_capture_evidence(
