@@ -9,7 +9,6 @@ It never contacts a target, setup transport, discovery service, or judge.
 from __future__ import annotations
 
 from ..detector_controls import run_detector_controls
-from ..failure_evidence import load_failure_evidence
 from .checks import (
     collect_artifact_findings_v2,
     collect_plan_findings,
@@ -149,7 +148,6 @@ __all__ = [
     "policy_max_dispatches",
     "policy_role_limits",
     "run_detector_controls",
-    "load_failure_evidence",
     "neutral_observation_cases",
     "neutral_artifact_response_without_source",
     "neutral_artifact_plan",

@@ -15,9 +15,8 @@ from asago_artifact_generator.authoring.policy import (
 )
 from asago_artifact_generator.authoring.review import parse_review_response
 from asago_artifact_generator.detector_runtime import resolve_docker_path
-from asago_artifact_generator.failure_evidence import load_failure_evidence
 
-from .support import ScriptedAuthoringTransport
+from .support import ScriptedAuthoringTransport, load_failure_evidence
 from .test_versioned_authoring_wire import (
     _framed,
     _inventory,

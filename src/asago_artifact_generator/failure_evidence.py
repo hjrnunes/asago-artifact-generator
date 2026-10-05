@@ -11,10 +11,6 @@ from pathlib import Path
 from typing import Any
 
 FAILURE_EVIDENCE_SCHEMA_VERSION = "authoring-failure-evidence-v2"
-_COMPATIBLE_SCHEMA_VERSIONS = {
-    "authoring-failure-evidence-v1",
-    FAILURE_EVIDENCE_SCHEMA_VERSION,
-}
 _SENSITIVE_KEYS = {
     "api_key",
     "apikey",
@@ -84,23 +80,6 @@ def write_failure_evidence(path: str | Path, document: dict[str, Any]) -> Path:
     return path
 
 
-def load_failure_evidence(path: str | Path) -> dict[str, Any]:
-    """Reload and minimally validate a completed or interrupted sidecar."""
-
-    path = Path(path)
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"invalid authoring failure evidence: {exc}") from exc
-    if not isinstance(document, dict):
-        raise ValueError("authoring failure evidence must be an object")
-    if document.get("schema_version") not in _COMPATIBLE_SCHEMA_VERSIONS:
-        raise ValueError("unknown authoring failure evidence schema version")
-    if not isinstance(document.get("attempts"), list):
-        raise ValueError("authoring failure evidence attempts must be a list")
-    return document
-
-
 def raw_response_record(raw: bytes, *, reason: str | None = None) -> dict[str, Any]:
     """Represent raw bytes exactly while keeping them out of text scans."""
 
@@ -145,7 +124,6 @@ def redact_metadata(value: Any) -> Any:
 __all__ = [
     "FAILURE_EVIDENCE_SCHEMA_VERSION",
     "failure_evidence_path",
-    "load_failure_evidence",
     "metadata_record",
     "new_failure_evidence",
     "raw_response_record",

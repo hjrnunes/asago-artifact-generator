@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ from asago_artifact_generator.authoring.core import (
 )
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
+from asago_artifact_generator.failure_evidence import FAILURE_EVIDENCE_SCHEMA_VERSION
 from asago_artifact_generator.package_io import build_package, write_package
 
 # A runtime contract that makes the detector controls generate their own cases.
@@ -197,3 +199,12 @@ def build_neutral_artifact_package(destination: str | Path) -> Path:
         creation_model={"model": "maintained-neutral-example"},
     )
     return write_package(destination, package)
+
+
+def load_failure_evidence(path: str | Path) -> dict[str, Any]:
+    """Read a failure-evidence sidecar and check its schema version and attempts."""
+
+    document = json.loads(Path(path).read_text(encoding="utf-8"))
+    assert document["schema_version"] == FAILURE_EVIDENCE_SCHEMA_VERSION
+    assert isinstance(document["attempts"], list)
+    return document

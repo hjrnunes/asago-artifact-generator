@@ -8,9 +8,8 @@ from pathlib import Path
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 from asago_artifact_generator.detector_controls import ControlCase
-from asago_artifact_generator.failure_evidence import load_failure_evidence
 
-from .support import ScriptedAuthoringTransport
+from .support import ScriptedAuthoringTransport, load_failure_evidence
 from .test_versioned_authoring_wire import (
     _framed,
     _inventory,

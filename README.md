@@ -566,8 +566,7 @@ each exact rendered prompt, available raw response bytes, provider usage,
 controls, transformations, and findings. Missing responses or usage use an
 explicit `unavailable` marker. Provider endpoint and secret metadata are
 redacted from the sidecar. The sidecar uses
-`authoring-failure-evidence-v2`; `load_failure_evidence` accepts the prior v1
-document as well.
+`authoring-failure-evidence-v2`.
 `attempts` retains the full history, while top-level `findings` contains only
 the findings that caused the terminal status. The `terminal` object records the
 logical stage, zero-based attempt index, and terminal reason.

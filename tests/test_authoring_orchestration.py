@@ -40,10 +40,14 @@ from asago_artifact_generator.authoring.prompt_packets import (
 )
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.bindings import validate_bindings
-from asago_artifact_generator.failure_evidence import load_failure_evidence
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
-from .support import ScriptedAuthoringTransport, stage_local_orchestrator, unreviewed_policy
+from .support import (
+    ScriptedAuthoringTransport,
+    load_failure_evidence,
+    stage_local_orchestrator,
+    unreviewed_policy,
+)
 from .test_versioned_authoring_wire import _framed, _metadata, _source
 from .test_versioned_authoring_wire import _inventory as _inventory_v2
 from .test_versioned_authoring_wire import _plan as _plan_v2
