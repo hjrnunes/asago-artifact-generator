@@ -8,6 +8,7 @@ orch author stage, and replay it through the gate in a guarded subprocess.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -725,3 +726,47 @@ def test_first_difference_names_the_first_differing_location(
 ) -> None:
     # Callers pass the recording as the left side and the replay as the right.
     assert replay_gate._first_difference(left, right) == expected
+
+
+_PACKAGE_LINE = '{{"status": "accepted", "package": "{}/SCN-1"}}'
+
+
+@pytest.mark.parametrize(
+    ("replayed", "expected"),
+    [
+        (_PACKAGE_LINE.format("/scratch/out") + "\nsame\n", None),
+        (
+            _PACKAGE_LINE.format("/elsewhere") + "\nsame\n",
+            'line 1: $.package: "/recorded/out/SCN-1" != "/elsewhere/SCN-1"',
+        ),
+        (_PACKAGE_LINE.format("/scratch/out") + "\nother\n", "line 2: 'same' != 'other'"),
+        (_PACKAGE_LINE.format("/scratch/out") + "\nsame\nextra\n", "2 lines != 3 lines"),
+    ],
+)
+def test_log_comparison_maps_the_package_location_line_by_line(
+    replayed: str, expected: str | None
+) -> None:
+    recorded = _PACKAGE_LINE.format("/recorded/out") + "\nsame\n"
+
+    found = replay_gate._compare_log(
+        recorded, replayed, "items/SCN-1.log", {"/scratch/out": "/recorded/out"}
+    )
+
+    assert found == expected
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["author"], "recorded argv has no 'generate' command: ['author']"),
+        (["generate", "--output-dir=out"], "unsupported '--option=value' form in recorded argv"),
+        (["generate", "--task-id", "SCN-1"], "recorded argv for SCN-1 has no --output-dir"),
+    ],
+)
+def test_prepare_item_rejects_argv_it_cannot_redirect(
+    tmp_path: Path, argv: list[str], message: str
+) -> None:
+    copies = replay_gate._InputCopies(tmp_path / "inputs")
+
+    with pytest.raises(ValueError, match=re.escape(message)):
+        replay_gate._prepare_item({"id": "SCN-1", "argv": argv}, copies, tmp_path / "out")

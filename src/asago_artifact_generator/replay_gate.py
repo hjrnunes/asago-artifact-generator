@@ -125,16 +125,7 @@ def _recorded_call(attempt: dict[str, Any]) -> RecordedCall:
     raw = base64.b64decode(raw_record["base64"])
     if hashlib.sha256(raw).hexdigest() != raw_record.get("sha256"):
         raise ReplayRecordError(f"{where}: raw_response bytes do not match their sha256")
-    capture = attempt.get("response_capture") or {}
-    final_answer = capture.get("final_answer") or {}
-    reasoning = capture.get("reasoning") or {}
-    finish_reason = capture.get("finish_reason") or {}
-    if final_answer.get("state") not in {"absent", "null", "empty", "text"}:
-        raise ReplayRecordError(f"{where}: final_answer state cannot be rebuilt: {final_answer}")
-    if reasoning.get("state") not in {"absent", "null", "empty", "text"}:
-        raise ReplayRecordError(f"{where}: reasoning state cannot be rebuilt: {reasoning}")
-    if finish_reason.get("state") not in {"absent", "null", "value"}:
-        raise ReplayRecordError(f"{where}: finish_reason cannot be rebuilt: {finish_reason}")
+    final_answer, reasoning, finish_reason = _rebuildable_captures(attempt, where)
     content = final_answer.get("content") if final_answer["state"] in {"empty", "text"} else None
     expected_raw = content.encode("utf-8") if isinstance(content, str) else b""
     if raw != expected_raw:
@@ -155,6 +146,25 @@ def _recorded_call(attempt: dict[str, Any]) -> RecordedCall:
         finish_reason=finish_reason,
         usage=_available(attempt.get("usage")),
     )
+
+
+_TEXT_STATES = frozenset({"absent", "null", "empty", "text"})
+_CAPTURE_STATES = (
+    ("final_answer", _TEXT_STATES, "final_answer state cannot be rebuilt"),
+    ("reasoning", _TEXT_STATES, "reasoning state cannot be rebuilt"),
+    ("finish_reason", frozenset({"absent", "null", "value"}), "finish_reason cannot be rebuilt"),
+)
+
+
+def _rebuildable_captures(attempt: dict[str, Any], where: str) -> list[dict[str, Any]]:
+    capture = attempt.get("response_capture") or {}
+    parts = []
+    for name, states, problem in _CAPTURE_STATES:
+        part = capture.get(name) or {}
+        if part.get("state") not in states:
+            raise ReplayRecordError(f"{where}: {problem}: {part}")
+        parts.append(part)
+    return parts
 
 
 def load_recorded_calls(failure_evidence: Path) -> list[RecordedCall]:
@@ -383,27 +393,35 @@ def _first_difference(left: Any, right: Any, where: str = "$") -> str | None:
     if type(left) is not type(right):
         return f"{where}: {_short(left)} != {_short(right)}"
     if isinstance(left, dict):
-        for key in sorted(set(left) | set(right), key=str):
-            if key not in left:
-                return f"{where}.{key}: only in replay"
-            if key not in right:
-                return f"{where}.{key}: only in recording"
-            found = _first_difference(left[key], right[key], f"{where}.{key}")
-            if found:
-                return found
-        if list(left) != list(right):
-            return f"{where}: key order {list(left)} != {list(right)}"
-        return None
+        return _first_dict_difference(left, right, where)
     if isinstance(left, list):
-        for index, (a, b) in enumerate(zip(left, right, strict=False)):
-            found = _first_difference(a, b, f"{where}[{index}]")
-            if found:
-                return found
-        if len(left) != len(right):
-            return f"{where}: length {len(left)} != {len(right)}"
-        return None
+        return _first_list_difference(left, right, where)
     if left != right:
         return f"{where}: {_short(left)} != {_short(right)}"
+    return None
+
+
+def _first_dict_difference(left: dict[Any, Any], right: dict[Any, Any], where: str) -> str | None:
+    for key in sorted(set(left) | set(right), key=str):
+        if key not in left:
+            return f"{where}.{key}: only in replay"
+        if key not in right:
+            return f"{where}.{key}: only in recording"
+        found = _first_difference(left[key], right[key], f"{where}.{key}")
+        if found:
+            return found
+    if list(left) != list(right):
+        return f"{where}: key order {list(left)} != {list(right)}"
+    return None
+
+
+def _first_list_difference(left: list[Any], right: list[Any], where: str) -> str | None:
+    for index, (a, b) in enumerate(zip(left, right, strict=False)):
+        found = _first_difference(a, b, f"{where}[{index}]")
+        if found:
+            return found
+    if len(left) != len(right):
+        return f"{where}: length {len(left)} != {len(right)}"
     return None
 
 
@@ -580,32 +598,40 @@ class GateResult:
 
     def report(self, limit: int = 10) -> str:
         failed = [item for item in self.items if not item.passed]
-        statuses = Counter(item.recorded_status for item in self.items)
         lines = [
             f"stage:      {self.stage_dir}",
             f"scratch:    {self.work}",
             f"items:      {len(self.items)} replayed, {self.skipped} skipped by the recording",
-            "statuses:   "
-            + ", ".join(f"{name} {count}" for name, count in sorted(statuses.items(), key=str)),
+            "statuses:   " + _status_counts(self.items, "recorded_status"),
             f"dispatches: {sum(item.served for item in self.items)} served",
             f"files:      {sum(item.files_compared for item in self.items)} compared",
             f"time:       {self.seconds:.1f}s",
             f"failed:     {len(failed)}",
         ]
         for item in failed[:limit]:
-            lines.append(
-                f"  {item.item_id}: exit {item.exit_code} (recorded {item.recorded_exit_code}),"
-                f" status {item.status} (recorded {item.recorded_status}),"
-                f" unused records {item.unused}"
-            )
-            if item.error:
-                lines.append(f"    error: {item.error}")
-            lines += [f"    prompt mismatch: {mismatch}" for mismatch in item.mismatches]
-            lines += [f"    network: {attempt}" for attempt in item.network_attempts[:limit]]
-            lines += [f"    {difference}" for difference in item.differences[:limit]]
-            lines += [f"    log: {line[:300]}" for line in item.log_tail]
+            lines += _failure_lines(item, limit)
         lines.append("PASS" if self.passed else "FAIL")
         return "\n".join(lines)
+
+
+def _status_counts(items: Iterable[ItemResult], attribute: str) -> str:
+    statuses = Counter(getattr(item, attribute) for item in items)
+    return ", ".join(f"{name} {count}" for name, count in sorted(statuses.items(), key=str))
+
+
+def _failure_lines(item: ItemResult, limit: int) -> list[str]:
+    lines = [
+        f"  {item.item_id}: exit {item.exit_code} (recorded {item.recorded_exit_code}),"
+        f" status {item.status} (recorded {item.recorded_status}),"
+        f" unused records {item.unused}"
+    ]
+    if item.error:
+        lines.append(f"    error: {item.error}")
+    lines += [f"    prompt mismatch: {mismatch}" for mismatch in item.mismatches]
+    lines += [f"    network: {attempt}" for attempt in item.network_attempts[:limit]]
+    lines += [f"    {difference}" for difference in item.differences[:limit]]
+    lines += [f"    log: {line[:300]}" for line in item.log_tail]
+    return lines
 
 
 @dataclass
@@ -649,22 +675,15 @@ def _prepare_item(item: dict[str, Any], copies: _InputCopies, output_dir: Path) 
     arguments = _generate_arguments(item["argv"])
     rewritten: list[str] = []
     recorded_output: str | None = None
-    index = 0
-    while index < len(arguments):
-        value = arguments[index]
+    for index, value in enumerate(arguments):
         previous = arguments[index - 1] if index else None
         if value.startswith("--") and "=" in value:
             raise ValueError(f"unsupported '--option=value' form in recorded argv: {value}")
         if previous in _OUTPUT_OPTIONS:
             recorded_output = value
             rewritten.append(str(output_dir))
-        elif previous in _IN_PLACE_OPTIONS or value.startswith("-"):
-            rewritten.append(value)
-        elif Path(value).is_absolute() and Path(value).is_file():
-            rewritten.append(str(copies.copy(Path(value))))
         else:
-            rewritten.append(value)
-        index += 1
+            rewritten.append(_rewritten_argument(value, previous, copies))
     if recorded_output is None:
         raise ValueError(f"recorded argv for {item['id']} has no --output-dir")
     return _PreparedItem(
@@ -673,6 +692,14 @@ def _prepare_item(item: dict[str, Any], copies: _InputCopies, output_dir: Path) 
         recorded_output_label=recorded_output,
         recorded_exit_code=item.get("exit_code"),
     )
+
+
+def _rewritten_argument(value: str, previous: str | None, copies: _InputCopies) -> str:
+    if previous in _IN_PLACE_OPTIONS or value.startswith("-"):
+        return value
+    if Path(value).is_absolute() and Path(value).is_file():
+        return str(copies.copy(Path(value)))
+    return value
 
 
 def _logged_status(log: Path) -> str | None:
@@ -768,12 +795,8 @@ def run_gate(
     work.mkdir(parents=True, exist_ok=True)
     work = work.resolve()
     document = json.loads((stage_dir / STAGE_FILENAME).read_text(encoding="utf-8"))
-    selected = set(only) if only is not None else None
-    authored = [item for item in document.get("items") or [] if "argv" in item]
     result = GateResult(stage_dir=stage_dir, work=work)
-    result.skipped = len(document.get("items") or []) - len(authored)
-    if selected is not None:
-        authored = [item for item in authored if item["id"] in selected]
+    authored, result.skipped = _authored_items(document, only)
     output_dir = work / "output"
     output_dir.mkdir(exist_ok=True)
     (work / "items").mkdir(exist_ok=True)
@@ -792,18 +815,30 @@ def run_gate(
     return result
 
 
+def _authored_items(
+    document: dict[str, Any], only: Iterable[str] | None
+) -> tuple[list[dict[str, Any]], int]:
+    """Return the recorded items that ran ``generate`` and how many others the stage holds."""
+
+    selected = set(only) if only is not None else None
+    recorded = document.get("items") or []
+    authored = [item for item in recorded if "argv" in item]
+    skipped = len(recorded) - len(authored)
+    if selected is not None:
+        authored = [item for item in authored if item["id"] in selected]
+    return authored, skipped
+
+
 def _summary(results: Sequence[GateResult], seconds: float) -> str:
     items = [item for result in results for item in result.items]
     failed = [item for item in items if not item.passed]
     mismatches = sum(len(item.mismatches) for item in items)
-    statuses = Counter(item.status for item in items)
     return "\n".join(
         [
             "== summary",
             f"stages:          {len(results)}",
             f"items:           {len(items)} replayed, {len(items) - len(failed)} identical",
-            "statuses:        "
-            + ", ".join(f"{name} {count}" for name, count in sorted(statuses.items(), key=str)),
+            "statuses:        " + _status_counts(items, "status"),
             f"dispatches:      {sum(item.served for item in items)} served",
             f"prompt mismatch: {mismatches}",
             f"wall time:       {seconds:.1f}s",
@@ -815,11 +850,19 @@ def _summary(results: Sequence[GateResult], seconds: float) -> str:
 def main(argv: Iterable[str] | None = None) -> int:
     items = list(sys.argv[1:] if argv is None else argv)
     if items[:1] == ["_replay-item"]:
-        record, status, network, separator, *arguments = items[1:]
-        if separator != "--":
-            raise SystemExit("usage: _replay-item RECORD STATUS NETWORK_LOG -- AUTHOR_ARGS...")
-        _replay_item(Path(record), Path(status), Path(network), arguments)
-        return 0
+        return _replay_item_command(items[1:])
+    return _check(_parser().parse_args(items))
+
+
+def _replay_item_command(items: list[str]) -> int:
+    record, status, network, separator, *arguments = items
+    if separator != "--":
+        raise SystemExit("usage: _replay-item RECORD STATUS NETWORK_LOG -- AUTHOR_ARGS...")
+    _replay_item(Path(record), Path(status), Path(network), arguments)
+    return 0
+
+
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m asago_artifact_generator.replay_gate",
         description="Replay recorded author items offline and compare every output.",
@@ -833,7 +876,10 @@ def main(argv: Iterable[str] | None = None) -> int:
     check.add_argument("--keep", action="store_true", help="keep the scratch directory on a pass")
     check.add_argument("--show", type=int, default=10, help="failures and differences to print")
     check.add_argument("--json", type=Path, help="also write per-item results to this file")
-    options = parser.parse_args(items)
+    return parser
+
+
+def _check(options: argparse.Namespace) -> int:
     root = options.work_dir or Path(tempfile.mkdtemp(prefix="replay-gate-"))
     started = time.perf_counter()
     results = []
@@ -846,23 +892,27 @@ def main(argv: Iterable[str] | None = None) -> int:
     print(_summary(results, time.perf_counter() - started))
     passed = bool(results) and all(result.passed for result in results)
     if options.json:
-        options.json.write_text(
-            json.dumps(
-                [
-                    {
-                        "stage_dir": str(result.stage_dir),
-                        "items": [asdict(item) for item in result.items],
-                    }
-                    for result in results
-                ],
-                indent=2,
-                default=str,
-            ),
-            encoding="utf-8",
-        )
+        _write_results_json(options.json, results)
     if passed and not options.keep and options.work_dir is None:
         shutil.rmtree(root, ignore_errors=True)
     return 0 if passed else 1
+
+
+def _write_results_json(path: Path, results: list[GateResult]) -> None:
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "stage_dir": str(result.stage_dir),
+                    "items": [asdict(item) for item in result.items],
+                }
+                for result in results
+            ],
+            indent=2,
+            default=str,
+        ),
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":
