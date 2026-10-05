@@ -118,6 +118,116 @@ def _preflight_stop(exc: PromptPreflightError, stage: str) -> _StageStop:
     return _StageStop(status, (finding,))
 
 
+def _validate_orchestrator_arguments(
+    transport: AuthoringTransport,
+    supplied_control_cases: SuppliedControlCases | None,
+    discovery_provenance: dict[str, Any] | None,
+    policy: AuthoringPolicy,
+) -> None:
+    if getattr(transport, "max_retries", None) != 0:
+        raise ValueError("authoring transport must set max_retries=0")
+    if supplied_control_cases is not None:
+        _validate_supplied_control_cases(supplied_control_cases)
+    if discovery_provenance is not None and not isinstance(discovery_provenance, dict):
+        raise ValueError("discovery_provenance must be a mapping")
+    if not isinstance(policy, AuthoringPolicy):
+        raise ValueError("policy must be an AuthoringPolicy instance")
+
+
+def _default_budget(policy: AuthoringPolicy) -> AuthoringBudget:
+    """Cover the policy's own closed worst case.
+
+    An explicitly supplied budget is honored as an earlier stop and never
+    raised to the policy maximum.
+    """
+
+    role_limits = policy_role_limits(policy)
+    return AuthoringBudget(
+        aggregate_limit=MAX_AUTHORING_REQUESTS,
+        task_limit=policy_max_dispatches(policy),
+        author_limit=max(MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK, role_limits["author"]),
+        review_limit=max(MAX_REVIEW_REQUESTS_PER_TASK, role_limits["reviewer"]),
+    )
+
+
+def _record_control_evidence(
+    record: dict[str, Any],
+    controls: list[dict[str, Any]],
+    deduplication: Any,
+    skips: list[dict[str, Any]],
+) -> None:
+    record["detector_controls"] = controls
+    record["control_deduplication"] = deepcopy(deduplication)
+    if skips:
+        record["detector_control_skips"] = deepcopy(skips)
+
+
+def _correction_checks_not_run(failed_stage: str) -> list[str]:
+    if failed_stage == "call1":
+        return ["plan_validation"]
+    return ["artifact_validation", "detector_controls"]
+
+
+def _secret_scan_target(validation_value: dict[str, Any] | ParsedCall2Response) -> Any:
+    if isinstance(validation_value, ParsedCall2Response):
+        return validation_value.metadata
+    return validation_value
+
+
+_REVIEW_EVIDENCE_KEYS = (
+    "decision",
+    "original_decision",
+    "decision_after_scope_filter",
+    "summary",
+    "findings",
+    "out_of_scope_findings",
+    "question_ids",
+)
+
+
+def _finding_from_record(item: Any) -> Finding | None:
+    """Rebuild a finding from its recorded form, or None when the record is malformed."""
+
+    if not isinstance(item, dict):
+        return None
+    code = item.get("code")
+    detail = item.get("detail")
+    path = item.get("path", "")
+    if not (isinstance(code, str) and isinstance(detail, str)):
+        return None
+    return Finding(
+        code,
+        detail,
+        path if isinstance(path, str) else "",
+        item.get("details", {}) if isinstance(item.get("details"), dict) else {},
+    )
+
+
+_FINDING_PATH_STAGES = {
+    "call1": "plan",
+    "plan": "plan",
+    "plan_review": "plan",
+    "call2": "artifact",
+    "artifact": "artifact",
+    "artifact_review": "artifact",
+}
+_ATTEMPT_STAGES = {
+    "call1": "plan",
+    "plan_review": "plan",
+    "call2": "artifact",
+    "artifact_review": "artifact",
+}
+
+
+def _attempt_terminal_stage(attempt: dict[str, Any]) -> str | None:
+    stage = attempt.get("stage")
+    if stage in _ATTEMPT_STAGES:
+        return _ATTEMPT_STAGES[stage]
+    if stage == "correction":
+        return "plan" if attempt.get("failed_stage") == "call1" else "artifact"
+    return None
+
+
 # Returned by ``_dispatch_correction`` when no correction response exists.
 _CORRECTION_NOT_DISPATCHED = object()
 
@@ -160,14 +270,9 @@ class AuthoringOrchestrator:
         supplied_control_cases: SuppliedControlCases | None = None,
         discovery_provenance: dict[str, Any] | None = None,
     ) -> None:
-        if getattr(transport, "max_retries", None) != 0:
-            raise ValueError("authoring transport must set max_retries=0")
-        if supplied_control_cases is not None:
-            _validate_supplied_control_cases(supplied_control_cases)
-        if discovery_provenance is not None and not isinstance(discovery_provenance, dict):
-            raise ValueError("discovery_provenance must be a mapping")
-        if not isinstance(policy, AuthoringPolicy):
-            raise ValueError("policy must be an AuthoringPolicy instance")
+        _validate_orchestrator_arguments(
+            transport, supplied_control_cases, discovery_provenance, policy
+        )
         self.transport = transport
         self.package_dir = Path(package_dir)
         self.task_id = task_id
@@ -175,16 +280,7 @@ class AuthoringOrchestrator:
         self.policy = policy
         self.review_model_profile = policy.review_model_profile
         if budget is None:
-            # The default budget covers the policy's own closed worst case; an
-            # explicitly supplied budget is honored as an earlier stop and
-            # never raised to the policy maximum.
-            role_limits = policy_role_limits(policy)
-            budget = AuthoringBudget(
-                aggregate_limit=MAX_AUTHORING_REQUESTS,
-                task_limit=policy_max_dispatches(policy),
-                author_limit=max(MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK, role_limits["author"]),
-                review_limit=max(MAX_REVIEW_REQUESTS_PER_TASK, role_limits["reviewer"]),
-            )
+            budget = _default_budget(policy)
         _validate_nonnegative_integer(
             "prior_author_correction_spend",
             prior_author_correction_spend,
@@ -209,9 +305,7 @@ class AuthoringOrchestrator:
         self._last_controls: list[dict[str, Any]] | None = None
         self._control_condition: dict[str, Any] | None = None
         self._last_detector_feedback: tuple[DetectorControlFeedback, ...] = ()
-        self._supplied_control_cases = (
-            None if supplied_control_cases is None else supplied_control_cases
-        )
+        self._supplied_control_cases = supplied_control_cases
         self._raw_responses: dict[str, bytes] = {}
         self._decoded_responses: dict[str, Any] = {}
         self._prompt_packets: dict[str, PromptPacket] = {}
@@ -280,15 +374,9 @@ class AuthoringOrchestrator:
             ),
         )
         if self._ledger:
-            self._ledger[-1]["detector_controls"] = controls
-            self._ledger[-1]["control_deduplication"] = deepcopy(deduplication)
-            if skips:
-                self._ledger[-1]["detector_control_skips"] = deepcopy(skips)
+            _record_control_evidence(self._ledger[-1], controls, deduplication, skips)
         if self._failure_evidence.get("attempts"):
-            self._failure_attempt()["detector_controls"] = controls
-            self._failure_attempt()["control_deduplication"] = deepcopy(deduplication)
-            if skips:
-                self._failure_attempt()["detector_control_skips"] = deepcopy(skips)
+            _record_control_evidence(self._failure_attempt(), controls, deduplication, skips)
         control_findings = [
             Finding(item["code"], item["detail"], item.get("path", "")) for item in raw_findings
         ]
@@ -926,18 +1014,10 @@ class AuthoringOrchestrator:
         validation findings.
         """
 
-        checks_not_run = (
-            ["plan_validation"]
-            if failed_stage == "call1"
-            else ["artifact_validation", "detector_controls"]
-        )
+        checks_not_run = _correction_checks_not_run(failed_stage)
         try:
             validation_value, decoded = self._decode_correction_response(raw, failed_stage)
-            assert_no_secrets(
-                validation_value.metadata
-                if isinstance(validation_value, ParsedCall2Response)
-                else validation_value
-            )
+            assert_no_secrets(_secret_scan_target(validation_value))
             self._decoded_responses[f"correction-{failed_stage}"] = decoded
             self._failure_attempt()["decoded_output"] = decoded
             self._record_candidate_digest(validation_value)
@@ -945,23 +1025,9 @@ class AuthoringOrchestrator:
             if not isinstance(decoded, dict):
                 raise ValueError("correction response must decode to an object")
             transformation_count = len(self._transformations)
-            if failed_stage == "call1":
-                replacement_findings = collect_plan_findings_v2(
-                    decoded,
-                    inventory,
-                    runtime_contract,
-                    provenance_ids=scenario_provenance_ids(view),
-                    condition=view.payload.get("discriminating_condition"),
-                    transformations=self._transformations,
-                )
-            else:
-                replacement_findings = collect_artifact_findings_v2(
-                    validation_value,
-                    self._decoded_responses["call1"],
-                    inventory,
-                    runtime_contract,
-                    transformations=self._transformations,
-                )
+            replacement_findings = self._correction_findings(
+                failed_stage, decoded, validation_value, view, inventory, runtime_contract
+            )
             self._record_validation_transformations(transformation_count)
             if replacement_findings:
                 self._ledger[-1]["findings"] = [
@@ -976,15 +1042,48 @@ class AuthoringOrchestrator:
             self._record_failures(exc.findings)
             return None
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError, AuthoringError) as exc:
-            finding = Finding("correction_failed", str(exc), failed_stage)
-            self._ledger[-1]["findings"] = [finding.to_dict()]
-            if isinstance(exc, (UnicodeDecodeError, json.JSONDecodeError)):
-                self._ledger[-1]["parse_error"] = str(exc)
-                self._record_checks_not_run(checks_not_run)
-            self._findings.append(finding)
-            self._record_failure(finding)
+            self._record_correction_failure(exc, failed_stage, checks_not_run)
             return None
         return validation_value, decoded, replacement_findings
+
+    def _correction_findings(
+        self,
+        failed_stage: str,
+        decoded: dict[str, Any],
+        validation_value: dict[str, Any] | ParsedCall2Response,
+        view: InputView,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> list[Finding]:
+        """Run the checks of the stage a correction replaces."""
+
+        if failed_stage == "call1":
+            return collect_plan_findings_v2(
+                decoded,
+                inventory,
+                runtime_contract,
+                provenance_ids=scenario_provenance_ids(view),
+                condition=view.payload.get("discriminating_condition"),
+                transformations=self._transformations,
+            )
+        return collect_artifact_findings_v2(
+            validation_value,
+            self._decoded_responses["call1"],
+            inventory,
+            runtime_contract,
+            transformations=self._transformations,
+        )
+
+    def _record_correction_failure(
+        self, exc: Exception, failed_stage: str, checks_not_run: list[str]
+    ) -> None:
+        finding = Finding("correction_failed", str(exc), failed_stage)
+        self._ledger[-1]["findings"] = [finding.to_dict()]
+        if isinstance(exc, (UnicodeDecodeError, json.JSONDecodeError)):
+            self._ledger[-1]["parse_error"] = str(exc)
+            self._record_checks_not_run(checks_not_run)
+        self._findings.append(finding)
+        self._record_failure(finding)
 
     def _run_v2_policy(
         self,
@@ -1094,8 +1193,7 @@ class AuthoringOrchestrator:
         while True:
             if candidate is None:
                 if pending is None:
-                    decoded, pending, raw = self._request_and_validate_v2(packet, collector)
-                    candidate = decoded if isinstance(decoded, dict) else None
+                    candidate, pending, raw = self._first_plan_candidate(packet, collector)
                 if candidate is None:
                     corrected = self._plan_correction_round(
                         packet,
@@ -1121,6 +1219,12 @@ class AuthoringOrchestrator:
             pending = reviewed
             review_driven = True
             candidate = None
+
+    def _first_plan_candidate(
+        self, packet: PromptPacket, collector: Any
+    ) -> tuple[dict[str, Any] | None, Sequence[Finding], bytes]:
+        decoded, pending, raw = self._request_and_validate_v2(packet, collector)
+        return (decoded if isinstance(decoded, dict) else None), pending, raw
 
     def _plan_findings_collector(
         self,
@@ -1245,9 +1349,7 @@ class AuthoringOrchestrator:
         try:
             packet = build_call2_packet_v2(view, plan, inventory, runtime_contract)
         except PromptPreflightError as exc:
-            finding = _prompt_preflight_finding(exc, "call2")
-            status = "prompt_overflow" if finding.code == "prompt_overflow" else "failed"
-            return _StageStop(status, (finding,))
+            return _preflight_stop(exc, "call2")
 
         def collector(decoded: Any) -> list[Finding]:
             return collect_artifact_findings_v2(
@@ -1325,6 +1427,14 @@ class AuthoringOrchestrator:
         parsed = candidate if candidate is not None and not pending else None
         return parsed, pending, raw
 
+    def _author_stop_or_unresolved(self, fallback: Sequence[Finding]) -> _StageStop:
+        """Stop for a transport or budget finding, else report the recorded findings."""
+
+        stop = self._stop_for_author_findings(list(self._findings))
+        if stop is not None:
+            return stop
+        return _StageStop("unresolved", tuple(self._findings or fallback))
+
     def _correct_artifact_candidate(
         self,
         view: InputView,
@@ -1369,19 +1479,10 @@ class AuthoringOrchestrator:
             allowance_kind=allowance_kind,
         )
         if correction is None:
-            stop = self._stop_for_author_findings(list(self._findings))
-            if stop is not None:
-                return stop
-            return _StageStop("unresolved", tuple(self._findings or pending))
+            return self._author_stop_or_unresolved(pending)
         corrected_candidate, correction_findings, raw = correction
         if not isinstance(corrected_candidate, ParsedCall2Response):
-            stop = self._stop_for_author_findings(list(self._findings))
-            if stop is not None:
-                return stop
-            return _StageStop(
-                "unresolved",
-                tuple(self._findings or correction_findings),
-            )
+            return self._author_stop_or_unresolved(correction_findings)
         controlled = self._run_detector_controls(
             corrected_candidate,
             plan,
@@ -1691,16 +1792,10 @@ class AuthoringOrchestrator:
         ]
         if not stop_findings:
             return None
-        if any(finding.code == "prompt_overflow" for finding in stop_findings):
-            return _StageStop(
-                "prompt_overflow",
-                tuple(finding for finding in stop_findings if finding.code == "prompt_overflow"),
-            )
-        if any(finding.code == "budget_exhausted" for finding in stop_findings):
-            return _StageStop(
-                "budget_exhausted",
-                tuple(finding for finding in stop_findings if finding.code == "budget_exhausted"),
-            )
+        for code in ("prompt_overflow", "budget_exhausted"):
+            matching = tuple(finding for finding in stop_findings if finding.code == code)
+            if matching:
+                return _StageStop(code, matching)
         return _StageStop("transport_failure", tuple(stop_findings))
 
     @staticmethod
@@ -1772,20 +1867,17 @@ class AuthoringOrchestrator:
             return
         record = self._ledger[-1]
         evidence = record.setdefault("review", {})
+        input_digest, candidate_digest = _review_packet_digests(packet)
         evidence.update(
             {
                 "status": status,
                 "prompt_version": packet.version,
                 "prompt_sha256": packet.sha256,
-                "reviewed_input_sha256": record.get(
-                    "reviewed_input_sha256", _review_packet_digests(packet)[0]
-                ),
+                "reviewed_input_sha256": record.get("reviewed_input_sha256", input_digest),
                 "reviewed_candidate_sha256": record.get(
-                    "reviewed_candidate_sha256", _review_packet_digests(packet)[1]
+                    "reviewed_candidate_sha256", candidate_digest
                 ),
-                "candidate_bytes_sha256": record.get(
-                    "candidate_bytes_sha256", _review_packet_digests(packet)[1]
-                ),
+                "candidate_bytes_sha256": record.get("candidate_bytes_sha256", candidate_digest),
                 "contract_sha256": _review_contract_digest(packet),
                 "configuration_sha256": _review_configuration_digest(
                     effective_controls,
@@ -1801,17 +1893,9 @@ class AuthoringOrchestrator:
             evidence["raw_response_sha256"] = _sha256(raw)
             evidence["raw_response_bytes"] = len(raw)
         if review is not None:
-            for key in (
-                "decision",
-                "original_decision",
-                "decision_after_scope_filter",
-                "summary",
-                "findings",
-                "out_of_scope_findings",
-                "question_ids",
-            ):
-                if key in review:
-                    evidence[key] = deepcopy(review[key])
+            evidence.update(
+                {key: deepcopy(review[key]) for key in _REVIEW_EVIDENCE_KEYS if key in review}
+            )
         attempt = self._failure_attempt()
         attempt["review"] = deepcopy(evidence)
         self._review_evidence["plan" if packet.stage == "plan_review" else "artifact"] = deepcopy(
@@ -1865,23 +1949,8 @@ class AuthoringOrchestrator:
         latest = attempts[-1].get("findings") if isinstance(attempts, list) and attempts else None
         if not isinstance(latest, list) or not latest:
             return list(fallback)
-        result: list[Finding] = []
-        for item in latest:
-            if not isinstance(item, dict):
-                continue
-            code = item.get("code")
-            detail = item.get("detail")
-            path = item.get("path", "")
-            if isinstance(code, str) and isinstance(detail, str):
-                result.append(
-                    Finding(
-                        code,
-                        detail,
-                        path if isinstance(path, str) else "",
-                        item.get("details", {}) if isinstance(item.get("details"), dict) else {},
-                    )
-                )
-        return result or list(fallback)
+        findings = (_finding_from_record(item) for item in latest)
+        return [finding for finding in findings if finding is not None] or list(fallback)
 
     def _failure_attempt(self) -> dict[str, Any]:
         return self._failure_evidence["attempts"][-1]
@@ -2009,19 +2078,13 @@ class AuthoringOrchestrator:
             [] if status in {"accepted", "packaged"} else self._latest_attempt_findings(findings)
         )
         self._failure_evidence["findings"] = [finding.to_dict() for finding in terminal_findings]
+        attempt_count = len(self._failure_evidence["attempts"])
         self._failure_evidence["terminal"] = {
             "stage": self._terminal_stage(terminal_findings),
-            "attempt_index": (
-                len(self._failure_evidence["attempts"]) - 1
-                if self._failure_evidence["attempts"]
-                else None
-            ),
-            "reason": status if not terminal_findings else terminal_findings[-1].code,
+            "attempt_index": attempt_count - 1 if attempt_count else None,
+            "reason": terminal_findings[-1].code if terminal_findings else status,
         }
-        for attempt in self._failure_evidence["attempts"]:
-            attempt["terminal_status"] = status
-            attempt["stage_status"] = status
-        for record in self._ledger:
+        for record in (*self._failure_evidence["attempts"], *self._ledger):
             record["terminal_status"] = status
             record["stage_status"] = status
         aggregate = self._failure_evidence.get("aggregate")
@@ -2036,22 +2099,10 @@ class AuthoringOrchestrator:
         """Return the logical stage that produced the terminal outcome."""
 
         for finding in reversed(findings):
-            if finding.path in {"call1", "plan"}:
-                return "plan"
-            if finding.path in {"plan_review"}:
-                return "plan"
-            if finding.path in {"call2", "artifact"}:
-                return "artifact"
-            if finding.path in {"artifact_review"}:
-                return "artifact"
+            stage = _FINDING_PATH_STAGES.get(finding.path)
+            if stage is not None:
+                return stage
         attempts = self._failure_evidence.get("attempts")
         if isinstance(attempts, list) and attempts:
-            attempt = attempts[-1]
-            stage = attempt.get("stage")
-            if stage in {"call1", "plan_review"}:
-                return "plan"
-            if stage in {"call2", "artifact_review"}:
-                return "artifact"
-            if stage == "correction":
-                return "plan" if attempt.get("failed_stage") == "call1" else "artifact"
+            return _attempt_terminal_stage(attempts[-1])
         return None
