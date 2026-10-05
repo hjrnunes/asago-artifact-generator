@@ -109,7 +109,7 @@ the model A minimum bounds both. A model whose tokenizer needs more tokens per
 byte than both measured models can exceed the estimate; the provider then
 rejects the request. The measurement values live in
 `src/asago_artifact_generator/authoring/context_budget.py` as
-`CONTEXT_GUARD_CALIBRATION`; the authoring path does not read saved runs.
+`_CONTEXT_GUARD_CALIBRATION_SOURCES`; the authoring path does not read saved runs.
 Every guard result labels the value `estimated_prompt_tokens`; provider usage
 remains separate. A rejected prompt returns `prompt_overflow` and spends no
 provider request or author/reviewer dispatch.

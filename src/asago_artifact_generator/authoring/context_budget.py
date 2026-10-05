@@ -108,23 +108,6 @@ _CONTEXT_GUARD_STAGE_RATIOS = {
     for stage, ratio in _CONTEXT_GUARD_OBSERVED_STAGE_RATIOS.items()
 }
 _CONTEXT_GUARD_CALIBRATED_RATIO = _CONTEXT_GUARD_OBSERVED_RATIO * (1 - _CONTEXT_GUARD_MARGIN)
-CONTEXT_GUARD_CALIBRATION = {
-    "formula": (
-        "estimated_prompt_tokens = ceil(total_model_facing_utf8_bytes / calibrated_ratio[stage])"
-    ),
-    "ratio_formula": "calibrated_ratio[stage] = observed_lowest_ratio[stage] * (1 - margin)",
-    "sources": _CONTEXT_GUARD_CALIBRATION_SOURCES,
-    "observed_lowest_bytes_per_token_by_stage": {
-        stage: float(ratio) for stage, ratio in _CONTEXT_GUARD_OBSERVED_STAGE_RATIOS.items()
-    },
-    "observed_conservative_bytes_per_token": float(_CONTEXT_GUARD_OBSERVED_RATIO),
-    "margin": float(_CONTEXT_GUARD_MARGIN),
-    "margin_fraction": str(_CONTEXT_GUARD_MARGIN),
-    "calibrated_bytes_per_token_by_stage": {
-        stage: float(ratio) for stage, ratio in _CONTEXT_GUARD_STAGE_RATIOS.items()
-    },
-    "calibrated_bytes_per_token": float(_CONTEXT_GUARD_CALIBRATED_RATIO),
-}
 
 
 def _context_guard_ratio(stage: str) -> Fraction:

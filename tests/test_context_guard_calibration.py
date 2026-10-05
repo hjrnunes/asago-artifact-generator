@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 
 from asago_artifact_generator.authoring.context_budget import (
-    CONTEXT_GUARD_CALIBRATION,
+    _CONTEXT_GUARD_CALIBRATION_SOURCES,
+    _CONTEXT_GUARD_MARGIN,
     _context_budget_estimate,
     _context_guard_ratio,
     _enforce_context_budget,
@@ -66,8 +67,8 @@ _STAGES = ("call1", "call2", "correction", "plan_review", "artifact_review")
 
 
 def test_calibration_applies_the_stated_margin_below_every_measured_stage_ratio() -> None:
-    sources = CONTEXT_GUARD_CALIBRATION["sources"]
-    margin = Fraction(CONTEXT_GUARD_CALIBRATION["margin_fraction"])
+    sources = _CONTEXT_GUARD_CALIBRATION_SOURCES
+    margin = _CONTEXT_GUARD_MARGIN
 
     assert margin == Fraction(5, 100)
     assert all("model" not in source for source in sources)
@@ -86,7 +87,7 @@ def test_calibration_applies_the_stated_margin_below_every_measured_stage_ratio(
 
 
 def test_every_measured_prompt_estimates_at_least_its_provider_token_count() -> None:
-    for source in CONTEXT_GUARD_CALIBRATION["sources"]:
+    for source in _CONTEXT_GUARD_CALIBRATION_SOURCES:
         packet = _packet_with_model_facing_bytes(
             source["model_facing_utf8_bytes"], source["stage"]
         )
