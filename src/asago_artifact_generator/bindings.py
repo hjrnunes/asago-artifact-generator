@@ -126,7 +126,7 @@ def validate_bindings(
             raise BindingValidationError(
                 f"undocumented selector for binding {binding.name}: {binding.selector}"
             )
-        if not _types_compatible(actual_type, binding.expected_type):
+        if not _binding_types_compatible(actual_type, binding.expected_type):
             raise BindingValidationError(
                 f"binding type mismatch for {binding.name}: "
                 f"expected {binding.expected_type}, source is {actual_type}"
@@ -834,14 +834,20 @@ def _supplied_fact_schema(binding: RuntimeBinding, inventory: dict[str, Any]) ->
 
 
 def _schema_at_selector(schema: dict[str, Any], selector: str) -> str | None:
-    current: Any = schema
-    parts = selector.split(".")
-    if not parts or any(not part for part in parts):
-        return None
     # Setup outputs are documented relative to ``result``; supplied facts use
     # ``value``.  Requiring the root makes accidental field-name inference fail.
-    if parts[0] not in {"result", "value"}:
+    if selector.split(".", 1)[0] not in {"result", "value"}:
         return None
+    return _binding_selector_type(schema, selector)
+
+
+def _binding_selector_type(schema: Any, selector: str) -> str | None:
+    """Return the type a selector names below its root part, or None."""
+
+    parts = selector.split(".")
+    if not all(parts):
+        return None
+    current: Any = schema
     for part in parts[1:]:
         current = _child_schema(current, part)
     return current.get("type") if isinstance(current, dict) else None
@@ -866,10 +872,8 @@ def _child_schema(current: Any, part: str) -> Any:
     return None
 
 
-def _types_compatible(actual: str, expected: str) -> bool:
-    if actual == expected:
-        return True
-    return actual == "integer" and expected == "number"
+def _binding_types_compatible(actual: str, expected: str) -> bool:
+    return actual == expected or (actual == "integer" and expected == "number")
 
 
 __all__ = [

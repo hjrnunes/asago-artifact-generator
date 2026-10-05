@@ -16,6 +16,8 @@ from ..bindings import (
     MISSING_POLICIES,
     SOURCE_KINDS,
     BindingValidationError,
+    _binding_selector_type,
+    _binding_types_compatible,
     canonical_binding_paths,
     find_stimulus_user_text_consumer_mismatches,
     normalize_binding_declarations,
@@ -1968,33 +1970,6 @@ def _supplied_input_source_schema(
 def _selector_root(selector: str) -> str | None:
     root = selector.split(".", 1)[0]
     return root if root in {"result", "value"} else None
-
-
-def _binding_selector_type(schema: dict[str, Any], selector: str) -> str | None:
-    current: Any = schema
-    parts = selector.split(".")
-    if not parts or any(not part for part in parts):
-        return None
-    for part in parts[1:]:
-        current = _selector_child_schema(current, part)
-    return current.get("type") if isinstance(current, dict) else None
-
-
-def _selector_child_schema(schema: Any, part: str) -> Any:
-    """Return the sub-schema one selector part names, or None when it names nothing."""
-
-    if not isinstance(schema, dict):
-        return None
-    if schema.get("type") == "object":
-        properties = schema.get("properties")
-        return properties.get(part) if isinstance(properties, dict) else None
-    if schema.get("type") == "array" and part == "items":
-        return schema.get("items")
-    return None
-
-
-def _binding_types_compatible(actual: str, expected: str) -> bool:
-    return actual == expected or (actual == "integer" and expected == "number")
 
 
 def _collect_canonical_prerequisite_findings(
