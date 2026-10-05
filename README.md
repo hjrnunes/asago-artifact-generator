@@ -517,6 +517,15 @@ execution rejects other levels even when it captures decoded results. A plan
 with another level gets an `unsupported_claim_level` correction that names the
 supported levels.
 
+A `command_attempt` package needs a bound tool-call condition. When the
+handoff's `safe_observable_outcome.claim_level` is `command_attempt` and its
+`tool_call_condition_status.status` is not `bound`, `generate` makes no model
+call: it writes the failure evidence with status `failed` and one
+`tool_call_condition_missing` finding whose `details` carry the handoff's
+`status`, `reason`, and `detail`, then exits 1. The same finding stops a run
+whose accepted plan claims `command_attempt` for such a handoff, before
+artifact authoring.
+
 Use
 `asago_artifact_generator.target_inputs.load_target_inputs` to validate the
 producer profile, verify its semantic digest, map observed tools to

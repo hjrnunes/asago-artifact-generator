@@ -203,7 +203,39 @@ def _finding_from_record(item: Any) -> Finding | None:
     )
 
 
+def _handoff_claim_level(view: InputView) -> Any:
+    outcome = view.payload.get("safe_observable_outcome")
+    return outcome.get("claim_level") if isinstance(outcome, dict) else None
+
+
+def _plan_claim_level(plan: dict[str, Any]) -> Any:
+    claim = plan.get("observation_claim")
+    return claim.get("claim_level") if isinstance(claim, dict) else None
+
+
+def _tool_call_condition_missing(view: InputView) -> Finding | None:
+    """Return the terminal finding when a command-attempt package has no bound condition.
+
+    A command_attempt package is scored by a tool-call condition over captured
+    arguments; without a bound condition it has nothing to execute.
+    """
+
+    status = view.tool_call_condition_status
+    if status.get("status") == "bound":
+        return None
+    reason = status.get("reason")
+    detail = status.get("detail")
+    text = f"the handoff tool-call condition is {status.get('status')} ({reason})"
+    if detail:
+        text = f"{text}: {detail}"
+    details = {"status": status.get("status"), "reason": reason}
+    if detail:
+        details["detail"] = detail
+    return Finding("tool_call_condition_missing", text, "tool_call_condition_status", details)
+
+
 _FINDING_PATH_STAGES = {
+    "tool_call_condition_status": "plan",
     "call1": "plan",
     "plan": "plan",
     "plan_review": "plan",
@@ -1111,9 +1143,18 @@ class AuthoringOrchestrator:
         self._failure_evidence["policy"] = self._effective_policy_record()
         self._failure_evidence["review_status"] = dict(self._review_status)
         self._persist_failure_evidence()
+        if _handoff_claim_level(view) == "command_attempt":
+            missing = _tool_call_condition_missing(view)
+            if missing is not None:
+                return self._policy_result("failed", None, [missing])
         plan = self._plan_stage_policy(view, inventory, runtime_contract)
         if isinstance(plan, _StageStop):
             return self._policy_result(plan.status, None, plan.findings)
+        if _plan_claim_level(plan) == "command_attempt":
+            missing = _tool_call_condition_missing(view)
+            if missing is not None:
+                self._record_failures([missing])
+                return self._policy_result("failed", plan, [missing])
         artifact = self._artifact_stage_policy(view, plan, inventory, runtime_contract)
         if isinstance(artifact, _StageStop):
             return self._policy_result(artifact.status, plan, artifact.findings)
