@@ -18,21 +18,17 @@ from asago_artifact_generator.input_adapter import (
 )
 
 CONTRACT_HANDOFF = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "scenario-handoff"
-    / "handoff-v1"
-    / "valid"
-    / "adversarial-refund.json"
+    Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "handoff-v3" / "refund-bound.json"
 )
+CONTRACT_KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
 
 
 def test_handoff_view_preserves_source_hash_and_authoritative_content() -> None:
     source = CONTRACT_HANDOFF.read_bytes()
 
-    view = load_input(CONTRACT_HANDOFF, kind=InputKind.SCENARIO_HANDOFF_V1)
+    view = load_input(CONTRACT_HANDOFF, kind=InputKind.SCENARIO_HANDOFF_V3)
 
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V1
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V3
     assert view.source_sha256 == hashlib.sha256(source).hexdigest()
     assert view.narrative == yaml.safe_load(source)["narrative"]
     assert view.gherkin["scenario"] == "Refund command exceeds the remaining balance of the order"
@@ -55,7 +51,7 @@ def test_non_handoff_source_is_rejected(tmp_path: Path) -> None:
     source_path = tmp_path / "native.yaml"
     source_path.write_text("scenario_id: native\n", encoding="utf-8")
 
-    with pytest.raises(InputSourceError, match="scenario-handoff-v1"):
+    with pytest.raises(InputSourceError, match="scenario-handoff-v3"):
         load_input(source_path)
 
 
@@ -65,7 +61,7 @@ def test_tampered_handoff_fails_before_a_view_is_created(tmp_path: Path) -> None
     source_path.write_bytes(payload)
 
     with pytest.raises(InputSourceError, match="content_digest"):
-        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V1)
+        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
 
 
 def test_observation_metadata_reaches_authoring_view(tmp_path: Path) -> None:
@@ -115,11 +111,11 @@ def test_observation_metadata_reaches_authoring_view(tmp_path: Path) -> None:
     }
     from asago_artifact_generator.input_adapter import _framed_digest
 
-    payload["content_digest"] = _framed_digest("scenario-handoff-v1", payload_without_digest)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v3", payload_without_digest)
     source_path = tmp_path / "handoff.yaml"
     source_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
 
-    view = load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V1)
+    view = load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
 
     assert view.payload["observation"]["assessment"]["disposition"] == "executable"
     assert view.payload["observation"]["criteria"][0]["claim_level"] == "reply"
@@ -159,17 +155,17 @@ def test_analytical_observation_criterion_may_omit_optional_fields(
     }
     from asago_artifact_generator.input_adapter import _framed_digest
 
-    payload["content_digest"] = _framed_digest("scenario-handoff-v1", payload_without_digest)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v3", payload_without_digest)
     source_path = tmp_path / "handoff.yaml"
     source_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
 
-    view = load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V1)
+    view = load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
 
     assert view.payload["observation"]["assessment"]["disposition"] == "analytical_only"
 
 
-CONTRACT_HANDOFF_V2 = (
-    CONTRACT_HANDOFF.parents[2] / "handoff-v2" / "valid" / "adversarial-observed-record.json"
+CONTRACT_HANDOFF_OBSERVED = (
+    CONTRACT_KIT / "handoff-v3" / "valid" / "adversarial-observed-record.json"
 )
 
 
@@ -336,7 +332,6 @@ _ABSENT = object()
         ),
         (_set("deduplication.key", "k"), "handoff deduplication key is invalid"),
         (_drop("deduplication.key.claim_level"), "handoff deduplication key is invalid"),
-        (_set("deduplication.key.condition", "c"), "handoff deduplication key is invalid"),
         (
             _set("deduplication.key.uca_id", " "),
             "handoff deduplication key identity is invalid",
@@ -376,7 +371,7 @@ def test_handoff_validation_names_the_first_invalid_field(
     source_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(InputSourceError) as raised:
-        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V1)
+        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
 
     assert str(raised.value).startswith(message)
 
@@ -395,7 +390,7 @@ def test_valid_duplicate_metadata_passes_validation_and_reaches_the_digest_check
     source_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(InputSourceError, match="content_digest does not match"):
-        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V1)
+        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
 
 
 @pytest.mark.parametrize(
@@ -403,20 +398,83 @@ def test_valid_duplicate_metadata_passes_validation_and_reaches_the_digest_check
     [
         (_set("deduplication.key.condition", " "), "handoff deduplication condition is invalid"),
         (_set("discriminating_condition", "x"), "handoff schema invalid: schema_violation:"),
+        (
+            _drop("tool_call_condition_status"),
+            "handoff schema invalid (missing=['tool_call_condition_status'], unknown=[])",
+        ),
+        (
+            _set("tool_call_condition_status.status", "maybe"),
+            "handoff schema invalid: schema_violation:tool_call_condition_status",
+        ),
+        (
+            _set("tool_call_condition.comparisons", []),
+            "handoff schema invalid: schema_violation:tool_call_condition",
+        ),
+        (_drop("tool_call_condition"), "handoff schema invalid: schema_violation:<root>"),
+        (
+            _set("tool_call_condition_status.reason", "no_condition"),
+            "handoff tool_call_condition_status reason must be bound exactly when",
+        ),
     ],
 )
-def test_v2_handoff_validation_checks_the_condition_fields(
+def test_handoff_validation_checks_the_condition_and_tool_call_fields(
     tmp_path: Path, mutate, message: str
 ) -> None:
-    payload = json.loads(CONTRACT_HANDOFF_V2.read_text(encoding="utf-8"))
+    payload = json.loads(CONTRACT_HANDOFF_OBSERVED.read_text(encoding="utf-8"))
     mutate(payload)
     source_path = tmp_path / "handoff.json"
     source_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(InputSourceError) as raised:
-        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V1)
+        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
 
     assert str(raised.value).startswith(message)
+
+
+def test_not_executable_status_forbids_a_tool_call_condition(tmp_path: Path) -> None:
+    payload = json.loads(CONTRACT_HANDOFF_OBSERVED.read_text(encoding="utf-8"))
+    payload["tool_call_condition_status"] = {
+        "status": "not_executable",
+        "reason": "state_only",
+        "detail": "the condition holds only state predicates",
+    }
+    source_path = tmp_path / "handoff.json"
+    source_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(InputSourceError, match="schema_violation:<root>"):
+        load_input(source_path)
+
+
+def test_view_exposes_the_tool_call_status_and_condition() -> None:
+    view = load_input(CONTRACT_HANDOFF_OBSERVED)
+    payload = json.loads(CONTRACT_HANDOFF_OBSERVED.read_text(encoding="utf-8"))
+
+    assert view.tool_call_condition_status == payload["tool_call_condition_status"]
+    assert view.tool_call_condition == payload["tool_call_condition"]
+    model_view = build_scenario_handoff_view(view)
+    assert "tool_call_condition_status" not in model_view
+    assert "tool_call_condition" not in model_view
+
+
+def test_unbound_view_has_no_tool_call_condition() -> None:
+    view = load_input(CONTRACT_KIT / "handoff-v3" / "valid" / "adversarial-condition-omitted.json")
+
+    assert view.tool_call_condition_status["status"] == "not_executable"
+    assert view.tool_call_condition is None
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "handoff-v1/valid/adversarial-refund.json",
+        "handoff-v2/valid/adversarial-observed-record.json",
+    ],
+)
+def test_frozen_handoff_versions_are_rejected_for_authoring(relative: str) -> None:
+    with pytest.raises(InputSourceError, match="carry no tool_call_condition_status") as raised:
+        load_input(CONTRACT_KIT / relative)
+
+    assert "scenario-handoff-v3" in str(raised.value)
 
 
 def test_unknown_input_kind_is_rejected() -> None:

@@ -54,17 +54,12 @@ from .test_versioned_authoring_wire import _plan as _plan_v2
 from .test_versioned_authoring_wire import _runtime_contract as _runtime_contract_v2
 
 HANDOFF = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "scenario-handoff"
-    / "handoff-v1"
-    / "valid"
-    / "adversarial-refund.json"
+    Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "handoff-v3" / "refund-bound.json"
 )
 
 
 def _view():
-    return load_input(HANDOFF, kind=InputKind.SCENARIO_HANDOFF_V1)
+    return load_input(HANDOFF, kind=InputKind.SCENARIO_HANDOFF_V3)
 
 
 def _inventory() -> dict:
@@ -1478,7 +1473,7 @@ from tests.support import (
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
 source, destination = map(Path, sys.argv[1:3])
-view = load_input(source, kind=InputKind.SCENARIO_HANDOFF_V1)
+view = load_input(source, kind=InputKind.SCENARIO_HANDOFF_V3)
 inventory = {
     "operations": [],
     "facts": [{"ref": "fact:one", "value": True, "schema": {"type": "boolean"}}],

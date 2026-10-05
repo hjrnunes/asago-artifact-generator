@@ -15,18 +15,13 @@ from asago_artifact_generator.authoring.package_assembly import (
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
 HANDOFF = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "scenario-handoff"
-    / "handoff-v1"
-    / "valid"
-    / "adversarial-refund.json"
+    Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "handoff-v3" / "refund-bound.json"
 )
 
 
 def _package_with_usage(usage: object) -> object:
     return _package_from_responses(
-        view=load_input(HANDOFF, kind=InputKind.SCENARIO_HANDOFF_V1),
+        view=load_input(HANDOFF, kind=InputKind.SCENARIO_HANDOFF_V3),
         plan={},
         artifact={
             "stimulus": {},

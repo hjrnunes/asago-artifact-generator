@@ -18,26 +18,25 @@ from jsonschema import Draft202012Validator
 
 from .value_checks import is_nonblank_str, is_sha256_hex
 
-_HANDOFF_SCHEMA_VERSION = "scenario-handoff-v1"
-_HANDOFF_SCHEMA_VERSION_V2 = "scenario-handoff-v2"
-# Each accepted handoff schema version frames its content digest in its own domain.
-_HANDOFF_DIGEST_DOMAINS = {
-    _HANDOFF_SCHEMA_VERSION: "scenario-handoff-v1",
-    _HANDOFF_SCHEMA_VERSION_V2: "scenario-handoff-v2",
-}
-_HANDOFF_V2_FIELDS = ("discriminating_condition", "condition_check", "condition_omitted_reason")
+_HANDOFF_SCHEMA_VERSION = "scenario-handoff-v3"
+_HANDOFF_DIGEST_DOMAIN = "scenario-handoff-v3"
+# v1 and v2 kits stay mirrored as frozen contract files, but their documents
+# carry no tool_call_condition_status, so authoring cannot decide whether a
+# command_attempt scenario is executable.
+_FROZEN_HANDOFF_SCHEMA_VERSIONS = frozenset({"scenario-handoff-v1", "scenario-handoff-v2"})
+_HANDOFF_CONDITION_FIELDS = (
+    "discriminating_condition",
+    "condition_check",
+    "condition_omitted_reason",
+)
+_HANDOFF_TOOL_CALL_FIELDS = ("tool_call_condition_status", "tool_call_condition")
 _HANDOFF_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "scenario-handoff"
 
 
 class InputKind(StrEnum):
-    """The supported design-time input representation.
+    """The supported design-time input representation, recorded in package manifests."""
 
-    The value names the producer handoff family recorded in package manifests.
-    Both scenario-handoff-v1 and scenario-handoff-v2 documents load under it;
-    ``InputView.handoff_schema_version`` records the exact document version.
-    """
-
-    SCENARIO_HANDOFF_V1 = "scenario-handoff-v1"
+    SCENARIO_HANDOFF_V3 = "scenario-handoff-v3"
 
 
 class InputSourceError(ValueError):
@@ -76,7 +75,6 @@ class InputView:
     gherkin_bytes: bytes
     source_digests: dict[str, str] = field(default_factory=dict)
     owner_scope: dict[str, list[dict[str, str]]] | None = None
-    handoff_schema_version: str = _HANDOFF_SCHEMA_VERSION
 
     @property
     def source_sha256(self) -> str:
@@ -89,6 +87,19 @@ class InputView:
         """Return the wire value used in package manifests."""
 
         return self.kind.value
+
+    @property
+    def tool_call_condition_status(self) -> dict[str, str]:
+        """Return the producer's verdict on whether the condition bound."""
+
+        return deepcopy(self.payload["tool_call_condition_status"])
+
+    @property
+    def tool_call_condition(self) -> dict[str, Any] | None:
+        """Return the bound tool-call condition, or None when the status is not bound."""
+
+        value = self.payload.get("tool_call_condition")
+        return deepcopy(value) if value is not None else None
 
 
 def snapshot_input(source_path: str | Path, snapshot_dir: str | Path) -> SourceSnapshot:
@@ -139,7 +150,7 @@ def load_input(
         else SourceSnapshot(str(path), _sha256(source_bytes), len(source_bytes))
     )
     selected_kind = requested_kind or _infer_kind(path, source_bytes)
-    if selected_kind is InputKind.SCENARIO_HANDOFF_V1:
+    if selected_kind is InputKind.SCENARIO_HANDOFF_V3:
         return _handoff_view(path, source_bytes, source)
     raise InputSourceError(f"unsupported input kind: {selected_kind}")
 
@@ -182,7 +193,9 @@ def build_scenario_handoff_view(view: InputView) -> dict[str, Any]:
     }
     if view.payload.get("observation") is not None:
         result["observation"] = deepcopy(view.payload["observation"])
-    for key in _HANDOFF_V2_FIELDS:
+    # The tool-call fields stay out of model context: code alone decides
+    # executability and passes the bound condition through.
+    for key in _HANDOFF_CONDITION_FIELDS:
         if view.payload.get(key) is not None:
             result[key] = deepcopy(view.payload[key])
     return result
@@ -220,10 +233,9 @@ def _handoff_view(path: Path, source_bytes: bytes, source: SourceSnapshot) -> In
     if not isinstance(payload, dict):
         raise InputSourceError("scenario handoff must be an object")
     _validate_handoff_payload(payload)
-    schema_version = payload.get("schema_version", _HANDOFF_SCHEMA_VERSION)
     expected_digest = payload.get("content_digest", "")
     digest_payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    if expected_digest != _framed_digest(_HANDOFF_DIGEST_DOMAINS[schema_version], digest_payload):
+    if expected_digest != _framed_digest(_HANDOFF_DIGEST_DOMAIN, digest_payload):
         raise InputSourceError("scenario handoff content_digest does not match source")
     gherkin = payload["gherkin"]
     gherkin_bytes = _canonical_json(gherkin)
@@ -237,7 +249,7 @@ def _handoff_view(path: Path, source_bytes: bytes, source: SourceSnapshot) -> In
     else:
         gherkin_text = _render_handoff_gherkin(gherkin)
     return InputView(
-        kind=InputKind.SCENARIO_HANDOFF_V1,
+        kind=InputKind.SCENARIO_HANDOFF_V3,
         scenario_id=payload["scenario_id"],
         payload=payload,
         source=source,
@@ -251,17 +263,17 @@ def _handoff_view(path: Path, source_bytes: bytes, source: SourceSnapshot) -> In
             "input": source.sha256,
             "gherkin": _sha256(gherkin_bytes),
         },
-        handoff_schema_version=schema_version,
     )
 
 
 def _infer_kind(path: Path, source_bytes: bytes) -> InputKind:
     document = _parse_document(path, source_bytes)
-    if isinstance(document, dict) and document.get("schema_version") in _HANDOFF_DIGEST_DOMAINS:
-        return InputKind.SCENARIO_HANDOFF_V1
-    raise InputSourceError(
-        "authoring source must be a producer scenario-handoff-v1 or scenario-handoff-v2 document"
-    )
+    if isinstance(document, dict) and document.get("schema_version") in {
+        _HANDOFF_SCHEMA_VERSION,
+        *_FROZEN_HANDOFF_SCHEMA_VERSIONS,
+    }:
+        return InputKind.SCENARIO_HANDOFF_V3
+    raise InputSourceError("authoring source must be a producer scenario-handoff-v3 document")
 
 
 def _validate_handoff_kit() -> None:
@@ -279,11 +291,8 @@ def _validate_handoff_kit() -> None:
 
 
 def _validate_handoff_payload(payload: dict[str, Any]) -> None:
-    schema_version = payload.get("schema_version", _HANDOFF_SCHEMA_VERSION)
-    if schema_version not in _HANDOFF_DIGEST_DOMAINS:
-        raise InputSourceError("unknown scenario handoff schema version")
-    is_v2 = schema_version == _HANDOFF_SCHEMA_VERSION_V2
-    _validate_handoff_field_names(payload, is_v2=is_v2)
+    _validate_handoff_schema_version(payload.get("schema_version"))
+    _validate_handoff_field_names(payload)
     if payload.get("kind") not in {"adversarial", "functional"}:
         raise InputSourceError("handoff kind is invalid")
     for key in (
@@ -297,14 +306,24 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
             raise InputSourceError(f"handoff field is blank or mistyped: {key}")
     if not isinstance(payload["attack_tree"], dict) or not isinstance(payload["lineage"], dict):
         raise InputSourceError("handoff attack_tree and lineage must be objects")
-    _validate_handoff_metadata(payload, is_v2=is_v2)
+    _validate_handoff_metadata(payload)
     _validate_handoff_gherkin(payload["gherkin"])
     violations = _ownership_violations(payload)
     if violations:
         raise InputSourceError(f"handoff ownership violation: {', '.join(violations)}")
 
 
-def _validate_handoff_field_names(payload: dict[str, Any], *, is_v2: bool) -> None:
+def _validate_handoff_schema_version(schema_version: Any) -> None:
+    if schema_version is None or schema_version in _FROZEN_HANDOFF_SCHEMA_VERSIONS:
+        raise InputSourceError(
+            f"{schema_version or 'scenario-handoff-v1'} handoffs carry no "
+            "tool_call_condition_status; authoring requires a scenario-handoff-v3 document"
+        )
+    if schema_version != _HANDOFF_SCHEMA_VERSION:
+        raise InputSourceError("unknown scenario handoff schema version")
+
+
+def _validate_handoff_field_names(payload: dict[str, Any]) -> None:
     required = {
         "scenario_id",
         "kind",
@@ -315,6 +334,7 @@ def _validate_handoff_field_names(payload: dict[str, Any], *, is_v2: bool) -> No
         "semantic_failure_criterion",
         "safe_alternative",
         "lineage",
+        "tool_call_condition_status",
     }
     allowed = {
         "schema_version",
@@ -336,9 +356,9 @@ def _validate_handoff_field_names(payload: dict[str, Any], *, is_v2: bool) -> No
         "narrative",
         "attack_tree",
         "gherkin",
+        *_HANDOFF_CONDITION_FIELDS,
+        *_HANDOFF_TOOL_CALL_FIELDS,
     }
-    if is_v2:
-        allowed.update(_HANDOFF_V2_FIELDS)
     missing = required - payload.keys()
     unknown = set(payload) - allowed
     if missing or unknown:
@@ -347,17 +367,17 @@ def _validate_handoff_field_names(payload: dict[str, Any], *, is_v2: bool) -> No
         )
 
 
-def _validate_handoff_metadata(payload: dict[str, Any], *, is_v2: bool) -> None:
-    """Validate the optional producer metadata and, for v2, the condition fields."""
+def _validate_handoff_metadata(payload: dict[str, Any]) -> None:
+    """Validate the optional producer metadata, the condition fields, and the tool-call fields."""
 
     if payload.get("observation") is not None:
         _validate_observation_metadata(payload["observation"])
     if payload.get("safe_observable_outcome") is not None:
         _validate_safe_observable_outcome(payload["safe_observable_outcome"])
     if payload.get("deduplication") is not None:
-        _validate_deduplication(payload["deduplication"], allow_condition=is_v2)
-    if is_v2:
-        _validate_v2_fields(payload)
+        _validate_deduplication(payload["deduplication"])
+    _validate_schema_fields(payload)
+    _validate_tool_call_status_reason(payload["tool_call_condition_status"])
 
 
 def _validate_handoff_gherkin(gherkin: Any) -> None:
@@ -556,24 +576,41 @@ def _validate_safe_outcome_refs(key: str, refs: Any) -> None:
         raise InputSourceError(f"handoff safe outcome {key} must be unique")
 
 
-def _validate_v2_fields(payload: dict[str, Any]) -> None:
-    """Validate the v2 condition fields against the vendored producer schema."""
+def _validate_schema_fields(payload: dict[str, Any]) -> None:
+    """Validate the condition and tool-call fields against the vendored producer schema.
 
-    schema_path = _HANDOFF_ROOT / "handoff-v2" / "schema.json"
+    The root check is the schema's own if/then/else: a bound status requires a
+    tool_call_condition, and any other status forbids one.
+    """
+
+    schema_path = _HANDOFF_ROOT / "handoff-v3" / "schema.json"
     try:
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise InputSourceError(f"cannot read vendored handoff-v2 schema: {exc}") from exc
+        raise InputSourceError(f"cannot read vendored handoff-v3 schema: {exc}") from exc
     violations = []
-    for key in _HANDOFF_V2_FIELDS:
+    for key in (*_HANDOFF_CONDITION_FIELDS, *_HANDOFF_TOOL_CALL_FIELDS):
         validator = Draft202012Validator({"$defs": schema["$defs"], **schema["properties"][key]})
         if not validator.is_valid(payload.get(key)):
             violations.append(f"schema_violation:{key}")
+    root = Draft202012Validator(
+        {"$defs": schema["$defs"], **{key: schema[key] for key in ("if", "then", "else")}}
+    )
+    if not violations and not root.is_valid(payload):
+        violations.append("schema_violation:<root>")
     if violations:
         raise InputSourceError(f"handoff schema invalid: {', '.join(violations)}")
 
 
-def _validate_deduplication(value: Any, *, allow_condition: bool = False) -> None:
+def _validate_tool_call_status_reason(status: dict[str, Any]) -> None:
+    if (status["status"] == "bound") != (status["reason"] == "bound"):
+        raise InputSourceError(
+            "handoff tool_call_condition_status reason must be bound exactly when "
+            "the status is bound"
+        )
+
+
+def _validate_deduplication(value: Any) -> None:
     """Validate producer duplicate metadata before authoring consumes it."""
 
     if not isinstance(value, dict):
@@ -588,7 +625,7 @@ def _validate_deduplication(value: Any, *, allow_condition: bool = False) -> Non
     if status not in {"canonical", "duplicate", "analytical_only"}:
         raise InputSourceError("handoff deduplication status is invalid")
     _validate_duplicate_of(status, value.get("duplicate_of"))
-    _validate_deduplication_key(value["key"], allow_condition=allow_condition)
+    _validate_deduplication_key(value["key"])
 
 
 def _validate_duplicate_of(status: str, duplicate_of: Any) -> None:
@@ -599,9 +636,9 @@ def _validate_duplicate_of(status: str, duplicate_of: Any) -> None:
         raise InputSourceError("canonical and analytical-only handoffs must omit duplicate_of")
 
 
-def _validate_deduplication_key(key: Any, *, allow_condition: bool) -> None:
+def _validate_deduplication_key(key: Any) -> None:
     key_required = {"uca_id", "control_action_id", "claim_level"}
-    key_optional = {"operation_name", "condition"} if allow_condition else {"operation_name"}
+    key_optional = {"operation_name", "condition"}
     # The producer omits null fields, so a key without an operation has no
     # operation_name entry.
     if (

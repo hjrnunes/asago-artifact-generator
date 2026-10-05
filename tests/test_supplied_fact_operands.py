@@ -16,7 +16,7 @@ from .test_run_created_records import _runtime
 
 _HANDOFF = (
     Path(__file__).resolve().parents[1]
-    / "contracts/scenario-handoff/handoff-v2/valid/functional-not-called.json"
+    / "contracts/scenario-handoff/handoff-v3/valid/functional-not-called.json"
 )
 _RULE = "established by its supplied_input binding"
 

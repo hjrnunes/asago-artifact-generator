@@ -32,7 +32,7 @@ _ALLOWED_MEMBER_NAMES = {
     "examples.json",
 }
 _CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "artifact-package"
-_INPUT_KINDS = {"scenario-handoff-v1"}
+_INPUT_KINDS = {"scenario-handoff-v3"}
 
 
 class PackagePathError(ValueError):

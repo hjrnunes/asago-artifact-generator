@@ -390,8 +390,8 @@ finish reason separate. Absent, null, empty, text, and non-text final content
 remain distinct, and reasoning is never parsed as the final answer.
 
 The producer owns scenario meaning. From the producer repository root, run the
-normal producer command and then hand the resulting `scenario-handoff-v2`
-(or older `scenario-handoff-v1`) input to `generate`:
+normal producer command and then hand the resulting `scenario-handoff-v3`
+input to `generate`:
 
 ```bash
 cd <producer-repo-root>
@@ -452,20 +452,21 @@ credential from the named profile passed to `generate --profile`.
 The authoring path accepts producer-owned discovery outputs and one scenario
 handoff:
 
-- `scenario-handoff-v1` or `scenario-handoff-v2` JSON or YAML for scenario meaning.
+- `scenario-handoff-v3` JSON or YAML for scenario meaning.
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional normalized producer `runtime-context.json` for state and read observations.
 - A target-free runtime contract.
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
 vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and
-record SHA-256 source pins. The adapter reads `schema_version`, verifies
-`content_digest` in that version's digest domain, and records the version as
-`InputView.handoff_schema_version`. Packages keep `input_kind`
-`scenario-handoff-v1` for both versions.
+record SHA-256 source pins. The adapter verifies `content_digest` in the
+`scenario-handoff-v3` digest domain, and packages record `input_kind`
+`scenario-handoff-v3`. Authoring rejects `scenario-handoff-v1` and
+`scenario-handoff-v2` documents because they carry no
+`tool_call_condition_status`; their kits stay vendored and frozen.
 
-A `scenario-handoff-v2` document may add two fields, both validated against the
-vendored v2 schema. A v1 document that contains either field is rejected.
+A handoff carries two optional condition fields and two tool-call fields, all
+validated against the vendored v3 schema:
 
 - `discriminating_condition` states what makes the behavior unsafe: a
   `statement`, a list of `comparisons`, and a `record_selection`. A value
@@ -478,8 +479,17 @@ vendored v2 schema. A v1 document that contains either field is rejected.
 - `condition_check` is the producer's code-owned pre-execution evaluation:
   a `status` and one `{index, result, reason}` entry per comparison. It is not
   runtime evidence.
+- `tool_call_condition_status` states whether the producer bound the condition
+  to tool-call arguments: `status` `bound` or `not_executable`, a `reason`, and
+  an optional `detail`.
+- `tool_call_condition` is the bound condition over tool-call arguments and
+  literals; it is present exactly when the status is `bound`.
 
-When either field is non-null, authoring passes it into the scenario context of
+`InputView.tool_call_condition_status` and `InputView.tool_call_condition`
+expose the tool-call fields to the orchestrator. Model prompts never receive
+them.
+
+When either condition field is non-null, authoring passes it into the scenario context of
 plan authoring, plan review, artifact authoring, artifact review, and
 correction. The model-facing view states each fact once: when the Gherkin step
 `Given the discriminating condition holds: <statement>` already carries the

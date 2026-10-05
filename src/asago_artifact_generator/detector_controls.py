@@ -774,7 +774,7 @@ def _write_control_package(
     package = build_package(
         package_id=f"detector-controls-{hashlib.sha256(detector_bytes).hexdigest()[:16]}",
         scenario_id="detector-control-fixture",
-        input_kind="scenario-handoff-v1",
+        input_kind="scenario-handoff-v3",
         source_digests={"detector": hashlib.sha256(detector_bytes).hexdigest()},
         members=members,
         authoring={"purpose": "offline-detector-controls"},

@@ -200,7 +200,7 @@ def build_neutral_artifact_package(destination: str | Path) -> Path:
     package = build_package(
         package_id="offline-neutral-example-v2",
         scenario_id="neutral-example",
-        input_kind="scenario-handoff-v1",
+        input_kind="scenario-handoff-v3",
         source_digests={"neutral": _sha256(b"neutral-example-v2")},
         members=members,
         authoring={

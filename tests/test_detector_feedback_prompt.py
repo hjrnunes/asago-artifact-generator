@@ -268,8 +268,8 @@ def test_normal_artifact_correction_dispatch_uses_shared_feedback_section(
     tmp_path: Path,
 ) -> None:
     view = load_input(
-        "contracts/scenario-handoff/handoff-v1/valid/adversarial-refund.json",
-        kind=InputKind.SCENARIO_HANDOFF_V1,
+        "tests/fixtures/handoff-v3/refund-bound.json",
+        kind=InputKind.SCENARIO_HANDOFF_V3,
     )
     plan = {
         "interpretation": {

@@ -53,8 +53,8 @@ from asago_artifact_generator.input_adapter import InputKind, load_input
 
 def _view():
     return load_input(
-        "contracts/scenario-handoff/handoff-v1/valid/adversarial-refund.json",
-        kind=InputKind.SCENARIO_HANDOFF_V1,
+        "tests/fixtures/handoff-v3/refund-bound.json",
+        kind=InputKind.SCENARIO_HANDOFF_V3,
     )
 
 

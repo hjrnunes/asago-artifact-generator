@@ -18,12 +18,7 @@ from asago_artifact_generator.input_adapter import load_input
 from .support import stage_local_orchestrator, unreviewed_policy
 
 HANDOFF = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "scenario-handoff"
-    / "handoff-v1"
-    / "valid"
-    / "adversarial-refund.json"
+    Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "handoff-v3" / "refund-bound.json"
 )
 
 

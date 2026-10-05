@@ -38,7 +38,7 @@ def _package(
     package = build_package(
         package_id=name,
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v1",
+        input_kind="scenario-handoff-v3",
         source_digests={"input": "a" * 64},
         members=members,
         runtime_capabilities={"detector": {"timeout_seconds": 3}},
@@ -718,7 +718,7 @@ def test_execute_detector_reports_a_package_replaced_during_the_run(tmp_path: Pa
         "from asago_artifact_generator.package_io import build_package, write_package\n"
         "write_package(package, build_package(\n"
         "    package_id='package', scenario_id='scenario-1',\n"
-        "    input_kind='scenario-handoff-v1', source_digests={'input': 'a' * 64},\n"
+        "    input_kind='scenario-handoff-v3', source_digests={'input': 'a' * 64},\n"
         "    members={'detector.py': b'def evaluate(evidence):\\n    return {}\\n'},\n"
         "    runtime_capabilities={'detector': {'timeout_seconds': 3}},\n"
         "))\n"
@@ -780,7 +780,7 @@ def test_execute_detector_needs_a_persisted_package_and_a_positive_timeout(
     built = build_package(
         package_id="package",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v1",
+        input_kind="scenario-handoff-v3",
         source_digests={"input": "a" * 64},
         members={"detector.py": _detector().encode("utf-8")},
         runtime_capabilities={"detector": {"timeout_seconds": 3}},

@@ -42,12 +42,12 @@ _BASE_REVISION = (
     "authoring-artifact-review-v16"
 )
 _BASE_STAGE_DIGESTS = {
-    "call1": "6520a4820a927b495cf7c55f4b23be496b03694585eb5063caf6b645898e9806",
-    "plan_review": "fc2fa8c7eb4136650f46dfed248927918645e227e2bcf2369760262774bfa895",
-    "call2": "a6ea94e21b74c46e23ae507fd5b7a290972dbbc54b061eb66166a838853fd308",
-    "artifact_review": "95a78686daf7113696da43f959b27ed500d7c8d21aa7662d9dec136e7079e9d9",
-    "plan_correction": "9850f931226c6fbdd1cde01ec225951801a1f3c4cebcac29b5620e652ce31baa",
-    "artifact_correction": "a004939ceeffcde70c0e8a8df9da41df91d20f2c799e7e3e2c2f789c4941d8eb",
+    "call1": "360badaeb0bf63f97616a7486056e1bb13260c149808a9cca8b0072337638058",
+    "plan_review": "4320f809299d88271625131f6f2b02a6ae129eaf104557968e4074e95304cf10",
+    "call2": "86635e851ab6f27ff733788aeb7362fe574af47c786fbe1991c72f768b20e8b6",
+    "artifact_review": "38e3e3a88fa5c2d7832782c18f68b20a12e56e19a285b6b36091a210c91e398c",
+    "plan_correction": "c2ff111ae0e5db1f43e0f208fbcafdae511032b84c1daa70da09e59f33835b52",
+    "artifact_correction": "89d2bc48c59d23c83cf169f39bb901ebdb440241942c233883129ccb67da2204",
 }
 _OWNER_SCOPE = {
     "scenario_premises": [

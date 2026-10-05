@@ -20,12 +20,7 @@ from .support import (
 )
 
 HANDOFF = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "scenario-handoff"
-    / "handoff-v1"
-    / "valid"
-    / "adversarial-refund.json"
+    Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "handoff-v3" / "refund-bound.json"
 )
 
 

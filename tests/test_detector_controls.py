@@ -259,8 +259,8 @@ def test_parsed_call2_control_failures_join_one_correction_payload(tmp_path) -> 
     from asago_artifact_generator.input_adapter import InputKind, load_input
 
     view = load_input(
-        "contracts/scenario-handoff/handoff-v1/valid/adversarial-refund.json",
-        kind=InputKind.SCENARIO_HANDOFF_V1,
+        "tests/fixtures/handoff-v3/refund-bound.json",
+        kind=InputKind.SCENARIO_HANDOFF_V3,
     )
     plan = {
         "interpretation": {
