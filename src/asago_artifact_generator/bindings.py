@@ -17,6 +17,15 @@ SOURCE_KINDS = frozenset({"supplied_input", "setup_output"})
 MISSING_POLICIES = frozenset({"inconclusive", "stop"})
 CONSUMER_PREFIXES = ("detector.", "prerequisites.", "setup.arguments.")
 _SLOT_RE = re.compile(r"\{\{([^{}]*)\}\}")
+_BINDING_STRING_FIELDS = (
+    "name",
+    "expected_type",
+    "source_kind",
+    "source_ref",
+    "selector",
+    "on_missing",
+)
+_BINDING_FIELDS = frozenset({*_BINDING_STRING_FIELDS, "consumers"})
 
 
 class BindingValidationError(ValueError):
@@ -50,51 +59,35 @@ class RuntimeBinding:
     def from_dict(cls, value: Any) -> RuntimeBinding:
         if not isinstance(value, dict):
             raise BindingValidationError("binding must be an object")
-        required = {
-            "name",
-            "expected_type",
-            "source_kind",
-            "source_ref",
-            "selector",
-            "consumers",
-            "on_missing",
-        }
-        missing = required - set(value)
-        unknown = set(value) - required
-        if missing or unknown:
-            raise BindingValidationError(
-                f"binding fields invalid (missing={sorted(missing)}, unknown={sorted(unknown)})"
-            )
+        _require_binding_fields(value)
         consumers = value["consumers"]
         if not isinstance(consumers, list) or not all(
             isinstance(item, str) and item.strip() for item in consumers
         ):
             raise BindingValidationError("binding consumers must be non-empty strings")
-        for field_name in (
-            "name",
-            "expected_type",
-            "source_kind",
-            "source_ref",
-            "selector",
-            "on_missing",
-        ):
-            if not isinstance(value[field_name], str):
-                raise BindingValidationError(f"binding {field_name} must be a string")
+        _require_string_fields(value)
         if any(
             item not in {"stimulus.user_text", "stimulus.history"}
             and not item.startswith(CONSUMER_PREFIXES)
             for item in consumers
         ):
             raise BindingValidationError("binding consumer is not a closed path")
-        return cls(
-            name=value["name"],
-            expected_type=value["expected_type"],
-            source_kind=value["source_kind"],
-            source_ref=value["source_ref"],
-            selector=value["selector"],
-            consumers=tuple(consumers),
-            on_missing=value["on_missing"],
+        return cls(**{**value, "consumers": tuple(consumers)})
+
+
+def _require_binding_fields(value: dict[str, Any]) -> None:
+    missing = _BINDING_FIELDS - set(value)
+    unknown = set(value) - _BINDING_FIELDS
+    if missing or unknown:
+        raise BindingValidationError(
+            f"binding fields invalid (missing={sorted(missing)}, unknown={sorted(unknown)})"
         )
+
+
+def _require_string_fields(value: dict[str, Any]) -> None:
+    for field_name in _BINDING_STRING_FIELDS:
+        if not isinstance(value[field_name], str):
+            raise BindingValidationError(f"binding {field_name} must be a string")
 
 
 def validate_bindings(
@@ -126,16 +119,7 @@ def validate_bindings(
         names.add(binding.name)
     bindings: list[RuntimeBinding] = []
     for binding in parsed_bindings:
-        if not binding.name.strip():
-            raise BindingValidationError("binding name is blank")
-        if binding.expected_type not in CLOSED_TYPES:
-            raise BindingValidationError(f"binding expected_type is not closed: {binding.name}")
-        if binding.source_kind not in SOURCE_KINDS:
-            raise BindingValidationError(f"binding source_kind is not closed: {binding.name}")
-        if not binding.source_ref.strip() or not binding.selector.strip():
-            raise BindingValidationError(f"binding source reference is blank: {binding.name}")
-        if binding.on_missing not in MISSING_POLICIES:
-            raise BindingValidationError(f"binding on_missing is not closed: {binding.name}")
+        _require_closed_fields(binding)
         schema = _source_schema(binding, inventory, runtime_contract)
         actual_type = _schema_at_selector(schema, binding.selector)
         if actual_type is None:
@@ -152,6 +136,19 @@ def validate_bindings(
     return tuple(bindings)
 
 
+def _require_closed_fields(binding: RuntimeBinding) -> None:
+    if not binding.name.strip():
+        raise BindingValidationError("binding name is blank")
+    if binding.expected_type not in CLOSED_TYPES:
+        raise BindingValidationError(f"binding expected_type is not closed: {binding.name}")
+    if binding.source_kind not in SOURCE_KINDS:
+        raise BindingValidationError(f"binding source_kind is not closed: {binding.name}")
+    if not binding.source_ref.strip() or not binding.selector.strip():
+        raise BindingValidationError(f"binding source reference is blank: {binding.name}")
+    if binding.on_missing not in MISSING_POLICIES:
+        raise BindingValidationError(f"binding on_missing is not closed: {binding.name}")
+
+
 def _require_record_key_selector(binding: RuntimeBinding, inventory: dict[str, Any]) -> None:
     """Reject a record-key companion binding that does not select the key string.
 
@@ -165,15 +162,7 @@ def _require_record_key_selector(binding: RuntimeBinding, inventory: dict[str, A
         binding.source_kind, binding.source_ref, binding.selector, inventory
     )
     reference = source_ref.removeprefix("facts:")
-    fact = next(
-        (
-            item
-            for item in inventory.get("facts", [])
-            if isinstance(item, dict) and item.get("ref") == reference
-        ),
-        None,
-    )
-    provenance = fact.get("provenance") if isinstance(fact, dict) else None
+    provenance = _fact_provenance(inventory, reference)
     if not isinstance(provenance, dict):
         return
     if provenance.get("derivation") != "keyed_map_record_key":
@@ -188,6 +177,18 @@ def _require_record_key_selector(binding: RuntimeBinding, inventory: dict[str, A
         f"or bind facts:{base} with value.<key> for the whole record or "
         f"value.<key>.<field> for one field"
     )
+
+
+def _fact_provenance(inventory: dict[str, Any], reference: str) -> Any:
+    fact = next(
+        (
+            item
+            for item in inventory.get("facts", [])
+            if isinstance(item, dict) and item.get("ref") == reference
+        ),
+        None,
+    )
+    return fact.get("provenance") if isinstance(fact, dict) else None
 
 
 def canonical_binding_paths(
@@ -347,13 +348,15 @@ def _record_key_companion_path(
     if len(parts) != 3 or parts[0] != "value" or parts[2] != "record_key":
         return None
     companion = fact_by_ref.get(f"{reference}:records")
-    provenance = companion.get("provenance") if isinstance(companion, dict) else None
+    if not isinstance(companion, dict):
+        return None
+    provenance = companion.get("provenance")
     if isinstance(provenance, dict) and provenance.get("derivation") not in (
         None,
         "keyed_map_record_key",
     ):
         return None
-    schema = companion.get("schema") if isinstance(companion, dict) else None
+    schema = companion.get("schema")
     if not isinstance(schema, dict) or _schema_at_selector(schema, selector) is None:
         return None
     return f"facts:{reference}:records", selector
@@ -631,16 +634,9 @@ def supplied_binding_values(
     reports that structural error separately.
     """
 
-    if not isinstance(declarations, (list, tuple)) or not isinstance(inventory, Mapping):
+    fact_by_ref = _supplied_facts_by_ref(declarations, inventory)
+    if fact_by_ref is None:
         return {}
-    facts = inventory.get("facts", [])
-    if not isinstance(facts, list):
-        return {}
-    fact_by_ref = {
-        item["ref"]: item
-        for item in facts
-        if isinstance(item, dict) and isinstance(item.get("ref"), str)
-    }
     values: dict[str, Any] = {}
     normalized_declarations = normalize_binding_declarations(
         declarations,
@@ -663,6 +659,19 @@ def supplied_binding_values(
         except (BindingValidationError, KeyError, IndexError, TypeError):
             continue
     return values
+
+
+def _supplied_facts_by_ref(declarations: Any, inventory: Any) -> dict[str, Any] | None:
+    if not isinstance(declarations, (list, tuple)) or not isinstance(inventory, Mapping):
+        return None
+    facts = inventory.get("facts", [])
+    if not isinstance(facts, list):
+        return None
+    return {
+        item["ref"]: item
+        for item in facts
+        if isinstance(item, dict) and isinstance(item.get("ref"), str)
+    }
 
 
 def _supplied_declaration_paths(raw: Any) -> tuple[str, str, str] | None:
@@ -709,24 +718,39 @@ def find_stimulus_user_text_consumer_mismatches(
         consumers = raw.get("consumers")
         if not isinstance(name, str) or not isinstance(consumers, list):
             continue
-        for consumer_index, consumer in enumerate(consumers):
-            if consumer != "stimulus.user_text":
-                continue
-            if name in slots:
-                continue
-            value = values.get(name)
-            value_used = value is not None and str(value) in user_text
-            if value_used:
-                continue
-            findings.append(
-                {
-                    "binding_index": binding_index,
-                    "consumer_index": consumer_index,
-                    "binding_name": name,
-                    "value_available": name in values,
-                }
-            )
+        findings.extend(
+            _user_text_consumer_findings(binding_index, name, consumers, slots, values, user_text)
+        )
     return tuple(findings)
+
+
+def _user_text_consumer_findings(
+    binding_index: int,
+    name: str,
+    consumers: list[Any],
+    slots: set[str],
+    values: Mapping[str, Any],
+    user_text: str,
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for consumer_index, consumer in enumerate(consumers):
+        if consumer != "stimulus.user_text":
+            continue
+        if name in slots:
+            continue
+        value = values.get(name)
+        value_used = value is not None and str(value) in user_text
+        if value_used:
+            continue
+        findings.append(
+            {
+                "binding_index": binding_index,
+                "consumer_index": consumer_index,
+                "binding_name": name,
+                "value_available": name in values,
+            }
+        )
+    return findings
 
 
 def _value_at_selector(value: Any, selector: str) -> Any:
@@ -819,18 +843,27 @@ def _schema_at_selector(schema: dict[str, Any], selector: str) -> str | None:
     if parts[0] not in {"result", "value"}:
         return None
     for part in parts[1:]:
-        if not isinstance(current, dict):
-            return None
-        if current.get("type") == "object":
-            properties = current.get("properties")
-            if not isinstance(properties, dict) or part not in properties:
-                return None
-            current = properties[part]
-        elif current.get("type") == "array" and part == "items":
-            current = current.get("items")
-        else:
-            return None
+        current = _child_schema(current, part)
     return current.get("type") if isinstance(current, dict) else None
+
+
+def _child_schema(current: Any, part: str) -> Any:
+    """Return the schema one selector part names, or None when it names none.
+
+    A non-dict schema documents no type, so returning None for it leaves the
+    caller's result unchanged.
+    """
+
+    if not isinstance(current, dict):
+        return None
+    if current.get("type") == "object":
+        properties = current.get("properties")
+        if not isinstance(properties, dict) or part not in properties:
+            return None
+        return properties[part]
+    if current.get("type") == "array" and part == "items":
+        return current.get("items")
+    return None
 
 
 def _types_compatible(actual: str, expected: str) -> bool:

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from asago_artifact_generator.bindings import (
     BindingValidationError,
     RuntimeBinding,
     canonical_binding_paths,
+    find_stimulus_user_text_consumer_mismatches,
+    named_record_facts,
     supplied_binding_values,
     validate_bindings,
 )
@@ -649,3 +653,109 @@ def test_supplied_binding_values_use_canonicalized_deduplicated_declarations() -
     assert len(declarations) == 1
     assert declarations[0]["source_ref"] == "facts:catalog:items"
     assert declarations[0]["selector"] == "value.ITEM-A.owner"
+
+
+_FACT_INVENTORY = {
+    "facts": [
+        {
+            "ref": "f",
+            "value": {"a": [1, 2], "s": "x"},
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "a": {"type": "array", "items": {"type": "integer"}},
+                    "s": {"type": "string"},
+                    "bad": "text",
+                },
+            },
+        }
+    ]
+}
+
+
+def _declaration(**changes: object) -> dict:
+    return {
+        "name": "n",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:f",
+        "selector": "value.s",
+        "consumers": ["detector.n"],
+        "on_missing": "stop",
+        **changes,
+    }
+
+
+@pytest.mark.parametrize(
+    ("declarations", "message"),
+    [
+        ({}, "runtime_bindings must be a list"),
+        ([5], "binding must be an object"),
+        ([{"name": "n"}], "binding fields invalid (missing=['consumers', 'expected_type',"),
+        ([_declaration(consumers=[""])], "binding consumers must be non-empty strings"),
+        ([_declaration(name=" ")], "binding name is blank"),
+        ([_declaration(source_kind="other")], "binding source_kind is not closed: n"),
+        ([_declaration(selector=" ")], "binding source reference is blank: n"),
+        ([_declaration(on_missing="maybe")], "binding on_missing is not closed: n"),
+        ([_declaration(selector="value..s")], "undocumented selector for binding n: value..s"),
+        ([_declaration(selector="other.s")], "undocumented selector for binding n: other.s"),
+        (
+            [_declaration(selector="value.bad.x")],
+            "undocumented selector for binding n: value.bad.x",
+        ),
+    ],
+)
+def test_validate_bindings_names_the_first_invalid_field(
+    declarations: object, message: str
+) -> None:
+    with pytest.raises(BindingValidationError, match=re.escape(message)):
+        validate_bindings(declarations, inventory=_FACT_INVENTORY, runtime_contract={})
+
+
+def test_array_items_selector_documents_the_item_type() -> None:
+    declaration = _declaration(expected_type="integer", selector="value.a.items")
+
+    validated = validate_bindings([declaration], inventory=_FACT_INVENTORY, runtime_contract={})
+
+    assert validated[0].selector == "value.a.items"
+
+
+def test_supplied_binding_values_skip_unresolvable_sources() -> None:
+    declarations = [
+        _declaration(name="a", selector="value.a.items"),
+        _declaration(name="m", selector="value.missing"),
+        _declaration(name="r", selector="result.s"),
+    ]
+
+    assert supplied_binding_values(declarations, _FACT_INVENTORY) == {"a": [1, 2]}
+    assert supplied_binding_values("x", _FACT_INVENTORY) == {}
+    assert supplied_binding_values(declarations, {"facts": "x"}) == {}
+
+
+def test_user_text_consumer_mismatches_skip_malformed_declarations() -> None:
+    declarations = [
+        5,
+        {"name": 1, "consumers": []},
+        {"name": "n", "consumers": ["stimulus.user_text"]},
+    ]
+
+    assert find_stimulus_user_text_consumer_mismatches(declarations, 7) == ()
+    assert find_stimulus_user_text_consumer_mismatches(declarations, "hello") == (
+        {"binding_index": 2, "consumer_index": 0, "binding_name": "n", "value_available": False},
+    )
+
+
+def test_named_record_facts_searches_every_records_companion() -> None:
+    record = {"type": "object", "properties": {"record_key": {"type": "string"}}}
+    keyed = {"type": "object", "properties": {"K": record}}
+    inventory = {
+        "facts": [
+            {"ref": ref, "schema": keyed}
+            for ref in ("state:a", "state:a:records", "state:b", "state:b:records")
+        ]
+    }
+
+    assert named_record_facts("supplied_input", "facts:state:b:K", inventory) == (
+        "K",
+        (("state:b", record), ("state:b:records", record)),
+    )
