@@ -14,7 +14,7 @@ import json
 import re
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -56,17 +56,7 @@ class ControlResult:
     actual_result: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "expected_outcome": self.expected_outcome,
-            "expected_claim_level": self.expected_claim_level,
-            "status": self.status,
-            "observed_outcome": self.observed_outcome,
-            "observed_claim_level": self.observed_claim_level,
-            "failure": self.failure,
-            "runtime": self.runtime,
-            "actual_result": self.actual_result,
-        }
+        return {item.name: getattr(self, item.name) for item in fields(self)}
 
 
 @dataclass(frozen=True)
@@ -86,19 +76,7 @@ class DetectorControlFeedback:
     runtime_contract_explanation: str
 
     def as_dict(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "evidence": self.evidence,
-            "expected_outcome": self.expected_outcome,
-            "expected_claim_level": self.expected_claim_level,
-            "status": self.status,
-            "actual_result": self.actual_result,
-            "actual_outcome": self.actual_outcome,
-            "actual_claim_level": self.actual_claim_level,
-            "error": self.error,
-            "outcome_class": self.outcome_class,
-            "runtime_contract_explanation": self.runtime_contract_explanation,
-        }
+        return {item.name: getattr(self, item.name) for item in fields(self)}
 
 
 # Detector Feedback Interface Correction Authority
