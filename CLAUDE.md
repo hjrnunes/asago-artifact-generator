@@ -17,14 +17,13 @@ contracts and historical experiment details belong in their own documents.
 - The producer supplies scenario meaning: narrative, attack tree, Gherkin,
   failure criterion, safe alternative, and metadata.
 - This consumer designs concrete stimuli, setup declarations, runtime bindings,
-  and detector Python using supplied facts and documented capabilities.
+  and semantic judge specifications using supplied facts and documented
+  capabilities. Packages (`artifact-package-v3`) contain no detector code.
 - `generate` is target-free. The plan owns the experiment; artifact authoring turns
-  the accepted plan into a frozen package. Code checks and detector controls run
-  before the applicable semantic review. Corrections stay within their stage.
-- `check` evaluates a package against supplied evidence in the existing isolated
-  detector runner. Use that runner for generated code, not direct host execution.
-- Downstream tooling alone performs live setup, target/Garak generation, runtime
-  judging, evidence collection, and cleanup. This repo does not do those actions
+  the accepted plan into a frozen package. Code checks run before the applicable
+  semantic review. Corrections stay within their stage.
+- Downstream tooling alone performs live setup, target/Garak generation and
+  detection, runtime judging, evidence collection, and cleanup. This repo does not do those actions
   during authoring.
 - Preserve saved package and evidence formats where required by the task. Do
   not redirect new work into an older workflow because its code still exists.
@@ -36,7 +35,6 @@ Run from this checkout; read `generate --help` for configuration and limits.
 ```bash
 uv sync --locked
 uv run asago-artifact-generator generate --help
-uv run asago-artifact-generator check --help
 uv run pytest tests/path_to_changed_test.py -q
 ./scripts/quality.sh
 uv run pytest tests/ -q
@@ -56,7 +54,7 @@ Deterministic tests must not contact a model endpoint or target.
 - Keep generic instructions separate from scenario facts and failure feedback.
   Case-specific repairs are assisted results, not proof of autonomous design.
 - Deliver owner-specified correction text verbatim. Include the exact previous
-  output, all relevant validation findings, and failed-control evidence. Preserve
+  output and all relevant validation findings. Preserve
   valid sibling fields; a shortened paraphrase can change the requested fix.
 - An accepted plan is fixed during artifact authoring. If it needs revision,
   report that explicitly rather than silently changing the experiment.
@@ -64,7 +62,7 @@ Deterministic tests must not contact a model endpoint or target.
   content is not proof that no tokens were generated. Never parse reasoning as
   a substitute final answer.
 - A review is fallible evidence. Check findings against the supplied contract;
-  an acceptance still needs deterministic checks and controls. Keep genuine
+  an acceptance still needs deterministic checks. Keep genuine
   unknowns explicit rather than weakening tests to obtain a pass.
 
 ## Live requests and saved work
@@ -85,13 +83,13 @@ Deterministic tests must not contact a model endpoint or target.
 
 ## Where to look and when to stop
 
-- `README.md` and CLI help: author/check usage, profiles, policy, and package format.
+- `README.md` and CLI help: authoring usage, profiles, policy, and package format.
 - `src/asago_artifact_generator/authoring/`: `orchestrator.py` runs the
   stages; `prompt_context.py`, `prompt_packets.py`, `review.py`, and
   `correction.py` build prompts; `contracts.py` and `checks.py` hold response
   contracts and structural checks; `transport.py` is the provider client.
 - `src/asago_artifact_generator/bindings.py`: binding sources and destinations.
-- `src/asago_artifact_generator/detector_controls.py`: isolated control feedback.
+- `src/asago_artifact_generator/package_io.py`: the artifact-package-v3 writer and loader.
 - `tests/`: executable examples and regression coverage for the changed behavior.
 - Orch qualification runbook `asago-orch/docs/qualification.md`; its modules
   live under `asago-orch/src/asago_orch/qualification/`.

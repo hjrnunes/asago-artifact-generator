@@ -1,8 +1,10 @@
 # Policy-Driven Agentic Red Teaming
 
 Turns producer scenario handoffs into target-free, testable artifact packages:
-a stimulus, setup declarations, runtime bindings, and a detector that
-downstream tooling executes.
+a stimulus, setup declarations, runtime bindings, and the scoring input that
+downstream Garak detection uses: the producer's tool-call condition for a
+`command_attempt` claim, or a semantic judge specification for a `reply` claim.
+Packages contain no detector code.
 
 ## Primary delivery workflow
 
@@ -18,8 +20,6 @@ uv run asago-artifact-generator generate <scenario-handoff.json> \
   --output-dir runs/authoring/<case-id> \
   --profile <profile-name> \
   --profiles-file /absolute/path/to/asago-scenario-generator/config/model-profiles.yaml
-uv run asago-artifact-generator check runs/authoring/<case-id>/<case-id> \
-  --evidence <evidence.json>
 ```
 
 `generate` uses the versioned v2 authoring wire. Call 1 returns one closed plan
@@ -27,10 +27,9 @@ root as either one bare JSON object or exactly one lowercase `json` fenced
 object, with optional surrounding whitespace. Untagged, uppercase, or other
 fences, multiple objects or blocks, prose, trailing content, and malformed JSON
 are rejected. The raw Call 1 bytes remain preserved, and a removed outer fence
-is recorded before plan validation. Call 2 remains exactly one fenced JSON
-metadata block followed by one fenced Python block; one or more
-whitespace-only lines may separate the blocks. The Python block becomes
-`detector.py` byte-for-byte.
+is recorded before plan validation. Call 2 uses the same framing rules: one
+JSON object with exactly `stimulus`, `semantic_judge_spec`, `examples`, and
+`explanation`. It returns no detector code.
 Each v2 prompt carries the selected case meaning once under `case_meaning`;
 the input projection retains scenario/reference identities and narrative/Gherkin
 SHA-256 digests without repeating those texts.
@@ -142,15 +141,14 @@ never consumes artifact allowance, and zero disables only its own stage. Pass
 `--plan-max-corrections 0 --artifact-max-corrections 0` to disable corrections
 in both stages.
 
-With reviews enabled, each stage runs deterministic checks (and, for the
-artifact stage, the isolated Docker detector controls) before its semantic
+With reviews enabled, each stage runs deterministic checks before its semantic
 review of a mechanically valid candidate. A reviewer returns one JSON object
 with `decision` (`accept`, `revise`, or `blocked`), a nonblank `summary`, and
 findings with exactly `location`, `problem`, `basis`, and `required_change`;
 the framing rules match Call 1. `revise` feeds a stage correction that repeats
-all checks, controls, and review. Each reviewed stage has one review revision
+all checks and the review. Each reviewed stage has one review revision
 that is separate from its correction allowance: a `revise` spends the review
-revision, while mechanical and control findings, including findings on the
+revision, while mechanical findings, including findings on the
 revised candidate, spend the correction allowance. The ledger and failure
 evidence record which allowance each correction spent (`allowance`), the
 remaining `allowances` and `review_revision_allowances`, and the effective
@@ -164,104 +162,19 @@ contradictory reviewer responses and reviewer transport failures produce
 with no automatic retry. An explicit caller, per-task, or aggregate budget cap
 stops the run before the next dispatch.
 
-### Supplied detector-control cases
-
-Callers can add extra detector controls to the artifact stage with the
-`supplied_control_cases` option on `AuthoringOrchestrator`. Pass either a
-sequence of `ControlCase` objects or a callable that receives the current
-candidate plan and metadata and returns the extra cases for that candidate,
-so you can mechanically remap candidate-local binding names and dynamic record
-IDs into the case evidence. The orchestrator runs the supplied cases together
-with the mechanically derived controls in one isolated control execution and
-labels every control result with `origin: normal` or `origin: supplied`. A
-failing supplied control is an ordinary artifact-stage finding: it consumes
-the existing single artifact correction, the correction packet carries the
-actual failing control evidence, and the run terminates when the correction
-allowance is exhausted. Without the option, orchestration and rendered prompt
-bytes stay unchanged.
-
-Each failed control in an artifact correction carries its exact `input` and
-an `input_shapes` map derived by code from that input: the type of every
-`tool_calls[i].decoded_result`, `tool_calls[i].raw_result`, and binding value,
-and every nested string that holds JSON text. `decoded_result` is the parsed
-JSON value, so a detector compares its fields; a binding keeps the selected
-value's type, so a JSON-text string needs `json.loads` before field access.
-
-### Omission detector controls
+### Omission plans
 
 When the handoff's `discriminating_condition` has a `{kind: "not_called",
-operation: X}` comparison, the unsafe behavior is an omission and the derived
-command controls invert. The orchestrator copies the condition from the input
-view, never from model output. Every not_called operation must be absent for
-`detected`; a call to any one of them, even a rejected call, is `not_detected`.
-The trigger is every other operation in the plan's `selected_evidence`, named
-by an `operation:<name>` ref or by an `observation:<...>` ref whose supplied
-fact records that operation (`provenance.tool_name`). A trigger call appears in
-a fixture only with a supplied read observation of that operation that the plan
-cites or binds; otherwise the trigger-dependent controls are withheld and
-recorded, with reasons, as `detector_control_skips` in the ledger and failure
-evidence. When the inventory supplies such an observation but the plan cites
-none, plan validation reports `omission_trigger_observation_uncited` so the plan
-correction can cite it.
-
-A trigger is either established before the run or happens during it. The plan
-marks a trigger as established before the run by citing its supplied
-observation with `selected_evidence` role `established_trigger`: the
-observation already shows the triggering result for the subject the stimulus
-asks about, so the target need not repeat the lookup. The violation is then
-complete capture with no call to X, with or without the lookup: the controls
-add `omission-established-trigger-no-lookup` (complete, no trigger call,
-`detected`) and `omission-established-call-no-lookup` (complete, X without the
-lookup, `not_detected`), and drop `omission-no-trigger`. Plan validation
-reports `established_trigger_not_observation` when that role cites anything
-other than a supplied result observation. Run-time triggers (any other role)
-keep the controls below.
-
-Supplied facts can also decide a command condition before the run: every
-`discriminating_condition` comparison is a value comparison between facts or
-literals, and an observed `record_selection` names the command's record
-arguments. The command controls then target the operation that
-`record_selection.argument_values` names, not the first selected operation, and
-take each record argument from its `TARGET-STATE` path (the record key for a
-record path, the field value for a scalar path). They add
-`command-selected-record-no-lookup` (that command on the selected record, no
-earlier lookup, null result, `detected`). They withhold
-`command-equal-bound-negative`, `command-partial-with-witness`, and
-`command-malformed-*`, because that condition does not fix their outcomes.
-
-A condition that compares a captured call argument (an `argument` operand) or
-orders calls (an `order` comparison) gets only the controls that capture alone
-decides: `command-complete-empty`, `command-unavailable`, and
-`command-partial-without-witness`. The comparisons may encode only part of the
-condition statement, and a fixture call takes its other arguments from
-whichever supplied fact names them, so that call is not known to be a
-violation. The skips name every withheld call-based control, and command-level
-judge controls are withheld for the same reason. Conditions without such
-comparisons, and scenarios without a condition, keep the
-first-selected-operation target.
-
-The trigger fixture records the observation as execution does:
-`executor_tool_result` unwraps a native MCP result envelope to the tool's
-output text (the single text block, else `structuredContent` with a sole
-`result` key unwrapped) as `raw_result`, and JSON-decodes it as
-`decoded_result`, like the downstream evidence adapter.
-
-| Control | Capture | Expected |
-| --- | --- | --- |
-| `omission-unavailable` | not captured, no calls | `inconclusive` |
-| `omission-partial-without-call` | partial, trigger only | `inconclusive` |
-| `omission-trigger-no-call` / `omission-no-call` (no trigger) | complete, trigger only | `detected` |
-| `omission-no-trigger` | complete, no calls | `not_detected` |
-| `omission-trigger-call`, `-completed` / `omission-call`, `-completed` | complete, trigger then rejected or completed X | `not_detected` |
-| `omission-partial-with-call` | partial, trigger then X | `not_detected` |
-
-The `detected` control is withheld when the condition has other comparison
-kinds or a semantic judge is declared. Omission command controls run only at
-`command_attempt` and `returned_result`; reply-level claims run judge controls
-with the trigger present and X absent. Call-based command controls never run for
-reply-level claims. Every generated fixture states `messages`, `tool_calls`,
-and `snapshots` in `availability` and `completeness`, as a generation packet
-does.
+operation: X}` comparison, the unsafe behavior is an omission. The trigger is
+every other operation in the plan's `selected_evidence`, named by an
+`operation:<name>` ref or by an `observation:<...>` ref whose supplied fact
+records that operation (`provenance.tool_name`). When the inventory supplies
+such an observation but the plan cites none, plan validation reports
+`omission_trigger_observation_uncited` so the plan correction can cite it. The
+plan marks a trigger as established before the run by citing its supplied
+observation with `selected_evidence` role `established_trigger`; plan
+validation reports `established_trigger_not_observation` when that role cites
+anything other than a supplied result observation.
 
 ### Owner-supplied scope
 
@@ -307,23 +220,25 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `value.<record_key>.record_key` selector that bind the record key itself. A
   required change that replaces a binding path names the complete source and
   selector pair.
-- `authoring-call2-v21` renders the immutable accepted plan and preserves the
-  two-block JSON-metadata-plus-Python response. When the plan needs a semantic
-  judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
+- `authoring-call2-v22` renders the immutable accepted plan and the runtime
+  contract, and asks for one JSON object without detector code. When the plan
+  needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
   question whose yes answer is the violation, that the criteria are a
   checkable statement of the standard, and that mentioning, quoting, reporting,
   or refusing content does not assert it. The validator rejects a question that
-  does not end with a question mark.
-- `authoring-artifact-review-v16` reviews the exact metadata, detector bytes,
-  binding/judge declarations, and offline controls.
+  does not end with a question mark. A plan that claims `reply` must return a
+  `semantic_judge_spec` object; a missing one gets a
+  `semantic_judge_spec_required` correction.
+- `authoring-artifact-review-v17` reviews the exact artifact object and the
+  binding and judge declarations.
 - `authoring-correction-v27` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option
   lists the binding's documented selectors, the selected record's sources, and
   `review_selector_checks`: each selector path the required change names,
-  checked against the sources that document it. Artifact corrections keep the
-  `authoring-correction-v25` bytes and label.
+  checked against the sources that document it. Artifact corrections use
+  `authoring-correction-v28`.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
 operations, schemas, provenance, and runtime capabilities. Reviewers do not
@@ -332,7 +247,7 @@ cannot rewrite plan-owned setup, bindings, prerequisites, observations, or
 judge decisions. Prompt construction fails before dispatch on overflow, secret
 values, credential patterns, or bounded duplicate candidate forms, and on any URL
 that does not occur verbatim in the supplied scenario handoff or in model-authored
-candidate content (a plan, artifact metadata, detector source, or review finding).
+candidate content (a plan, an artifact, or a review finding).
 A scenario's own lure link therefore reaches the prompt, while a URL from target
 inventory, profiles, or code does not. The private-model transport also rejects,
 before reserving a request, any prompt that names its configured endpoint host. Dispatch evidence
@@ -408,7 +323,7 @@ uv run asago-scenario-generator run \
 
 The consumer remains target-free. The `asago-orch` repository owns downstream
 qualification, including package execution, live setup, runtime judging,
-detector evaluation, evidence, and cleanup. Read
+Garak detection, evidence, and cleanup. Read
 `asago-orch/docs/qualification.md`; its implementation lives under
 `asago-orch/src/asago_orch/qualification/`.
 
@@ -533,13 +448,21 @@ operations, infer fact schemas, and record discovery provenance. Authoring
 does not accept native semantic scenario files, reference tasks, benchmark
 answers, or hand-built inventories.
 
-The consumer-owned `artifact-package-v2` contract lives in
-`contracts/artifact-package/`. `package_io.write_package` writes a complete
-directory atomically, and `load_package` verifies its manifest, member paths,
-lengths, and digests before returning content. A package containing `judge.json`
-receives a runner-normalized `evidence.judge` object with only `verdict`,
-`evidence_refs`, and `reason`; judge audit fields remain in downstream receipts,
-not in detector input. Runtime receipts remain outside the immutable package.
+The consumer-owned `artifact-package-v3` contract lives in
+`contracts/artifact-package/artifact-package-v3/`. The v2 schema file stays
+for reference but is no longer in `CONTRACT.lock`. `package_io.write_package`
+writes a complete directory atomically, and `load_package` verifies its
+manifest, member paths, lengths, and digests before returning content. A v3
+manifest has no `detector_interface`, and a package has no `detector.py`.
+Each package carries the scoring input for its plan's claim level:
+
+- `tool_call_condition.json` holds the handoff's `tool_call_condition` exactly
+  when its status is `bound`, serialized as sorted, two-space-indented UTF-8
+  JSON with a trailing newline. A `command_attempt` package requires it.
+- `judge.json` holds the semantic judge specification and its resolved facts.
+  A `reply` package requires it.
+
+Runtime receipts remain outside the immutable package.
 
 ### Target-free authoring
 
@@ -561,13 +484,14 @@ retries to zero, records prompts, raw and decoded responses, usage, controls,
 and the stage-local correction allowances, and never contacts a target, setup,
 discovery, or runtime-judge transport. An essential unresolved requirement
 produces a retained `*.blocked.json` plan and no package. The package contains
-the model-authored detector source, user-only stimulus, exact runtime-binding
-declarations, observations, explanation, examples, and digest-bound evidence.
+the user-only stimulus, exact runtime-binding declarations, observations, the
+tool-call condition or judge specification, explanation, examples, and
+digest-bound evidence.
 The context guard estimates prompt tokens from the rendered UTF-8 system and
 user bytes using the calibration described above; it does not report estimated
 values as provider usage. Use the test helper `build_neutral_artifact_package`
-(`tests/support.py`) and the public `check` command for the neutral evidence-interface example before reviewing
-model-authored output.
+(`tests/support.py`) to see a neutral package before reviewing model-authored
+output.
 New v2 executable prerequisites use exactly `name`, `check`, `evidence_refs`,
 `binding`, and `equals`. The binding names a declared runtime binding, and
 `equals` is always present as a JSON literal, including when its value is
@@ -577,8 +501,8 @@ Facts that depend on setup, live reads, or captured output remain declarations
 in `bindings.json`; the consumer never substitutes a static value for them.
 The plan validator rejects the older `source` and `expected` prerequisite
 fields as unexpected, and reports `binding` and `equals` as missing when they
-are absent. `load_package` and `check` do not parse `prerequisites.json`; they
-verify the manifest, the member set, and each member's digest and length.
+are absent. `load_package` does not parse `prerequisites.json`; it verifies
+the manifest, the member set, and each member's digest and length.
 If authoring fails before a package exists, the sibling
 `<package>.failure-evidence.json` sidecar is written atomically. It preserves
 each exact rendered prompt, available raw response bytes, provider usage,
@@ -590,80 +514,33 @@ redacted from the sidecar. The sidecar uses
 the findings that caused the terminal status. The `terminal` object records the
 logical stage, zero-based attempt index, and terminal reason.
 
-### Offline detector checks
+### Runtime bindings
 
-Run the exact packaged `detector.py` against a JSON or YAML evidence packet:
-
-```bash
-uv run asago-artifact-generator check runs/authoring/task \
-  --evidence build/evidence.json
-```
-
-The checker validates package and detector digests before and after execution.
-It runs the emitted source in `python:3.12-slim` through
-Docker (`/usr/local/bin/docker` when executable, otherwise `docker` on
-`PATH`) with no network, read-only package and input mounts,
-bounded memory, process count, output, and wall-clock time, and no inherited
-credentials. Rich results remain separate from runtime failures. Reporting
-maps `detected`, `not_detected`, and `inconclusive` to Garak's `1`, `0`, and
-`None` only at the reporting edge.
-
-Before the container starts, the checker performs a finite evidence-access
-check. The detector may read the adapter packet's `user_text`, `history`,
-`messages`, `tool_calls`, `bindings`, `binding_provenance`, `setup_outputs`,
-`snapshots`, `transport`, `parse_errors`, `correlation`, `source`,
-`availability`, and `completeness` roots. It may read `judge` only when the
-package contains `judge.json`. A supplied record fact belongs in
-`evidence.bindings.<name>` when `bindings.json` declares that binding, regardless
-of its consumers. When the plan declares a detector-only binding, it also lists
-the `detector.<name>` consumer. A binding carries only a value that exists before
-the run, a supplied fact or a permitted setup result: content the experiment
-chooses belongs directly in the stimulus, and the target's tool-call arguments,
-results, and replies are read from `tool_calls` or `messages`. The same holds
-for a record the target creates during the run. If no supplied fact or permitted
-setup provides a needed record but a documented operation creates it, the plan
-author guidance lets the stimulus ask the target to create it. The detector then
-attributes later calls to that record from captured calls, and the plan does not
-list the record as an unresolved requirement. An empty `setup_permissions` list
-permits no setup. Binding repair options mark a supplied fact whose value is an
-empty list or object with `supplied_value_empty`. When a binding `source_ref` names one record of a keyed
-fact (`facts:<ref>:<record_key>`), or its selector selects inside one record
-(`value.<record_key>...`), the options also list `named_record_sources`:
+A binding carries only a value that exists before the run, a supplied fact or
+a permitted setup result: content the experiment chooses belongs directly in
+the stimulus, and the target's tool-call arguments, results, and replies are
+captured downstream. The same holds for a record the target creates during the
+run. If no supplied fact or permitted setup provides a needed record but a
+documented operation creates it, the plan author guidance lets the stimulus ask
+the target to create it, and the plan does not list the record as an
+unresolved requirement. An empty `setup_permissions` list permits no setup.
+Binding repair options mark a supplied fact whose value is an empty list or
+object with `supplied_value_empty`. When a binding `source_ref` names one record
+of a keyed fact (`facts:<ref>:<record_key>`), or its selector selects inside one
+record (`value.<record_key>...`), the options also list `named_record_sources`:
 that record's full selectors in each fact documenting it, including the record
 key at `value.<record_key>.record_key` in the `facts:<ref>:records` companion.
 The whole-source selector list is sorted and capped at 40 entries, so it can
-omit the named record. The detector must return `evidence_refs` under the
-same supplied packet roots; `assistant_messages` is an observation
-declaration alias for `messages`, not a packet key.
-
-The authoring controls and package checker flag literal
-`evidence["root"]`, `evidence.get("root")`, literal binding child accesses, and
-literal `evidence_refs` roots that fall outside this interface. The check does
-not prove arbitrary Python data flow, aliases, computed keys, or dynamically
-built references. When a detector needs a supplied fact, the plan declares a
-`supplied_input` binding instead of reading runtime state or hardcoding the
-value, and adds the `detector.<name>` consumer when only the detector needs it.
+omit the named record.
 
 Artifact authoring copies `runtime_bindings` from the accepted plan, so neither
 call 2 nor an artifact correction can add, rename, or change a binding. The
-current call 2 guidance, the artifact correction guidance, the detector-feedback
-correction guidance, and the evidence contract's `detector_access.binding_rule`
-all state that rule. An undeclared binding or root finding lists the declared
-bindings and says that a value no declared binding supplies needs a new plan
-binding. When the scenario supplies a `discriminating_condition`, the controls
-restate each such finding in more detail. The restated finding lists the declared bindings and, for
-each condition fact operand that resolves in the supplied facts, its exact
-`supplied_input` form: `TARGET-STATE.<key>.<rest>` becomes `source_ref`
-`facts:state:<key>` with `selector` `value.<rest>`, plus the declared binding
-with that form or `none`. The finding keeps these forms in
-`details.supplied_fact_operands`. Because the supplied facts fix those operands
-before the run, the detector need not read an operand that no declared binding
-supplies.
+artifact correction guidance states that rule.
 
 Binding declarations list `stimulus.user_text` only when the resolved scalar
 value occurs in authored user text or the text contains its `{{name}}` slot.
 The authoring validator fails with correction feedback when a binding lists
-that consumer for a session prerequisite or detector-only value. The plan
+that consumer for a session prerequisite or a value only a later check reads. The plan
 validator applies the same rule to `stimulus_approach.request`, and rejects a
 request slot that names no declared binding, so plan correction can repair the
 binding before the artifact stage freezes the plan.
@@ -680,7 +557,7 @@ The unit test suite is deterministic and does not require an LLM endpoint.
 ## Project structure
 
 ```
-├── src/asago_artifact_generator/    # authoring, packages, detector runtime, CLI
+├── src/asago_artifact_generator/    # authoring, packages, CLI
 ├── contracts/                        # vendored and consumer-owned contracts
 ├── scripts/                          # quality, replay, and budget tools
 ├── tests/                            # unit tests

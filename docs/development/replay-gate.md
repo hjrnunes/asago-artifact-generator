@@ -7,7 +7,7 @@ recording.
 
 ## Run it
 
-Run it from the checkout under test, with Docker available:
+Run it from the checkout under test:
 
 ```bash
 ./scripts/replay-check.sh [--jobs N] [--item SCN-ID] \
@@ -27,11 +27,9 @@ options:
 
 The six Phase 0 re-baseline runs (219 authored items, 1,008 dispatches) take
 about 10 minutes with `--jobs 1`, 4.5 minutes with `--jobs 2`, and 3 minutes
-with `--jobs 4` on an Apple-silicon laptop. Use `--jobs 2`. At `--jobs 4`, a
-detector control occasionally exceeds its 10-second Docker limit under load,
-and that item reports a difference that does not reproduce. If one item
-differs only that way, replay it alone with `--item` before you treat the
-difference as real.
+with `--jobs 4` on an Apple-silicon laptop. Those timings include the
+detector controls that recordings made before artifact-package-v3 ran in
+Docker; those recordings no longer replay (see Limits).
 
 A pass means that, for every replayed item:
 
@@ -43,8 +41,8 @@ A pass means that, for every replayed item:
 - the replay made no network attempt.
 
 A refactor that must not change behavior has to pass on all chosen
-recordings. A change that alters any prompt, request control, finding, control
-result, or package byte fails. Record a new run after an intended change.
+recordings. A change that alters any prompt, request control, finding, or
+package byte fails. Record a new run after an intended change.
 
 ## What the gate does
 
@@ -74,8 +72,8 @@ for each item, the gate:
      response. A mismatch or an extra request is refused and reported.
 
    Everything else runs for real: argument parsing, profile loading, request
-   controls, response capture, validation, corrections, reviews, packaging,
-   and detector controls in Docker.
+   controls, response capture, validation, corrections, reviews, and
+   packaging.
 4. Compares the item's files (`output/<ID>/…` and `output/<ID>.*`) and
    `items/<ID>.log`. A file passes if its bytes are equal. A JSON file or a
    JSON log line that differs is compared as parsed data, including key order,
@@ -107,4 +105,7 @@ responses. Fix nondeterminism in the code instead of listing it.
   failure code and detail. It rejects a recording with an unavailable response.
 - The replay starts at the SDK client. It does not cover the `openai` SDK
   itself or the service-tier fallback after a rate limit.
-- Docker is required, because detector controls run for real.
+- Recordings made before artifact-package-v3 no longer replay. Their Call 2
+  prompts asked for detector Python, their packages carry `detector.py` and a
+  `detector_interface`, and their items read scenario-handoff-v1 or v2 input,
+  which `generate` now rejects. Record a new run to get a replayable baseline.
