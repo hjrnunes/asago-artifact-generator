@@ -301,7 +301,6 @@ class AuthoringOrchestrator:
         self._review_revision_allowances: dict[str, int] | None = None
         self._review_status: dict[str, str] | None = None
         self._review_evidence: dict[str, dict[str, Any]] = {}
-        self._saved_plan_review_packet: PromptPacket | None = None
         self._last_controls: list[dict[str, Any]] | None = None
         self._control_condition: dict[str, Any] | None = None
         self._last_detector_feedback: tuple[DetectorControlFeedback, ...] = ()

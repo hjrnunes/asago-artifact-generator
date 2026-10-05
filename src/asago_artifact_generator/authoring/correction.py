@@ -368,7 +368,7 @@ def _render_correction_packet(correction_context: dict[str, Any]) -> PromptPacke
         version=(
             CORRECTION_PROMPT_VERSION_V25 if view.artifact else CORRECTION_PROMPT_VERSION_V27
         ),
-        system=_CORRECTION_SYSTEM_V5,
+        system=_CORRECTION_SYSTEM,
         user=_render_correction_sections(tuple(sections)),
         payload=payload,
     )
@@ -829,7 +829,7 @@ def _render_correction_sections(sections: tuple[tuple[str, Any], ...]) -> str:
     return "\n".join(rendered).rstrip() + "\n"
 
 
-_CORRECTION_SYSTEM_V3 = (
+_CORRECTION_SYSTEM = (
     "Correct the current output for the named authoring stage. Return a complete "
     "replacement in that stage's required format and address every substantiated "
     "finding together. Verify criticism against the original scenario and supplied "
@@ -839,5 +839,3 @@ _CORRECTION_SYSTEM_V3 = (
     "fixed and cannot rewrite setup, bindings, prerequisites, or observation level. "
     "Do not add target access, setup, judge calls, retries, or self-approval."
 )
-_CORRECTION_SYSTEM_V4 = _CORRECTION_SYSTEM_V3
-_CORRECTION_SYSTEM_V5 = _CORRECTION_SYSTEM_V4
