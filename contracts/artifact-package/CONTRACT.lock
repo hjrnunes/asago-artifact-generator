@@ -4,8 +4,6 @@
   "digest_domain": "artifact-package-v3",
   "package_schema_version": "artifact-package-v3",
   "files": {
-    "artifact-package-v3/schema.json": "af47372909554dbca706755ed3fc55bea7b164a4fe91ec74c526f0ca74859578",
-    "artifact-result-v1/schema.json": "72482e19865d20f47336b4a11f365769ec72df54a8564f45d67e96b6fb915613",
-    "judge-normalization-v1/cases.json": "69605598a44607d2e3c3e4ba94d384318c2d67b826f340374f3892733a8c7c57"
+    "artifact-package-v3/schema.json": "af47372909554dbca706755ed3fc55bea7b164a4fe91ec74c526f0ca74859578"
   }
 }
