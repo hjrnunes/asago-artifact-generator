@@ -202,6 +202,12 @@ def _tool_call_condition_missing(view: InputView) -> Finding | None:
     return Finding("tool_call_condition_missing", text, "tool_call_condition_status", details)
 
 
+def _command_attempt_condition_missing(view: InputView, claim_level: Any) -> Finding | None:
+    """Return the missing-condition finding when a command-attempt claim has no bound condition."""
+
+    return _tool_call_condition_missing(view) if claim_level == "command_attempt" else None
+
+
 _FINDING_PATH_STAGES = {
     "tool_call_condition_status": "plan",
     "call1": "plan",
@@ -970,22 +976,35 @@ class AuthoringOrchestrator:
         self._failure_evidence["policy"] = self._effective_policy_record()
         self._failure_evidence["review_status"] = dict(self._review_status)
         self._persist_failure_evidence()
-        if _handoff_claim_level(view) == "command_attempt":
-            missing = _tool_call_condition_missing(view)
-            if missing is not None:
-                return self._policy_result("failed", None, [missing])
+        missing = _command_attempt_condition_missing(view, _handoff_claim_level(view))
+        if missing is not None:
+            return self._policy_result("failed", None, [missing])
         plan = self._plan_stage_policy(view, inventory, runtime_contract)
         if isinstance(plan, _StageStop):
             return self._policy_result(plan.status, None, plan.findings)
-        if _plan_claim_level(plan) == "command_attempt":
-            missing = _tool_call_condition_missing(view)
-            if missing is not None:
-                self._record_failures([missing])
-                return self._policy_result("failed", plan, [missing])
+        missing = _command_attempt_condition_missing(view, _plan_claim_level(plan))
+        if missing is not None:
+            self._record_failures([missing])
+            return self._policy_result("failed", plan, [missing])
         artifact = self._artifact_stage_policy(view, plan, inventory, runtime_contract)
         if isinstance(artifact, _StageStop):
             return self._policy_result(artifact.status, plan, artifact.findings)
         metadata, artifact_definition = artifact
+        return self._accept_package(
+            view, plan, metadata, artifact_definition, inventory, runtime_contract
+        )
+
+    def _accept_package(
+        self,
+        view: InputView,
+        plan: dict[str, Any],
+        metadata: dict[str, Any],
+        artifact_definition: dict[str, Any],
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> AuthoringResult:
+        """Assemble and write the accepted package, or fail with the finding."""
+
         try:
             package = _package_from_responses(
                 view=view,

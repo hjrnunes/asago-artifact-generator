@@ -635,6 +635,29 @@ def test_two_calls_build_an_immutable_package_without_detector_code(tmp_path: Pa
     assert transport.max_retries == 0
 
 
+def test_package_write_failure_fails_with_the_write_finding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def disk_full(destination: Path, package: object) -> Path:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("asago_artifact_generator.authoring.orchestrator.write_package", disk_full)
+    transport = ScriptedAuthoringTransport([json.dumps(_plan_v2()), _framed()])
+
+    result = stage_local_orchestrator(
+        transport=transport,
+        package_dir=tmp_path / "package",
+        task_id="refund-task",
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+
+    assert result.status == "failed"
+    assert result.package_path is None
+    assert [(finding.code, finding.detail) for finding in result.findings] == [
+        ("package_write_failed", "disk full")
+    ]
+    assert not (tmp_path / "package").exists()
+
+
 def test_structural_unknown_reference_blocks_call2_without_prose_classification(
     tmp_path: Path,
 ) -> None:
