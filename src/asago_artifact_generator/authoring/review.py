@@ -881,7 +881,7 @@ def _review_finding_to_finding(record: dict[str, Any], stage: str) -> Finding:
         f"{record.get('required_change', '')}"
     )
     if stage != "plan":
-        return Finding("semantic_review", detail, stage)
+        return Finding("semantic_review", detail, stage, stage=stage)
     # Plan corrections use the pointer and required change to list the
     # documented choices for a binding the finding concerns.
     return Finding(
@@ -892,6 +892,7 @@ def _review_finding_to_finding(record: dict[str, Any], stage: str) -> Finding:
             "review_location": str(record.get("location", "")),
             "review_required_change": str(record.get("required_change", "")),
         },
+        stage=stage,
     )
 
 

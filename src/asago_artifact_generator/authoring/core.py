@@ -7,8 +7,10 @@ other submodules depend on one common base.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from types import MappingProxyType
 from typing import Any, Protocol
 
 from ..contract_kit import canonical_json as _canonical_json
@@ -134,14 +136,80 @@ class PromptOverflowError(PromptPreflightError):
         super().__init__(message)
 
 
+_TARGET_HEAD = re.compile(r"[^.\[\]:]+")
+_TARGET_STEP = re.compile(r"\.([^.\[\]:]+)|\[(0|[1-9][0-9]*)\]")
+
+
+@dataclass(frozen=True)
+class FindingTarget:
+    """A finding path as data.
+
+    ``runtime_bindings[3].selector`` is ``("runtime_bindings", 3, "selector")``;
+    the text after the first ``:`` (a slot or request name) is the qualifier.
+    """
+
+    parts: tuple[str | int, ...]
+    qualifier: str | None = None
+
+    @classmethod
+    def parse(cls, path: str) -> FindingTarget | None:
+        """Return the target of ``path``, or None when ``render`` could not reproduce it."""
+
+        location, colon, qualifier = path.partition(":")
+        head = _TARGET_HEAD.match(location)
+        if head is None or (colon and not qualifier):
+            return None
+        parts: list[str | int] = [head.group()]
+        position = head.end()
+        while position < len(location):
+            step = _TARGET_STEP.match(location, position)
+            if step is None:
+                return None
+            name, index = step.groups()
+            parts.append(name if name is not None else int(index))
+            position = step.end()
+        return cls(tuple(parts), qualifier if colon else None)
+
+    def render(self) -> str:
+        text = "".join(
+            f"[{part}]" if isinstance(part, int) else f".{part}" for part in self.parts
+        ).removeprefix(".")
+        return text if self.qualifier is None else f"{text}:{self.qualifier}"
+
+
+# The stage keys a finding path can carry instead of a field path, and the
+# logical stage each one belongs to.
+FINDING_STAGE_KEYS: Mapping[str, str] = MappingProxyType(
+    {
+        "tool_call_condition_status": "plan",
+        "call1": "plan",
+        "plan": "plan",
+        "plan_review": "plan",
+        "call2": "artifact",
+        "artifact": "artifact",
+        "artifact_review": "artifact",
+    }
+)
+
+
 @dataclass(frozen=True)
 class Finding:
-    """A typed, deterministic finding retained beside the failed response."""
+    """A typed, deterministic finding retained beside the failed response.
+
+    ``stage`` is the logical stage (``plan`` or ``artifact``) whose checks or
+    review produced the finding, when known. It is not serialized and does
+    not take part in equality.
+    """
 
     code: str
     detail: str
     path: str = ""
     details: dict[str, Any] = field(default_factory=dict, compare=False, hash=False)
+    stage: str | None = field(default=None, compare=False, repr=False)
+
+    @property
+    def target(self) -> FindingTarget | None:
+        return FindingTarget.parse(self.path)
 
     def to_dict(self) -> dict[str, Any]:
         result = {"code": self.code, "detail": self.detail}
@@ -150,6 +218,12 @@ class Finding:
         if self.details:
             result["details"] = deepcopy(self.details)
         return result
+
+
+def staged_findings(findings: Iterable[Finding], stage: str) -> list[Finding]:
+    """Return ``findings`` marked as produced by ``stage``."""
+
+    return [replace(finding, stage=stage) for finding in findings]
 
 
 def _prompt_overflow_finding(exc: PromptOverflowError, stage: str) -> Finding:
@@ -164,7 +238,9 @@ def _prompt_overflow_finding(exc: PromptOverflowError, stage: str) -> Finding:
         )
         if value is not None
     }
-    return Finding("prompt_overflow", str(exc), stage, details)
+    return Finding(
+        "prompt_overflow", str(exc), stage, details, stage=FINDING_STAGE_KEYS.get(stage)
+    )
 
 
 def _prompt_preflight_finding(exc: PromptPreflightError, stage: str) -> Finding:
@@ -172,7 +248,7 @@ def _prompt_preflight_finding(exc: PromptPreflightError, stage: str) -> Finding:
 
     if isinstance(exc, PromptOverflowError):
         return _prompt_overflow_finding(exc, stage)
-    return Finding("prompt_preflight", str(exc), stage)
+    return Finding("prompt_preflight", str(exc), stage, stage=FINDING_STAGE_KEYS.get(stage))
 
 
 @dataclass(frozen=True)
