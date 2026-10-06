@@ -258,7 +258,7 @@ def _report_result(result: AuthoringResult) -> None:
             }
         )
     )
-    if result.status not in {"packaged", "accepted"}:
+    if result.status != "accepted":
         for finding in result.findings:
             typer.echo(f"{finding.code}: {finding.detail}", err=True)
         raise typer.Exit(1)

@@ -161,14 +161,16 @@ def test_finish_failure_evidence_stamps_records_and_closes_the_aggregate(tmp_pat
     for record in (evidence["attempts"][0], orchestrator._ledger[0]):
         assert (record["terminal_status"], record["stage_status"]) == ("failed", "failed")
 
-    packaged = _orchestrator(tmp_path / "other")
-    packaged._failure_evidence["attempts"] = [{"stage": "call2"}]
-    packaged._finish_failure_evidence("packaged", [])
-    assert packaged._failure_evidence["findings"] == []
-    assert packaged._failure_evidence["terminal"] == {
+    accepted = _orchestrator(tmp_path / "other")
+    accepted._failure_evidence["attempts"] = [
+        {"stage": "call2", "findings": [{"code": "stale", "detail": "d", "path": "call1"}]},
+    ]
+    accepted._finish_failure_evidence("accepted", [])
+    assert accepted._failure_evidence["findings"] == []
+    assert accepted._failure_evidence["terminal"] == {
         "stage": "artifact",
         "attempt_index": 0,
-        "reason": "packaged",
+        "reason": "accepted",
     }
 
 

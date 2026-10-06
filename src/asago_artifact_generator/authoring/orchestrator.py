@@ -1903,9 +1903,7 @@ class AuthoringOrchestrator:
         if not self._failure_evidence["attempts"] and not findings:
             return None
         self._failure_evidence["status"] = status
-        terminal_findings = (
-            [] if status in {"accepted", "packaged"} else self._latest_attempt_findings(findings)
-        )
+        terminal_findings = [] if status == "accepted" else self._latest_attempt_findings(findings)
         self._failure_evidence["findings"] = [finding.to_dict() for finding in terminal_findings]
         attempt_count = len(self._failure_evidence["attempts"])
         self._failure_evidence["terminal"] = {
