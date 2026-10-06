@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from pathlib import Path
 from typing import Annotated, Any
@@ -15,6 +16,7 @@ from .authoring.core import (
     AUTHORING_MAX_COMPLETION_TOKENS,
     AUTHORING_THINKING_EXTRA_BODY,
     REVIEW_THINKING_EXTRA_BODY,
+    AuthoringTransport,
 )
 from .authoring.orchestrator import AuthoringOrchestrator
 from .authoring.policy import AuthoringBudget, AuthoringPolicy, AuthoringResult
@@ -28,6 +30,14 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+TransportFactory = Callable[..., AuthoringTransport]
+
+
+def run(args: Sequence[str], *, prog_name: str, transport_factory: TransportFactory) -> None:
+    """Run the CLI with *transport_factory* building the provider transport."""
+
+    app(args=list(args), prog_name=prog_name, obj=transport_factory)
+
 
 @app.callback()
 def _main() -> None:
@@ -36,6 +46,7 @@ def _main() -> None:
 
 @app.command()
 def generate(
+    ctx: typer.Context,
     source: Annotated[
         Path,
         typer.Argument(help="Producer scenario-handoff-v3 JSON/YAML file."),
@@ -188,7 +199,8 @@ def generate(
     except ProfileLoadError as exc:
         raise typer.BadParameter(str(exc), param_hint="--profile/--profiles-file") from None
     sampling_controls = connection.sampling_controls
-    transport = PrivateModelAuthoringTransport(
+    transport_factory = ctx.obj if ctx.obj is not None else PrivateModelAuthoringTransport
+    transport = transport_factory(
         **_transport_options(connection),
         extra_body=(deepcopy(AUTHORING_THINKING_EXTRA_BODY) if sampling_controls else None),
         review_extra_body=(deepcopy(REVIEW_THINKING_EXTRA_BODY) if sampling_controls else None),

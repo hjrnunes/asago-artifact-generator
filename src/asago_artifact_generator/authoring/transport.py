@@ -44,9 +44,12 @@ class PrivateModelAuthoringTransport:
         sampling_controls: bool = True,
         strict_json_schema: bool | None = None,
         timeout: float | int | None = None,
+        client: Any | None = None,
     ) -> None:
         """Create the client.
 
+        ``client`` replaces the ``openai.OpenAI`` client that the endpoint
+        options would build; replay passes one that serves recorded responses.
         ``extra_body`` applies to author and correction requests.  When
         ``review_extra_body`` is supplied it replaces ``extra_body`` for
         semantic-review requests; otherwise reviews use ``extra_body`` too.
@@ -96,7 +99,7 @@ class PrivateModelAuthoringTransport:
         }
         if timeout is not None:
             client_options["timeout"] = timeout
-        self._client = OpenAI(**client_options)
+        self._client = client if client is not None else OpenAI(**client_options)
 
     def extra_body_for(self, packet: PromptPacket) -> dict[str, Any] | None:
         """Return the extra_body controls for this packet's role."""

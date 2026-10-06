@@ -110,13 +110,10 @@ def _record_author_stage(
     ]
     client = _ScriptedChatClient(contents)
 
-    class _RecordingTransport(PrivateModelAuthoringTransport):
-        def __init__(self, **options: object) -> None:
-            super().__init__(**options)
-            self._client = client
+    def transport(**options: object) -> PrivateModelAuthoringTransport:
+        return PrivateModelAuthoringTransport(**options, client=client)
 
-    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", _RecordingTransport)
-    result = CliRunner().invoke(cli.app, argv[1:])
+    result = CliRunner().invoke(cli.app, argv[1:], obj=transport)
     assert not client.contents, "every scripted response is consumed"
     items = stage / "items"
     items.mkdir()

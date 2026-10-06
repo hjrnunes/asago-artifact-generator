@@ -11,7 +11,8 @@ provider's response.  The gate re-runs every item with the current code::
 Each item runs in its own process, as under orch, with the recorded
 arguments, inputs copied into a scratch directory, provider settings removed
 from the environment, and outbound sockets refused.  Only the OpenAI client
-inside ``PrivateModelAuthoringTransport`` is replaced: it checks every request
+inside ``PrivateModelAuthoringTransport`` is replaced, through the CLI's
+transport factory: it checks every request
 against the recorded prompt and answers with the recorded response.  Argument
 parsing, profile loading, request controls, response capture, validation,
 corrections, and reviews all run for real.  The gate then compares every
@@ -326,15 +327,13 @@ def _replay_item(
     install_network_guard(network_log)
     client = ReplayChatClient(load_recorded_calls(failure_evidence))
     from asago_artifact_generator import cli
+    from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 
-    class _ReplayTransport(cli.PrivateModelAuthoringTransport):  # type: ignore[name-defined]
-        def __init__(self, **options: Any) -> None:
-            super().__init__(**options)
-            self._client = client
+    def transport(**options: Any) -> PrivateModelAuthoringTransport:
+        return PrivateModelAuthoringTransport(**options, client=client)
 
-    cli.PrivateModelAuthoringTransport = _ReplayTransport  # type: ignore[misc]
     try:
-        cli.app(args=arguments, prog_name=PROG_NAME)
+        cli.run(arguments, prog_name=PROG_NAME, transport_factory=transport)
     finally:
         status_path.write_text(
             json.dumps(
