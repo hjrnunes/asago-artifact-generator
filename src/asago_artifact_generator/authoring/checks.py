@@ -864,9 +864,9 @@ def collect_plan_findings(
     """Normalize the plan's bindings in place and return every structural Call 1 finding.
 
     This is the shared field validator behind ``collect_plan_findings_v2``.
-    Bindings are canonicalized before the checks; prerequisite binding
-    consumers are added after them, so the binding checks see the consumer
-    list the model wrote. Prerequisite contents are not validated here; the
+    Bindings are canonicalized and prerequisite binding consumers are added
+    before the checks, so the binding checks see the consumer list a
+    prerequisite completes. Prerequisite contents are not validated here; the
     canonical prerequisite validator runs only from the v2 entry point.
     """
 
@@ -891,7 +891,7 @@ def _normalized_plan_findings(
     *,
     report_root_presence: bool,
 ) -> list[Finding]:
-    """Normalize the bindings, check the shared fields, then add prerequisite consumers.
+    """Normalize the bindings and prerequisite consumers, then check the shared fields.
 
     ``report_root_presence`` includes the unexpected and missing root fields;
     the v2 entry point reports those against the full v2 field list itself.
@@ -902,11 +902,11 @@ def _normalized_plan_findings(
         normalize_binding_declarations(
             runtime_bindings, inventory=inventory, transformations=transformations
         )
-    findings = _plan_root_presence_findings(plan) if report_root_presence else []
-    findings.extend(_plan_field_findings(plan, inventory, runtime_contract, provenance_ids))
     _normalize_prerequisite_binding_consumers(
         plan.get("prerequisites"), runtime_bindings, transformations=transformations
     )
+    findings = _plan_root_presence_findings(plan) if report_root_presence else []
+    findings.extend(_plan_field_findings(plan, inventory, runtime_contract, provenance_ids))
     return staged_findings(findings, "plan")
 
 
