@@ -559,3 +559,52 @@ def test_contract_lock_rejections(
         (tmp_path / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
     with pytest.raises(TargetInputError, match=message):
         target_inputs._validate_contract_lock()
+
+
+def test_facts_need_the_observations_file_and_bytes() -> None:
+    for file, data in ((None, b"{}"), (Path("runtime-context.json"), None), (None, None)):
+        with pytest.raises(TargetInputError) as raised:
+            target_inputs._facts({}, observations_file=file, observations_bytes=data)
+
+        assert str(raised.value) == "target observations provenance is unavailable"
+
+
+def test_profile_must_be_an_object(tmp_path: Path) -> None:
+    profile = tmp_path / "profile.json"
+    profile.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(TargetInputError) as raised:
+        load_target_inputs(profile)
+    assert str(raised.value) == "target profile must be an object"
+
+    with pytest.raises(TargetInputError) as raised:
+        target_inputs._validate_profile_contract(["not", "an", "object"])
+    assert str(raised.value) == "target profile must be an object"
+
+
+@pytest.mark.parametrize("schema_text", [None, "{not json"])
+def test_unreadable_profile_schema_is_a_target_input_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_text: str | None
+) -> None:
+    monkeypatch.setattr(target_inputs, "_validate_contract_lock", lambda: tmp_path)
+    if schema_text is not None:
+        schema = tmp_path / "target-profile-v1" / "schema.json"
+        schema.parent.mkdir()
+        schema.write_text(schema_text, encoding="utf-8")
+
+    with pytest.raises(TargetInputError, match="^cannot validate target profile contract: "):
+        target_inputs._validate_profile_contract({})
+
+
+def test_validator_failure_is_a_target_input_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def explode(schema: object, instance: object) -> None:
+        raise RuntimeError("validator exploded")
+
+    monkeypatch.setattr(target_inputs, "first_schema_error", explode)
+
+    with pytest.raises(TargetInputError) as raised:
+        target_inputs._validate_profile_contract({})
+
+    assert str(raised.value) == "cannot validate target profile contract: validator exploded"

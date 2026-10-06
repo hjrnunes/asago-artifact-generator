@@ -432,3 +432,17 @@ def test_written_manifest_matches_the_locked_v3_schema(tmp_path: Path) -> None:
     jsonschema.validate(manifest, schema)
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({**manifest, "detector_interface": "x"}, schema)
+
+
+@pytest.mark.parametrize("schema_text", [None, "{not json"])
+def test_unreadable_manifest_schema_is_an_integrity_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_text: str | None
+) -> None:
+    monkeypatch.setattr(package_io, "_CONTRACT_ROOT", tmp_path)
+    if schema_text is not None:
+        schema = tmp_path / package_io.PACKAGE_SCHEMA_VERSION / "schema.json"
+        schema.parent.mkdir()
+        schema.write_text(schema_text, encoding="utf-8")
+
+    with pytest.raises(PackageIntegrityError, match="^cannot read artifact package schema: "):
+        package_io._manifest_schema()
