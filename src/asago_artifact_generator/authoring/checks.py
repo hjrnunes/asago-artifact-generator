@@ -22,7 +22,7 @@ from ..bindings import (
     supplied_binding_values,
     validate_bindings,
 )
-from .contracts import _SEMANTIC_JUDGE_SPEC_RULES, _call1_contract_v1, _call1_contract_v2
+from .contracts import _SEMANTIC_JUDGE_SPEC_RULES, _call1_contract_v2
 from .core import (
     _SLOT_RE,
     Finding,
@@ -257,18 +257,39 @@ def collect_plan_findings_v2(
     trigger check.
     """
 
-    findings = _collect_plan_findings_with_contract(
-        plan,
-        inventory,
-        runtime_contract,
-        _call1_contract_v2(),
-        provenance_ids=provenance_ids,
-        transformations=transformations,
+    if not isinstance(plan, dict):
+        return [Finding("response_type_error", "plan must be an object", "response", stage="plan")]
+    findings = _v2_root_field_findings(plan, _call1_contract_v2()["schema"]["required"])
+    findings.extend(_plan_assumptions_findings(plan, inventory, provenance_ids))
+    if not isinstance(plan.get("required_observations"), dict) and (
+        "required_observations" in plan
+    ):
+        findings.append(
+            Finding(
+                "type_error",
+                "required_observations must be an object",
+                "required_observations",
+            )
+        )
+    # The shared validator checks the other root fields again, so each
+    # unexpected or missing root field among them is reported twice.
+    shared_plan = dict(plan)
+    shared_plan.pop("assumptions", None)
+    shared_plan.pop("required_observations", None)
+    findings.extend(
+        collect_plan_findings(
+            shared_plan,
+            inventory,
+            runtime_contract,
+            provenance_ids=provenance_ids,
+            transformations=transformations,
+        )
     )
-    if isinstance(plan, dict):
-        findings.extend(_omission_trigger_findings(plan, inventory, condition))
-        findings.extend(_plan_stimulus_slot_findings(plan, inventory))
-        findings.extend(_established_trigger_findings(plan, inventory))
+    findings.extend(_unobtainable_requirement_findings(plan))
+    findings.extend(_plan_canonical_prerequisite_findings(plan, inventory))
+    findings.extend(_omission_trigger_findings(plan, inventory, condition))
+    findings.extend(_plan_stimulus_slot_findings(plan, inventory))
+    findings.extend(_established_trigger_findings(plan, inventory))
     return staged_findings(findings, "plan")
 
 
@@ -719,72 +740,6 @@ def _semantic_judge_fact_ref_findings(
     return findings
 
 
-def _collect_plan_findings_with_contract(
-    plan: Any,
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-    contract: dict[str, Any],
-    *,
-    provenance_ids: Collection[str] = frozenset(),
-    transformations: list[dict[str, Any]] | None = None,
-) -> list[Finding]:
-    """Run the existing validator with a version-specific root contract."""
-
-    if not isinstance(plan, dict):
-        return [Finding("response_type_error", "plan must be an object", "response")]
-    findings = _v2_root_field_findings(plan, contract["schema"]["required"])
-    findings.extend(_plan_assumptions_findings(plan, inventory, provenance_ids))
-    if not isinstance(plan.get("required_observations"), dict) and (
-        "required_observations" in plan
-    ):
-        findings.append(
-            Finding(
-                "type_error",
-                "required_observations must be an object",
-                "required_observations",
-            )
-        )
-    # Validate all legacy plan fields after the v2 root additions.  Removing
-    # only the additions keeps the old nested validators and their findings.
-    legacy_plan = dict(plan)
-    legacy_plan.pop("assumptions", None)
-    legacy_plan.pop("required_observations", None)
-    findings.extend(
-        collect_plan_findings(
-            legacy_plan,
-            inventory,
-            runtime_contract,
-            provenance_ids=provenance_ids,
-            transformations=transformations,
-        )
-    )
-    findings = [
-        finding
-        for finding in findings
-        if not (finding.path in _V2_ROOT_FIELDS_REPORTED_ONCE and finding.code == "missing_field")
-    ]
-    findings.extend(_unobtainable_requirement_findings(plan))
-    findings.extend(_plan_canonical_prerequisite_findings(plan, inventory))
-    return findings
-
-
-# The v2 root check reports these missing fields as plan_validation, so the
-# legacy validator's missing_field duplicates are dropped.
-_V2_ROOT_FIELDS_REPORTED_ONCE = frozenset(
-    {
-        "interpretation",
-        "selected_evidence",
-        "setup_recipe",
-        "runtime_bindings",
-        "prerequisites",
-        "stimulus_approach",
-        "observation_claim",
-        "semantic_judge",
-        "unresolved_requirements",
-    }
-)
-
-
 def _v2_root_field_findings(plan: dict[str, Any], required: list[str]) -> list[Finding]:
     """Report root fields outside the contract, then required root fields that are absent."""
 
@@ -986,6 +941,20 @@ def _unresolved_requirement_findings(unresolved: list[Any]) -> list[Finding]:
     return findings
 
 
+# The plan root fields the shared field validator checks: every root field
+# except assumptions and required_observations, which only the v2 entry point
+# checks.
+_SHARED_PLAN_ROOT_FIELDS = (
+    "interpretation",
+    "selected_evidence",
+    "setup_recipe",
+    "runtime_bindings",
+    "prerequisites",
+    "stimulus_approach",
+    "observation_claim",
+    "semantic_judge",
+    "unresolved_requirements",
+)
 _PLAN_LIST_FIELDS = (
     "selected_evidence",
     "setup_recipe",
@@ -997,7 +966,7 @@ _PLAN_LIST_FIELDS = (
 
 def _plan_root_field_findings(plan: dict[str, Any]) -> list[Finding]:
     findings: list[Finding] = []
-    required = _call1_contract_v1()["schema"]["required"]
+    required = _SHARED_PLAN_ROOT_FIELDS
     allowed = set(required)
     for field_name in sorted(set(plan) - allowed):
         findings.append(

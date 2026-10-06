@@ -22,9 +22,6 @@ def test_current_supplied_input_example_uses_the_complete_fact_ref_form() -> Non
     assert example["source_ref"] == "facts:<fact ref>"
     assert example["selector"] == "value.<documented field path>"
     assert "facts:state:loans, never facts:loans" in contract["source_ref_rule"]
-    assert _binding_contract(legacy=True)["valid_examples"]["supplied_input"]["source_ref"] == (
-        "facts:loan"
-    )
 
 
 def test_current_consumer_rule_names_exact_destinations() -> None:
@@ -35,7 +32,6 @@ def test_current_consumer_rule_names_exact_destinations() -> None:
     assert "never a * wildcard" in rule
     assert "observation_claim" in rule and "are not consumers" in rule
     assert "prerequisites.*" not in rule
-    assert "prerequisites.*" in _binding_contract(legacy=True)["consumer_rule"]
 
 
 def test_neutral_binding_example_uses_a_supplied_scalar_fact_without_setup() -> None:
