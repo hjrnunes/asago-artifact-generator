@@ -10,11 +10,11 @@ from asago_artifact_generator.authoring.contracts import (
     PLAN_FIELD_MEANINGS,
 )
 from asago_artifact_generator.authoring.core import (
-    ARTIFACT_REVIEW_PROMPT_VERSION_V17,
-    CALL1_PROMPT_VERSION_V18,
-    CALL2_PROMPT_VERSION_V22,
-    CORRECTION_PROMPT_VERSION_V27,
-    PLAN_REVIEW_PROMPT_VERSION_V17,
+    ARTIFACT_REVIEW_PROMPT_VERSION_V18,
+    CALL1_PROMPT_VERSION_V19,
+    CALL2_PROMPT_VERSION_V23,
+    CORRECTION_PROMPT_VERSION_V29,
+    PLAN_REVIEW_PROMPT_VERSION_V18,
     PromptOverflowError,
     PromptPacket,
     PromptPreflightError,
@@ -199,7 +199,7 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     ]
     correction = PromptPacket(
         stage="correction",
-        version=CORRECTION_PROMPT_VERSION_V27,
+        version=CORRECTION_PROMPT_VERSION_V29,
         system="correction",
         user="correction",
         payload={},
@@ -207,11 +207,11 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     packets.append(correction)
 
     assert [packet.version for packet in packets] == [
-        CALL1_PROMPT_VERSION_V18,
-        PLAN_REVIEW_PROMPT_VERSION_V17,
-        CALL2_PROMPT_VERSION_V22,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V17,
-        CORRECTION_PROMPT_VERSION_V27,
+        CALL1_PROMPT_VERSION_V19,
+        PLAN_REVIEW_PROMPT_VERSION_V18,
+        CALL2_PROMPT_VERSION_V23,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V18,
+        CORRECTION_PROMPT_VERSION_V29,
     ]
     assert all(packet.sha256 for packet in packets)
     assert len({packet.sha256 for packet in packets}) == len(packets)
@@ -266,7 +266,7 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
         findings=[],
     )
     plan_packet = _render_correction_packet(plan_correction)
-    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V27
+    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V29
     assert plan_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     assert plan_packet.user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1
     assert "Evaluate every finding against the source context" in plan_packet.user
@@ -482,7 +482,7 @@ def test_artifact_roles_drop_the_detector_evidence_interface() -> None:
 def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V18,
+        version=CALL1_PROMPT_VERSION_V19,
         system="system",
         user="candidate once",
         payload={"candidate": "candidate once"},
@@ -492,7 +492,7 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
 
     duplicate = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V18,
+        version=CALL1_PROMPT_VERSION_V19,
         system="system",
         user="candidate once candidate once",
         payload={"candidate": "candidate once"},
@@ -513,7 +513,7 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
 def test_prompt_secret_guard_rejects_urls_and_tokens_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V18,
+        version=CALL1_PROMPT_VERSION_V19,
         system="system",
         user=(
             "endpoint "
@@ -550,7 +550,7 @@ def test_duplicate_scan_requires_a_prompt_packet() -> None:
 def test_endpoint_prompt_paths_skip_malformed_urls_and_find_the_host() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V18,
+        version=CALL1_PROMPT_VERSION_V19,
         system="no urls here",
         user="bad http://[::1 then https://API.example.com/x",
         payload={},

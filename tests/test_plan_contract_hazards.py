@@ -9,9 +9,9 @@ from asago_artifact_generator.authoring.checks import (
     collect_plan_findings_v2,
 )
 from asago_artifact_generator.authoring.core import (
-    CALL1_PROMPT_VERSION_V18,
-    CALL2_PROMPT_VERSION_V22,
-    CORRECTION_PROMPT_VERSION_V27,
+    CALL1_PROMPT_VERSION_V19,
+    CALL2_PROMPT_VERSION_V23,
+    CORRECTION_PROMPT_VERSION_V29,
     PromptPacket,
 )
 from asago_artifact_generator.authoring.correction import (
@@ -38,9 +38,9 @@ from .test_versioned_prompt_roles import (
 )
 
 _CURRENT_PROMPT_DIGESTS = {
-    "call1": "360badaeb0bf63f97616a7486056e1bb13260c149808a9cca8b0072337638058",
-    "plan_correction": "c2ff111ae0e5db1f43e0f208fbcafdae511032b84c1daa70da09e59f33835b52",
-    "plan_review": "4320f809299d88271625131f6f2b02a6ae129eaf104557968e4074e95304cf10",
+    "call1": "b3edc0abddbb325ddbbfafaba662fb1a09fa21472ef1f1b747e5821c1af7abd0",
+    "plan_correction": "063acf09e08074886b259e0b6fdc4a323e6a25130de0e6608e053f20a162113e",
+    "plan_review": "a83dc10af159e7675da3e9ca04b89b816056486c1a7c3a8a9906ce7ab15a7d7f",
 }
 
 
@@ -218,7 +218,7 @@ def test_prerequisite_type_finding_is_rendered_in_plan_correction() -> None:
     )
     packet = _render_correction_packet(context)
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V27
+    assert packet.version == CORRECTION_PROMPT_VERSION_V29
     assert finding.detail in packet.user
 
 
@@ -299,11 +299,11 @@ def test_current_prompt_versions_cover_contract_changes() -> None:
     runtime_contract = _runtime_contract()
     assert (
         build_call1_packet_v2(view, inventory, runtime_contract).version
-        == CALL1_PROMPT_VERSION_V18
+        == CALL1_PROMPT_VERSION_V19
     )
     assert (
         build_call2_packet_v2(view, _plan(), inventory, runtime_contract).version
-        == CALL2_PROMPT_VERSION_V22
+        == CALL2_PROMPT_VERSION_V23
     )
 
 

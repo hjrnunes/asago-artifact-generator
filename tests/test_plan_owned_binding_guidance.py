@@ -36,5 +36,5 @@ def test_artifact_stage_prompts_state_the_rule_and_the_plan_author_keeps_its_own
         if stage != "artifact_review":
             assert _RULE in text, stage
         assert _plan_only_advice(text) == [], stage
-    assert "list its detector.<binding_name> consumer" in _CURRENT_PLAN_AUTHOR_GUIDANCE
-    assert "list its detector.<binding_name> consumer" in packets["call1"].user
+    assert "List detector.<binding_name> only for a value" in _CURRENT_PLAN_AUTHOR_GUIDANCE
+    assert "List detector.<binding_name> only for a value" in packets["call1"].user

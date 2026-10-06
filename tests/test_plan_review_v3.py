@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from asago_artifact_generator.authoring.contracts import _binding_contract
-from asago_artifact_generator.authoring.core import PLAN_REVIEW_PROMPT_VERSION_V17
+from asago_artifact_generator.authoring.core import PLAN_REVIEW_PROMPT_VERSION_V18
 from asago_artifact_generator.authoring.review import (
     build_plan_review_packet,
     build_plan_reviewer_context,
@@ -23,7 +23,7 @@ def test_plan_reviewer_v3_renders_shared_binding_rules_and_mechanical_checks() -
     context = build_plan_reviewer_context(view, plan, inventory, runtime)
     packet = build_plan_review_packet(view, plan, inventory, runtime)
 
-    assert packet.version == PLAN_REVIEW_PROMPT_VERSION_V17
+    assert packet.version == PLAN_REVIEW_PROMPT_VERSION_V18
     assert (
         "Apply BINDING AND SETUP RULES when interpreting runtime_bindings, "
         "setup_recipe, and setup_permissions"
@@ -50,9 +50,9 @@ def test_plan_reviewer_v3_renders_shared_binding_rules_and_mechanical_checks() -
     }
     assert context["binding_and_setup_rules"]["binding_contract"]["applicability"] == (
         "runtime_bindings is [] (an empty list) only when no consumer needs a bound "
-        "value: no stimulus placeholder, prerequisite, detector value, or setup argument "
-        "uses one. Every prerequisite needs a declared binding. Filling a "
-        "{{binding_name}} stimulus placeholder from a declared binding is a valid "
+        "value: no stimulus placeholder, prerequisite, setup argument, or value the "
+        "semantic judge reads uses one. Every prerequisite needs a declared binding. "
+        "Filling a {{binding_name}} stimulus placeholder from a declared binding is a valid "
         "substitution, not circular; do not add a binding that only copies concrete "
         "stimulus text back into the stimulus."
     )

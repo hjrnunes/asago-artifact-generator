@@ -5,8 +5,8 @@ import json
 
 from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
 from asago_artifact_generator.authoring.core import (
-    CALL1_PROMPT_VERSION_V18,
-    CORRECTION_PROMPT_VERSION_V27,
+    CALL1_PROMPT_VERSION_V19,
+    CORRECTION_PROMPT_VERSION_V29,
     Finding,
 )
 from asago_artifact_generator.authoring.correction import (
@@ -32,7 +32,7 @@ def _section(user: str, title: str) -> dict:
 def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
     packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
 
-    assert packet.version == CALL1_PROMPT_VERSION_V18
+    assert packet.version == CALL1_PROMPT_VERSION_V19
     assert packet.user.index("SOURCE CONTEXT") < packet.user.index("EVIDENCE REFERENCES")
     assert packet.user.index("EVIDENCE REFERENCES") < packet.user.index("EXECUTION CAPABILITIES")
     section = _section(packet.user, "EVIDENCE REFERENCES")
@@ -165,7 +165,7 @@ def test_plan_correction_explains_each_unknown_reference() -> None:
         )
     )
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V27
+    assert packet.version == CORRECTION_PROMPT_VERSION_V29
     options = {
         item["path"]: item for item in packet.payload["reference_repair_options"]["options"]
     }

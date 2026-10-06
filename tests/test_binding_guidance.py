@@ -80,8 +80,8 @@ def test_plan_instruction_limits_bindings_to_values_that_exist_before_the_run() 
         "Write content the experiment chooses",
         "directly in the stimulus; it needs no binding",
         "A value the target produces during the run",
-        "reads it from evidence.tool_calls or evidence.messages",
-        "not from a runtime binding or a setup:<operation> source",
+        "is captured evidence in evidence.tool_calls or evidence.messages",
+        "not a runtime binding or a setup:<operation> source",
         "an empty list or empty object supplies nothing to bind",
     )
     for rule in rules:

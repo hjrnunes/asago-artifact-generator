@@ -4,8 +4,8 @@ from copy import deepcopy
 
 from asago_artifact_generator.authoring.core import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
-    CALL2_PROMPT_VERSION_V22,
-    CORRECTION_PROMPT_VERSION_V28,
+    CALL2_PROMPT_VERSION_V23,
+    CORRECTION_PROMPT_VERSION_V30,
 )
 from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
@@ -72,8 +72,8 @@ def test_artifact_prompt_states_the_fixed_plan_without_a_detector_interface() ->
     assert "RUNTIME CAPABILITIES" in author.user
     assert "tool-call condition" in author.system
     assert plan == original_plan
-    assert author.version == CALL2_PROMPT_VERSION_V22
-    assert correction.version == CORRECTION_PROMPT_VERSION_V28
+    assert author.version == CALL2_PROMPT_VERSION_V23
+    assert correction.version == CORRECTION_PROMPT_VERSION_V30
 
 
 def test_artifact_review_does_not_replay_unrelated_judge_facts_or_capabilities() -> None:

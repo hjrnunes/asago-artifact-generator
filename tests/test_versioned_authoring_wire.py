@@ -11,8 +11,8 @@ from asago_artifact_generator.authoring.checks import (
 from asago_artifact_generator.authoring.contracts import neutral_artifact_response_without_source
 from asago_artifact_generator.authoring.core import (
     AUTHORING_INTERFACE_VERSION_V2,
-    CALL1_PROMPT_VERSION_V18,
-    CALL2_PROMPT_VERSION_V22,
+    CALL1_PROMPT_VERSION_V19,
+    CALL2_PROMPT_VERSION_V23,
     Call2FramingError,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
@@ -164,7 +164,7 @@ def _framed(metadata: dict | None = None) -> bytes:
 
 def test_call1_v2_has_closed_root_and_reports_all_root_faults() -> None:
     packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
-    assert packet.version == CALL1_PROMPT_VERSION_V18
+    assert packet.version == CALL1_PROMPT_VERSION_V19
     assert packet.payload["interface"] == AUTHORING_INTERFACE_VERSION_V2
     fields = packet.payload["response_contract"]["fields"]
     assert fields == [
@@ -466,8 +466,8 @@ def test_new_orchestrator_copies_plan_owned_fields_and_the_tool_call_condition(t
     assert json.loads(result.package.members["bindings.json"]) == plan["runtime_bindings"]
     assert json.loads(result.package.members["prerequisites.json"]) == plan["prerequisites"]
     assert json.loads(result.package.members["observations.json"]) == plan["required_observations"]
-    assert result.prompts["call1"].version == CALL1_PROMPT_VERSION_V18
-    assert result.prompts["call2"].version == CALL2_PROMPT_VERSION_V22
+    assert result.prompts["call1"].version == CALL1_PROMPT_VERSION_V19
+    assert result.prompts["call2"].version == CALL2_PROMPT_VERSION_V23
 
 
 def test_v2_assembly_resolves_static_judge_facts_with_source_provenance(tmp_path) -> None:

@@ -66,8 +66,8 @@ _PLAN_REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
         "question": (
             "Does the claim level fit the violation, and can the required "
             "observations establish it? A supplied record fact the violation "
-            "compares, such as a record's owner or status, is established by its "
-            "supplied_input binding before the run, not by a captured observation "
+            "compares, such as a record's owner or status, is established by the "
+            "supplied inventory before the run, not by a captured observation "
             "or lookup; only a requirement that one call follow another needs an "
             "earlier captured call."
         ),

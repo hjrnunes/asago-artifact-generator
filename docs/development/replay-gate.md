@@ -109,3 +109,7 @@ responses. Fix nondeterminism in the code instead of listing it.
   prompts asked for detector Python, their packages carry `detector.py` and a
   `detector_interface`, and their items read scenario-handoff-v1 or v2 input,
   which `generate` now rejects. Record a new run to get a replayable baseline.
+- Recordings made with `authoring-call1-v18` or earlier no longer replay. The
+  plan field meanings and the binding guidance changed in every prompt role,
+  so each item that dispatches a request mismatches at its first Call 1 prompt.
+  Only items that stop before any request still replay.

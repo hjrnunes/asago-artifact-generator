@@ -210,9 +210,9 @@ or empty block leaves rendered request bytes unchanged.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v18` renders the plan author context while preserving the
+- `authoring-call1-v19` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v17` reviews a fresh source-derived plan context. It
+- `authoring-plan-review-v18` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
   binding selects inside one record of a keyed fact, the value also carries
@@ -220,7 +220,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `value.<record_key>.record_key` selector that bind the record key itself. A
   required change that replaces a binding path names the complete source and
   selector pair.
-- `authoring-call2-v22` renders the immutable accepted plan and the runtime
+- `authoring-call2-v23` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
   question whose yes answer is the violation, that the criteria are a
@@ -229,16 +229,16 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   does not end with a question mark. A plan that claims `reply` must return a
   `semantic_judge_spec` object; a missing one gets a
   `semantic_judge_spec_required` correction.
-- `authoring-artifact-review-v17` reviews the exact artifact object and the
+- `authoring-artifact-review-v18` reviews the exact artifact object and the
   binding and judge declarations.
-- `authoring-correction-v27` renders only the failed stage format and all
+- `authoring-correction-v29` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option
   lists the binding's documented selectors, the selected record's sources, and
   `review_selector_checks`: each selector path the required change names,
   checked against the sources that document it. Artifact corrections use
-  `authoring-correction-v28`.
+  `authoring-correction-v30`.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
 operations, schemas, provenance, and runtime capabilities. Reviewers do not
@@ -412,11 +412,13 @@ statement, the condition replaces `statement` with a `statement_location`
 pointer, and `condition_check` keeps `status` and each comparison's `index` and
 `result` without the producer's `reason` text. `build_scenario_handoff_view`
 keeps both fields unchanged. Only when a condition is present, plan
-authoring and both reviews also state the generic rule: the detector checks the
-condition on captured evidence rather than only the operation, uses the
-selected record's `argument_values` paths when the record is observed, and keeps
-a runtime binding while still checking captured arguments when it is
-unavailable.
+authoring and both reviews also state the generic rule: the violation checks the
+condition on captured evidence rather than only the operation, a fact operand
+holds before the run because the producer resolves it to its supplied value (a
+`command_attempt` claim needs no runtime binding for it), the plan uses the
+selected record's `argument_values` paths when the record is observed, and it
+keeps a runtime binding while still checking captured arguments when the record
+is unavailable.
 
 The plan-author prompt renders SOURCE CONTEXT as compact JSON and lists the
 runtime contract and each binding rule once; EXECUTION CAPABILITIES and the
@@ -532,6 +534,14 @@ that record's full selectors in each fact documenting it, including the record
 key at `value.<record_key>.record_key` in the `facts:<ref>:records` companion.
 The whole-source selector list is sorted and capped at 40 entries, so it can
 omit the named record.
+
+Downstream detection reads bindings as follows, and the plan author guidance
+states it. The producer's tool-call condition decides a `command_attempt` claim
+and already holds the supplied values it compares, so it reads no binding. The
+semantic judge decides a `reply` claim and receives every resolved binding, so
+a binding only that judge reads lists `detector.<name>`. A `command_attempt`
+plan needs no detector-only binding. The validator still accepts
+`detector.<name>` on any claim level.
 
 Artifact authoring copies `runtime_bindings` from the accepted plan, so neither
 call 2 nor an artifact correction can add, rename, or change a binding. The

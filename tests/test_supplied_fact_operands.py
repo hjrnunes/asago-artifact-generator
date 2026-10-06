@@ -18,7 +18,7 @@ _HANDOFF = (
     Path(__file__).resolve().parents[1]
     / "contracts/scenario-handoff/handoff-v3/valid/functional-not-called.json"
 )
-_RULE = "established by its supplied_input binding"
+_RULE = "established by the supplied inventory before the run"
 
 
 def _plan() -> dict:
