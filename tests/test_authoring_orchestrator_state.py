@@ -11,7 +11,11 @@ from asago_artifact_generator.authoring.journal import (
     CorrectionRecorded,
     DispatchRequested,
 )
-from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator, _staged
+from asago_artifact_generator.authoring.orchestrator import (
+    AuthoringOrchestrator,
+    _finding_from_record,
+    _staged,
+)
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 
 from .support import ScriptedAuthoringTransport
@@ -80,6 +84,61 @@ def test_stop_for_author_findings_prefers_overflow_then_budget(
     assert stop is not None
     assert stop.status == expected_status
     assert [finding.code for finding in stop.findings] == expected_codes
+
+
+def test_failed_correction_stop_classifies_the_recorded_findings(tmp_path: Path) -> None:
+    orchestrator = _orchestrator(tmp_path)
+    pending = [Finding("plan_validation", "pending", "interpretation")]
+
+    unresolved = orchestrator._failed_correction_stop(pending)
+
+    assert (unresolved.status, unresolved.findings) == ("unresolved", tuple(pending))
+
+    recorded = [
+        Finding("plan_validation", "kept", "interpretation"),
+        Finding("transport_failure", "provider down", "call1"),
+    ]
+    orchestrator._findings.extend(recorded)
+
+    transport = orchestrator._failed_correction_stop(pending)
+
+    assert (transport.status, transport.findings) == ("transport_failure", (recorded[1],))
+
+    orchestrator._findings.pop()
+
+    assert orchestrator._failed_correction_stop(pending).findings == (recorded[0],)
+
+
+@pytest.mark.parametrize(
+    ("record", "stage", "expected"),
+    [
+        (
+            {"code": "c", "detail": "d", "path": "p", "details": {"k": 1}},
+            "plan",
+            ("c", "d", "p", {"k": 1}, "plan"),
+        ),
+        ({"code": "c", "detail": "d"}, None, ("c", "d", "", {}, None)),
+        (
+            {"code": "c", "detail": "d", "path": 3, "details": ["x"]},
+            "artifact",
+            ("c", "d", "", {}, "artifact"),
+        ),
+        ({"code": "c"}, None, None),
+        ({"code": 1, "detail": "d"}, None, None),
+        (["c", "d"], None, None),
+        (None, None, None),
+    ],
+)
+def test_finding_from_record_rebuilds_well_formed_records_only(
+    record: Any, stage: str | None, expected: tuple[Any, ...] | None
+) -> None:
+    finding = _finding_from_record(record, stage)
+
+    if expected is None:
+        assert finding is None
+        return
+    assert finding is not None
+    assert (finding.code, finding.detail, finding.path, finding.details, finding.stage) == expected
 
 
 def _open(
