@@ -2248,16 +2248,29 @@ def _is_blocked_plan(plan: Any) -> bool:
     )
 
 
+def _applies_to_every_candidate(candidate: Mapping[str, Any]) -> bool:
+    return True
+
+
+def _has_judge_spec(metadata: Mapping[str, Any]) -> bool:
+    """Tell whether the artifact carries a judge spec, the input of the fact-ref check."""
+
+    return isinstance(metadata.get("semantic_judge_spec"), dict)
+
+
 @dataclass(frozen=True)
 class MechanicalCheck:
     """A structural check and the property a candidate that passed it has.
 
     ``functions`` are the checks in this module that enforce the property.
+    ``applies`` tells whether the check examines a candidate at all; a check
+    that does not apply to a candidate gives it no guarantee.
     """
 
     check_id: str
     guarantee: str
     functions: tuple[Callable[..., Any], ...]
+    applies: Callable[[Mapping[str, Any]], bool] = _applies_to_every_candidate
 
 
 def _or_list(values: tuple[str, ...]) -> str:
@@ -2355,5 +2368,6 @@ ARTIFACT_MECHANICAL_CHECKS = (
         "setup:<operation> plus result paths, and keyed-map "
         "<fact ref>:records plus value.<key>.record_key.",
         (_semantic_judge_fact_ref_findings, _canonical_prerequisite_findings),
+        applies=_has_judge_spec,
     ),
 )
