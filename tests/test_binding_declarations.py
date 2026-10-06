@@ -801,3 +801,97 @@ def test_binding_spec_field_set_drives_both_field_checks() -> None:
     ]
     with pytest.raises(BindingValidationError, match=r"missing=\['expected_type'"):
         RuntimeBinding.from_dict(raw)
+
+
+def _coded_findings(findings: list) -> list[tuple[str, str, str]]:
+    return [(f.code, f.detail, f.path) for f in findings]
+
+
+def test_collector_reports_a_duplicate_binding_name_at_the_second_declaration() -> None:
+    findings = _collect_binding_findings(
+        [_declaration(), _declaration()], _FACT_INVENTORY, {}, finding_code="plan_validation"
+    )
+
+    assert _coded_findings(findings) == [
+        ("plan_validation", "duplicate binding: n", "runtime_bindings[1]")
+    ]
+
+
+def test_collector_reports_a_non_string_field_beside_the_other_checks() -> None:
+    findings = _collect_binding_findings([_declaration(selector=7)], _FACT_INVENTORY, {})
+
+    assert _coded_findings(findings) == [
+        (
+            "artifact_validation",
+            "binding selector must be a string",
+            "runtime_bindings[0].selector",
+        ),
+        (
+            "artifact_validation",
+            "binding selector must be a string: n",
+            "runtime_bindings[0].selector",
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("consumers", "detail", "path"),
+    [
+        ("detector.n", "binding consumers must be a list", "runtime_bindings[0].consumers"),
+        ([], "binding consumers must be non-empty strings", "runtime_bindings[0].consumers"),
+        (
+            ["detector.n", 3],
+            "binding consumers must be non-empty strings",
+            "runtime_bindings[0].consumers[1]",
+        ),
+        (
+            ["detector.n", " "],
+            "binding consumers must be non-empty strings",
+            "runtime_bindings[0].consumers[1]",
+        ),
+        (
+            ["detector.n", "elsewhere.n"],
+            "binding consumer is not a closed path",
+            "runtime_bindings[0].consumers[1]",
+        ),
+    ],
+)
+def test_collector_reports_each_malformed_consumer_list(
+    consumers: object, detail: str, path: str
+) -> None:
+    findings = _collect_binding_findings([_declaration(consumers=consumers)], _FACT_INVENTORY, {})
+
+    consumer_findings = [f for f in findings if f.path.startswith("runtime_bindings[0].consumers")]
+    assert _coded_findings(consumer_findings) == [("artifact_validation", detail, path)]
+
+
+def test_collector_falls_back_to_the_closed_validator_for_record_key_companions() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "ORD-1": {"type": "object", "properties": {"record_key": {"type": "string"}}}
+        },
+    }
+    inventory = {
+        "facts": [
+            {
+                "ref": "state:orders:records",
+                "schema": schema,
+                "provenance": {
+                    "derived_from": "state:orders",
+                    "derivation": "keyed_map_record_key",
+                },
+            }
+        ]
+    }
+    declaration = _declaration(
+        expected_type="object",
+        source_ref="facts:state:orders:records",
+        selector="value.ORD-1",
+    )
+
+    findings = _collect_binding_findings([declaration], inventory, {})
+
+    assert [(f.code, f.path) for f in findings] == [("artifact_validation", "runtime_bindings[0]")]
+    assert "value.<key>.record_key" in findings[0].detail
+    assert findings[0].detail.startswith("binding n selects value.ORD-1 from facts:state:orders")

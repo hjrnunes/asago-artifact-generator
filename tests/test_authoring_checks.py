@@ -236,3 +236,79 @@ def test_mechanical_check_ids_are_unique_per_stage() -> None:
         ids = [check.check_id for check in registry]
         assert len(ids) == len(set(ids))
         assert all(check.functions for check in registry)
+
+
+def test_plan_that_is_not_an_object_yields_one_response_type_finding() -> None:
+    from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+
+    findings = collect_plan_findings_v2(["plan"], {}, {})
+
+    assert _coded(findings) == [("response_type_error", "plan must be an object", "response")]
+    assert findings[0].stage == "plan"
+
+
+def test_judge_decision_must_match_the_accepted_plan() -> None:
+    from asago_artifact_generator.authoring.checks import _semantic_judge_decision_findings
+
+    needed = {"semantic_judge": {"needed": True}}
+    not_needed = {"semantic_judge": {"needed": False}}
+    reply = {"observation_claim": {"claim_level": "reply"}}
+    conflict = [
+        (
+            "plan_conflict",
+            "semantic judge specification differs from accepted plan decision",
+            "semantic_judge_spec",
+        )
+    ]
+
+    assert _coded(_semantic_judge_decision_findings(needed, None)) == conflict
+    assert _coded(_semantic_judge_decision_findings(not_needed, {"question": "q"})) == conflict
+    assert _semantic_judge_decision_findings(needed, {"question": "q"}) == []
+    assert _semantic_judge_decision_findings(not_needed, None) == []
+    assert _semantic_judge_decision_findings({"semantic_judge": {"needed": "yes"}}, None) == []
+    assert _semantic_judge_decision_findings({"semantic_judge": "x"}, None) == []
+    assert _semantic_judge_decision_findings({}, None) == []
+    assert [f.code for f in _semantic_judge_decision_findings(reply, None)] == [
+        "semantic_judge_spec_required"
+    ]
+
+
+def test_observation_claim_level_must_be_closed_and_supported() -> None:
+    from asago_artifact_generator.authoring.checks import _observation_claim_level_findings
+
+    assert _coded(_observation_claim_level_findings("belief", {})) == [
+        (
+            "closed_value_error",
+            "observation_claim must declare a closed claim_level",
+            "observation_claim.claim_level",
+        )
+    ]
+    assert [f.code for f in _observation_claim_level_findings(None, {})] == ["closed_value_error"]
+    narrowed = {"observation": {"claim_levels": ["reply"]}}
+    assert [f.code for f in _observation_claim_level_findings("command_attempt", narrowed)] == [
+        "unsupported_claim_level"
+    ]
+    assert _observation_claim_level_findings("reply", narrowed) == []
+
+
+def test_semantic_judge_plan_findings_report_each_shape_fault_in_order() -> None:
+    from asago_artifact_generator.authoring.checks import _semantic_judge_plan_findings
+
+    assert _semantic_judge_plan_findings({}) == []
+    assert _coded(_semantic_judge_plan_findings({"semantic_judge": "x"})) == [
+        ("type_error", "semantic_judge must be an object", "semantic_judge")
+    ]
+    assert _coded(
+        _semantic_judge_plan_findings({"semantic_judge": {"needed": "yes", "z": 0, "a": 0}})
+    ) == [
+        ("unexpected_field", "unexpected semantic_judge field: a", "semantic_judge.a"),
+        ("unexpected_field", "unexpected semantic_judge field: z", "semantic_judge.z"),
+        ("type_error", "semantic_judge.needed must be a boolean", "semantic_judge.needed"),
+        ("missing_field", "semantic_judge missing field: scope", "semantic_judge.scope"),
+    ]
+    assert _coded(_semantic_judge_plan_findings({"semantic_judge": {"scope": None}})) == [
+        ("missing_field", "semantic_judge missing field: needed", "semantic_judge.needed")
+    ]
+    assert (
+        _semantic_judge_plan_findings({"semantic_judge": {"needed": False, "scope": None}}) == []
+    )

@@ -515,3 +515,84 @@ def test_frozen_handoff_versions_are_rejected_for_authoring(relative: str) -> No
 def test_unknown_input_kind_is_rejected() -> None:
     with pytest.raises(InputSourceError, match="^unsupported input kind: bogus$"):
         load_input(CONTRACT_HANDOFF, kind="bogus")
+
+
+def test_handoff_that_is_not_an_object_is_rejected(tmp_path: Path) -> None:
+    source_path = tmp_path / "handoff.json"
+    source_path.write_text("[1, 2]", encoding="utf-8")
+
+    with pytest.raises(InputSourceError) as raised:
+        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
+
+    assert str(raised.value) == "scenario handoff must be an object"
+
+
+def test_gherkin_companion_file_replaces_the_rendered_text(tmp_path: Path) -> None:
+    source_path = tmp_path / "handoff.json"
+    source_path.write_bytes(CONTRACT_HANDOFF.read_bytes())
+    companion = b"Feature: written by the producer\n  Scenario: exact bytes\n"
+    source_path.with_suffix(".feature").write_bytes(companion)
+
+    view = load_input(source_path)
+
+    assert view.gherkin_text == companion.decode("utf-8")
+    assert view.gherkin_bytes == companion
+    assert view.source_digests["gherkin"] == hashlib.sha256(companion).hexdigest()
+    assert view.source_digests["input"] == view.source_sha256
+
+
+def test_gherkin_companion_must_be_utf8(tmp_path: Path) -> None:
+    source_path = tmp_path / "handoff.json"
+    source_path.write_bytes(CONTRACT_HANDOFF.read_bytes())
+    companion = source_path.with_suffix(".feature")
+    companion.write_bytes(b"Feature: \xff\xfe\n")
+
+    with pytest.raises(InputSourceError) as raised:
+        load_input(source_path)
+
+    assert str(raised.value) == f"Gherkin companion is not UTF-8: {companion}"
+
+
+def test_snapshot_refuses_a_hash_addressed_file_with_other_bytes(tmp_path: Path) -> None:
+    source_path = tmp_path / "source.yaml"
+    source_path.write_bytes(b"source: exact\n")
+    snapshots = tmp_path / "snapshots"
+    snapshots.mkdir()
+    digest = hashlib.sha256(b"source: exact\n").hexdigest()
+    occupied = snapshots / f"{digest}-source.yaml"
+    occupied.write_bytes(b"source: other\n")
+
+    with pytest.raises(InputSourceError) as raised:
+        snapshot_input(source_path, snapshots)
+
+    assert str(raised.value) == f"snapshot collision for {source_path}"
+    assert occupied.read_bytes() == b"source: other\n"
+
+
+def test_snapshot_reuses_an_identical_hash_addressed_file(tmp_path: Path) -> None:
+    source_path = tmp_path / "source.yaml"
+    source_path.write_bytes(b"source: exact\n")
+
+    first = snapshot_input(source_path, tmp_path / "snapshots")
+    second = snapshot_input(source_path, tmp_path / "snapshots")
+
+    assert second == first
+    assert sorted(p.name for p in (tmp_path / "snapshots").iterdir()) == [
+        Path(first.snapshot_path).name
+    ]
+
+
+@pytest.mark.parametrize("schema_text", [None, "{not json"])
+def test_unreadable_vendored_handoff_schema_is_a_source_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_text: str | None
+) -> None:
+    from asago_artifact_generator import input_adapter
+
+    monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", tmp_path)
+    if schema_text is not None:
+        schema = tmp_path / "handoff-v3" / "schema.json"
+        schema.parent.mkdir()
+        schema.write_text(schema_text, encoding="utf-8")
+
+    with pytest.raises(InputSourceError, match="^cannot read vendored handoff-v3 schema: "):
+        input_adapter._handoff_schema()
