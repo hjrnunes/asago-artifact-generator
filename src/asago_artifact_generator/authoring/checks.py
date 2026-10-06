@@ -33,6 +33,7 @@ from .core import (
     _json_value_type,
     _matches_schema_type,
     _supported_claim_levels,
+    staged_findings,
 )
 from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
@@ -268,7 +269,7 @@ def collect_plan_findings_v2(
         findings.extend(_omission_trigger_findings(plan, inventory, condition))
         findings.extend(_plan_stimulus_slot_findings(plan, inventory))
         findings.extend(_established_trigger_findings(plan, inventory))
-    return findings
+    return staged_findings(findings, "plan")
 
 
 def _established_trigger_findings(
@@ -430,13 +431,11 @@ def collect_artifact_findings_v2(
     """Normalize the plan-owned context and the stimulus slots, then validate v2 metadata."""
 
     findings = _validate_call2_metadata_shape(metadata)
-    if findings:
-        return findings
-    if not isinstance(metadata, dict):
-        return findings
+    if findings or not isinstance(metadata, dict):
+        return staged_findings(findings, "artifact")
     _normalize_artifact_context(metadata, plan, inventory, transformations=transformations)
     findings.extend(_artifact_findings(metadata, plan, inventory, runtime_contract))
-    return findings
+    return staged_findings(findings, "artifact")
 
 
 def _normalize_artifact_context(
@@ -916,7 +915,7 @@ def collect_plan_findings(
     """
 
     if not isinstance(plan, dict):
-        return [Finding("response_type_error", "plan must be an object", "response")]
+        return [Finding("response_type_error", "plan must be an object", "response", stage="plan")]
     runtime_bindings = plan.get("runtime_bindings")
     if isinstance(runtime_bindings, list):
         normalize_binding_declarations(
@@ -926,7 +925,7 @@ def collect_plan_findings(
     _normalize_prerequisite_binding_consumers(
         plan.get("prerequisites"), runtime_bindings, transformations=transformations
     )
-    return findings
+    return staged_findings(findings, "plan")
 
 
 def _plan_field_findings(
