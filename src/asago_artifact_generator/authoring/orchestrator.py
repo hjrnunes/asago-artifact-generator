@@ -245,10 +245,6 @@ def _attempt_terminal_stage(stage: str, failed_stage: str | None) -> str | None:
     return None
 
 
-# Returned by ``_dispatch_correction`` when no correction response exists.
-_CORRECTION_NOT_DISPATCHED = object()
-
-
 @dataclass(frozen=True)
 class _Stage:
     """What differs between the plan and the artifact stage; the loop is shared."""
@@ -361,7 +357,7 @@ class AuthoringOrchestrator:
         try:
             response = self._dispatch(packet)
         except Exception as exc:
-            return None, [self._record_v2_dispatch_failure(exc, stage, started)], b""
+            return None, [self._record_dispatch_failure(exc, packet, started)], b""
         raw = self._record_v2_response(stage, response)
         try:
             validation_value = self._decode_v2_stage(stage, raw)
@@ -390,25 +386,39 @@ class AuthoringOrchestrator:
         self._journal.flush()
         return validation_value, [], raw
 
-    def _record_v2_dispatch_failure(self, exc: Exception, stage: str, started: float) -> Finding:
-        """Record a v2 stage request that returned no response and return its finding."""
+    def _record_dispatch_failure(
+        self,
+        exc: Exception,
+        packet: PromptPacket,
+        started: float,
+        *,
+        path: str | None = None,
+        failure_code: str = "transport_failure",
+    ) -> Finding:
+        """Record a request that returned no response and return its finding.
 
+        ``path`` (default: the packet stage) locates a budget or provider
+        failure; a provider failure gets ``failure_code``.
+        """
+
+        path = packet.stage if path is None else path
         if isinstance(exc, PromptOverflowError):
-            finding = _prompt_overflow_finding(exc, stage)
-            self._findings.append(finding)
-            self._record_run_finding(finding)
-            return finding
-        if isinstance(exc, BudgetExceeded):
-            # Budget stops happen before dispatch: no ledger record exists to
-            # annotate, and no stage attempt was created for this request.
-            finding = Finding("budget_exhausted", _safe_error(exc), stage)
-            self._findings.append(finding)
-            self._record_run_finding(finding)
-            return finding
-        finding = Finding("transport_failure", _safe_error(exc), stage)
+            finding = _prompt_overflow_finding(exc, packet.stage)
+        elif isinstance(exc, BudgetExceeded):
+            finding = Finding("budget_exhausted", _safe_error(exc), path)
+        else:
+            finding = Finding(failure_code, _safe_error(exc), path)
         self._findings.append(finding)
+        if isinstance(exc, (PromptOverflowError, BudgetExceeded)):
+            # Both stops happen before dispatch: no ledger record or stage
+            # attempt exists to annotate.
+            self._record_run_finding(finding)
+            return finding
         if self._journal.open_dispatch() is not None:
-            self._journal.append(DispatchErrored(_safe_error(exc)))
+            if packet.stage in _REVIEW_STAGES:
+                self._record_unavailable_review_dispatch(exc, packet)
+            else:
+                self._journal.append(DispatchErrored(_safe_error(exc)))
         self._record_unavailable_response(
             reason="provider_failure",
             detail=_safe_error(exc),
@@ -638,8 +648,17 @@ class AuthoringOrchestrator:
         if packet is None:
             return None
         self._prompt_packets["correction"] = packet
-        response = self._dispatch_correction(packet, failed_stage)
-        if response is _CORRECTION_NOT_DISPATCHED:
+        started = time.monotonic()
+        try:
+            response = self._dispatch(packet)
+        except Exception as exc:
+            self._record_dispatch_failure(
+                exc,
+                packet,
+                started,
+                path=failed_stage,
+                failure_code="correction_dispatch_failed",
+            )
             return None
         raw = self._record_correction_response(
             response,
@@ -724,37 +743,6 @@ class AuthoringOrchestrator:
             self._record_run_finding(finding)
             return None
         return packet
-
-    def _dispatch_correction(self, packet: PromptPacket, failed_stage: str) -> Any:
-        """Dispatch the correction; record a refused or failed request and return the sentinel."""
-
-        started = time.monotonic()
-        try:
-            return self._dispatch(packet)
-        except PromptOverflowError as exc:
-            finding = _prompt_overflow_finding(exc, packet.stage)
-            self._findings.append(finding)
-            self._record_run_finding(finding)
-            return _CORRECTION_NOT_DISPATCHED
-        except BudgetExceeded as exc:
-            # Budget stops happen before dispatch: no ledger record or stage
-            # attempt exists for the refused correction request.
-            finding = Finding("budget_exhausted", _safe_error(exc), failed_stage)
-            self._findings.append(finding)
-            self._record_run_finding(finding)
-            return _CORRECTION_NOT_DISPATCHED
-        except Exception as exc:
-            finding = Finding("correction_dispatch_failed", _safe_error(exc), failed_stage)
-            if self._journal.open_dispatch() is not None:
-                self._journal.append(DispatchErrored(_safe_error(exc)))
-            self._findings.append(finding)
-            self._record_unavailable_response(
-                reason="provider_failure",
-                detail=_safe_error(exc),
-                finding=finding,
-                elapsed_ms=(time.monotonic() - started) * 1000,
-            )
-            return _CORRECTION_NOT_DISPATCHED
 
     def _record_correction_response(
         self,
@@ -1173,11 +1161,16 @@ class AuthoringOrchestrator:
         try:
             response = self._dispatch(packet)
         except Exception as exc:
-            stop = self._review_dispatch_stop(exc, packet, started)
-            self._review_status[review_key] = (
-                "prompt_overflow" if stop.status == "prompt_overflow" else "unavailable"
+            finding = self._record_dispatch_failure(exc, packet, started)
+            status = (
+                finding.code
+                if finding.code in {"prompt_overflow", "budget_exhausted"}
+                else "review_unavailable"
             )
-            return _ReviewOutcome(decision="", stop=stop)
+            self._review_status[review_key] = (
+                "prompt_overflow" if status == "prompt_overflow" else "unavailable"
+            )
+            return _ReviewOutcome(decision="", stop=_StageStop(status, (finding,)))
         raw, effective_controls = self._record_review_response(packet, response)
         try:
             review = parse_review_response(raw)
@@ -1217,35 +1210,6 @@ class AuthoringOrchestrator:
             findings=in_scope_findings,
             raw=raw,
         )
-
-    def _review_dispatch_stop(
-        self, exc: Exception, packet: PromptPacket, started: float
-    ) -> _StageStop:
-        """Record a review request that returned no response and return its stop."""
-
-        if isinstance(exc, PromptOverflowError):
-            finding = _prompt_overflow_finding(exc, packet.stage)
-            self._findings.append(finding)
-            self._record_run_finding(finding)
-            return _StageStop("prompt_overflow", (finding,))
-        if isinstance(exc, BudgetExceeded):
-            # Budget stops happen before dispatch: no ledger record or stage
-            # attempt exists for the refused review request.
-            finding = Finding("budget_exhausted", _safe_error(exc), packet.stage)
-            self._findings.append(finding)
-            self._record_run_finding(finding)
-            return _StageStop("budget_exhausted", (finding,))
-        finding = Finding("transport_failure", _safe_error(exc), packet.stage)
-        self._findings.append(finding)
-        if self._journal.open_dispatch() is not None:
-            self._record_unavailable_review_dispatch(exc, packet)
-        self._record_unavailable_response(
-            reason="provider_failure",
-            detail=_safe_error(exc),
-            finding=finding,
-            elapsed_ms=(time.monotonic() - started) * 1000,
-        )
-        return _StageStop("review_unavailable", (finding,))
 
     def _record_unavailable_review_dispatch(self, exc: Exception, packet: PromptPacket) -> None:
         """Annotate a dispatched review that raised with its error and controls."""
