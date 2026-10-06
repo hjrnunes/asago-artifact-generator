@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import tempfile
-import unicodedata
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -16,6 +14,7 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from .contract_kit import canonical_json, framed_digest, sha256_hex, verify_contract_lock
 from .value_checks import is_nonblank_str, is_sha256_hex
 
 _HANDOFF_SCHEMA_VERSION = "scenario-handoff-v3"
@@ -111,7 +110,7 @@ def snapshot_input(source_path: str | Path, snapshot_dir: str | Path) -> SourceS
 
     path = Path(source_path)
     source_bytes = _read_source(path)
-    digest = _sha256(source_bytes)
+    digest = sha256_hex(source_bytes)
     directory = Path(snapshot_dir)
     directory.mkdir(parents=True, exist_ok=True)
     destination = directory / f"{digest}-{path.name}"
@@ -147,7 +146,7 @@ def load_input(
     source = (
         snapshot_input(path, snapshot_dir)
         if snapshot_dir is not None
-        else SourceSnapshot(str(path), _sha256(source_bytes), len(source_bytes))
+        else SourceSnapshot(str(path), sha256_hex(source_bytes), len(source_bytes))
     )
     selected_kind = requested_kind or _infer_kind(path, source_bytes)
     if selected_kind is InputKind.SCENARIO_HANDOFF_V3:
@@ -214,10 +213,6 @@ def _coerce_kind(value: InputKind | str) -> InputKind:
     return value if isinstance(value, InputKind) else InputKind(value)
 
 
-def _sha256(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
 def _parse_document(path: Path, source_bytes: bytes) -> Any:
     try:
         if path.suffix.lower() == ".json":
@@ -238,7 +233,7 @@ def _handoff_view(path: Path, source_bytes: bytes, source: SourceSnapshot) -> In
     if expected_digest != _framed_digest(_HANDOFF_DIGEST_DOMAIN, digest_payload):
         raise InputSourceError("scenario handoff content_digest does not match source")
     gherkin = payload["gherkin"]
-    gherkin_bytes = _canonical_json(gherkin)
+    gherkin_bytes = canonical_json(gherkin, nfc=True).encode("utf-8")
     companion = path.with_suffix(".feature")
     if companion.is_file():
         gherkin_bytes = _read_source(companion)
@@ -261,7 +256,7 @@ def _handoff_view(path: Path, source_bytes: bytes, source: SourceSnapshot) -> In
         gherkin_bytes=gherkin_bytes,
         source_digests={
             "input": source.sha256,
-            "gherkin": _sha256(gherkin_bytes),
+            "gherkin": sha256_hex(gherkin_bytes),
         },
     )
 
@@ -277,17 +272,22 @@ def _infer_kind(path: Path, source_bytes: bytes) -> InputKind:
 
 
 def _validate_handoff_kit() -> None:
-    lock_path = _HANDOFF_ROOT / "CONTRACT.lock"
+    verify_contract_lock(
+        _HANDOFF_ROOT,
+        InputSourceError,
+        lock_label="vendored handoff lock",
+        member_label="vendored handoff kit",
+        metadata={"authority": "asago-scenario-generator"},
+        metadata_message="vendored handoff kit authority mismatch",
+    )
+
+
+def _handoff_schema() -> dict[str, Any]:
+    schema_path = _HANDOFF_ROOT / "handoff-v3" / "schema.json"
     try:
-        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+        return json.loads(schema_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise InputSourceError(f"cannot read vendored handoff lock: {exc}") from exc
-    if lock.get("authority") != "asago-scenario-generator":
-        raise InputSourceError("vendored handoff kit authority mismatch")
-    for relative, expected in lock.get("files", {}).items():
-        member = _HANDOFF_ROOT / relative
-        if not member.is_file() or _sha256(member.read_bytes()) != expected:
-            raise InputSourceError(f"vendored handoff kit digest mismatch: {relative}")
+        raise InputSourceError(f"cannot read vendored handoff-v3 schema: {exc}") from exc
 
 
 def _validate_handoff_payload(payload: dict[str, Any]) -> None:
@@ -324,43 +324,9 @@ def _validate_handoff_schema_version(schema_version: Any) -> None:
 
 
 def _validate_handoff_field_names(payload: dict[str, Any]) -> None:
-    required = {
-        "scenario_id",
-        "kind",
-        "hypothesis_framing",
-        "narrative",
-        "attack_tree",
-        "gherkin",
-        "semantic_failure_criterion",
-        "safe_alternative",
-        "lineage",
-        "tool_call_condition_status",
-    }
-    allowed = {
-        "schema_version",
-        "scenario_id",
-        "scenario_version",
-        "kind",
-        "hypothesis_framing",
-        "semantic_failure_criterion",
-        "safe_alternative",
-        "governing_rules",
-        "lineage",
-        "documented_operations",
-        "sourced_facts",
-        "assumptions_and_unknowns",
-        "observation",
-        "safe_observable_outcome",
-        "deduplication",
-        "content_digest",
-        "narrative",
-        "attack_tree",
-        "gherkin",
-        *_HANDOFF_CONDITION_FIELDS,
-        *_HANDOFF_TOOL_CALL_FIELDS,
-    }
-    missing = required - payload.keys()
-    unknown = set(payload) - allowed
+    schema = _handoff_schema()
+    missing = set(schema["required"]) - payload.keys()
+    unknown = set(payload) - set(schema["properties"])
     if missing or unknown:
         raise InputSourceError(
             f"handoff schema invalid (missing={sorted(missing)}, unknown={sorted(unknown)})"
@@ -583,11 +549,7 @@ def _validate_schema_fields(payload: dict[str, Any]) -> None:
     tool_call_condition, and any other status forbids one.
     """
 
-    schema_path = _HANDOFF_ROOT / "handoff-v3" / "schema.json"
-    try:
-        schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise InputSourceError(f"cannot read vendored handoff-v3 schema: {exc}") from exc
+    schema = _handoff_schema()
     violations = []
     for key in (*_HANDOFF_CONDITION_FIELDS, *_HANDOFF_TOOL_CALL_FIELDS):
         validator = Draft202012Validator({"$defs": schema["$defs"], **schema["properties"][key]})
@@ -736,30 +698,8 @@ def _ownership_violations(payload: dict[str, Any]) -> list[str]:
     return found
 
 
-def _canonical_json(value: Any) -> bytes:
-    return json.dumps(
-        _normalize_unicode(value),
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode("utf-8")
-
-
-def _normalize_unicode(value: Any) -> Any:
-    if isinstance(value, str):
-        return unicodedata.normalize("NFC", value)
-    if isinstance(value, dict):
-        return {
-            unicodedata.normalize("NFC", str(key)): _normalize_unicode(item)
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_normalize_unicode(item) for item in value]
-    return value
-
-
 def _framed_digest(domain: str, value: Any) -> str:
-    return _sha256(domain.encode("utf-8") + b"\0" + _canonical_json(value))
+    return framed_digest(domain, value, nfc=True)
 
 
 def _render_handoff_gherkin(gherkin: dict[str, Any]) -> str:

@@ -6,13 +6,13 @@ other submodules depend on one common base.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from ..contract_kit import canonical_json as _canonical_json
+from ..contract_kit import sha256_hex as _sha256
 from ..failure_evidence import redact_metadata
 
 AUTHORING_INTERFACE_VERSION_V2 = "artifact-authoring-v2"
@@ -196,7 +196,7 @@ class PromptPacket:
         """Return the digest of the exact rendered role prompt."""
 
         rendered = "\0".join((self.stage, self.version, self.system, self.user))
-        return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+        return _sha256(rendered.encode("utf-8"))
 
 
 class Call2FramingError(AuthoringError):
@@ -338,10 +338,6 @@ def _model_dump(value: Any) -> dict[str, Any]:
     return result if isinstance(result, dict) else {}
 
 
-def _canonical_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
 def _json_bytes(value: Any) -> bytes:
     return (_canonical_json(value) + "\n").encode("utf-8")
 
@@ -393,7 +389,3 @@ def _matches_schema_type(value: Any, schema_type: str) -> bool:
     if python_type is None:
         return True
     return isinstance(value, python_type) and (python_type is bool or not isinstance(value, bool))
-
-
-def _sha256(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()

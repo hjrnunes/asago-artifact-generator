@@ -7,7 +7,6 @@ into typed facts without interpreting names or descriptions.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -16,6 +15,7 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from .contract_kit import canonical_json, framed_digest, sha256_hex, verify_contract_lock
 from .value_checks import SHA256_HEX_LENGTH, is_sha256_hex
 
 _CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "target-profile"
@@ -70,9 +70,9 @@ def load_target_inputs(
     # Record content digests, not local paths: packages must not depend on the
     # machine or run directory that supplied the discovery files.
     provenance = {
-        "profile_sha256": _sha256(profile_bytes),
+        "profile_sha256": sha256_hex(profile_bytes),
         "observations_sha256": (
-            _sha256(observations_bytes) if observations_bytes is not None else None
+            sha256_hex(observations_bytes) if observations_bytes is not None else None
         ),
         "semantic_digest": profile["semantic_digest"],
         "source_inventory_digest": profile.get("source_inventory_digest"),
@@ -204,7 +204,7 @@ def _facts(
         raise TargetInputError("target observations provenance is unavailable")
     provenance_base = {
         "source": "runtime-context",
-        "sha256": _sha256(observations_bytes),
+        "sha256": sha256_hex(observations_bytes),
     }
     facts: list[dict[str, Any]] = []
     # The producer's runtime-context parser drops ``audit_log`` as capture
@@ -330,7 +330,7 @@ def _infer_schema(value: Any) -> dict[str, Any]:
 
 def _array_items_schema(value: list[Any]) -> dict[str, Any]:
     schemas = [_infer_schema(item) for item in value]
-    unique = {_canonical_json(schema): schema for schema in schemas}
+    unique = {canonical_json(schema, allow_nan=False): schema for schema in schemas}
     if not unique:
         return {}
     if len(unique) == 1:
@@ -464,22 +464,19 @@ def _validate_profile_contract(profile: Any) -> None:
 
 
 def _validate_contract_lock() -> Path:
-    lock_path = _CONTRACT_ROOT / "CONTRACT.lock"
-    try:
-        lock = json.loads(lock_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise TargetInputError(f"cannot read target profile contract lock: {exc}") from exc
-    if (
-        lock.get("authority") != "asago-scenario-generator"
-        or lock.get("contract") != "target-profile"
-        or lock.get("schema_version") != _PROFILE_SCHEMA_VERSION
-        or lock.get("digest_domain") != _PROFILE_DIGEST_DOMAIN
-    ):
-        raise TargetInputError("target profile contract lock metadata is invalid")
-    for relative, expected in lock.get("files", {}).items():
-        member = _CONTRACT_ROOT / relative
-        if not member.is_file() or _sha256(member.read_bytes()) != expected:
-            raise TargetInputError(f"target profile contract digest mismatch: {relative}")
+    verify_contract_lock(
+        _CONTRACT_ROOT,
+        TargetInputError,
+        lock_label="target profile contract lock",
+        member_label="target profile contract",
+        metadata={
+            "authority": "asago-scenario-generator",
+            "contract": "target-profile",
+            "schema_version": _PROFILE_SCHEMA_VERSION,
+            "digest_domain": _PROFILE_DIGEST_DOMAIN,
+        },
+        metadata_message="target profile contract lock metadata is invalid",
+    )
     return _CONTRACT_ROOT
 
 
@@ -490,7 +487,7 @@ def _validate_profile_digest(profile: dict[str, Any]) -> None:
     payload = deepcopy(profile)
     payload.pop("semantic_digest", None)
     try:
-        expected = _framed_digest(_PROFILE_DIGEST_DOMAIN, payload)
+        expected = framed_digest(_PROFILE_DIGEST_DOMAIN, payload, allow_nan=False)
     except (TypeError, ValueError) as exc:
         raise TargetInputError(
             "target profile contains a value that cannot be canonically encoded"
@@ -534,24 +531,6 @@ def _read_file(path: Path, label: str) -> bytes:
 
 def _reject_non_json_number(value: str) -> None:
     raise ValueError(f"invalid JSON number: {value}")
-
-
-def _canonical_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    )
-
-
-def _framed_digest(domain: str, value: Any) -> str:
-    return _sha256(domain.encode("utf-8") + b"\0" + _canonical_json(value).encode("utf-8"))
-
-
-def _sha256(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
 
 
 __all__ = ["TargetInputError", "load_target_inputs"]
