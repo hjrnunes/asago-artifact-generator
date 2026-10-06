@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .contract_kit import canonical_json, sha256_hex, verify_contract_lock
+from .contract_kit import canonical_json, first_schema_error, sha256_hex, verify_contract_lock
 from .metadata_policy import secret_metadata_paths
 from .value_checks import is_sha256_hex
 
@@ -344,7 +344,18 @@ def _manifest_from_dict(value: Any) -> PackageManifest:
         schema_version=value["schema_version"],
     )
     _validate_manifest_fields(manifest)
+    schema_error = first_schema_error(_manifest_schema(), value)
+    if schema_error is not None:
+        raise PackageIntegrityError(f"package manifest schema invalid {schema_error}")
     return manifest
+
+
+def _manifest_schema() -> dict[str, Any]:
+    schema_path = _CONTRACT_ROOT / PACKAGE_SCHEMA_VERSION / "schema.json"
+    try:
+        return json.loads(schema_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PackageIntegrityError(f"cannot read artifact package schema: {exc}") from exc
 
 
 def _validate_manifest_fields(manifest: PackageManifest) -> None:

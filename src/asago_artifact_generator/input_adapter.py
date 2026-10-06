@@ -14,7 +14,13 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
-from .contract_kit import canonical_json, framed_digest, sha256_hex, verify_contract_lock
+from .contract_kit import (
+    canonical_json,
+    first_schema_error,
+    framed_digest,
+    sha256_hex,
+    verify_contract_lock,
+)
 from .value_checks import is_nonblank_str, is_sha256_hex
 
 _HANDOFF_SCHEMA_VERSION = "scenario-handoff-v3"
@@ -232,6 +238,9 @@ def _handoff_view(path: Path, source_bytes: bytes, source: SourceSnapshot) -> In
     digest_payload = {key: value for key, value in payload.items() if key != "content_digest"}
     if expected_digest != _framed_digest(_HANDOFF_DIGEST_DOMAIN, digest_payload):
         raise InputSourceError("scenario handoff content_digest does not match source")
+    schema_error = first_schema_error(_handoff_schema(), payload)
+    if schema_error is not None:
+        raise InputSourceError(f"handoff schema invalid {schema_error}")
     gherkin = payload["gherkin"]
     gherkin_bytes = canonical_json(gherkin, nfc=True).encode("utf-8")
     companion = path.with_suffix(".feature")
