@@ -8,7 +8,7 @@ import json
 import time
 from collections.abc import Callable, Sequence
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,7 @@ from .checks import (
 from .context_budget import _enforce_prompt_size
 from .core import (
     _REVIEW_STAGES,
+    FINDING_STAGE_KEYS,
     MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK,
     MAX_AUTHORING_REQUESTS,
     MAX_RENDERED_PROMPT_BYTES,
@@ -164,7 +165,7 @@ def _correction_checks_not_run(failed_stage: str) -> list[str]:
     return ["artifact_validation"]
 
 
-def _finding_from_record(item: Any) -> Finding | None:
+def _finding_from_record(item: Any, stage: str | None = None) -> Finding | None:
     """Rebuild a finding from its recorded form, or None when the record is malformed."""
 
     if not isinstance(item, dict):
@@ -179,7 +180,14 @@ def _finding_from_record(item: Any) -> Finding | None:
         detail,
         path if isinstance(path, str) else "",
         item.get("details", {}) if isinstance(item.get("details"), dict) else {},
+        stage=stage,
     )
+
+
+def _staged(finding: Finding) -> Finding:
+    """Mark a finding located at a stage key with that key's logical stage."""
+
+    return replace(finding, stage=FINDING_STAGE_KEYS.get(finding.path))
 
 
 def _decode_stage_json(stage: str, raw: bytes) -> tuple[dict[str, Any], str | None]:
@@ -211,7 +219,9 @@ def _tool_call_condition_missing(view: InputView) -> Finding | None:
     details = {"status": status.get("status"), "reason": reason}
     if detail:
         details["detail"] = detail
-    return Finding("tool_call_condition_missing", text, "tool_call_condition_status", details)
+    return _staged(
+        Finding("tool_call_condition_missing", text, "tool_call_condition_status", details)
+    )
 
 
 def _command_attempt_condition_missing(view: InputView, claim_level: Any) -> Finding | None:
@@ -220,26 +230,9 @@ def _command_attempt_condition_missing(view: InputView, claim_level: Any) -> Fin
     return _tool_call_condition_missing(view) if claim_level == "command_attempt" else None
 
 
-_FINDING_PATH_STAGES = {
-    "tool_call_condition_status": "plan",
-    "call1": "plan",
-    "plan": "plan",
-    "plan_review": "plan",
-    "call2": "artifact",
-    "artifact": "artifact",
-    "artifact_review": "artifact",
-}
-_ATTEMPT_STAGES = {
-    "call1": "plan",
-    "plan_review": "plan",
-    "call2": "artifact",
-    "artifact_review": "artifact",
-}
-
-
 def _attempt_terminal_stage(stage: str, failed_stage: str | None) -> str | None:
-    if stage in _ATTEMPT_STAGES:
-        return _ATTEMPT_STAGES[stage]
+    if stage in FINDING_STAGE_KEYS:
+        return FINDING_STAGE_KEYS[stage]
     if stage == "correction":
         return "plan" if failed_stage == "call1" else "artifact"
     return None
@@ -405,9 +398,9 @@ class AuthoringOrchestrator:
         if isinstance(exc, PromptOverflowError):
             finding = _prompt_overflow_finding(exc, packet.stage)
         elif isinstance(exc, BudgetExceeded):
-            finding = Finding("budget_exhausted", _safe_error(exc), path)
+            finding = _staged(Finding("budget_exhausted", _safe_error(exc), path))
         else:
-            finding = Finding(failure_code, _safe_error(exc), path)
+            finding = _staged(Finding(failure_code, _safe_error(exc), path))
         self._findings.append(finding)
         if isinstance(exc, (PromptOverflowError, BudgetExceeded)):
             # Both stops happen before dispatch: no ledger record or stage
@@ -455,14 +448,15 @@ class AuthoringOrchestrator:
 
         checks_not_run = _correction_checks_not_run(stage)
         if isinstance(exc, (Call1FramingError, Call2FramingError)):
-            self._findings.extend(exc.findings)
+            findings = [_staged(finding) for finding in exc.findings]
+            self._findings.extend(findings)
             self._journal.append(
-                LedgerFindingsRecorded("framing_findings", tuple(exc.findings)),
+                LedgerFindingsRecorded("framing_findings", tuple(findings)),
                 self._checks_skipped(checks_not_run),
             )
-            self._record_failures(exc.findings)
-            return exc.findings
-        finding = Finding("response_parse_error", str(exc), stage)
+            self._record_failures(findings)
+            return findings
+        finding = _staged(Finding("response_parse_error", str(exc), stage))
         self._journal.append(ParseFailed(str(exc)), self._checks_skipped(checks_not_run))
         self._findings.append(finding)
         self._record_failures([finding])
@@ -475,9 +469,9 @@ class AuthoringOrchestrator:
         try:
             assert_no_secrets(validation_value)
         except AuthoringError as exc:
-            return Finding("secret_in_response", str(exc), stage)
+            return _staged(Finding("secret_in_response", str(exc), stage))
         if stage == "call1" and not isinstance(validation_value, dict):
-            return Finding("response_type_error", "plan must decode to an object", stage)
+            return _staged(Finding("response_type_error", "plan must decode to an object", stage))
         return None
 
     def _dispatch(self, packet: PromptPacket) -> TransportResponse | str | bytes:
@@ -800,12 +794,13 @@ class AuthoringOrchestrator:
                 self._findings.extend(replacement_findings)
                 self._record_failures(replacement_findings)
         except (Call1FramingError, Call2FramingError) as exc:
+            findings = [_staged(finding) for finding in exc.findings]
             self._journal.append(
-                LedgerFindingsRecorded("framing_findings", tuple(exc.findings)),
+                LedgerFindingsRecorded("framing_findings", tuple(findings)),
                 self._checks_skipped(checks_not_run),
             )
-            self._findings.extend(exc.findings)
-            self._record_failures(exc.findings)
+            self._findings.extend(findings)
+            self._record_failures(findings)
             return None
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError, AuthoringError) as exc:
             self._record_correction_failure(exc, failed_stage, checks_not_run)
@@ -815,7 +810,7 @@ class AuthoringOrchestrator:
     def _record_correction_failure(
         self, exc: Exception, failed_stage: str, checks_not_run: list[str]
     ) -> None:
-        finding = Finding("correction_failed", str(exc), failed_stage)
+        finding = _staged(Finding("correction_failed", str(exc), failed_stage))
         self._journal.append(LedgerFindingsRecorded("findings", (finding,)))
         if isinstance(exc, (UnicodeDecodeError, json.JSONDecodeError)):
             self._journal.append(ParseFailed(str(exc)), self._checks_skipped(checks_not_run))
@@ -911,7 +906,7 @@ class AuthoringOrchestrator:
             return self._policy_result(
                 "failed",
                 plan,
-                [Finding("assembly_validation", exc.message, exc.path)],
+                [_staged(Finding("assembly_validation", exc.message, exc.path))],
             )
         try:
             path = write_package(self.package_dir, package)
@@ -958,7 +953,7 @@ class AuthoringOrchestrator:
             author="call1",
             author_packet=lambda: build_call1_packet_v2(view, inventory, runtime_contract),
             checks=checks,
-            missing=Finding("call1_failed", "Call 1 did not return a plan", "call1"),
+            missing=_staged(Finding("call1_failed", "Call 1 did not return a plan", "call1")),
             review_packet=(
                 (
                     lambda candidate: build_plan_review_packet(
@@ -993,7 +988,9 @@ class AuthoringOrchestrator:
             author="call2",
             author_packet=lambda: build_call2_packet_v2(view, plan, inventory, runtime_contract),
             checks=checks,
-            missing=Finding("call2_failed", "Call 2 did not return a valid artifact", "call2"),
+            missing=_staged(
+                Finding("call2_failed", "Call 2 did not return a valid artifact", "call2")
+            ),
             review_packet=(
                 (
                     lambda candidate: build_artifact_review_packet(
@@ -1252,7 +1249,7 @@ class AuthoringOrchestrator:
     ) -> _StageStop:
         """Record a review response that failed to parse and return its stop."""
 
-        finding = Finding("review_unavailable", _safe_error(exc), packet.stage)
+        finding = _staged(Finding("review_unavailable", _safe_error(exc), packet.stage))
         self._findings.append(finding)
         self._journal.append(LedgerFindingsRecorded("review_error", tuple(exc.findings)))
         self._set_review_evidence(
@@ -1287,10 +1284,8 @@ class AuthoringOrchestrator:
 
     def _allowance_exhausted_finding(self, stage: str, *, review_revision: bool) -> Finding:
         kind = "review revision" if review_revision else "correction"
-        return Finding(
-            "correction_limit_exhausted",
-            f"{stage} {kind} allowance is exhausted",
-            stage,
+        return _staged(
+            Finding("correction_limit_exhausted", f"{stage} {kind} allowance is exhausted", stage)
         )
 
     def _record_allowances(self) -> None:
@@ -1459,7 +1454,7 @@ class AuthoringOrchestrator:
         """
 
         findings = (
-            _finding_from_record(finding.to_dict())
+            _finding_from_record(finding.to_dict(), finding.stage)
             for finding in self._journal.latest_attempt_findings()
         )
         return [finding for finding in findings if finding is not None] or list(fallback)
@@ -1535,9 +1530,8 @@ class AuthoringOrchestrator:
         """Return the logical stage that produced the terminal outcome."""
 
         for finding in reversed(findings):
-            stage = _FINDING_PATH_STAGES.get(finding.path)
-            if stage is not None:
-                return stage
+            if finding.stage is not None:
+                return finding.stage
         dispatches = self._journal.dispatches()
         if dispatches:
             return _attempt_terminal_stage(

@@ -11,7 +11,7 @@ from asago_artifact_generator.authoring.journal import (
     CorrectionRecorded,
     DispatchRequested,
 )
-from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
+from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator, _staged
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 
 from .support import ScriptedAuthoringTransport
@@ -103,14 +103,14 @@ def test_latest_attempt_findings_read_the_latest_dispatch_only(tmp_path: Path) -
     _open(orchestrator, "call2")
     assert orchestrator._latest_attempt_findings(fallback) == fallback
 
-    latest = (Finding("full", "d", "call2", {"k": 1}), Finding("second", "d"))
+    latest = (Finding("full", "d", "call2", {"k": 1}, stage="artifact"), Finding("second", "d"))
     orchestrator._journal.append(AttemptFailed(latest[:1]), AttemptFailed(latest[1:]))
 
     findings = orchestrator._latest_attempt_findings(fallback)
 
-    assert [(f.code, f.path, f.details) for f in findings] == [
-        ("full", "call2", {"k": 1}),
-        ("second", "", {}),
+    assert [(f.code, f.path, f.details, f.stage) for f in findings] == [
+        ("full", "call2", {"k": 1}, "artifact"),
+        ("second", "", {}, None),
     ]
 
 
@@ -122,6 +122,7 @@ def test_latest_attempt_findings_read_the_latest_dispatch_only(tmp_path: Path) -
         (["plan_review", "artifact_review"], None, "artifact"),
         (["call2", "elsewhere"], None, "artifact"),
         (["elsewhere"], None, None),
+        (["tool_call_condition_status"], ("call2", None), "plan"),
         ([], ("call1", None), "plan"),
         ([], ("plan_review", None), "plan"),
         ([], ("call2", None), "artifact"),
@@ -132,7 +133,7 @@ def test_latest_attempt_findings_read_the_latest_dispatch_only(tmp_path: Path) -
         ([], ("mystery", None), None),
     ],
 )
-def test_terminal_stage_uses_finding_paths_then_the_last_attempt(
+def test_terminal_stage_uses_finding_stages_then_the_last_attempt(
     tmp_path: Path,
     finding_paths: list[str],
     attempt: tuple[str, str | None] | None,
@@ -142,9 +143,27 @@ def test_terminal_stage_uses_finding_paths_then_the_last_attempt(
     if attempt is not None:
         _open(orchestrator, *attempt)
 
-    findings = [Finding("code", "detail", path) for path in finding_paths]
+    findings = [_staged(Finding("code", "detail", path)) for path in finding_paths]
 
     assert orchestrator._terminal_stage(findings) == expected
+
+
+def test_terminal_stage_reads_the_stage_not_the_path(tmp_path: Path) -> None:
+    orchestrator = _orchestrator(tmp_path)
+    _open(orchestrator, "call1")
+
+    checked = Finding("unknown_reference", "d", "selected_evidence[0].ref", stage="artifact")
+    unstaged = Finding("code", "d", "call2")
+
+    assert orchestrator._terminal_stage([checked]) == "artifact"
+    assert orchestrator._terminal_stage([unstaged]) == "plan"
+
+
+def test_staged_marks_only_stage_key_paths() -> None:
+    assert _staged(Finding("c", "d", "call2")).stage == "artifact"
+    assert _staged(Finding("c", "d", "tool_call_condition_status")).stage == "plan"
+    assert _staged(Finding("c", "d", "correction")).stage is None
+    assert _staged(Finding("c", "d", "runtime_bindings[0]", stage="plan")).stage is None
 
 
 def test_finish_without_attempts_or_findings_writes_nothing(tmp_path: Path) -> None:
