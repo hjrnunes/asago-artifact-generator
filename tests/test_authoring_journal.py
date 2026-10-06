@@ -9,6 +9,8 @@ from asago_artifact_generator.authoring.core import Finding, PromptPacket
 from asago_artifact_generator.authoring.journal import (
     AttemptFailed,
     AuthoringJournal,
+    CandidateDigested,
+    DecodedOutputRecorded,
     DispatchOpened,
     DispatchRequested,
     FailureControlsRecorded,
@@ -16,6 +18,7 @@ from asago_artifact_generator.authoring.journal import (
     ResponseReturned,
     ReviewControlsRecorded,
     ReviewEvidenceRecorded,
+    ValidationTransformed,
 )
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 
@@ -258,6 +261,48 @@ def test_attempt_failures_and_the_finish_reach_only_their_projections(tmp_path: 
     assert "findings" not in journal.ledger[-1]
     assert journal.ledger[-1]["stage_status"] == "review_unavailable"
     assert load_failure_evidence(path) == json.loads(json.dumps(journal.evidence))
+
+
+def test_validation_rewrites_reach_the_ledger_record_and_the_evidence_attempt(
+    tmp_path: Path,
+) -> None:
+    journal = AuthoringJournal("journal", tmp_path / "package")
+    _open_author(journal)
+    earlier = {"transformation": "outer_fence_removed"}
+    rewrite = {"transformation": "binding_consumer_added", "binding": "owner"}
+
+    journal.append(ValidationTransformed((rewrite,), (earlier, rewrite)))
+    path = journal.flush()
+
+    assert journal.ledger[-1]["transformations"] == [rewrite]
+    attempt = journal.evidence["attempts"][-1]
+    assert attempt["transformations"] == [rewrite]
+    assert journal.evidence["transformations"] == [earlier, rewrite]
+    saved = load_failure_evidence(path)
+    assert saved["attempts"][-1]["transformations"] == [rewrite]
+    assert saved["transformations"] == [earlier, rewrite]
+
+
+def test_dispatch_controls_ignore_events_that_set_none(tmp_path: Path) -> None:
+    journal = AuthoringJournal("journal", tmp_path / "package")
+    _open_author(journal)
+    journal.append(ResponseReturned("dispatch:1", b"x", None, {"seed": 3}, None, None))
+
+    journal.append(CandidateDigested("digest"), DecodedOutputRecorded({}, on_ledger=True))
+
+    assert journal.dispatch_controls() == {"seed": 3} == journal.ledger[-1]["controls"]
+
+
+def test_written_names_the_sidecar_once_a_flush_wrote_it(tmp_path: Path) -> None:
+    journal = AuthoringJournal("journal", tmp_path / "package")
+    _open_author(journal)
+    assert journal.written is None
+
+    path = journal.flush()
+
+    assert journal.written == path
+    assert path.is_file()
+    assert path == tmp_path / "package.failure-evidence.json"
 
 
 def test_projections_are_a_function_of_the_events(tmp_path: Path) -> None:

@@ -7,6 +7,7 @@ import pytest
 
 from asago_artifact_generator.authoring.binding_repair import (
     CorrectionRepairInputs,
+    _prerequisite_binding_repair_options,
     _repair_review_binding_option,
     _repair_selector_option,
     _review_binding_indices,
@@ -894,6 +895,24 @@ def test_unknown_binding_lists_names_rule_and_fact_selector_sources() -> None:
             "truncated": False,
         }
     ]
+
+
+def test_prerequisite_options_skip_findings_that_name_no_prerequisite_object() -> None:
+    prerequisites = [
+        {"name": "record_ready", "binding": "existing"},
+        "not an object",
+    ]
+    findings = [
+        Finding("consumer_mismatch", "missing", "prerequisites[1].binding"),
+        Finding("consumer_mismatch", "missing", "prerequisites[7].binding"),
+        Finding("consumer_mismatch", "missing", "prerequisites[0].binding"),
+        Finding("consumer_mismatch", "missing", "prerequisites[0].name"),
+        Finding("other_code", "missing", "prerequisites[0].binding"),
+    ]
+
+    options = _prerequisite_binding_repair_options(findings, prerequisites, _candidate(), {})
+
+    assert [option["required_consumer"] for option in options] == ["prerequisites.existing"]
 
 
 def test_consumer_mismatch_lists_the_exact_required_consumer() -> None:
