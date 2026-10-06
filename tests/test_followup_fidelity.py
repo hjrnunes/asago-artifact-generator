@@ -63,4 +63,5 @@ def test_correction_size_accounting_is_evidence_only(tmp_path: Path) -> None:
     assert "size_comparison" not in correction.payload
     assert "tokens" not in correction.payload
     assert "cost" not in correction.payload
-    assert correction.payload["failed_response"] == invalid.decode()
+    assert correction.payload["current_output"] == invalid.decode()
+    assert "failed_response" not in correction.payload

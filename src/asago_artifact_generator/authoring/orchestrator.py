@@ -615,7 +615,6 @@ class AuthoringOrchestrator:
     def _correction_v2(
         self,
         stage: _Stage,
-        failed_packet: PromptPacket,
         *,
         failed_response: bytes,
         findings: list[Finding],
@@ -635,7 +634,6 @@ class AuthoringOrchestrator:
         failed_stage = stage.author
         packet = self._correction_packet(
             failed_stage=failed_stage,
-            failed_packet=failed_packet,
             failed_response=failed_response,
             findings=findings,
             view=view,
@@ -679,7 +677,6 @@ class AuthoringOrchestrator:
         self,
         *,
         failed_stage: str,
-        failed_packet: PromptPacket,
         failed_response: bytes,
         findings: list[Finding],
         view: InputView,
@@ -703,19 +700,6 @@ class AuthoringOrchestrator:
             original_context=original_context,
             current_output=failed_response,
             findings=findings,
-        )
-        # Preserve the generic compatibility members consumed by historical
-        # offline evidence readers.  They are not rendered into the new
-        # sectioned user context, so the candidate is still shown once.
-        correction_payload.update(
-            {
-                "original_request": {
-                    "system": failed_packet.system,
-                    "payload": failed_packet.payload,
-                },
-                "failed_response": correction_payload["current_output"],
-                "failed_response_encoding": correction_payload["current_output_encoding"],
-            }
         )
         packet = _render_correction_packet(
             correction_payload,
@@ -1027,7 +1011,6 @@ class AuthoringOrchestrator:
             while candidate is None:
                 corrected = self._correction_round(
                     stage,
-                    packet,
                     pending,
                     raw,
                     review_driven=review_driven,
@@ -1051,7 +1034,6 @@ class AuthoringOrchestrator:
     def _correction_round(
         self,
         stage: _Stage,
-        packet: PromptPacket,
         pending: Sequence[Finding],
         raw: bytes,
         *,
@@ -1085,7 +1067,6 @@ class AuthoringOrchestrator:
         self._record_allowances()
         corrected = self._correction_v2(
             stage,
-            packet,
             failed_response=raw,
             findings=list(pending),
             view=view,
