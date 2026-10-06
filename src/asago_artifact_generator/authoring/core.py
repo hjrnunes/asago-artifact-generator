@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Protocol
 
+from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from ..contract_kit import canonical_json as _canonical_json
 from ..contract_kit import sha256_hex as _sha256
 from ..failure_evidence import redact_metadata
@@ -329,14 +330,10 @@ class TransportResponse:
     provider_model: str | None = None
 
 
-def _claim_levels() -> tuple[str, ...]:
-    return ("command_attempt", "reply", "returned_result", "state_effect")
-
-
 # Capturing a decoded tool result or a snapshot does not mean downstream
 # execution accepts a claim at that level, so result- and state-level claims
 # need an explicit runtime_contract.observation.claim_levels declaration.
-_DEFAULT_SUPPORTED_CLAIM_LEVELS = ("command_attempt", "reply")
+_DEFAULT_SUPPORTED_CLAIM_LEVELS = (ClaimLevel.COMMAND_ATTEMPT.value, ClaimLevel.REPLY.value)
 
 
 def _supported_claim_levels(runtime_contract: Any) -> tuple[str, ...]:
@@ -345,7 +342,7 @@ def _supported_claim_levels(runtime_contract: Any) -> tuple[str, ...]:
     )
     declared = observation.get("claim_levels") if isinstance(observation, dict) else None
     if isinstance(declared, list):
-        return tuple(level for level in _claim_levels() if level in declared)
+        return tuple(level for level in CLAIM_LEVELS if level in declared)
     return _DEFAULT_SUPPORTED_CLAIM_LEVELS
 
 

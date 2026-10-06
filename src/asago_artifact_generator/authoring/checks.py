@@ -23,12 +23,12 @@ from ..bindings import (
     supplied_binding_values,
     validate_bindings,
 )
+from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from .contracts import _SEMANTIC_JUDGE_SPEC_RULES, _call1_contract_v2
 from .core import (
     _SLOT_RE,
     Finding,
     PlanValidationError,
-    _claim_levels,
     _findings_from_error,
     _is_json_value,
     _json_value_type,
@@ -685,7 +685,7 @@ def _stimulus_consumer_findings(
 
 
 def _semantic_judge_decision_findings(plan: dict[str, Any], judge_spec: Any) -> list[Finding]:
-    if judge_spec is None and _plan_claim_level(plan) == "reply":
+    if judge_spec is None and _plan_claim_level(plan) == ClaimLevel.REPLY:
         return [
             Finding(
                 "semantic_judge_spec_required",
@@ -1230,7 +1230,7 @@ def _observation_claim_level_findings(
     runtime_contract: dict[str, Any],
 ) -> list[Finding]:
     supported_levels = _supported_claim_levels(runtime_contract)
-    if claim_level not in _claim_levels():
+    if claim_level not in CLAIM_LEVELS:
         return [
             Finding(
                 "closed_value_error",
@@ -1265,7 +1265,7 @@ def _semantic_judge_plan_findings(plan: dict[str, Any]) -> list[Finding]:
             return [Finding("type_error", "semantic_judge must be an object", "semantic_judge")]
         return []
     findings: list[Finding] = []
-    if judge.get("needed") is False and _plan_claim_level(plan) == "reply":
+    if judge.get("needed") is False and _plan_claim_level(plan) == ClaimLevel.REPLY:
         findings.append(
             Finding(
                 "semantic_judge_required",

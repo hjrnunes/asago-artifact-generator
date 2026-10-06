@@ -1,14 +1,27 @@
-"""Digests, canonical JSON, and lock checks shared by the vendored-contract readers."""
+"""Digests, canonical JSON, lock checks, and closed vocabulary shared by the contract readers."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import unicodedata
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
+
+
+class ClaimLevel(StrEnum):
+    """The observation a scenario claim rests on, as the scenario-handoff contract names it."""
+
+    COMMAND_ATTEMPT = "command_attempt"
+    REPLY = "reply"
+    RETURNED_RESULT = "returned_result"
+    STATE_EFFECT = "state_effect"
+
+
+CLAIM_LEVELS: tuple[str, ...] = tuple(level.value for level in ClaimLevel)
 
 
 def sha256_hex(value: bytes) -> str:

@@ -10,7 +10,13 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .contract_kit import canonical_json, first_schema_error, sha256_hex, verify_contract_lock
+from .contract_kit import (
+    ClaimLevel,
+    canonical_json,
+    first_schema_error,
+    sha256_hex,
+    verify_contract_lock,
+)
 from .metadata_policy import secret_metadata_paths
 from .value_checks import is_sha256_hex
 
@@ -33,8 +39,8 @@ _ALLOWED_MEMBER_NAMES = {
 }
 # Each claim level names the member that downstream detection reads.
 _CLAIM_LEVEL_MEMBERS = {
-    "command_attempt": TOOL_CALL_CONDITION_MEMBER,
-    "reply": "judge.json",
+    ClaimLevel.COMMAND_ATTEMPT.value: TOOL_CALL_CONDITION_MEMBER,
+    ClaimLevel.REPLY.value: "judge.json",
 }
 _CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "artifact-package"
 _INPUT_KINDS = {"scenario-handoff-v3"}
