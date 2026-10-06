@@ -427,13 +427,27 @@ def collect_artifact_findings_v2(
     *,
     transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
-    """Validate v2 metadata and normalize its plan-owned context."""
+    """Normalize the plan-owned context and the stimulus slots, then validate v2 metadata."""
 
     findings = _validate_call2_metadata_shape(metadata)
     if findings:
         return findings
     if not isinstance(metadata, dict):
         return findings
+    _normalize_artifact_context(metadata, plan, inventory, transformations=transformations)
+    findings.extend(_artifact_findings(metadata, plan, inventory, runtime_contract))
+    return findings
+
+
+def _normalize_artifact_context(
+    metadata: dict[str, Any],
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    *,
+    transformations: list[dict[str, Any]] | None,
+) -> None:
+    """Canonicalize the plan bindings and their consumers, then derive the stimulus slots."""
+
     runtime_bindings = plan.get("runtime_bindings")
     if isinstance(runtime_bindings, list):
         normalize_binding_declarations(
@@ -446,7 +460,23 @@ def collect_artifact_findings_v2(
             runtime_bindings,
             transformations=transformations,
         )
-    findings.extend(_semantic_judge_question_findings(metadata.get("semantic_judge_spec")))
+    stimulus = metadata.get("stimulus")
+    if isinstance(stimulus, dict):
+        _normalize_stimulus_slots(
+            stimulus,
+            _declared_binding_names(runtime_bindings),
+            transformations=transformations,
+        )
+
+
+def _artifact_findings(
+    metadata: dict[str, Any],
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> list[Finding]:
+    findings = _semantic_judge_question_findings(metadata.get("semantic_judge_spec"))
+    runtime_bindings = plan.get("runtime_bindings")
     stimulus = metadata.get("stimulus")
     if isinstance(stimulus, dict):
         findings.extend(
@@ -456,7 +486,6 @@ def collect_artifact_findings_v2(
                 inventory,
                 runtime_contract,
                 runtime_bindings,
-                transformations=transformations,
             )
         )
     judge_spec = metadata.get("semantic_judge_spec")
@@ -466,13 +495,12 @@ def collect_artifact_findings_v2(
     if isinstance(plan, dict) and isinstance(plan.get("prerequisites"), list):
         declared_bindings = _declared_binding_names(plan.get("runtime_bindings"))
         findings.extend(
-            _collect_canonical_prerequisite_findings(
+            _canonical_prerequisite_findings(
                 plan["prerequisites"],
                 _inventory_references(inventory),
                 declared_bindings,
                 runtime_bindings,
                 safe_behavior=_plan_safe_behavior(plan),
-                transformations=transformations,
             )
         )
     return findings
@@ -504,15 +532,11 @@ def _artifact_stimulus_findings(
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
     runtime_bindings: Any,
-    *,
-    transformations: list[dict[str, Any]] | None,
 ) -> list[Finding]:
     findings = _stimulus_delivery_findings(stimulus.get("delivery"), plan, runtime_contract)
     findings.extend(_stimulus_history_findings(stimulus.get("history")))
     user_text = stimulus.get("user_text")
-    findings.extend(
-        _stimulus_slot_findings(stimulus, runtime_bindings, transformations=transformations)
-    )
+    findings.extend(_stimulus_slot_findings(stimulus, runtime_bindings))
     if isinstance(plan, dict) and isinstance(plan.get("runtime_bindings"), list):
         findings.extend(
             _stimulus_consumer_findings(
@@ -568,12 +592,9 @@ def _stimulus_history_findings(history: Any) -> list[Finding]:
     ]
 
 
-def _stimulus_slot_findings(
-    stimulus: dict[str, Any],
-    runtime_bindings: Any,
-    *,
-    transformations: list[dict[str, Any]] | None,
-) -> list[Finding]:
+def _stimulus_slot_findings(stimulus: dict[str, Any], runtime_bindings: Any) -> list[Finding]:
+    """Check slots that ``_normalize_stimulus_slots`` already derived where it could."""
+
     slots = stimulus.get("slots")
     user_text = stimulus.get("user_text")
     if not (isinstance(slots, list) and isinstance(user_text, str)):
@@ -582,13 +603,6 @@ def _stimulus_slot_findings(
     rendered_slots = _slot_names_in_order(user_text)
     declared = _declared_binding_names(runtime_bindings)
     undeclared = [slot for slot in rendered_slots if slot not in declared]
-    if not undeclared:
-        _normalize_stimulus_slots(
-            stimulus,
-            declared,
-            transformations=transformations,
-        )
-        slots = stimulus.get("slots")
     if slots != rendered_slots:
         findings.append(
             Finding("slot_mismatch", "stimulus slots do not match user_text", "stimulus.slots")
@@ -751,7 +765,7 @@ def _collect_plan_findings_with_contract(
         if not (finding.path in _V2_ROOT_FIELDS_REPORTED_ONCE and finding.code == "missing_field")
     ]
     findings.extend(_unobtainable_requirement_findings(plan))
-    findings.extend(_plan_canonical_prerequisite_findings(plan, inventory, transformations))
+    findings.extend(_plan_canonical_prerequisite_findings(plan, inventory))
     return findings
 
 
@@ -870,19 +884,17 @@ def _unobtainable_requirement_findings(plan: dict[str, Any]) -> list[Finding]:
 def _plan_canonical_prerequisite_findings(
     plan: dict[str, Any],
     inventory: dict[str, Any],
-    transformations: list[dict[str, Any]] | None,
 ) -> list[Finding]:
     declared_bindings = _declared_binding_names(plan.get("runtime_bindings"))
     prerequisites = plan.get("prerequisites")
     if not isinstance(prerequisites, list):
         return []
-    return _collect_canonical_prerequisite_findings(
+    return _canonical_prerequisite_findings(
         prerequisites,
         _inventory_references(inventory),
         declared_bindings,
         plan.get("runtime_bindings"),
         safe_behavior=_plan_safe_behavior(plan),
-        transformations=transformations,
     )
 
 
@@ -894,19 +906,36 @@ def collect_plan_findings(
     provenance_ids: Collection[str] = frozenset(),
     transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
-    """Return every structural Call 1 finding and normalize valid bindings.
+    """Normalize the plan's bindings in place and return every structural Call 1 finding.
 
-    This is the shared field validator behind ``collect_plan_findings_v2``. It
-    normalizes prerequisite binding consumers but does not validate
-    prerequisite contents; the canonical prerequisite validator runs only
-    from the v2 entry point.
+    This is the shared field validator behind ``collect_plan_findings_v2``.
+    Bindings are canonicalized before the checks; prerequisite binding
+    consumers are added after them, so the binding checks see the consumer
+    list the model wrote. Prerequisite contents are not validated here; the
+    canonical prerequisite validator runs only from the v2 entry point.
     """
 
-    findings: list[Finding] = []
     if not isinstance(plan, dict):
         return [Finding("response_type_error", "plan must be an object", "response")]
+    runtime_bindings = plan.get("runtime_bindings")
+    if isinstance(runtime_bindings, list):
+        normalize_binding_declarations(
+            runtime_bindings, inventory=inventory, transformations=transformations
+        )
+    findings = _plan_field_findings(plan, inventory, runtime_contract, provenance_ids)
+    _normalize_prerequisite_binding_consumers(
+        plan.get("prerequisites"), runtime_bindings, transformations=transformations
+    )
+    return findings
 
-    findings.extend(_plan_root_field_findings(plan))
+
+def _plan_field_findings(
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    provenance_ids: Collection[str],
+) -> list[Finding]:
+    findings = _plan_root_field_findings(plan)
     references = _inventory_references(inventory)
     findings.extend(_selected_evidence_findings(plan.get("selected_evidence"), references))
     findings.extend(_interpretation_findings(plan, references, provenance_ids))
@@ -921,20 +950,11 @@ def collect_plan_findings(
                 inventory,
                 runtime_contract,
                 finding_code="plan_binding_validation",
-                transformations=transformations,
             )
         )
     findings.extend(_stimulus_approach_findings(plan, runtime_contract))
     findings.extend(_observation_claim_findings(plan, runtime_contract))
     findings.extend(_semantic_judge_plan_findings(plan))
-
-    prerequisites = plan.get("prerequisites")
-    if isinstance(prerequisites, list):
-        _normalize_prerequisite_binding_consumers(
-            prerequisites,
-            runtime_bindings,
-            transformations=transformations,
-        )
     unresolved = plan.get("unresolved_requirements")
     if isinstance(unresolved, list):
         findings.extend(_unresolved_requirement_findings(unresolved))
@@ -1370,16 +1390,12 @@ def _collect_binding_findings(
     runtime_contract: dict[str, Any],
     *,
     finding_code: str = "artifact_validation",
-    transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
+    """Check declarations that ``normalize_binding_declarations`` already canonicalized."""
+
     findings: list[Finding] = []
-    normalized = normalize_binding_declarations(
-        declarations,
-        inventory=inventory,
-        transformations=transformations,
-    )
     names: dict[str, int] = {}
-    for index, raw in enumerate(normalized):
+    for index, raw in enumerate(declarations):
         path = f"runtime_bindings[{index}]"
         if isinstance(raw, dict) and isinstance(raw.get("name"), str):
             if raw["name"] in names:
@@ -1809,16 +1825,36 @@ def _collect_canonical_prerequisite_findings(
     safe_behavior: str | None = None,
     transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
-    """Validate the closed prerequisite form used by the v2 plan wire.
-
-    This is the only prerequisite validator.
-    """
+    """Add the prerequisite binding consumers, then validate the closed prerequisite form."""
 
     _normalize_prerequisite_binding_consumers(
         prerequisites,
         runtime_bindings,
         transformations=transformations,
     )
+    return _canonical_prerequisite_findings(
+        prerequisites,
+        references,
+        declared_bindings,
+        runtime_bindings,
+        safe_behavior=safe_behavior,
+    )
+
+
+def _canonical_prerequisite_findings(
+    prerequisites: list[Any],
+    references: set[str],
+    declared_bindings: set[str],
+    runtime_bindings: Any,
+    *,
+    safe_behavior: str | None = None,
+) -> list[Finding]:
+    """Validate the closed prerequisite form used by the v2 plan wire.
+
+    This is the only prerequisite validator. It expects the prerequisite
+    binding consumers to be added already.
+    """
+
     findings: list[Finding] = []
     for index, prerequisite in enumerate(prerequisites):
         findings.extend(

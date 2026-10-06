@@ -84,10 +84,17 @@ def test_call2_judge_spec_findings_report_shape_and_type_errors_in_order() -> No
 
 
 def test_stimulus_slot_findings_ignore_a_stimulus_without_text_and_slot_list() -> None:
-    assert _stimulus_slot_findings({"slots": "x", "user_text": 1}, [], transformations=None) == []
-    assert (
-        _stimulus_slot_findings({"slots": [], "user_text": None}, [], transformations=None) == []
-    )
+    assert _stimulus_slot_findings({"slots": "x", "user_text": 1}, []) == []
+    assert _stimulus_slot_findings({"slots": [], "user_text": None}, []) == []
+
+
+def test_stimulus_slot_findings_report_without_deriving_the_slots() -> None:
+    stimulus = {"slots": [], "user_text": "Show {{item_id}}"}
+
+    findings = _stimulus_slot_findings(stimulus, [{"name": "item_id"}])
+
+    assert [finding.code for finding in findings] == ["slot_mismatch"]
+    assert stimulus == {"slots": [], "user_text": "Show {{item_id}}"}
 
 
 def test_collect_plan_findings_rejects_a_non_object_plan() -> None:

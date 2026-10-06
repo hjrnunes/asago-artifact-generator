@@ -164,6 +164,41 @@ def test_analytical_observation_criterion_may_omit_optional_fields(
     assert view.payload["observation"]["assessment"]["disposition"] == "analytical_only"
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        (
+            "scenario_version",
+            "one",
+            "handoff schema invalid at scenario_version: 'one' is not of type 'integer'",
+        ),
+        (
+            "assumptions_and_unknowns",
+            ["known", 1],
+            "handoff schema invalid at assumptions_and_unknowns.1: 1 is not of type 'string'",
+        ),
+    ],
+)
+def test_handoff_root_must_match_the_vendored_schema(
+    tmp_path: Path, field: str, value: object, message: str
+) -> None:
+    from asago_artifact_generator.input_adapter import _framed_digest
+
+    payload = json.loads(CONTRACT_HANDOFF.read_text(encoding="utf-8"))
+    payload[field] = value
+    payload_without_digest = {
+        key: item for key, item in payload.items() if key != "content_digest"
+    }
+    payload["content_digest"] = _framed_digest("scenario-handoff-v3", payload_without_digest)
+    source_path = tmp_path / "handoff.yaml"
+    source_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+    with pytest.raises(InputSourceError) as raised:
+        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
+
+    assert str(raised.value) == message
+
+
 CONTRACT_HANDOFF_OBSERVED = (
     CONTRACT_KIT / "handoff-v3" / "valid" / "adversarial-observed-record.json"
 )

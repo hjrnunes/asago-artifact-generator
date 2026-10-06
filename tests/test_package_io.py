@@ -278,6 +278,34 @@ def test_loader_rejects_an_invalid_manifest(
         load_package(destination)
 
 
+def test_loader_rejects_a_manifest_that_violates_the_vendored_schema(tmp_path: Path) -> None:
+    destination = write_package(tmp_path / "package", _package())
+    _rewrite_manifest(destination, _set_field("authoring", None))
+
+    with pytest.raises(PackageIntegrityError) as raised:
+        load_package(destination)
+
+    assert str(raised.value) == (
+        "package manifest schema invalid at authoring: None is not of type 'object'"
+    )
+
+
+def test_writer_rejects_a_package_without_members(tmp_path: Path) -> None:
+    empty = build_package(
+        package_id="pkg-1",
+        scenario_id="scenario-1",
+        input_kind="scenario-handoff-v3",
+        source_digests={"scenario.json": "a" * 64},
+        members={},
+    )
+
+    with pytest.raises(
+        PackageIntegrityError, match="^package manifest schema invalid at members: "
+    ):
+        write_package(tmp_path / "package", empty)
+    assert not (tmp_path / "package").exists()
+
+
 def test_loader_rejects_a_package_whose_layout_differs_from_the_manifest(
     tmp_path: Path,
 ) -> None:

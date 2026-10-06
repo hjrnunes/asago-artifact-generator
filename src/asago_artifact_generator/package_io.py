@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -11,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .contract_kit import canonical_json, first_schema_error, sha256_hex, verify_contract_lock
 from .metadata_policy import secret_metadata_paths
 from .value_checks import is_sha256_hex
 
@@ -154,7 +154,7 @@ def _write_package_files(temporary: Path, package: ArtifactPackage) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
     manifest_path = temporary / "manifest.json"
-    manifest_path.write_bytes(_canonical_json(package.manifest.to_dict()) + b"\n")
+    manifest_path.write_bytes(canonical_json(package.manifest.to_dict()).encode("utf-8") + b"\n")
 
 
 def _move_existing_aside(destination: Path, parent: Path) -> Path | None:
@@ -226,7 +226,7 @@ def _load_member(root: Path, record: Any, loaded: dict[str, bytes]) -> tuple[str
     if not member_path.is_file() or member_path.is_symlink():
         raise PackageIntegrityError(f"missing package member: {relative}")
     content = member_path.read_bytes()
-    if record.get("sha256") != _sha256(content):
+    if record.get("sha256") != sha256_hex(content):
         raise PackageIntegrityError(f"digest mismatch for package member: {relative}")
     if record.get("length") != len(content):
         raise PackageIntegrityError(f"length mismatch for package member: {relative}")
@@ -299,7 +299,7 @@ def _member_record(path: str, content: bytes) -> dict[str, Any]:
         "path": path,
         "media_type": _media_type(path),
         "length": len(content),
-        "sha256": _sha256(content),
+        "sha256": sha256_hex(content),
     }
 
 
@@ -344,7 +344,18 @@ def _manifest_from_dict(value: Any) -> PackageManifest:
         schema_version=value["schema_version"],
     )
     _validate_manifest_fields(manifest)
+    schema_error = first_schema_error(_manifest_schema(), value)
+    if schema_error is not None:
+        raise PackageIntegrityError(f"package manifest schema invalid {schema_error}")
     return manifest
+
+
+def _manifest_schema() -> dict[str, Any]:
+    schema_path = _CONTRACT_ROOT / PACKAGE_SCHEMA_VERSION / "schema.json"
+    try:
+        return json.loads(schema_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PackageIntegrityError(f"cannot read artifact package schema: {exc}") from exc
 
 
 def _validate_manifest_fields(manifest: PackageManifest) -> None:
@@ -433,35 +444,22 @@ def tool_call_condition_bytes(condition: dict[str, Any]) -> bytes:
     return text.encode("utf-8")
 
 
-def _sha256(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
 def _manifest_digest(value: dict[str, Any]) -> str:
     payload = dict(value)
     payload.pop("manifest_digest", None)
-    return _sha256(_canonical_json(payload))
+    return sha256_hex(canonical_json(payload).encode("utf-8"))
 
 
 def validate_artifact_package_contract() -> None:
     """Verify the consumer-owned contract lock before package IO."""
 
-    lock_path = _CONTRACT_ROOT / "CONTRACT.lock"
-    try:
-        lock = json.loads(lock_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise PackageIntegrityError(f"cannot read artifact package contract lock: {exc}") from exc
-    if lock.get("authority") != "asago-artifact-generator":
-        raise PackageIntegrityError("artifact package contract authority mismatch")
-    for relative, expected in lock.get("files", {}).items():
-        member = _CONTRACT_ROOT / relative
-        if not member.is_file() or _sha256(member.read_bytes()) != expected:
-            raise PackageIntegrityError(f"artifact package contract digest mismatch: {relative}")
-
-
-def _canonical_json(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
-        "utf-8"
+    verify_contract_lock(
+        _CONTRACT_ROOT,
+        PackageIntegrityError,
+        lock_label="artifact package contract lock",
+        member_label="artifact package contract",
+        metadata={"authority": "asago-artifact-generator"},
+        metadata_message="artifact package contract authority mismatch",
     )
 
 
