@@ -19,6 +19,7 @@ from .core import (
     CORRECTION_PROMPT_VERSION_V30,
     Call2FramingError,
     Finding,
+    FindingTarget,
     PromptPacket,
     _canonical_json,
 )
@@ -138,13 +139,25 @@ def _neutral_outcome_example_section(view: _CorrectionView) -> tuple[str, Any] |
     return ("NEUTRAL OUTCOME EXAMPLE", view.neutral_outcome_example)
 
 
+def _targets_a_fact_ref(path: Any) -> bool:
+    """Return whether a finding path targets one ``semantic_judge_spec.fact_refs`` entry."""
+
+    target = FindingTarget.parse(str(path))
+    return (
+        target is not None
+        and target.parts[:2] == ("semantic_judge_spec", "fact_refs")
+        and len(target.parts) > 2
+        and isinstance(target.parts[2], int)
+    )
+
+
 def _fact_ref_guidance_section(view: _CorrectionView) -> tuple[str, Any] | None:
     unknown_fact_ref_findings = [
         finding
         for finding in view.context.get("findings", [])
         if isinstance(finding, dict)
         and finding.get("code") == "unknown_reference"
-        and str(finding.get("path", "")).startswith("semantic_judge_spec.fact_refs[")
+        and _targets_a_fact_ref(finding.get("path", ""))
     ]
     if not (
         view.artifact and unknown_fact_ref_findings and isinstance(view.fact_ref_guidance, dict)
