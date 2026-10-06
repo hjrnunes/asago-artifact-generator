@@ -6,6 +6,7 @@ import copy
 import json
 from pathlib import Path
 
+from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.core import (
     CORRECTION_PROMPT_VERSION_V29,
     PLAN_REVIEW_PROMPT_VERSION_V18,
@@ -65,7 +66,9 @@ def _correction_packet(plan: dict, findings: list[Finding], inventory: dict | No
         current_output=json.dumps(plan),
         findings=findings,
     )
-    return _render_correction_packet(context)
+    return _render_correction_packet(
+        context, correction_repair_inputs(_view(), inventory, _runtime_contract(), plan=True)
+    )
 
 
 def _section(packet, title: str) -> str:

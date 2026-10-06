@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
 from asago_artifact_generator.authoring.contracts import (
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
@@ -265,7 +266,9 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
         current_output="{}",
         findings=[],
     )
-    plan_packet = _render_correction_packet(plan_correction)
+    plan_packet = _render_correction_packet(
+        plan_correction, correction_repair_inputs(view, inventory, runtime, plan=True)
+    )
     assert plan_packet.version == CORRECTION_PROMPT_VERSION_V29
     assert plan_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     assert plan_packet.user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1
@@ -277,7 +280,9 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
         current_output="```json\n{}\n```\n",
         findings=[],
     )
-    artifact_packet = _render_correction_packet(artifact_correction)
+    artifact_packet = _render_correction_packet(
+        artifact_correction, correction_repair_inputs(view, inventory, runtime, plan=False)
+    )
     assert artifact_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     assert NEUTRAL_PLAN_OUTCOME_EXAMPLE not in artifact_packet.user
     assert "Keep the accepted plan fixed." in artifact_packet.user
@@ -464,7 +469,8 @@ def test_artifact_roles_drop_the_detector_evidence_interface() -> None:
             original_context=build_artifact_author_context(view, plan, inventory, runtime),
             current_output=_framed(),
             findings=[],
-        )
+        ),
+        correction_repair_inputs(view, inventory, runtime, plan=False),
     )
     review = build_artifact_review_packet(view, plan, _metadata(), inventory, runtime)
 

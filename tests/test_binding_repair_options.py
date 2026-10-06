@@ -6,11 +6,13 @@ import json
 import pytest
 
 from asago_artifact_generator.authoring.binding_repair import (
+    CorrectionRepairInputs,
     _repair_review_binding_option,
     _repair_selector_option,
     _review_binding_indices,
     _review_documented_sources,
     _supplied_value_empty_fields,
+    correction_repair_inputs,
 )
 from asago_artifact_generator.authoring.checks import _binding_selector_type
 from asago_artifact_generator.authoring.core import Finding
@@ -28,13 +30,14 @@ def _context(
     inventory: dict,
     runtime_contract: dict,
     findings: list[Finding],
-):
-    return build_correction_context(
+) -> tuple[dict, CorrectionRepairInputs]:
+    context = build_correction_context(
         failed_stage="call1",
         original_context=build_plan_author_context(_view(), inventory, runtime_contract),
         current_output=json.dumps(candidate),
         findings=findings,
     )
+    return context, correction_repair_inputs(_view(), inventory, runtime_contract, plan=True)
 
 
 def _candidate() -> dict:
@@ -59,7 +62,7 @@ def _unknown_binding_packet(binding_name: str):
         }
     ]
     return _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             _inventory(),
             _runtime_contract(),
@@ -97,7 +100,7 @@ def test_selector_repair_lists_documented_paths_and_compatible_types() -> None:
         }
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             _runtime_contract(),
@@ -143,7 +146,7 @@ def test_unpermitted_setup_source_lists_referenced_facts_and_no_setup_sources() 
     runtime_contract = _runtime_contract()
     runtime_contract["setup_permissions"] = []
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             runtime_contract,
@@ -201,7 +204,7 @@ def test_source_and_selector_findings_merge_into_one_source_option() -> None:
         }
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             _inventory(),
             _runtime_contract(),
@@ -251,7 +254,7 @@ def test_selector_repair_explicitly_reports_no_matching_type() -> None:
         }
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             _runtime_contract(),
@@ -302,7 +305,7 @@ def test_selector_repair_marks_a_source_whose_supplied_value_is_empty() -> None:
     candidate = _candidate()
     candidate["runtime_bindings"] = [_empty_list_binding()]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             _empty_list_inventory(),
             _runtime_contract(),
@@ -332,7 +335,7 @@ def test_source_repair_marks_referenced_facts_whose_supplied_value_is_empty() ->
     binding["source_ref"] = "state:inbox"
     candidate["runtime_bindings"] = [binding]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             _empty_list_inventory(),
             _runtime_contract(),
@@ -470,7 +473,7 @@ def test_selector_repair_lists_the_named_record_beyond_the_selector_cap() -> Non
         _named_record_binding("facts:state:orders:ORD-201", "value.order_id")
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             _runtime_contract(),
@@ -503,7 +506,7 @@ def test_source_repair_lists_the_named_record_of_an_unresolved_field_shorthand()
         _named_record_binding("facts:state:orders:ORD-201:order_id", "value")
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             _runtime_contract(),
@@ -529,7 +532,7 @@ def test_repair_options_list_the_record_an_exact_fact_selector_names() -> None:
     candidate = _candidate()
     candidate["runtime_bindings"] = [_named_record_binding("facts:state:orders", "value.ORD-201")]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             _runtime_contract(),
@@ -554,7 +557,7 @@ def test_repair_options_omit_named_record_fields_for_a_whole_fact_selector() -> 
     candidate = _candidate()
     candidate["runtime_bindings"] = [_named_record_binding("facts:state:orders", "value")]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             _runtime_contract(),
@@ -589,7 +592,7 @@ def test_selector_only_finding_on_resolving_source_keeps_selector_option_shape()
         }
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             _runtime_contract(),
@@ -618,7 +621,7 @@ def test_source_kind_finding_triggers_a_source_option() -> None:
         }
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             _inventory(),
             _runtime_contract(),
@@ -658,7 +661,7 @@ def test_unresolved_selector_source_lists_facts_and_permitted_setup_sources() ->
     ]
     runtime_contract = _runtime_contract()
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             runtime_contract,
@@ -716,7 +719,7 @@ def test_substring_fact_reference_is_not_considered_a_citation() -> None:
     ]
     candidate["interpretation"]["failure"] = "facts:session:actor:extended is not exact"
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             _runtime_contract(),
@@ -777,7 +780,7 @@ def test_source_lists_cap_referenced_setup_and_other_fact_sources() -> None:
     ]
     runtime_contract = {"setup_permissions": [f"operation_{index:02d}" for index in range(41)]}
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             runtime_contract,
@@ -812,7 +815,7 @@ def test_source_option_fields_describe_new_fields() -> None:
         }
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             _inventory(),
             _runtime_contract(),
@@ -861,7 +864,7 @@ def test_unknown_binding_lists_names_rule_and_fact_selector_sources() -> None:
         }
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             _runtime_contract(),
@@ -916,7 +919,7 @@ def test_consumer_mismatch_lists_the_exact_required_consumer() -> None:
         }
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             _inventory(),
             _runtime_contract(),
@@ -956,7 +959,7 @@ def test_selector_enumeration_is_capped_with_an_explicit_note() -> None:
         }
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             _runtime_contract(),
@@ -1017,7 +1020,7 @@ def test_duplicate_findings_produce_one_option_per_kind_and_path() -> None:
     ]
     finding = Finding("plan_binding_validation", "bad selector", "runtime_bindings[0].selector")
     packet = _render_correction_packet(
-        _context(candidate, _inventory(), _runtime_contract(), [finding, finding])
+        *_context(candidate, _inventory(), _runtime_contract(), [finding, finding])
     )
 
     options = packet.payload["binding_repair_options"]["options"]
@@ -1104,7 +1107,7 @@ def _unknown_binding_option(declared: int, evidence: int) -> dict:
         }
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             _runtime_contract(),
@@ -1160,7 +1163,7 @@ def test_source_repair_lists_a_repeated_setup_operation_once() -> None:
         }
     ]
     packet = _render_correction_packet(
-        _context(
+        *_context(
             candidate,
             inventory,
             {"setup_permissions": ["lookup_record"]},

@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 
+from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.checks import (
     _is_blocked_plan,
     collect_artifact_findings_v2,
@@ -113,7 +114,8 @@ def test_current_call1_replaces_pseudo_empty_shapes_with_schema_guidance() -> No
             original_context=build_plan_author_context(view, inventory, runtime_contract),
             current_output="{}",
             findings=[],
-        )
+        ),
+        correction_repair_inputs(view, inventory, runtime_contract, plan=True),
     )
     artifact_correction = _render_correction_packet(
         build_correction_context(
@@ -123,7 +125,8 @@ def test_current_call1_replaces_pseudo_empty_shapes_with_schema_guidance() -> No
             ),
             current_output=_framed(),
             findings=[],
-        )
+        ),
+        correction_repair_inputs(view, inventory, runtime_contract, plan=False),
     )
     packets = (
         build_call1_packet_v2(view, inventory, runtime_contract),
@@ -216,7 +219,9 @@ def test_prerequisite_type_finding_is_rendered_in_plan_correction() -> None:
         current_output="{}",
         findings=[finding],
     )
-    packet = _render_correction_packet(context)
+    packet = _render_correction_packet(
+        context, correction_repair_inputs(_view(), inventory, _runtime_contract(), plan=True)
+    )
 
     assert packet.version == CORRECTION_PROMPT_VERSION_V29
     assert finding.detail in packet.user
@@ -317,7 +322,8 @@ def test_current_prompt_digests_pin_rendered_contract_evidence() -> None:
             original_context=build_plan_author_context(view, inventory, runtime_contract),
             current_output="{}",
             findings=[],
-        )
+        ),
+        correction_repair_inputs(view, inventory, runtime_contract, plan=True),
     )
 
     packets = {

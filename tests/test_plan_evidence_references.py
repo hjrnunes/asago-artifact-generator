@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 
+from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
 from asago_artifact_generator.authoring.core import (
     CALL1_PROMPT_VERSION_V19,
@@ -162,7 +163,8 @@ def test_plan_correction_explains_each_unknown_reference() -> None:
             original_context=build_plan_author_context(_view(), _inventory(), _runtime_contract()),
             current_output=json.dumps(candidate),
             findings=findings,
-        )
+        ),
+        correction_repair_inputs(_view(), _inventory(), _runtime_contract(), plan=True),
     )
 
     assert packet.version == CORRECTION_PROMPT_VERSION_V29
@@ -197,7 +199,8 @@ def test_artifact_correction_explains_provenance_ids_outside_source_refs() -> No
                     "path": "assumptions[0].ref",
                 }
             ],
-        )
+        ),
+        correction_repair_inputs(view, _inventory(), _runtime_contract(), plan=False),
     )
 
     option = correction.payload["reference_repair_options"]["options"][0]
@@ -206,26 +209,32 @@ def test_artifact_correction_explains_provenance_ids_outside_source_refs() -> No
     assert "interpretation.source_refs" in option["repair"]
 
 
-def test_correction_without_rendered_reference_rules_has_no_reference_options() -> None:
-    context = build_plan_author_context(_view(), _inventory(), _runtime_contract())
-    del context["evidence_references"]
-    packet = _render_correction_packet(
-        build_correction_context(
-            failed_stage="call1",
-            original_context=context,
-            current_output=json.dumps(_plan()),
-            findings=[
-                {
-                    "code": "unknown_reference",
-                    "detail": "unknown_reference: missing:fact",
-                    "path": "selected_evidence[0]",
-                }
-            ],
+def test_only_plan_correction_classifies_runtime_observation_scopes() -> None:
+    view, inventory, runtime = _view(), _inventory(), _runtime_contract()
+    runtime["observation"]["record_state"] = {"availability": "captured"}
+    finding = {
+        "code": "unknown_reference",
+        "detail": "unknown_reference: record_state",
+        "path": "selected_evidence[0]",
+    }
+    kinds = {}
+    for failed_stage, original_context in (
+        ("call1", build_plan_author_context(view, inventory, runtime)),
+        ("call2", build_artifact_author_context(view, _plan(), inventory, runtime)),
+    ):
+        packet = _render_correction_packet(
+            build_correction_context(
+                failed_stage=failed_stage,
+                original_context=original_context,
+                current_output=json.dumps(_plan()),
+                findings=[finding],
+            ),
+            correction_repair_inputs(view, inventory, runtime, plan=failed_stage == "call1"),
         )
-    )
+        option = packet.payload["reference_repair_options"]["options"][0]
+        kinds[failed_stage] = option["rejected_value_kind"]
 
-    assert "reference_repair_options" not in packet.payload
-    assert "REFERENCE REPAIR OPTIONS" not in packet.user
+    assert kinds == {"call1": "observation_scope", "call2": "unlisted"}
 
 
 def test_reference_options_skip_findings_outside_reference_fields() -> None:
@@ -242,7 +251,8 @@ def test_reference_options_skip_findings_outside_reference_fields() -> None:
                 },
                 {"code": "invalid_shape", "detail": "bad", "path": "selected_evidence[0]"},
             ],
-        )
+        ),
+        correction_repair_inputs(_view(), _inventory(), _runtime_contract(), plan=True),
     )
 
     assert "reference_repair_options" not in packet.payload

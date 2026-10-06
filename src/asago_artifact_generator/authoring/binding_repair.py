@@ -9,12 +9,15 @@ from __future__ import annotations
 import json
 import re
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any
 
 from ..bindings import CLOSED_TYPES, canonical_binding_paths, named_record_facts
+from ..input_adapter import InputView
 from .checks import _binding_selector_type, _binding_source_schema, _binding_types_compatible
 from .core import Call1FramingError, Finding
 from .inventory import _first_fact_named
+from .prompt_context import _explained_operations, _plan_evidence_references
 from .response_decode import _decode_v2_json_response
 
 _BINDING_REPAIR_SELECTOR_LIMIT = 40
@@ -180,47 +183,53 @@ _REVIEW_BINDING_LOCATION = re.compile(r"^(?:candidate_plan\.|plan\.)?runtime_bin
 _REVIEW_SELECTOR_TOKEN = re.compile(r"(?<![\w.:-])((?:value|result)(?:\.[A-Za-z0-9_-]+)+)")
 
 
-def _correction_plan_candidate(correction_context: dict[str, Any]) -> dict[str, Any] | None:
+@dataclass(frozen=True)
+class CorrectionRepairInputs:
+    """The source values that correction repair reads for one failed stage."""
+
+    inventory: dict[str, Any]
+    runtime_contract: dict[str, Any]
+    evidence_references: dict[str, Any]
+    observation: dict[str, Any] | None
+
+
+def correction_repair_inputs(
+    view: InputView,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    *,
+    plan: bool,
+) -> CorrectionRepairInputs:
+    """Select what repair reads from the stage inputs.
+
+    Repair sees the facts and documented operations that the author saw, without
+    the source handles. The artifact author sees no observation capabilities, so
+    artifact repair knows only the always-available message scopes.
+    """
+
+    return CorrectionRepairInputs(
+        inventory={
+            "facts": [
+                deepcopy(fact) for fact in inventory.get("facts", []) if isinstance(fact, dict)
+            ],
+            "operations": deepcopy(_explained_operations(inventory, None)),
+        },
+        runtime_contract=deepcopy(runtime_contract),
+        evidence_references=_plan_evidence_references(view, inventory),
+        observation=deepcopy(runtime_contract.get("observation", {})) if plan else None,
+    )
+
+
+def _correction_plan_candidate(current_output: Any) -> dict[str, Any] | None:
     """Decode the failed plan only for deterministic correction assistance."""
 
-    candidate = correction_context.get("current_output")
-    if isinstance(candidate, dict):
-        return deepcopy(candidate)
-    if not isinstance(candidate, str) or not candidate.strip():
+    if not isinstance(current_output, str) or not current_output.strip():
         return None
     try:
-        decoded, _ = _decode_v2_json_response(candidate.encode("utf-8"))
+        decoded, _ = _decode_v2_json_response(current_output.encode("utf-8"))
     except (Call1FramingError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
         return None
     return decoded if isinstance(decoded, dict) else None
-
-
-def _correction_binding_inputs(
-    correction_context: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Recover the source inventory and runtime contract from the author context."""
-
-    original_context = correction_context.get("original_context")
-    if not isinstance(original_context, dict):
-        return {}, {}
-    source_context = original_context.get("source_context")
-    if not isinstance(source_context, dict):
-        source_context = original_context.get("authoritative_context")
-    if not isinstance(source_context, dict):
-        source_context = {}
-    inventory = {
-        "facts": deepcopy(source_context.get("facts", [])),
-        "operations": deepcopy(source_context.get("operations", [])),
-    }
-    execution_capabilities = original_context.get("execution_capabilities")
-    runtime_contract = (
-        execution_capabilities.get("runtime_contract")
-        if isinstance(execution_capabilities, dict)
-        else None
-    )
-    if not isinstance(runtime_contract, dict):
-        runtime_contract = source_context.get("runtime_capabilities")
-    return inventory, deepcopy(runtime_contract) if isinstance(runtime_contract, dict) else {}
 
 
 def _documented_binding_selectors(
@@ -1032,11 +1041,9 @@ def _listed_provenance_ids(references: dict[str, Any]) -> set[str]:
     return set(listed) if isinstance(listed, dict) else set()
 
 
-def _observation_scope_names(original: dict[str, Any]) -> set[str]:
+def _observation_scope_names(observation: dict[str, Any] | None) -> set[str]:
     """Return the observation scopes, including the always-available message scopes."""
 
-    capabilities = original.get("execution_capabilities")
-    observation = capabilities.get("observation") if isinstance(capabilities, dict) else None
     scopes = set(observation) if isinstance(observation, dict) else set()
     scopes.update({"assistant_messages", "messages", "tool_calls"})
     return scopes
@@ -1092,19 +1099,17 @@ def _reference_repair_option(
 
 
 def _reference_repair_options_for_correction(
-    correction_context: dict[str, Any],
+    findings: list[Any],
+    inputs: CorrectionRepairInputs,
 ) -> dict[str, Any] | None:
-    """Explain each rejected plan reference against the rendered reference rules."""
+    """Explain each rejected plan reference against the reference rules."""
 
-    original = correction_context.get("original_context")
-    references = original.get("evidence_references") if isinstance(original, dict) else None
-    if not isinstance(references, dict):
-        return None
+    references = inputs.evidence_references
     provenance_ids = _listed_provenance_ids(references)
-    scopes = _observation_scope_names(original)
+    scopes = _observation_scope_names(inputs.observation)
     field_rules = references.get("field_rules", {})
     options: list[dict[str, Any]] = []
-    for finding in correction_context.get("findings", []):
+    for finding in findings:
         option = _reference_repair_option(finding, provenance_ids, scopes, field_rules)
         if option is not None:
             options.append(option)
@@ -1311,7 +1316,9 @@ def _deduplicated_repair_options(options: list[dict[str, Any]]) -> list[dict[str
 
 
 def _binding_repair_options_for_correction(
-    correction_context: dict[str, Any],
+    current_output: Any,
+    findings: list[Finding | dict[str, Any]],
+    inputs: CorrectionRepairInputs,
 ) -> dict[str, Any] | None:
     """Compute plan correction repair choices.
 
@@ -1319,13 +1326,10 @@ def _binding_repair_options_for_correction(
     list the record sources of a selector that names one keyed record.
     """
 
-    if correction_context.get("stage") != "plan":
-        return None
-    candidate = _correction_plan_candidate(correction_context)
-    inventory, runtime_contract = _correction_binding_inputs(correction_context)
+    candidate = _correction_plan_candidate(current_output)
+    inventory, runtime_contract = inputs.inventory, inputs.runtime_contract
     options: list[dict[str, Any]] = []
-    findings = correction_context.get("findings", [])
-    if candidate is not None and isinstance(findings, list):
+    if candidate is not None:
         bindings = candidate.get("runtime_bindings", [])
         prerequisites = candidate.get("prerequisites", [])
         binding_findings, binding_finding_order = _group_binding_findings(findings)

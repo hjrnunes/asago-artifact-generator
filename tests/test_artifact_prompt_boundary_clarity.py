@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.core import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
     CALL2_PROMPT_VERSION_V23,
@@ -61,7 +62,8 @@ def test_artifact_prompt_states_the_fixed_plan_without_a_detector_interface() ->
             original_context=context,
             current_output="candidate",
             findings=[],
-        )
+        ),
+        correction_repair_inputs(view, inventory, runtime, plan=False),
     )
 
     assert context["runtime_contract"] == runtime
@@ -109,7 +111,9 @@ def test_correction_renders_optional_stage_context_and_current_review_view() -> 
         "fixture_identity": "scenario provenance; experiment uses its declared binding",
         "control_feedback_provenance": "raw result unavailable; verdict read from source",
     }
-    correction = _render_correction_packet(correction_context)
+    correction = _render_correction_packet(
+        correction_context, correction_repair_inputs(view, inventory, runtime, plan=False)
+    )
     review = build_artifact_review_packet(
         view,
         plan,

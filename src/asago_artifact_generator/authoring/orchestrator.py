@@ -21,6 +21,7 @@ from ..failure_evidence import (
 )
 from ..input_adapter import InputView
 from ..package_io import write_package
+from .binding_repair import correction_repair_inputs
 from .checks import (
     _is_blocked_plan,
     _plan_claim_level,
@@ -771,6 +772,9 @@ class AuthoringOrchestrator:
         )
         packet = _render_correction_packet(
             correction_payload,
+            correction_repair_inputs(
+                view, inventory, runtime_contract, plan=failed_stage == "call1"
+            ),
         )
         try:
             _enforce_prompt_size(

@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 
+from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
     build_correction_context,
@@ -79,7 +80,8 @@ def _render_all_stage_packets(view):
                 original_context=build_plan_author_context(view, inventory, runtime),
                 current_output="{}",
                 findings=[],
-            )
+            ),
+            correction_repair_inputs(view, inventory, runtime, plan=True),
         ),
         "artifact_correction": _render_correction_packet(
             build_correction_context(
@@ -87,7 +89,8 @@ def _render_all_stage_packets(view):
                 original_context=build_artifact_author_context(view, plan, inventory, runtime),
                 current_output=_framed(),
                 findings=[],
-            )
+            ),
+            correction_repair_inputs(view, inventory, runtime, plan=False),
         ),
     }
 
@@ -202,7 +205,8 @@ def test_owner_scope_is_separate_and_labeled_in_every_source_context_stage() -> 
                 original_context=build_plan_author_context(view, inventory, runtime),
                 current_output="{}",
                 findings=[],
-            )
+            ),
+            correction_repair_inputs(view, inventory, runtime, plan=True),
         ),
         _render_correction_packet(
             build_correction_context(
@@ -210,7 +214,8 @@ def test_owner_scope_is_separate_and_labeled_in_every_source_context_stage() -> 
                 original_context=build_artifact_author_context(view, plan, inventory, runtime),
                 current_output=_framed(),
                 findings=[],
-            )
+            ),
+            correction_repair_inputs(view, inventory, runtime, plan=False),
         ),
     ]
     for packet in packets:

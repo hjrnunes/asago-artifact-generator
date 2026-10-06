@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .binding_repair import (
+    CorrectionRepairInputs,
     _binding_repair_options_for_correction,
     _reference_repair_options_for_correction,
 )
@@ -261,14 +262,22 @@ def _rendered_sections(
     return [section for render in renderers if (section := render(view)) is not None]
 
 
-def _render_correction_packet(correction_context: dict[str, Any]) -> PromptPacket:
+def _render_correction_packet(
+    correction_context: dict[str, Any],
+    repair_inputs: CorrectionRepairInputs,
+) -> PromptPacket:
     """Render one shared correction prompt for every artifact caller."""
 
     view = _correction_view(correction_context)
     sections = _rendered_sections(view, _CORRECTION_CONTEXT_SECTIONS)
-    view.binding_repair_options = _binding_repair_options_for_correction(correction_context)
+    if correction_context.get("stage") == "plan":
+        view.binding_repair_options = _binding_repair_options_for_correction(
+            correction_context["current_output"], correction_context["findings"], repair_inputs
+        )
     sections += _rendered_sections(view, _CORRECTION_OUTPUT_SECTIONS)
-    view.reference_repair_options = _reference_repair_options_for_correction(correction_context)
+    view.reference_repair_options = _reference_repair_options_for_correction(
+        correction_context["findings"], repair_inputs
+    )
     sections += _rendered_sections(view, _CORRECTION_REPAIR_SECTIONS)
     payload = deepcopy(correction_context)
     if view.binding_repair_options is not None:
