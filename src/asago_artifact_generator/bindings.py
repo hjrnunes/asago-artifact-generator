@@ -12,20 +12,47 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-CLOSED_TYPES = frozenset({"array", "boolean", "integer", "number", "object", "string"})
-SOURCE_KINDS = frozenset({"supplied_input", "setup_output"})
-MISSING_POLICIES = frozenset({"inconclusive", "stop"})
-CONSUMER_PREFIXES = ("detector.", "prerequisites.", "setup.arguments.")
-_SLOT_RE = re.compile(r"\{\{([^{}]*)\}\}")
-_BINDING_STRING_FIELDS = (
-    "name",
-    "expected_type",
-    "source_kind",
-    "source_ref",
-    "selector",
-    "on_missing",
+
+@dataclass(frozen=True)
+class BindingSpec:
+    """The closed runtime-binding vocabulary; tuple order is the wire and schema order."""
+
+    fields: tuple[str, ...]
+    expected_types: tuple[str, ...]
+    source_kinds: tuple[str, ...]
+    missing_policies: tuple[str, ...]
+    consumer_paths: tuple[str, ...]
+    consumer_prefixes: tuple[str, ...]
+
+    @property
+    def string_fields(self) -> tuple[str, ...]:
+        return tuple(name for name in self.fields if name != "consumers")
+
+    def is_closed_consumer(self, value: str) -> bool:
+        return value in self.consumer_paths or value.startswith(self.consumer_prefixes)
+
+
+BINDING_SPEC = BindingSpec(
+    fields=(
+        "name",
+        "expected_type",
+        "source_kind",
+        "source_ref",
+        "selector",
+        "consumers",
+        "on_missing",
+    ),
+    expected_types=("array", "boolean", "integer", "number", "object", "string"),
+    source_kinds=("supplied_input", "setup_output"),
+    missing_policies=("inconclusive", "stop"),
+    consumer_paths=("stimulus.user_text", "stimulus.history"),
+    consumer_prefixes=("detector.", "prerequisites.", "setup.arguments."),
 )
-_BINDING_FIELDS = frozenset({*_BINDING_STRING_FIELDS, "consumers"})
+CLOSED_TYPES = frozenset(BINDING_SPEC.expected_types)
+SOURCE_KINDS = frozenset(BINDING_SPEC.source_kinds)
+MISSING_POLICIES = frozenset(BINDING_SPEC.missing_policies)
+_SLOT_RE = re.compile(r"\{\{([^{}]*)\}\}")
+_BINDING_FIELDS = frozenset(BINDING_SPEC.fields)
 
 
 class BindingValidationError(ValueError):
@@ -66,11 +93,7 @@ class RuntimeBinding:
         ):
             raise BindingValidationError("binding consumers must be non-empty strings")
         _require_string_fields(value)
-        if any(
-            item not in {"stimulus.user_text", "stimulus.history"}
-            and not item.startswith(CONSUMER_PREFIXES)
-            for item in consumers
-        ):
+        if not all(BINDING_SPEC.is_closed_consumer(item) for item in consumers):
             raise BindingValidationError("binding consumer is not a closed path")
         return cls(**{**value, "consumers": tuple(consumers)})
 
@@ -85,7 +108,7 @@ def _require_binding_fields(value: dict[str, Any]) -> None:
 
 
 def _require_string_fields(value: dict[str, Any]) -> None:
-    for field_name in _BINDING_STRING_FIELDS:
+    for field_name in BINDING_SPEC.string_fields:
         if not isinstance(value[field_name], str):
             raise BindingValidationError(f"binding {field_name} must be a string")
 
@@ -877,6 +900,8 @@ def _binding_types_compatible(actual: str, expected: str) -> bool:
 
 
 __all__ = [
+    "BINDING_SPEC",
+    "BindingSpec",
     "BindingValidationError",
     "CLOSED_TYPES",
     "RuntimeBinding",

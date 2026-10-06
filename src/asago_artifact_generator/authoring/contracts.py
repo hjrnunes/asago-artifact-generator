@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from ..bindings import BINDING_SPEC
 from .core import AUTHORING_INTERFACE_VERSION_V2, _claim_levels
 
 _PLAN_FIELD_MEANING_SECTIONS: tuple[tuple[str, str], ...] = (
@@ -678,24 +679,10 @@ def _binding_contract() -> dict[str, Any]:
         "on_missing": "stop",
     }
     return {
-        "required": [
-            "name",
-            "expected_type",
-            "source_kind",
-            "source_ref",
-            "selector",
-            "consumers",
-            "on_missing",
-        ],
-        "expected_type": {
-            "type": "string",
-            "enum": ["array", "boolean", "integer", "number", "object", "string"],
-        },
-        "source_kind": {
-            "type": "string",
-            "enum": ["supplied_input", "setup_output"],
-        },
-        "on_missing": {"type": "string", "enum": ["inconclusive", "stop"]},
+        "required": list(BINDING_SPEC.fields),
+        "expected_type": {"type": "string", "enum": list(BINDING_SPEC.expected_types)},
+        "source_kind": {"type": "string", "enum": list(BINDING_SPEC.source_kinds)},
+        "on_missing": {"type": "string", "enum": list(BINDING_SPEC.missing_policies)},
         "direction": "source_ref -> selector -> consumers",
         "valid_example_label": (
             "generic illustrations; replace <fact ref> with a complete "

@@ -6,7 +6,10 @@ import re
 
 import pytest
 
+from asago_artifact_generator.authoring.checks import _collect_binding_findings
+from asago_artifact_generator.authoring.contracts import _binding_contract, _binding_list_schema
 from asago_artifact_generator.bindings import (
+    BINDING_SPEC,
     BindingValidationError,
     RuntimeBinding,
     canonical_binding_paths,
@@ -732,3 +735,69 @@ def test_user_text_consumer_fails_when_value_is_absent_and_passes_when_present()
     assert absent[0]["binding_name"] == "owner"
     assert present == ()
     assert slot == ()
+
+
+@pytest.mark.parametrize(
+    ("consumer", "closed"),
+    [
+        ("stimulus.user_text", True),
+        ("stimulus.history", True),
+        ("detector.owner", True),
+        ("prerequisites.owner", True),
+        ("setup.arguments.loan_id", True),
+        ("stimulus.history.extra", False),
+        ("detector", False),
+        ("observation_claim.owner", False),
+    ],
+)
+def test_binding_spec_closes_consumers_for_parser_and_collector(
+    consumer: str, closed: bool
+) -> None:
+    raw = {
+        "name": "owner",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": "facts:owner",
+        "selector": "value",
+        "consumers": [consumer],
+        "on_missing": "stop",
+    }
+
+    findings = _collect_binding_findings([dict(raw)], {"facts": []}, {})
+    consumer_findings = [f for f in findings if f.path == "runtime_bindings[0].consumers[0]"]
+
+    assert BINDING_SPEC.is_closed_consumer(consumer) is closed
+    assert (not consumer_findings) is closed
+    if closed:
+        assert RuntimeBinding.from_dict(raw).consumers == (consumer,)
+    else:
+        with pytest.raises(BindingValidationError, match="not a closed path"):
+            RuntimeBinding.from_dict(raw)
+
+
+def test_binding_spec_is_the_contract_schema_vocabulary() -> None:
+    contract = _binding_contract()
+    item = _binding_list_schema()["items"]
+
+    assert contract["required"] == list(BINDING_SPEC.fields) == item["required"]
+    assert list(item["properties"]) == list(BINDING_SPEC.fields)
+    assert contract["expected_type"]["enum"] == list(BINDING_SPEC.expected_types)
+    assert contract["source_kind"]["enum"] == list(BINDING_SPEC.source_kinds)
+    assert contract["on_missing"]["enum"] == list(BINDING_SPEC.missing_policies)
+    assert BINDING_SPEC.string_fields == tuple(
+        name for name, schema in item["properties"].items() if schema["type"] == "string"
+    )
+
+
+def test_binding_spec_field_set_drives_both_field_checks() -> None:
+    raw = {"name": "owner", "consumers": ["stimulus.user_text"], "extra": 1}
+
+    findings = _collect_binding_findings([raw], {"facts": []}, {})
+    missing = sorted(set(BINDING_SPEC.fields) - set(raw))
+
+    assert [f.detail for f in findings[: len(missing) + 1]] == [
+        *(f"binding missing field: {name}" for name in missing),
+        "binding has unsupported field: extra",
+    ]
+    with pytest.raises(BindingValidationError, match=r"missing=\['expected_type'"):
+        RuntimeBinding.from_dict(raw)

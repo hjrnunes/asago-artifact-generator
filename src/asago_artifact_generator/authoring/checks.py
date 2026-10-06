@@ -10,6 +10,7 @@ from collections.abc import Collection, Mapping
 from typing import Any
 
 from ..bindings import (
+    BINDING_SPEC,
     CLOSED_TYPES,
     MISSING_POLICIES,
     SOURCE_KINDS,
@@ -1453,27 +1454,6 @@ def _collect_binding_nested_findings(
     return findings
 
 
-_BINDING_REQUIRED_FIELDS = frozenset(
-    {
-        "name",
-        "expected_type",
-        "source_kind",
-        "source_ref",
-        "selector",
-        "consumers",
-        "on_missing",
-    }
-)
-_BINDING_STRING_FIELDS = (
-    "name",
-    "expected_type",
-    "source_kind",
-    "source_ref",
-    "selector",
-    "on_missing",
-)
-
-
 def _binding_field_findings(
     raw: dict[str, Any],
     *,
@@ -1481,7 +1461,8 @@ def _binding_field_findings(
     finding_code: str,
 ) -> list[Finding]:
     findings: list[Finding] = []
-    for field_name in sorted(_BINDING_REQUIRED_FIELDS - set(raw)):
+    required = frozenset(BINDING_SPEC.fields)
+    for field_name in sorted(required - set(raw)):
         findings.append(
             Finding(
                 finding_code,
@@ -1489,7 +1470,7 @@ def _binding_field_findings(
                 f"{path}.{field_name}",
             )
         )
-    for field_name in sorted(set(raw) - _BINDING_REQUIRED_FIELDS):
+    for field_name in sorted(set(raw) - required):
         findings.append(
             Finding(
                 finding_code,
@@ -1497,7 +1478,7 @@ def _binding_field_findings(
                 f"{path}.{field_name}",
             )
         )
-    for field_name in _BINDING_STRING_FIELDS:
+    for field_name in BINDING_SPEC.string_fields:
         if field_name in raw and not isinstance(raw[field_name], str):
             findings.append(
                 Finding(
@@ -1634,7 +1615,7 @@ def _binding_consumer_findings(
                     consumer_path,
                 )
             )
-        elif not _is_closed_consumer(consumer):
+        elif not BINDING_SPEC.is_closed_consumer(consumer):
             findings.append(
                 Finding(
                     finding_code,
@@ -1700,12 +1681,6 @@ def _binding_selector_findings(
             )
         ]
     return []
-
-
-def _is_closed_consumer(value: str) -> bool:
-    return value in {"stimulus.user_text", "stimulus.history"} or value.startswith(
-        ("detector.", "prerequisites.", "setup.arguments.")
-    )
 
 
 def _binding_source_schema(
