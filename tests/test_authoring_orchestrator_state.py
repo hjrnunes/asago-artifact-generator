@@ -5,7 +5,8 @@ from typing import Any
 
 import pytest
 
-from asago_artifact_generator.authoring.core import Finding
+from asago_artifact_generator.authoring.core import Finding, PromptPacket
+from asago_artifact_generator.authoring.journal import AttemptFailed, CorrectionRecorded
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 
@@ -77,32 +78,36 @@ def test_stop_for_author_findings_prefers_overflow_then_budget(
     assert [finding.code for finding in stop.findings] == expected_codes
 
 
-def test_latest_attempt_findings_skips_malformed_records(tmp_path: Path) -> None:
+def _open(
+    orchestrator: AuthoringOrchestrator, stage: str, failed_stage: str | None = None
+) -> None:
+    """Journal one dispatch of ``stage``; a correction also names the stage it replaces."""
+
+    packet = PromptPacket(stage=stage, version="v", system="s", user="u", payload={})
+    orchestrator._journal.append(orchestrator._dispatch_opened(packet, 1, "author"))
+    if failed_stage is not None:
+        orchestrator._journal.append(CorrectionRecorded(failed_stage, "correction", b"x"))
+
+
+def test_latest_attempt_findings_read_the_latest_dispatch_only(tmp_path: Path) -> None:
     orchestrator = _orchestrator(tmp_path)
     fallback = [Finding("fallback", "kept", "")]
-    orchestrator._journal.evidence["attempts"] = [
-        {
-            "findings": [
-                "not a mapping",
-                {"code": 3, "detail": "bad code"},
-                {"code": "no_detail"},
-                {"code": "bad_path", "detail": "d", "path": 7, "details": ["x"]},
-                {"code": "full", "detail": "d", "path": "call2", "details": {"k": 1}},
-            ]
-        }
-    ]
+    assert orchestrator._latest_attempt_findings(fallback) == fallback
+
+    _open(orchestrator, "call1")
+    orchestrator._journal.append(AttemptFailed((Finding("stale", "d", "call1"),)))
+    _open(orchestrator, "call2")
+    assert orchestrator._latest_attempt_findings(fallback) == fallback
+
+    latest = (Finding("full", "d", "call2", {"k": 1}), Finding("second", "d"))
+    orchestrator._journal.append(AttemptFailed(latest[:1]), AttemptFailed(latest[1:]))
 
     findings = orchestrator._latest_attempt_findings(fallback)
 
     assert [(f.code, f.path, f.details) for f in findings] == [
-        ("bad_path", "", {}),
         ("full", "call2", {"k": 1}),
+        ("second", "", {}),
     ]
-
-    orchestrator._journal.evidence["attempts"] = [{"findings": ["not a mapping"]}]
-    assert orchestrator._latest_attempt_findings(fallback) == fallback
-    orchestrator._journal.evidence["attempts"] = [{"findings": []}]
-    assert orchestrator._latest_attempt_findings(fallback) == fallback
 
 
 @pytest.mark.parametrize(
@@ -113,22 +118,25 @@ def test_latest_attempt_findings_skips_malformed_records(tmp_path: Path) -> None
         (["plan_review", "artifact_review"], None, "artifact"),
         (["call2", "elsewhere"], None, "artifact"),
         (["elsewhere"], None, None),
-        ([], {"stage": "call1"}, "plan"),
-        ([], {"stage": "plan_review"}, "plan"),
-        ([], {"stage": "call2"}, "artifact"),
-        ([], {"stage": "artifact_review"}, "artifact"),
-        ([], {"stage": "correction", "failed_stage": "call1"}, "plan"),
-        ([], {"stage": "correction", "failed_stage": "call2"}, "artifact"),
-        ([], {"stage": "mystery"}, None),
-        ([], {}, None),
+        ([], ("call1", None), "plan"),
+        ([], ("plan_review", None), "plan"),
+        ([], ("call2", None), "artifact"),
+        ([], ("artifact_review", None), "artifact"),
+        ([], ("correction", "call1"), "plan"),
+        ([], ("correction", "call2"), "artifact"),
+        ([], ("correction", None), "artifact"),
+        ([], ("mystery", None), None),
     ],
 )
 def test_terminal_stage_uses_finding_paths_then_the_last_attempt(
-    tmp_path: Path, finding_paths: list[str], attempt: dict[str, Any] | None, expected: str | None
+    tmp_path: Path,
+    finding_paths: list[str],
+    attempt: tuple[str, str | None] | None,
+    expected: str | None,
 ) -> None:
     orchestrator = _orchestrator(tmp_path)
     if attempt is not None:
-        orchestrator._journal.evidence["attempts"] = [attempt]
+        _open(orchestrator, *attempt)
 
     findings = [Finding("code", "detail", path) for path in finding_paths]
 
@@ -144,10 +152,8 @@ def test_finish_without_attempts_or_findings_writes_nothing(tmp_path: Path) -> N
 
 def test_finish_stamps_records_with_the_terminal_status(tmp_path: Path) -> None:
     orchestrator = _orchestrator(tmp_path)
-    orchestrator._journal.evidence["attempts"] = [
-        {"stage": "call1", "findings": [{"code": "late", "detail": "d", "path": "call1"}]},
-    ]
-    orchestrator._journal.ledger.append({})
+    _open(orchestrator, "call1")
+    orchestrator._journal.append(AttemptFailed((Finding("late", "d", "call1"),)))
 
     path = orchestrator._finish("failed", [Finding("early", "d", "call2")])
 
@@ -158,9 +164,8 @@ def test_finish_stamps_records_with_the_terminal_status(tmp_path: Path) -> None:
         assert (record["terminal_status"], record["stage_status"]) == ("failed", "failed")
 
     accepted = _orchestrator(tmp_path / "other")
-    accepted._journal.evidence["attempts"] = [
-        {"stage": "call2", "findings": [{"code": "stale", "detail": "d", "path": "call1"}]},
-    ]
+    _open(accepted, "call2")
+    accepted._journal.append(AttemptFailed((Finding("stale", "d", "call1"),)))
     accepted._finish("accepted", [])
     assert accepted._journal.evidence["findings"] == []
     assert accepted._journal.evidence["terminal"] == {

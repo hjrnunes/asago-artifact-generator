@@ -236,12 +236,11 @@ _ATTEMPT_STAGES = {
 }
 
 
-def _attempt_terminal_stage(attempt: dict[str, Any]) -> str | None:
-    stage = attempt.get("stage")
+def _attempt_terminal_stage(stage: str, failed_stage: str | None) -> str | None:
     if stage in _ATTEMPT_STAGES:
         return _ATTEMPT_STAGES[stage]
     if stage == "correction":
-        return "plan" if attempt.get("failed_stage") == "call1" else "artifact"
+        return "plan" if failed_stage == "call1" else "artifact"
     return None
 
 
@@ -464,7 +463,7 @@ class AuthoringOrchestrator:
             self._dispatch_recorded = False
             raise
         self._dispatch_recorded = True
-        dispatch_index = len(self._journal.ledger) + 1
+        dispatch_index = len(self._journal.dispatches()) + 1
         self._journal.append(
             BudgetRecorded(self.budget.snapshot(self.task_id)),
             self._dispatch_opened(packet, dispatch_index, role),
@@ -483,7 +482,8 @@ class AuthoringOrchestrator:
         """Return the stage attempt index and the per-failed-stage correction index."""
 
         stage_attempt_index = (
-            sum(1 for prior in self._journal.ledger if prior.get("stage") == packet.stage) + 1
+            sum(1 for prior in self._journal.dispatches() if prior.packet.stage == packet.stage)
+            + 1
         )
         if packet.stage != "correction":
             return stage_attempt_index, 0
@@ -491,11 +491,7 @@ class AuthoringOrchestrator:
             packet.payload.get("failed_stage") if isinstance(packet.payload, dict) else None
         )
         correction_index = (
-            sum(
-                1
-                for prior in self._journal.ledger
-                if prior.get("stage") == "correction" and prior.get("failed_stage") == failed_stage
-            )
+            sum(1 for prior in self._journal.corrections() if prior.failed_stage == failed_stage)
             + 1
         )
         return stage_attempt_index, correction_index
@@ -1642,13 +1638,15 @@ class AuthoringOrchestrator:
         )
 
     def _latest_attempt_findings(self, fallback: list[Finding]) -> list[Finding]:
-        """Return only the findings from the response that just terminated."""
+        """Return only the findings from the response that just terminated.
 
-        attempts = self._journal.evidence.get("attempts")
-        latest = attempts[-1].get("findings") if isinstance(attempts, list) and attempts else None
-        if not isinstance(latest, list) or not latest:
-            return list(fallback)
-        findings = (_finding_from_record(item) for item in latest)
+        Each finding is read as its failure-evidence record carries it.
+        """
+
+        findings = (
+            _finding_from_record(finding.to_dict())
+            for finding in self._journal.latest_attempt_findings()
+        )
         return [finding for finding in findings if finding is not None] or list(fallback)
 
     def _record_candidate_digest(self, candidate: dict[str, Any]) -> None:
@@ -1701,7 +1699,7 @@ class AuthoringOrchestrator:
     def _finish(self, status: str, findings: list[Finding]) -> Path | None:
         """Close the journal with the terminal status; return the sidecar path if written."""
 
-        attempts = self._journal.evidence["attempts"]
+        attempts = len(self._journal.dispatches())
         if not attempts and not findings:
             return None
         terminal_findings = [] if status == "accepted" else self._latest_attempt_findings(findings)
@@ -1711,7 +1709,7 @@ class AuthoringOrchestrator:
                 tuple(terminal_findings),
                 {
                     "stage": self._terminal_stage(terminal_findings),
-                    "attempt_index": len(attempts) - 1 if attempts else None,
+                    "attempt_index": attempts - 1 if attempts else None,
                     "reason": terminal_findings[-1].code if terminal_findings else status,
                 },
             )
@@ -1725,7 +1723,9 @@ class AuthoringOrchestrator:
             stage = _FINDING_PATH_STAGES.get(finding.path)
             if stage is not None:
                 return stage
-        attempts = self._journal.evidence.get("attempts")
-        if isinstance(attempts, list) and attempts:
-            return _attempt_terminal_stage(attempts[-1])
+        dispatches = self._journal.dispatches()
+        if dispatches:
+            return _attempt_terminal_stage(
+                dispatches[-1].packet.stage, self._journal.latest_failed_stage()
+            )
         return None

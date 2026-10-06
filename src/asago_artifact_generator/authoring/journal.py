@@ -535,6 +535,36 @@ class AuthoringJournal:
         self._written = write_failure_evidence(self._path, self._evidence.document)
         return self._written
 
+    def dispatches(self) -> list[DispatchOpened]:
+        return [event for event in self.events if isinstance(event, DispatchOpened)]
+
+    def corrections(self) -> list[CorrectionRecorded]:
+        return [event for event in self.events if isinstance(event, CorrectionRecorded)]
+
+    def _since_latest_dispatch(self) -> list[Any]:
+        for index in range(len(self.events) - 1, -1, -1):
+            if isinstance(self.events[index], DispatchOpened):
+                return self.events[index + 1 :]
+        return []
+
+    def latest_attempt_findings(self) -> list[Finding]:
+        """Return the findings recorded against the latest dispatch's attempt."""
+
+        return [
+            finding
+            for event in self._since_latest_dispatch()
+            if isinstance(event, AttemptFailed)
+            for finding in event.findings
+        ]
+
+    def latest_failed_stage(self) -> str | None:
+        """Return the stage the latest dispatch corrects, once its response named it."""
+
+        for event in self._since_latest_dispatch():
+            if isinstance(event, CorrectionRecorded):
+                return event.failed_stage
+        return None
+
     @property
     def ledger(self) -> list[dict[str, Any]]:
         return self._ledger.records
