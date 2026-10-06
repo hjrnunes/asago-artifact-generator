@@ -6,7 +6,11 @@ from typing import Any
 import pytest
 
 from asago_artifact_generator.authoring.core import Finding, PromptPacket
-from asago_artifact_generator.authoring.journal import AttemptFailed, CorrectionRecorded
+from asago_artifact_generator.authoring.journal import (
+    AttemptFailed,
+    CorrectionRecorded,
+    DispatchRequested,
+)
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 
@@ -173,3 +177,21 @@ def test_finish_stamps_records_with_the_terminal_status(tmp_path: Path) -> None:
         "attempt_index": 0,
         "reason": "accepted",
     }
+
+
+@pytest.mark.parametrize("opened", [(), ("call1",), ("call1", "plan_review")])
+def test_set_review_evidence_waits_for_an_open_review_dispatch(
+    tmp_path: Path, opened: tuple[str, ...]
+) -> None:
+    orchestrator = _orchestrator(tmp_path)
+    for stage in opened:
+        orchestrator._journal.append(DispatchRequested(stage))
+        if stage != "plan_review":
+            _open(orchestrator, stage)
+    packet = PromptPacket(stage="plan_review", version="v", system="s", user="u", payload={})
+    events = list(orchestrator._journal.events)
+
+    orchestrator._set_review_evidence(status="accepted", effective_controls={}, packet=packet)
+
+    assert orchestrator._journal.events == events
+    assert all("review" not in record for record in orchestrator._journal.ledger)

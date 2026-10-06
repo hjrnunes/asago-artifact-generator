@@ -63,6 +63,13 @@ class RunFindingRecorded:
 
 
 @dataclass(frozen=True)
+class DispatchRequested:
+    """A dispatch began; it opens only if preflight and the budget let it through."""
+
+    stage: str
+
+
+@dataclass(frozen=True)
 class DispatchOpened:
     dispatch_index: int
     attempt_index: int
@@ -525,6 +532,10 @@ class AuthoringJournal:
 
     def append(self, *events: Any) -> None:
         for event in events:
+            if isinstance(event, ReviewEvidenceRecorded) and not self._review_dispatch_open():
+                # Review evidence belongs to an open review dispatch. Without
+                # one it would land on whichever record came before.
+                continue
             self._ledger.apply(event)
             self._evidence.apply(event)
             self.events.append(event)
@@ -540,6 +551,30 @@ class AuthoringJournal:
 
     def corrections(self) -> list[CorrectionRecorded]:
         return [event for event in self.events if isinstance(event, CorrectionRecorded)]
+
+    def open_dispatch(self) -> DispatchOpened | None:
+        """Return the latest dispatch if the latest request opened it."""
+
+        for event in reversed(self.events):
+            if isinstance(event, DispatchOpened):
+                return event
+            if isinstance(event, DispatchRequested):
+                return None
+        return None
+
+    def _review_dispatch_open(self) -> bool:
+        opened = self.open_dispatch()
+        return opened is not None and opened.role == "reviewer"
+
+    def latest_response(self) -> ResponseReturned | None:
+        """Return the response of the open dispatch, once it returned."""
+
+        if self.open_dispatch() is None:
+            return None
+        for event in self._since_latest_dispatch():
+            if isinstance(event, ResponseReturned):
+                return event
+        return None
 
     def _since_latest_dispatch(self) -> list[Any]:
         for index in range(len(self.events) - 1, -1, -1):

@@ -10,6 +10,7 @@ from asago_artifact_generator.authoring.journal import (
     AttemptFailed,
     AuthoringJournal,
     DispatchOpened,
+    DispatchRequested,
     Finished,
     ResponseReturned,
     ReviewEvidenceRecorded,
@@ -31,8 +32,9 @@ _PACKET = PromptPacket(
 
 def _open_review(journal: AuthoringJournal, pinned: dict[str, str]) -> None:
     journal.append(
+        DispatchRequested(_PACKET.stage),
         DispatchOpened(
-            dispatch_index=1,
+            dispatch_index=len(journal.dispatches()) + 1,
             attempt_index=1,
             correction_index=0,
             role="reviewer",
@@ -42,7 +44,25 @@ def _open_review(journal: AuthoringJournal, pinned: dict[str, str]) -> None:
             raw_response_path="authoring/01-plan_review.raw",
             model_identity={"requested_model": None},
             review={**pinned, "review": {"status": "pending"}},
-        )
+        ),
+    )
+
+
+def _open_author(journal: AuthoringJournal, stage: str = "call1") -> None:
+    packet = PromptPacket(stage=stage, version="v", system="s", user="u", payload={})
+    journal.append(
+        DispatchRequested(stage),
+        DispatchOpened(
+            dispatch_index=len(journal.dispatches()) + 1,
+            attempt_index=1,
+            correction_index=0,
+            role="author",
+            task_id="journal",
+            packet=packet,
+            policy={"max_retries": 0},
+            raw_response_path=f"authoring/01-{stage}.raw",
+            model_identity={"requested_model": None},
+        ),
     )
 
 
@@ -114,6 +134,76 @@ def test_review_evidence_keeps_the_digests_pinned_when_the_dispatch_opened(
     assert evidence["raw_response_bytes"] == 3
     assert journal.evidence["attempts"][-1]["review"] == evidence
     assert "decision" not in journal.reviews["plan"]
+
+
+def _projected(journal: AuthoringJournal) -> tuple[str, str, str]:
+    return (
+        json.dumps(journal.ledger, sort_keys=True),
+        json.dumps(journal.evidence, sort_keys=True, default=str),
+        json.dumps(journal.reviews, sort_keys=True),
+    )
+
+
+def test_review_evidence_without_any_dispatch_is_ignored(tmp_path: Path) -> None:
+    journal = AuthoringJournal("journal", tmp_path / "package")
+    before = _projected(journal)
+
+    journal.append(_evidence_event())
+
+    assert _projected(journal) == before
+    assert journal.events == []
+
+
+def test_review_evidence_after_only_an_author_dispatch_is_ignored(tmp_path: Path) -> None:
+    journal = AuthoringJournal("journal", tmp_path / "package")
+    _open_author(journal)
+    before = _projected(journal)
+
+    journal.append(_evidence_event())
+
+    assert _projected(journal) == before
+    assert "review" not in journal.ledger[-1]
+    assert "review" not in journal.evidence["attempts"][-1]
+    assert journal.reviews == {}
+
+
+def test_review_evidence_for_a_review_dispatch_that_never_opened_is_ignored(
+    tmp_path: Path,
+) -> None:
+    journal = AuthoringJournal("journal", tmp_path / "package")
+    _open_author(journal)
+    journal.append(DispatchRequested("plan_review"))
+    before = _projected(journal)
+
+    journal.append(_evidence_event())
+
+    assert _projected(journal) == before
+    assert "review" not in journal.ledger[-1]
+
+
+def test_review_evidence_after_a_later_request_that_never_opened_is_ignored(
+    tmp_path: Path,
+) -> None:
+    journal = AuthoringJournal("journal", tmp_path / "package")
+    _open_review(journal, _PINNED)
+    journal.append(DispatchRequested("correction"))
+    before = _projected(journal)
+
+    journal.append(_evidence_event(status="unavailable"))
+
+    assert _projected(journal) == before
+    assert journal.ledger[-1]["review"] == {"status": "pending"}
+
+
+def test_open_dispatch_follows_the_latest_request(tmp_path: Path) -> None:
+    journal = AuthoringJournal("journal", tmp_path / "package")
+    assert journal.open_dispatch() is None
+    _open_author(journal)
+    assert journal.open_dispatch() is journal.dispatches()[-1]
+    journal.append(DispatchRequested("plan_review"))
+    assert journal.open_dispatch() is None
+    _open_review(journal, _PINNED)
+    assert journal.open_dispatch() is journal.dispatches()[-1]
 
 
 def test_attempt_failures_and_the_finish_reach_only_their_projections(tmp_path: Path) -> None:

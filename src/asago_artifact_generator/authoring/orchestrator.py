@@ -61,6 +61,7 @@ from .journal import (
     DecodedOutputRecorded,
     DispatchErrored,
     DispatchOpened,
+    DispatchRequested,
     FailureControlsRecorded,
     Finished,
     LedgerFindingsRecorded,
@@ -309,7 +310,6 @@ class AuthoringOrchestrator:
         self._journal = AuthoringJournal(task_id, self.package_dir)
         self._journal.append(BudgetRecorded(self.budget.snapshot(self.task_id)))
         self._findings: list[Finding] = []
-        self._dispatch_recorded = True
         self._allowances: dict[str, int] | None = None
         self._review_revision_allowances: dict[str, int] | None = None
         self._review_status: dict[str, str] | None = None
@@ -385,7 +385,7 @@ class AuthoringOrchestrator:
             return finding
         finding = Finding("transport_failure", _safe_error(exc), stage)
         self._findings.append(finding)
-        if self._dispatch_recorded:
+        if self._journal.open_dispatch() is not None:
             self._journal.append(DispatchErrored(_safe_error(exc)))
         self._record_unavailable_response(
             reason="provider_failure",
@@ -449,20 +449,15 @@ class AuthoringOrchestrator:
         return None
 
     def _dispatch(self, packet: PromptPacket) -> TransportResponse | str | bytes:
+        self._journal.append(DispatchRequested(packet.stage))
         # Reject an over-budget request before reserving an author/reviewer slot.
-        self._dispatch_recorded = False
         context_preflight = getattr(self.transport, "preflight_context_budget", None)
         if callable(context_preflight):
             context_preflight(packet)
         # Reserve before creating any ledger or evidence record: a budget stop
         # happens before dispatch, so it leaves no dispatch event behind.
         role = "reviewer" if packet.stage in _REVIEW_STAGES else "author"
-        try:
-            self.budget.reserve(self.task_id, role=role)
-        except BudgetExceeded:
-            self._dispatch_recorded = False
-            raise
-        self._dispatch_recorded = True
+        self.budget.reserve(self.task_id, role=role)
         dispatch_index = len(self._journal.dispatches()) + 1
         self._journal.append(
             BudgetRecorded(self.budget.snapshot(self.task_id)),
@@ -740,7 +735,7 @@ class AuthoringOrchestrator:
             return _CORRECTION_NOT_DISPATCHED
         except Exception as exc:
             finding = Finding("correction_dispatch_failed", _safe_error(exc), failed_stage)
-            if self._dispatch_recorded:
+            if self._journal.open_dispatch() is not None:
                 self._journal.append(DispatchErrored(_safe_error(exc)))
             self._findings.append(finding)
             self._record_unavailable_response(
@@ -1386,7 +1381,7 @@ class AuthoringOrchestrator:
             return _StageStop("budget_exhausted", (finding,))
         finding = Finding("transport_failure", _safe_error(exc), packet.stage)
         self._findings.append(finding)
-        if self._dispatch_recorded:
+        if self._journal.open_dispatch() is not None:
             self._record_unavailable_review_dispatch(exc, packet)
         self._record_unavailable_response(
             reason="provider_failure",
@@ -1575,7 +1570,7 @@ class AuthoringOrchestrator:
         """Record the durable review evidence of the open review dispatch."""
 
         input_digest, candidate_digest = _review_packet_digests(packet)
-        raw_key = self._journal.ledger[-1].get("raw_response_key")
+        response = self._journal.latest_response()
         self._journal.append(
             ReviewEvidenceRecorded(
                 review_stage="plan" if packet.stage == "plan_review" else "artifact",
@@ -1590,8 +1585,8 @@ class AuthoringOrchestrator:
                     effective_controls,
                     self._effective_policy_record(),
                 ),
-                raw_response_key=raw_key,
-                raw=self._raw_responses.get(raw_key) if isinstance(raw_key, str) else None,
+                raw_response_key=response.raw_response_key if response else None,
+                raw=response.raw if response else None,
                 review=review,
             )
         )
