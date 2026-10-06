@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from ..contract_kit import ClaimLevel
 from ..failure_evidence import metadata_record
 from ..input_adapter import InputView
 from ..package_io import write_package
@@ -227,7 +228,9 @@ def _tool_call_condition_missing(view: InputView) -> Finding | None:
 def _command_attempt_condition_missing(view: InputView, claim_level: Any) -> Finding | None:
     """Return the missing-condition finding when a command-attempt claim has no bound condition."""
 
-    return _tool_call_condition_missing(view) if claim_level == "command_attempt" else None
+    return (
+        _tool_call_condition_missing(view) if claim_level == ClaimLevel.COMMAND_ATTEMPT else None
+    )
 
 
 def _attempt_terminal_stage(stage: str, failed_stage: str | None) -> str | None:
