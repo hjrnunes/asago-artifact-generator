@@ -1520,7 +1520,7 @@ class AuthoringOrchestrator:
         attempts = len(self._journal.dispatches())
         if not attempts and not findings:
             return None
-        terminal_findings = [] if status == "accepted" else self._latest_attempt_findings(findings)
+        terminal_findings = self._terminal_findings(status, findings)
         self._journal.append(
             Finished(
                 status,
@@ -1533,6 +1533,18 @@ class AuthoringOrchestrator:
             )
         )
         return self._journal.flush()
+
+    def _terminal_findings(self, status: str, findings: list[Finding]) -> list[Finding]:
+        """Return the findings the terminal record carries for ``status``."""
+
+        if status == "accepted":
+            return []
+        if status == "prompt_overflow":
+            # A correction overflow stops a request that never dispatched, so the
+            # latest attempt's findings belong to the response before it.
+            overflow = [finding for finding in findings if finding.code == "prompt_overflow"]
+            return overflow or list(findings)
+        return self._latest_attempt_findings(findings)
 
     def _terminal_stage(self, findings: list[Finding]) -> str | None:
         """Return the logical stage that produced the terminal outcome."""
