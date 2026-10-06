@@ -1091,14 +1091,19 @@ class AuthoringOrchestrator:
             allowance_kind="review_revision" if review_driven else "correction",
         )
         if corrected is None:
-            stop = self._stop_for_author_findings(list(self._findings))
-            if stop is not None:
-                return stop
-            return _StageStop("unresolved", tuple(self._findings or pending))
+            return self._failed_correction_stop(pending)
         candidate, correction_findings, raw = corrected
         if correction_findings:
             return None, list(correction_findings), raw
         return candidate, [], raw
+
+    def _failed_correction_stop(self, pending: Sequence[Finding]) -> _StageStop:
+        """Stop the stage after a correction that returned no candidate."""
+
+        stop = self._stop_for_author_findings(list(self._findings))
+        if stop is not None:
+            return stop
+        return _StageStop("unresolved", tuple(self._findings or pending))
 
     def _review_candidate(
         self, stage: _Stage, candidate: dict[str, Any]
