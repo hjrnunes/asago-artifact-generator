@@ -14,8 +14,9 @@ Run it from the checkout under test:
   ../../hjrnunes/asago-orch/runs/<run-id>/stages/author [more stage dirs ...]
 ```
 
-The script calls `python -m asago_artifact_generator.replay_gate check`. Its
-options:
+The script calls `python scripts/replay_gate.py check`. The gate is
+development tooling: it lives in `scripts/`, outside the shipped package, and
+imports the package. Its options:
 
 | Option | Meaning |
 | --- | --- |
@@ -66,7 +67,8 @@ for each item, the gate:
      `OPENROUTER_*`, `REDTEAM_*`, `*_API_KEY`, `GEMINI_API_KEY`,
      `GOOGLE_API_KEY`, and `FORCE_COLOR`;
    - refuses and logs every IPv4/IPv6 connection and DNS lookup;
-   - replaces only the OpenAI client inside `PrivateModelAuthoringTransport`.
+   - replaces only the OpenAI client inside `PrivateModelAuthoringTransport`,
+     through the transport factory that `cli.run` accepts.
      The client checks that each request carries the recorded model and the
      exact recorded system and user messages, then answers with the recorded
      response. A mismatch or an extra request is refused and reported.
@@ -90,7 +92,7 @@ for each item, the gate:
 The gate does not ignore these fields. It maps the scratch output directory
 back to the recorded one, so each value must still name the same place inside
 the output directory. The list lives in `ALLOWED_DIFFERENCES` in
-`src/asago_artifact_generator/replay_gate.py`. Add an entry only for a value
+`scripts/replay_gate.py`. Add an entry only for a value
 that legitimately differs between two executions of the same code on the same
 responses. Fix nondeterminism in the code instead of listing it.
 

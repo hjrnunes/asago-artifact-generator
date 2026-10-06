@@ -17,5 +17,4 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
-exec env -u FORCE_COLOR uv run --no-sync python -m asago_artifact_generator.replay_gate \
-  check "$@"
+exec env -u FORCE_COLOR uv run --no-sync python scripts/replay_gate.py check "$@"

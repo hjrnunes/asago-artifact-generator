@@ -19,9 +19,10 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from asago_artifact_generator import cli, replay_gate
+import replay_gate
+from asago_artifact_generator import cli
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
-from asago_artifact_generator.replay_gate import (
+from replay_gate import (
     ALLOWED_DIFFERENCES,
     Difference,
     GateResult,
@@ -275,7 +276,8 @@ def test_network_guard_refuses_and_logs_outbound_connections(tmp_path: Path) -> 
     log = tmp_path / "network.log"
     script = (
         "import socket, sys\n"
-        "from asago_artifact_generator.replay_gate import install_network_guard\n"
+        f"sys.path.insert(0, {str(Path(replay_gate.__file__).parent)!r})\n"
+        "from replay_gate import install_network_guard\n"
         f"install_network_guard(__import__('pathlib').Path({str(log)!r}))\n"
         "for attempt in (lambda: socket.create_connection(('127.0.0.1', 9), timeout=1),\n"
         "                lambda: socket.getaddrinfo('example.invalid', 443)):\n"

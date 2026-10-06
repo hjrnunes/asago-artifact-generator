@@ -6,7 +6,10 @@ command line of every item in ``stage.json``, each item's console log under
 ``<ID>.failure-evidence.json``, which records each dispatched prompt and the
 provider's response.  The gate re-runs every item with the current code::
 
-    python -m asago_artifact_generator.replay_gate check STAGE_DIR [STAGE_DIR ...]
+    python scripts/replay_gate.py check STAGE_DIR [STAGE_DIR ...]
+
+The gate is development tooling: it lives outside the shipped package,
+imports the package, and is never imported by it.
 
 Each item runs in its own process, as under orch, with the recorded
 arguments, inputs copied into a scratch directory, provider settings removed
@@ -42,6 +45,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+# Child processes run this file by absolute path; their working directory is
+# scratch space.
+_SCRIPT = Path(__file__).resolve()
 STAGE_FILENAME = "stage.json"
 FAILURE_EVIDENCE_SUFFIX = ".failure-evidence.json"
 PROG_NAME = "asago-artifact-generator"
@@ -733,8 +739,7 @@ def _run_item(
     replay_log = work / "items" / f"{prepared.item_id}.log"
     command = [
         sys.executable,
-        "-m",
-        "asago_artifact_generator.replay_gate",
+        str(_SCRIPT),
         "_replay-item",
         str(record),
         str(status_path),
@@ -862,7 +867,7 @@ def _replay_item_command(items: list[str]) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m asago_artifact_generator.replay_gate",
+        prog="python scripts/replay_gate.py",
         description="Replay recorded author items offline and compare every output.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
