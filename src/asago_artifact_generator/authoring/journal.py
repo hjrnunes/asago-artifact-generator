@@ -208,6 +208,18 @@ class Finished:
     terminal: dict[str, Any]
 
 
+def _record_controls(event: Any) -> dict[str, Any] | None:
+    """Return the controls an event sets on its dispatch record, or None."""
+
+    if isinstance(event, FailureControlsRecorded):
+        return _safe_metadata(event.controls)
+    if isinstance(event, ResponseReturned):
+        return _safe_metadata(event.controls or {"max_retries": 0})
+    if isinstance(event, ReviewControlsRecorded):
+        return event.effective_controls
+    return None
+
+
 def _review_evidence_update(
     evidence: dict[str, Any], pinned: dict[str, Any], event: ReviewEvidenceRecorded
 ) -> None:
@@ -280,7 +292,7 @@ class _LedgerProjection:
         self.records.append(record)
 
     def _on_FailureControlsRecorded(self, event: FailureControlsRecorded) -> None:
-        self.records[-1]["controls"] = _safe_metadata(event.controls)
+        self.records[-1]["controls"] = _record_controls(event)
 
     def _on_ResponseReturned(self, event: ResponseReturned) -> None:
         record = self.records[-1]
@@ -290,7 +302,7 @@ class _LedgerProjection:
         )
         record["raw_response_key"] = event.raw_response_key
         _set_record_usage(record, event.usage)
-        record["controls"] = _safe_metadata(event.controls or {"max_retries": 0})
+        record["controls"] = _record_controls(event)
         if event.response_capture is not None:
             record["response_capture"] = deepcopy(event.response_capture)
 
@@ -299,7 +311,7 @@ class _LedgerProjection:
         self.records[-1]["allowance"] = event.allowance
 
     def _on_ReviewControlsRecorded(self, event: ReviewControlsRecorded) -> None:
-        self.records[-1]["controls"] = event.effective_controls
+        self.records[-1]["controls"] = _record_controls(event)
 
     def _on_TransformationRecorded(self, event: TransformationRecorded) -> None:
         self.records[-1]["transformation"] = event.transformation
@@ -591,6 +603,16 @@ class AuthoringJournal:
             if isinstance(event, AttemptFailed)
             for finding in event.findings
         ]
+
+    def dispatch_controls(self) -> dict[str, Any]:
+        """Return the controls recorded for the latest dispatch."""
+
+        controls: dict[str, Any] = {"max_retries": 0}
+        for event in self._since_latest_dispatch():
+            recorded = _record_controls(event)
+            if recorded is not None:
+                controls = recorded
+        return controls
 
     def latest_failed_stage(self) -> str | None:
         """Return the stage the latest dispatch corrects, once its response named it."""

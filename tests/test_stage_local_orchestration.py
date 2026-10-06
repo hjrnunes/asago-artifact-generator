@@ -544,4 +544,5 @@ def test_blocked_review_preserves_its_reason_as_terminal_state(tmp_path: Path) -
     assert review_record["decision"] == "blocked"
     assert review_record["summary"]
     assert review_record["findings"] == [_finding()]
+    assert result.decoded_responses["plan_review"] == review_record
     assert not (tmp_path / "package").exists()

@@ -1203,7 +1203,7 @@ class AuthoringOrchestrator:
             packet=packet,
             review=review_record,
         )
-        self._decoded_responses[packet.stage] = self._journal.ledger[-1]["review"]
+        self._decoded_responses[packet.stage] = self._journal.reviews[review_key]
         self._journal.flush()
         return _ReviewOutcome(
             decision=decision_after_scope_filter,
@@ -1214,7 +1214,7 @@ class AuthoringOrchestrator:
     def _record_unavailable_review_dispatch(self, exc: Exception, packet: PromptPacket) -> None:
         """Annotate a dispatched review that raised with its error and controls."""
 
-        effective_controls = self._review_controls(self._journal.ledger[-1].get("controls"))
+        effective_controls = self._review_controls(self._journal.dispatch_controls())
         self._journal.append(
             DispatchErrored(_safe_error(exc)), ReviewControlsRecorded(effective_controls)
         )

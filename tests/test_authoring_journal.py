@@ -11,8 +11,10 @@ from asago_artifact_generator.authoring.journal import (
     AuthoringJournal,
     DispatchOpened,
     DispatchRequested,
+    FailureControlsRecorded,
     Finished,
     ResponseReturned,
+    ReviewControlsRecorded,
     ReviewEvidenceRecorded,
 )
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
@@ -86,6 +88,35 @@ _PINNED = {
     "reviewed_candidate_sha256": "candidate",
     "candidate_bytes_sha256": "bytes",
 }
+
+
+def test_dispatch_controls_match_the_latest_ledger_record(tmp_path: Path) -> None:
+    journal = AuthoringJournal("journal", tmp_path / "package")
+    assert journal.dispatch_controls() == {"max_retries": 0}
+
+    def response(controls: dict | None) -> ResponseReturned:
+        return ResponseReturned("dispatch:1", b"x", None, controls, None, None)
+
+    _open_author(journal)
+    seen = [journal.dispatch_controls()]
+    for event in (
+        FailureControlsRecorded({"temperature": 0, "api_key": "secret"}),
+        response({"seed": 3}),
+        response(None),
+    ):
+        journal.append(event)
+        seen.append(journal.dispatch_controls())
+        assert seen[-1] == journal.ledger[-1]["controls"]
+    _open_review(journal, _PINNED)
+    seen.append(journal.dispatch_controls())
+    journal.append(ReviewControlsRecorded({"model": "m", "max_retries": 0}))
+    seen.append(journal.dispatch_controls())
+
+    assert seen[0] == seen[3] == seen[4] == {"max_retries": 0}
+    assert seen[1]["temperature"] == 0
+    assert "secret" not in json.dumps(seen[1])
+    assert seen[2] == {"seed": 3}
+    assert seen[5] == journal.ledger[-1]["controls"] == {"model": "m", "max_retries": 0}
 
 
 def test_review_evidence_copies_only_the_decision_fields(tmp_path: Path) -> None:
