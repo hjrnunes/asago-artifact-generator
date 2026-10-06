@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -250,8 +250,30 @@ _CORRECTION_NOT_DISPATCHED = object()
 
 
 @dataclass(frozen=True)
-class _ArtifactRevision:
-    """Semantic review findings that send the artifact back for a revision."""
+class _Stage:
+    """What differs between the plan and the artifact stage; the loop is shared."""
+
+    key: str
+    author: str
+    author_packet: Callable[[], PromptPacket]
+    checks: Callable[[Any], list[Finding]]
+    # Stands in for the findings when the author request left none.
+    missing: Finding
+    # Builds the review packet for a checked candidate; None when review is off.
+    review_packet: Callable[[dict[str, Any]], PromptPacket] | None
+    # The run status when the review decides the candidate is blocked.
+    review_blocked_status: str
+    # Only a plan may decline the experiment; a blocked plan stops its stage.
+    may_block: bool = False
+
+    @property
+    def review_stage(self) -> str:
+        return f"{self.key}_review"
+
+
+@dataclass(frozen=True)
+class _Revision:
+    """Semantic review findings that send the candidate back for a revision."""
 
     findings: tuple[Finding, ...]
 
@@ -585,9 +607,9 @@ class AuthoringOrchestrator:
 
     def _correction_v2(
         self,
-        *,
-        failed_stage: str,
+        stage: _Stage,
         failed_packet: PromptPacket,
+        *,
         failed_response: bytes,
         findings: list[Finding],
         view: InputView,
@@ -603,6 +625,7 @@ class AuthoringOrchestrator:
         the dispatched correction.
         """
 
+        failed_stage = stage.author
         packet = self._correction_packet(
             failed_stage=failed_stage,
             failed_packet=failed_packet,
@@ -624,9 +647,7 @@ class AuthoringOrchestrator:
             failed_response=failed_response,
             allowance_kind=allowance_kind,
         )
-        validated = self._validate_correction_response(
-            raw, failed_stage, view, inventory, runtime_contract
-        )
+        validated = self._validate_correction_response(raw, failed_stage, stage.checks)
         if validated is None:
             return None
         validation_value, decoded, replacement_findings = validated
@@ -634,19 +655,8 @@ class AuthoringOrchestrator:
             return validation_value, replacement_findings, raw
         self._journal.append(ValidationPassed())
         self._journal.flush()
-        replacement_key = "call1" if failed_stage == "call1" else "call2"
-        self._raw_responses[replacement_key] = raw
-        self._decoded_responses[replacement_key] = decoded
-        self._prompt_packets[replacement_key] = (
-            build_call1_packet_v2(view, inventory, runtime_contract)
-            if failed_stage == "call1"
-            else build_call2_packet_v2(
-                view,
-                self._decoded_responses["call1"],
-                inventory,
-                runtime_contract,
-            )
-        )
+        self._raw_responses[failed_stage] = raw
+        self._decoded_responses[failed_stage] = decoded
         return validation_value, [], raw
 
     def _correction_packet(
@@ -774,9 +784,7 @@ class AuthoringOrchestrator:
         self,
         raw: bytes,
         failed_stage: str,
-        view: InputView,
-        inventory: dict[str, Any],
-        runtime_contract: dict[str, Any],
+        checks: Callable[[Any], list[Finding]],
     ) -> tuple[dict[str, Any], Any, list[Finding]] | None:
         """Decode and validate a correction; record a failure and return None.
 
@@ -795,9 +803,7 @@ class AuthoringOrchestrator:
             if not isinstance(decoded, dict):
                 raise ValueError("correction response must decode to an object")
             transformation_count = len(self._transformations)
-            replacement_findings = self._correction_findings(
-                failed_stage, decoded, view, inventory, runtime_contract
-            )
+            replacement_findings = checks(decoded)
             self._record_validation_transformations(transformation_count)
             if replacement_findings:
                 self._journal.append(
@@ -817,33 +823,6 @@ class AuthoringOrchestrator:
             self._record_correction_failure(exc, failed_stage, checks_not_run)
             return None
         return decoded, decoded, replacement_findings
-
-    def _correction_findings(
-        self,
-        failed_stage: str,
-        decoded: dict[str, Any],
-        view: InputView,
-        inventory: dict[str, Any],
-        runtime_contract: dict[str, Any],
-    ) -> list[Finding]:
-        """Run the checks of the stage a correction replaces."""
-
-        if failed_stage == "call1":
-            return collect_plan_findings_v2(
-                decoded,
-                inventory,
-                runtime_contract,
-                provenance_ids=scenario_provenance_ids(view),
-                condition=view.payload.get("discriminating_condition"),
-                transformations=self._transformations,
-            )
-        return collect_artifact_findings_v2(
-            decoded,
-            self._decoded_responses["call1"],
-            inventory,
-            runtime_contract,
-            transformations=self._transformations,
-        )
 
     def _record_correction_failure(
         self, exc: Exception, failed_stage: str, checks_not_run: list[str]
@@ -887,17 +866,24 @@ class AuthoringOrchestrator:
         missing = _command_attempt_condition_missing(view, _handoff_claim_level(view))
         if missing is not None:
             return self._policy_result("failed", None, [missing])
-        plan = self._plan_stage_policy(view, inventory, runtime_contract)
+        plan = self._run_stage(
+            self._plan_stage(view, inventory, runtime_contract), view, inventory, runtime_contract
+        )
         if isinstance(plan, _StageStop):
             return self._policy_result(plan.status, None, plan.findings)
         missing = _command_attempt_condition_missing(view, _plan_claim_level(plan))
         if missing is not None:
             self._record_failures([missing])
             return self._policy_result("failed", plan, [missing])
-        artifact = self._artifact_stage_policy(view, plan, inventory, runtime_contract)
+        artifact = self._run_stage(
+            self._artifact_stage(plan, view, inventory, runtime_contract),
+            view,
+            inventory,
+            runtime_contract,
+        )
         if isinstance(artifact, _StageStop):
             return self._policy_result(artifact.status, plan, artifact.findings)
-        metadata, artifact_definition = artifact
+        metadata, artifact_definition = self._artifact_parts(artifact, plan)
         return self._accept_package(
             view, plan, metadata, artifact_definition, inventory, runtime_contract
         )
@@ -966,118 +952,152 @@ class AuthoringOrchestrator:
             budget=self.budget.snapshot(self.task_id),
         )
 
-    def _plan_stage_policy(
-        self,
-        view: InputView,
-        inventory: dict[str, Any],
-        runtime_contract: dict[str, Any],
-    ) -> dict[str, Any] | _StageStop:
-        """Author, check, correct, and review the plan within its allowance."""
-
-        try:
-            packet = build_call1_packet_v2(view, inventory, runtime_contract)
-        except PromptPreflightError as exc:
-            return _preflight_stop(exc, "call1")
-        collector = self._plan_findings_collector(view, inventory, runtime_contract)
-        candidate: dict[str, Any] | None = None
-        pending: Sequence[Finding] | None = None
-        review_driven = False
-        raw = b""
-        while True:
-            if candidate is None:
-                if pending is None:
-                    candidate, pending, raw = self._first_plan_candidate(packet, collector)
-                if candidate is None:
-                    corrected = self._plan_correction_round(
-                        packet,
-                        pending,
-                        raw,
-                        review_driven=review_driven,
-                        view=view,
-                        inventory=inventory,
-                        runtime_contract=runtime_contract,
-                    )
-                    if isinstance(corrected, _StageStop):
-                        return corrected
-                    review_driven = False
-                    candidate, pending, raw = corrected
-                    if pending is not None:
-                        continue
-            assert candidate is not None
-            reviewed = self._review_plan_candidate(view, candidate, inventory, runtime_contract)
-            if not isinstance(reviewed, tuple):
-                return reviewed
-            # Semantic revise findings join the stage correction path but spend
-            # the stage's separate review-revision allowance.
-            pending = reviewed
-            review_driven = True
-            candidate = None
-
-    def _first_plan_candidate(
-        self, packet: PromptPacket, collector: Any
-    ) -> tuple[dict[str, Any] | None, Sequence[Finding], bytes]:
-        decoded, pending, raw = self._request_and_validate_v2(packet, collector)
-        return (decoded if isinstance(decoded, dict) else None), pending, raw
-
-    def _plan_findings_collector(
-        self,
-        view: InputView,
-        inventory: dict[str, Any],
-        runtime_contract: dict[str, Any],
-    ) -> Any:
-        """Return the plan checks bound to this scenario, inventory, and contract."""
-
-        provenance_ids = scenario_provenance_ids(view)
-
-        def collector(decoded: Any) -> list[Finding]:
+    def _plan_stage(
+        self, view: InputView, inventory: dict[str, Any], runtime_contract: dict[str, Any]
+    ) -> _Stage:
+        def checks(decoded: Any) -> list[Finding]:
             return collect_plan_findings_v2(
                 decoded,
                 inventory,
                 runtime_contract,
-                provenance_ids=provenance_ids,
+                provenance_ids=scenario_provenance_ids(view),
                 condition=view.payload.get("discriminating_condition"),
                 transformations=self._transformations,
             )
 
-        return collector
+        return _Stage(
+            key="plan",
+            author="call1",
+            author_packet=lambda: build_call1_packet_v2(view, inventory, runtime_contract),
+            checks=checks,
+            missing=Finding("call1_failed", "Call 1 did not return a plan", "call1"),
+            review_packet=(
+                (
+                    lambda candidate: build_plan_review_packet(
+                        view, candidate, inventory, runtime_contract
+                    )
+                )
+                if self.policy.review_plan
+                else None
+            ),
+            review_blocked_status="blocked",
+            may_block=True,
+        )
 
-    def _plan_correction_round(
+    def _artifact_stage(
         self,
+        plan: dict[str, Any],
+        view: InputView,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> _Stage:
+        def checks(decoded: Any) -> list[Finding]:
+            return collect_artifact_findings_v2(
+                decoded,
+                plan,
+                inventory,
+                runtime_contract,
+                transformations=self._transformations,
+            )
+
+        return _Stage(
+            key="artifact",
+            author="call2",
+            author_packet=lambda: build_call2_packet_v2(view, plan, inventory, runtime_contract),
+            checks=checks,
+            missing=Finding("call2_failed", "Call 2 did not return a valid artifact", "call2"),
+            review_packet=(
+                (
+                    lambda candidate: build_artifact_review_packet(
+                        view, plan, candidate, inventory, runtime_contract
+                    )
+                )
+                if self.policy.review_artifact
+                else None
+            ),
+            # The accepted plan itself must change; never recurse back into
+            # plan authoring.
+            review_blocked_status="needs_plan_revision",
+        )
+
+    def _run_stage(
+        self,
+        stage: _Stage,
+        view: InputView,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> dict[str, Any] | _StageStop:
+        """Author, check, correct, and review one stage within its allowances."""
+
+        try:
+            packet = stage.author_packet()
+        except PromptPreflightError as exc:
+            return _preflight_stop(exc, stage.author)
+        candidate, pending, raw = self._request_and_validate_v2(packet, stage.checks)
+        review_driven = False
+        while True:
+            while candidate is None:
+                corrected = self._correction_round(
+                    stage,
+                    packet,
+                    pending,
+                    raw,
+                    review_driven=review_driven,
+                    view=view,
+                    inventory=inventory,
+                    runtime_contract=runtime_contract,
+                )
+                if isinstance(corrected, _StageStop):
+                    return corrected
+                review_driven = False
+                candidate, pending, raw = corrected
+            reviewed = self._review_candidate(stage, candidate)
+            if not isinstance(reviewed, _Revision):
+                return reviewed
+            # Semantic revise findings join the stage correction path but spend
+            # the stage's separate review-revision allowance.
+            pending = list(reviewed.findings)
+            review_driven = True
+            candidate = None
+
+    def _correction_round(
+        self,
+        stage: _Stage,
         packet: PromptPacket,
-        pending: Sequence[Finding] | None,
+        pending: Sequence[Finding],
         raw: bytes,
         *,
         review_driven: bool,
         view: InputView,
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
-    ) -> tuple[dict[str, Any] | None, list[Finding] | None, bytes] | _StageStop:
-        """Spend one plan correction on the pending findings, or return the stage stop.
+    ) -> tuple[dict[str, Any] | None, list[Finding], bytes] | _StageStop:
+        """Spend one stage allowance on a correction of the pending findings.
 
-        The returned findings are ``None`` when the correction passed its checks;
-        otherwise the candidate is ``None`` and the findings drive the next round.
+        The returned candidate is None while findings remain.
         """
 
-        pending = pending or [Finding("call1_failed", "Call 1 did not return a plan", "call1")]
-        blocked = self._decoded_responses.get("call1")
-        if _is_blocked_plan(blocked):
-            _persist_blocked_plan(self.package_dir, blocked)
-            return _StageStop("blocked")
-        stop = self._stop_for_author_findings(pending)
+        pending = pending or [stage.missing]
+        if stage.may_block:
+            blocked = self._decoded_responses.get(stage.author)
+            if _is_blocked_plan(blocked):
+                _persist_blocked_plan(self.package_dir, blocked)
+                return _StageStop("blocked")
+        stop = self._stop_for_author_findings(list(pending))
         if stop is not None:
             return stop
-        if not self._consume_allowance("plan", review_revision=review_driven):
+        if not self._consume_allowance(stage.key, review_revision=review_driven):
             return _StageStop(
                 "unresolved",
                 (
                     *pending,
-                    self._allowance_exhausted_finding("plan", review_revision=review_driven),
+                    self._allowance_exhausted_finding(stage.key, review_revision=review_driven),
                 ),
             )
         self._record_allowances()
         corrected = self._correction_v2(
-            failed_stage="call1",
-            failed_packet=packet,
+            stage,
+            packet,
             failed_response=raw,
             findings=list(pending),
             view=view,
@@ -1093,203 +1113,39 @@ class AuthoringOrchestrator:
         candidate, correction_findings, raw = corrected
         if correction_findings:
             return None, list(correction_findings), raw
-        return candidate, None, raw
+        return candidate, [], raw
 
-    def _review_plan_candidate(
-        self,
-        view: InputView,
-        candidate: dict[str, Any],
-        inventory: dict[str, Any],
-        runtime_contract: dict[str, Any],
-    ) -> dict[str, Any] | _StageStop | tuple[Finding, ...]:
-        """Review a checked plan.
+    def _review_candidate(
+        self, stage: _Stage, candidate: dict[str, Any]
+    ) -> dict[str, Any] | _StageStop | _Revision:
+        """Review a checked candidate.
 
-        Return the accepted plan, the stage stop, or the revise findings that
-        send the plan back through correction.
+        Return the accepted candidate, the stage stop, or the revise findings
+        that send the candidate back through correction.
         """
 
-        if _is_blocked_plan(candidate):
+        if stage.may_block and _is_blocked_plan(candidate):
             _persist_blocked_plan(self.package_dir, candidate)
             return _StageStop("blocked")
-        if not self.policy.review_plan:
-            self._review_status["plan"] = "not_requested"
+        if stage.review_packet is None:
+            self._review_status[stage.key] = "not_requested"
             return candidate
         try:
-            review_packet = build_plan_review_packet(view, candidate, inventory, runtime_contract)
+            review_packet = stage.review_packet(candidate)
         except PromptPreflightError as exc:
-            return _preflight_stop(exc, "plan_review")
-        outcome = self._semantic_review("plan", review_packet)
+            return _preflight_stop(exc, stage.review_stage)
+        outcome = self._semantic_review(stage.key, review_packet)
         if outcome.stop is not None:
             return outcome.stop
         if outcome.decision == "accept":
-            self._review_status["plan"] = "accepted"
+            self._review_status[stage.key] = "accepted"
             return candidate
+        findings = self._semantic_finding_objects(outcome, stage.key)
         if outcome.decision == "blocked":
-            self._review_status["plan"] = "blocked"
-            return _StageStop("blocked", self._semantic_finding_objects(outcome, "plan"))
-        self._review_status["plan"] = "revise"
-        return self._semantic_finding_objects(outcome, "plan")
-
-    def _artifact_stage_policy(
-        self,
-        view: InputView,
-        plan: dict[str, Any],
-        inventory: dict[str, Any],
-        runtime_contract: dict[str, Any],
-    ) -> tuple[dict[str, Any], dict[str, Any]] | _StageStop:
-        """Author, check, correct, and review the artifact stage."""
-
-        try:
-            packet = build_call2_packet_v2(view, plan, inventory, runtime_contract)
-        except PromptPreflightError as exc:
-            return _preflight_stop(exc, "call2")
-
-        def collector(decoded: Any) -> list[Finding]:
-            return collect_artifact_findings_v2(
-                decoded,
-                plan,
-                inventory,
-                runtime_contract,
-                transformations=self._transformations,
-            )
-
-        parsed: dict[str, Any] | None = None
-        pending: Sequence[Finding] | None = None
-        review_driven = False
-        raw = b""
-        while True:
-            if parsed is None:
-                if pending is None:
-                    parsed, pending, raw = self._request_and_validate_v2(packet, collector)
-                if parsed is None:
-                    step = self._correct_artifact_candidate(
-                        view,
-                        packet,
-                        plan,
-                        inventory,
-                        runtime_contract,
-                        pending=pending,
-                        raw=raw,
-                        review_driven=review_driven,
-                    )
-                    if isinstance(step, _StageStop):
-                        return step
-                    review_driven = False
-                    parsed, pending, raw = step
-                    if parsed is None:
-                        continue
-            review = self._review_artifact_candidate(
-                view, plan, parsed, inventory, runtime_contract
-            )
-            if not isinstance(review, _ArtifactRevision):
-                return review
-            pending = review.findings
-            review_driven = True
-            parsed = None
-
-    def _author_stop_or_unresolved(self, fallback: Sequence[Finding]) -> _StageStop:
-        """Stop for a transport or budget finding, else report the recorded findings."""
-
-        stop = self._stop_for_author_findings(list(self._findings))
-        if stop is not None:
-            return stop
-        return _StageStop("unresolved", tuple(self._findings or fallback))
-
-    def _correct_artifact_candidate(
-        self,
-        view: InputView,
-        packet: PromptPacket,
-        plan: dict[str, Any],
-        inventory: dict[str, Any],
-        runtime_contract: dict[str, Any],
-        *,
-        pending: Sequence[Finding] | None,
-        raw: bytes,
-        review_driven: bool,
-    ) -> tuple[dict[str, Any] | None, list[Finding], bytes] | _StageStop:
-        """Spend one artifact allowance on a correction of the pending findings.
-
-        The returned candidate is None while findings remain.
-        """
-
-        pending = pending or [
-            Finding("call2_failed", "Call 2 did not return a valid artifact", "call2")
-        ]
-        stop = self._stop_for_author_findings(pending)
-        if stop is not None:
-            return stop
-        if not self._consume_allowance("artifact", review_revision=review_driven):
-            return _StageStop(
-                "unresolved",
-                (
-                    *pending,
-                    self._allowance_exhausted_finding("artifact", review_revision=review_driven),
-                ),
-            )
-        self._record_allowances()
-        allowance_kind = "review_revision" if review_driven else "correction"
-        correction = self._correction_v2(
-            failed_stage="call2",
-            failed_packet=packet,
-            failed_response=raw,
-            findings=list(pending),
-            view=view,
-            inventory=inventory,
-            runtime_contract=runtime_contract,
-            allowance_kind=allowance_kind,
-        )
-        if correction is None:
-            return self._author_stop_or_unresolved(pending)
-        corrected_candidate, correction_findings, raw = correction
-        if not isinstance(corrected_candidate, dict):
-            return self._author_stop_or_unresolved(correction_findings)
-        if correction_findings:
-            return None, list(correction_findings), raw
-        return corrected_candidate, [], raw
-
-    def _review_artifact_candidate(
-        self,
-        view: InputView,
-        plan: dict[str, Any],
-        parsed: dict[str, Any],
-        inventory: dict[str, Any],
-        runtime_contract: dict[str, Any],
-    ) -> tuple[dict[str, Any], dict[str, Any]] | _StageStop | _ArtifactRevision:
-        """Accept a clean candidate, or review it and stop, accept, or ask for a revision."""
-
-        if not self.policy.review_artifact:
-            self._review_status["artifact"] = "not_requested"
-            return self._artifact_parts(parsed, plan)
-        try:
-            review_packet = build_artifact_review_packet(
-                view,
-                plan,
-                parsed,
-                inventory,
-                runtime_contract,
-            )
-        except PromptPreflightError as exc:
-            finding = _prompt_preflight_finding(exc, "artifact_review")
-            status = "prompt_overflow" if finding.code == "prompt_overflow" else "failed"
-            return _StageStop(status, (finding,))
-        outcome = self._semantic_review("artifact", review_packet)
-        if outcome.stop is not None:
-            return outcome.stop
-        if outcome.decision == "accept":
-            self._review_status["artifact"] = "accepted"
-            return self._artifact_parts(parsed, plan)
-        if outcome.decision == "blocked":
-            # The accepted plan itself must change; never recurse back
-            # into plan authoring.
-            self._review_status["artifact"] = "blocked"
-            return _StageStop(
-                "needs_plan_revision",
-                self._semantic_finding_objects(outcome, "artifact"),
-            )
-        # Semantic revise findings join the stage correction path but spend
-        # the stage's separate review-revision allowance.
-        self._review_status["artifact"] = "revise"
-        return _ArtifactRevision(self._semantic_finding_objects(outcome, "artifact"))
+            self._review_status[stage.key] = "blocked"
+            return _StageStop(stage.review_blocked_status, findings)
+        self._review_status[stage.key] = "revise"
+        return _Revision(findings)
 
     @staticmethod
     def _artifact_parts(
