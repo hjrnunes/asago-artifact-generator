@@ -1285,3 +1285,41 @@ def test_binding_selector_type_follows_properties_and_array_items(
 def test_binding_selector_type_stops_at_an_undocumented_schema() -> None:
     assert _binding_selector_type({"type": "string"}, "value.field") is None
     assert _binding_selector_type({"type": "object", "properties": []}, "value.field") is None
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("runtime_bindings[2].selector", (2, "selector")),
+        ("prerequisites[0].binding", None),
+        ("runtime_bindings[2].selector:slot", None),
+        ("runtime_bindings[02].selector", None),
+        ("runtime_bindings[2].selector.x", None),
+        ("runtime_bindings.selector", None),
+    ],
+)
+def test_indexed_field_reads_the_finding_target(path: str, expected: object) -> None:
+    from asago_artifact_generator.authoring.binding_repair import _indexed_field
+
+    assert _indexed_field(Finding("c", "d", path), "runtime_bindings") == expected
+    assert _indexed_field({"code": "c", "path": path}, "runtime_bindings") == expected
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("interpretation.source_refs[0]", "interpretation.source_refs"),
+        ("selected_evidence[3]", "selected_evidence[].ref"),
+        ("selected_evidence[3].ref", "selected_evidence[].ref"),
+        ("assumptions[1].ref", "assumptions[].ref"),
+        ("prerequisites[2].evidence_refs[0]", "prerequisites[].evidence_refs"),
+        ("prerequisites[2].evidence_refs", None),
+        ("selected_evidence[3].ref:q", None),
+        ("interpretation.source_refs[x]", None),
+        (None, None),
+    ],
+)
+def test_reference_field_matches_target_shapes(path: object, expected: str | None) -> None:
+    from asago_artifact_generator.authoring.binding_repair import _reference_field
+
+    assert _reference_field(path) == expected

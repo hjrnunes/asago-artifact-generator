@@ -15,16 +15,14 @@ from typing import Any
 from ..bindings import CLOSED_TYPES, canonical_binding_paths, named_record_facts
 from ..input_adapter import InputView
 from .checks import _binding_selector_type, _binding_source_schema, _binding_types_compatible
-from .core import Call1FramingError, Finding
+from .core import Call1FramingError, Finding, FindingTarget
 from .inventory import _first_fact_named
 from .prompt_context import _explained_operations, _plan_evidence_references
 from .response_decode import _decode_v2_json_response
 
 _BINDING_REPAIR_SELECTOR_LIMIT = 40
-_BINDING_SELECTOR_FINDING_PATH = re.compile(r"^runtime_bindings\[(\d+)\]\.selector$")
-_BINDING_SOURCE_REF_FINDING_PATH = re.compile(r"^runtime_bindings\[(\d+)\]\.source_ref$")
-_BINDING_SOURCE_KIND_FINDING_PATH = re.compile(r"^runtime_bindings\[(\d+)\]\.source_kind$")
-_UNKNOWN_BINDING_FINDING_PATH = re.compile(r"^prerequisites\[(\d+)\]\.binding$")
+# The binding fields whose findings group into one option per binding.
+_BINDING_REPAIR_FIELDS = ("source_ref", "source_kind", "selector")
 _BINDING_REPAIR_OPTIONS_DESCRIPTION = (
     "binding_repair_options is deterministic, source-derived assistance for binding "
     "findings. It is prompt context, not a new response field and not a recommended "
@@ -1000,11 +998,13 @@ def _permitted_setup_repair_sources(
     return permitted_setup_sources
 
 
-_REFERENCE_FIELD_PATTERNS = (
-    ("interpretation.source_refs", re.compile(r"interpretation\.source_refs\[\d+\]")),
-    ("selected_evidence[].ref", re.compile(r"selected_evidence\[\d+\](?:\.ref)?")),
-    ("assumptions[].ref", re.compile(r"assumptions\[\d+\]\.ref")),
-    ("prerequisites[].evidence_refs", re.compile(r"prerequisites\[\d+\]\.evidence_refs\[\d+\]")),
+# Each reference field rule and the target shapes it covers; ``int`` stands
+# for any list index.
+_REFERENCE_FIELD_SHAPES: tuple[tuple[str, tuple[tuple[str | type, ...], ...]], ...] = (
+    ("interpretation.source_refs", (("interpretation", "source_refs", int),)),
+    ("selected_evidence[].ref", (("selected_evidence", int), ("selected_evidence", int, "ref"))),
+    ("assumptions[].ref", (("assumptions", int, "ref"),)),
+    ("prerequisites[].evidence_refs", (("prerequisites", int, "evidence_refs", int),)),
 )
 _REFERENCE_REPAIR_DESCRIPTION = (
     "Each option explains one unknown_reference finding: the rejected value, what "
@@ -1049,14 +1049,24 @@ def _observation_scope_names(observation: dict[str, Any] | None) -> set[str]:
     return scopes
 
 
-def _reference_field(path: Any) -> str | None:
-    """Return the reference field rule name whose pattern matches a finding path."""
+def _has_shape(parts: tuple[str | int, ...], shape: tuple[str | type, ...]) -> bool:
+    return len(parts) == len(shape) and all(
+        isinstance(part, int) if expected is int else part == expected
+        for part, expected in zip(parts, shape, strict=True)
+    )
 
+
+def _reference_field(path: Any) -> str | None:
+    """Return the reference field rule name whose shape a finding's target has."""
+
+    target = FindingTarget.parse(path) if isinstance(path, str) else None
+    if target is None or target.qualifier is not None:
+        return None
     return next(
         (
             name
-            for name, pattern in _REFERENCE_FIELD_PATTERNS
-            if isinstance(path, str) and pattern.fullmatch(path)
+            for name, shapes in _REFERENCE_FIELD_SHAPES
+            if any(_has_shape(target.parts, shape) for shape in shapes)
         ),
         None,
     )
@@ -1130,6 +1140,19 @@ def _finding_field(finding: Finding | dict[str, Any], name: str, default: Any = 
     return getattr(finding, name) if isinstance(finding, Finding) else finding.get(name, default)
 
 
+def _indexed_field(finding: Finding | dict[str, Any], collection: str) -> tuple[int, str] | None:
+    """Return ``(index, field)`` when a finding targets ``collection[index].field``."""
+
+    path = _finding_field(finding, "path", "")
+    target = FindingTarget.parse(path) if isinstance(path, str) else None
+    if target is None or target.qualifier is not None or len(target.parts) != 3:
+        return None
+    head, index, field_name = target.parts
+    if head != collection or not isinstance(index, int) or not isinstance(field_name, str):
+        return None
+    return index, field_name
+
+
 def _group_binding_findings(
     findings: list[Finding | dict[str, Any]],
 ) -> tuple[_BindingFindings, _BindingFindingOrder]:
@@ -1138,20 +1161,12 @@ def _group_binding_findings(
     binding_findings: _BindingFindings = {}
     binding_finding_order: _BindingFindingOrder = {}
     for finding in findings:
-        path = _finding_field(finding, "path", "")
-        if not isinstance(path, str):
+        located = _indexed_field(finding, "runtime_bindings")
+        if located is None or located[1] not in _BINDING_REPAIR_FIELDS:
             continue
-        for field_name, pattern in (
-            ("source_ref", _BINDING_SOURCE_REF_FINDING_PATH),
-            ("source_kind", _BINDING_SOURCE_KIND_FINDING_PATH),
-            ("selector", _BINDING_SELECTOR_FINDING_PATH),
-        ):
-            match = pattern.fullmatch(path)
-            if match:
-                index = int(match.group(1))
-                binding_findings.setdefault(index, {}).setdefault(field_name, []).append(finding)
-                binding_finding_order.setdefault(index, []).append(finding)
-                break
+        index, field_name = located
+        binding_findings.setdefault(index, {}).setdefault(field_name, []).append(finding)
+        binding_finding_order.setdefault(index, []).append(finding)
     return binding_findings, binding_finding_order
 
 
@@ -1267,13 +1282,14 @@ def _prerequisite_binding_repair_options(
     options: list[dict[str, Any]] = []
     for finding in findings:
         code = _finding_field(finding, "code")
-        path = _finding_field(finding, "path", "")
-        prerequisite_match = (
-            _UNKNOWN_BINDING_FINDING_PATH.fullmatch(path) if isinstance(path, str) else None
-        )
-        if not prerequisite_match or code not in {"unknown_binding", "consumer_mismatch"}:
+        located = _indexed_field(finding, "prerequisites")
+        if (
+            located is None
+            or located[1] != "binding"
+            or code not in {"unknown_binding", "consumer_mismatch"}
+        ):
             continue
-        index = int(prerequisite_match.group(1))
+        index = located[0]
         if index >= len(prerequisites) or not isinstance(prerequisites[index], dict):
             continue
         if code == "unknown_binding":

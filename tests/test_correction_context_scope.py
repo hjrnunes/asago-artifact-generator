@@ -99,3 +99,20 @@ def test_correction_scope_leaves_the_context_unchanged_without_a_plan_mapping() 
     _scope_correction_authoritative_context(authoritative, None)
 
     assert authoritative == {"operations": [{"name": "refund"}], "facts": [1]}
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("semantic_judge_spec.fact_refs[0]", True),
+        ("semantic_judge_spec.fact_refs[4].ref", True),
+        ("semantic_judge_spec.fact_refs[0]:slot", True),
+        ("semantic_judge_spec.fact_refs", False),
+        ("semantic_judge_spec.fact_ref[0]", False),
+        ("judge.json.fact_refs[0]", False),
+    ],
+)
+def test_fact_ref_guidance_reads_the_finding_target(path: str, expected: bool) -> None:
+    from asago_artifact_generator.authoring.correction import _targets_a_fact_ref
+
+    assert _targets_a_fact_ref(path) is expected
