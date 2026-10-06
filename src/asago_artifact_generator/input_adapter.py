@@ -15,6 +15,8 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from .contract_kit import (
+    CLAIM_LEVELS,
+    ClaimLevel,
     canonical_json,
     first_schema_error,
     framed_digest,
@@ -519,10 +521,10 @@ def _validate_safe_observable_outcome(value: Any) -> None:
 
 
 _SAFE_OUTCOME_EXPECTED_EVIDENCE = {
-    "command_attempt": "tool_call",
-    "reply": "assistant_message",
-    "returned_result": "tool_result",
-    "state_effect": "snapshot",
+    ClaimLevel.COMMAND_ATTEMPT.value: "tool_call",
+    ClaimLevel.REPLY.value: "assistant_message",
+    ClaimLevel.RETURNED_RESULT.value: "tool_result",
+    ClaimLevel.STATE_EFFECT.value: "snapshot",
 }
 
 
@@ -628,13 +630,7 @@ def _validate_deduplication_key_fields(key: dict[str, Any]) -> None:
         raise InputSourceError("handoff deduplication key identity is invalid")
     if key["operation_name"] is not None and not is_nonblank_str(key["operation_name"]):
         raise InputSourceError("handoff deduplication operation_name is invalid")
-    if key["claim_level"] not in {
-        "command_attempt",
-        "reply",
-        "returned_result",
-        "state_effect",
-        "unknown",
-    }:
+    if key["claim_level"] not in {*CLAIM_LEVELS, "unknown"}:
         raise InputSourceError("handoff deduplication claim_level is invalid")
 
 

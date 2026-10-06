@@ -63,3 +63,26 @@ def test_plan_reviewer_v3_renders_shared_binding_rules_and_mechanical_checks() -
     assert summary["reviewer_instruction"] in packet.user
     assert "wrong record, field, actor, or value" in summary["reviewer_instruction"]
     assert '"checks": [' in packet.user
+
+
+def test_mechanical_check_summary_lists_the_registered_guarantees_in_order() -> None:
+    from asago_artifact_generator.authoring.checks import PLAN_MECHANICAL_CHECKS
+    from asago_artifact_generator.contract_kit import CLAIM_LEVELS
+
+    summary = build_plan_reviewer_context(_view(), _plan(), _inventory(), _runtime_contract())[
+        "mechanical_check_summary"
+    ]
+
+    assert list(summary) == [
+        "status",
+        "meaning",
+        "checks",
+        "documented_selector_forms",
+        "reviewer_instruction",
+    ]
+    assert summary["checks"] == [check.guarantee for check in PLAN_MECHANICAL_CHECKS]
+    assert (
+        "claim_level is one of command_attempt, reply, returned_result, or state_effect;"
+        in summary["checks"][5]
+    )
+    assert CLAIM_LEVELS[-1] == "state_effect"

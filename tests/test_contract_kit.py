@@ -8,7 +8,11 @@ from pathlib import Path
 
 import pytest
 
+from asago_artifact_generator.authoring.contracts import _observation_claim_schema
+from asago_artifact_generator.authoring.core import _supported_claim_levels
 from asago_artifact_generator.contract_kit import (
+    CLAIM_LEVELS,
+    ClaimLevel,
     canonical_json,
     first_schema_error,
     framed_digest,
@@ -113,3 +117,26 @@ def test_verify_contract_lock_accepts_matching_metadata_and_digests(tmp_path: Pa
     (tmp_path / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
 
     _verify(tmp_path)
+
+
+_HANDOFF_SCHEMA = (
+    Path(__file__).resolve().parents[1] / "contracts/scenario-handoff/handoff-v3/schema.json"
+)
+
+
+def test_claim_levels_are_the_handoff_contract_levels_in_order() -> None:
+    defs = json.loads(_HANDOFF_SCHEMA.read_text(encoding="utf-8"))["$defs"]
+    outcome = defs["SafeObservableOutcome"]["properties"]["claim_level"]["anyOf"][0]["enum"]
+    dedup = defs["ScenarioDeduplicationKey"]["properties"]["claim_level"]["enum"]
+
+    assert CLAIM_LEVELS == tuple(outcome) == tuple(dedup[:-1])
+    assert dedup[-1] == "unknown"
+    assert all(type(level) is str for level in CLAIM_LEVELS)
+    assert [str(level) for level in ClaimLevel] == list(CLAIM_LEVELS)
+
+
+def test_claim_levels_drive_the_plan_enum_and_declared_support() -> None:
+    assert _observation_claim_schema()["properties"]["claim_level"]["enum"] == list(CLAIM_LEVELS)
+    declared = {"observation": {"claim_levels": list(reversed(CLAIM_LEVELS))}}
+    assert _supported_claim_levels(declared) == CLAIM_LEVELS
+    assert _supported_claim_levels({}) == (ClaimLevel.COMMAND_ATTEMPT, ClaimLevel.REPLY)

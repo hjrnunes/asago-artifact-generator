@@ -191,3 +191,48 @@ def test_prerequisite_consumers_ignore_non_list_inputs() -> None:
     _normalize_prerequisite_binding_consumers([{"binding": "order"}], "x")
 
     assert bindings == [{"name": "order", "consumers": []}]
+
+
+def test_every_registered_mechanical_check_runs_on_a_passing_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from asago_artifact_generator.authoring import checks
+    from tests import test_semantic_judge_spec_wording as reply_case
+    from tests.support import validate_neutral_example
+
+    called: set[str] = set()
+    registered = {
+        function.__name__
+        for check in (*checks.PLAN_MECHANICAL_CHECKS, *checks.ARTIFACT_MECHANICAL_CHECKS)
+        for function in check.functions
+    }
+    for name in registered:
+        original = getattr(checks, name)
+
+        def spy(*args: Any, _name: str = name, _original: Any = original, **kwargs: Any) -> Any:
+            called.add(_name)
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(checks, name, spy)
+
+    plan = reply_case._plan()
+    inventory, runtime = reply_case._inventory(), reply_case._runtime_contract()
+    reply_findings = [
+        *checks.collect_plan_findings_v2(plan, inventory, runtime),
+        *checks.collect_artifact_findings_v2(
+            reply_case._metadata("Does the reply assert the claim?"), plan, inventory, runtime
+        ),
+    ]
+
+    assert validate_neutral_example() == []
+    assert reply_findings == []
+    assert called == registered
+
+
+def test_mechanical_check_ids_are_unique_per_stage() -> None:
+    from asago_artifact_generator.authoring import checks
+
+    for registry in (checks.PLAN_MECHANICAL_CHECKS, checks.ARTIFACT_MECHANICAL_CHECKS):
+        ids = [check.check_id for check in registry]
+        assert len(ids) == len(set(ids))
+        assert all(check.functions for check in registry)

@@ -8,6 +8,7 @@ from typing import Any
 
 from ..failure_evidence import redact_metadata
 from ..input_adapter import InputView
+from .checks import ARTIFACT_MECHANICAL_CHECKS, PLAN_MECHANICAL_CHECKS, MechanicalCheck
 from .context_budget import _enforce_prompt_size
 from .contracts import (
     PLAN_FIELD_MEANINGS,
@@ -319,38 +320,6 @@ _SETUP_PERMISSION_EXPLANATION = (
     "is optional when supplied static facts suffice; operations not listed may not be "
     "used."
 )
-_PLAN_MECHANICAL_CHECKS = (
-    "The v2 plan has the required root fields and no unsupported root fields; the "
-    "validator checks the object, list, string, boolean, enum, and JSON-value "
-    "shapes for the plan fields it inspects, including required_observations as an "
-    "object.",
-    "Selected evidence, assumptions, prerequisite evidence references, and "
-    "interpretation source references resolve to supplied inventory references; "
-    "operation evidence references use the documented operation:<name> form, and "
-    "interpretation may additionally cite supplied scenario-lineage or attack-tree "
-    "provenance IDs.",
-    "Every setup_recipe operation exists in the operation inventory, is listed in "
-    "runtime_contract.setup_permissions, has an arguments object, satisfies required "
-    "and known argument names, and matches documented argument types or an allowed "
-    "binding slot.",
-    "Every runtime binding has the required closed fields, a unique nonblank name, "
-    "a permitted source_kind, a source_ref that resolves to a supplied fact or a "
-    "permitted setup operation, a documented selector rooted at value or result "
-    "(including a validated keyed-map source shorthand resolved to that form), a "
-    "compatible expected_type, a nonempty closed consumer list, and a permitted "
-    "on_missing policy.",
-    "Every prerequisite has the canonical closed fields and types, references a "
-    "declared binding, uses an equals JSON value compatible with that binding's "
-    "expected_type, requires any evidence_refs entries to resolve, and has the "
-    "binding's prerequisite consumer declared.",
-    "Stimulus delivery is listed in runtime_contract.delivery; claim_level is one "
-    "of command_attempt, reply, returned_result, or state_effect; and "
-    "semantic_judge.needed and semantic_judge.scope have the enforced boolean and "
-    "string-or-null shapes.",
-    "Each unresolved requirement has the enforced shape; no essential requirement "
-    "with source_kind setup_output is marked obtainable_via_setup false; and every "
-    "other essential requirement is marked obtainable_via_setup true.",
-)
 _PLAN_SELECTOR_FORMS = (
     "supplied_input source_ref: facts:<complete inventory.facts[].ref>, with "
     "selectors rooted at value (value selects the whole fact; value.<field> "
@@ -375,38 +344,31 @@ _PLAN_MECHANICAL_CHECK_INSTRUCTION = (
 )
 
 
-def _plan_mechanical_check_summary() -> dict[str, Any]:
-    """Return the checks that run before a plan reaches semantic review."""
+_PLAN_MECHANICAL_CHECK_MEANING = (
+    "The following structural properties were verified by code before "
+    "semantic review. This summary does not establish semantic correctness."
+)
+_ARTIFACT_MECHANICAL_CHECK_MEANING = (
+    "The following structural properties passed before semantic "
+    "review. These facts do not prove semantic "
+    "correctness."
+)
+
+
+def _mechanical_check_summary(
+    meaning: str, checks: tuple[MechanicalCheck, ...], instruction: str
+) -> dict[str, Any]:
+    """Return the guarantees of the checks a candidate passed before semantic review."""
 
     return {
         "status": "passed",
-        "meaning": (
-            "The following structural properties were verified by code before "
-            "semantic review. This summary does not establish semantic correctness."
-        ),
-        "checks": list(_PLAN_MECHANICAL_CHECKS),
+        "meaning": meaning,
+        "checks": [check.guarantee for check in checks],
         "documented_selector_forms": list(_PLAN_SELECTOR_FORMS),
-        "reviewer_instruction": _PLAN_MECHANICAL_CHECK_INSTRUCTION,
+        "reviewer_instruction": instruction,
     }
 
 
-_ARTIFACT_MECHANICAL_CHECKS = (
-    "The accepted plan already passed the plan validator: root and nested field "
-    "rules, reference existence, setup operation permissions and argument schemas, "
-    "claim-level enum values, runtime-binding selector syntax and source type, "
-    "binding consumers, prerequisite binding/equality rules, and unresolved "
-    "requirement rules are facts established before this review.",
-    "The Call 2 response passed strict single-object framing and field validation: "
-    "artifact fields, stimulus shape and delivery, user-only history, slot "
-    "declarations, plan-owned-field preservation, required_observations shape, "
-    "judge-spec shape, the accepted-plan judge choice, a judge spec for a reply "
-    "claim, and author-proposed example shapes.",
-    "Candidate judge fact_refs resolve to supplied inventory facts with supplied "
-    "values; the accepted plan's binding and prerequisite declarations remain "
-    "fixed. The documented selector forms are facts:<ref> plus value paths, "
-    "setup:<operation> plus result paths, and keyed-map "
-    "<fact ref>:records plus value.<key>.record_key.",
-)
 _ARTIFACT_MECHANICAL_CHECK_INSTRUCTION = (
     "These properties passed code validation before this review. Do not report "
     "them as review findings. Review only the artifact questions below; report a "
@@ -478,7 +440,11 @@ def build_plan_reviewer_context(
             _PLAN_REVIEW_QUESTIONS,
             fixed_plan=False,
         ),
-        "mechanical_check_summary": _plan_mechanical_check_summary(),
+        "mechanical_check_summary": _mechanical_check_summary(
+            _PLAN_MECHANICAL_CHECK_MEANING,
+            PLAN_MECHANICAL_CHECKS,
+            _PLAN_MECHANICAL_CHECK_INSTRUCTION,
+        ),
         "response_contract": {
             **_review_response_contract(question_ids=PLAN_REVIEW_QUESTION_IDS),
             "example_response": _review_response_example(),
@@ -620,17 +586,11 @@ def build_artifact_reviewer_context(
             _ARTIFACT_REVIEW_QUESTIONS,
             fixed_plan=True,
         ),
-        "mechanical_check_summary": {
-            "status": "passed",
-            "meaning": (
-                "The following structural properties passed before semantic "
-                "review. These facts do not prove semantic "
-                "correctness."
-            ),
-            "checks": list(_ARTIFACT_MECHANICAL_CHECKS),
-            "documented_selector_forms": list(_PLAN_SELECTOR_FORMS),
-            "reviewer_instruction": _ARTIFACT_MECHANICAL_CHECK_INSTRUCTION,
-        },
+        "mechanical_check_summary": _mechanical_check_summary(
+            _ARTIFACT_MECHANICAL_CHECK_MEANING,
+            ARTIFACT_MECHANICAL_CHECKS,
+            _ARTIFACT_MECHANICAL_CHECK_INSTRUCTION,
+        ),
         "response_contract": {
             **_review_response_contract(question_ids=ARTIFACT_REVIEW_QUESTION_IDS),
             "example_response": _review_response_example(),

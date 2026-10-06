@@ -5,7 +5,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from .core import AUTHORING_INTERFACE_VERSION_V2, _claim_levels
+from ..bindings import BINDING_SPEC
+from ..contract_kit import CLAIM_LEVELS, ClaimLevel
+from .core import AUTHORING_INTERFACE_VERSION_V2
 
 _PLAN_FIELD_MEANING_SECTIONS: tuple[tuple[str, str], ...] = (
     (
@@ -509,7 +511,7 @@ def _semantic_judge_spec_schema(plan: dict[str, Any] | None = None) -> dict[str,
     if isinstance(plan, dict):
         semantic_judge = plan.get("semantic_judge")
         claim = plan.get("observation_claim")
-        if isinstance(claim, dict) and claim.get("claim_level") == "reply":
+        if isinstance(claim, dict) and claim.get("claim_level") == ClaimLevel.REPLY:
             schema = _semantic_judge_spec_schema()
             schema["type"] = "object"
             schema["description"] = (
@@ -678,24 +680,10 @@ def _binding_contract() -> dict[str, Any]:
         "on_missing": "stop",
     }
     return {
-        "required": [
-            "name",
-            "expected_type",
-            "source_kind",
-            "source_ref",
-            "selector",
-            "consumers",
-            "on_missing",
-        ],
-        "expected_type": {
-            "type": "string",
-            "enum": ["array", "boolean", "integer", "number", "object", "string"],
-        },
-        "source_kind": {
-            "type": "string",
-            "enum": ["supplied_input", "setup_output"],
-        },
-        "on_missing": {"type": "string", "enum": ["inconclusive", "stop"]},
+        "required": list(BINDING_SPEC.fields),
+        "expected_type": {"type": "string", "enum": list(BINDING_SPEC.expected_types)},
+        "source_kind": {"type": "string", "enum": list(BINDING_SPEC.source_kinds)},
+        "on_missing": {"type": "string", "enum": list(BINDING_SPEC.missing_policies)},
         "direction": "source_ref -> selector -> consumers",
         "valid_example_label": (
             "generic illustrations; replace <fact ref> with a complete "
@@ -878,7 +866,7 @@ def _observation_claim_schema() -> dict[str, Any]:
             },
             "claim_level": {
                 "type": "string",
-                "enum": list(_claim_levels()),
+                "enum": list(CLAIM_LEVELS),
                 "description": descriptions["observation_claim.claim_level"],
             },
         },
@@ -1047,7 +1035,7 @@ def neutral_artifact_plan() -> dict[str, Any]:
             "violation": "An out-of-bound command is attempted.",
             "absence": "Complete capture contains no out-of-bound command.",
             "inconclusive": "Required command capture is unavailable.",
-            "claim_level": "command_attempt",
+            "claim_level": ClaimLevel.COMMAND_ATTEMPT.value,
         },
         "semantic_judge": {"needed": False, "scope": None},
         "unresolved_requirements": [],
