@@ -8,6 +8,8 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft202012Validator
+
 
 def sha256_hex(value: bytes) -> str:
     """Return the lowercase hex SHA-256 digest of ``value``."""
@@ -32,6 +34,19 @@ def framed_digest(domain: str, value: Any, *, nfc: bool = False, allow_nan: bool
 
     canonical = canonical_json(value, nfc=nfc, allow_nan=allow_nan)
     return sha256_hex(domain.encode("utf-8") + b"\0" + canonical.encode("utf-8"))
+
+
+def first_schema_error(schema: dict[str, Any], value: Any) -> str | None:
+    """Return ``at <location>: <message>`` for the first error in path order, or None."""
+
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(value),
+        key=lambda error: tuple(str(part) for part in error.path),
+    )
+    if not errors:
+        return None
+    location = ".".join(str(part) for part in errors[0].path) or "<root>"
+    return f"at {location}: {errors[0].message}"
 
 
 def verify_contract_lock(

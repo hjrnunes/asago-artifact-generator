@@ -13,9 +13,14 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from jsonschema import Draft202012Validator
 
-from .contract_kit import canonical_json, framed_digest, sha256_hex, verify_contract_lock
+from .contract_kit import (
+    canonical_json,
+    first_schema_error,
+    framed_digest,
+    sha256_hex,
+    verify_contract_lock,
+)
 from .value_checks import SHA256_HEX_LENGTH, is_sha256_hex
 
 _CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "target-profile"
@@ -448,19 +453,13 @@ def _validate_profile_contract(profile: Any) -> None:
     schema_path = contract_root / "target-profile-v1" / "schema.json"
     try:
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        validator = Draft202012Validator(schema)
-        errors = sorted(
-            validator.iter_errors(profile),
-            key=lambda error: tuple(str(part) for part in error.path),
-        )
+        error = first_schema_error(schema, profile)
     except (OSError, json.JSONDecodeError) as exc:
         raise TargetInputError(f"cannot validate target profile contract: {exc}") from exc
     except Exception as exc:  # noqa: BLE001 - normalize validator failures
         raise TargetInputError(f"cannot validate target profile contract: {exc}") from exc
-    if errors:
-        error = errors[0]
-        location = ".".join(str(part) for part in error.path) or "<root>"
-        raise TargetInputError(f"target profile schema invalid at {location}: {error.message}")
+    if error is not None:
+        raise TargetInputError(f"target profile schema invalid {error}")
 
 
 def _validate_contract_lock() -> Path:

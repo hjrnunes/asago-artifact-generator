@@ -10,6 +10,7 @@ import pytest
 
 from asago_artifact_generator.contract_kit import (
     canonical_json,
+    first_schema_error,
     framed_digest,
     sha256_hex,
     verify_contract_lock,
@@ -43,6 +44,23 @@ def test_framed_digest_frames_domain_with_a_nul_separator() -> None:
 
     assert framed_digest("domain", {"a": "e\u0301"}, nfc=True) == expected
     assert sha256_hex(b"x") == hashlib.sha256(b"x").hexdigest()
+
+
+def test_first_schema_error_reports_the_first_error_in_path_order() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "b": {"type": "string"},
+            "a": {"type": "array", "items": {"type": "integer"}},
+        },
+        "required": ["c"],
+    }
+
+    assert first_schema_error(schema, {"c": 1, "a": [1], "b": "x"}) is None
+    assert first_schema_error(schema, {"a": [1]}) == "at <root>: 'c' is a required property"
+    assert first_schema_error(schema, {"c": 1, "a": [1, "x"], "b": 2}) == (
+        "at a.1: 'x' is not of type 'integer'"
+    )
 
 
 def _verify(root: Path) -> None:
