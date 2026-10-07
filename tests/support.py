@@ -37,11 +37,26 @@ NEUTRAL_TOOL_CALL_CONDITION = {
     "comparisons": [
         {
             "kind": "value",
-            "left": {"argument": "limit", "operation": "inspect_record", "source": "argument"},
+            "left": {"argument": "value", "operation": "inspect_record", "source": "argument"},
             "op": "gt",
-            "right": {"source": "literal", "value": 10},
+            "right": {"source": "literal", "value": 3},
         }
     ]
+}
+
+# The operations the neutral example's captures call.
+NEUTRAL_INVENTORY = {
+    "operations": [
+        {
+            "name": "inspect_record",
+            "arguments": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}, "value": {"type": "integer"}},
+            },
+        }
+    ],
+    "facts": [],
+    "source_handles": [],
 }
 
 
@@ -115,7 +130,7 @@ def validate_neutral_example() -> list[Finding]:
 
     plan = neutral_artifact_plan_v2()
     metadata = neutral_artifact_response_without_source()
-    inventory = {"operations": [], "facts": [], "source_handles": []}
+    inventory = deepcopy(NEUTRAL_INVENTORY)
     runtime_contract = {"delivery": ["direct_user_message"], "setup_permissions": []}
     return [
         *collect_plan_findings_v2(plan, inventory, runtime_contract),

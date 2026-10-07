@@ -42,12 +42,27 @@ def test_plan_summary_does_not_pass_a_plan_the_checks_reject() -> None:
     assert summary["checks"] == []
 
 
+def _refund_consistent_fixture() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return an inventory and artifact whose captures agree with the refund-bound condition."""
+
+    inventory = unjudged._inventory()
+    inventory["operations"].append(
+        {"name": "process_refund", "arguments": {"type": "object", "properties": {}}}
+    )
+    metadata = unjudged._metadata()
+    for label, amount in (("unsafe", 150), ("safe", 50)):
+        call = {"operation": "process_refund", "arguments": {"amount": amount}}
+        metadata["examples"][label]["capture"] = {"tool_calls": [call], "complete": True}
+    return inventory, metadata
+
+
 def test_artifact_summary_omits_the_judge_fact_check_when_the_artifact_has_no_judge() -> None:
+    inventory, metadata = _refund_consistent_fixture()
     context = build_artifact_reviewer_context(
         unjudged._view(),
         unjudged._plan(),
-        unjudged._metadata(),
-        unjudged._inventory(),
+        metadata,
+        inventory,
         unjudged._runtime_contract(),
     )
 

@@ -37,18 +37,18 @@ from tests.test_versioned_prompt_roles import (
 _OWNER_SCOPE_LABEL = "OWNER-SUPPLIED SCOPE (NOT OBSERVED TARGET FACTS)"
 # SHA-256 of system + NUL + user bytes captured for these prompt contracts.
 _BASE_REVISION = (
-    "authoring-call1-v20 / authoring-call2-v23 / authoring-correction-v31 (plan) / "
-    "authoring-correction-v32 (artifact) / authoring-plan-review-v19 / "
-    "authoring-artifact-review-v19"
+    "authoring-call1-v20 / authoring-call2-v24 / authoring-correction-v31 (plan) / "
+    "authoring-correction-v33 (artifact) / authoring-plan-review-v19 / "
+    "authoring-artifact-review-v20"
 )
 _BASE_STAGE_DIGESTS = {
     "call1": "70d8ba46d43f4b728670935e00dcba5034eb3b90b5b039da70f8d512ea41f3f5",
     "plan_review": "18f0a56a90f316a6f359d0e9b6aad2b35b1d6d92b97cc69becba0a143a539c6d",
-    "call2": "47a71b291c2441644207e686b35d6a3072028d867bbf9476391895c8bcb2a3b7",
+    "call2": "1e86361300981cf1da2e1b93ff6874b0f6d44b23d3513b6d70937ca55c40fa5b",
     # The fixture artifact has no judge spec, so its summary omits the judge fact-ref check.
-    "artifact_review": "6ce2e381b2eb7043b43080119ac93d7d663529dc48984ec8492e0161b58fdba5",
+    "artifact_review": "64eae0df8bc0d632d9c2953aa1397f7148eb379f1babc1212a58e80bbe0fa5bb",
     "plan_correction": "9157e0ee767fe5c0bb8e5df2c0add2314fc35db35705efe1abab2c15451bba72",
-    "artifact_correction": "5ec41d9e1609ba3a9298abcfca9392172543a1f1433df0b9ccc35c8716dae572",
+    "artifact_correction": "2d063ba1c2b15084fea4e19da4c51ac6a6b61d02ec516abf07d88d6f7e458537",
 }
 _OWNER_SCOPE = {
     "scenario_premises": [

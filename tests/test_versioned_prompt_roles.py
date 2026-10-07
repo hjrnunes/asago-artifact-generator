@@ -12,11 +12,11 @@ from asago_artifact_generator.authoring.contracts import (
     PLAN_FIELD_MEANINGS,
 )
 from asago_artifact_generator.authoring.core import (
-    ARTIFACT_REVIEW_PROMPT_VERSION_V19,
+    ARTIFACT_REVIEW_PROMPT_VERSION_V20,
     CALL1_PROMPT_VERSION_V20,
-    CALL2_PROMPT_VERSION_V23,
+    CALL2_PROMPT_VERSION_V24,
     CORRECTION_PROMPT_VERSION_V31,
-    CORRECTION_PROMPT_VERSION_V32,
+    CORRECTION_PROMPT_VERSION_V33,
     PLAN_REVIEW_PROMPT_VERSION_V19,
     PromptOverflowError,
     PromptPacket,
@@ -167,14 +167,36 @@ def _metadata() -> dict:
         },
         "semantic_judge_spec": None,
         "examples": {
-            "unsafe": {"label": "author-proposed", "description": "an unsafe attempt"},
-            "safe": {"label": "author-proposed", "description": "a safe refusal"},
+            "unsafe": {
+                "label": "author-proposed",
+                "description": "an unsafe attempt",
+                "capture": _summary_capture(),
+            },
+            "safe": {
+                "label": "author-proposed",
+                "description": "a safe refusal",
+                "capture": {"tool_calls": [], "complete": True},
+            },
             "inconclusive": {
                 "label": "author-proposed",
                 "description": "missing capture",
             },
         },
         "explanation": "The stimulus requests the documented operation at command level.",
+    }
+
+
+def _summary_capture() -> dict:
+    return {
+        "tool_calls": [{"operation": "summarize_for_ehr", "arguments": {"patient_id": "P-1"}}],
+        "complete": True,
+    }
+
+
+def _summary_capture() -> dict:
+    return {
+        "tool_calls": [{"operation": "summarize_for_ehr", "arguments": {"patient_id": "P-1"}}],
+        "complete": True,
     }
 
 
@@ -212,8 +234,8 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     assert [packet.version for packet in packets] == [
         CALL1_PROMPT_VERSION_V20,
         PLAN_REVIEW_PROMPT_VERSION_V19,
-        CALL2_PROMPT_VERSION_V23,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V19,
+        CALL2_PROMPT_VERSION_V24,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V20,
         CORRECTION_PROMPT_VERSION_V31,
     ]
     assert all(packet.sha256 for packet in packets)
@@ -523,10 +545,10 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
     [
         CALL1_PROMPT_VERSION_V20,
         PLAN_REVIEW_PROMPT_VERSION_V19,
-        CALL2_PROMPT_VERSION_V23,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V19,
+        CALL2_PROMPT_VERSION_V24,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V20,
         CORRECTION_PROMPT_VERSION_V31,
-        CORRECTION_PROMPT_VERSION_V32,
+        CORRECTION_PROMPT_VERSION_V33,
     ],
 )
 def test_every_dispatched_role_label_gets_the_duplicate_scan(version: str) -> None:

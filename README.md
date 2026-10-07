@@ -30,6 +30,11 @@ are rejected. The raw Call 1 bytes remain preserved, and a removed outer fence
 is recorded before plan validation. Call 2 uses the same framing rules: one
 JSON object with exactly `stimulus`, `semantic_judge_spec`, `examples`, and
 `explanation`. It returns no detector code.
+For a `command_attempt` claim, the `unsafe` and `safe` examples each carry a
+`capture`: `tool_calls` (each with an `operation` from the supplied inventory
+and its decoded `arguments`, in call order) and `complete`. The `inconclusive`
+example and every reply example stay prose. `examples.json` holds the examples
+as written; `artifact-package-v3` constrains only its manifest entry.
 Each v2 prompt carries the selected case meaning once under `case_meaning`;
 the input projection retains scenario/reference identities and narrative/Gherkin
 SHA-256 digests without repeating those texts.
@@ -220,7 +225,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `value.<record_key>.record_key` selector that bind the record key itself. A
   required change that replaces a binding path names the complete source and
   selector pair.
-- `authoring-call2-v23` renders the immutable accepted plan and the runtime
+- `authoring-call2-v24` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
   question whose yes answer is the violation, that the criteria are a
@@ -229,7 +234,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   does not end with a question mark. A plan that claims `reply` must return a
   `semantic_judge_spec` object; a missing one gets a
   `semantic_judge_spec_required` correction.
-- `authoring-artifact-review-v19` reviews the exact artifact object and the
+- `authoring-artifact-review-v20` reviews the exact artifact object and the
   binding and judge declarations.
 - `authoring-correction-v31` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
@@ -238,7 +243,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   lists the binding's documented selectors, the selected record's sources, and
   `review_selector_checks`: each selector path the required change names,
   checked against the sources that document it. Artifact corrections use
-  `authoring-correction-v32`.
+  `authoring-correction-v33`.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
 operations, schemas, provenance, and runtime capabilities. Reviewers do not

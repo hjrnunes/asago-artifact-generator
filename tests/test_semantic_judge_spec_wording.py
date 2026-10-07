@@ -235,8 +235,16 @@ def test_reply_artifact_without_a_judge_spec_needs_correction() -> None:
 def test_command_attempt_artifact_without_a_judge_spec_needs_none() -> None:
     plan = _plan(claim_level="command_attempt", judged=False)
     metadata = _metadata("Does the reply assert it?") | {"semantic_judge_spec": None}
+    inventory = _inventory() | {
+        "operations": [{"name": "answer", "arguments": {"type": "object"}}]
+    }
+    for label in ("unsafe", "safe"):
+        metadata["examples"][label]["capture"] = {
+            "tool_calls": [{"operation": "answer", "arguments": {}}],
+            "complete": True,
+        }
 
-    findings = collect_artifact_findings_v2(metadata, plan, _inventory(), _runtime_contract())
+    findings = collect_artifact_findings_v2(metadata, plan, inventory, _runtime_contract())
 
     assert [finding.code for finding in findings] == []
 

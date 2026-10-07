@@ -8,6 +8,7 @@ from typing import Any
 from ..bindings import BINDING_SPEC, JUDGE_CONSUMERS, PREREQUISITE_CONSUMERS
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from .core import AUTHORING_INTERFACE_VERSION_V2
+from .example_capture import CAPTURE_MEANING, CAPTURED_EXAMPLES, capture_schema
 
 _PLAN_FIELD_MEANING_SECTIONS: tuple[tuple[str, str], ...] = (
     (
@@ -592,23 +593,7 @@ def _call2_contract_v2(plan: dict[str, Any] | None = None) -> dict[str, Any]:
                     },
                 },
                 "semantic_judge_spec": _semantic_judge_spec_schema(plan),
-                "examples": {
-                    "type": "object",
-                    "required": ["unsafe", "safe", "inconclusive"],
-                    "additionalProperties": False,
-                    "properties": {
-                        label: {
-                            "type": "object",
-                            "required": ["label", "description"],
-                            "additionalProperties": False,
-                            "properties": {
-                                "label": {"const": "author-proposed"},
-                                "description": {"type": "string"},
-                            },
-                        }
-                        for label in ("unsafe", "safe", "inconclusive")
-                    },
-                },
+                "examples": _examples_schema(plan),
                 "explanation": {"type": "string"},
             },
         },
@@ -636,7 +621,47 @@ def _call2_contract_v2(plan: dict[str, Any] | None = None) -> dict[str, Any]:
         and plan["semantic_judge"].get("needed") is False
     ):
         contract["semantic_judge_spec_rules"] = deepcopy(_SEMANTIC_JUDGE_SPEC_RULES)
+    if _plan_example_capture_mode(plan) != "none":
+        contract["example_capture_meaning"] = CAPTURE_MEANING
     return contract
+
+
+def _plan_example_capture_mode(plan: dict[str, Any] | None) -> str:
+    """Return whether the unsafe and safe examples must, may, or cannot carry a capture."""
+
+    claim = plan.get("observation_claim") if isinstance(plan, dict) else None
+    level = claim.get("claim_level") if isinstance(claim, dict) else None
+    if level == ClaimLevel.COMMAND_ATTEMPT:
+        return "required"
+    return "none" if level == ClaimLevel.REPLY else "optional"
+
+
+def _examples_schema(plan: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the examples schema; a command-attempt plan adds the unsafe and safe captures."""
+
+    mode = _plan_example_capture_mode(plan)
+    properties: dict[str, Any] = {}
+    for label in ("unsafe", "safe", "inconclusive"):
+        example: dict[str, Any] = {
+            "type": "object",
+            "required": ["label", "description"],
+            "additionalProperties": False,
+            "properties": {
+                "label": {"const": "author-proposed"},
+                "description": {"type": "string"},
+            },
+        }
+        if label in CAPTURED_EXAMPLES and mode != "none":
+            example["properties"]["capture"] = capture_schema()
+            if mode == "required":
+                example["required"].append("capture")
+        properties[label] = example
+    return {
+        "type": "object",
+        "required": ["unsafe", "safe", "inconclusive"],
+        "additionalProperties": False,
+        "properties": properties,
+    }
 
 
 def neutral_artifact_response_without_source() -> dict[str, Any]:
@@ -1014,10 +1039,28 @@ def _neutral_artifact_response() -> dict[str, Any]:
             "unsafe": {
                 "label": "author-proposed",
                 "description": "inspect_record neutral-1 with value 4",
+                "capture": {
+                    "tool_calls": [
+                        {
+                            "operation": "inspect_record",
+                            "arguments": {"id": "neutral-1", "value": 4},
+                        }
+                    ],
+                    "complete": True,
+                },
             },
             "safe": {
                 "label": "author-proposed",
                 "description": "inspect_record neutral-1 with value 3",
+                "capture": {
+                    "tool_calls": [
+                        {
+                            "operation": "inspect_record",
+                            "arguments": {"id": "neutral-1", "value": 3},
+                        }
+                    ],
+                    "complete": True,
+                },
             },
             "inconclusive": {
                 "label": "author-proposed",

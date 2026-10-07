@@ -38,7 +38,9 @@ from .core import (
     _supported_claim_levels,
     staged_findings,
 )
+from .example_capture import CAPTURED_EXAMPLES, capture_shape_findings, example_capture_findings
 from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
+from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
 
@@ -202,6 +204,13 @@ def _call2_examples_findings(examples: Any) -> list[Finding]:
 
 
 def _call2_example_findings(label: str, item: Any) -> list[Finding]:
+    findings = _example_item_findings(label, item)
+    if findings or "capture" not in item:
+        return findings
+    return capture_shape_findings(label, item["capture"])
+
+
+def _example_item_findings(label: str, item: Any) -> list[Finding]:
     if item is None:
         return [
             Finding(
@@ -218,7 +227,8 @@ def _call2_example_findings(label: str, item: Any) -> list[Finding]:
                 f"examples.{label}",
             )
         ]
-    extra = sorted(set(item) - {"label", "description"})
+    allowed = {"label", "description"} | ({"capture"} if label in CAPTURED_EXAMPLES else set())
+    extra = sorted(set(item) - allowed)
     if extra:
         return [
             Finding(
@@ -455,14 +465,20 @@ def collect_artifact_findings_v2(
     runtime_contract: dict[str, Any],
     *,
     transformations: list[dict[str, Any]] | None = None,
+    condition: Mapping[str, Any] | None = None,
 ) -> list[Finding]:
-    """Normalize the plan-owned context and the stimulus slots, then validate v2 metadata."""
+    """Normalize the plan-owned context and the stimulus slots, then validate v2 metadata.
+
+    ``condition`` is the handoff's bound tool-call condition. A command-attempt
+    artifact whose example captures pass the structural checks is also scored
+    by it: its unsafe capture must be detected and its safe capture must not be.
+    """
 
     findings = _validate_call2_metadata_shape(metadata)
     if findings or not isinstance(metadata, dict):
         return staged_findings(findings, "artifact")
     _normalize_artifact_context(metadata, plan, inventory, transformations=transformations)
-    findings.extend(_artifact_findings(metadata, plan, inventory, runtime_contract))
+    findings.extend(_artifact_findings(metadata, plan, inventory, runtime_contract, condition))
     return staged_findings(findings, "artifact")
 
 
@@ -501,6 +517,7 @@ def _artifact_findings(
     plan: dict[str, Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    condition: Mapping[str, Any] | None,
 ) -> list[Finding]:
     findings = _semantic_judge_question_findings(metadata.get("semantic_judge_spec"))
     runtime_bindings = plan.get("runtime_bindings")
@@ -515,6 +532,7 @@ def _artifact_findings(
                 runtime_bindings,
             )
         )
+    findings.extend(_artifact_example_findings(metadata, plan, inventory, condition))
     judge_spec = metadata.get("semantic_judge_spec")
     findings.extend(_semantic_judge_decision_findings(plan, judge_spec))
     if isinstance(judge_spec, dict):
@@ -531,6 +549,27 @@ def _artifact_findings(
             )
         )
     return findings
+
+
+def _artifact_example_findings(
+    metadata: dict[str, Any],
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    condition: Mapping[str, Any] | None,
+) -> list[Finding]:
+    """Check the example captures against the claim level, the inventory, and the condition."""
+
+    level = _plan_claim_level(plan)
+    if level not in (ClaimLevel.COMMAND_ATTEMPT, ClaimLevel.REPLY):
+        return []
+    findings = example_capture_findings(
+        metadata["examples"],
+        command_attempt=level == ClaimLevel.COMMAND_ATTEMPT,
+        inventory=inventory,
+    )
+    if findings or level != ClaimLevel.COMMAND_ATTEMPT:
+        return findings
+    return oracle_self_test_findings(metadata["examples"], condition)
 
 
 def _semantic_judge_question_findings(spec: Any) -> list[Finding]:
@@ -2424,7 +2463,9 @@ ARTIFACT_MECHANICAL_CHECKS = (
         "artifact fields, stimulus shape and delivery, user-only history, slot "
         "declarations, plan-owned-field preservation, required_observations shape, "
         "judge-spec shape, the accepted-plan judge choice, a judge spec for a reply "
-        "claim, and author-proposed example shapes.",
+        "claim, author-proposed example shapes, and, for a command_attempt claim, an "
+        "unsafe and a safe capture whose calls name supplied operations, with the scenario's "
+        "tool-call condition detecting the unsafe capture and not detecting the safe one.",
         (
             _validate_call2_metadata_shape,
             _artifact_stimulus_findings,

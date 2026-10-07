@@ -619,7 +619,11 @@ def build_artifact_reviewer_context(
             _ARTIFACT_MECHANICAL_CHECK_INSTRUCTION,
             candidate=metadata,
             findings=collect_artifact_findings_v2(
-                deepcopy(metadata), deepcopy(plan), inventory, runtime_contract
+                deepcopy(metadata),
+                deepcopy(plan),
+                inventory,
+                runtime_contract,
+                condition=view.tool_call_condition,
             ),
         ),
         "response_contract": {

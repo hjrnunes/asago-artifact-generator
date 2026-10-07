@@ -10,7 +10,7 @@ from .context_budget import _enforce_prompt_size
 from .contracts import _call1_contract_v2, _call2_contract_v2
 from .core import (
     CALL1_PROMPT_VERSION_V20,
-    CALL2_PROMPT_VERSION_V23,
+    CALL2_PROMPT_VERSION_V24,
     MAX_RENDERED_PROMPT_BYTES,
     PromptPacket,
 )
@@ -218,7 +218,7 @@ def build_call2_packet_v2(
     )
     packet = PromptPacket(
         stage="call2",
-        version=CALL2_PROMPT_VERSION_V23,
+        version=CALL2_PROMPT_VERSION_V24,
         system=_CALL2_SYSTEM,
         # Same fit as call1's SOURCE CONTEXT: compact JSON keeps every value and
         # drops only indentation, which otherwise pushes large inventories past
