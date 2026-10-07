@@ -44,11 +44,11 @@ _BASE_REVISION = (
 _BASE_STAGE_DIGESTS = {
     "call1": "70d8ba46d43f4b728670935e00dcba5034eb3b90b5b039da70f8d512ea41f3f5",
     "plan_review": "18f0a56a90f316a6f359d0e9b6aad2b35b1d6d92b97cc69becba0a143a539c6d",
-    "call2": "47a71b291c2441644207e686b35d6a3072028d867bbf9476391895c8bcb2a3b7",
+    "call2": "1e86361300981cf1da2e1b93ff6874b0f6d44b23d3513b6d70937ca55c40fa5b",
     # The fixture artifact has no judge spec, so its summary omits the judge fact-ref check.
-    "artifact_review": "6ce2e381b2eb7043b43080119ac93d7d663529dc48984ec8492e0161b58fdba5",
+    "artifact_review": "f1238ae913c1c4b09df65f7dfed32db5b03e69d4a14bda521d368ff92ae28c41",
     "plan_correction": "9157e0ee767fe5c0bb8e5df2c0add2314fc35db35705efe1abab2c15451bba72",
-    "artifact_correction": "5ec41d9e1609ba3a9298abcfca9392172543a1f1433df0b9ccc35c8716dae572",
+    "artifact_correction": "2d063ba1c2b15084fea4e19da4c51ac6a6b61d02ec516abf07d88d6f7e458537",
 }
 _OWNER_SCOPE = {
     "scenario_premises": [

@@ -30,6 +30,11 @@ are rejected. The raw Call 1 bytes remain preserved, and a removed outer fence
 is recorded before plan validation. Call 2 uses the same framing rules: one
 JSON object with exactly `stimulus`, `semantic_judge_spec`, `examples`, and
 `explanation`. It returns no detector code.
+For a `command_attempt` claim, the `unsafe` and `safe` examples each carry a
+`capture`: `tool_calls` (each with an `operation` from the supplied inventory
+and its decoded `arguments`, in call order) and `complete`. The `inconclusive`
+example and every reply example stay prose. `examples.json` holds the examples
+as written; `artifact-package-v3` constrains only its manifest entry.
 Each v2 prompt carries the selected case meaning once under `case_meaning`;
 the input projection retains scenario/reference identities and narrative/Gherkin
 SHA-256 digests without repeating those texts.

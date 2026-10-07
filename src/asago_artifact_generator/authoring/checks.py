@@ -38,6 +38,7 @@ from .core import (
     _supported_claim_levels,
     staged_findings,
 )
+from .example_capture import CAPTURED_EXAMPLES, capture_shape_findings, example_capture_findings
 from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
@@ -218,7 +219,8 @@ def _call2_example_findings(label: str, item: Any) -> list[Finding]:
                 f"examples.{label}",
             )
         ]
-    extra = sorted(set(item) - {"label", "description"})
+    allowed = {"label", "description"} | ({"capture"} if label in CAPTURED_EXAMPLES else set())
+    extra = sorted(set(item) - allowed)
     if extra:
         return [
             Finding(
@@ -236,7 +238,7 @@ def _call2_example_findings(label: str, item: Any) -> list[Finding]:
                 f"examples.{label}.description",
             )
         ]
-    return []
+    return capture_shape_findings(label, item["capture"]) if "capture" in item else []
 
 
 def collect_plan_findings_v2(
@@ -515,6 +517,7 @@ def _artifact_findings(
                 runtime_bindings,
             )
         )
+    findings.extend(_artifact_example_findings(metadata, plan, inventory))
     judge_spec = metadata.get("semantic_judge_spec")
     findings.extend(_semantic_judge_decision_findings(plan, judge_spec))
     if isinstance(judge_spec, dict):
@@ -531,6 +534,21 @@ def _artifact_findings(
             )
         )
     return findings
+
+
+def _artifact_example_findings(
+    metadata: dict[str, Any], plan: dict[str, Any], inventory: dict[str, Any]
+) -> list[Finding]:
+    """Check the example captures against the accepted plan's claim level and the inventory."""
+
+    level = _plan_claim_level(plan)
+    if level not in (ClaimLevel.COMMAND_ATTEMPT, ClaimLevel.REPLY):
+        return []
+    return example_capture_findings(
+        metadata["examples"],
+        command_attempt=level == ClaimLevel.COMMAND_ATTEMPT,
+        inventory=inventory,
+    )
 
 
 def _semantic_judge_question_findings(spec: Any) -> list[Finding]:
@@ -2424,7 +2442,8 @@ ARTIFACT_MECHANICAL_CHECKS = (
         "artifact fields, stimulus shape and delivery, user-only history, slot "
         "declarations, plan-owned-field preservation, required_observations shape, "
         "judge-spec shape, the accepted-plan judge choice, a judge spec for a reply "
-        "claim, and author-proposed example shapes.",
+        "claim, author-proposed example shapes, and, for a command_attempt claim, an "
+        "unsafe and a safe capture whose calls name supplied operations.",
         (
             _validate_call2_metadata_shape,
             _artifact_stimulus_findings,
