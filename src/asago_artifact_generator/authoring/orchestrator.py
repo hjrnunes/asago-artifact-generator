@@ -43,6 +43,7 @@ from .core import (
     PromptOverflowError,
     PromptPacket,
     PromptPreflightError,
+    ReviewResponse,
     ReviewResponseError,
     TransportResponse,
     _canonical_json,
@@ -107,6 +108,7 @@ from .response_decode import (
     _response_parts,
 )
 from .review import (
+    REVIEW_FINDINGS_OMITTED,
     PriorReviewRound,
     _review_configuration_digest,
     _review_contract_digest,
@@ -1243,8 +1245,7 @@ class AuthoringOrchestrator:
             "out_of_scope_findings": [dict(item) for item in out_of_scope_findings],
             "question_ids": list(_review_question_ids(packet.stage)),
         }
-        if review.transformation:
-            self._record_transformation(review.transformation)
+        self._record_review_transformations(review, packet.stage)
         self._journal.append(ReviewDecided(review_record))
         self._set_review_evidence(
             status={
@@ -1529,6 +1530,28 @@ class AuthoringOrchestrator:
     def _record_transformation(self, transformation: Any) -> None:
         self._transformations.append(transformation)
         self._journal.append(TransformationRecorded(transformation, tuple(self._transformations)))
+
+    def _record_review_transformations(self, review: ReviewResponse, stage: str) -> None:
+        """Record the fence removal and any defaulted ``findings`` of one parsed review.
+
+        The fence name takes the attempt's single ``transformation`` slot; the
+        defaulted field is a detailed record, so it goes to the attempt's
+        ``transformations`` list beside the other deterministic rewrites.
+        """
+
+        if review.transformation:
+            self._record_transformation(review.transformation)
+        if review.findings_omitted:
+            start = len(self._transformations)
+            self._transformations.append(
+                {
+                    "transformation": REVIEW_FINDINGS_OMITTED,
+                    "stage": stage,
+                    "field": "findings",
+                    "default": [],
+                }
+            )
+            self._record_validation_transformations(start)
 
     def _record_validation_transformations(self, start: int) -> None:
         """Persist deterministic binding rewrites made during validation."""

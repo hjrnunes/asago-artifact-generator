@@ -162,7 +162,12 @@ With reviews enabled, each stage runs deterministic checks before its semantic
 review of a mechanically valid candidate. A reviewer returns one JSON object
 with `decision` (`accept`, `revise`, or `blocked`), a nonblank `summary`, and
 findings with exactly `location`, `problem`, `basis`, and `required_change`;
-the framing rules match Call 1. `revise` feeds a stage correction that repeats
+the framing rules match Call 1. An `accept` that omits `findings` entirely
+counts as an empty findings list, and the run records the
+`review_findings_omitted_defaulted_empty` transformation (with the review
+stage) in its transformations and on that review's ledger entry; `findings`
+set to `null` or any non-list value, and an omitted `findings` on `revise` or
+`blocked`, stay invalid. `revise` feeds a stage correction that repeats
 all checks and the review. Each reviewed stage has one review revision
 that is separate from its correction allowance: a `revise` spends the review
 revision, while mechanical findings, including findings on the

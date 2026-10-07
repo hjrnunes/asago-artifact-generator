@@ -312,13 +312,16 @@ class ReviewResponse:
     ``decision`` is ``accept``, ``revise``, or ``blocked``; ``findings`` is a
     tuple of complete finding objects with exactly ``question``, ``location``,
     ``problem``, ``basis``, and ``required_change``. The question is scoped
-    against the stage's closed question list after parsing.
+    against the stage's closed question list after parsing. ``findings_omitted``
+    is true when an ``accept`` reply had no ``findings`` key and the parser
+    supplied the empty tuple.
     """
 
     decision: str
     summary: str
     findings: tuple[dict[str, Any], ...] = ()
     transformation: str | None = None
+    findings_omitted: bool = False
 
 
 @dataclass(frozen=True)
