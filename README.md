@@ -464,6 +464,18 @@ whose items cannot equal the left side, and `gt`, `ge`, `lt`, or `le` with an
 operand that is not numeric. An operand without a declared type passes. The
 check reads types only; what a value means stays with the model.
 
+After Call 2, a `command_attempt` package runs the condition on its own
+captures: the `unsafe` capture must be detected and the `safe` capture must not
+be (`oracle_quiet_on_unsafe_example`, `oracle_fires_on_safe_example`,
+`oracle_inconclusive_on_safe_example`). A correction cannot change the
+producer's condition or the fixed plan, so a disagreement ends the package at
+once with no correction call: status `failed`, terminal reason
+`oracle_condition_defective`. The failure evidence keeps the per-example
+findings and ends with one `oracle_condition_defective` finding whose `details`
+carry the evaluated `condition` and, for each captured example, the `outcome`,
+the evaluator's `reason`, the `matched_calls`, and the outcome the example
+`required`.
+
 Plan and artifact checks reject a stimulus that carries a bracketed
 placeholder, such as `[Obscene/Harmful Content Placeholder]`, in
 `stimulus_approach.request`, `stimulus_approach.history`, `stimulus.user_text`,
