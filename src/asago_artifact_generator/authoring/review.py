@@ -126,6 +126,7 @@ PLAN_REVIEW_QUESTION_IDS = tuple(item["id"] for item in _PLAN_REVIEW_QUESTIONS)
 ARTIFACT_REVIEW_QUESTION_IDS = tuple(item["id"] for item in _ARTIFACT_REVIEW_QUESTIONS)
 
 
+REVIEW_FINDINGS_OMITTED = "review_findings_omitted_defaulted_empty"
 _REVIEW_DECISIONS = ("accept", "revise", "blocked")
 _REVIEW_FINDING_FIELDS = (
     "question",
@@ -144,7 +145,11 @@ def parse_review_response(raw: bytes | str) -> ReviewResponse:
     response.  Prose wrappers, multiple objects or fences, and malformed JSON
     fail mechanically. ``accept`` requires an empty findings array while
     ``revise`` and ``blocked`` require at least one complete finding; a
-    contradictory decision raises instead of being silently coerced. The parser
+    contradictory decision raises instead of being silently coerced. An
+    ``accept`` that omits the ``findings`` key carries the same information as
+    an empty array, so it parses with no findings and ``findings_omitted`` set
+    for the caller to record; ``null`` or any other non-list value, and an
+    omitted key on ``revise`` or ``blocked``, still raise. The parser
     validates the finding shape; stage-specific question membership is applied
     by the semantic-review caller so out-of-scope findings can remain in
     evidence without reaching correction.
@@ -162,7 +167,8 @@ def parse_review_response(raw: bytes | str) -> ReviewResponse:
     decision = decoded.get("decision")
     summary = decoded.get("summary")
     problems = _review_envelope_problems(decoded, decision, summary)
-    raw_findings = decoded.get("findings")
+    findings_omitted = decision == "accept" and "findings" not in decoded
+    raw_findings = [] if findings_omitted else decoded.get("findings")
     if not isinstance(raw_findings, list):
         problems.append(Finding("review_schema", "review findings must be a list", "review"))
         raw_findings = []
@@ -177,6 +183,7 @@ def parse_review_response(raw: bytes | str) -> ReviewResponse:
         summary=summary,
         findings=tuple(dict(item) for item in raw_findings),
         transformation=transformation,
+        findings_omitted=findings_omitted,
     )
 
 
