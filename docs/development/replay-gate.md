@@ -103,10 +103,21 @@ responses. Fix nondeterminism in the code instead of listing it.
   changed since the recording, the prompts differ and the gate fails.
 - The model profile must be unchanged. Its controls are part of each recorded
   dispatch, and the outputs compare them.
-- The gate cannot replay a provider exception: failure evidence records only a
-  failure code and detail. It rejects a recording with an unavailable response.
+- The gate cannot replay a provider exception that ended a dispatch: failure
+  evidence records only a failure code and detail for it. It rejects a
+  recording with an unavailable response.
+- The gate replays a dispatch recorded with a transport retry. The dispatch
+  holds `transport_retries`, a list with `{"attempt": 2, "retry_of":
+  {"type": <error class>, "status_code": <HTTP status or null>}}`. For each
+  entry the replay client first raises that error (an `openai`
+  `APIConnectionError` or `InternalServerError`) for the recorded request,
+  then serves the recorded response, so the transport retries for real. The
+  retry waits the transport's fixed delay (at most 2 seconds). A dispatch
+  whose retry also failed ends in an unavailable response and still does not
+  replay. Recordings without a retry replay exactly as before.
 - The replay starts at the SDK client. It does not cover the `openai` SDK
-  itself or the service-tier fallback after a rate limit.
+  itself or the service-tier fallback after a rate limit. It replays the
+  transport retry from the recording (see above), not from a live error.
 - Recordings made before artifact-package-v3 no longer replay. Their Call 2
   prompts asked for detector Python, their packages carry `detector.py` and a
   `detector_interface`, and their items read scenario-handoff-v1 or v2 input,

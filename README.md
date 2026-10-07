@@ -76,7 +76,14 @@ and `seed`,
 and the thinking `chat_template_kwargs` entirely. Each call records only the
 controls it actually sends and keeps `max_retries=0`. `reasoning_effort` and
 `service_tier` become top-level request fields; a configured
-`service_tier_fallback` retries one 429 once with the fallback tier. The
+`service_tier_fallback` retries one 429 once with the fallback tier. After an
+HTTP 5xx or a connection error that is not a timeout, the transport retries the
+same request once after a fixed delay of at most 2 seconds; it never retries a
+timeout, a 4xx (429 included), or an invalid response. The retry reserves one
+more dispatch from the budget, and the dispatch's ledger and failure-evidence
+record gain `transport_retries`: `[{"attempt": 2, "retry_of": {"type": <error
+class>, "status_code": <HTTP status or null>}}]`. Dispatches without a retry
+carry no such key. The
 `strict_json_schema` profile field is accepted for shared-profile compatibility,
 but the consumer continues to send no `response_format`. Only the final message
 content is parsed; provider reasoning stays in the raw response capture and
@@ -168,8 +175,8 @@ revision and its review (12 dispatches, at most 6 author and 6 review, with
 default settings); `blocked` at the artifact stage stops as
 `needs_plan_revision` without recursing into plan authoring. Malformed or
 contradictory reviewer responses and reviewer transport failures produce
-`review_unavailable`, never a silent pass, and transport failures stop the run
-with no automatic retry. An explicit caller, per-task, or aggregate budget cap
+`review_unavailable`, never a silent pass, and a transport failure stops the run
+after the one recorded transport retry (see the profile section). An explicit caller, per-task, or aggregate budget cap
 stops the run before the next dispatch.
 
 ### Omission plans
@@ -533,7 +540,8 @@ uv run asago-artifact-generator generate scenario-handoff.json \
 ```
 
 Authoring uses only the configured private model client. It sets provider
-retries to zero, records prompts, raw and decoded responses, usage, controls,
+retries to zero (the transport's one recorded retry after a transport error
+is its own), records prompts, raw and decoded responses, usage, controls,
 and the stage-local correction allowances, and never contacts a target, setup,
 discovery, or runtime-judge transport. An essential unresolved requirement
 produces a retained `*.blocked.json` plan and no package. The package contains

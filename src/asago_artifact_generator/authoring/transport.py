@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
@@ -19,9 +21,39 @@ from .core import (
 from .prompt_safety import _endpoint_identity, _endpoint_prompt_paths
 from .response_decode import _provider_field, _provider_response_capture
 
+DEFAULT_RETRY_DELAY_SECONDS = 1.0
+RETRY_DELAY_SECONDS = DEFAULT_RETRY_DELAY_SECONDS
+_sleep = time.sleep
+
+
+def retryable_failure(error: BaseException) -> dict[str, Any] | None:
+    """Describe *error* as ``{"type", "status_code"}`` when it earns the one retry.
+
+    A request retries after an HTTP 5xx status or a connection error that is
+    not a timeout.  A timeout, every 4xx status (429 included), and every
+    other error never retries.
+    """
+
+    import openai
+
+    if isinstance(error, openai.APITimeoutError):
+        return None
+    if isinstance(error, openai.APIConnectionError):
+        return {"type": type(error).__name__, "status_code": None}
+    if isinstance(error, openai.APIStatusError) and 500 <= error.status_code <= 599:
+        return {"type": type(error).__name__, "status_code": error.status_code}
+    return None
+
 
 class PrivateModelAuthoringTransport:
-    """Explicit OpenAI-compatible private authoring client with retries off."""
+    """Explicit OpenAI-compatible private authoring client.
+
+    The SDK's own retries are off (``max_retries = 0``).  The transport makes
+    one retry of its own after a transport error (see
+    :func:`retryable_failure`); ``last_retries`` records it for the caller, and
+    ``retry_gate`` lets the caller refuse it, for example when the request
+    budget has no request left.
+    """
 
     max_retries = 0
 
@@ -84,6 +116,8 @@ class PrivateModelAuthoringTransport:
         self.strict_json_schema = strict_json_schema
         self.timeout = timeout
         self.last_controls: dict[str, Any] | None = None
+        self.last_retries: list[dict[str, Any]] = []
+        self.retry_gate: Callable[[], bool] | None = None
         self.extra_body = deepcopy(extra_body) if extra_body is not None else None
         self.review_extra_body = (
             deepcopy(review_extra_body) if review_extra_body is not None else None
@@ -138,6 +172,7 @@ class PrivateModelAuthoringTransport:
         return self.max_completion_tokens
 
     def complete(self, packet: PromptPacket) -> TransportResponse:
+        self.last_retries = []
         self.preflight_context_budget(packet)
         extra_body = self.extra_body_for(packet)
         max_completion_tokens = self.max_completion_tokens_for(packet)
@@ -186,7 +221,7 @@ class PrivateModelAuthoringTransport:
             fallback_used=False,
         )
         try:
-            return self._client.chat.completions.create(**request)
+            return self._send(request)
         except self._rate_limit_error_type():
             if self.service_tier is None or self.service_tier_fallback is None:
                 raise
@@ -198,7 +233,28 @@ class PrivateModelAuthoringTransport:
                 service_tier=fallback_request["service_tier"],
                 fallback_used=True,
             )
-            return self._client.chat.completions.create(**fallback_request)
+            return self._send(fallback_request)
+
+    def _send(self, request: dict[str, Any]) -> Any:
+        """Send one request; after a transport error, retry it once and record it.
+
+        The SDK client has retries off, so each attempt reaches this method.
+        ``retry_gate`` may refuse the retry, in which case the first error
+        surfaces unchanged.
+        """
+
+        try:
+            return self._client.chat.completions.create(**request)
+        except Exception as error:
+            failure = retryable_failure(error)
+            if failure is None or not self._retry_allowed():
+                raise
+        self.last_retries.append({"attempt": 2, "retry_of": failure})
+        _sleep(RETRY_DELAY_SECONDS)
+        return self._client.chat.completions.create(**request)
+
+    def _retry_allowed(self) -> bool:
+        return self.retry_gate is None or self.retry_gate()
 
     def _request_controls(
         self,

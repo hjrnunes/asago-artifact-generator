@@ -91,6 +91,19 @@ class FailureControlsRecorded:
 
 
 @dataclass(frozen=True)
+class TransportRetried:
+    """The transport retried the open dispatch's request once after a transport error.
+
+    ``retry_of`` holds the error class and HTTP status (``None`` for a
+    connection error) of the attempt that failed.  The retry's budget
+    reservation is a separate ``BudgetRecorded`` event.
+    """
+
+    attempt: int
+    retry_of: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class ResponseReturned:
     raw_response_key: str
     raw: bytes
@@ -217,6 +230,12 @@ def _evidence_finding(finding: Finding) -> dict[str, Any]:
     return record
 
 
+def _retry_record(event: TransportRetried) -> dict[str, Any]:
+    """Return the record of one transport retry: its attempt number and the failure it retries."""
+
+    return {"attempt": event.attempt, "retry_of": dict(event.retry_of)}
+
+
 def _record_controls(event: Any) -> dict[str, Any] | None:
     """Return the controls an event sets on its dispatch record, or None."""
 
@@ -302,6 +321,9 @@ class _LedgerProjection:
 
     def _on_FailureControlsRecorded(self, event: FailureControlsRecorded) -> None:
         self.records[-1]["controls"] = _record_controls(event)
+
+    def _on_TransportRetried(self, event: TransportRetried) -> None:
+        self.records[-1].setdefault("transport_retries", []).append(_retry_record(event))
 
     def _on_ResponseReturned(self, event: ResponseReturned) -> None:
         record = self.records[-1]
@@ -445,6 +467,9 @@ class _EvidenceProjection:
             event.controls,
             unavailable_reason="provider_did_not_return_response",
         )
+
+    def _on_TransportRetried(self, event: TransportRetried) -> None:
+        self._attempt().setdefault("transport_retries", []).append(_retry_record(event))
 
     def _on_ResponseReturned(self, event: ResponseReturned) -> None:
         attempt = self._attempt()
