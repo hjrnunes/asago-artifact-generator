@@ -267,7 +267,7 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
         findings=[],
     )
     plan_packet = _render_correction_packet(
-        plan_correction, correction_repair_inputs(view, inventory, runtime, plan=True)
+        plan_correction, correction_repair_inputs(view, inventory, runtime)
     )
     assert plan_packet.version == CORRECTION_PROMPT_VERSION_V29
     assert plan_packet.user.count(PLAN_FIELD_MEANINGS) == 1
@@ -281,7 +281,7 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
         findings=[],
     )
     artifact_packet = _render_correction_packet(
-        artifact_correction, correction_repair_inputs(view, inventory, runtime, plan=False)
+        artifact_correction, correction_repair_inputs(view, inventory, runtime)
     )
     assert artifact_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     assert NEUTRAL_PLAN_OUTCOME_EXAMPLE not in artifact_packet.user
@@ -470,7 +470,7 @@ def test_artifact_roles_drop_the_detector_evidence_interface() -> None:
             current_output=_framed(),
             findings=[],
         ),
-        correction_repair_inputs(view, inventory, runtime, plan=False),
+        correction_repair_inputs(view, inventory, runtime),
     )
     review = build_artifact_review_packet(view, plan, _metadata(), inventory, runtime)
 

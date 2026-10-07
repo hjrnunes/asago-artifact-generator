@@ -67,7 +67,7 @@ def _correction_packet(plan: dict, findings: list[Finding], inventory: dict | No
         findings=findings,
     )
     return _render_correction_packet(
-        context, correction_repair_inputs(_view(), inventory, _runtime_contract(), plan=True)
+        context, correction_repair_inputs(_view(), inventory, _runtime_contract())
     )
 
 

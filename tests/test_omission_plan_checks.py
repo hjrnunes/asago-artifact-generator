@@ -71,7 +71,7 @@ _TRIGGER_BINDING = {
     "source_kind": "supplied_input",
     "source_ref": "facts:observation:check_widget:0",
     "selector": "value.structuredContent.result",
-    "consumers": ["detector.widget_result"],
+    "consumers": ["judge.widget_result"],
     "on_missing": "inconclusive",
 }
 

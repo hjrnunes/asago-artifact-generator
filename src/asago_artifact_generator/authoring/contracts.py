@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from ..bindings import BINDING_SPEC
+from ..bindings import BINDING_SPEC, JUDGE_CONSUMERS, PREREQUISITE_CONSUMERS
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from .core import AUTHORING_INTERFACE_VERSION_V2
 
@@ -660,6 +660,22 @@ def neutral_artifact_plan_v2() -> dict[str, Any]:
     return plan
 
 
+def _consumer_destination_list() -> str:
+    """Spell the spec's closed destinations as the consumer rule lists them."""
+
+    entries = [
+        destination
+        + (
+            f", where <{PREREQUISITE_CONSUMERS.suffix}> is this binding's own name "
+            "(required whenever a prerequisite names this binding)"
+            if destination == PREREQUISITE_CONSUMERS.spelling
+            else ""
+        )
+        for destination in BINDING_SPEC.consumer_destinations
+    ]
+    return "; ".join([*entries[:-1], f"or {entries[-1]}"])
+
+
 def _binding_contract() -> dict[str, Any]:
     setup_output_example = {
         "name": "setup_status",
@@ -721,18 +737,17 @@ def _binding_contract() -> dict[str, Any]:
         ),
         "consumer_rule": (
             "consumers is a non-empty list of closed destination paths that receive the "
-            "resolved value. Write each entry as exactly one of: stimulus.user_text; "
-            "stimulus.history; prerequisites.<binding name>, where <binding name> is "
-            "this binding's own name (required whenever a prerequisite names this "
-            "binding); detector.<binding name>; or setup.arguments.<argument name>. "
+            "resolved value. Write each entry as exactly one of: "
+            + _consumer_destination_list()
+            + ". "
             "Write the actual name, never a * wildcard. observation_claim, "
             "required_observations, and other plan fields are not consumers. A consumer "
-            "does not identify the source. Use detector.<binding name> when the semantic "
+            f"does not identify the source. Use {JUDGE_CONSUMERS.spelling} when the semantic "
             "judge of a reply claim reads the resolved value; downstream gives that judge "
             "every resolved binding, and the producer's tool-call condition for a "
             "command_attempt claim reads none. Use stimulus.user_text only when the "
             "resolved scalar value occurs in authored user text or a {{binding name}} "
-            "slot; do not list it for a session prerequisite or detector-only value."
+            "slot; do not list it for a session prerequisite or judge-only value."
         ),
         "applicability": (
             "runtime_bindings is [] (an empty list) only when no consumer needs a bound "

@@ -42,12 +42,12 @@ _BASE_REVISION = (
     "authoring-artifact-review-v18"
 )
 _BASE_STAGE_DIGESTS = {
-    "call1": "b3edc0abddbb325ddbbfafaba662fb1a09fa21472ef1f1b747e5821c1af7abd0",
-    "plan_review": "a83dc10af159e7675da3e9ca04b89b816056486c1a7c3a8a9906ce7ab15a7d7f",
+    "call1": "70d8ba46d43f4b728670935e00dcba5034eb3b90b5b039da70f8d512ea41f3f5",
+    "plan_review": "18f0a56a90f316a6f359d0e9b6aad2b35b1d6d92b97cc69becba0a143a539c6d",
     "call2": "47a71b291c2441644207e686b35d6a3072028d867bbf9476391895c8bcb2a3b7",
     # The fixture artifact has no judge spec, so its summary omits the judge fact-ref check.
-    "artifact_review": "dc13e8b5cac74a41cfed50916ae6be006566c216f92592ae907e8a4c6017cba9",
-    "plan_correction": "063acf09e08074886b259e0b6fdc4a323e6a25130de0e6608e053f20a162113e",
+    "artifact_review": "6ce2e381b2eb7043b43080119ac93d7d663529dc48984ec8492e0161b58fdba5",
+    "plan_correction": "9157e0ee767fe5c0bb8e5df2c0add2314fc35db35705efe1abab2c15451bba72",
     "artifact_correction": "5ec41d9e1609ba3a9298abcfca9392172543a1f1433df0b9ccc35c8716dae572",
 }
 _OWNER_SCOPE = {
@@ -82,7 +82,7 @@ def _render_all_stage_packets(view):
                 current_output="{}",
                 findings=[],
             ),
-            correction_repair_inputs(view, inventory, runtime, plan=True),
+            correction_repair_inputs(view, inventory, runtime),
         ),
         "artifact_correction": _render_correction_packet(
             build_correction_context(
@@ -91,7 +91,7 @@ def _render_all_stage_packets(view):
                 current_output=_framed(),
                 findings=[],
             ),
-            correction_repair_inputs(view, inventory, runtime, plan=False),
+            correction_repair_inputs(view, inventory, runtime),
         ),
     }
 
@@ -207,7 +207,7 @@ def test_owner_scope_is_separate_and_labeled_in_every_source_context_stage() -> 
                 current_output="{}",
                 findings=[],
             ),
-            correction_repair_inputs(view, inventory, runtime, plan=True),
+            correction_repair_inputs(view, inventory, runtime),
         ),
         _render_correction_packet(
             build_correction_context(
@@ -216,7 +216,7 @@ def test_owner_scope_is_separate_and_labeled_in_every_source_context_stage() -> 
                 current_output=_framed(),
                 findings=[],
             ),
-            correction_repair_inputs(view, inventory, runtime, plan=False),
+            correction_repair_inputs(view, inventory, runtime),
         ),
     ]
     for packet in packets:

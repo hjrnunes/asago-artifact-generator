@@ -13,6 +13,7 @@ from typing import Any
 from ..bindings import (
     BINDING_SPEC,
     CLOSED_TYPES,
+    JUDGE_CONSUMERS,
     MISSING_POLICIES,
     SOURCE_KINDS,
     BindingValidationError,
@@ -39,6 +40,10 @@ from .core import (
 )
 from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
+
+# The spelling JUDGE_CONSUMERS replaced. It stays out of the closed vocabulary, so a plan
+# that still writes it gets a finding that names the replacement instead of an alias.
+_RETIRED_DETECTOR_PREFIX = "detector."
 
 
 def _validate_call2_metadata_shape(value: Any) -> list[Finding]:
@@ -405,7 +410,7 @@ def _plan_stimulus_slot_findings(
                     "and cannot change the plan. Either write {{" + name + "}} where the "
                     "request uses the value, or remove stimulus.user_text from its "
                     "consumers. A slot must name the binding whose value it carries; "
-                    "session prerequisites and detector-only values do not belong in "
+                    "session prerequisites and judge-only values do not belong in "
                     "stimulus.user_text."
                 ),
                 f"runtime_bindings[{mismatch['binding_index']}]"
@@ -664,7 +669,7 @@ def _stimulus_consumer_findings(
                 f"binding {binding_name!r} declares stimulus.user_text, but its "
                 "supplied value does not occur in authored stimulus.user_text; "
                 f"remove that consumer or use {{{{{binding_name}}}}} in the "
-                "user text. Session prerequisites and detector inputs do not "
+                "user text. Session prerequisites and judge inputs do not "
                 "belong in stimulus.user_text."
             )
         else:
@@ -933,6 +938,7 @@ def _plan_field_findings(
                 finding_code="plan_binding_validation",
             )
         )
+        findings.extend(_judge_consumer_findings(plan, finding_code="plan_binding_validation"))
     findings.extend(_stimulus_approach_findings(plan, runtime_contract))
     findings.extend(_observation_claim_findings(plan, runtime_contract))
     findings.extend(_semantic_judge_plan_findings(plan))
@@ -1630,6 +1636,16 @@ def _binding_consumer_findings(
                     consumer_path,
                 )
             )
+        elif consumer.startswith(_RETIRED_DETECTOR_PREFIX):
+            judge_destination = JUDGE_CONSUMERS.prefix + consumer[len(_RETIRED_DETECTOR_PREFIX) :]
+            findings.append(
+                Finding(
+                    finding_code,
+                    f"binding consumer {consumer} is not a closed path; the semantic "
+                    f"judge of a reply claim reads {judge_destination}",
+                    consumer_path,
+                )
+            )
         elif not BINDING_SPEC.is_closed_consumer(consumer):
             findings.append(
                 Finding(
@@ -1639,6 +1655,40 @@ def _binding_consumer_findings(
                 )
             )
     return findings
+
+
+def _judge_consumer_findings(plan: dict[str, Any], *, finding_code: str) -> list[Finding]:
+    """Report a ``judge.`` consumer that the plan's claim level gives no judge to read."""
+
+    claim_level = _plan_claim_level(plan)
+    if claim_level not in CLAIM_LEVELS or claim_level == ClaimLevel.REPLY:
+        return []
+    return [
+        Finding(
+            finding_code,
+            f"binding consumer {consumer} is valid only when "
+            "observation_claim.claim_level is reply",
+            f"runtime_bindings[{index}].consumers[{consumer_index}]",
+        )
+        for index, consumer_index, consumer in _declared_consumers(plan.get("runtime_bindings"))
+        if consumer.startswith(JUDGE_CONSUMERS.prefix)
+    ]
+
+
+def _declared_consumers(declarations: Any) -> list[tuple[int, int, str]]:
+    """List each string consumer of well-formed declarations with its two indexes."""
+
+    return [
+        (index, consumer_index, consumer)
+        for index, raw in enumerate(declarations if isinstance(declarations, list) else [])
+        for consumer_index, consumer in enumerate(_consumer_list(raw))
+        if isinstance(consumer, str)
+    ]
+
+
+def _consumer_list(declaration: Any) -> list[Any]:
+    consumers = declaration.get("consumers") if isinstance(declaration, dict) else None
+    return consumers if isinstance(consumers, list) else []
 
 
 def _binding_selector_findings(
@@ -2277,6 +2327,29 @@ def _or_list(values: tuple[str, ...]) -> str:
     return f"{', '.join(values[:-1])}, or {values[-1]}"
 
 
+# One clause per BINDING_SPEC field, in the order the guarantee states them.
+_RUNTIME_BINDING_CLAUSES = {
+    "name": "a unique nonblank name",
+    "source_kind": "a permitted source_kind",
+    "source_ref": "a source_ref that resolves to a supplied fact or a permitted setup operation",
+    "selector": (
+        "a documented selector rooted at value or result (including a validated "
+        "keyed-map source shorthand resolved to that form)"
+    ),
+    "expected_type": "a compatible expected_type",
+    "consumers": "a nonempty closed consumer list",
+    "on_missing": "a permitted on_missing policy",
+}
+
+
+def _runtime_bindings_guarantee() -> str:
+    clauses = list(_RUNTIME_BINDING_CLAUSES.values())
+    return (
+        "Every runtime binding has the required closed fields, "
+        f"{', '.join(clauses[:-1])}, and {clauses[-1]}."
+    )
+
+
 PLAN_MECHANICAL_CHECKS = (
     MechanicalCheck(
         "plan_root_fields",
@@ -2305,12 +2378,7 @@ PLAN_MECHANICAL_CHECKS = (
     ),
     MechanicalCheck(
         "runtime_bindings",
-        "Every runtime binding has the required closed fields, a unique nonblank name, "
-        "a permitted source_kind, a source_ref that resolves to a supplied fact or a "
-        "permitted setup operation, a documented selector rooted at value or result "
-        "(including a validated keyed-map source shorthand resolved to that form), a "
-        "compatible expected_type, a nonempty closed consumer list, and a permitted "
-        "on_missing policy.",
+        _runtime_bindings_guarantee(),
         (_collect_binding_findings,),
     ),
     MechanicalCheck(

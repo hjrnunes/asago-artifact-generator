@@ -38,7 +38,7 @@ def _context(
         current_output=json.dumps(candidate),
         findings=findings,
     )
-    return context, correction_repair_inputs(_view(), inventory, runtime_contract, plan=True)
+    return context, correction_repair_inputs(_view(), inventory, runtime_contract)
 
 
 def _candidate() -> dict:
@@ -423,7 +423,7 @@ def _named_record_binding(source_ref: str, selector: str) -> dict:
         "source_kind": "supplied_input",
         "source_ref": source_ref,
         "selector": selector,
-        "consumers": ["detector.target_order_id"],
+        "consumers": ["setup.arguments.target_order_id"],
         "on_missing": "stop",
     }
 

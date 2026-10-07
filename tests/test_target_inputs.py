@@ -315,7 +315,7 @@ def test_record_key_companion_bindings_must_select_the_key_string(
                     "source_kind": "supplied_input",
                     "source_ref": "facts:state:orders:records",
                     "selector": selector,
-                    "consumers": ["detector.target_order"],
+                    "consumers": ["judge.target_order"],
                     "on_missing": "stop",
                 }
             ],

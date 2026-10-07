@@ -405,11 +405,15 @@ class AuthoringOrchestrator:
             )
         elif isinstance(exc, BudgetExceeded):
             finding = _staged(Finding("budget_exhausted", _safe_error(exc), path))
+        elif isinstance(exc, PromptPreflightError) and not self._journal.dispatches():
+            # The first request of the run has no earlier attempt to carry the
+            # failure, so it ends like a packet-build preflight failure.
+            finding = _prompt_preflight_finding(exc, packet.stage)
         else:
             finding = _staged(Finding(failure_code, _safe_error(exc), path))
         self._findings.append(finding)
-        if isinstance(exc, (PromptOverflowError, BudgetExceeded)):
-            # Both stops happen before dispatch: no ledger record or stage
+        if finding.code in {"prompt_overflow", "budget_exhausted", "prompt_preflight"}:
+            # These stops happen before dispatch: no ledger record or stage
             # attempt exists to annotate.
             self._record_run_finding(finding)
             return finding
@@ -706,9 +710,7 @@ class AuthoringOrchestrator:
         )
         packet = _render_correction_packet(
             correction_payload,
-            correction_repair_inputs(
-                view, inventory, runtime_contract, plan=failed_stage == "call1"
-            ),
+            correction_repair_inputs(view, inventory, runtime_contract),
         )
         try:
             _enforce_prompt_size(
@@ -1013,6 +1015,8 @@ class AuthoringOrchestrator:
         except PromptPreflightError as exc:
             return _preflight_stop(exc, stage.author)
         candidate, pending, raw = self._request_and_validate_v2(packet, stage.checks)
+        if any(finding.code == "prompt_preflight" for finding in pending):
+            return _StageStop("failed", tuple(pending))
         review_driven = False
         while True:
             while candidate is None:

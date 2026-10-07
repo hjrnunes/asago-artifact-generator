@@ -41,7 +41,7 @@ def test_binding_claiming_user_text_without_a_slot_or_value_in_the_request_is_fl
     plan = _plan()
     plan["runtime_bindings"] = [
         _binding("session_actor", "value", ["stimulus.user_text"]),
-        _binding("other_guest", "value.guest_id", ["detector.other_guest"]),
+        _binding("other_guest", "value.guest_id", ["setup.arguments.other_guest"]),
     ]
     plan["stimulus_approach"]["request"] = "Show the booking held by {{other_guest}}."
 
@@ -67,7 +67,7 @@ def test_request_slot_or_literal_value_satisfies_the_user_text_consumer() -> Non
 def test_request_slot_without_a_declared_binding_is_flagged_at_the_plan_stage() -> None:
     plan = _plan()
     plan["runtime_bindings"] = [
-        _binding("other_guest", "value.guest_id", ["detector.other_guest"])
+        _binding("other_guest", "value.guest_id", ["setup.arguments.other_guest"])
     ]
     plan["stimulus_approach"]["request"] = "Show the booking for {{booking_ref}}."
 
@@ -77,7 +77,7 @@ def test_request_slot_without_a_declared_binding_is_flagged_at_the_plan_stage() 
 def test_request_slot_whose_binding_names_only_other_consumers_stays_valid() -> None:
     plan = _plan()
     plan["runtime_bindings"] = [
-        _binding("other_guest", "value.guest_id", ["detector.other_guest"])
+        _binding("other_guest", "value.guest_id", ["setup.arguments.other_guest"])
     ]
     plan["stimulus_approach"]["request"] = "Show the booking held by {{other_guest}}."
 

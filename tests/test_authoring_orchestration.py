@@ -344,7 +344,7 @@ def test_plan_validation_carries_canonical_deduplicated_bindings_into_prerequisi
         "source_kind": "supplied_input",
         "source_ref": "facts:catalog:items:records:ITEM-A:owner",
         "selector": "value.owner",
-        "consumers": ["prerequisites.item_owner", "detector.item_owner"],
+        "consumers": ["prerequisites.item_owner", "setup.arguments.item_owner"],
         "on_missing": "stop",
     }
     plan = _plan(
@@ -420,7 +420,7 @@ def test_plan_validation_accepts_a_record_shorthand_whose_selector_repeats_the_k
                 "source_kind": "supplied_input",
                 "source_ref": "facts:catalog:items:records:ITEM-A",
                 "selector": "value.ITEM-A.record_key",
-                "consumers": ["detector.item_key"],
+                "consumers": ["setup.arguments.item_key"],
                 "on_missing": "stop",
             },
             {
@@ -429,7 +429,7 @@ def test_plan_validation_accepts_a_record_shorthand_whose_selector_repeats_the_k
                 "source_kind": "supplied_input",
                 "source_ref": "facts:catalog:items:ITEM-A",
                 "selector": "value.ITEM-A.owner",
-                "consumers": ["detector.item_owner"],
+                "consumers": ["setup.arguments.item_owner"],
                 "on_missing": "stop",
             },
         ],
@@ -462,7 +462,7 @@ def test_plan_validation_adds_missing_prerequisite_consumer_and_records_rewrite(
         "source_kind": "supplied_input",
         "source_ref": "facts:synthetic:owner",
         "selector": "value.owner",
-        "consumers": ["detector.owner"],
+        "consumers": ["setup.arguments.owner"],
         "on_missing": "stop",
     }
     plan = _plan(
@@ -488,15 +488,15 @@ def test_plan_validation_adds_missing_prerequisite_consumer_and_records_rewrite(
 
     assert findings == []
     assert plan["runtime_bindings"][0]["consumers"] == [
-        "detector.owner",
+        "setup.arguments.owner",
         "prerequisites.owner",
     ]
     assert transformations == [
         {
             "transformation": "binding_consumer_added",
             "binding": "owner",
-            "original_consumers": ["detector.owner"],
-            "canonical_consumers": ["detector.owner", "prerequisites.owner"],
+            "original_consumers": ["setup.arguments.owner"],
+            "canonical_consumers": ["setup.arguments.owner", "prerequisites.owner"],
             "prerequisite_index": 0,
             "prerequisite_name": "owner_is_present",
             "consumer": "prerequisites.owner",

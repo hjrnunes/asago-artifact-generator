@@ -23,7 +23,7 @@ def _plan_with_bindings() -> dict:
             "selector": "value.guest_id",
             "expected_type": "string",
             "on_missing": "stop",
-            "consumers": ["detector.target_record_id"],
+            "consumers": ["judge.target_record_id"],
         },
         {
             "name": "draft_id",
@@ -32,7 +32,7 @@ def _plan_with_bindings() -> dict:
             "selector": "result.draft_id",
             "expected_type": "string",
             "on_missing": "stop",
-            "consumers": ["detector.draft_id"],
+            "consumers": ["judge.draft_id"],
         },
     ]
     return plan
@@ -111,7 +111,7 @@ def test_keyed_record_shorthand_shows_canonical_path_and_selected_field() -> Non
             "selector": "value",
             "expected_type": "string",
             "on_missing": "stop",
-            "consumers": ["detector.target_record_id"],
+            "consumers": ["judge.target_record_id"],
         }
     ]
 

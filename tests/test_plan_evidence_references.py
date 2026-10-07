@@ -164,7 +164,7 @@ def test_plan_correction_explains_each_unknown_reference() -> None:
             current_output=json.dumps(candidate),
             findings=findings,
         ),
-        correction_repair_inputs(_view(), _inventory(), _runtime_contract(), plan=True),
+        correction_repair_inputs(_view(), _inventory(), _runtime_contract()),
     )
 
     assert packet.version == CORRECTION_PROMPT_VERSION_V29
@@ -200,7 +200,7 @@ def test_artifact_correction_explains_provenance_ids_outside_source_refs() -> No
                 }
             ],
         ),
-        correction_repair_inputs(view, _inventory(), _runtime_contract(), plan=False),
+        correction_repair_inputs(view, _inventory(), _runtime_contract()),
     )
 
     option = correction.payload["reference_repair_options"]["options"][0]
@@ -209,7 +209,16 @@ def test_artifact_correction_explains_provenance_ids_outside_source_refs() -> No
     assert "interpretation.source_refs" in option["repair"]
 
 
-def test_only_plan_correction_classifies_runtime_observation_scopes() -> None:
+def test_correction_repair_reads_the_source_handles_of_the_inventory() -> None:
+    inventory = _inventory()
+
+    inputs = correction_repair_inputs(_view(), inventory, _runtime_contract())
+
+    assert inputs.inventory["source_handles"] == inventory["source_handles"]
+    assert inputs.inventory["source_handles"] is not inventory["source_handles"]
+
+
+def test_both_correction_stages_classify_runtime_observation_scopes() -> None:
     view, inventory, runtime = _view(), _inventory(), _runtime_contract()
     runtime["observation"]["record_state"] = {"availability": "captured"}
     finding = {
@@ -229,12 +238,12 @@ def test_only_plan_correction_classifies_runtime_observation_scopes() -> None:
                 current_output=json.dumps(_plan()),
                 findings=[finding],
             ),
-            correction_repair_inputs(view, inventory, runtime, plan=failed_stage == "call1"),
+            correction_repair_inputs(view, inventory, runtime),
         )
         option = packet.payload["reference_repair_options"]["options"][0]
         kinds[failed_stage] = option["rejected_value_kind"]
 
-    assert kinds == {"call1": "observation_scope", "call2": "unlisted"}
+    assert kinds == {"call1": "observation_scope", "call2": "observation_scope"}
 
 
 def test_reference_options_skip_findings_outside_reference_fields() -> None:
@@ -252,7 +261,7 @@ def test_reference_options_skip_findings_outside_reference_fields() -> None:
                 {"code": "invalid_shape", "detail": "bad", "path": "selected_evidence[0]"},
             ],
         ),
-        correction_repair_inputs(_view(), _inventory(), _runtime_contract(), plan=True),
+        correction_repair_inputs(_view(), _inventory(), _runtime_contract()),
     )
 
     assert "reference_repair_options" not in packet.payload
