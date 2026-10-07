@@ -10,6 +10,7 @@ from asago_artifact_generator.authoring import orchestrator
 from asago_artifact_generator.authoring.core import (
     ArtifactValidationError,
     PromptOverflowError,
+    PromptPreflightError,
     TransportResponse,
 )
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
@@ -320,6 +321,43 @@ def test_review_context_overflow_records_prompt_overflow_status(tmp_path: Path) 
     assert result.status == "prompt_overflow"
     assert result.review_status["plan"] == "prompt_overflow"
     assert len(transport.requests) == 1
+
+
+def test_call1_context_preflight_failure_ends_the_run_failed_before_any_dispatch(
+    tmp_path: Path,
+) -> None:
+    class _Call1PreflightTransport(ScriptedAuthoringTransport):
+        def preflight_context_budget(self, packet):
+            raise PromptPreflightError("scripted preflight failure")
+
+    transport = _Call1PreflightTransport([json.dumps(_plan())])
+
+    result = _run(tmp_path, transport, _ONE_PLAN_CORRECTION)
+
+    assert result.status == "failed"
+    assert [(f.code, f.path, f.stage) for f in result.findings] == [
+        ("prompt_preflight", "call1", "plan")
+    ]
+    assert transport.requests == []
+    evidence = load_failure_evidence(result.failure_evidence_path)
+    assert evidence["status"] == "failed"
+    assert evidence["attempts"] == []
+    assert evidence["terminal"]["reason"] == "prompt_preflight"
+    assert [finding["code"] for finding in evidence["findings"]] == ["prompt_preflight"]
+
+
+def test_review_context_preflight_failure_keeps_the_review_unavailable_stop(
+    tmp_path: Path,
+) -> None:
+    class _ReviewPreflightTransport(ScriptedAuthoringTransport):
+        def preflight_context_budget(self, packet):
+            if packet.stage == "plan_review":
+                raise PromptPreflightError("scripted preflight failure")
+
+    result = _run(tmp_path, _ReviewPreflightTransport([json.dumps(_plan())]), _PLAN_REVIEW)
+
+    assert result.status == "review_unavailable"
+    assert _codes(result) == ["transport_failure"]
 
 
 def test_review_response_capture_is_kept_on_the_ledger_and_attempt(tmp_path: Path) -> None:
