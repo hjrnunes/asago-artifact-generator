@@ -919,17 +919,28 @@ def _child_schema(current: Any, part: str) -> Any:
 def selector_array_step(schema: Any, selector: str) -> str | None:
     """Return the selector prefix naming the array that ``selector`` steps into, or None.
 
-    A selector follows object properties only. The ``items`` schema keyword is not
-    a property, and a recorded value is never read through an array.
+    A selector follows object properties only. The ``items`` schema keyword, a
+    numeric part (``content.0``), and a bracketed index (``content[0]``) are not
+    properties, and a recorded value is never read through an array.
     """
 
     parts = selector.split(".")
     current = schema
     for index, part in enumerate(parts[1:], start=1):
-        if isinstance(current, dict) and current.get("type") == "array" and part == "items":
+        name = _INDEX_SUFFIX.sub("", part)
+        if name != part and _is_array(_child_schema(current, name)):
+            return ".".join([*parts[:index], name])
+        if _is_array(current) and (part == "items" or part.isdecimal()):
             return ".".join(parts[:index])
         current = _child_schema(current, part)
     return None
+
+
+_INDEX_SUFFIX = re.compile(r"\[\d+\]$")
+
+
+def _is_array(schema: Any) -> bool:
+    return isinstance(schema, dict) and schema.get("type") == "array"
 
 
 def _binding_types_compatible(actual: str, expected: str) -> bool:

@@ -686,7 +686,16 @@ def _selector_findings(selector: str) -> list[tuple[str, str, str]]:
     return _coded_findings(findings)
 
 
-@pytest.mark.parametrize("selector", ["value.content.items.text", "value.content.items"])
+@pytest.mark.parametrize(
+    "selector",
+    [
+        "value.content.items.text",
+        "value.content.items",
+        "value.content[0].text",
+        "value.content[0]",
+        "value.content.0.text",
+    ],
+)
 def test_plan_rejects_a_selector_that_steps_into_an_array_with_its_own_code(
     selector: str,
 ) -> None:
