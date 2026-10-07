@@ -127,3 +127,12 @@ responses. Fix nondeterminism in the code instead of listing it.
   comparison semantics changed in every prompt role except Call 2, so each item
   that dispatches a request mismatches at its first Call 1 prompt. Only items
   that stop before any request still replay.
+- Recordings made with `authoring-call1-v20`, `authoring-plan-review-v19` or
+  `authoring-correction-v31` replay only where the request text did not
+  change. Call 1 and its plan correction gained the omission-trigger
+  guidance; plan review gained the omission-trigger rule, the order
+  comparisons, the record key of `record_key_source`, and the prior review
+  round. Call 2, artifact review and the artifact correction
+  (`authoring-correction-v33`) render the same text for a v3 handoff, but a
+  replayed item that dispatches a bumped role writes the new label, so its
+  failure evidence differs from the recording.

@@ -9,7 +9,7 @@ from ..input_adapter import InputView
 from .context_budget import _enforce_prompt_size
 from .contracts import _call2_contract_v2
 from .core import (
-    CALL1_PROMPT_VERSION_V20,
+    CALL1_PROMPT_VERSION_V21,
     CALL2_PROMPT_VERSION_V25,
     MAX_RENDERED_PROMPT_BYTES,
     PromptPacket,
@@ -120,7 +120,7 @@ def build_call1_packet_v2(
     assert_no_prompt_secrets(payload)
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V20,
+        version=CALL1_PROMPT_VERSION_V21,
         system=_CALL1_SYSTEM_V3,
         user=_render_sections(
             (
