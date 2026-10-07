@@ -5,11 +5,11 @@ from asago_artifact_generator.authoring.review import (
     build_plan_review_packet,
     build_plan_reviewer_context,
 )
-from tests.test_versioned_prompt_roles import (
-    _inventory,
-    _plan,
-    _runtime_contract,
-    _view,
+
+from .support import world_builders
+
+_inventory, _plan, _runtime_contract, _view = world_builders(
+    "ehr", "inventory", "plan", "runtime_contract", "view"
 )
 
 

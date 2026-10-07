@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -19,9 +18,7 @@ from asago_artifact_generator.profiles import (
     load_authoring_profile,
 )
 
-HANDOFF = (
-    Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "handoff-v3" / "refund-bound.json"
-)
+from .support import HANDOFF, fake_cli_authoring, forbid_cli_transport
 
 
 def _inputs(tmp_path: Path) -> tuple[Path, Path]:
@@ -181,30 +178,7 @@ def test_author_cli_passes_profile_values_directly_to_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     profiles_file, values = _profile_file(tmp_path)
-    captured: dict[str, object] = {}
-
-    class FakeTransport:
-        max_retries = 0
-
-        def __init__(self, **kwargs: object) -> None:
-            captured.update(kwargs)
-
-    class FakeOrchestrator:
-        def __init__(self, *, transport: object, **kwargs: object) -> None:
-            captured["transport"] = transport
-            captured["orchestrator_options"] = kwargs
-
-        def run(self, view: object, inventory: object, runtime: object) -> SimpleNamespace:
-            captured["run_inputs"] = (view, inventory, runtime)
-            return SimpleNamespace(
-                status="failed",
-                package_path=None,
-                review_status={},
-                findings=[],
-            )
-
-    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FakeTransport)
-    monkeypatch.setattr(cli, "AuthoringOrchestrator", FakeOrchestrator)
+    captured = fake_cli_authoring(monkeypatch)
 
     result = _invoke_generate(
         tmp_path,
@@ -217,21 +191,20 @@ def test_author_cli_passes_profile_values_directly_to_transport(
     )
 
     assert result.exit_code == 1
-    assert captured["base_url"] == values["base_url"]
-    assert captured["api_key"] == values["api_key"]
-    assert captured["model"] == values["model"]
-    assert captured["profile_name"] == "gemma4-oc"
-    assert captured["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
-    assert captured["review_extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
-    assert captured["context_window_tokens"] == 32_768
-    assert captured["max_completion_tokens"] == 8_192
-    assert captured["review_fill_context"] is True
-    _, inventory, runtime = captured["run_inputs"]
+    assert captured.transport["base_url"] == values["base_url"]
+    assert captured.transport["api_key"] == values["api_key"]
+    assert captured.transport["model"] == values["model"]
+    assert captured.transport["profile_name"] == "gemma4-oc"
+    thinking_off = {"chat_template_kwargs": {"enable_thinking": False}}
+    assert captured.transport["extra_body"] == thinking_off
+    assert captured.transport["review_extra_body"] == thinking_off
+    assert captured.transport["context_window_tokens"] == 32_768
+    assert captured.transport["max_completion_tokens"] == 8_192
+    assert captured.transport["review_fill_context"] is True
+    _, inventory, runtime = captured.run_inputs
     assert inventory["operations"] == []
     assert {handle["ref"] for handle in inventory["source_handles"]} == {"target-profile"}
-    assert captured["orchestrator_options"]["discovery_provenance"]["target_id"] == (
-        "synthetic-target"
-    )
+    assert captured.orchestrator["discovery_provenance"]["target_id"] == ("synthetic-target")
     assert runtime["delivery"] == ["direct_user_message"]
     assert values["api_key"] not in result.output
     assert values["base_url"] not in result.output
@@ -251,28 +224,7 @@ def test_author_cli_passes_optional_profile_controls_to_transport(
         max_completion_tokens=32_000,
         timeout=900,
     )
-    captured: dict[str, object] = {}
-
-    class FakeTransport:
-        max_retries = 0
-
-        def __init__(self, **kwargs: object) -> None:
-            captured.update(kwargs)
-
-    class FakeOrchestrator:
-        def __init__(self, **_: object) -> None:
-            pass
-
-        def run(self, *_: object) -> SimpleNamespace:
-            return SimpleNamespace(
-                status="failed",
-                package_path=None,
-                review_status={},
-                findings=[],
-            )
-
-    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FakeTransport)
-    monkeypatch.setattr(cli, "AuthoringOrchestrator", FakeOrchestrator)
+    captured = fake_cli_authoring(monkeypatch)
 
     result = _invoke_generate(
         tmp_path,
@@ -285,30 +237,23 @@ def test_author_cli_passes_optional_profile_controls_to_transport(
     )
 
     assert result.exit_code == 1
-    assert captured["reasoning_effort"] == "high"
-    assert captured["service_tier"] == "priority"
-    assert captured["service_tier_fallback"] == "auto"
-    assert captured["sampling_controls"] is False
-    assert captured["strict_json_schema"] is True
-    assert captured["context_window_tokens"] == 1_050_000
-    assert captured["max_completion_tokens"] == 32_000
-    assert captured["timeout"] == 900
-    assert captured["extra_body"] is None
-    assert captured["review_extra_body"] is None
+    assert captured.transport["reasoning_effort"] == "high"
+    assert captured.transport["service_tier"] == "priority"
+    assert captured.transport["service_tier_fallback"] == "auto"
+    assert captured.transport["sampling_controls"] is False
+    assert captured.transport["strict_json_schema"] is True
+    assert captured.transport["context_window_tokens"] == 1_050_000
+    assert captured.transport["max_completion_tokens"] == 32_000
+    assert captured.transport["timeout"] == 900
+    assert captured.transport["extra_body"] is None
+    assert captured.transport["review_extra_body"] is None
 
 
 def test_author_cli_rejects_missing_named_profile_before_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     profiles_file, _ = _profile_file(tmp_path)
-    called = False
-
-    def fail_if_constructed(**_: object) -> object:
-        nonlocal called
-        called = True
-        raise AssertionError("transport must not be constructed")
-
-    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", fail_if_constructed)
+    transport = forbid_cli_transport(monkeypatch)
 
     result = _invoke_generate(
         tmp_path,
@@ -322,20 +267,13 @@ def test_author_cli_rejects_missing_named_profile_before_transport(
 
     assert result.exit_code == 2
     assert "not found" in result.output
-    assert called is False
+    assert transport.constructed is False
 
 
 def test_author_cli_requires_a_named_profile_before_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    called = False
-
-    def fail_if_constructed(**_: object) -> object:
-        nonlocal called
-        called = True
-        raise AssertionError("transport must not be constructed")
-
-    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", fail_if_constructed)
+    transport = forbid_cli_transport(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "environment-secret-value")
 
     result = _invoke_generate(tmp_path)
@@ -343,7 +281,7 @@ def test_author_cli_requires_a_named_profile_before_transport(
     assert result.exit_code == 2
     assert "--profile" in result.output
     assert "environment-secret-value" not in result.output
-    assert called is False
+    assert transport.constructed is False
 
 
 def test_profile_secret_is_redacted_from_failure_evidence(

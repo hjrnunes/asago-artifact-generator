@@ -12,7 +12,7 @@ from asago_artifact_generator.authoring.review import (
 )
 from asago_artifact_generator.input_adapter import load_input
 
-from .test_run_created_records import _runtime
+from .support import tool_call_runtime_contract
 
 _HANDOFF = (
     Path(__file__).resolve().parents[1]
@@ -65,8 +65,8 @@ def test_field_meanings_distinguish_pre_run_facts_from_captured_evidence() -> No
 def test_author_and_reviewer_prompts_state_the_fact_operand_rule() -> None:
     view = load_input(_HANDOFF)
     inventory = {"facts": [], "operations": [], "source_handles": []}
-    call1 = build_call1_packet_v2(view, inventory, _runtime())
-    review = build_plan_review_packet(view, _plan(), inventory, _runtime())
+    call1 = build_call1_packet_v2(view, inventory, tool_call_runtime_contract())
+    review = build_plan_review_packet(view, _plan(), inventory, tool_call_runtime_contract())
 
     for packet in (call1, review):
         assert "needs no captured lookup of it" in packet.user, packet.stage

@@ -12,7 +12,11 @@ from asago_artifact_generator.authoring.review import (
     build_plan_reviewer_context,
 )
 from tests import test_semantic_judge_spec_wording as judged
-from tests import test_versioned_prompt_roles as unjudged
+from tests.support import world_builders
+
+_view, _inventory, _runtime_contract, _plan, _metadata = world_builders(
+    "ehr", "view", "inventory", "runtime_contract", "plan", "metadata"
+)
 
 
 def _guarantees(checks: tuple[Any, ...]) -> list[str]:
@@ -20,20 +24,20 @@ def _guarantees(checks: tuple[Any, ...]) -> list[str]:
 
 
 def _plan_summary(plan: dict[str, Any]) -> dict[str, Any]:
-    return build_plan_reviewer_context(
-        unjudged._view(), plan, unjudged._inventory(), unjudged._runtime_contract()
-    )["mechanical_check_summary"]
+    return build_plan_reviewer_context(_view(), plan, _inventory(), _runtime_contract())[
+        "mechanical_check_summary"
+    ]
 
 
 def test_plan_summary_passes_and_lists_every_check_for_a_plan_the_checks_accept() -> None:
-    summary = _plan_summary(unjudged._plan())
+    summary = _plan_summary(_plan())
 
     assert summary["status"] == "passed"
     assert summary["checks"] == _guarantees(PLAN_MECHANICAL_CHECKS)
 
 
 def test_plan_summary_does_not_pass_a_plan_the_checks_reject() -> None:
-    plan = unjudged._plan()
+    plan = _plan()
     plan["unexpected_root_field"] = "x"
 
     summary = _plan_summary(plan)
@@ -45,11 +49,11 @@ def test_plan_summary_does_not_pass_a_plan_the_checks_reject() -> None:
 def _refund_consistent_fixture() -> tuple[dict[str, Any], dict[str, Any]]:
     """Return an inventory and artifact whose captures agree with the refund-bound condition."""
 
-    inventory = unjudged._inventory()
+    inventory = _inventory()
     inventory["operations"].append(
         {"name": "process_refund", "arguments": {"type": "object", "properties": {}}}
     )
-    metadata = unjudged._metadata()
+    metadata = _metadata()
     for label, amount in (("unsafe", 150), ("safe", 50)):
         call = {"operation": "process_refund", "arguments": {"amount": amount}}
         metadata["examples"][label]["capture"] = {"tool_calls": [call], "complete": True}
@@ -59,11 +63,11 @@ def _refund_consistent_fixture() -> tuple[dict[str, Any], dict[str, Any]]:
 def test_artifact_summary_omits_the_judge_fact_check_when_the_artifact_has_no_judge() -> None:
     inventory, metadata = _refund_consistent_fixture()
     context = build_artifact_reviewer_context(
-        unjudged._view(),
-        unjudged._plan(),
+        _view(),
+        _plan(),
         metadata,
         inventory,
-        unjudged._runtime_contract(),
+        _runtime_contract(),
     )
 
     summary = context["mechanical_check_summary"]
@@ -86,15 +90,15 @@ def test_artifact_summary_lists_the_judge_fact_check_when_the_artifact_has_a_jud
 
 
 def test_artifact_summary_does_not_pass_an_artifact_the_checks_reject() -> None:
-    metadata = deepcopy(unjudged._metadata())
+    metadata = deepcopy(_metadata())
     metadata["semantic_judge_spec"] = {"question": "Not a question."}
 
     context = build_artifact_reviewer_context(
-        unjudged._view(),
-        unjudged._plan(),
+        _view(),
+        _plan(),
         metadata,
-        unjudged._inventory(),
-        unjudged._runtime_contract(),
+        _inventory(),
+        _runtime_contract(),
     )
 
     assert context["mechanical_check_summary"]["status"] == "failed"

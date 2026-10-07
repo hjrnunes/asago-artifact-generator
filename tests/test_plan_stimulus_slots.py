@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
-from tests.test_versioned_prompt_roles import _inventory, _plan, _runtime_contract
+
+from .support import world_builders
+
+_inventory, _plan, _runtime_contract = world_builders(
+    "ehr", "inventory", "plan", "runtime_contract"
+)
 
 
 def _binding(name: str, selector: str, consumers: list[str]) -> dict:

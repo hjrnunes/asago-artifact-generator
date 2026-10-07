@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -16,15 +15,18 @@ from asago_artifact_generator.authoring.policy import (
     policy_role_limits,
 )
 
-from .support import ScriptedAuthoringTransport
-from .test_authoring_orchestration import HANDOFF
+from .support import (
+    HANDOFF,
+    ScriptedAuthoringTransport,
+    fake_cli_authoring,
+    forbid_cli_transport,
+    world_builders,
+)
 from .test_profile_bridge import _inputs as _cli_inputs
 from .test_profile_bridge import _profile_file
-from .test_versioned_authoring_wire import (
-    _inventory,
-    _plan,
-    _runtime_contract,
-    _view,
+
+_inventory, _plan, _runtime_contract, _view = world_builders(
+    "refund", "inventory", "plan", "runtime_contract", "view"
 )
 
 
@@ -66,27 +68,41 @@ def test_prior_author_seed_stops_before_fourth_in_run_author_request(tmp_path: P
     assert "author/correction" in result.findings[-1].detail
 
 
-def test_prior_author_spend_at_case_cap_stops_before_first_dispatch(tmp_path: Path) -> None:
-    transport = ScriptedAuthoringTransport([json.dumps(_plan())])
-
-    result = AuthoringOrchestrator(
-        transport=transport,
-        package_dir=tmp_path / "exhausted",
-        task_id="author-exhausted",
-        policy=AuthoringPolicy(),
-        prior_author_correction_spend=policy_role_limits(AuthoringPolicy())["author"],
-        prior_review_spend=0,
-    ).run(_view(), _inventory(), _runtime_contract())
-
-    assert result.status == "budget_exhausted"
-    assert transport.requests == []
-    assert result.ledger == []
-    assert len(result.findings) == 1
-    assert result.findings[0].code == "budget_exhausted"
-    assert "author/correction" in result.findings[0].detail
+_AUTHOR_CAP = policy_role_limits(AuthoringPolicy())["author"]
+_REVIEWER_CAP = policy_role_limits(AuthoringPolicy())["reviewer"]
 
 
-def test_prior_review_spend_at_case_cap_stops_before_review_dispatch(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("orchestrator_options", "dispatched", "detail_fragment"),
+    [
+        pytest.param(
+            {"prior_author_correction_spend": _AUTHOR_CAP},
+            [],
+            "author/correction",
+            id="author-spend-at-cap",
+        ),
+        pytest.param(
+            {"prior_review_spend": _REVIEWER_CAP}, ["call1"], "review", id="review-spend-at-cap"
+        ),
+        pytest.param(
+            {
+                "budget": AuthoringBudget(
+                    aggregate_limit=MAX_AUTHORING_REQUESTS,
+                    total_dispatched=MAX_AUTHORING_REQUESTS,
+                )
+            },
+            [],
+            "aggregate",
+            id="aggregate-exhausted",
+        ),
+    ],
+)
+def test_exhausted_budget_stops_before_the_next_dispatch(
+    tmp_path: Path,
+    orchestrator_options: dict[str, object],
+    dispatched: list[str],
+    detail_fragment: str,
+) -> None:
     transport = ScriptedAuthoringTransport(
         [
             json.dumps(_plan()),
@@ -96,40 +112,17 @@ def test_prior_review_spend_at_case_cap_stops_before_review_dispatch(tmp_path: P
 
     result = AuthoringOrchestrator(
         transport=transport,
-        package_dir=tmp_path / "review-exhausted",
-        task_id="review-exhausted",
+        package_dir=tmp_path / "package",
+        task_id="budget-exhausted",
         policy=AuthoringPolicy(),
-        prior_author_correction_spend=0,
-        prior_review_spend=policy_role_limits(AuthoringPolicy())["reviewer"],
+        **orchestrator_options,
     ).run(_view(), _inventory(), _runtime_contract())
 
     assert result.status == "budget_exhausted"
-    assert [request["stage"] for request in transport.requests] == ["call1"]
-    assert [record["stage"] for record in result.ledger] == ["call1"]
-    assert result.findings[-1].code == "budget_exhausted"
-    assert "review" in result.findings[-1].detail
-
-
-def test_aggregate_budget_exhaustion_is_typed_and_pre_dispatch(tmp_path: Path) -> None:
-    transport = ScriptedAuthoringTransport([json.dumps(_plan())])
-    budget = AuthoringBudget(
-        aggregate_limit=MAX_AUTHORING_REQUESTS,
-        total_dispatched=MAX_AUTHORING_REQUESTS,
-    )
-
-    result = AuthoringOrchestrator(
-        transport=transport,
-        package_dir=tmp_path / "aggregate-exhausted",
-        task_id="aggregate-exhausted",
-        policy=AuthoringPolicy(),
-        budget=budget,
-    ).run(_view(), _inventory(), _runtime_contract())
-
-    assert result.status == "budget_exhausted"
-    assert transport.requests == []
-    assert result.ledger == []
-    assert result.findings[0].code == "budget_exhausted"
-    assert "aggregate" in result.findings[0].detail
+    assert [request["stage"] for request in transport.requests] == dispatched
+    assert [record["stage"] for record in result.ledger] == dispatched
+    assert [finding.code for finding in result.findings] == ["budget_exhausted"]
+    assert detail_fragment in result.findings[0].detail
 
 
 def test_author_cli_threads_prior_spend_to_orchestrator_without_provider_contact(
@@ -137,28 +130,7 @@ def test_author_cli_threads_prior_spend_to_orchestrator_without_provider_contact
     monkeypatch,
 ) -> None:
     target_profile, runtime_contract = _cli_inputs(tmp_path)
-    captured: dict[str, object] = {}
-
-    class FakeTransport:
-        max_retries = 0
-
-        def __init__(self, **_: object) -> None:
-            pass
-
-    class FakeOrchestrator:
-        def __init__(self, **kwargs: object) -> None:
-            captured.update(kwargs)
-
-        def run(self, *_: object) -> SimpleNamespace:
-            return SimpleNamespace(
-                status="failed",
-                package_path=None,
-                review_status={},
-                findings=[],
-            )
-
-    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FakeTransport)
-    monkeypatch.setattr(cli, "AuthoringOrchestrator", FakeOrchestrator)
+    captured = fake_cli_authoring(monkeypatch)
     profiles_file, _ = _profile_file(tmp_path)
 
     result = CliRunner().invoke(
@@ -184,8 +156,8 @@ def test_author_cli_threads_prior_spend_to_orchestrator_without_provider_contact
     )
 
     assert result.exit_code == 1, result.output
-    assert captured["prior_author_correction_spend"] == 1
-    assert captured["prior_review_spend"] == 2
+    assert captured.orchestrator["prior_author_correction_spend"] == 1
+    assert captured.orchestrator["prior_review_spend"] == 2
 
 
 def test_author_cli_rejects_negative_prior_spend_before_transport(
@@ -193,14 +165,7 @@ def test_author_cli_rejects_negative_prior_spend_before_transport(
     monkeypatch,
 ) -> None:
     target_profile, runtime_contract = _cli_inputs(tmp_path)
-    constructed = False
-
-    def fail_if_constructed(**_: object) -> object:
-        nonlocal constructed
-        constructed = True
-        raise AssertionError("transport must not be constructed")
-
-    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", fail_if_constructed)
+    transport = forbid_cli_transport(monkeypatch)
     profiles_file, _ = _profile_file(tmp_path)
 
     result = CliRunner().invoke(
@@ -227,7 +192,7 @@ def test_author_cli_rejects_negative_prior_spend_before_transport(
 
     assert result.exit_code == 2
     assert "nonnegative integer" in result.output
-    assert constructed is False
+    assert transport.constructed is False
 
 
 def test_budget_rejects_malformed_dispatch_counters() -> None:

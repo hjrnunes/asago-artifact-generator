@@ -2,23 +2,25 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
-import openai
 import pytest
 
-from asago_artifact_generator.authoring.core import PromptPacket, TransportResponse
+from asago_artifact_generator.authoring.core import TransportResponse
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringBudget, AuthoringPolicy
-from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 
-from .support import ScriptedAuthoringTransport, load_failure_evidence
-from .test_versioned_authoring_wire import (
-    _framed,
-    _inventory,
-    _plan,
-    _runtime_contract,
-    _view,
+from .support import (
+    ScriptedAuthoringTransport,
+    chat_completion,
+    fake_openai,
+    load_failure_evidence,
+    private_transport,
+    prompt_packet,
+    world_builders,
+)
+
+_framed, _inventory, _plan, _runtime_contract, _view = world_builders(
+    "refund", "framed", "inventory", "plan", "runtime_contract", "view"
 )
 
 
@@ -165,33 +167,14 @@ def test_private_transport_captures_provider_model_without_persisting_credential
     api_key = "test-api-key-must-not-persist"
     base_url = "https://private.example.invalid/v1"
 
-    class FakeCompletions:
-        def create(self, **_: object) -> object:
-            return SimpleNamespace(
-                model="provider-model",
-                choices=[
-                    SimpleNamespace(
-                        message=SimpleNamespace(content="not-json"),
-                        finish_reason="stop",
-                    )
-                ],
-                usage=None,
-            )
-
-    class FakeClient:
-        def __init__(self, **_: object) -> None:
-            self.chat = SimpleNamespace(completions=FakeCompletions())
-
-    monkeypatch.setattr(openai, "OpenAI", FakeClient)
-    transport = PrivateModelAuthoringTransport(
+    fake_openai(monkeypatch, [chat_completion("not-json", model="provider-model")] * 2)
+    transport = private_transport(
         base_url=base_url,
         api_key=api_key,
         model="requested-model",
         profile_name="private-profile",
     )
-    packet = PromptPacket("call1", "test", "system", "user", {})
-
-    response = transport.complete(packet)
+    response = transport.complete(prompt_packet())
 
     assert response.provider_model == "provider-model"
 
@@ -212,25 +195,14 @@ def test_private_transport_captures_provider_model_without_persisting_credential
 
 
 def test_private_transport_uses_none_when_provider_omits_model(monkeypatch) -> None:
-    class FakeCompletions:
-        def create(self, **_: object) -> object:
-            return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))],
-                usage=None,
-            )
-
-    class FakeClient:
-        def __init__(self, **_: object) -> None:
-            self.chat = SimpleNamespace(completions=FakeCompletions())
-
-    monkeypatch.setattr(openai, "OpenAI", FakeClient)
-    transport = PrivateModelAuthoringTransport(
+    fake_openai(monkeypatch, [chat_completion(model=None)])
+    transport = private_transport(
         base_url="https://private.example.invalid/v1",
         api_key="test-api-key",
         model="requested-model",
     )
 
-    response = transport.complete(PromptPacket("call1", "test", "system", "user", {}))
+    response = transport.complete(prompt_packet())
     assert response.provider_model is None
 
 

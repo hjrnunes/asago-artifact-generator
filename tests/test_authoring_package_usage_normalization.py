@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from pathlib import Path
 
 import pytest
 
@@ -14,9 +13,7 @@ from asago_artifact_generator.authoring.package_assembly import (
 )
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
-HANDOFF = (
-    Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "handoff-v3" / "refund-bound.json"
-)
+from .support import HANDOFF
 
 
 def _package_with_usage(usage: object) -> object:

@@ -39,7 +39,7 @@ from replay_gate import (
     run_gate,
 )
 
-from .test_profile_bridge import HANDOFF
+from .support import HANDOFF
 from .test_profile_bridge import _inputs as _target_inputs
 
 TASK_ID = "SCN-901"

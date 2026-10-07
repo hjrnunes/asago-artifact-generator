@@ -11,7 +11,11 @@ from asago_artifact_generator.authoring.checks import (
 from asago_artifact_generator.authoring.core import Finding
 from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 
-from .test_authoring_orchestration import _contract, _inventory, _plan, _view
+from .support import world_builders
+
+_contract, _inventory, _plan, _view = world_builders(
+    "refund-minimal", "runtime_contract", "inventory", "plan", "view"
+)
 
 
 def _v2_inventory_and_binding() -> tuple[dict[str, object], dict[str, object]]:

@@ -15,7 +15,9 @@ from asago_artifact_generator.authoring.contracts import (
 )
 
 from .example_capture_support import artifact_findings, call, capture, neutral_metadata
-from .test_versioned_authoring_wire import _assemble, _metadata, _plan
+from .support import assemble_refund_package, world_builders
+
+_metadata, _plan = world_builders("refund", "metadata", "plan")
 
 
 def _reply_plan() -> dict[str, Any]:
@@ -280,7 +282,7 @@ def test_agreeing_examples_produce_no_finding() -> None:
 def test_package_examples_member_keeps_the_captures_as_written(tmp_path: Path) -> None:
     document = _metadata()
 
-    result = _assemble(tmp_path, _plan(), document)
+    result = assemble_refund_package(tmp_path, _plan(), document)
 
     assert result.status == "accepted", result.findings
     stored = json.loads(result.package.members["examples.json"])

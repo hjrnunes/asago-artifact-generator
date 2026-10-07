@@ -12,8 +12,12 @@ from asago_artifact_generator.authoring.condition_types import operand_type_find
 from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 from asago_artifact_generator.input_adapter import _framed_digest, load_input
 
-from .support import ScriptedAuthoringTransport, load_failure_evidence, stage_local_orchestrator
-from .test_run_created_records import _runtime
+from .support import (
+    ScriptedAuthoringTransport,
+    load_failure_evidence,
+    stage_local_orchestrator,
+    tool_call_runtime_contract,
+)
 
 _NOT_CALLED = (
     Path(__file__).resolve().parents[1]
@@ -218,7 +222,7 @@ def test_command_attempt_with_an_undecidable_condition_stops_before_any_model_ca
 def _call1_user() -> str:
     view = load_input(_NOT_CALLED)
     inventory = {"facts": [], "operations": [], "source_handles": []}
-    return build_call1_packet_v2(view, inventory, _runtime()).user
+    return build_call1_packet_v2(view, inventory, tool_call_runtime_contract()).user
 
 
 def test_prompt_states_that_comparisons_combine_with_and() -> None:

@@ -21,13 +21,11 @@ from asago_artifact_generator.authoring.prompt_context import (
 )
 from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 
-from .test_versioned_prompt_roles import _inventory, _plan, _runtime_contract, _view
+from .support import json_section, world_builders
 
-
-def _section(user: str, title: str) -> dict:
-    start = user.index(f"\n{title}\n") + len(title) + 2
-    end = user.index("\n\n", start)
-    return json.loads(user[start:end])
+_inventory, _plan, _runtime_contract, _view = world_builders(
+    "ehr", "inventory", "plan", "runtime_contract", "view"
+)
 
 
 def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
@@ -36,7 +34,7 @@ def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
     assert packet.version == CALL1_PROMPT_VERSION_V20
     assert packet.user.index("SOURCE CONTEXT") < packet.user.index("EVIDENCE REFERENCES")
     assert packet.user.index("EVIDENCE REFERENCES") < packet.user.index("EXECUTION CAPABILITIES")
-    section = _section(packet.user, "EVIDENCE REFERENCES")
+    section = json_section(packet.user, "EVIDENCE REFERENCES")
     assert section["citable_references"] == {
         "facts": ["draft:status", "reservation:RES-201", "session:actor"],
         "source_handles": ["source:case"],
@@ -55,7 +53,7 @@ def test_attack_tree_node_ids_are_citable_provenance_with_plain_locations() -> N
     view.payload["attack_tree"]["branches"][0]["node_id"] = "AT-REFUND-1"
 
     provenance = scenario_provenance_ids(view)
-    section = _section(
+    section = json_section(
         build_call1_packet_v2(view, _inventory(), _runtime_contract()).user,
         "EVIDENCE REFERENCES",
     )

@@ -20,8 +20,9 @@ from asago_artifact_generator.input_adapter import load_input
 from asago_artifact_generator.metadata_policy import prompt_secret_metadata_paths
 from asago_artifact_generator.package_io import PackageIntegrityError, build_package
 
-from .support import ScriptedAuthoringTransport, stage_local_orchestrator
-from .test_authoring_orchestration import _contract as _runtime_contract
+from .support import ScriptedAuthoringTransport, stage_local_orchestrator, world_builders
+
+(_runtime_contract,) = world_builders("refund-minimal", "runtime_contract")
 
 
 def _operation_inventory() -> dict:
