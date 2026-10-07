@@ -80,6 +80,7 @@ from .journal import (
     ReviewStatusRecorded,
     RunFindingRecorded,
     TransformationRecorded,
+    TransportRetried,
     ValidationPassed,
     ValidationTransformed,
 )
@@ -512,13 +513,45 @@ class AuthoringOrchestrator:
         )
         self._journal.flush()
         try:
-            response = self.transport.complete(packet)
+            response = self._complete_with_retry_accounting(packet, role)
         except Exception:
             self._record_transport_failure_controls()
             raise
         self._record_dispatch_response(dispatch_index, response)
         self._journal.flush()
         return response
+
+    def _complete_with_retry_accounting(
+        self, packet: PromptPacket, role: str
+    ) -> TransportResponse | str | bytes:
+        """Complete a request; a transport retry reserves budget and lands on the dispatch.
+
+        A transport that makes the one retry after a transport error exposes
+        ``retry_gate`` and ``last_retries``.  The retry is another request:
+        it reserves the budget the first request reserved, and without budget
+        it does not happen.  A transport without those attributes never retries.
+        """
+
+        has_gate = hasattr(self.transport, "retry_gate")
+        if has_gate:
+            self.transport.retry_gate = lambda: self._reserve_transport_retry(role)
+        try:
+            return self.transport.complete(packet)
+        finally:
+            if has_gate:
+                self.transport.retry_gate = None
+            for retry in getattr(self.transport, "last_retries", None) or []:
+                self._journal.append(TransportRetried(retry["attempt"], retry["retry_of"]))
+
+    def _reserve_transport_retry(self, role: str) -> bool:
+        """Reserve one request for a transport retry; report whether the budget allowed it."""
+
+        try:
+            self.budget.reserve(self.task_id, role=role)
+        except BudgetExceeded:
+            return False
+        self._journal.append(BudgetRecorded(self.budget.snapshot(self.task_id)))
+        return True
 
     def _dispatch_attempt_indices(self, packet: PromptPacket) -> tuple[int, int]:
         """Return the stage attempt index and the per-failed-stage correction index."""
