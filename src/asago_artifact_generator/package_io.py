@@ -22,6 +22,7 @@ from .value_checks import is_sha256_hex
 
 PACKAGE_SCHEMA_VERSION = "artifact-package-v3"
 TOOL_CALL_CONDITION_MEMBER = "tool_call_condition.json"
+SEED_MEMBER = "seed.json"
 _ALLOWED_MEMBER_NAMES = {
     "plan.json",
     "stimulus.json",
@@ -36,6 +37,7 @@ _ALLOWED_MEMBER_NAMES = {
     "explanation.json",
     "examples.json",
     TOOL_CALL_CONDITION_MEMBER,
+    SEED_MEMBER,
 }
 # Each claim level names the member that downstream detection reads.
 _CLAIM_LEVEL_MEMBERS = {

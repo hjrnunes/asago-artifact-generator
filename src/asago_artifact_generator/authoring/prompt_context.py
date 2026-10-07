@@ -28,7 +28,7 @@ from .contracts import (
 )
 from .core import AUTHORING_INTERFACE_VERSION_V2, _sha256
 from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
-from .sequential_turns import plan_response_contract, turn_count
+from .sequential_turns import plan_response_contract, shape_delivery, turn_count
 
 
 def _authoritative_context(
@@ -797,7 +797,7 @@ def build_plan_author_context(
 ) -> dict[str, Any]:
     """Build the source-derived context for the plan author role."""
 
-    response_contract = plan_response_contract(turn_count(view))
+    response_contract = plan_response_contract(turn_count(view), shape_delivery(view))
     context = {
         "task": {
             "instruction": (

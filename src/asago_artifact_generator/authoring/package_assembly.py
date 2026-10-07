@@ -23,6 +23,7 @@ from .inventory import (
     _resolved_judge_spec,
     _source_input_payload,
 )
+from .planted_item import seed_members
 from .prompt_safety import assert_no_secrets
 from .sequential_turns import stamped_stimulus
 
@@ -93,6 +94,7 @@ def _package_from_responses(
         "examples.json": _json_bytes(artifact["examples"]),
         **authoring_records,
     }
+    members.update(seed_members(view, artifact, runtime_contract))
     claim_level = _plan_claim_level(plan)
     resolved_judge = _resolved_judge_spec(artifact["semantic_judge_spec"], inventory)
     if resolved_judge is not None and claim_level == ClaimLevel.REPLY:

@@ -49,6 +49,7 @@ from .inventory import _first_fact_named, _inventory_fact_map, _inventory_refere
 from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
+from .planted_item import PLANTED_TEXT_FIELD, planted_item_findings
 
 # The spelling JUDGE_CONSUMERS replaced. It stays out of the closed vocabulary, so a plan
 # that still writes it gets a finding that names the replacement instead of an alias.
@@ -71,6 +72,8 @@ def _validate_call2_metadata_shape(value: Any) -> list[Finding]:
 
 
 _CALL2_METADATA_FIELDS = frozenset({"stimulus", "semantic_judge_spec", "examples", "explanation"})
+# Read as allowed here and required by the planted-item checks, which know the plan.
+_CALL2_OPTIONAL_FIELDS = frozenset({PLANTED_TEXT_FIELD})
 _CALL2_PLAN_OWNED_FIELDS = frozenset(
     {
         "interpretation",
@@ -96,7 +99,7 @@ _CALL2_PLAN_OWNED_FIELDS = frozenset(
 
 def _call2_root_field_findings(value: dict[str, Any]) -> list[Finding]:
     findings: list[Finding] = []
-    for field_name in sorted(set(value) - _CALL2_METADATA_FIELDS):
+    for field_name in sorted(set(value) - _CALL2_METADATA_FIELDS - _CALL2_OPTIONAL_FIELDS):
         findings.append(
             Finding(
                 "plan_conflict" if field_name in _CALL2_PLAN_OWNED_FIELDS else "unexpected_field",
@@ -560,6 +563,7 @@ def _artifact_findings(
             )
         )
     findings.extend(_artifact_example_findings(metadata, plan, inventory, condition))
+    findings.extend(planted_item_findings(metadata, plan))
     judge_spec = metadata.get("semantic_judge_spec")
     findings.extend(_semantic_judge_decision_findings(plan, judge_spec))
     if isinstance(judge_spec, dict):

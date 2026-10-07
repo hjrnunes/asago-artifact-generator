@@ -9,6 +9,7 @@ from ..bindings import BINDING_SPEC, JUDGE_CONSUMERS, PREREQUISITE_CONSUMERS
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from .core import AUTHORING_INTERFACE_VERSION_V2
 from .example_capture import CAPTURE_MEANING, CAPTURED_EXAMPLES, capture_schema
+from .planted_item import with_planted_text_field
 
 _PLAN_FIELD_MEANING_SECTIONS: tuple[tuple[str, str], ...] = (
     (
@@ -623,7 +624,7 @@ def _call2_contract_v2(plan: dict[str, Any] | None = None) -> dict[str, Any]:
         contract["semantic_judge_spec_rules"] = deepcopy(_SEMANTIC_JUDGE_SPEC_RULES)
     if _plan_example_capture_mode(plan) != "none":
         contract["example_capture_meaning"] = CAPTURE_MEANING
-    return contract
+    return with_planted_text_field(contract, plan)
 
 
 def _plan_example_capture_mode(plan: dict[str, Any] | None) -> str:

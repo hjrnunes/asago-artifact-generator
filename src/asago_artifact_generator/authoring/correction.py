@@ -30,7 +30,7 @@ from .prompt_context import (
 )
 from .prompt_packets import _artifact_response_contract_for_prompt
 from .response_decode import _decode_call2_json_response, _readable_response
-from .sequential_turns import plan_response_contract, turns_in_context
+from .sequential_turns import delivery_in_context, plan_response_contract, turns_in_context
 
 
 @dataclass
@@ -461,7 +461,9 @@ def build_correction_context(
                     "Return one complete plan replacement as one bare JSON object or "
                     "exactly one lowercase ```json fenced JSON object."
                 ),
-                "response_contract": plan_response_contract(turns_in_context(original_context)),
+                "response_contract": plan_response_contract(
+                    turns_in_context(original_context), delivery_in_context(original_context)
+                ),
             }
         )
         context["instruction"] = (
