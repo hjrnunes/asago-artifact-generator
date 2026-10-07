@@ -887,7 +887,7 @@ class AuthoringOrchestrator:
             ReviewStatusRecorded(dict(self._review_status)),
         )
         self._journal.flush()
-        unusable = shape_refusal_findings(view, runtime_contract) or (
+        unusable = shape_refusal_findings(view, runtime_contract, inventory) or (
             _command_attempt_condition_findings(view, _handoff_claim_level(view), inventory)
         )
         if unusable:
