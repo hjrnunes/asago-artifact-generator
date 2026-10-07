@@ -4,5 +4,49 @@
   ],
   "invalid/fact-operand-in-condition.json": [
     "schema_violation:tool_call_condition"
+  ],
+  "invalid/narrative-role-serialization.json": [
+    "prose_hiding:role_serialization"
+  ],
+  "invalid/narrative-turn-array.json": [
+    "prose_hiding:turn_array"
+  ],
+  "invalid/ownership-deliver-this-message.json": [
+    "prose_hiding:ready_to_send_instruction"
+  ],
+  "invalid/ownership-dotted-key.json": [
+    "artifact_design_field:role"
+  ],
+  "invalid/ownership-judge-prompt.json": [
+    "prose_hiding:judge_prompt"
+  ],
+  "invalid/ownership-key-name-pattern.json": [
+    "prose_hiding:detector_expression"
+  ],
+  "invalid/ownership-oracle-basis-key.json": [
+    "artifact_design_field:oracle_basis"
+  ],
+  "invalid/ownership-oracle-kind-key.json": [
+    "artifact_design_field:oracle_kind"
+  ],
+  "invalid/ownership-oracle-observes-key.json": [
+    "artifact_design_field:oracle_observes"
+  ],
+  "invalid/ownership-system-prompt-is.json": [
+    "prose_hiding:ready_to_send_instruction"
+  ],
+  "invalid/prepared-message-field.json": [
+    "prose_hiding:prepared_message_field"
+  ],
+  "invalid/role-turn-array.json": [
+    "prose_hiding:role_serialization"
+  ],
+  "invalid/smuggled-prose.json": [
+    "prose_hiding:detector_expression",
+    "prose_hiding:ready_to_send_instruction"
+  ],
+  "invalid/stimulus-turn-field.json": [
+    "artifact_design_field:stimulus_turns",
+    "artifact_design_field:role"
   ]
 }
