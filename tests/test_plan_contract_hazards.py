@@ -11,7 +11,7 @@ from asago_artifact_generator.authoring.checks import (
 )
 from asago_artifact_generator.authoring.core import (
     CALL1_PROMPT_VERSION_V20,
-    CALL2_PROMPT_VERSION_V23,
+    CALL2_PROMPT_VERSION_V24,
     CORRECTION_PROMPT_VERSION_V31,
     PromptPacket,
 )
@@ -308,7 +308,7 @@ def test_current_prompt_versions_cover_contract_changes() -> None:
     )
     assert (
         build_call2_packet_v2(view, _plan(), inventory, runtime_contract).version
-        == CALL2_PROMPT_VERSION_V23
+        == CALL2_PROMPT_VERSION_V24
     )
 
 

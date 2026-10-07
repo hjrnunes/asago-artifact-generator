@@ -67,8 +67,8 @@ def test_every_prompt_role_carries_a_new_version(packets: dict) -> None:
     assert {stage: packet.version for stage, packet in packets.items()} == {
         "call1": "authoring-call1-v20",
         "plan_review": "authoring-plan-review-v19",
-        "call2": "authoring-call2-v23",
-        "artifact_review": "authoring-artifact-review-v19",
+        "call2": "authoring-call2-v24",
+        "artifact_review": "authoring-artifact-review-v20",
         "plan_correction": "authoring-correction-v31",
-        "artifact_correction": "authoring-correction-v32",
+        "artifact_correction": "authoring-correction-v33",
     }
