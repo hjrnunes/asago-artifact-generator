@@ -123,6 +123,63 @@ def test_a_missing_or_malformed_condition_has_nothing_to_check() -> None:
     assert operand_type_findings({"comparisons": [7]}, _inventory()) == []
 
 
+@pytest.mark.parametrize(
+    "operations",
+    [
+        "x",
+        ["x", {"arguments": {}}, {"name": 5}],
+        [{"name": "transfer_funds", "arguments": "x"}],
+        [{"name": "transfer_funds", "arguments": {"properties": "x"}}],
+        [{"name": "transfer_funds", "arguments": {"properties": {"amount": "x", "limit": {}}}}],
+        [{"name": "transfer_funds", "arguments": {"properties": {"amount": {"type": [1]}}}}],
+    ],
+)
+def test_an_inventory_without_declared_argument_types_leaves_arguments_untyped(operations) -> None:
+    condition = _condition(_argument("amount"), "gt", _literal("abc"))
+
+    assert _codes(condition, {"operations": operations}) == ["condition_operand_type_mismatch"]
+    assert (
+        _codes(_condition(_argument("amount"), "eq", _literal([1])), {"operations": operations})
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("left", "op", "right"),
+    [
+        ("x", "eq", _literal(1)),
+        ({"source": "capture", "path": "a"}, "eq", _literal(1)),
+        (_literal("5"), "gt", _literal(1)),
+        (_literal("5.5"), "le", _literal("2")),
+    ],
+)
+def test_operands_without_a_declared_type_or_a_numeric_string_pass(left, op, right) -> None:
+    assert _codes(_condition(left, op, right), _inventory()) == []
+
+
+def test_a_string_argument_may_hold_a_number_in_an_ordering() -> None:
+    assert (
+        _codes(_condition(_argument("amount"), "gt", _literal(1)), _inventory(amount="string"))
+        == []
+    )
+
+
+def test_an_argument_declared_with_a_type_list_matches_any_listed_type() -> None:
+    inventory = {
+        "operations": [
+            {
+                "name": "transfer_funds",
+                "arguments": {"properties": {"amount": {"type": ["integer", "null"]}}},
+            }
+        ]
+    }
+
+    assert _codes(_condition(_argument("amount"), "eq", _literal(5)), inventory) == []
+    assert _codes(_condition(_argument("amount"), "eq", _literal("5")), inventory) == [
+        "condition_operand_type_mismatch"
+    ]
+
+
 def _signed_handoff(tmp_path: Path, comparison: dict) -> Path:
     payload = json.loads(_NOT_CALLED.read_text(encoding="utf-8"))
     payload["tool_call_condition"]["comparisons"][0] = comparison

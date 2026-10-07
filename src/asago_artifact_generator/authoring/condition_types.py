@@ -69,15 +69,19 @@ def _membership_problem(
     if right_types is not None and "array" not in right_types:
         return f"{op} needs a list on the right but it is {_describe(right_types)}"
     items = right.get("value") if isinstance(right, Mapping) else None
-    if left_types is None or "array" in left_types or not isinstance(items, list) or not items:
+    if left_types is None or "array" in left_types or not isinstance(items, list):
         return None
-    if all(_disjoint(left_types, {_json_value_type(item)}) for item in items):
-        return (
-            f"{op} tests {_describe(left_types)} against a list of "
-            f"{_describe({_json_value_type(item) for item in items})} items, "
-            "so no item can equal it"
-        )
-    return None
+    return _unmatched_items_problem(op, left_types, items)
+
+
+def _unmatched_items_problem(op: str, left_types: set[str], items: list[Any]) -> str | None:
+    item_types = {_json_value_type(item) for item in items}
+    if not items or not all(_disjoint(left_types, {kind}) for kind in item_types):
+        return None
+    return (
+        f"{op} tests {_describe(left_types)} against a list of "
+        f"{_describe(item_types)} items, so no item can equal it"
+    )
 
 
 def _ordering_problem(op: str, operand: Any, types: set[str] | None) -> str | None:
