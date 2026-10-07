@@ -101,8 +101,8 @@ def test_v3_document_signed_in_v2_domain_is_rejected(tmp_path: Path) -> None:
 
 def test_unknown_schema_version_is_rejected(tmp_path: Path) -> None:
     payload = json.loads(_OBSERVED.read_text(encoding="utf-8"))
-    payload["schema_version"] = "scenario-handoff-v4"
-    path = _write_signed(tmp_path, payload, "scenario-handoff-v4")
+    payload["schema_version"] = "scenario-handoff-v5"
+    path = _write_signed(tmp_path, payload, "scenario-handoff-v5")
 
     with pytest.raises(InputSourceError, match="scenario-handoff-v3"):
         load_input(path)

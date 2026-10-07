@@ -43,7 +43,22 @@ _CLAIM_LEVEL_MEMBERS = {
     ClaimLevel.REPLY.value: "judge.json",
 }
 _CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "artifact-package"
-_INPUT_KINDS = {"scenario-handoff-v3"}
+PACKAGE_SCHEMA_VERSION_V4 = "artifact-package-v4"
+# The input kinds each package version accepts, as its schema enumerates them.
+_INPUT_KINDS_BY_VERSION = {
+    PACKAGE_SCHEMA_VERSION: {"scenario-handoff-v3"},
+    PACKAGE_SCHEMA_VERSION_V4: {"scenario-handoff-v3", "scenario-handoff-v4"},
+}
+
+
+def package_schema_version_for(input_kind: str) -> str:
+    """Return the package version written for an input kind: v4 only for a v4 handoff."""
+
+    return (
+        PACKAGE_SCHEMA_VERSION_V4
+        if input_kind == "scenario-handoff-v4"
+        else PACKAGE_SCHEMA_VERSION
+    )
 
 
 class PackagePathError(ValueError):
@@ -117,6 +132,7 @@ def build_package(
         authoring=authoring or {},
         runtime_capabilities=runtime_capabilities or {},
         creation_model=creation_model or {},
+        schema_version=package_schema_version_for(input_kind),
     )
     manifest.manifest_digest = _manifest_digest(manifest.to_dict())
     _validate_manifest_fields(manifest)
@@ -350,14 +366,14 @@ def _manifest_from_dict(value: Any) -> PackageManifest:
         schema_version=value["schema_version"],
     )
     _validate_manifest_fields(manifest)
-    schema_error = first_schema_error(_manifest_schema(), value)
+    schema_error = first_schema_error(_manifest_schema(manifest.schema_version), value)
     if schema_error is not None:
         raise PackageIntegrityError(f"package manifest schema invalid {schema_error}")
     return manifest
 
 
-def _manifest_schema() -> dict[str, Any]:
-    schema_path = _CONTRACT_ROOT / PACKAGE_SCHEMA_VERSION / "schema.json"
+def _manifest_schema(version: str = PACKAGE_SCHEMA_VERSION) -> dict[str, Any]:
+    schema_path = _CONTRACT_ROOT / version / "schema.json"
     try:
         return json.loads(schema_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -365,7 +381,7 @@ def _manifest_schema() -> dict[str, Any]:
 
 
 def _validate_manifest_fields(manifest: PackageManifest) -> None:
-    if manifest.schema_version != PACKAGE_SCHEMA_VERSION:
+    if manifest.schema_version not in _INPUT_KINDS_BY_VERSION:
         raise PackageIntegrityError("unknown artifact package schema version")
     if not manifest.manifest_digest:
         raise PackageIntegrityError("manifest digest is missing")
@@ -388,7 +404,7 @@ def _validate_manifest_names(manifest: PackageManifest) -> None:
     for name in ("package_id", "scenario_id", "input_kind"):
         if not isinstance(getattr(manifest, name), str) or not getattr(manifest, name):
             raise PackageIntegrityError(f"manifest field is blank: {name}")
-    if manifest.input_kind not in _INPUT_KINDS:
+    if manifest.input_kind not in _INPUT_KINDS_BY_VERSION[manifest.schema_version]:
         raise PackageIntegrityError(f"unsupported package input kind: {manifest.input_kind}")
 
 
@@ -472,12 +488,14 @@ def validate_artifact_package_contract() -> None:
 __all__ = [
     "ArtifactPackage",
     "PACKAGE_SCHEMA_VERSION",
+    "PACKAGE_SCHEMA_VERSION_V4",
     "PackageIntegrityError",
     "PackageManifest",
     "PackagePathError",
     "TOOL_CALL_CONDITION_MEMBER",
     "build_package",
     "load_package",
+    "package_schema_version_for",
     "tool_call_condition_bytes",
     "write_package",
     "validate_artifact_package_contract",

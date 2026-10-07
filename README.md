@@ -402,6 +402,23 @@ record SHA-256 source pins. The adapter verifies `content_digest` in the
 `scenario-handoff-v2` documents because they carry no
 `tool_call_condition_status`; their kits stay vendored and frozen.
 
+The adapter also accepts `scenario-handoff-v4`, which adds `attack_shape`: the
+channel, the number of user turns (1 to 4) and each turn's purpose, never attack
+text. `InputView.attack_shape` returns it; a v3 handoff gets the implicit
+single-turn direct shape. The consumer authors only `direct` shapes. A `direct`
+shape with more than one turn is authored as sequential user turns: the plan
+states one intent per turn, Call 2 writes the earlier turns as `history` and the
+last as `user_text`, and code checks `1 + len(history) == turn_count`. The
+package is `artifact-package-v4`, and its `stimulus.json` states `mode`
+(`single` or `sequential`) and `turn_count`; a v3 handoff still yields a
+byte-identical v3 package. Before any model request, a shape the consumer cannot
+author stops with a typed finding: `shape_channel_unsupported` (the runtime
+contract lists no matching `delivery`, such as `planted_item` for `indirect`),
+`shape_forged_transcript_unsupported`, or `shape_turn_count_unsupported`
+(more turns than `limits.max_planned_turns`, default 4). A v4 handoff whose
+`attack_shape` breaks the vendored schema or its cross-field rules is refused
+at load with `shape_version_malformed`.
+
 A handoff carries two optional condition fields and two tool-call fields, all
 validated against the vendored v3 schema:
 
@@ -521,6 +538,10 @@ Each package carries the scoring input for its plan's claim level:
   that package requires it.
 - `judge.json` holds the semantic judge specification and its resolved facts.
   Only a `reply` package carries it, and that package requires it.
+
+The writer chooses the package version from the input kind: a v4 handoff gives
+`artifact-package-v4` (`contracts/artifact-package/artifact-package-v4/`), a v3
+handoff gives `artifact-package-v3`; the loader reads both.
 
 Runtime receipts remain outside the immutable package.
 

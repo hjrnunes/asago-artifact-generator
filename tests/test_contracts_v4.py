@@ -1,7 +1,7 @@
 """The vendored scenario-handoff-v4 kit and the consumer-owned artifact-package-v4 contract.
 
-Both contracts land without behavior change: the input adapter still refuses a
-v4 handoff and the package writer still writes artifact-package-v3.
+The input adapter reads the v4 kit (tests/test_handoff_v4.py) and the package
+writer writes artifact-package-v4 for a v4 input; the v3 default stays v3.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ import pytest
 
 from asago_artifact_generator import input_adapter, package_io
 from asago_artifact_generator.contract_kit import sha256_hex
-from asago_artifact_generator.input_adapter import InputSourceError, load_input
 
 _CONTRACTS = Path(__file__).resolve().parents[1] / "contracts"
 _HANDOFF = _CONTRACTS / "scenario-handoff"
@@ -54,12 +53,6 @@ def test_the_vendored_v4_kit_has_the_producer_fixture_counts() -> None:
 @pytest.mark.parametrize("fixture", sorted((_KIT / "valid").glob("*.json")), ids=lambda p: p.name)
 def test_vendored_v4_schema_accepts_the_valid_fixtures(fixture: Path) -> None:
     jsonschema.validate(_json(fixture), _json(_KIT / "schema.json"))
-
-
-@pytest.mark.parametrize("fixture", sorted((_KIT / "valid").glob("*.json")), ids=lambda p: p.name)
-def test_the_input_adapter_still_refuses_a_v4_handoff(fixture: Path) -> None:
-    with pytest.raises(InputSourceError):
-        load_input(fixture)
 
 
 def test_the_v3_handoff_kit_is_unchanged_by_the_v4_mirror() -> None:
@@ -162,5 +155,5 @@ def test_the_package_lock_adds_v4_and_keeps_the_v3_entry_and_singular_fields() -
     package_io.validate_artifact_package_contract()
 
 
-def test_the_package_writer_still_writes_v3() -> None:
+def test_the_package_writer_defaults_to_v3() -> None:
     assert package_io.PACKAGE_SCHEMA_VERSION == "artifact-package-v3"

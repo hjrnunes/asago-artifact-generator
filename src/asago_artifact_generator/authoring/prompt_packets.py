@@ -7,7 +7,7 @@ from typing import Any
 
 from ..input_adapter import InputView
 from .context_budget import _enforce_prompt_size
-from .contracts import _call1_contract_v2, _call2_contract_v2
+from .contracts import _call2_contract_v2
 from .core import (
     CALL1_PROMPT_VERSION_V20,
     CALL2_PROMPT_VERSION_V25,
@@ -29,6 +29,12 @@ from .prompt_context import (
     build_plan_author_context,
 )
 from .prompt_safety import assert_no_prompt_secrets, prompt_data_urls
+from .sequential_turns import (
+    multi_turn_payload,
+    multi_turn_sections,
+    plan_response_contract,
+    turn_count,
+)
 
 
 def _artifact_response_contract_for_prompt(
@@ -92,9 +98,10 @@ def build_call1_packet_v2(
         view=view,
         inventory=inventory,
         runtime_contract=runtime_contract,
-        response_contract=_call1_contract_v2(),
+        response_contract=plan_response_contract(turn_count(view)),
     )
     context = build_plan_author_context(view, inventory, runtime_contract)
+    payload.update(multi_turn_payload(view))
     payload.update(
         {
             "task": context["task"],
@@ -118,8 +125,9 @@ def build_call1_packet_v2(
             (
                 ("TASK", context["task"]),
                 ("SCENARIO DESIGN", _scenario_design_prompt_view(context["scenario_design"])),
-                ("SOURCE CONTEXT", context["source_context"]),
             )
+            + multi_turn_sections(view)
+            + (("SOURCE CONTEXT", context["source_context"]),)
             + _owner_scope_prompt_sections(context)
             + (("EVIDENCE REFERENCES", context["evidence_references"]),)
             + (
@@ -178,6 +186,7 @@ def build_call2_packet_v2(
             "plan_field_meanings": context["plan_field_meanings"],
         }
     )
+    payload.update(multi_turn_payload(view))
     if "owner_scope" in context:
         payload["owner_scope"] = context["owner_scope"]
     assert_no_prompt_secrets(payload)
@@ -195,8 +204,9 @@ def build_call2_packet_v2(
         + (
             ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
             ("ACCEPTED PLAN — immutable", context["accepted_plan"]),
-            ("RUNTIME CAPABILITIES", context["runtime_contract"]),
         )
+        + multi_turn_sections(view)
+        + (("RUNTIME CAPABILITIES", context["runtime_contract"]),)
     )
     if _plan_semantic_judge_needed(plan):
         sections += (
