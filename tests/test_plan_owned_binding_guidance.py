@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import tests.test_owner_scope_block as osb
 from asago_artifact_generator.authoring.correction import _CURRENT_ARTIFACT_CORRECTION_GUIDANCE
 from asago_artifact_generator.authoring.prompt_context import _CURRENT_PLAN_AUTHOR_GUIDANCE
+
+from .prompt_support import render_stage_packets
 
 _RULE = "artifact authoring cannot add"
 # Advice that only a plan author can follow.
@@ -33,7 +34,7 @@ def test_artifact_guidance_constants_state_the_plan_owned_rule() -> None:
 
 
 def test_artifact_stage_prompts_state_the_rule_and_the_plan_author_keeps_its_own() -> None:
-    packets = osb._render_all_stage_packets(osb._view())
+    packets = render_stage_packets()
 
     for stage in ("call2", "artifact_review", "artifact_correction"):
         text = packets[stage].system + packets[stage].user

@@ -20,10 +20,10 @@ from .support import (
     ScriptedAuthoringTransport,
     fake_cli_authoring,
     forbid_cli_transport,
+    profile_file,
+    target_inputs,
     world_builders,
 )
-from .test_profile_bridge import _inputs as _cli_inputs
-from .test_profile_bridge import _profile_file
 
 _inventory, _plan, _runtime_contract, _view = world_builders(
     "refund", "inventory", "plan", "runtime_contract", "view"
@@ -129,9 +129,9 @@ def test_author_cli_threads_prior_spend_to_orchestrator_without_provider_contact
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    target_profile, runtime_contract = _cli_inputs(tmp_path)
+    target_profile, runtime_contract = target_inputs(tmp_path)
     captured = fake_cli_authoring(monkeypatch)
-    profiles_file, _ = _profile_file(tmp_path)
+    profiles_file, _ = profile_file(tmp_path)
 
     result = CliRunner().invoke(
         cli.app,
@@ -164,9 +164,9 @@ def test_author_cli_rejects_negative_prior_spend_before_transport(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    target_profile, runtime_contract = _cli_inputs(tmp_path)
+    target_profile, runtime_contract = target_inputs(tmp_path)
     transport = forbid_cli_transport(monkeypatch)
-    profiles_file, _ = _profile_file(tmp_path)
+    profiles_file, _ = profile_file(tmp_path)
 
     result = CliRunner().invoke(
         cli.app,

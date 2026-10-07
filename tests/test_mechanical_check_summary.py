@@ -11,8 +11,15 @@ from asago_artifact_generator.authoring.review import (
     build_artifact_reviewer_context,
     build_plan_reviewer_context,
 )
-from tests import test_semantic_judge_spec_wording as judged
 from tests.support import world_builders
+
+from .reply_support import (
+    reply_inventory,
+    reply_metadata,
+    reply_plan,
+    reply_runtime_contract,
+    reply_view,
+)
 
 _view, _inventory, _runtime_contract, _plan, _metadata = world_builders(
     "ehr", "view", "inventory", "runtime_contract", "plan", "metadata"
@@ -77,11 +84,11 @@ def test_artifact_summary_omits_the_judge_fact_check_when_the_artifact_has_no_ju
 
 def test_artifact_summary_lists_the_judge_fact_check_when_the_artifact_has_a_judge() -> None:
     context = build_artifact_reviewer_context(
-        judged._view(),
-        judged._plan(),
-        judged._metadata("Does the reply assert the claim?"),
-        judged._inventory(),
-        judged._runtime_contract(),
+        reply_view(),
+        reply_plan(),
+        reply_metadata("Does the reply assert the claim?"),
+        reply_inventory(),
+        reply_runtime_contract(),
     )
 
     summary = context["mechanical_check_summary"]

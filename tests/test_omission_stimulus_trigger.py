@@ -16,8 +16,16 @@ from asago_artifact_generator.authoring.review import (
 )
 from asago_artifact_generator.input_adapter import load_input
 
-from .test_handoff_v3 import _NO_CONDITION, _NOT_CALLED_HANDOFF, _OBSERVED
-from .test_versioned_prompt_roles import _inventory, _metadata, _plan, _runtime_contract
+from .support import (
+    NO_CONDITION_HANDOFF,
+    NOT_CALLED_HANDOFF,
+    OBSERVED_HANDOFF,
+    world_builders,
+)
+
+_inventory, _metadata, _plan, _runtime_contract = world_builders(
+    "ehr", "inventory", "metadata", "plan", "runtime_contract"
+)
 
 _AUTHOR_SENTENCE = "selected_evidence cites no entry for it"
 _REVIEWER_SENTENCE = "An omission plan cites no stimulus trigger"
@@ -37,7 +45,7 @@ def _packets(source: Path) -> dict:
 
 
 def test_the_plan_author_is_told_an_omission_cites_no_stimulus_trigger() -> None:
-    packets = _packets(_NOT_CALLED_HANDOFF)
+    packets = _packets(NOT_CALLED_HANDOFF)
 
     assert packets["call1"].user.count(_AUTHOR_SENTENCE) == 1
     assert "stimulus is not a supplied observation" in packets["call1"].user
@@ -45,7 +53,7 @@ def test_the_plan_author_is_told_an_omission_cites_no_stimulus_trigger() -> None
 
 
 def test_the_plan_reviewer_is_told_not_to_demand_a_stimulus_trigger() -> None:
-    packet = _packets(_NOT_CALLED_HANDOFF)["plan_review"]
+    packet = _packets(NOT_CALLED_HANDOFF)["plan_review"]
 
     assert packet.user.count(_REVIEWER_SENTENCE) == 1
     assert "Do not ask the plan to cite the stimulus as a trigger" in packet.user
@@ -56,14 +64,14 @@ def test_the_plan_reviewer_is_told_not_to_demand_a_stimulus_trigger() -> None:
 
 
 def test_only_the_plan_stage_prompts_carry_the_instruction() -> None:
-    packets = _packets(_NOT_CALLED_HANDOFF)
+    packets = _packets(NOT_CALLED_HANDOFF)
 
     for name in ("call2", "artifact_review"):
         assert _AUTHOR_SENTENCE not in packets[name].user, name
         assert _REVIEWER_SENTENCE not in packets[name].user, name
 
 
-@pytest.mark.parametrize("source", [_OBSERVED, _NO_CONDITION])
+@pytest.mark.parametrize("source", [OBSERVED_HANDOFF, NO_CONDITION_HANDOFF])
 def test_a_plan_without_a_not_called_comparison_gets_no_omission_trigger_text(
     source: Path,
 ) -> None:

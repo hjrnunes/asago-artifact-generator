@@ -16,11 +16,14 @@ from asago_artifact_generator.authoring.review import (
 )
 from asago_artifact_generator.input_adapter import load_input
 
-from . import test_versioned_authoring_wire as wire
-from .support import scripted_orchestrator
-from .test_handoff_v3 import _OBSERVED
-from .test_versioned_authoring_wire import _framed
-from .test_versioned_prompt_roles import _inventory, _plan, _runtime_contract, _view
+from .support import OBSERVED_HANDOFF, scripted_orchestrator, world_builders
+
+_inventory, _plan, _runtime_contract, _view = world_builders(
+    "ehr", "inventory", "plan", "runtime_contract", "view"
+)
+_refund_framed, _refund_inventory, _refund_plan, _refund_runtime_contract, _refund_view = (
+    world_builders("refund", "framed", "inventory", "plan", "runtime_contract", "view")
+)
 
 _orchestrator = partial(scripted_orchestrator, task_id="prior-round")
 
@@ -60,7 +63,7 @@ def _review_reply(findings: list[dict]) -> bytes:
 def test_a_first_round_review_prompt_is_the_one_9baa154_rendered() -> None:
     plain = build_plan_review_packet(_view(), _plan(), _inventory(), _runtime_contract())
     conditioned = build_plan_review_packet(
-        load_input(_OBSERVED), _plan(), _inventory(), _runtime_contract()
+        load_input(OBSERVED_HANDOFF), _plan(), _inventory(), _runtime_contract()
     )
 
     assert _digest(plain.system) == _FIRST_ROUND_SYSTEM
@@ -120,22 +123,22 @@ def test_a_second_round_review_lists_a_field_the_author_removed() -> None:
 
 
 def test_the_orchestrator_hands_the_second_review_its_first_round(tmp_path: Path) -> None:
-    revised = wire._plan()
+    revised = _refund_plan()
     revised["observation_claim"]["violation"] = "Complete capture shows the bound mismatch."
     orchestrator, transport = _orchestrator(
         tmp_path,
         [
-            json.dumps(wire._plan()),
+            json.dumps(_refund_plan()),
             _review_reply([_FINDING]),
             json.dumps(revised),
             _review_reply([]),
-            _framed(),
+            _refund_framed(),
             _review_reply([]),
         ],
         policy=AuthoringPolicy(),
     )
 
-    result = orchestrator.run(wire._view(), wire._inventory(), wire._runtime_contract())
+    result = orchestrator.run(_refund_view(), _refund_inventory(), _refund_runtime_contract())
 
     assert result.status == "accepted"
     reviews = [item for item in transport.requests if item["stage"] == "plan_review"]
@@ -154,11 +157,17 @@ def test_a_review_after_a_mechanical_correction_alone_has_no_prior_round(
 ) -> None:
     orchestrator, transport = _orchestrator(
         tmp_path,
-        [b"{}", json.dumps(wire._plan()), _review_reply([]), _framed(), _review_reply([])],
+        [
+            b"{}",
+            json.dumps(_refund_plan()),
+            _review_reply([]),
+            _refund_framed(),
+            _review_reply([]),
+        ],
         policy=AuthoringPolicy(),
     )
 
-    result = orchestrator.run(wire._view(), wire._inventory(), wire._runtime_contract())
+    result = orchestrator.run(_refund_view(), _refund_inventory(), _refund_runtime_contract())
 
     assert result.status == "accepted"
     review = next(item for item in transport.requests if item["stage"] == "plan_review")

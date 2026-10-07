@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
-import yaml
 
 from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
 from asago_artifact_generator.authoring.plan_triggers import uncited_trigger_observations
@@ -14,12 +12,8 @@ from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
 )
-from asago_artifact_generator.input_adapter import _framed_digest, load_input
 
-_NOT_CALLED = (
-    Path(__file__).resolve().parents[1]
-    / "contracts/scenario-handoff/handoff-v3/valid/functional-not-called.json"
-)
+from .support import signed_omission_view
 
 _OMISSION = {"comparisons": [{"kind": "not_called", "operation": "notify_owner"}]}
 _TRIGGER_TEXT = '{"status": "missing"}'
@@ -74,19 +68,6 @@ _TRIGGER_BINDING = {
     "consumers": ["judge.widget_result"],
     "on_missing": "inconclusive",
 }
-
-
-def _signed_omission_view(tmp_path: Path):
-    payload = json.loads(_NOT_CALLED.read_text(encoding="utf-8"))
-    payload["discriminating_condition"]["comparisons"] = [
-        {"kind": "not_called", "operation": "notify_owner"}
-    ]
-    payload.pop("condition_check", None)
-    payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    payload["content_digest"] = _framed_digest("scenario-handoff-v3", payload)
-    path = tmp_path / "handoff.yaml"
-    path.write_text(yaml.safe_dump(payload), encoding="utf-8")
-    return load_input(path)
 
 
 def _full_plan(selected: list[dict]) -> dict:
@@ -186,7 +167,7 @@ def test_bound_trigger_observation_satisfies_the_plan_check() -> None:
 
 
 def test_omission_prompts_render_the_presence_and_citation_guidance(tmp_path: Path) -> None:
-    view = _signed_omission_view(tmp_path)
+    view = signed_omission_view(tmp_path)
     inventory = {**_inventory(), "source_handles": []}
     runtime = {
         "delivery": ["direct_user_message"],
@@ -234,7 +215,7 @@ def test_established_trigger_role_must_cite_a_supplied_observation() -> None:
 
 
 def test_omission_prompts_explain_the_established_trigger_role(tmp_path: Path) -> None:
-    view = _signed_omission_view(tmp_path)
+    view = signed_omission_view(tmp_path)
     inventory = {**_inventory(), "source_handles": []}
     runtime = {
         "delivery": ["direct_user_message"],

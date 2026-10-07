@@ -12,8 +12,10 @@ from pathlib import Path
 
 import pytest
 
-import tests.test_owner_scope_block as osb
-from tests.test_omission_plan_checks import _signed_omission_view
+from .prompt_support import render_stage_packets
+from .support import signed_omission_view, world_builders
+
+(_view,) = world_builders("ehr", "view")
 
 _REMOVED_MECHANISM = (
     "evidence.bindings",
@@ -33,8 +35,8 @@ _FACT_OPERAND_RULE = "the producer resolves it to its supplied value"
 
 @pytest.fixture(params=["without_condition", "with_condition"])
 def packets(request: pytest.FixtureRequest, tmp_path: Path) -> dict:
-    view = osb._view() if request.param == "without_condition" else _signed_omission_view(tmp_path)
-    return osb._render_all_stage_packets(view)
+    view = _view() if request.param == "without_condition" else signed_omission_view(tmp_path)
+    return render_stage_packets(view=view)
 
 
 def test_no_prompt_describes_the_removed_detector_mechanism(packets: dict) -> None:
@@ -55,7 +57,7 @@ def test_binding_contract_names_the_judge_as_the_only_detector_consumer(packets:
 
 
 def test_condition_rule_resolves_fact_operands_without_a_binding(tmp_path: Path) -> None:
-    packets = osb._render_all_stage_packets(_signed_omission_view(tmp_path))
+    packets = render_stage_packets(view=signed_omission_view(tmp_path))
 
     for stage in ("call1", "plan_review", "artifact_review", "plan_correction"):
         assert _FACT_OPERAND_RULE in packets[stage].user, stage

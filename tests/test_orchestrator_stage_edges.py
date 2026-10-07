@@ -13,9 +13,9 @@ from asago_artifact_generator.authoring.core import (
     PromptPreflightError,
     TransportResponse,
 )
-from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringPolicy, AuthoringResult
 
+from .policy_support import ONE_PLAN_CORRECTION, PLAN_REVIEW, run_refund
 from .support import (
     ScriptedAuthoringTransport,
     load_failure_evidence,
@@ -27,40 +27,6 @@ _framed, _inventory, _plan, _runtime_contract, _view = world_builders(
     "refund", "framed", "inventory", "plan", "runtime_contract", "view"
 )
 
-_NO_REVIEW = AuthoringPolicy(
-    plan_max_corrections=0,
-    artifact_max_corrections=0,
-    review_plan=False,
-    review_artifact=False,
-)
-_PLAN_REVIEW = AuthoringPolicy(
-    plan_max_corrections=0,
-    artifact_max_corrections=0,
-    review_plan=True,
-    review_artifact=False,
-)
-
-
-_ONE_PLAN_CORRECTION = AuthoringPolicy(
-    plan_max_corrections=1,
-    artifact_max_corrections=0,
-    review_plan=False,
-    review_artifact=False,
-)
-
-
-def _run(
-    tmp_path: Path,
-    transport: ScriptedAuthoringTransport,
-    policy: AuthoringPolicy = _NO_REVIEW,
-) -> AuthoringResult:
-    return AuthoringOrchestrator(
-        transport=transport,
-        package_dir=tmp_path / "package",
-        task_id="stage-edges",
-        policy=policy,
-    ).run(_view(), _inventory(), _runtime_contract())
-
 
 def _codes(result: AuthoringResult) -> list[str]:
     return [finding.code for finding in result.findings]
@@ -69,7 +35,7 @@ def _codes(result: AuthoringResult) -> list[str]:
 def test_undecodable_plan_bytes_record_a_parse_error_and_skip_plan_checks(
     tmp_path: Path,
 ) -> None:
-    result = _run(tmp_path, ScriptedAuthoringTransport([b"\xff"]))
+    result = run_refund(tmp_path, ScriptedAuthoringTransport([b"\xff"]))
 
     assert result.status == "unresolved"
     assert _codes(result) == ["response_parse_error", "correction_limit_exhausted"]
@@ -82,7 +48,7 @@ def test_secret_bearing_plan_metadata_is_rejected_before_plan_checks(tmp_path: P
     plan = copy.deepcopy(_plan())
     plan["api_key"] = "redacted"
 
-    result = _run(tmp_path, ScriptedAuthoringTransport([json.dumps(plan)]))
+    result = run_refund(tmp_path, ScriptedAuthoringTransport([json.dumps(plan)]))
 
     assert result.status == "unresolved"
     assert _codes(result)[0] == "secret_in_response"
@@ -90,7 +56,7 @@ def test_secret_bearing_plan_metadata_is_rejected_before_plan_checks(tmp_path: P
 
 
 def test_plan_that_is_not_an_object_fails_framing(tmp_path: Path) -> None:
-    result = _run(tmp_path, ScriptedAuthoringTransport([b"[1]"]))
+    result = run_refund(tmp_path, ScriptedAuthoringTransport([b"[1]"]))
 
     assert result.status == "unresolved"
     assert _codes(result)[0] == "json_object_required"
@@ -104,7 +70,7 @@ def test_blocked_plan_that_fails_its_checks_is_still_retained_as_blocked(
     plan["unresolved_requirements"] = [{"name": "fresh_order", "essential": True, "reason": "r"}]
     plan["selected_evidence"] = [{"ref": "missing", "role": "x"}]
 
-    result = _run(tmp_path, ScriptedAuthoringTransport([json.dumps(plan)]))
+    result = run_refund(tmp_path, ScriptedAuthoringTransport([json.dumps(plan)]))
 
     assert result.status == "blocked"
     assert result.ledger[0]["findings"]
@@ -116,7 +82,7 @@ def test_blocked_plan_that_fails_its_checks_is_still_retained_as_blocked(
 def test_undecodable_correction_records_its_failure_and_the_parse_error(tmp_path: Path) -> None:
     transport = ScriptedAuthoringTransport([b"{}", b"\xff"])
 
-    result = _run(tmp_path, transport, _ONE_PLAN_CORRECTION)
+    result = run_refund(tmp_path, transport, ONE_PLAN_CORRECTION)
 
     assert result.status == "unresolved"
     assert [request["stage"] for request in transport.requests] == ["call1", "correction"]
@@ -136,7 +102,7 @@ def test_secret_bearing_correction_fails_without_a_parse_error(tmp_path: Path) -
     plan["api_key"] = "redacted"
     transport = ScriptedAuthoringTransport([b"{}", json.dumps(plan)])
 
-    result = _run(tmp_path, transport, _ONE_PLAN_CORRECTION)
+    result = run_refund(tmp_path, transport, ONE_PLAN_CORRECTION)
 
     assert result.status == "unresolved"
     assert result.findings[-1].code == "correction_failed"
@@ -152,7 +118,7 @@ def test_oversized_correction_prompt_stops_before_the_correction_dispatch(
 ) -> None:
     transport = ScriptedAuthoringTransport([json.dumps({"junk": "x" * 1_100_000})])
 
-    result = _run(tmp_path, transport, _ONE_PLAN_CORRECTION)
+    result = run_refund(tmp_path, transport, ONE_PLAN_CORRECTION)
 
     assert result.status == "prompt_overflow"
     assert _codes(result) == ["prompt_overflow"]
@@ -169,7 +135,7 @@ def test_correction_overflow_evidence_names_the_overflow_as_its_terminal_finding
 ) -> None:
     transport = ScriptedAuthoringTransport([json.dumps({"junk": "x" * 1_100_000})])
 
-    result = _run(tmp_path, transport, _ONE_PLAN_CORRECTION)
+    result = run_refund(tmp_path, transport, ONE_PLAN_CORRECTION)
 
     evidence = load_failure_evidence(result.failure_evidence_path)
     assert evidence["status"] == "prompt_overflow"
@@ -197,7 +163,7 @@ def test_artifact_correction_overflow_evidence_names_the_overflow_as_its_termina
         [json.dumps(_plan()), _framed({"junk": "x" * 1_100_000})]
     )
 
-    result = _run(tmp_path, transport, policy)
+    result = run_refund(tmp_path, transport, policy)
 
     assert result.status == "prompt_overflow"
     assert [request["stage"] for request in transport.requests] == ["call1", "call2"]
@@ -231,7 +197,7 @@ def _consumer_rewrite() -> dict:
 def test_plan_validation_rewrites_are_recorded_on_the_dispatch(tmp_path: Path) -> None:
     plan = _plan_needing_a_prerequisite_consumer()
 
-    result = _run(tmp_path, ScriptedAuthoringTransport([json.dumps(plan), _framed()]))
+    result = run_refund(tmp_path, ScriptedAuthoringTransport([json.dumps(plan), _framed()]))
 
     assert result.status == "accepted"
     assert result.transformations == [_consumer_rewrite()]
@@ -246,7 +212,7 @@ def test_correction_validation_rewrites_are_recorded_on_the_correction(tmp_path:
     plan = _plan_needing_a_prerequisite_consumer()
     transport = ScriptedAuthoringTransport([b"{}", json.dumps(plan), _framed()])
 
-    result = _run(tmp_path, transport, _ONE_PLAN_CORRECTION)
+    result = run_refund(tmp_path, transport, ONE_PLAN_CORRECTION)
 
     assert result.status == "accepted"
     assert [record["stage"] for record in result.ledger] == ["call1", "correction", "call2"]
@@ -265,7 +231,7 @@ def test_package_assembly_rejection_fails_the_run_at_the_artifact_stage(
 
     monkeypatch.setattr(orchestrator, "_package_from_responses", reject)
 
-    result = _run(tmp_path, ScriptedAuthoringTransport([json.dumps(_plan()), _framed()]))
+    result = run_refund(tmp_path, ScriptedAuthoringTransport([json.dumps(_plan()), _framed()]))
 
     assert result.status == "failed"
     assert [(f.code, f.path, f.stage) for f in result.findings] == [
@@ -280,7 +246,7 @@ def test_transport_failure_keeps_the_controls_the_transport_reports(tmp_path: Pa
     transport = ScriptedAuthoringTransport([RuntimeError("provider down")])
     transport.last_controls = {"max_retries": 0, "temperature": 0}
 
-    result = _run(tmp_path, transport)
+    result = run_refund(tmp_path, transport)
 
     assert result.status == "transport_failure"
     assert result.ledger[0]["controls"] == {"max_retries": 0, "temperature": 0}
@@ -296,7 +262,7 @@ def test_oversized_plan_review_prompt_stops_before_the_review_dispatch(
     plan["interpretation"]["failure"] = "The command exceeds the balance. " * 36_000
     transport = ScriptedAuthoringTransport([json.dumps(plan)])
 
-    result = _run(tmp_path, transport, _PLAN_REVIEW)
+    result = run_refund(tmp_path, transport, PLAN_REVIEW)
 
     assert result.status == "prompt_overflow"
     assert _codes(result) == ["prompt_overflow"]
@@ -312,7 +278,7 @@ def test_review_context_overflow_records_prompt_overflow_status(tmp_path: Path) 
 
     transport = _ReviewOverflowTransport([json.dumps(_plan())])
 
-    result = _run(tmp_path, transport, _PLAN_REVIEW)
+    result = run_refund(tmp_path, transport, PLAN_REVIEW)
 
     assert result.status == "prompt_overflow"
     assert result.review_status["plan"] == "prompt_overflow"
@@ -328,7 +294,7 @@ def test_call1_context_preflight_failure_ends_the_run_failed_before_any_dispatch
 
     transport = _Call1PreflightTransport([json.dumps(_plan())])
 
-    result = _run(tmp_path, transport, _ONE_PLAN_CORRECTION)
+    result = run_refund(tmp_path, transport, ONE_PLAN_CORRECTION)
 
     assert result.status == "failed"
     assert [(f.code, f.path, f.stage) for f in result.findings] == [
@@ -350,7 +316,7 @@ def test_review_context_preflight_failure_keeps_the_review_unavailable_stop(
             if packet.stage == "plan_review":
                 raise PromptPreflightError("scripted preflight failure")
 
-    result = _run(tmp_path, _ReviewPreflightTransport([json.dumps(_plan())]), _PLAN_REVIEW)
+    result = run_refund(tmp_path, _ReviewPreflightTransport([json.dumps(_plan())]), PLAN_REVIEW)
 
     assert result.status == "review_unavailable"
     assert _codes(result) == ["transport_failure"]
@@ -366,7 +332,7 @@ def test_review_response_capture_is_kept_on_the_ledger_and_attempt(tmp_path: Pat
         ]
     )
 
-    result = _run(tmp_path, transport, _PLAN_REVIEW)
+    result = run_refund(tmp_path, transport, PLAN_REVIEW)
 
     assert result.status == "accepted"
     assert result.ledger[1]["stage"] == "plan_review"
@@ -378,7 +344,7 @@ def test_fenced_review_response_records_its_transformation(tmp_path: Path) -> No
         [json.dumps(_plan()), b"```json\n" + review_response() + b"\n```", _framed()]
     )
 
-    result = _run(tmp_path, transport, _PLAN_REVIEW)
+    result = run_refund(tmp_path, transport, PLAN_REVIEW)
 
     assert result.status == "accepted"
     assert result.ledger[1]["transformation"] == "outer_fence_removed"

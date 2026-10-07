@@ -6,32 +6,20 @@ from dataclasses import replace
 
 import pytest
 
-from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
-from asago_artifact_generator.authoring.correction import (
-    _render_correction_packet,
-    build_correction_context,
-)
 from asago_artifact_generator.authoring.prompt_context import (
     build_artifact_author_context,
     build_plan_author_context,
 )
-from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
-    build_call2_packet_v2,
-)
 from asago_artifact_generator.authoring.review import (
-    build_artifact_review_packet,
     build_artifact_reviewer_context,
-    build_plan_review_packet,
     build_plan_reviewer_context,
 )
-from tests.test_versioned_prompt_roles import (
-    _framed,
-    _inventory,
-    _metadata,
-    _plan,
-    _runtime_contract,
-    _view,
+
+from .prompt_support import render_stage_packets
+from .support import world_builders
+
+_framed, _inventory, _metadata, _plan, _runtime_contract, _view = world_builders(
+    "ehr", "framed", "inventory", "metadata", "plan", "runtime_contract", "view"
 )
 
 _OWNER_SCOPE_LABEL = "OWNER-SUPPLIED SCOPE (NOT OBSERVED TARGET FACTS)"
@@ -66,36 +54,6 @@ _OWNER_SCOPE = {
 }
 
 
-def _render_all_stage_packets(view):
-    inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
-    return {
-        "call1": build_call1_packet_v2(view, inventory, runtime),
-        "plan_review": build_plan_review_packet(view, plan, inventory, runtime),
-        "call2": build_call2_packet_v2(view, plan, inventory, runtime),
-        "artifact_review": build_artifact_review_packet(
-            view, plan, _metadata(), inventory, runtime
-        ),
-        "plan_correction": _render_correction_packet(
-            build_correction_context(
-                failed_stage="call1",
-                original_context=build_plan_author_context(view, inventory, runtime),
-                current_output="{}",
-                findings=[],
-            ),
-            correction_repair_inputs(view, inventory, runtime),
-        ),
-        "artifact_correction": _render_correction_packet(
-            build_correction_context(
-                failed_stage="call2",
-                original_context=build_artifact_author_context(view, plan, inventory, runtime),
-                current_output=_framed(),
-                findings=[],
-            ),
-            correction_repair_inputs(view, inventory, runtime),
-        ),
-    }
-
-
 def test_absent_or_empty_owner_scope_preserves_base_prompt_bytes() -> None:
     empty_views = (
         _view(),
@@ -110,7 +68,7 @@ def test_absent_or_empty_owner_scope_preserves_base_prompt_bytes() -> None:
     )
 
     for view in empty_views:
-        packets = _render_all_stage_packets(view)
+        packets = render_stage_packets(view=view)
         digests = {
             name: hashlib.sha256((packet.system + "\0" + packet.user).encode("utf-8")).hexdigest()
             for name, packet in packets.items()
@@ -189,36 +147,7 @@ def test_owner_scope_is_separate_and_labeled_in_every_source_context_stage() -> 
         assert "Evaluate only the captured result." not in verified_data
 
     # Verify the stage builders render the separate owner block into the request.
-    packets = [
-        build_call1_packet_v2(view, inventory, runtime),
-        build_plan_review_packet(view, plan, inventory, runtime),
-        build_call2_packet_v2(view, plan, inventory, runtime),
-        build_artifact_review_packet(
-            view,
-            plan,
-            _metadata(),
-            inventory,
-            runtime,
-        ),
-        _render_correction_packet(
-            build_correction_context(
-                failed_stage="call1",
-                original_context=build_plan_author_context(view, inventory, runtime),
-                current_output="{}",
-                findings=[],
-            ),
-            correction_repair_inputs(view, inventory, runtime),
-        ),
-        _render_correction_packet(
-            build_correction_context(
-                failed_stage="call2",
-                original_context=build_artifact_author_context(view, plan, inventory, runtime),
-                current_output=_framed(),
-                findings=[],
-            ),
-            correction_repair_inputs(view, inventory, runtime),
-        ),
-    ]
+    packets = render_stage_packets(view=view).values()
     for packet in packets:
         assert packet.user.count(_OWNER_SCOPE_LABEL) == 1
         assert "scenario_premises" in packet.user

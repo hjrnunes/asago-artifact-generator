@@ -25,14 +25,13 @@ from asago_artifact_generator.authoring.review import (
     build_plan_reviewer_context,
 )
 
-from . import test_versioned_authoring_wire as wire
-from .support import ScriptedAuthoringTransport
-from .test_binding_repair_options import (
-    _NAMED_ORDER_SOURCES,
-    _keyed_orders_inventory,
-    _named_record_binding,
+from .binding_support import NAMED_ORDER_SOURCES, keyed_orders_inventory, named_record_binding
+from .support import ScriptedAuthoringTransport, world_builders
+
+_plan, _runtime_contract, _view = world_builders("ehr", "plan", "runtime_contract", "view")
+_refund_inventory, _refund_plan, _refund_runtime_contract, _refund_view = world_builders(
+    "refund", "inventory", "plan", "runtime_contract", "view"
 )
-from .test_versioned_prompt_roles import _plan, _runtime_contract, _view
 
 _RECORD_KEY_CHANGE = (
     "Change the selector for 'target_order_id' to 'value.ORD-201.record_key' so the "
@@ -53,13 +52,13 @@ def _review_record(location: str, required_change: str = _RECORD_KEY_CHANGE) -> 
 def _field_binding_plan() -> dict:
     plan = copy.deepcopy(_plan())
     plan["runtime_bindings"] = [
-        _named_record_binding("facts:state:orders", "value.ORD-201.customer_id")
+        named_record_binding("facts:state:orders", "value.ORD-201.customer_id")
     ]
     return plan
 
 
 def _correction_packet(plan: dict, findings: list[Finding], inventory: dict | None = None):
-    inventory = inventory if inventory is not None else _keyed_orders_inventory()
+    inventory = inventory if inventory is not None else keyed_orders_inventory()
     context = build_correction_context(
         failed_stage="call1",
         original_context=build_plan_author_context(_view(), inventory, _runtime_contract()),
@@ -79,7 +78,7 @@ def _section(packet, title: str) -> str:
 
 def test_reviewer_sees_the_record_key_source_of_a_record_field_binding() -> None:
     context = build_plan_reviewer_context(
-        _view(), _field_binding_plan(), _keyed_orders_inventory(), _runtime_contract()
+        _view(), _field_binding_plan(), keyed_orders_inventory(), _runtime_contract()
     )
 
     resolved = context["resolved_supplied_binding_values"]
@@ -102,7 +101,7 @@ def test_reviewer_sees_the_record_key_source_of_a_record_field_binding() -> None
 
 def test_the_record_key_is_not_named_like_the_binding_value() -> None:
     context = build_plan_reviewer_context(
-        _view(), _field_binding_plan(), _keyed_orders_inventory(), _runtime_contract()
+        _view(), _field_binding_plan(), keyed_orders_inventory(), _runtime_contract()
     )
 
     resolved = context["resolved_supplied_binding_values"]
@@ -118,11 +117,11 @@ def test_the_record_key_is_not_named_like_the_binding_value() -> None:
 def test_the_record_key_sentence_is_absent_without_a_record_key_source() -> None:
     plan = _field_binding_plan()
     plan["runtime_bindings"] = [
-        _named_record_binding("facts:state:orders:records", "value.ORD-201.record_key")
+        named_record_binding("facts:state:orders:records", "value.ORD-201.record_key")
     ]
 
     context = build_plan_reviewer_context(
-        _view(), plan, _keyed_orders_inventory(), _runtime_contract()
+        _view(), plan, keyed_orders_inventory(), _runtime_contract()
     )
 
     instruction = context["resolved_supplied_binding_values"]["reviewer_instruction"]
@@ -132,11 +131,11 @@ def test_the_record_key_sentence_is_absent_without_a_record_key_source() -> None
 def test_record_key_source_is_omitted_when_the_binding_already_selects_the_key() -> None:
     plan = _field_binding_plan()
     plan["runtime_bindings"] = [
-        _named_record_binding("facts:state:orders:records", "value.ORD-201.record_key")
+        named_record_binding("facts:state:orders:records", "value.ORD-201.record_key")
     ]
 
     context = build_plan_reviewer_context(
-        _view(), plan, _keyed_orders_inventory(), _runtime_contract()
+        _view(), plan, keyed_orders_inventory(), _runtime_contract()
     )
 
     (value,) = context["resolved_supplied_binding_values"]["values"]
@@ -146,7 +145,7 @@ def test_record_key_source_is_omitted_when_the_binding_already_selects_the_key()
 
 def test_plan_review_packet_uses_the_new_version() -> None:
     packet = build_plan_review_packet(
-        _view(), _field_binding_plan(), _keyed_orders_inventory(), _runtime_contract()
+        _view(), _field_binding_plan(), keyed_orders_inventory(), _runtime_contract()
     )
 
     assert packet.version == PLAN_REVIEW_PROMPT_VERSION_V19
@@ -183,7 +182,7 @@ def test_first_correction_after_a_binding_review_lists_documented_record_sources
     assert option["source_ref"] == "facts:state:orders"
     assert option["selector"] == "value.ORD-201.customer_id"
     assert option["named_record_key"] == "ORD-201"
-    assert option["named_record_sources"] == _NAMED_ORDER_SOURCES
+    assert option["named_record_sources"] == NAMED_ORDER_SOURCES
     assert "documented_selectors" not in option
     assert "truncated" not in option
     assert option["review_selector_checks"] == [
@@ -242,7 +241,7 @@ def test_review_about_other_plan_fields_gets_no_binding_option() -> None:
 def test_selector_finding_on_a_keyed_fact_lists_the_selected_record_sources() -> None:
     plan = _field_binding_plan()
     plan["runtime_bindings"] = [
-        _named_record_binding("facts:state:orders", "value.ORD-201.record_key")
+        named_record_binding("facts:state:orders", "value.ORD-201.record_key")
     ]
     finding = Finding(
         "plan_binding_validation",
@@ -255,19 +254,19 @@ def test_selector_finding_on_a_keyed_fact_lists_the_selected_record_sources() ->
     (option,) = packet.payload["binding_repair_options"]["options"]
     assert option["kind"] == "selector"
     assert option["named_record_key"] == "ORD-201"
-    assert option["named_record_sources"] == _NAMED_ORDER_SOURCES
+    assert option["named_record_sources"] == NAMED_ORDER_SOURCES
 
 
 def test_orchestrated_binding_review_revision_carries_repair_options(tmp_path: Path) -> None:
-    inventory = wire._inventory()
+    inventory = _refund_inventory()
     inventory["facts"].extend(
         fact
-        for fact in _keyed_orders_inventory()["facts"]
+        for fact in keyed_orders_inventory()["facts"]
         if fact["ref"] in {"state:orders", "state:orders:records"}
     )
-    plan = wire._plan()
+    plan = _refund_plan()
     plan["runtime_bindings"].append(
-        _named_record_binding("facts:state:orders", "value.ORD-201.customer_id")
+        named_record_binding("facts:state:orders", "value.ORD-201.customer_id")
     )
     review = json.dumps(
         {
@@ -284,7 +283,7 @@ def test_orchestrated_binding_review_revision_carries_repair_options(tmp_path: P
         policy=AuthoringPolicy(),
     )
 
-    orchestrator.run(wire._view(), inventory, wire._runtime_contract())
+    orchestrator.run(_refund_view(), inventory, _refund_runtime_contract())
 
     correction = transport.requests[2]
     assert correction["stage"] == "correction"

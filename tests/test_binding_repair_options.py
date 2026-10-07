@@ -25,6 +25,12 @@ from asago_artifact_generator.authoring.correction import (
 )
 from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
 
+from .binding_support import (
+    NAMED_ORDER_SOURCES,
+    keyed_orders_inventory,
+    named_record_binding,
+    runtime_binding,
+)
 from .support import world_builders
 
 _inventory, _runtime_contract, _view, _plan = world_builders(
@@ -55,19 +61,6 @@ def _candidate(*bindings: dict, **fields: object) -> dict:
         candidate["runtime_bindings"] = list(bindings)
     candidate.update(fields)
     return candidate
-
-
-def _binding(source_ref: str, selector: str = "value", **changes: object) -> dict:
-    return {
-        "name": "record_value",
-        "expected_type": "string",
-        "source_kind": "supplied_input",
-        "source_ref": source_ref,
-        "selector": selector,
-        "consumers": ["stimulus.user_text"],
-        "on_missing": "stop",
-        **changes,
-    }
 
 
 def _packet(
@@ -137,7 +130,7 @@ def test_selector_repair_lists_documented_paths_and_compatible_types() -> None:
             "items": {"type": "array", "items": {"type": "boolean"}},
         },
     }
-    binding = _binding("facts:session:actor", "value.missing", expected_type="number")
+    binding = runtime_binding("facts:session:actor", "value.missing", expected_type="number")
 
     option = _option_for(
         _candidate(binding), inventory, "runtime_bindings[0].selector", "bad selector"
@@ -164,7 +157,7 @@ def test_unpermitted_setup_source_lists_referenced_facts_and_no_setup_sources() 
             "host_id": {"type": "string"},
         },
     }
-    binding = _binding(
+    binding = runtime_binding(
         "setup:summarize_for_ehr",
         "result.patient_id",
         name="patient_id",
@@ -212,7 +205,7 @@ def test_unpermitted_setup_source_lists_referenced_facts_and_no_setup_sources() 
 
 def test_source_and_selector_findings_merge_into_one_source_option() -> None:
     packet = _packet(
-        _candidate(_binding("facts:not-present", "value.missing")),
+        _candidate(runtime_binding("facts:not-present", "value.missing")),
         _inventory(),
         [
             Finding(_BINDING_VALIDATION, "bad source", "runtime_bindings[0].source_ref"),
@@ -288,7 +281,7 @@ def test_selector_repair_on_a_resolving_source(
         inventory["facts"][0]["schema"] = schema
 
     option = _option_for(
-        _candidate(_binding("facts:session:actor", selector)),
+        _candidate(runtime_binding("facts:session:actor", selector)),
         inventory,
         "runtime_bindings[0].selector",
         "bad selector",
@@ -315,7 +308,7 @@ def _empty_list_inventory() -> dict:
 
 
 def _empty_list_binding(source_ref: str = "facts:state:inbox") -> dict:
-    return _binding(source_ref, name="inbox_text")
+    return runtime_binding(source_ref, name="inbox_text")
 
 
 _EMPTY_LIST_NOTE = (
@@ -369,93 +362,6 @@ def test_source_repair_marks_referenced_facts_whose_supplied_value_is_empty() ->
     )
 
 
-_ORDER_FIELDS = ("customer_id", "item", "status")
-
-
-def _keyed_orders_inventory() -> dict:
-    """Return keyed order facts whose full selector list exceeds the repair cap.
-
-    ORD-201 sorts after fourteen other orders, so a collection-wide
-    enumeration capped at 40 selectors never reaches it.
-    """
-
-    keys = [f"ORD-1{index:02d}" for index in range(1, 15)] + ["ORD-201"]
-    inventory = _inventory()
-    inventory["facts"].extend(
-        [
-            {
-                "ref": "state:orders",
-                "value": {
-                    key: {field: f"{key}-{field}" for field in _ORDER_FIELDS} for key in keys
-                },
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        key: {
-                            "type": "object",
-                            "properties": {field: {"type": "string"} for field in _ORDER_FIELDS},
-                        }
-                        for key in keys
-                    },
-                },
-            },
-            {
-                "ref": "state:orders:records",
-                "value": {key: {"record_key": key} for key in keys},
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        key: {"type": "object", "properties": {"record_key": {"type": "string"}}}
-                        for key in keys
-                    },
-                },
-            },
-        ]
-    )
-    return inventory
-
-
-def _named_record_binding(source_ref: str, selector: str) -> dict:
-    return _binding(
-        source_ref,
-        selector,
-        name="target_order_id",
-        consumers=["setup.arguments.target_order_id"],
-    )
-
-
-_NAMED_ORDER_SOURCES = [
-    {
-        "source_kind": "supplied_input",
-        "source_ref": "facts:state:orders",
-        "source_schema_type": "object",
-        "documented_selectors": {
-            "value.ORD-201": "object",
-            "value.ORD-201.customer_id": "string",
-            "value.ORD-201.item": "string",
-            "value.ORD-201.status": "string",
-        },
-        "matching_expected_type": [
-            "value.ORD-201.customer_id",
-            "value.ORD-201.item",
-            "value.ORD-201.status",
-        ],
-        "truncated": False,
-    },
-    {
-        "source_kind": "supplied_input",
-        "source_ref": "facts:state:orders:records",
-        "source_schema_type": "object",
-        "documented_selectors": {
-            "value.ORD-201": "object",
-            "value.ORD-201.record_key": "string",
-        },
-        "matching_expected_type": ["value.ORD-201.record_key"],
-        "truncated": False,
-    },
-]
-
-
 def _assert_named_sources_validate(inventory: dict, sources: list[dict]) -> None:
     schemas = {f"facts:{fact['ref']}": fact["schema"] for fact in inventory["facts"]}
     for source in sources:
@@ -464,9 +370,9 @@ def _assert_named_sources_validate(inventory: dict, sources: list[dict]) -> None
 
 
 def test_selector_repair_lists_the_named_record_beyond_the_selector_cap() -> None:
-    inventory = _keyed_orders_inventory()
+    inventory = keyed_orders_inventory()
     packet = _packet_for(
-        _candidate(_named_record_binding("facts:state:orders:ORD-201", "value.order_id")),
+        _candidate(named_record_binding("facts:state:orders:ORD-201", "value.order_id")),
         inventory,
         "runtime_bindings[0].selector",
         "undocumented selector for binding target_order_id: value.order_id",
@@ -477,7 +383,7 @@ def test_selector_repair_lists_the_named_record_beyond_the_selector_cap() -> Non
     assert option["truncated"] is True
     assert "value.ORD-201.customer_id" not in option["documented_selectors"]
     assert option["named_record_key"] == "ORD-201"
-    assert option["named_record_sources"] == _NAMED_ORDER_SOURCES
+    assert option["named_record_sources"] == NAMED_ORDER_SOURCES
     _assert_named_sources_validate(inventory, option["named_record_sources"])
     descriptions = packet.payload["binding_repair_options"]["field_descriptions"]
     assert descriptions["named_record_key"]
@@ -529,8 +435,8 @@ def test_repair_options_list_the_named_record_only_when_the_binding_names_one(
     names_record: bool,
 ) -> None:
     option = _option_for(
-        _candidate(_named_record_binding(source_ref, selector)),
-        _keyed_orders_inventory(),
+        _candidate(named_record_binding(source_ref, selector)),
+        keyed_orders_inventory(),
         path,
         detail,
     )
@@ -540,7 +446,7 @@ def test_repair_options_list_the_named_record_only_when_the_binding_names_one(
         assert option["resolved_source"] is resolved_source
     if names_record:
         assert option["named_record_key"] == "ORD-201"
-        assert option["named_record_sources"] == _NAMED_ORDER_SOURCES
+        assert option["named_record_sources"] == NAMED_ORDER_SOURCES
     else:
         assert "named_record_key" not in option
         assert "named_record_sources" not in option
@@ -548,7 +454,7 @@ def test_repair_options_list_the_named_record_only_when_the_binding_names_one(
 
 def test_source_kind_finding_triggers_a_source_option() -> None:
     option = _option_for(
-        _candidate(_binding("facts:session:actor")),
+        _candidate(runtime_binding("facts:session:actor")),
         _inventory(),
         "runtime_bindings[0].source_kind",
         "bad source kind",
@@ -565,7 +471,7 @@ def test_source_kind_finding_triggers_a_source_option() -> None:
 
 def test_unresolved_selector_source_lists_facts_and_permitted_setup_sources() -> None:
     option = _option_for(
-        _candidate(_binding("facts:not-present")),
+        _candidate(runtime_binding("facts:not-present")),
         _inventory(),
         "runtime_bindings[0].selector",
         "unknown source",
@@ -606,7 +512,7 @@ def test_substring_fact_reference_is_not_considered_a_citation() -> None:
             "provenance": "extended actor state",
         }
     )
-    candidate = _candidate(_binding("facts:not-present"))
+    candidate = _candidate(runtime_binding("facts:not-present"))
     candidate["interpretation"]["failure"] = "facts:session:actor:extended is not exact"
 
     option = _option_for(candidate, inventory, "runtime_bindings[0].source_ref", "bad source")
@@ -641,7 +547,7 @@ def test_source_lists_cap_referenced_setup_and_other_fact_sources() -> None:
         ],
     }
     candidate = _candidate(
-        _binding("setup:not-present", "result", source_kind="setup_output"),
+        runtime_binding("setup:not-present", "result", source_kind="setup_output"),
         selected_evidence=[],
     )
     candidate["interpretation"]["source_refs"] = [f"referenced:{index:02d}" for index in range(41)]
@@ -669,7 +575,7 @@ def test_source_lists_cap_referenced_setup_and_other_fact_sources() -> None:
 
 def test_source_option_fields_describe_new_fields() -> None:
     packet = _packet_for(
-        _candidate(_binding("facts:not-present")),
+        _candidate(runtime_binding("facts:not-present")),
         _inventory(),
         "runtime_bindings[0].source_ref",
         "bad source",
@@ -694,7 +600,7 @@ def test_source_option_fields_describe_new_fields() -> None:
 
 def _existing_binding_candidate(evidence_refs: list[str], **prerequisite: object) -> dict:
     return _candidate(
-        _binding("facts:session:actor", name="existing"),
+        runtime_binding("facts:session:actor", name="existing"),
         prerequisites=[
             {
                 "name": "record_ready",
@@ -802,7 +708,7 @@ def test_binding_selector_type_resolves_nested_schema_paths() -> None:
 def test_duplicate_findings_produce_one_option_per_kind_and_path() -> None:
     finding = Finding(_BINDING_VALIDATION, "bad selector", "runtime_bindings[0].selector")
     packet = _packet(
-        _candidate(_binding("facts:session:actor", "value.missing")),
+        _candidate(runtime_binding("facts:session:actor", "value.missing")),
         _inventory(),
         [finding, finding],
     )
@@ -861,7 +767,10 @@ def _unknown_binding_option(declared: int, evidence: int) -> dict:
         "operations": [],
     }
     candidate = _candidate(
-        *(_binding("facts:fact:00", name=f"binding_{index:02d}") for index in range(declared)),
+        *(
+            runtime_binding("facts:fact:00", name=f"binding_{index:02d}")
+            for index in range(declared)
+        ),
         prerequisites=[
             {
                 "name": "record_ready",
@@ -916,7 +825,7 @@ def test_source_repair_lists_a_repeated_setup_operation_once() -> None:
     inventory = {"facts": [], "operations": [operation, copy.deepcopy(operation)]}
 
     option = _option_for(
-        _candidate(_binding("setup:not-present", "result", source_kind="setup_output")),
+        _candidate(runtime_binding("setup:not-present", "result", source_kind="setup_output")),
         inventory,
         "runtime_bindings[0].source_ref",
         "bad source",
