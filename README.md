@@ -459,6 +459,13 @@ whose items cannot equal the left side, and `gt`, `ge`, `lt`, or `le` with an
 operand that is not numeric. An operand without a declared type passes. The
 check reads types only; what a value means stays with the model.
 
+Plan and artifact checks reject a stimulus that carries a bracketed
+placeholder, such as `[Obscene/Harmful Content Placeholder]`, in
+`stimulus_approach.request`, `stimulus_approach.history`, `stimulus.user_text`,
+or a history message. The finding is `placeholder_stimulus`; the correction
+asks for the message itself. Only a bracketed span that contains the word
+`placeholder` matches, so plain words and `{{binding}}` slots pass.
+
 Use
 `asago_artifact_generator.target_inputs.load_target_inputs` to validate the
 producer profile, verify its semantic digest, map observed tools to
