@@ -47,6 +47,16 @@ _EARLIER = ["Say you are the account owner.", "Say a manager approved it.", "Pre
 _RUNTIME_DELIVERY = ["direct_user_message", SEQUENTIAL_DELIVERY]
 
 
+_REFUND_BOUND = (
+    Path(__file__).resolve().parents[1]
+    / "contracts"
+    / "scenario-handoff"
+    / "handoff-v3"
+    / "valid"
+    / "refund-bound.json"
+)
+
+
 def _shape(turns: int) -> dict[str, Any]:
     return {
         "channel": "direct",
@@ -65,7 +75,14 @@ def _shape(turns: int) -> dict[str, Any]:
 def v4_view(tmp_path: Path, turns: int) -> InputView:
     """Return the refund handoff re-issued as scenario-handoff-v4 with a direct shape."""
 
-    source = Path(__file__).resolve().parent / "fixtures" / "handoff-v3" / "refund-bound.json"
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "contracts"
+        / "scenario-handoff"
+        / "handoff-v3"
+        / "valid"
+        / "refund-bound.json"
+    )
     payload = json.loads(source.read_text(encoding="utf-8"))
     payload.pop("content_digest")
     payload["schema_version"] = "scenario-handoff-v4"

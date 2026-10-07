@@ -41,6 +41,168 @@
   "invalid/role-turn-array.json": [
     "prose_hiding:role_serialization"
   ],
+  "invalid/schema-assessment-blank-reason.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-assessment-disposition-not-enumerated.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-assessment-missing-reason.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-assessment-not-object.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-assessment-supported-not-list.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-attack-tree-not-object.json": [
+    "schema_violation:attack_tree"
+  ],
+  "invalid/schema-blank-narrative.json": [
+    "schema_violation:narrative"
+  ],
+  "invalid/schema-bound-without-tool-call-condition.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/schema-condition-not-object.json": [
+    "schema_violation:discriminating_condition"
+  ],
+  "invalid/schema-criterion-analytical-with-operation.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-criterion-blank-outcome.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-criterion-missing-reason.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-criterion-observable-not-boolean.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-criterion-observable-without-claim.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-criterion-unknown-field.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-deduplication-blank-scenario-id.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-key-blank-operation.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-key-claim-not-enumerated.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-key-missing-claim.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-key-not-object.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-missing-key.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-not-object.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-status-not-enumerated.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-unknown-field.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-gherkin-given-not-list.json": [
+    "schema_violation:gherkin"
+  ],
+  "invalid/schema-gherkin-not-object.json": [
+    "schema_violation:gherkin"
+  ],
+  "invalid/schema-gherkin-scenario-null.json": [
+    "schema_violation:gherkin"
+  ],
+  "invalid/schema-gherkin-unknown-field.json": [
+    "schema_violation:gherkin"
+  ],
+  "invalid/schema-kind-not-enumerated.json": [
+    "schema_violation:kind"
+  ],
+  "invalid/schema-lineage-detector-field.json": [
+    "artifact_design_field:detector",
+    "schema_violation:lineage"
+  ],
+  "invalid/schema-lineage-not-object.json": [
+    "schema_violation:lineage"
+  ],
+  "invalid/schema-missing-narrative.json": [
+    "schema_violation:narrative"
+  ],
+  "invalid/schema-missing-tool-call-status.json": [
+    "schema_violation:tool_call_condition_status"
+  ],
+  "invalid/schema-not-executable-with-tool-call-condition.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/schema-observation-criteria-empty.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-observation-criterion-not-object.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-observation-missing-criteria.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-observation-not-object.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-observation-unknown-field.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-safe-alternative-not-text.json": [
+    "schema_violation:safe_alternative"
+  ],
+  "invalid/schema-safe-outcome-analytical-with-refs.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
+  "invalid/schema-safe-outcome-blank-statement.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
+  "invalid/schema-safe-outcome-empty.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
+  "invalid/schema-safe-outcome-not-object.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
+  "invalid/schema-safe-outcome-unknown-field.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
+  "invalid/schema-scenario-version-not-integer.json": [
+    "schema_violation:scenario_version"
+  ],
+  "invalid/schema-stimulus-turn-field-top-level.json": [
+    "artifact_design_field:stimulus_turns",
+    "artifact_design_field:role",
+    "schema_violation:stimulus_turns"
+  ],
+  "invalid/schema-tool-call-condition-empty.json": [
+    "schema_violation:tool_call_condition"
+  ],
+  "invalid/schema-tool-call-reason-not-bound.json": [
+    "schema_violation:tool_call_condition_status"
+  ],
+  "invalid/schema-tool-call-status-not-enumerated.json": [
+    "schema_violation:tool_call_condition_status"
+  ],
+  "invalid/schema-unknown-field.json": [
+    "schema_violation:bogus"
+  ],
+  "invalid/schema-unknown-not-text.json": [
+    "schema_violation:assumptions_and_unknowns"
+  ],
+  "invalid/schema-unknown-version.json": [
+    "schema_violation:schema_version"
+  ],
   "invalid/smuggled-prose.json": [
     "prose_hiding:detector_expression",
     "prose_hiding:ready_to_send_instruction"

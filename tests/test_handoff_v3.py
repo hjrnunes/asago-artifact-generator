@@ -37,7 +37,14 @@ from tests.test_versioned_prompt_roles import (
 _KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v3"
 _NO_CONDITION = _KIT / "valid" / "adversarial-condition-omitted.json"
 _OBSERVED = _KIT / "valid" / "adversarial-observed-record.json"
-_EXPECTED_VIOLATIONS = json.loads((_KIT / "expected-violations.json").read_text(encoding="utf-8"))
+# The schema-* cases run in tests/test_handoff_schema_cases.py with this reader's wording.
+_EXPECTED_VIOLATIONS = {
+    relative: codes
+    for relative, codes in json.loads(
+        (_KIT / "expected-violations.json").read_text(encoding="utf-8")
+    ).items()
+    if not relative.startswith("invalid/schema-")
+}
 _HANDOFF_DIGESTS = json.loads((_KIT / "canonical-digests.json").read_text(encoding="utf-8"))[
     "handoff_digests"
 ]

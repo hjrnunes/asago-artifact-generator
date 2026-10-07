@@ -104,9 +104,10 @@ def _saved_plan() -> dict:
 def _view():
     return load_input(
         Path(__file__).resolve().parents[1]
-        / "tests"
-        / "fixtures"
+        / "contracts"
+        / "scenario-handoff"
         / "handoff-v3"
+        / "valid"
         / "refund-bound.json"
     )
 
