@@ -14,7 +14,6 @@ from asago_artifact_generator.input_adapter import InputView
 from asago_artifact_generator.package_io import (
     PACKAGE_SCHEMA_VERSION,
     PackageIntegrityError,
-    _manifest_digest,
     build_package,
     load_package,
     write_package,
@@ -145,17 +144,4 @@ def test_a_v4_package_round_trips_and_a_version_swap_is_caught(tmp_path: Path) -
     manifest["schema_version"] = "artifact-package-v3"
     (destination / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(PackageIntegrityError):
-        load_package(destination)
-
-
-def test_a_v3_manifest_cannot_carry_a_v4_input_kind(tmp_path: Path) -> None:
-    package = _build("scenario-handoff-v4")
-    destination = write_package(tmp_path / "out", package)
-    manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
-    manifest["schema_version"] = "artifact-package-v3"
-    manifest.pop("manifest_digest")
-    manifest["manifest_digest"] = _manifest_digest(manifest)
-    (destination / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-
-    with pytest.raises(PackageIntegrityError, match="unsupported package input kind"):
         load_package(destination)

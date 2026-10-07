@@ -1,0 +1,81 @@
+{
+  "description": "input_kind names an input the consumer no longer emits.",
+  "files": {
+    "bindings.json": "[]\n",
+    "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",
+    "plan.json": "{\"runtime_contract\":{\"setup_permissions\":[]}}\n",
+    "prerequisites.json": "[]\n",
+    "seed.json": "{\"schema_version\":\"mini-agents-seed-v1\",\"items\":[]}\n",
+    "setup.json": "[]\n",
+    "stimulus.json": "{\"user_text\":\"hello\",\"history\":[],\"mode\":\"single\",\"turn_count\":1}\n",
+    "tool_call_condition.json": "{\n  \"comparisons\": []\n}\n"
+  },
+  "manifest": {
+    "authoring": {
+      "interface": "artifact-authoring-v1",
+      "max_retries": 0
+    },
+    "creation_model": {
+      "model": "configured-private-authoring"
+    },
+    "input_kind": "reference-task",
+    "manifest_digest": "979112f7ff8aac36c9ac0b6999f05107e6fd580d753f0f7034f884e10cd3cb4a",
+    "members": [
+      {
+        "length": 3,
+        "media_type": "application/json",
+        "path": "bindings.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "length": 39,
+        "media_type": "application/json",
+        "path": "inputs.json",
+        "sha256": "0b9932bff0f80d8cb9e081d53d2b8096659d78a545e8e92240675b7e1c49ceb0"
+      },
+      {
+        "length": 46,
+        "media_type": "application/json",
+        "path": "plan.json",
+        "sha256": "c7ea6e3df7df863a5a9e8827633355cccb589a35885b5067031d52e94d39b02f"
+      },
+      {
+        "length": 3,
+        "media_type": "application/json",
+        "path": "prerequisites.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "length": 52,
+        "media_type": "application/json",
+        "path": "seed.json",
+        "sha256": "fbbff6c31283e5aede5fa9237ac4c063e591e75a396c60e2c52120ebaae15af0"
+      },
+      {
+        "length": 3,
+        "media_type": "application/json",
+        "path": "setup.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "length": 66,
+        "media_type": "application/json",
+        "path": "stimulus.json",
+        "sha256": "b6d8aa8188054fa4a839d06b1c6d512dd8236797d7e2a80702bc7738b46595d3"
+      },
+      {
+        "length": 24,
+        "media_type": "application/json",
+        "path": "tool_call_condition.json",
+        "sha256": "007e6080745589c44a205af0769ef22006a46e3f4d777ed0df8818452a31fb15"
+      }
+    ],
+    "package_id": "pkg-1",
+    "runtime_capabilities": {},
+    "scenario_id": "SCN-1",
+    "schema_version": "artifact-package-v4",
+    "source_digests": {
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

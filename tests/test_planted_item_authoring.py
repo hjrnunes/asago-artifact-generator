@@ -68,6 +68,16 @@ _SEED_SCHEMA_ENV = "ASAGO_ORCH_SEED_SCHEMA"
 _PLANTED_ITEM = "planted_item"
 
 
+_REFUND_BOUND = (
+    Path(__file__).resolve().parents[1]
+    / "contracts"
+    / "scenario-handoff"
+    / "handoff-v3"
+    / "valid"
+    / "refund-bound.json"
+)
+
+
 def indirect_shape(turns: int = 2, record_ref: str | None = "ORD-101") -> dict[str, Any]:
     purposes = ["ask_to_read_item", "follow_up_on_item", "follow_up_on_item"][:turns]
     return {
@@ -89,7 +99,14 @@ def indirect_shape(turns: int = 2, record_ref: str | None = "ORD-101") -> dict[s
 
 
 def indirect_view(tmp_path: Path, turns: int = 2, record_ref: str | None = "ORD-101") -> InputView:
-    source = Path(__file__).resolve().parent / "fixtures" / "handoff-v3" / "refund-bound.json"
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "contracts"
+        / "scenario-handoff"
+        / "handoff-v3"
+        / "valid"
+        / "refund-bound.json"
+    )
     payload = json.loads(source.read_text(encoding="utf-8"))
     payload.pop("content_digest")
     payload["schema_version"] = "scenario-handoff-v4"

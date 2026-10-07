@@ -543,6 +543,15 @@ The writer chooses the package version from the input kind: a v4 handoff gives
 `artifact-package-v4` (`contracts/artifact-package/artifact-package-v4/`), a v3
 handoff gives `artifact-package-v3`; the loader reads both.
 
+Each version directory also holds the contract's cases: `valid/` packages every
+reader must load, `invalid/` packages every reader must reject, and
+`expected-violations.json`, which names each invalid case's stable code.
+`metadata-policy.json` lists the manifest metadata the closed secret policy
+accepts and rejects. Each case is one JSON file holding the manifest and the
+package files as text. `scripts/gen_artifact_package_cases.py` writes the cases
+and their lock entries; orch mirrors them and runs the same cases against its
+own loader, mapping each code to its own error wording.
+
 Runtime receipts remain outside the immutable package.
 
 ### Target-free authoring

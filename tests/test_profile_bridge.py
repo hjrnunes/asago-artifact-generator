@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -20,50 +20,19 @@ from asago_artifact_generator.profiles import (
 
 from .support import HANDOFF, fake_cli_authoring, forbid_cli_transport
 
+_MINIMAL_PROFILE = (
+    Path(__file__).resolve().parents[1]
+    / "contracts"
+    / "target-profile"
+    / "target-profile-v1"
+    / "valid"
+    / "minimal.json"
+)
+
 
 def _inputs(tmp_path: Path) -> tuple[Path, Path]:
     profile = tmp_path / "execution-target-profile.json"
-    profile_payload = {
-        "schema_version": "execution-target-profile-v1",
-        "target_id": "synthetic-target",
-        "authorization_scope_id": "synthetic-scope",
-        "basis": "target",
-        "inventory_authority": "observed",
-        "semantic_authority": "inferred",
-        "inventory_completeness": "observed_complete",
-        "source_protocol": "mcp",
-        "source_inventory_digest": "a" * 64,
-        "discovery_provenance": {
-            "scanner_id": "scanner",
-            "interpreter_id": "interpreter",
-            "verifier_id": "verifier",
-        },
-        "inventory": {
-            "schema_version": "mcp-inventory-v1",
-            "target_id": "synthetic-target",
-            "authorization_scope_id": "synthetic-scope",
-            "source_protocol": "mcp",
-            "semantic_digest": "a" * 64,
-            "tools": [],
-        },
-        "resources": [],
-        "interpretations": [],
-        "diagnostics": [],
-    }
-    digest_payload = dict(profile_payload)
-    profile_payload["semantic_digest"] = hashlib.sha256(
-        b"execution-target-profile-v1\0"
-        + json.dumps(
-            digest_payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode()
-    ).hexdigest()
-    profile.write_text(
-        json.dumps(profile_payload),
-        encoding="utf-8",
-    )
+    shutil.copyfile(_MINIMAL_PROFILE, profile)
     runtime_contract = tmp_path / "runtime-contract.json"
     runtime_contract.write_text(
         json.dumps(
@@ -202,9 +171,12 @@ def test_author_cli_passes_profile_values_directly_to_transport(
     assert captured.transport["max_completion_tokens"] == 8_192
     assert captured.transport["review_fill_context"] is True
     _, inventory, runtime = captured.run_inputs
-    assert inventory["operations"] == []
-    assert {handle["ref"] for handle in inventory["source_handles"]} == {"target-profile"}
-    assert captured.orchestrator["discovery_provenance"]["target_id"] == ("synthetic-target")
+    assert [operation["name"] for operation in inventory["operations"]] == ["process_refund"]
+    assert {handle["ref"] for handle in inventory["source_handles"]} == {
+        "target-profile",
+        "tool:process_refund",
+    }
+    assert captured.orchestrator["discovery_provenance"]["target_id"] == "fixture-target"
     assert runtime["delivery"] == ["direct_user_message"]
     assert values["api_key"] not in result.output
     assert values["base_url"] not in result.output

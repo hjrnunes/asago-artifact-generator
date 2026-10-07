@@ -20,7 +20,14 @@ from asago_artifact_generator.input_adapter import (
 
 _KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v4"
 _V3_KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v3"
-_EXPECTED = json.loads((_KIT / "expected-violations.json").read_text(encoding="utf-8"))
+# The schema-* cases run in tests/test_handoff_schema_cases.py with this reader's wording.
+_EXPECTED = {
+    relative: codes
+    for relative, codes in json.loads(
+        (_KIT / "expected-violations.json").read_text(encoding="utf-8")
+    ).items()
+    if not relative.startswith("invalid/schema-")
+}
 _DIGESTS = json.loads((_KIT / "canonical-digests.json").read_text(encoding="utf-8"))[
     "handoff_digests"
 ]

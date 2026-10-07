@@ -608,3 +608,52 @@ def test_validator_failure_is_a_target_input_error(
         target_inputs._validate_profile_contract({})
 
     assert str(raised.value) == "cannot validate target profile contract: validator exploded"
+
+
+_PROFILE_KIT = Path(__file__).resolve().parents[1] / "contracts" / "target-profile"
+_PROFILE_V1 = _PROFILE_KIT / "target-profile-v1"
+# producer code -> the start of this reader's message
+_PROFILE_WORDING = {
+    "unexpected_field": "target profile schema invalid",
+}
+
+
+def test_the_producer_minimal_profile_loads_with_its_canonical_digest() -> None:
+    digests = json.loads((_PROFILE_V1 / "canonical-digests.json").read_text(encoding="utf-8"))
+    minimal = _PROFILE_V1 / "valid" / "minimal.json"
+
+    inventory, provenance = load_target_inputs(minimal)
+
+    assert sorted(digests["semantic_digests"]) == ["valid/minimal.json"]
+    assert (
+        json.loads(minimal.read_text(encoding="utf-8"))["semantic_digest"]
+        == digests["semantic_digests"]["valid/minimal.json"]
+    )
+    assert [operation["name"] for operation in inventory["operations"]] == ["process_refund"]
+    assert inventory["operations"][0]["interpretation"]["likely_effect"] == "update"
+    assert provenance["profile_sha256"] == hashlib.sha256(minimal.read_bytes()).hexdigest()
+    assert provenance["profile_sha256"] == digests["files"]["valid/minimal.json"]
+
+
+_PROFILE_EXPECTED = json.loads(
+    (_PROFILE_V1 / "expected-violations.json").read_text(encoding="utf-8")
+)
+
+
+@pytest.mark.parametrize("relative", sorted(_PROFILE_EXPECTED))
+def test_each_producer_invalid_profile_is_rejected_in_its_mapped_wording(relative: str) -> None:
+    codes = _PROFILE_EXPECTED[relative]
+
+    with pytest.raises(TargetInputError) as raised:
+        load_target_inputs(_PROFILE_V1 / relative)
+
+    message = str(raised.value)
+    for code in codes:
+        assert message.startswith(_PROFILE_WORDING[code]), (code, message)
+        assert code in message
+
+
+def test_every_invalid_profile_case_is_listed_with_its_codes() -> None:
+    assert sorted(_PROFILE_EXPECTED) == sorted(
+        f"invalid/{path.name}" for path in (_PROFILE_V1 / "invalid").glob("*.json")
+    )

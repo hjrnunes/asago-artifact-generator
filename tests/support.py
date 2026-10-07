@@ -99,7 +99,8 @@ class ScriptedAuthoringTransport:
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-HANDOFF = FIXTURES / "handoff-v3" / "refund-bound.json"
+_ROOT = Path(__file__).resolve().parents[1]
+HANDOFF = _ROOT / "contracts" / "scenario-handoff" / "handoff-v3" / "valid" / "refund-bound.json"
 
 _WORLD_PARTS = ("view", "inventory", "runtime_contract", "plan", "metadata", "framed")
 
@@ -123,7 +124,7 @@ def world(name: str, **overrides: Any) -> dict[str, Any]:
     document = {**_document(name), **deepcopy(overrides)}
     if "view" not in document:
         document["view"] = load_input(
-            FIXTURES / document["handoff"], kind=InputKind.SCENARIO_HANDOFF_V3
+            _ROOT / document["handoff"], kind=InputKind.SCENARIO_HANDOFF_V3
         )
     return document
 
