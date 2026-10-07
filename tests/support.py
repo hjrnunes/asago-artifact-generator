@@ -121,10 +121,6 @@ def world(name: str, **overrides: Any) -> dict[str, Any]:
     The result holds ``view`` (loaded from the world's handoff), ``inventory``,
     ``runtime_contract``, ``plan`` and ``metadata`` where the world defines them.
     Each override replaces the entry of the same name.
-
-    The ``ehr`` world pairs the refund handoff with an EHR-summary inventory on purpose: the
-    prompt digests pinned in ``test_owner_scope_block`` and ``test_plan_contract_hazards``
-    render both, so making them agree changes every pinned digest.
     """
 
     document = {**_document(name), **deepcopy(overrides)}
