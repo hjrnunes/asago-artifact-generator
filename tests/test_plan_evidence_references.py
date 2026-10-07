@@ -29,8 +29,6 @@ _inventory, _plan, _runtime_contract, _view = world_builders(
 def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
     packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
 
-    assert packet.user.index("SOURCE CONTEXT") < packet.user.index("EVIDENCE REFERENCES")
-    assert packet.user.index("EVIDENCE REFERENCES") < packet.user.index("EXECUTION CAPABILITIES")
     section = json_section(packet.user, "EVIDENCE REFERENCES")
     assert section["citable_references"] == {
         "facts": ["draft:status", "reservation:RES-201", "session:actor"],

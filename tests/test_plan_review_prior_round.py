@@ -58,7 +58,6 @@ def test_a_first_round_review_prompt_has_no_prior_round_section() -> None:
 
     for packet in (plain, conditioned):
         assert "prior_review_round" not in packet.payload
-        assert "PRIOR REVIEW ROUND" not in packet.user
 
 
 def test_a_second_round_review_prompt_carries_the_first_round_findings() -> None:

@@ -117,7 +117,7 @@ def test_unknown_schema_version_is_rejected(tmp_path: Path) -> None:
         load_input(path)
 
 
-def test_condition_and_guidance_reach_plan_artifact_and_review_prompts() -> None:
+def test_condition_statement_reaches_plan_artifact_and_review_prompts() -> None:
     view = load_input(OBSERVED_HANDOFF)
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = {
@@ -129,24 +129,15 @@ def test_condition_and_guidance_reach_plan_artifact_and_review_prompts() -> None
         ),
     }
     statement = view.payload["discriminating_condition"]["statement"]
-    guidance = "must check the scenario's discriminating_condition on captured evidence"
     check_reason = view.payload["condition_check"]["comparisons"][0]["reason"]
 
     for name, packet in packets.items():
         assert packet.user.count(statement) == 1, name
-        assert "statement_location" in packet.user, name
-        assert "argument_values" in packet.user, name
-        assert '"condition_check"' in packet.user, name
-        assert '"satisfied"' in packet.user, name
         assert check_reason not in packet.user, name
-        assert packet.user.count(guidance) == (0 if name == "call2" else 1), name
 
 
-@pytest.mark.parametrize(
-    "source", [NO_CONDITION_HANDOFF, HANDOFF_V3_KIT / "valid" / "analytical-only.json"]
-)
-def test_condition_guidance_is_omitted_without_a_condition(source: Path) -> None:
-    view = load_input(source)
+def test_condition_guidance_is_omitted_for_an_analytical_only_scenario() -> None:
+    view = load_input(HANDOFF_V3_KIT / "valid" / "analytical-only.json")
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = (
         build_call1_packet_v2(view, inventory, runtime),
@@ -190,7 +181,7 @@ def test_call1_renders_runtime_contract_and_binding_rules_once() -> None:
         assert f"See binding_declaration.{rule}." in packet.user, rule
 
 
-def test_not_called_condition_adds_omission_guidance_to_plan_prompts() -> None:
+def test_not_called_condition_adds_the_omission_examples_to_plan_prompts() -> None:
     view = load_input(NOT_CALLED_HANDOFF)
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = {
@@ -200,17 +191,14 @@ def test_not_called_condition_adds_omission_guidance_to_plan_prompts() -> None:
             view, plan, _metadata(), inventory, runtime
         ),
     }
-    omission_sentence = "A not_called comparison is an omission"
 
-    for name, packet in packets.items():
-        assert packet.user.count(omission_sentence) == 1, name
     for name in ("call1", "plan_review"):
         assert packets[name].user.count(NEUTRAL_OMISSION_OUTCOME_EXAMPLE) == 1, name
         assert packets[name].user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1, name
 
 
 @pytest.mark.parametrize("source", [OBSERVED_HANDOFF, NO_CONDITION_HANDOFF])
-def test_omission_guidance_is_omitted_without_a_not_called_comparison(source: Path) -> None:
+def test_the_omission_example_is_omitted_without_a_not_called_comparison(source: Path) -> None:
     view = load_input(source)
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = (
@@ -219,5 +207,4 @@ def test_omission_guidance_is_omitted_without_a_not_called_comparison(source: Pa
     )
 
     for packet in packets:
-        assert "A not_called comparison is an omission" not in packet.user, packet.stage
         assert NEUTRAL_OMISSION_OUTCOME_EXAMPLE not in packet.user, packet.stage

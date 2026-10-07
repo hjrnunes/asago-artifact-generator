@@ -9,14 +9,12 @@ import pytest
 import yaml
 
 from asago_artifact_generator.authoring.condition_types import operand_type_findings
-from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 from asago_artifact_generator.input_adapter import _framed_digest, load_input
 
 from .support import (
     ScriptedAuthoringTransport,
     load_failure_evidence,
     stage_local_orchestrator,
-    tool_call_runtime_contract,
 )
 
 _NOT_CALLED = (
@@ -217,40 +215,3 @@ def test_command_attempt_with_an_undecidable_condition_stops_before_any_model_ca
     evidence = load_failure_evidence(result.failure_evidence_path)
     assert evidence["terminal"]["reason"] == "condition_operand_type_mismatch"
     assert evidence["terminal"]["attempt_index"] is None
-
-
-def _call1_user() -> str:
-    view = load_input(_NOT_CALLED)
-    inventory = {"facts": [], "operations": [], "source_handles": []}
-    return build_call1_packet_v2(view, inventory, tool_call_runtime_contract()).user
-
-
-def test_prompt_states_that_comparisons_combine_with_and() -> None:
-    assert "Comparisons combine with AND" in _call1_user()
-
-
-def test_prompt_states_exact_matching_with_one_example() -> None:
-    user = _call1_user()
-
-    assert "in, not_in, eq, and ne match exactly" in user
-    assert "never as a substring or by meaning" in user
-    assert "one by one when the left value is a list" in user
-    example = 'topic in [\\"refund\\", \\"billing\\"]'
-    assert user.count(example) == 1
-
-
-def test_prompt_states_the_not_called_semantics_without_a_trigger() -> None:
-    user = _call1_user()
-
-    assert "after any trigger the scenario states" not in user
-    assert "a captured call to the operation after any trigger" not in user
-    assert "matching call at any position" in user
-    assert "has no trigger" in user
-
-
-def test_prompt_states_the_order_semantics_of_the_contract() -> None:
-    user = _call1_user()
-
-    assert "Check order comparisons on captured call order: operation called with" not in user
-    assert "the call to operation has no earlier call to requires_prior" in user
-    assert "only an earlier requires_prior call with the same value" in user

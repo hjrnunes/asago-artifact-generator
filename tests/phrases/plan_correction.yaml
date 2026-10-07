@@ -1,0 +1,17 @@
+# Fixed phrases of the plan correction prompt (plan_correction). Edit when you reword the template on purpose.
+template: plan_correction
+cases:
+  ehr:
+    user:
+      required:
+        - 'Evaluate every finding against the source context'
+        - 'so it reads no runtime binding'
+        - 'receives every resolved runtime binding'
+        - 'the producer''s tool-call condition for a command_attempt claim reads none'
+  omission:
+    user:
+      required:
+        - 'so it reads no runtime binding'
+        - 'receives every resolved runtime binding'
+        - 'the producer''s tool-call condition for a command_attempt claim reads none'
+        - 'the producer resolves it to its supplied value'
