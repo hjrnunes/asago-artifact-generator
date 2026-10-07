@@ -13,11 +13,11 @@ from asago_artifact_generator.authoring.contracts import (
 )
 from asago_artifact_generator.authoring.core import (
     ARTIFACT_REVIEW_PROMPT_VERSION_V20,
-    CALL1_PROMPT_VERSION_V20,
+    CALL1_PROMPT_VERSION_V21,
     CALL2_PROMPT_VERSION_V25,
-    CORRECTION_PROMPT_VERSION_V31,
     CORRECTION_PROMPT_VERSION_V33,
-    PLAN_REVIEW_PROMPT_VERSION_V19,
+    CORRECTION_PROMPT_VERSION_V34,
+    PLAN_REVIEW_PROMPT_VERSION_V20,
     PromptOverflowError,
     PromptPacket,
     PromptPreflightError,
@@ -77,7 +77,7 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     ]
     correction = PromptPacket(
         stage="correction",
-        version=CORRECTION_PROMPT_VERSION_V31,
+        version=CORRECTION_PROMPT_VERSION_V34,
         system="correction",
         user="correction",
         payload={},
@@ -85,11 +85,11 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     packets.append(correction)
 
     assert [packet.version for packet in packets] == [
-        CALL1_PROMPT_VERSION_V20,
-        PLAN_REVIEW_PROMPT_VERSION_V19,
+        CALL1_PROMPT_VERSION_V21,
+        PLAN_REVIEW_PROMPT_VERSION_V20,
         CALL2_PROMPT_VERSION_V25,
         ARTIFACT_REVIEW_PROMPT_VERSION_V20,
-        CORRECTION_PROMPT_VERSION_V31,
+        CORRECTION_PROMPT_VERSION_V34,
     ]
     assert all(packet.sha256 for packet in packets)
     assert len({packet.sha256 for packet in packets}) == len(packets)
@@ -146,7 +146,7 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
     plan_packet = _render_correction_packet(
         plan_correction, correction_repair_inputs(view, inventory, runtime)
     )
-    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V31
+    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V34
     assert plan_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     assert plan_packet.user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1
     assert "Evaluate every finding against the source context" in plan_packet.user
@@ -365,7 +365,7 @@ def test_artifact_roles_drop_the_detector_evidence_interface() -> None:
 def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V20,
+        version=CALL1_PROMPT_VERSION_V21,
         system="system",
         user="candidate once",
         payload={"candidate": "candidate once"},
@@ -375,7 +375,7 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
 
     duplicate = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V20,
+        version=CALL1_PROMPT_VERSION_V21,
         system="system",
         user="candidate once candidate once",
         payload={"candidate": "candidate once"},
@@ -396,11 +396,11 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
 @pytest.mark.parametrize(
     "version",
     [
-        CALL1_PROMPT_VERSION_V20,
-        PLAN_REVIEW_PROMPT_VERSION_V19,
+        CALL1_PROMPT_VERSION_V21,
+        PLAN_REVIEW_PROMPT_VERSION_V20,
         CALL2_PROMPT_VERSION_V25,
         ARTIFACT_REVIEW_PROMPT_VERSION_V20,
-        CORRECTION_PROMPT_VERSION_V31,
+        CORRECTION_PROMPT_VERSION_V34,
         CORRECTION_PROMPT_VERSION_V33,
     ],
 )
@@ -420,7 +420,7 @@ def test_every_dispatched_role_label_gets_the_duplicate_scan(version: str) -> No
 def test_prompt_secret_guard_rejects_urls_and_tokens_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V20,
+        version=CALL1_PROMPT_VERSION_V21,
         system="system",
         user=(
             "endpoint "
@@ -457,7 +457,7 @@ def test_duplicate_scan_requires_a_prompt_packet() -> None:
 def test_endpoint_prompt_paths_skip_malformed_urls_and_find_the_host() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V20,
+        version=CALL1_PROMPT_VERSION_V21,
         system="no urls here",
         user="bad http://[::1 then https://API.example.com/x",
         payload={},

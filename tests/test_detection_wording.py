@@ -65,10 +65,10 @@ def test_condition_rule_resolves_fact_operands_without_a_binding(tmp_path: Path)
 def test_every_prompt_role_carries_a_new_version(packets: dict) -> None:
     # The shared plan field meanings changed, so every role's rendered text changed.
     assert {stage: packet.version for stage, packet in packets.items()} == {
-        "call1": "authoring-call1-v20",
-        "plan_review": "authoring-plan-review-v19",
+        "call1": "authoring-call1-v21",
+        "plan_review": "authoring-plan-review-v20",
         "call2": "authoring-call2-v25",
         "artifact_review": "authoring-artifact-review-v20",
-        "plan_correction": "authoring-correction-v31",
+        "plan_correction": "authoring-correction-v34",
         "artifact_correction": "authoring-correction-v33",
     }

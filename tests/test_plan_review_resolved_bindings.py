@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from asago_artifact_generator.authoring.core import PLAN_REVIEW_PROMPT_VERSION_V19
+from asago_artifact_generator.authoring.core import PLAN_REVIEW_PROMPT_VERSION_V20
 from asago_artifact_generator.authoring.review import (
     build_plan_review_packet,
     build_plan_reviewer_context,
@@ -62,7 +62,7 @@ def test_plan_review_packet_renders_resolved_values_after_candidate_plan() -> No
 
     packet = build_plan_review_packet(_view(), plan, _inventory(), _runtime_contract())
 
-    assert packet.version == PLAN_REVIEW_PROMPT_VERSION_V19
+    assert packet.version == PLAN_REVIEW_PROMPT_VERSION_V20
     section = packet.user.index("RESOLVED SUPPLIED BINDING VALUES")
     assert packet.user.index("CANDIDATE PLAN") < section
     assert section < packet.user.index("MECHANICAL GUARANTEES (NOT REVIEW QUESTIONS)")

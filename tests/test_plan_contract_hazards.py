@@ -10,9 +10,9 @@ from asago_artifact_generator.authoring.checks import (
     collect_plan_findings_v2,
 )
 from asago_artifact_generator.authoring.core import (
-    CALL1_PROMPT_VERSION_V20,
+    CALL1_PROMPT_VERSION_V21,
     CALL2_PROMPT_VERSION_V25,
-    CORRECTION_PROMPT_VERSION_V31,
+    CORRECTION_PROMPT_VERSION_V34,
     PromptPacket,
 )
 from asago_artifact_generator.authoring.correction import (
@@ -220,7 +220,7 @@ def test_prerequisite_type_finding_is_rendered_in_plan_correction() -> None:
         context, correction_repair_inputs(_view(), inventory, _runtime_contract())
     )
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V31
+    assert packet.version == CORRECTION_PROMPT_VERSION_V34
     assert finding.detail in packet.user
 
 
@@ -301,7 +301,7 @@ def test_current_prompt_versions_cover_contract_changes() -> None:
     runtime_contract = _runtime_contract()
     assert (
         build_call1_packet_v2(view, inventory, runtime_contract).version
-        == CALL1_PROMPT_VERSION_V20
+        == CALL1_PROMPT_VERSION_V21
     )
     assert (
         build_call2_packet_v2(view, _plan(), inventory, runtime_contract).version
