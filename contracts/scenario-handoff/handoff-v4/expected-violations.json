@@ -1,0 +1,83 @@
+{
+  "invalid/narrative-role-serialization.json": [
+    "prose_hiding:role_serialization"
+  ],
+  "invalid/narrative-turn-array.json": [
+    "prose_hiding:turn_array"
+  ],
+  "invalid/shape-adversarial-null.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/shape-carrier-with-prose.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-delivery-key.json": [
+    "artifact_design_field:delivery",
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-direct-with-benign-speaker.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-direct-with-indirect-block.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-downgrade-without-default.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-forged-last-not-attacker.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-forged-speaker-on-direct.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-forged-without-label.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-functional-with-shape.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/shape-indirect-attacker-speaker.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-indirect-no-read-turn.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-indirect-without-block.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-missing.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-plan-length-mismatch.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-positions-not-sequential.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-purpose-free-text.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-purpose-speaker-mismatch.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-record-ref-with-prose.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-turn-count-five.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-turn-count-zero.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-turn-role-key.json": [
+    "artifact_design_field:role",
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-turn-text-field.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-turns-array-key.json": [
+    "artifact_design_field:turns",
+    "schema_violation:attack_shape"
+  ]
+}
