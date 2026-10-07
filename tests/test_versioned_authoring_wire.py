@@ -12,7 +12,7 @@ from asago_artifact_generator.authoring.contracts import neutral_artifact_respon
 from asago_artifact_generator.authoring.core import (
     AUTHORING_INTERFACE_VERSION_V2,
     CALL1_PROMPT_VERSION_V20,
-    CALL2_PROMPT_VERSION_V24,
+    CALL2_PROMPT_VERSION_V25,
     Call2FramingError,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
@@ -512,7 +512,7 @@ def test_new_orchestrator_copies_plan_owned_fields_and_the_tool_call_condition(t
     assert json.loads(result.package.members["prerequisites.json"]) == plan["prerequisites"]
     assert json.loads(result.package.members["observations.json"]) == plan["required_observations"]
     assert result.prompts["call1"].version == CALL1_PROMPT_VERSION_V20
-    assert result.prompts["call2"].version == CALL2_PROMPT_VERSION_V24
+    assert result.prompts["call2"].version == CALL2_PROMPT_VERSION_V25
 
 
 def _assemble(tmp_path, plan: dict, metadata: dict):

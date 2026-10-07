@@ -5,7 +5,7 @@ from copy import deepcopy
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.core import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
-    CALL2_PROMPT_VERSION_V24,
+    CALL2_PROMPT_VERSION_V25,
     CORRECTION_PROMPT_VERSION_V33,
 )
 from asago_artifact_generator.authoring.correction import (
@@ -74,7 +74,7 @@ def test_artifact_prompt_states_the_fixed_plan_without_a_detector_interface() ->
     assert "RUNTIME CAPABILITIES" in author.user
     assert "tool-call condition" in author.system
     assert plan == original_plan
-    assert author.version == CALL2_PROMPT_VERSION_V24
+    assert author.version == CALL2_PROMPT_VERSION_V25
     assert correction.version == CORRECTION_PROMPT_VERSION_V33
 
 

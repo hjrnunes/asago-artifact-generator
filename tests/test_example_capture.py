@@ -134,6 +134,64 @@ def test_reply_example_cannot_carry_a_capture(label: str) -> None:
     }
 
 
+def _reply_metadata_with_capture(capture_value: Any) -> dict[str, Any]:
+    metadata = neutral_metadata(unsafe=capture_value, safe=None)
+    metadata["semantic_judge_spec"] = {"question": "Is it?", "criteria": "c", "fact_refs": []}
+    return metadata
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        "calls",
+        {"tool_calls": []},
+        {"tool_calls": [], "complete": True, "note": "x"},
+        {"tool_calls": [{"operation": 3}], "complete": "yes"},
+    ],
+)
+def test_reply_claim_finding_comes_first_when_the_capture_is_malformed(malformed: Any) -> None:
+    findings = artifact_findings(_reply_metadata_with_capture(malformed), _reply_plan())
+
+    assert [(f.code, f.path) for f in findings] == [
+        ("unexpected_field", "examples.unsafe.capture")
+    ]
+    assert "a reply claim carries no capture" in findings[0].detail
+    assert "Remove examples.unsafe.capture" in findings[0].detail
+
+
+def test_reply_claim_finding_leads_the_other_shape_findings() -> None:
+    metadata = _reply_metadata_with_capture({"tool_calls": []})
+    metadata["examples"]["inconclusive"]["description"] = 3
+
+    findings = artifact_findings(metadata, _reply_plan())
+
+    assert [(f.code, f.path) for f in findings] == [
+        ("unexpected_field", "examples.unsafe.capture"),
+        ("type_error", "examples.inconclusive.description"),
+    ]
+
+
+@pytest.mark.parametrize("examples", [None, "text", {"unsafe": "text", "safe": None}])
+def test_reply_capture_findings_ignore_examples_that_are_not_objects(examples: Any) -> None:
+    from asago_artifact_generator.authoring.example_capture import reply_capture_findings
+
+    assert reply_capture_findings(examples) == []
+
+
+def test_command_attempt_keeps_the_capture_shape_findings() -> None:
+    findings = artifact_findings(neutral_metadata(unsafe={"tool_calls": []}))
+
+    assert [(f.code, f.path) for f in findings] == [
+        ("missing_field", "examples.unsafe.capture.complete")
+    ]
+
+
+def test_call2_prompt_says_a_reply_claim_carries_no_capture() -> None:
+    from asago_artifact_generator.authoring.prompt_context import _ARTIFACT_AUTHOR_GUIDANCE
+
+    assert "For a reply claim, no example carries a capture" in _ARTIFACT_AUTHOR_GUIDANCE
+
+
 def test_reply_example_without_a_capture_is_unchanged() -> None:
     metadata = neutral_metadata(unsafe=None, safe=None)
     metadata["semantic_judge_spec"] = {"question": "Is it?", "criteria": "c", "fact_refs": []}

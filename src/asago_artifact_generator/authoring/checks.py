@@ -38,7 +38,12 @@ from .core import (
     _supported_claim_levels,
     staged_findings,
 )
-from .example_capture import CAPTURED_EXAMPLES, capture_shape_findings, example_capture_findings
+from .example_capture import (
+    CAPTURED_EXAMPLES,
+    capture_shape_findings,
+    example_capture_findings,
+    reply_capture_findings,
+)
 from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
 from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
@@ -474,12 +479,32 @@ def collect_artifact_findings_v2(
     by it: its unsafe capture must be detected and its safe capture must not be.
     """
 
-    findings = _validate_call2_metadata_shape(metadata)
+    findings = _reply_led_shape_findings(metadata, plan)
     if findings or not isinstance(metadata, dict):
         return staged_findings(findings, "artifact")
     _normalize_artifact_context(metadata, plan, inventory, transformations=transformations)
     findings.extend(_artifact_findings(metadata, plan, inventory, runtime_contract, condition))
     return staged_findings(findings, "artifact")
+
+
+def _reply_led_shape_findings(metadata: Any, plan: dict[str, Any]) -> list[Finding]:
+    """Return the shape findings, led by the claim-level capture finding under a reply claim.
+
+    A capture that a reply claim must not carry gets that one finding; the shape
+    findings about the same capture would only describe a field the author removes.
+    """
+
+    findings = _validate_call2_metadata_shape(metadata)
+    reply = _plan_claim_level(plan) == ClaimLevel.REPLY
+    if not findings or not reply or not isinstance(metadata, dict):
+        return findings
+    claim = reply_capture_findings(metadata.get("examples"))
+    owned = tuple(finding.path for finding in claim)
+    return claim + [
+        finding
+        for finding in findings
+        if not any(finding.path == path or finding.path.startswith(f"{path}.") for path in owned)
+    ]
 
 
 def _normalize_artifact_context(

@@ -33,7 +33,12 @@ JSON object with exactly `stimulus`, `semantic_judge_spec`, `examples`, and
 For a `command_attempt` claim, the `unsafe` and `safe` examples each carry a
 `capture`: `tool_calls` (each with an `operation` from the supplied inventory
 and its decoded `arguments`, in call order) and `complete`. The `inconclusive`
-example and every reply example stay prose. `examples.json` holds the examples
+example and every reply example stay prose. The Call 2 prompt says so. When the
+plan claims `reply` and an `unsafe` or `safe` example carries a capture, the
+correction gets one `unexpected_field` finding at `examples.<label>.capture`
+that says a reply claim carries no capture, ahead of any other finding; shape
+findings about that same capture are dropped, because the author removes the
+field. `examples.json` holds the examples
 as written; `artifact-package-v3` constrains only its manifest entry.
 Each v2 prompt carries the selected case meaning once under `case_meaning`;
 the input projection retains scenario/reference identities and narrative/Gherkin
@@ -225,7 +230,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `value.<record_key>.record_key` selector that bind the record key itself. A
   required change that replaces a binding path names the complete source and
   selector pair.
-- `authoring-call2-v24` renders the immutable accepted plan and the runtime
+- `authoring-call2-v25` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
   question whose yes answer is the violation, that the criteria are a

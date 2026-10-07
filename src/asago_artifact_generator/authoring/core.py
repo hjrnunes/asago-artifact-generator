@@ -22,7 +22,7 @@ AUTHORING_INTERFACE_VERSION_V2 = "artifact-authoring-v2"
 # The response wire remains v2, while its model-facing templates advance
 # independently; each constant names the template version dispatched now.
 CALL1_PROMPT_VERSION_V20 = "authoring-call1-v20"
-CALL2_PROMPT_VERSION_V24 = "authoring-call2-v24"
+CALL2_PROMPT_VERSION_V25 = "authoring-call2-v25"
 CORRECTION_PROMPT_VERSION_V33 = "authoring-correction-v33"
 CORRECTION_PROMPT_VERSION_V31 = "authoring-correction-v31"
 # Semantic-review roles.  Each review is a separate provider request recorded
