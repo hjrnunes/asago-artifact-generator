@@ -971,6 +971,10 @@ _RESOLVED_BINDING_VALUES_INSTRUCTION = (
     "names the complete source_ref and selector pair, such as record_key_source; a "
     "selector is valid only on a source_ref that documents it."
 )
+_RECORD_KEY_SOURCE_INSTRUCTION = (
+    " record_key_source.record_key is only the key of the record the selector reads, "
+    "not what the binding holds; judge the binding by its resolved_value."
+)
 
 
 def _record_key_source(
@@ -993,7 +997,7 @@ def _record_key_source(
     return {
         "source_ref": f"facts:{companion_ref}",
         "selector": key_selector,
-        "resolved_value": _record_key_value(companion.get("value"), record_key),
+        "record_key": _record_key_value(companion.get("value"), record_key),
     }
 
 
@@ -1039,9 +1043,11 @@ def _resolved_supplied_binding_values(
         if record_key_source is not None:
             entry["record_key_source"] = record_key_source
         values.append(entry)
+    has_record_key_source = any("record_key_source" in entry for entry in values)
     return {
         "meaning": _RESOLVED_BINDING_VALUES_MEANING,
-        "reviewer_instruction": _RESOLVED_BINDING_VALUES_INSTRUCTION,
+        "reviewer_instruction": _RESOLVED_BINDING_VALUES_INSTRUCTION
+        + (_RECORD_KEY_SOURCE_INSTRUCTION if has_record_key_source else ""),
         "values": values,
         "resolved_at_run_time": run_time,
     }
