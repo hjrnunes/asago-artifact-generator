@@ -237,6 +237,31 @@ _OMISSION_STIMULUS_REVIEWER_GUIDANCE = (
 )
 
 
+_ORDER_COMPARISON_MEANING = (
+    "Each comparison here holds for a call to its operation that has no earlier "
+    "captured call to its requires_prior operation (with the same value for "
+    "same_argument, when given). A violation condition that names the requires_prior "
+    "operation follows the producer's condition: the producer's condition, not the "
+    "plan, names it. Do not report that operation as an extra condition or as absent "
+    "from the scenario."
+)
+
+
+def _order_comparison_rule(view: InputView) -> dict[str, Any]:
+    """Return the order comparisons of the producer's condition for the plan reviewer."""
+
+    condition = view.payload.get("discriminating_condition")
+    comparisons = condition.get("comparisons") if isinstance(condition, dict) else None
+    orders = [
+        {key: item[key] for key in ("operation", "requires_prior", "same_argument") if key in item}
+        for item in comparisons or []
+        if isinstance(item, dict) and item.get("kind") == "order"
+    ]
+    if not orders:
+        return {}
+    return {"order_comparisons": {"meaning": _ORDER_COMPARISON_MEANING, "comparisons": orders}}
+
+
 def _omission_trigger_rule(view: InputView) -> dict[str, str]:
     """Return the plan reviewer's omission-trigger rule when the condition omits a call."""
 
