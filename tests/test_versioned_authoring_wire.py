@@ -251,7 +251,7 @@ def test_v2_artifact_derives_slots_and_prerequisite_consumers() -> None:
         "consumers": ["stimulus.user_text"],
         "on_missing": "stop",
     }
-    plan = _plan()
+    plan = _reply_plan()
     plan["runtime_bindings"] = [binding, other_binding]
     plan["prerequisites"] = [
         {
@@ -262,7 +262,7 @@ def test_v2_artifact_derives_slots_and_prerequisite_consumers() -> None:
             "equals": "OWNER-A",
         }
     ]
-    metadata = _metadata()
+    metadata = _judged_metadata()
     metadata["stimulus"] = {
         "user_text": "Use {{other}} then {{owner}} for the synthetic request.",
         "delivery": "direct_user_message",
@@ -293,7 +293,7 @@ def test_v2_artifact_derives_slots_and_prerequisite_consumers() -> None:
 
 
 def test_v2_undeclared_placeholder_keeps_slot_failure_with_named_feedback() -> None:
-    plan = _plan()
+    plan = _reply_plan()
     plan["runtime_bindings"] = [
         {
             "name": "owner",
@@ -305,7 +305,7 @@ def test_v2_undeclared_placeholder_keeps_slot_failure_with_named_feedback() -> N
             "on_missing": "stop",
         }
     ]
-    metadata = _metadata()
+    metadata = _judged_metadata()
     metadata["stimulus"] = {
         "user_text": "Use {{missing_owner}} for the synthetic request.",
         "delivery": "direct_user_message",
