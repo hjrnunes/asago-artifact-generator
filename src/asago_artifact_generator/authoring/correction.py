@@ -13,7 +13,7 @@ from .binding_repair import (
     _binding_repair_options_for_correction,
     _reference_repair_options_for_correction,
 )
-from .contracts import _call1_contract_v2, _call2_contract_v2
+from .contracts import _call2_contract_v2
 from .core import (
     CORRECTION_PROMPT_VERSION_V31,
     CORRECTION_PROMPT_VERSION_V33,
@@ -30,6 +30,7 @@ from .prompt_context import (
 )
 from .prompt_packets import _artifact_response_contract_for_prompt
 from .response_decode import _decode_call2_json_response, _readable_response
+from .sequential_turns import plan_response_contract, turns_in_context
 
 
 @dataclass
@@ -460,7 +461,7 @@ def build_correction_context(
                     "Return one complete plan replacement as one bare JSON object or "
                     "exactly one lowercase ```json fenced JSON object."
                 ),
-                "response_contract": _call1_contract_v2(),
+                "response_contract": plan_response_contract(turns_in_context(original_context)),
             }
         )
         context["instruction"] = (

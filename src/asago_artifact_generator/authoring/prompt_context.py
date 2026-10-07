@@ -22,13 +22,13 @@ from .contracts import (
     NEUTRAL_OMISSION_OUTCOME_EXAMPLE,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
-    _call1_contract_v2,
     _call2_contract_v2,
     neutral_artifact_plan_v2,
     neutral_artifact_response_without_source,
 )
 from .core import AUTHORING_INTERFACE_VERSION_V2, _sha256
 from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
+from .sequential_turns import plan_response_contract, turn_count
 
 
 def _authoritative_context(
@@ -797,7 +797,7 @@ def build_plan_author_context(
 ) -> dict[str, Any]:
     """Build the source-derived context for the plan author role."""
 
-    response_contract = _call1_contract_v2()
+    response_contract = plan_response_contract(turn_count(view))
     context = {
         "task": {
             "instruction": (

@@ -117,6 +117,7 @@ from .review import (
     build_plan_review_packet,
     parse_review_response,
 )
+from .sequential_turns import sequential_artifact_findings, sequential_plan_findings
 from .shape_gate import shape_refusal_findings
 
 
@@ -989,7 +990,7 @@ class AuthoringOrchestrator:
                 provenance_ids=scenario_provenance_ids(view),
                 condition=view.payload.get("discriminating_condition"),
                 transformations=self._transformations,
-            )
+            ) + sequential_plan_findings(view, decoded)
 
         return _Stage(
             key="plan",
@@ -1025,7 +1026,7 @@ class AuthoringOrchestrator:
                 runtime_contract,
                 transformations=self._transformations,
                 condition=view.tool_call_condition,
-            )
+            ) + sequential_artifact_findings(view, decoded)
             return findings + oracle_defect_findings(findings, decoded, view.tool_call_condition)
 
         return _Stage(
