@@ -13,19 +13,12 @@ from asago_artifact_generator.authoring.shape_gate import shape_refusal_findings
 from asago_artifact_generator.input_adapter import load_input
 
 from .support import ScriptedAuthoringTransport, load_failure_evidence, stage_local_orchestrator
+from .turn_support import LISTING_SLOT
 
 _KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v4"
 LISTING = "adversarial-indirect-listing.json"
 POLICY = "adversarial-indirect-policy-operator.json"
 
-LISTING_SLOT = {
-    "id": "airbnb.listing.title",
-    "carrier_operation": "get_listing",
-    "field": "title",
-    "controller": "counterparty",
-    "content_kind": "listing_content",
-    "records": ["LST-101", "LST-104"],
-}
 POLICY_SLOT = {
     "id": "airbnb.policy_doc.body",
     "carrier_operation": "retrieve_policy",

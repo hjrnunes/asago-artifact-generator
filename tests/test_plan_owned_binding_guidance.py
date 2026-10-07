@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import tests.test_owner_scope_block as osb
 from asago_artifact_generator.authoring.correction import _CURRENT_ARTIFACT_CORRECTION_GUIDANCE
-from asago_artifact_generator.authoring.prompt_context import _CURRENT_PLAN_AUTHOR_GUIDANCE
 
-_RULE = "artifact authoring cannot add"
+from .prompt_support import render_stage_packets
+
 # Advice that only a plan author can follow.
 _PLAN_ONLY_ADVICE = (
     "If adding a detector-only binding",
@@ -27,19 +26,14 @@ def _plan_only_advice(text: str) -> list[str]:
     return [phrase for phrase in _PLAN_ONLY_ADVICE if phrase in text]
 
 
-def test_artifact_guidance_constants_state_the_plan_owned_rule() -> None:
-    assert _RULE in _CURRENT_ARTIFACT_CORRECTION_GUIDANCE
+def test_artifact_correction_guidance_gives_no_plan_only_binding_advice() -> None:
     assert _plan_only_advice(_CURRENT_ARTIFACT_CORRECTION_GUIDANCE) == []
 
 
-def test_artifact_stage_prompts_state_the_rule_and_the_plan_author_keeps_its_own() -> None:
-    packets = osb._render_all_stage_packets(osb._view())
+def test_artifact_stage_prompts_give_no_plan_only_binding_advice() -> None:
+    packets = render_stage_packets()
 
     for stage in ("call2", "artifact_review", "artifact_correction"):
         text = packets[stage].system + packets[stage].user
         # The reviewer reads the accepted plan as fixed and never gets binding advice.
-        if stage != "artifact_review":
-            assert _RULE in text, stage
         assert _plan_only_advice(text) == [], stage
-    assert "List judge.<binding_name> only for a value" in _CURRENT_PLAN_AUTHOR_GUIDANCE
-    assert "List judge.<binding_name> only for a value" in packets["call1"].user

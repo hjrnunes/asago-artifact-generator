@@ -8,10 +8,19 @@ from asago_artifact_generator.authoring.review import (
 )
 from asago_artifact_generator.input_adapter import load_input
 
-from .test_handoff_v3 import _KIT, _NO_CONDITION, _NOT_CALLED_HANDOFF, _OBSERVED
-from .test_versioned_prompt_roles import _inventory, _metadata, _plan, _runtime_contract
+from .support import (
+    HANDOFF_V3_KIT,
+    NO_CONDITION_HANDOFF,
+    NOT_CALLED_HANDOFF,
+    OBSERVED_HANDOFF,
+    world_builders,
+)
 
-_ORDER_HANDOFF = _KIT / "valid" / "functional-record-unavailable.json"
+_inventory, _metadata, _plan, _runtime_contract = world_builders(
+    "ehr", "inventory", "metadata", "plan", "runtime_contract"
+)
+
+_ORDER_HANDOFF = HANDOFF_V3_KIT / "valid" / "functional-record-unavailable.json"
 
 
 def _rules(source) -> dict:
@@ -54,7 +63,7 @@ def test_the_artifact_reviewer_prompt_has_no_order_comparison_section() -> None:
 
 
 def test_a_condition_without_an_order_comparison_adds_no_order_rule() -> None:
-    for source in (_OBSERVED, _NOT_CALLED_HANDOFF, _NO_CONDITION):
+    for source in (OBSERVED_HANDOFF, NOT_CALLED_HANDOFF, NO_CONDITION_HANDOFF):
         assert "order_comparisons" not in _rules(source), source.name
 
 

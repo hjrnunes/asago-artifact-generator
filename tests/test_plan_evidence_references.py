@@ -6,8 +6,6 @@ import json
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
 from asago_artifact_generator.authoring.core import (
-    CALL1_PROMPT_VERSION_V20,
-    CORRECTION_PROMPT_VERSION_V31,
     Finding,
 )
 from asago_artifact_generator.authoring.correction import (
@@ -31,9 +29,6 @@ _inventory, _plan, _runtime_contract, _view = world_builders(
 def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
     packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
 
-    assert packet.version == CALL1_PROMPT_VERSION_V20
-    assert packet.user.index("SOURCE CONTEXT") < packet.user.index("EVIDENCE REFERENCES")
-    assert packet.user.index("EVIDENCE REFERENCES") < packet.user.index("EXECUTION CAPABILITIES")
     section = json_section(packet.user, "EVIDENCE REFERENCES")
     assert section["citable_references"] == {
         "facts": ["draft:status", "reservation:RES-201", "session:actor"],
@@ -165,7 +160,6 @@ def test_plan_correction_explains_each_unknown_reference() -> None:
         correction_repair_inputs(_view(), _inventory(), _runtime_contract()),
     )
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V31
     options = {
         item["path"]: item for item in packet.payload["reference_repair_options"]["options"]
     }

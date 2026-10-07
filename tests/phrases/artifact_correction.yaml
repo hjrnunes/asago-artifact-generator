@@ -1,0 +1,18 @@
+# Fixed phrases of the artifact correction prompt (artifact_correction). Edit when you reword the template on purpose.
+template: artifact_correction
+cases:
+  ehr:
+    user:
+      required:
+        - 'Keep the accepted plan fixed.'
+        - 'Keep an accepted no-judge decision as null judge metadata'
+        - 'artifact authoring cannot add'
+      forbidden:
+        - OBSERVATION DECISION GUIDE
+        - RUNTIME EVIDENCE INTERFACE
+        - 'def evaluate'
+        - needs_plan_revision
+    system:
+      forbidden:
+        - 'def evaluate'
+        - needs_plan_revision

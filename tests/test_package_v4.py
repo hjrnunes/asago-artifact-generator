@@ -20,12 +20,7 @@ from asago_artifact_generator.package_io import (
 )
 
 from .support import ScriptedAuthoringTransport, stage_local_orchestrator, world
-from .test_sequential_turns import (
-    runtime,
-    sequential_metadata,
-    sequential_plan,
-    v4_view,
-)
+from .turn_support import sequential_metadata, sequential_plan, sequential_runtime, v4_view
 
 _SCHEMAS = Path(__file__).resolve().parents[1] / "contracts" / "artifact-package"
 
@@ -40,7 +35,7 @@ def _author(tmp_path: Path, view: InputView, turns: int):
     )
     result = stage_local_orchestrator(
         transport=transport, package_dir=tmp_path / "package", task_id="task"
-    ).run(view, refund["inventory"], runtime(refund["runtime_contract"]))
+    ).run(view, refund["inventory"], sequential_runtime(refund["runtime_contract"]))
     return result, transport
 
 

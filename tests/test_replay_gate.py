@@ -39,8 +39,7 @@ from replay_gate import (
     run_gate,
 )
 
-from .support import HANDOFF
-from .test_profile_bridge import _inputs as _target_inputs
+from .support import HANDOFF, target_inputs
 
 TASK_ID = "SCN-901"
 
@@ -80,7 +79,7 @@ def _record_author_stage(
     shutil.copyfile(HANDOFF, scenario)
     discover = run / "stages" / "discover" / "output"
     discover.mkdir(parents=True)
-    target_profile, runtime_contract = _target_inputs(discover)
+    target_profile, runtime_contract = target_inputs(discover)
     profiles_file = tmp_path / "profiles.yaml"
     profiles_file.write_text(
         yaml.safe_dump(

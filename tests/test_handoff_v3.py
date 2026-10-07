@@ -27,27 +27,29 @@ from asago_artifact_generator.input_adapter import (
     build_scenario_handoff_view,
     load_input,
 )
-from tests.test_versioned_prompt_roles import (
-    _inventory,
-    _metadata,
-    _plan,
-    _runtime_contract,
+from tests.support import (
+    HANDOFF_V3_KIT,
+    NO_CONDITION_HANDOFF,
+    NOT_CALLED_HANDOFF,
+    OBSERVED_HANDOFF,
+    world_builders,
 )
 
-_KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v3"
-_NO_CONDITION = _KIT / "valid" / "adversarial-condition-omitted.json"
-_OBSERVED = _KIT / "valid" / "adversarial-observed-record.json"
+_inventory, _metadata, _plan, _runtime_contract = world_builders(
+    "ehr", "inventory", "metadata", "plan", "runtime_contract"
+)
+
 # The schema-* cases run in tests/test_handoff_schema_cases.py with this reader's wording.
 _EXPECTED_VIOLATIONS = {
     relative: codes
     for relative, codes in json.loads(
-        (_KIT / "expected-violations.json").read_text(encoding="utf-8")
+        (HANDOFF_V3_KIT / "expected-violations.json").read_text(encoding="utf-8")
     ).items()
     if not relative.startswith("invalid/schema-")
 }
-_HANDOFF_DIGESTS = json.loads((_KIT / "canonical-digests.json").read_text(encoding="utf-8"))[
-    "handoff_digests"
-]
+_HANDOFF_DIGESTS = json.loads(
+    (HANDOFF_V3_KIT / "canonical-digests.json").read_text(encoding="utf-8")
+)["handoff_digests"]
 _V2_FIELDS = ("discriminating_condition", "condition_check")
 
 
@@ -61,7 +63,7 @@ def _write_signed(tmp_path: Path, payload: dict, domain: str) -> Path:
 
 @pytest.mark.parametrize("relative", sorted(_HANDOFF_DIGESTS))
 def test_valid_v3_fixtures_load_with_their_digest_domain(relative: str) -> None:
-    view = load_input(_KIT / relative)
+    view = load_input(HANDOFF_V3_KIT / relative)
 
     assert view.kind is InputKind.SCENARIO_HANDOFF_V3
     assert view.payload["content_digest"] == _HANDOFF_DIGESTS[relative]
@@ -76,7 +78,7 @@ def test_valid_v3_fixtures_load_with_their_digest_domain(relative: str) -> None:
 @pytest.mark.parametrize("relative", sorted(_EXPECTED_VIOLATIONS))
 def test_invalid_v3_fixtures_report_expected_violations(relative: str) -> None:
     with pytest.raises(InputSourceError) as raised:
-        load_input(_KIT / relative, kind=InputKind.SCENARIO_HANDOFF_V3)
+        load_input(HANDOFF_V3_KIT / relative, kind=InputKind.SCENARIO_HANDOFF_V3)
 
     for code in _EXPECTED_VIOLATIONS[relative]:
         assert code in str(raised.value)
@@ -86,7 +88,7 @@ def test_invalid_v3_fixtures_report_expected_violations(relative: str) -> None:
 def test_invalid_v3_fixtures_report_exactly_the_producers_ownership_codes(relative: str) -> None:
     prefix = "handoff ownership violation: "
     with pytest.raises(InputSourceError) as raised:
-        load_input(_KIT / relative, kind=InputKind.SCENARIO_HANDOFF_V3)
+        load_input(HANDOFF_V3_KIT / relative, kind=InputKind.SCENARIO_HANDOFF_V3)
 
     message = str(raised.value)
     reported = message.removeprefix(prefix).split(", ") if message.startswith(prefix) else []
@@ -99,7 +101,7 @@ def test_invalid_v3_fixtures_report_exactly_the_producers_ownership_codes(relati
 
 
 def test_v3_document_signed_in_v2_domain_is_rejected(tmp_path: Path) -> None:
-    payload = json.loads(_OBSERVED.read_text(encoding="utf-8"))
+    payload = json.loads(OBSERVED_HANDOFF.read_text(encoding="utf-8"))
     path = _write_signed(tmp_path, payload, "scenario-handoff-v2")
 
     with pytest.raises(InputSourceError, match="content_digest"):
@@ -107,7 +109,7 @@ def test_v3_document_signed_in_v2_domain_is_rejected(tmp_path: Path) -> None:
 
 
 def test_unknown_schema_version_is_rejected(tmp_path: Path) -> None:
-    payload = json.loads(_OBSERVED.read_text(encoding="utf-8"))
+    payload = json.loads(OBSERVED_HANDOFF.read_text(encoding="utf-8"))
     payload["schema_version"] = "scenario-handoff-v5"
     path = _write_signed(tmp_path, payload, "scenario-handoff-v5")
 
@@ -115,8 +117,8 @@ def test_unknown_schema_version_is_rejected(tmp_path: Path) -> None:
         load_input(path)
 
 
-def test_condition_and_guidance_reach_plan_artifact_and_review_prompts() -> None:
-    view = load_input(_OBSERVED)
+def test_condition_statement_reaches_plan_artifact_and_review_prompts() -> None:
+    view = load_input(OBSERVED_HANDOFF)
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = {
         "call1": build_call1_packet_v2(view, inventory, runtime),
@@ -127,22 +129,15 @@ def test_condition_and_guidance_reach_plan_artifact_and_review_prompts() -> None
         ),
     }
     statement = view.payload["discriminating_condition"]["statement"]
-    guidance = "must check the scenario's discriminating_condition on captured evidence"
     check_reason = view.payload["condition_check"]["comparisons"][0]["reason"]
 
     for name, packet in packets.items():
         assert packet.user.count(statement) == 1, name
-        assert "statement_location" in packet.user, name
-        assert "argument_values" in packet.user, name
-        assert '"condition_check"' in packet.user, name
-        assert '"satisfied"' in packet.user, name
         assert check_reason not in packet.user, name
-        assert packet.user.count(guidance) == (0 if name == "call2" else 1), name
 
 
-@pytest.mark.parametrize("source", [_NO_CONDITION, _KIT / "valid" / "analytical-only.json"])
-def test_condition_guidance_is_omitted_without_a_condition(source: Path) -> None:
-    view = load_input(source)
+def test_condition_guidance_is_omitted_for_an_analytical_only_scenario() -> None:
+    view = load_input(HANDOFF_V3_KIT / "valid" / "analytical-only.json")
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = (
         build_call1_packet_v2(view, inventory, runtime),
@@ -156,7 +151,7 @@ def test_condition_guidance_is_omitted_without_a_condition(source: Path) -> None
 
 
 def test_condition_statement_stays_in_the_view_when_gherkin_omits_it(tmp_path: Path) -> None:
-    payload = json.loads(_OBSERVED.read_text(encoding="utf-8"))
+    payload = json.loads(OBSERVED_HANDOFF.read_text(encoding="utf-8"))
     payload["gherkin"]["given"] = [
         step
         for step in payload["gherkin"]["given"]
@@ -174,7 +169,7 @@ def test_condition_statement_stays_in_the_view_when_gherkin_omits_it(tmp_path: P
 
 
 def test_call1_renders_runtime_contract_and_binding_rules_once() -> None:
-    view = load_input(_OBSERVED)
+    view = load_input(OBSERVED_HANDOFF)
     runtime = _runtime_contract()
     packet = build_call1_packet_v2(view, _inventory(), runtime)
     binding = packet.payload["response_contract"]["binding_declaration"]
@@ -186,11 +181,8 @@ def test_call1_renders_runtime_contract_and_binding_rules_once() -> None:
         assert f"See binding_declaration.{rule}." in packet.user, rule
 
 
-_NOT_CALLED_HANDOFF = _KIT / "valid" / "functional-not-called.json"
-
-
-def test_not_called_condition_adds_omission_guidance_to_plan_prompts() -> None:
-    view = load_input(_NOT_CALLED_HANDOFF)
+def test_not_called_condition_adds_the_omission_examples_to_plan_prompts() -> None:
+    view = load_input(NOT_CALLED_HANDOFF)
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = {
         "call1": build_call1_packet_v2(view, inventory, runtime),
@@ -199,17 +191,14 @@ def test_not_called_condition_adds_omission_guidance_to_plan_prompts() -> None:
             view, plan, _metadata(), inventory, runtime
         ),
     }
-    omission_sentence = "A not_called comparison is an omission"
 
-    for name, packet in packets.items():
-        assert packet.user.count(omission_sentence) == 1, name
     for name in ("call1", "plan_review"):
         assert packets[name].user.count(NEUTRAL_OMISSION_OUTCOME_EXAMPLE) == 1, name
         assert packets[name].user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1, name
 
 
-@pytest.mark.parametrize("source", [_OBSERVED, _NO_CONDITION])
-def test_omission_guidance_is_omitted_without_a_not_called_comparison(source: Path) -> None:
+@pytest.mark.parametrize("source", [OBSERVED_HANDOFF, NO_CONDITION_HANDOFF])
+def test_the_omission_example_is_omitted_without_a_not_called_comparison(source: Path) -> None:
     view = load_input(source)
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = (
@@ -218,5 +207,4 @@ def test_omission_guidance_is_omitted_without_a_not_called_comparison(source: Pa
     )
 
     for packet in packets:
-        assert "A not_called comparison is an omission" not in packet.user, packet.stage
         assert NEUTRAL_OMISSION_OUTCOME_EXAMPLE not in packet.user, packet.stage

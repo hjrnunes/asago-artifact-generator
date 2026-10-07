@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 from functools import partial
 from pathlib import Path
@@ -16,18 +15,16 @@ from asago_artifact_generator.authoring.review import (
 )
 from asago_artifact_generator.input_adapter import load_input
 
-from . import test_versioned_authoring_wire as wire
-from .support import scripted_orchestrator
-from .test_handoff_v3 import _OBSERVED
-from .test_versioned_authoring_wire import _framed
-from .test_versioned_prompt_roles import _inventory, _plan, _runtime_contract, _view
+from .support import OBSERVED_HANDOFF, scripted_orchestrator, world_builders
+
+_inventory, _plan, _runtime_contract, _view = world_builders(
+    "ehr", "inventory", "plan", "runtime_contract", "view"
+)
+_refund_framed, _refund_inventory, _refund_plan, _refund_runtime_contract, _refund_view = (
+    world_builders("refund", "framed", "inventory", "plan", "runtime_contract", "view")
+)
 
 _orchestrator = partial(scripted_orchestrator, task_id="prior-round")
-
-# Digests of first-round review prompts rendered by consumer commit 9baa154.
-_FIRST_ROUND_SYSTEM = "02eaec14793e9dec4d59370ac2413a32da957f3273e6c80a0ae1212cc15b35c7"
-_FIRST_ROUND_USER = "856e69ef704e1002be3b6975351d5d1f903f8c8ec74238f111b106bb5289eb09"
-_FIRST_ROUND_CONDITION_USER = "bcf22916bb917c8ff0dd80fb4e00bf755b31a99b501ca2234d12f86b8e021ca0"
 
 _FINDING = {
     "question": "branch_logic",
@@ -36,10 +33,6 @@ _FINDING = {
     "basis": "The scenario binds the record from the authenticated identity.",
     "required_change": "Compare the argument with the bound authenticated identity.",
 }
-
-
-def _digest(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def _revised_plan() -> dict:
@@ -57,17 +50,14 @@ def _review_reply(findings: list[dict]) -> bytes:
     return json.dumps({"decision": decision, "summary": "scripted", "findings": findings}).encode()
 
 
-def test_a_first_round_review_prompt_is_the_one_9baa154_rendered() -> None:
+def test_a_first_round_review_prompt_has_no_prior_round_section() -> None:
     plain = build_plan_review_packet(_view(), _plan(), _inventory(), _runtime_contract())
     conditioned = build_plan_review_packet(
-        load_input(_OBSERVED), _plan(), _inventory(), _runtime_contract()
+        load_input(OBSERVED_HANDOFF), _plan(), _inventory(), _runtime_contract()
     )
 
-    assert _digest(plain.system) == _FIRST_ROUND_SYSTEM
-    assert _digest(plain.user) == _FIRST_ROUND_USER
-    assert _digest(conditioned.system) == _FIRST_ROUND_SYSTEM
-    assert _digest(conditioned.user) == _FIRST_ROUND_CONDITION_USER
-    assert "prior_review_round" not in plain.payload
+    for packet in (plain, conditioned):
+        assert "prior_review_round" not in packet.payload
 
 
 def test_a_second_round_review_prompt_carries_the_first_round_findings() -> None:
@@ -120,22 +110,22 @@ def test_a_second_round_review_lists_a_field_the_author_removed() -> None:
 
 
 def test_the_orchestrator_hands_the_second_review_its_first_round(tmp_path: Path) -> None:
-    revised = wire._plan()
+    revised = _refund_plan()
     revised["observation_claim"]["violation"] = "Complete capture shows the bound mismatch."
     orchestrator, transport = _orchestrator(
         tmp_path,
         [
-            json.dumps(wire._plan()),
+            json.dumps(_refund_plan()),
             _review_reply([_FINDING]),
             json.dumps(revised),
             _review_reply([]),
-            _framed(),
+            _refund_framed(),
             _review_reply([]),
         ],
         policy=AuthoringPolicy(),
     )
 
-    result = orchestrator.run(wire._view(), wire._inventory(), wire._runtime_contract())
+    result = orchestrator.run(_refund_view(), _refund_inventory(), _refund_runtime_contract())
 
     assert result.status == "accepted"
     reviews = [item for item in transport.requests if item["stage"] == "plan_review"]
@@ -154,11 +144,17 @@ def test_a_review_after_a_mechanical_correction_alone_has_no_prior_round(
 ) -> None:
     orchestrator, transport = _orchestrator(
         tmp_path,
-        [b"{}", json.dumps(wire._plan()), _review_reply([]), _framed(), _review_reply([])],
+        [
+            b"{}",
+            json.dumps(_refund_plan()),
+            _review_reply([]),
+            _refund_framed(),
+            _review_reply([]),
+        ],
         policy=AuthoringPolicy(),
     )
 
-    result = orchestrator.run(wire._view(), wire._inventory(), wire._runtime_contract())
+    result = orchestrator.run(_refund_view(), _refund_inventory(), _refund_runtime_contract())
 
     assert result.status == "accepted"
     review = next(item for item in transport.requests if item["stage"] == "plan_review")

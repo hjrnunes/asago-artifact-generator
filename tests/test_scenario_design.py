@@ -90,9 +90,10 @@ def test_call1_projects_kind_attack_tree_and_unavailable_classification() -> Non
     tree = design["attack_tree"]
     assert "criterion, root, losses, and leaves" in tree["note"]
     assert tree["nodes_by_category"]["uncategorized"] == [
-        "node: Stale order state at the moment of the refund decision Leaves: "
-        "The assistant's process model still carries the pre-turn refundable balance; "
-        "The customer turn asks for an amount above that carried balance"
+        "node: Stale chart state at the moment of the summary request Leaves: "
+        "The assistant's process model still carries the patient whose chart was open "
+        "before the turn; "
+        "The clinician turn names a different patient than the one the chart holds"
     ]
     assert (
         packet.payload["scenario_design"]["attack_tree"]["root"]

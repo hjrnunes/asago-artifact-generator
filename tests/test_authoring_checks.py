@@ -253,7 +253,12 @@ def test_every_registered_mechanical_check_runs_on_a_passing_candidate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from asago_artifact_generator.authoring import checks
-    from tests import test_semantic_judge_spec_wording as reply_case
+    from tests.reply_support import (
+        reply_inventory,
+        reply_metadata,
+        reply_plan,
+        reply_runtime_contract,
+    )
     from tests.support import validate_neutral_example
 
     called: set[str] = set()
@@ -271,12 +276,12 @@ def test_every_registered_mechanical_check_runs_on_a_passing_candidate(
 
         monkeypatch.setattr(checks, name, spy)
 
-    plan = reply_case._plan()
-    inventory, runtime = reply_case._inventory(), reply_case._runtime_contract()
+    plan = reply_plan()
+    inventory, runtime = reply_inventory(), reply_runtime_contract()
     reply_findings = [
         *checks.collect_plan_findings_v2(plan, inventory, runtime),
         *checks.collect_artifact_findings_v2(
-            reply_case._metadata("Does the reply assert the claim?"), plan, inventory, runtime
+            reply_metadata("Does the reply assert the claim?"), plan, inventory, runtime
         ),
     ]
 

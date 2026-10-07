@@ -1,0 +1,51 @@
+# Fixed phrases of the artifact author prompt (call2). Edit when you reword the template on purpose.
+template: call2
+cases:
+  ehr:
+    system:
+      required:
+        - 'The artifact contains no detector code.'
+        - 'Return the complete artifact as one JSON object.'
+        - 'tool-call condition'
+        - 'artifact authoring cannot add'
+      forbidden:
+        - 'def evaluate'
+        - needs_plan_revision
+    user:
+      required:
+        - RUNTIME CAPABILITIES
+      forbidden:
+        - OBSERVATION DECISION GUIDE
+        - RUNTIME EVIDENCE INTERFACE
+        - 'def evaluate'
+        - needs_plan_revision
+  observed-condition:
+    user:
+      required:
+        - statement_location
+        - argument_values
+        - '"condition_check"'
+        - '"satisfied"'
+      forbidden:
+        - 'must check the scenario''s discriminating_condition on captured evidence'
+        - 'A not_called comparison is an omission'
+        - 'selected_evidence cites no entry for it'
+        - 'An omission plan cites no stimulus trigger'
+        - omission_trigger
+  not-called:
+    user:
+      forbidden:
+        - 'A not_called comparison is an omission'
+        - 'selected_evidence cites no entry for it'
+        - 'An omission plan cites no stimulus trigger'
+  no-condition:
+    user:
+      forbidden:
+        - 'A not_called comparison is an omission'
+        - 'selected_evidence cites no entry for it'
+        - 'An omission plan cites no stimulus trigger'
+        - omission_trigger
+  omission:
+    user:
+      forbidden:
+        - 'the producer resolves it to its supplied value'

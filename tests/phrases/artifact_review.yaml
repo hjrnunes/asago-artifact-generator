@@ -1,0 +1,64 @@
+# Fixed phrases of the artifact reviewer prompt (artifact_review). Edit when you reword the template on purpose.
+template: artifact_review
+cases:
+  ehr:
+    system:
+      required:
+        - 'the artifact contains no detector code'
+        - 'Use PLAN FIELD MEANINGS to compare the artifact'
+        - 'A blocking finding must show a different experiment, wrong decisive observation, execution-preventing defect, or authority/evidence breach grounded in supplied facts.'
+      forbidden:
+        - 'def evaluate'
+    user:
+      required:
+        - REVIEW QUESTIONS
+        - 'MECHANICAL GUARANTEES (NOT REVIEW QUESTIONS)'
+        - 'exactly one JSON object as the whole response'
+        - 'no text before or after'
+        - example_finding
+        - 'value.<key>.record_key'
+        - 'the producer''s tool-call condition for a command_attempt claim reads none'
+      forbidden:
+        - PRIOR REVIEW ROUND
+        - EXACT DETECTOR PYTHON
+        - ACTUAL OFFLINE CONTROL RESULTS
+        - RUNTIME EVIDENCE INTERFACE
+        - OBSERVATION DECISION GUIDE
+        - 'def evaluate'
+        - 'selected_evidence cites no entry for it'
+        - 'An omission plan cites no stimulus trigger'
+  observed-condition:
+    user:
+      required:
+        - statement_location
+        - argument_values
+        - '"condition_check"'
+        - '"satisfied"'
+      once:
+        - 'must check the scenario''s discriminating_condition on captured evidence'
+      forbidden:
+        - 'A not_called comparison is an omission'
+        - 'selected_evidence cites no entry for it'
+        - 'An omission plan cites no stimulus trigger'
+        - omission_trigger
+  not-called:
+    user:
+      once:
+        - 'A not_called comparison is an omission'
+      forbidden:
+        - 'selected_evidence cites no entry for it'
+        - 'An omission plan cites no stimulus trigger'
+  no-condition:
+    user:
+      forbidden:
+        - discriminating_condition
+        - condition_check
+        - 'A not_called comparison is an omission'
+        - 'selected_evidence cites no entry for it'
+        - 'An omission plan cites no stimulus trigger'
+        - omission_trigger
+  omission:
+    user:
+      required:
+        - 'the producer''s tool-call condition for a command_attempt claim reads none'
+        - 'the producer resolves it to its supplied value'

@@ -23,11 +23,7 @@ from asago_artifact_generator.input_adapter import (
 )
 
 from .support import world
-from .test_planted_item_authoring import (
-    indirect_inventory,
-    indirect_runtime,
-    indirect_shape,
-)
+from .turn_support import indirect_inventory, indirect_runtime, indirect_shape
 
 _REFUND_BOUND = (
     Path(__file__).resolve().parents[1]

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import shutil
 from pathlib import Path
 
 import pytest
@@ -18,46 +16,13 @@ from asago_artifact_generator.profiles import (
     load_authoring_profile,
 )
 
-from .support import HANDOFF, fake_cli_authoring, forbid_cli_transport
-
-_MINIMAL_PROFILE = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "target-profile"
-    / "target-profile-v1"
-    / "valid"
-    / "minimal.json"
+from .support import (
+    HANDOFF,
+    fake_cli_authoring,
+    forbid_cli_transport,
+    profile_file,
+    target_inputs,
 )
-
-
-def _inputs(tmp_path: Path) -> tuple[Path, Path]:
-    profile = tmp_path / "execution-target-profile.json"
-    shutil.copyfile(_MINIMAL_PROFILE, profile)
-    runtime_contract = tmp_path / "runtime-contract.json"
-    runtime_contract.write_text(
-        json.dumps(
-            {
-                "delivery": ["direct_user_message"],
-                "observation": {},
-                "setup_permissions": [],
-                "limits": {"max_turns": 1},
-            }
-        ),
-        encoding="utf-8",
-    )
-    return profile, runtime_contract
-
-
-def _profile_file(tmp_path: Path, **changes: object) -> tuple[Path, dict[str, object]]:
-    values = {
-        "base_url": "https://profile.example.invalid/v1",
-        "api_key": "profile-secret-value",
-        "model": "profile-model",
-    }
-    values.update(changes)
-    path = tmp_path / "profiles.yaml"
-    path.write_text(yaml.safe_dump({"gemma4-oc": values}), encoding="utf-8")
-    return path, values
 
 
 def _invoke_generate(
@@ -65,7 +30,7 @@ def _invoke_generate(
     *,
     extra_args: list[str] | None = None,
 ) -> object:
-    target_profile, runtime_contract = _inputs(tmp_path)
+    target_profile, runtime_contract = target_inputs(tmp_path)
     arguments = [
         "generate",
         str(HANDOFF),
@@ -83,7 +48,7 @@ def _invoke_generate(
 def test_loader_returns_named_connection_fields_without_logging_or_redaction(
     tmp_path: Path,
 ) -> None:
-    profiles_file, values = _profile_file(tmp_path)
+    profiles_file, values = profile_file(tmp_path)
 
     profile = load_authoring_profile(profiles_file, "gemma4-oc")
 
@@ -96,7 +61,7 @@ def test_loader_returns_named_connection_fields_without_logging_or_redaction(
 
 
 def test_loader_preserves_optional_openai_request_controls(tmp_path: Path) -> None:
-    profiles_file, _ = _profile_file(
+    profiles_file, _ = profile_file(
         tmp_path,
         reasoning_effort="high",
         service_tier="priority",
@@ -124,7 +89,7 @@ def test_loader_preserves_optional_openai_request_controls(tmp_path: Path) -> No
 def test_loader_fails_closed_for_missing_required_connection_field(
     tmp_path: Path, field: str
 ) -> None:
-    profiles_file, values = _profile_file(tmp_path)
+    profiles_file, values = profile_file(tmp_path)
     values.pop(field)
     profiles_file.write_text(yaml.safe_dump({"gemma4-oc": values}), encoding="utf-8")
 
@@ -137,7 +102,7 @@ def test_loader_fails_closed_for_missing_required_connection_field(
 
 
 def test_loader_fails_closed_for_unknown_named_profile(tmp_path: Path) -> None:
-    profiles_file, _ = _profile_file(tmp_path)
+    profiles_file, _ = profile_file(tmp_path)
 
     with pytest.raises(ProfileNotFoundError):
         load_authoring_profile(profiles_file, "missing")
@@ -146,7 +111,7 @@ def test_loader_fails_closed_for_unknown_named_profile(tmp_path: Path) -> None:
 def test_author_cli_passes_profile_values_directly_to_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    profiles_file, values = _profile_file(tmp_path)
+    profiles_file, values = profile_file(tmp_path)
     captured = fake_cli_authoring(monkeypatch)
 
     result = _invoke_generate(
@@ -185,7 +150,7 @@ def test_author_cli_passes_profile_values_directly_to_transport(
 def test_author_cli_passes_optional_profile_controls_to_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    profiles_file, _ = _profile_file(
+    profiles_file, _ = profile_file(
         tmp_path,
         reasoning_effort="high",
         service_tier="priority",
@@ -224,7 +189,7 @@ def test_author_cli_passes_optional_profile_controls_to_transport(
 def test_author_cli_rejects_missing_named_profile_before_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    profiles_file, _ = _profile_file(tmp_path)
+    profiles_file, _ = profile_file(tmp_path)
     transport = forbid_cli_transport(monkeypatch)
 
     result = _invoke_generate(
@@ -259,7 +224,7 @@ def test_author_cli_requires_a_named_profile_before_transport(
 def test_profile_secret_is_redacted_from_failure_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    profiles_file, values = _profile_file(tmp_path)
+    profiles_file, values = profile_file(tmp_path)
 
     class FailingTransport:
         max_retries = 0
@@ -315,7 +280,7 @@ def test_loader_rejects_unreadable_files_and_malformed_profile_entries(
 
 
 def test_loader_reads_profiles_nested_under_a_profiles_key(tmp_path: Path) -> None:
-    _, values = _profile_file(tmp_path)
+    _, values = profile_file(tmp_path)
     profiles_file = tmp_path / "nested.yaml"
     profiles_file.write_text(yaml.safe_dump({"profiles": {"gemma4-oc": values}}), encoding="utf-8")
 
@@ -338,7 +303,7 @@ def test_loader_reads_profiles_nested_under_a_profiles_key(tmp_path: Path) -> No
 def test_loader_rejects_an_invalid_optional_request_control(
     tmp_path: Path, field: str, value: object
 ) -> None:
-    profiles_file, _ = _profile_file(tmp_path, **{field: value})
+    profiles_file, _ = profile_file(tmp_path, **{field: value})
 
     with pytest.raises(ProfileFieldError, match=f"has invalid field '{field}'") as exc_info:
         load_authoring_profile(profiles_file, "gemma4-oc")

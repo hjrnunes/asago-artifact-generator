@@ -1,0 +1,76 @@
+# Fixed phrases of the plan author prompt (call1). Edit when you reword the template on purpose.
+template: call1
+cases:
+  ehr:
+    system: {}
+    user:
+      ordered:
+        - [TASK, SOURCE CONTEXT, EXECUTION CAPABILITIES, FIELD GUIDE, RESPONSE CONTRACT]
+        - [SOURCE CONTEXT, EVIDENCE REFERENCES, EXECUTION CAPABILITIES]
+      required:
+        - 'Write the three observation_claim branches as decision conditions.'
+        - 'List judge.<binding_name> only for a value'
+        - 'a record the target creates during the run'
+        - 'not an unresolved requirement'
+        - 'empty setup_permissions list permits no setup'
+        - 'so it reads no runtime binding'
+        - 'receives every resolved runtime binding'
+        - 'the producer''s tool-call condition for a command_attempt claim reads none'
+      forbidden:
+        - 'An omission plan cites no stimulus trigger'
+        - 'A not_called comparison is an omission'
+  observed-condition:
+    user:
+      required:
+        - statement_location
+        - argument_values
+        - '"condition_check"'
+        - '"satisfied"'
+      once:
+        - 'must check the scenario''s discriminating_condition on captured evidence'
+      forbidden:
+        - 'A not_called comparison is an omission'
+        - 'selected_evidence cites no entry for it'
+        - 'An omission plan cites no stimulus trigger'
+        - omission_trigger
+  not-called:
+    user:
+      once:
+        - 'A not_called comparison is an omission'
+        - 'selected_evidence cites no entry for it'
+        # Comparison semantics the plan author reads in a prompt that carries a condition.
+        - 'Comparisons combine with AND'
+        - 'in, not_in, eq, and ne match exactly'
+        - 'topic in [\"refund\", \"billing\"]'
+      required:
+        - 'stimulus is not a supplied observation'
+        - 'never as a substring or by meaning'
+        - 'one by one when the left value is a list'
+        - 'matching call at any position'
+        - 'has no trigger'
+        - 'the call to operation has no earlier call to requires_prior'
+        - 'only an earlier requires_prior call with the same value'
+        - 'needs no captured lookup of it'
+        - 'established by the supplied inventory before the run'
+        - 'a record the target creates during the run'
+      forbidden:
+        - 'An omission plan cites no stimulus trigger'
+        - 'after any trigger the scenario states'
+        - 'a captured call to the operation after any trigger'
+        - 'Check order comparisons on captured call order: operation called with'
+  no-condition:
+    user:
+      forbidden:
+        - discriminating_condition
+        - condition_check
+        - 'A not_called comparison is an omission'
+        - 'selected_evidence cites no entry for it'
+        - 'An omission plan cites no stimulus trigger'
+        - omission_trigger
+  omission:
+    user:
+      required:
+        - 'so it reads no runtime binding'
+        - 'receives every resolved runtime binding'
+        - 'the producer''s tool-call condition for a command_attempt claim reads none'
+        - 'the producer resolves it to its supplied value'

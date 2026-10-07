@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -13,6 +14,7 @@ from typing import Any
 import httpx2
 import openai
 import pytest
+import yaml
 
 from asago_artifact_generator import cli
 from asago_artifact_generator.authoring.checks import (
@@ -35,7 +37,7 @@ from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrato
 from asago_artifact_generator.authoring.policy import AuthoringPolicy, AuthoringResult
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.failure_evidence import FAILURE_EVIDENCE_SCHEMA_VERSION
-from asago_artifact_generator.input_adapter import InputKind, load_input
+from asago_artifact_generator.input_adapter import InputKind, _framed_digest, load_input
 from asago_artifact_generator.package_io import (
     build_package,
     tool_call_condition_bytes,
@@ -100,7 +102,11 @@ class ScriptedAuthoringTransport:
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _ROOT = Path(__file__).resolve().parents[1]
-HANDOFF = _ROOT / "contracts" / "scenario-handoff" / "handoff-v3" / "valid" / "refund-bound.json"
+HANDOFF_V3_KIT = _ROOT / "contracts" / "scenario-handoff" / "handoff-v3"
+HANDOFF = HANDOFF_V3_KIT / "valid" / "refund-bound.json"
+NO_CONDITION_HANDOFF = HANDOFF_V3_KIT / "valid" / "adversarial-condition-omitted.json"
+OBSERVED_HANDOFF = HANDOFF_V3_KIT / "valid" / "adversarial-observed-record.json"
+NOT_CALLED_HANDOFF = HANDOFF_V3_KIT / "valid" / "functional-not-called.json"
 
 _WORLD_PARTS = ("view", "inventory", "runtime_contract", "plan", "metadata", "framed")
 
@@ -115,10 +121,6 @@ def world(name: str, **overrides: Any) -> dict[str, Any]:
     The result holds ``view`` (loaded from the world's handoff), ``inventory``,
     ``runtime_contract``, ``plan`` and ``metadata`` where the world defines them.
     Each override replaces the entry of the same name.
-
-    The ``ehr`` world pairs the refund handoff with an EHR-summary inventory on purpose: the
-    prompt digests pinned in ``test_owner_scope_block`` and ``test_plan_contract_hazards``
-    render both, so making them agree changes every pinned digest.
     """
 
     document = {**_document(name), **deepcopy(overrides)}
@@ -157,6 +159,56 @@ def _framed(name: str, metadata: dict | None) -> bytes:
     if document["framing"] == "fenced":
         return b"```json\n" + json.dumps(metadata, sort_keys=True).encode() + b"\n```\n"
     return json.dumps(metadata, sort_keys=True, indent=2).encode() + b"\n"
+
+
+MINIMAL_TARGET_PROFILE = (
+    _ROOT / "contracts" / "target-profile" / "target-profile-v1" / "valid" / "minimal.json"
+)
+
+
+def target_inputs(tmp_path: Path) -> tuple[Path, Path]:
+    profile = tmp_path / "execution-target-profile.json"
+    shutil.copyfile(MINIMAL_TARGET_PROFILE, profile)
+    runtime_contract = tmp_path / "runtime-contract.json"
+    runtime_contract.write_text(
+        json.dumps(
+            {
+                "delivery": ["direct_user_message"],
+                "observation": {},
+                "setup_permissions": [],
+                "limits": {"max_turns": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return profile, runtime_contract
+
+
+def profile_file(tmp_path: Path, **changes: object) -> tuple[Path, dict[str, object]]:
+    values = {
+        "base_url": "https://profile.example.invalid/v1",
+        "api_key": "profile-secret-value",
+        "model": "profile-model",
+    }
+    values.update(changes)
+    path = tmp_path / "profiles.yaml"
+    path.write_text(yaml.safe_dump({"gemma4-oc": values}), encoding="utf-8")
+    return path, values
+
+
+def signed_omission_view(tmp_path: Path):
+    """Return the not-called handoff re-signed with a bare ``not_called`` comparison."""
+
+    payload = json.loads(NOT_CALLED_HANDOFF.read_text(encoding="utf-8"))
+    payload["discriminating_condition"]["comparisons"] = [
+        {"kind": "not_called", "operation": "notify_owner"}
+    ]
+    payload.pop("condition_check", None)
+    payload = {key: value for key, value in payload.items() if key != "content_digest"}
+    payload["content_digest"] = _framed_digest("scenario-handoff-v3", payload)
+    path = tmp_path / "handoff.yaml"
+    path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    return load_input(path)
 
 
 def assemble_refund_package(tmp_path: Path, plan: dict, metadata: dict) -> AuthoringResult:

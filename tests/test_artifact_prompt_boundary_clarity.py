@@ -5,8 +5,6 @@ from copy import deepcopy
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.core import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
-    CALL2_PROMPT_VERSION_V25,
-    CORRECTION_PROMPT_VERSION_V33,
 )
 from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
@@ -49,13 +47,13 @@ def _tool_call_shaped_inputs() -> tuple[dict, dict]:
     return plan, runtime
 
 
-def test_artifact_prompt_states_the_fixed_plan_without_a_detector_interface() -> None:
+def test_building_the_artifact_prompts_leaves_the_accepted_plan_unchanged() -> None:
     plan, runtime = _tool_call_shaped_inputs()
     original_plan = deepcopy(plan)
     view, inventory = _view(), _inventory()
     context = build_artifact_author_context(view, plan, inventory, runtime)
-    author = build_call2_packet_v2(view, plan, inventory, runtime)
-    correction = _render_correction_packet(
+    build_call2_packet_v2(view, plan, inventory, runtime)
+    _render_correction_packet(
         build_correction_context(
             failed_stage="call2",
             original_context=context,
@@ -66,15 +64,7 @@ def test_artifact_prompt_states_the_fixed_plan_without_a_detector_interface() ->
     )
 
     assert context["runtime_contract"] == runtime
-    for packet in (author, correction):
-        assert "OBSERVATION DECISION GUIDE" not in packet.user
-        assert "RUNTIME EVIDENCE INTERFACE" not in packet.user
-        assert "needs_plan_revision" not in packet.system + packet.user
-    assert "RUNTIME CAPABILITIES" in author.user
-    assert "tool-call condition" in author.system
     assert plan == original_plan
-    assert author.version == CALL2_PROMPT_VERSION_V25
-    assert correction.version == CORRECTION_PROMPT_VERSION_V33
 
 
 def test_artifact_review_does_not_replay_unrelated_judge_facts_or_capabilities() -> None:
@@ -122,9 +112,7 @@ def test_correction_renders_optional_stage_context_and_current_review_view() -> 
     )
     assert correction.user.count("SUPPLIED STAGE CONTEXT\n") == 1
     assert "raw result unavailable; verdict read from source" in correction.user
-    assert "OBSERVATION DECISION GUIDE\n" not in correction.user
     assert review.version == ARTIFACT_REVIEW_PROMPT_VERSION
-    assert "OBSERVATION DECISION GUIDE\n" not in review.user
 
 
 def test_artifact_review_inventory_keeps_only_records_the_plan_cites() -> None:

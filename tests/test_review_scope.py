@@ -105,7 +105,7 @@ def test_only_in_scope_findings_reach_correction_prompt(tmp_path: Path) -> None:
     assert review["out_of_scope_findings"] == [out_of_scope]
 
 
-def test_review_prompts_render_closed_questions_guarantees_and_one_object_example() -> None:
+def test_review_prompts_render_every_closed_question() -> None:
     view = _view()
     inventory = _inventory()
     runtime = _runtime_contract()
@@ -122,13 +122,7 @@ def test_review_prompts_render_closed_questions_guarantees_and_one_object_exampl
         (plan_packet, PLAN_REVIEW_QUESTION_IDS),
         (artifact_packet, ARTIFACT_REVIEW_QUESTION_IDS),
     ):
-        assert "REVIEW QUESTIONS" in packet.user
-        assert "MECHANICAL GUARANTEES (NOT REVIEW QUESTIONS)" in packet.user
         assert all(question_id in packet.user for question_id in question_ids)
-        assert "exactly one JSON object as the whole response" in packet.user
-        assert "no text before or after" in packet.user
-        assert "example_finding" in packet.user
-        assert "value.<key>.record_key" in packet.user
 
 
 def _review_problems(raw: object) -> list[dict]:

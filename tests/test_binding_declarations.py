@@ -27,7 +27,11 @@ from asago_artifact_generator.bindings import (
     validate_bindings,
 )
 
-from .test_versioned_prompt_roles import _inventory, _plan, _runtime_contract
+from .support import world_builders
+
+_inventory, _plan, _runtime_contract = world_builders(
+    "ehr", "inventory", "plan", "runtime_contract"
+)
 
 
 def test_binding_uses_exact_setup_selector_and_declared_consumers() -> None:
