@@ -74,7 +74,11 @@ Deterministic tests must not contact a model endpoint or target.
   logs, shell output, and Git. Use the task's explicit profile path.
 - Record actual model, thinking, token limits, finish state, and spend. Thinking
   is a per-role control, not a universal improvement. Respect the request's
-  context limit and stop policy; do not silently retry or enlarge allowances.
+  context limit and stop policy; do not enlarge allowances. The transport makes
+  one recorded retry after a transport error (HTTP 5xx or a non-timeout
+  connection error) and nothing else retries: not timeouts, 4xx, or invalid
+  responses. The retry counts against the budget and appears in the ledger as
+  `transport_retries`; SDK `max_retries` stays 0.
 - Reuse intact accepted plans or artifacts when authorized. Verify their exact
   hashes and provenance; do not regenerate them merely because a later stage
   failed. A new task name does not reset historical spend.
