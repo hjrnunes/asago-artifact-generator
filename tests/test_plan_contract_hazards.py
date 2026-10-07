@@ -115,7 +115,7 @@ def test_current_call1_replaces_pseudo_empty_shapes_with_schema_guidance() -> No
             current_output="{}",
             findings=[],
         ),
-        correction_repair_inputs(view, inventory, runtime_contract, plan=True),
+        correction_repair_inputs(view, inventory, runtime_contract),
     )
     artifact_correction = _render_correction_packet(
         build_correction_context(
@@ -126,7 +126,7 @@ def test_current_call1_replaces_pseudo_empty_shapes_with_schema_guidance() -> No
             current_output=_framed(),
             findings=[],
         ),
-        correction_repair_inputs(view, inventory, runtime_contract, plan=False),
+        correction_repair_inputs(view, inventory, runtime_contract),
     )
     packets = (
         build_call1_packet_v2(view, inventory, runtime_contract),
@@ -220,7 +220,7 @@ def test_prerequisite_type_finding_is_rendered_in_plan_correction() -> None:
         findings=[finding],
     )
     packet = _render_correction_packet(
-        context, correction_repair_inputs(_view(), inventory, _runtime_contract(), plan=True)
+        context, correction_repair_inputs(_view(), inventory, _runtime_contract())
     )
 
     assert packet.version == CORRECTION_PROMPT_VERSION_V29
@@ -323,7 +323,7 @@ def test_current_prompt_digests_pin_rendered_contract_evidence() -> None:
             current_output="{}",
             findings=[],
         ),
-        correction_repair_inputs(view, inventory, runtime_contract, plan=True),
+        correction_repair_inputs(view, inventory, runtime_contract),
     )
 
     packets = {

@@ -82,7 +82,7 @@ def _render_all_stage_packets(view):
                 current_output="{}",
                 findings=[],
             ),
-            correction_repair_inputs(view, inventory, runtime, plan=True),
+            correction_repair_inputs(view, inventory, runtime),
         ),
         "artifact_correction": _render_correction_packet(
             build_correction_context(
@@ -91,7 +91,7 @@ def _render_all_stage_packets(view):
                 current_output=_framed(),
                 findings=[],
             ),
-            correction_repair_inputs(view, inventory, runtime, plan=False),
+            correction_repair_inputs(view, inventory, runtime),
         ),
     }
 
@@ -207,7 +207,7 @@ def test_owner_scope_is_separate_and_labeled_in_every_source_context_stage() -> 
                 current_output="{}",
                 findings=[],
             ),
-            correction_repair_inputs(view, inventory, runtime, plan=True),
+            correction_repair_inputs(view, inventory, runtime),
         ),
         _render_correction_packet(
             build_correction_context(
@@ -216,7 +216,7 @@ def test_owner_scope_is_separate_and_labeled_in_every_source_context_stage() -> 
                 current_output=_framed(),
                 findings=[],
             ),
-            correction_repair_inputs(view, inventory, runtime, plan=False),
+            correction_repair_inputs(view, inventory, runtime),
         ),
     ]
     for packet in packets:

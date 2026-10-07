@@ -710,9 +710,7 @@ class AuthoringOrchestrator:
         )
         packet = _render_correction_packet(
             correction_payload,
-            correction_repair_inputs(
-                view, inventory, runtime_contract, plan=failed_stage == "call1"
-            ),
+            correction_repair_inputs(view, inventory, runtime_contract),
         )
         try:
             _enforce_prompt_size(

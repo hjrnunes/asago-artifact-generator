@@ -38,7 +38,7 @@ def _context(
         current_output=json.dumps(candidate),
         findings=findings,
     )
-    return context, correction_repair_inputs(_view(), inventory, runtime_contract, plan=True)
+    return context, correction_repair_inputs(_view(), inventory, runtime_contract)
 
 
 def _candidate() -> dict:

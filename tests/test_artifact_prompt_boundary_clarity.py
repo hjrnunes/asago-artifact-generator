@@ -63,7 +63,7 @@ def test_artifact_prompt_states_the_fixed_plan_without_a_detector_interface() ->
             current_output="candidate",
             findings=[],
         ),
-        correction_repair_inputs(view, inventory, runtime, plan=False),
+        correction_repair_inputs(view, inventory, runtime),
     )
 
     assert context["runtime_contract"] == runtime
@@ -112,7 +112,7 @@ def test_correction_renders_optional_stage_context_and_current_review_view() -> 
         "control_feedback_provenance": "raw result unavailable; verdict read from source",
     }
     correction = _render_correction_packet(
-        correction_context, correction_repair_inputs(view, inventory, runtime, plan=False)
+        correction_context, correction_repair_inputs(view, inventory, runtime)
     )
     review = build_artifact_review_packet(
         view,

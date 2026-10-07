@@ -188,21 +188,18 @@ class CorrectionRepairInputs:
     inventory: dict[str, Any]
     runtime_contract: dict[str, Any]
     evidence_references: dict[str, Any]
-    observation: dict[str, Any] | None
+    observation: dict[str, Any]
 
 
 def correction_repair_inputs(
     view: InputView,
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
-    *,
-    plan: bool,
 ) -> CorrectionRepairInputs:
     """Select what repair reads from the stage inputs.
 
-    Repair sees the facts and documented operations that the author saw, without
-    the source handles. The artifact author sees no observation capabilities, so
-    artifact repair knows only the always-available message scopes.
+    Repair of either stage sees the facts, source handles, and documented
+    operations of the inventory and the runtime observation capabilities.
     """
 
     return CorrectionRepairInputs(
@@ -210,11 +207,16 @@ def correction_repair_inputs(
             "facts": [
                 deepcopy(fact) for fact in inventory.get("facts", []) if isinstance(fact, dict)
             ],
+            "source_handles": [
+                deepcopy(handle)
+                for handle in inventory.get("source_handles", [])
+                if isinstance(handle, dict)
+            ],
             "operations": deepcopy(_explained_operations(inventory, None)),
         },
         runtime_contract=deepcopy(runtime_contract),
         evidence_references=_plan_evidence_references(view, inventory),
-        observation=deepcopy(runtime_contract.get("observation", {})) if plan else None,
+        observation=deepcopy(runtime_contract.get("observation", {})),
     )
 
 
@@ -1041,7 +1043,7 @@ def _listed_provenance_ids(references: dict[str, Any]) -> set[str]:
     return set(listed) if isinstance(listed, dict) else set()
 
 
-def _observation_scope_names(observation: dict[str, Any] | None) -> set[str]:
+def _observation_scope_names(observation: Any) -> set[str]:
     """Return the observation scopes, including the always-available message scopes."""
 
     scopes = set(observation) if isinstance(observation, dict) else set()
