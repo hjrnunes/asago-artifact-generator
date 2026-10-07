@@ -423,7 +423,7 @@ def _named_record_binding(source_ref: str, selector: str) -> dict:
         "source_kind": "supplied_input",
         "source_ref": source_ref,
         "selector": selector,
-        "consumers": ["detector.target_order_id"],
+        "consumers": ["setup.arguments.target_order_id"],
         "on_missing": "stop",
     }
 

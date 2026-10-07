@@ -53,7 +53,7 @@ class BindingSpec:
 
 
 PREREQUISITE_CONSUMERS = ConsumerPrefix("prerequisites.", "binding name")
-DETECTOR_CONSUMERS = ConsumerPrefix("detector.", "binding name")
+JUDGE_CONSUMERS = ConsumerPrefix("judge.", "binding name")
 SETUP_ARGUMENT_CONSUMERS = ConsumerPrefix("setup.arguments.", "argument name")
 
 
@@ -71,7 +71,7 @@ BINDING_SPEC = BindingSpec(
     source_kinds=("supplied_input", "setup_output"),
     missing_policies=("inconclusive", "stop"),
     consumer_paths=("stimulus.user_text", "stimulus.history"),
-    consumer_prefixes=(PREREQUISITE_CONSUMERS, DETECTOR_CONSUMERS, SETUP_ARGUMENT_CONSUMERS),
+    consumer_prefixes=(PREREQUISITE_CONSUMERS, JUDGE_CONSUMERS, SETUP_ARGUMENT_CONSUMERS),
 )
 CLOSED_TYPES = frozenset(BINDING_SPEC.expected_types)
 SOURCE_KINDS = frozenset(BINDING_SPEC.source_kinds)

@@ -221,7 +221,7 @@ def test_v2_artifact_derives_slots_and_prerequisite_consumers() -> None:
         "source_kind": "supplied_input",
         "source_ref": "facts:synthetic:owner",
         "selector": "value.owner",
-        "consumers": ["stimulus.user_text", "detector.owner"],
+        "consumers": ["stimulus.user_text", "judge.owner"],
         "on_missing": "stop",
     }
     other_binding = {
@@ -265,7 +265,7 @@ def test_v2_artifact_derives_slots_and_prerequisite_consumers() -> None:
     assert metadata["stimulus"]["slots"] == ["other", "owner"]
     assert plan["runtime_bindings"][0]["consumers"] == [
         "stimulus.user_text",
-        "detector.owner",
+        "judge.owner",
         "prerequisites.owner",
     ]
     assert [item["transformation"] for item in transformations] == [
@@ -283,7 +283,7 @@ def test_v2_undeclared_placeholder_keeps_slot_failure_with_named_feedback() -> N
             "source_kind": "supplied_input",
             "source_ref": "facts:order:owned",
             "selector": "value",
-            "consumers": ["detector.owner"],
+            "consumers": ["judge.owner"],
             "on_missing": "stop",
         }
     ]

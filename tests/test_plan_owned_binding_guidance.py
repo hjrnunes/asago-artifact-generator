@@ -15,6 +15,11 @@ _PLAN_ONLY_ADVICE = (
     "declare a runtime binding named",
     "If this is a detector-only binding",
     "For a newly added detector-only binding",
+    "If adding a judge-only binding",
+    "When adding a judge-only binding",
+    "A judge-only binding should also list",
+    "If this is a judge-only binding",
+    "For a newly added judge-only binding",
 )
 
 
@@ -36,5 +41,5 @@ def test_artifact_stage_prompts_state_the_rule_and_the_plan_author_keeps_its_own
         if stage != "artifact_review":
             assert _RULE in text, stage
         assert _plan_only_advice(text) == [], stage
-    assert "List detector.<binding_name> only for a value" in _CURRENT_PLAN_AUTHOR_GUIDANCE
-    assert "List detector.<binding_name> only for a value" in packets["call1"].user
+    assert "List judge.<binding_name> only for a value" in _CURRENT_PLAN_AUTHOR_GUIDANCE
+    assert "List judge.<binding_name> only for a value" in packets["call1"].user

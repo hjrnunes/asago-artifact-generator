@@ -12,6 +12,7 @@ from asago_artifact_generator.authoring.checks import (
     _RUNTIME_BINDING_CLAUSES,
     PLAN_MECHANICAL_CHECKS,
     _collect_binding_findings,
+    collect_plan_findings_v2,
 )
 from asago_artifact_generator.authoring.contracts import _binding_contract, _binding_list_schema
 from asago_artifact_generator.bindings import (
@@ -26,6 +27,8 @@ from asago_artifact_generator.bindings import (
     validate_bindings,
 )
 
+from .test_versioned_prompt_roles import _inventory, _plan, _runtime_contract
+
 
 def test_binding_uses_exact_setup_selector_and_declared_consumers() -> None:
     binding = RuntimeBinding(
@@ -34,7 +37,7 @@ def test_binding_uses_exact_setup_selector_and_declared_consumers() -> None:
         source_kind="setup_output",
         source_ref="setup:summarize_for_ehr",
         selector="result.draft.id",
-        consumers=("stimulus.user_text", "prerequisites.draft", "detector.evidence"),
+        consumers=("stimulus.user_text", "prerequisites.draft", "judge.evidence"),
         on_missing="stop",
     )
 
@@ -167,7 +170,7 @@ def test_keyed_source_shorthands_normalize_to_documented_paths() -> None:
                 "source_kind": "supplied_input",
                 "source_ref": "facts:state:orders:ORD-1",
                 "selector": "value",
-                "consumers": ["detector.record"],
+                "consumers": ["judge.record"],
                 "on_missing": "stop",
             },
         ],
@@ -265,7 +268,7 @@ def test_keyed_source_shorthands_accept_a_selector_that_repeats_the_record_key(
                 "source_kind": "supplied_input",
                 "source_ref": source_ref,
                 "selector": selector,
-                "consumers": ["detector.record_value"],
+                "consumers": ["judge.record_value"],
                 "on_missing": "stop",
             }
         ],
@@ -315,7 +318,7 @@ def test_repeated_record_key_selectors_fail_closed_on_conflicts_and_unknown_path
                     "source_kind": "supplied_input",
                     "source_ref": source_ref,
                     "selector": selector,
-                    "consumers": ["detector.record_value"],
+                    "consumers": ["judge.record_value"],
                     "on_missing": "stop",
                 }
             ],
@@ -383,7 +386,7 @@ def test_record_key_selector_on_a_base_fact_resolves_to_its_records_companion() 
             "source_kind": "supplied_input",
             "source_ref": "facts:catalog:items",
             "selector": "value.ITEM-A.record_key",
-            "consumers": ["detector.item_id"],
+            "consumers": ["judge.item_id"],
             "on_missing": "stop",
         }
     ]
@@ -430,7 +433,7 @@ def test_base_fact_selectors_the_companion_does_not_document_stay_invalid(
                     "source_kind": "supplied_input",
                     "source_ref": "facts:catalog:items",
                     "selector": selector,
-                    "consumers": ["detector.item_id"],
+                    "consumers": ["judge.item_id"],
                     "on_missing": "stop",
                 }
             ],
@@ -573,7 +576,7 @@ def test_supplied_binding_values_use_canonicalized_deduplicated_declarations() -
         "source_kind": "supplied_input",
         "source_ref": "facts:catalog:items:records:ITEM-A:owner",
         "selector": "value.owner",
-        "consumers": ["detector.item_owner"],
+        "consumers": ["judge.item_owner"],
         "on_missing": "stop",
     }
     declarations = [declaration, dict(declaration)]
@@ -611,7 +614,7 @@ def _declaration(**changes: object) -> dict:
         "source_kind": "supplied_input",
         "source_ref": "facts:f",
         "selector": "value.s",
-        "consumers": ["detector.n"],
+        "consumers": ["judge.n"],
         "on_missing": "stop",
         **changes,
     }
@@ -749,11 +752,12 @@ def test_user_text_consumer_fails_when_value_is_absent_and_passes_when_present()
     [
         ("stimulus.user_text", True),
         ("stimulus.history", True),
-        ("detector.owner", True),
+        ("judge.owner", True),
         ("prerequisites.owner", True),
         ("setup.arguments.loan_id", True),
         ("stimulus.history.extra", False),
-        ("detector", False),
+        ("judge", False),
+        ("detector.owner", False),
         ("observation_claim.owner", False),
     ],
 )
@@ -813,9 +817,86 @@ def test_consumer_rule_lists_the_spec_destinations_in_spec_order() -> None:
         "stimulus.user_text",
         "stimulus.history",
         "prerequisites.<binding name>",
-        "detector.<binding name>",
+        "judge.<binding name>",
         "setup.arguments.<argument name>",
     )
+
+
+def _plan_with_consumer(consumer: str, claim_level: str) -> dict:
+    plan = _plan()
+    plan["observation_claim"]["claim_level"] = claim_level
+    plan["runtime_bindings"] = [
+        _declaration(
+            name="status",
+            source_ref="facts:draft:status",
+            selector="value",
+            consumers=[consumer],
+        )
+    ]
+    return plan
+
+
+def _consumer_plan_findings(consumer: str, claim_level: str) -> list[tuple[str, str, str]]:
+    findings = collect_plan_findings_v2(
+        _plan_with_consumer(consumer, claim_level), _inventory(), _runtime_contract()
+    )
+    return [
+        (f.code, f.detail, f.path)
+        for f in findings
+        if f.path.startswith("runtime_bindings[0].consumers")
+    ]
+
+
+def test_judge_consumer_is_accepted_on_a_reply_claim() -> None:
+    assert _consumer_plan_findings("judge.status", "reply") == []
+
+
+def test_judge_consumer_on_a_command_attempt_claim_is_a_finding() -> None:
+    assert _consumer_plan_findings("judge.status", "command_attempt") == [
+        (
+            "plan_binding_validation",
+            "binding consumer judge.status is valid only when "
+            "observation_claim.claim_level is reply",
+            "runtime_bindings[0].consumers[0]",
+        )
+    ]
+
+
+@pytest.mark.parametrize("claim_level", ["reply", "command_attempt"])
+def test_detector_consumer_is_a_finding_without_an_alias(claim_level: str) -> None:
+    assert _consumer_plan_findings("detector.status", claim_level) == [
+        (
+            "plan_binding_validation",
+            "binding consumer detector.status is not a closed path; the semantic "
+            "judge of a reply claim reads judge.status",
+            "runtime_bindings[0].consumers[0]",
+        )
+    ]
+
+
+def test_judge_consumer_check_skips_declarations_that_have_no_consumer_list() -> None:
+    plan = _plan_with_consumer("judge.status", "command_attempt")
+    plan["runtime_bindings"] = [
+        "not a declaration",
+        {"name": "no_consumers"},
+        {"name": "text_consumers", "consumers": "judge.status"},
+        {"name": "mixed", "consumers": [3, "judge.status"]},
+    ]
+
+    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+
+    assert [f.path for f in findings if f.detail.endswith("claim_level is reply")] == [
+        "runtime_bindings[3].consumers[1]"
+    ]
+
+
+def test_consumer_without_a_claim_level_leaves_the_claim_finding_alone() -> None:
+    plan = _plan_with_consumer("judge.status", "reply")
+    plan["observation_claim"]["claim_level"] = "unknown"
+
+    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+
+    assert [f.path for f in findings if f.path.startswith("runtime_bindings[0].consumers")] == []
 
 
 def test_consumer_rule_follows_a_changed_spec(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -889,20 +970,20 @@ def test_collector_reports_a_non_string_field_beside_the_other_checks() -> None:
 @pytest.mark.parametrize(
     ("consumers", "detail", "path"),
     [
-        ("detector.n", "binding consumers must be a list", "runtime_bindings[0].consumers"),
+        ("judge.n", "binding consumers must be a list", "runtime_bindings[0].consumers"),
         ([], "binding consumers must be non-empty strings", "runtime_bindings[0].consumers"),
         (
-            ["detector.n", 3],
+            ["judge.n", 3],
             "binding consumers must be non-empty strings",
             "runtime_bindings[0].consumers[1]",
         ),
         (
-            ["detector.n", " "],
+            ["judge.n", " "],
             "binding consumers must be non-empty strings",
             "runtime_bindings[0].consumers[1]",
         ),
         (
-            ["detector.n", "elsewhere.n"],
+            ["judge.n", "elsewhere.n"],
             "binding consumer is not a closed path",
             "runtime_bindings[0].consumers[1]",
         ),

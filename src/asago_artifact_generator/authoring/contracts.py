@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from ..bindings import BINDING_SPEC, DETECTOR_CONSUMERS, PREREQUISITE_CONSUMERS
+from ..bindings import BINDING_SPEC, JUDGE_CONSUMERS, PREREQUISITE_CONSUMERS
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from .core import AUTHORING_INTERFACE_VERSION_V2
 
@@ -742,12 +742,12 @@ def _binding_contract() -> dict[str, Any]:
             + ". "
             "Write the actual name, never a * wildcard. observation_claim, "
             "required_observations, and other plan fields are not consumers. A consumer "
-            f"does not identify the source. Use {DETECTOR_CONSUMERS.spelling} when the semantic "
+            f"does not identify the source. Use {JUDGE_CONSUMERS.spelling} when the semantic "
             "judge of a reply claim reads the resolved value; downstream gives that judge "
             "every resolved binding, and the producer's tool-call condition for a "
             "command_attempt claim reads none. Use stimulus.user_text only when the "
             "resolved scalar value occurs in authored user text or a {{binding name}} "
-            "slot; do not list it for a session prerequisite or detector-only value."
+            "slot; do not list it for a session prerequisite or judge-only value."
         ),
         "applicability": (
             "runtime_bindings is [] (an empty list) only when no consumer needs a bound "

@@ -39,9 +39,9 @@ from .test_versioned_prompt_roles import (
 )
 
 _CURRENT_PROMPT_DIGESTS = {
-    "call1": "b3edc0abddbb325ddbbfafaba662fb1a09fa21472ef1f1b747e5821c1af7abd0",
-    "plan_correction": "063acf09e08074886b259e0b6fdc4a323e6a25130de0e6608e053f20a162113e",
-    "plan_review": "a83dc10af159e7675da3e9ca04b89b816056486c1a7c3a8a9906ce7ab15a7d7f",
+    "call1": "70d8ba46d43f4b728670935e00dcba5034eb3b90b5b039da70f8d512ea41f3f5",
+    "plan_correction": "9157e0ee767fe5c0bb8e5df2c0add2314fc35db35705efe1abab2c15451bba72",
+    "plan_review": "18f0a56a90f316a6f359d0e9b6aad2b35b1d6d92b97cc69becba0a143a539c6d",
 }
 
 
@@ -545,7 +545,7 @@ def test_binding_sources_report_unknown_facts_and_unpermitted_setup() -> None:
             "source_kind": kind,
             "source_ref": ref,
             "selector": selector,
-            "consumers": ["detector.value"],
+            "consumers": ["judge.value"],
             "on_missing": "stop",
         }
 

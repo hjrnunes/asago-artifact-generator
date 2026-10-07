@@ -216,7 +216,7 @@ def test_artifact_correction_overflow_evidence_names_the_overflow_as_its_termina
 
 def _plan_needing_a_prerequisite_consumer() -> dict:
     plan = copy.deepcopy(_plan())
-    plan["runtime_bindings"][0]["consumers"] = ["detector.owned_order"]
+    plan["runtime_bindings"][0]["consumers"] = ["setup.arguments.owned_order"]
     return plan
 
 
@@ -224,8 +224,8 @@ def _consumer_rewrite() -> dict:
     return {
         "transformation": "binding_consumer_added",
         "binding": "owned_order",
-        "original_consumers": ["detector.owned_order"],
-        "canonical_consumers": ["detector.owned_order", "prerequisites.owned_order"],
+        "original_consumers": ["setup.arguments.owned_order"],
+        "canonical_consumers": ["setup.arguments.owned_order", "prerequisites.owned_order"],
         "prerequisite_index": 0,
         "prerequisite_name": "owned_order",
         "consumer": "prerequisites.owned_order",

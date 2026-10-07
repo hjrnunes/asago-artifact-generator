@@ -540,9 +540,11 @@ Downstream detection reads bindings as follows, and the plan author guidance
 states it. The producer's tool-call condition decides a `command_attempt` claim
 and already holds the supplied values it compares, so it reads no binding. The
 semantic judge decides a `reply` claim and receives every resolved binding, so
-a binding only that judge reads lists `detector.<name>`. A `command_attempt`
-plan needs no detector-only binding. The validator still accepts
-`detector.<name>` on any claim level.
+a binding only that judge reads lists `judge.<name>`. A `command_attempt`
+plan needs no judge-only binding, and the plan check reports `judge.<name>` on
+any claim level other than `reply`. The retired spelling `detector.<name>` is
+not a closed destination on any claim level; the check reports it and names the
+`judge.<name>` replacement.
 
 Artifact authoring copies `runtime_bindings` from the accepted plan, so neither
 call 2 nor an artifact correction can add, rename, or change a binding. The
