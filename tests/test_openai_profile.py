@@ -2,98 +2,59 @@
 
 from __future__ import annotations
 
+import math
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
-import httpx2
 import openai
 import pytest
 from openai.types.completion_usage import CompletionTokensDetails, CompletionUsage
 
-from asago_artifact_generator.authoring.core import AUTHORING_THINKING_EXTRA_BODY, PromptPacket
+from asago_artifact_generator.authoring.context_budget import (
+    _context_budget_estimate,
+    _context_guard_ratio,
+)
+from asago_artifact_generator.authoring.core import (
+    _CONTEXT_FRAMING_TOKEN_RESERVE,
+    AUTHORING_CONTEXT_WINDOW_TOKENS,
+    AUTHORING_MAX_COMPLETION_TOKENS,
+    AUTHORING_THINKING_EXTRA_BODY,
+    REVIEW_THINKING_EXTRA_BODY,
+    PromptOverflowError,
+)
 from asago_artifact_generator.authoring.policy import AuthoringBudget
-from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.input_adapter import load_input
 
-from .support import stage_local_orchestrator, unreviewed_policy
+from .support import (
+    chat_completion,
+    fake_openai,
+    private_transport,
+    prompt_packet,
+    stage_local_orchestrator,
+    status_error,
+    unreviewed_policy,
+)
 
 HANDOFF = (
     Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "handoff-v3" / "refund-bound.json"
 )
 
 
-def _packet(stage: str = "call1") -> PromptPacket:
-    return PromptPacket(stage=stage, version="test", system="system", user="user", payload={})
-
-
-class _FakeCompletions:
-    def __init__(self, responses: list[object]) -> None:
-        self.responses = list(responses)
-        self.requests: list[dict[str, object]] = []
-
-    def create(self, **kwargs: object) -> object:
-        self.requests.append(kwargs)
-        response = self.responses.pop(0)
-        if isinstance(response, BaseException):
-            raise response
-        return response
-
-
-class _FakeOpenAI:
-    def __init__(self, completions: _FakeCompletions, **kwargs: object) -> None:
-        self.init_kwargs = kwargs
-        self.chat = SimpleNamespace(completions=completions)
-
-
-def _response(*, content: str = "{}", finish_reason: str = "stop", usage: object = None) -> object:
-    return SimpleNamespace(
-        model="returned-model",
-        choices=[
-            SimpleNamespace(
-                message=SimpleNamespace(content=content),
-                finish_reason=finish_reason,
-            )
-        ],
-        usage=usage,
-    )
-
-
-def _rate_limit_error() -> openai.RateLimitError:
-    return openai.RateLimitError(
-        "rate limited",
-        response=httpx2.Response(
-            429,
-            request=httpx2.Request("POST", "https://private.invalid/v1"),
-        ),
-        body=None,
-    )
-
-
 def test_gemma_like_profile_preserves_current_request_kwargs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    completions = _FakeCompletions([_response()])
-    client: _FakeOpenAI | None = None
-
-    def fake_openai(**kwargs: object) -> _FakeOpenAI:
-        nonlocal client
-        client = _FakeOpenAI(completions, **kwargs)
-        return client
-
-    monkeypatch.setattr("openai.OpenAI", fake_openai)
-    transport = PrivateModelAuthoringTransport(
-        base_url="https://private.invalid/v1",
-        api_key="secret-value",
+    completions = fake_openai(monkeypatch, [chat_completion()])
+    transport = private_transport(
         model="gemma-4-26b-a4b-it",
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         context_window_tokens=32_768,
         max_completion_tokens=8_192,
     )
 
-    transport.complete(_packet())
+    transport.complete(prompt_packet())
 
-    assert client is not None
-    assert client.init_kwargs == {
+    assert completions.clients[0].init_kwargs == {
         "base_url": "https://private.invalid/v1",
         "api_key": "secret-value",
         "max_retries": 0,
@@ -115,19 +76,8 @@ def test_gemma_like_profile_preserves_current_request_kwargs(
 def test_reasoning_effort_service_tier_and_timeout_are_sent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    completions = _FakeCompletions([_response()])
-    client: _FakeOpenAI | None = None
-
-    def fake_openai(**kwargs: object) -> _FakeOpenAI:
-        nonlocal client
-        client = _FakeOpenAI(completions, **kwargs)
-        return client
-
-    monkeypatch.setattr("openai.OpenAI", fake_openai)
-    transport = PrivateModelAuthoringTransport(
-        base_url="https://private.invalid/v1",
-        api_key="secret-value",
-        model="luna",
+    completions = fake_openai(monkeypatch, [chat_completion()])
+    transport = private_transport(
         reasoning_effort="high",
         service_tier="priority",
         timeout=900,
@@ -135,10 +85,9 @@ def test_reasoning_effort_service_tier_and_timeout_are_sent(
         max_completion_tokens=32_000,
     )
 
-    transport.complete(_packet())
+    transport.complete(prompt_packet())
 
-    assert client is not None
-    assert client.init_kwargs["timeout"] == 900
+    assert completions.clients[0].init_kwargs["timeout"] == 900
     request = completions.requests[0]
     assert request["reasoning_effort"] == "high"
     assert request["service_tier"] == "priority"
@@ -149,21 +98,14 @@ def test_reasoning_effort_service_tier_and_timeout_are_sent(
 def test_sampling_controls_false_omits_all_sampling_and_thinking_controls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    completions = _FakeCompletions([_response()])
-    monkeypatch.setattr(
-        "openai.OpenAI",
-        lambda **kwargs: _FakeOpenAI(completions, **kwargs),
-    )
-    transport = PrivateModelAuthoringTransport(
-        base_url="https://private.invalid/v1",
-        api_key="secret-value",
-        model="luna",
+    completions = fake_openai(monkeypatch, [chat_completion()])
+    transport = private_transport(
         sampling_controls=False,
         extra_body=AUTHORING_THINKING_EXTRA_BODY,
         temperature=0.0,
     )
 
-    response = transport.complete(_packet())
+    response = transport.complete(prompt_packet())
 
     request = completions.requests[0]
     assert all(
@@ -178,19 +120,9 @@ def test_sampling_controls_false_omits_all_sampling_and_thinking_controls(
 def test_strict_json_schema_is_recorded_without_sending_response_format(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    completions = _FakeCompletions([_response()])
-    monkeypatch.setattr(
-        "openai.OpenAI",
-        lambda **kwargs: _FakeOpenAI(completions, **kwargs),
-    )
-    transport = PrivateModelAuthoringTransport(
-        base_url="https://private.invalid/v1",
-        api_key="secret-value",
-        model="luna",
-        strict_json_schema=True,
-    )
+    completions = fake_openai(monkeypatch, [chat_completion()])
 
-    response = transport.complete(_packet())
+    response = private_transport(strict_json_schema=True).complete(prompt_packet())
 
     assert "response_format" not in completions.requests[0]
     assert response.controls["strict_json_schema"] is True
@@ -199,21 +131,14 @@ def test_strict_json_schema_is_recorded_without_sending_response_format(
 def test_large_context_review_uses_profile_completion_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    completions = _FakeCompletions([_response()])
-    monkeypatch.setattr(
-        "openai.OpenAI",
-        lambda **kwargs: _FakeOpenAI(completions, **kwargs),
-    )
-    transport = PrivateModelAuthoringTransport(
-        base_url="https://private.invalid/v1",
-        api_key="secret-value",
-        model="luna",
+    completions = fake_openai(monkeypatch, [chat_completion()])
+    transport = private_transport(
         context_window_tokens=1_050_000,
         max_completion_tokens=32_000,
         review_fill_context=True,
     )
 
-    response = transport.complete(_packet("plan_review"))
+    response = transport.complete(prompt_packet("plan_review"))
 
     assert completions.requests[0]["max_completion_tokens"] == 32_000
     assert response.controls["max_completion_tokens"] == 32_000
@@ -222,21 +147,10 @@ def test_large_context_review_uses_profile_completion_cap(
 def test_service_tier_fallback_retries_once_with_fallback_tier(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    error = _rate_limit_error()
-    completions = _FakeCompletions([error, _response()])
-    monkeypatch.setattr(
-        "openai.OpenAI",
-        lambda **kwargs: _FakeOpenAI(completions, **kwargs),
-    )
-    transport = PrivateModelAuthoringTransport(
-        base_url="https://private.invalid/v1",
-        api_key="secret-value",
-        model="luna",
-        service_tier="priority",
-        service_tier_fallback="auto",
-    )
+    completions = fake_openai(monkeypatch, [status_error(429), chat_completion()])
+    transport = private_transport(service_tier="priority", service_tier_fallback="auto")
 
-    response = transport.complete(_packet())
+    response = transport.complete(prompt_packet())
 
     assert len(completions.requests) == 2
     assert completions.requests[0]["service_tier"] == "priority"
@@ -248,76 +162,56 @@ def test_service_tier_fallback_retries_once_with_fallback_tier(
     assert response.controls["service_tier_fallback"] == "auto"
 
 
-def test_service_tier_fallback_stops_after_one_retry(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    completions = _FakeCompletions([_rate_limit_error(), _rate_limit_error()])
-    monkeypatch.setattr(
-        "openai.OpenAI",
-        lambda **kwargs: _FakeOpenAI(completions, **kwargs),
-    )
-    transport = PrivateModelAuthoringTransport(
-        base_url="https://private.invalid/v1",
-        api_key="secret-value",
-        model="luna",
-        service_tier="priority",
-        service_tier_fallback="auto",
-    )
-
-    with pytest.raises(openai.RateLimitError):
-        transport.complete(_packet())
-
-    assert len(completions.requests) == 2
-
-
 @pytest.mark.parametrize(
-    ("service_tier", "service_tier_fallback"),
-    [(None, "auto"), ("priority", None), (None, None)],
+    ("service_tier", "fallback", "failures", "error", "sent_tiers"),
+    [
+        pytest.param(
+            "priority",
+            "auto",
+            [status_error(429), status_error(429)],
+            openai.RateLimitError,
+            ["priority", "auto"],
+            id="stops-after-one-retry",
+        ),
+        pytest.param(
+            None, "auto", [status_error(429)], openai.RateLimitError, [None], id="no-service-tier"
+        ),
+        pytest.param(
+            "priority",
+            None,
+            [status_error(429)],
+            openai.RateLimitError,
+            ["priority"],
+            id="no-fallback-tier",
+        ),
+        pytest.param(
+            None, None, [status_error(429)], openai.RateLimitError, [None], id="neither-tier"
+        ),
+        pytest.param(
+            "priority",
+            "auto",
+            [RuntimeError("provider failure")],
+            RuntimeError,
+            ["priority"],
+            id="not-a-rate-limit-error",
+        ),
+    ],
 )
-def test_service_tier_fallback_requires_both_tiers(
+def test_service_tier_fallback_retries_only_a_rate_limit_with_both_tiers_set(
     monkeypatch: pytest.MonkeyPatch,
     service_tier: str | None,
-    service_tier_fallback: str | None,
+    fallback: str | None,
+    failures: list[BaseException],
+    error: type[BaseException],
+    sent_tiers: list[str | None],
 ) -> None:
-    completions = _FakeCompletions([_rate_limit_error()])
-    monkeypatch.setattr(
-        "openai.OpenAI",
-        lambda **kwargs: _FakeOpenAI(completions, **kwargs),
-    )
-    transport = PrivateModelAuthoringTransport(
-        base_url="https://private.invalid/v1",
-        api_key="secret-value",
-        model="luna",
-        service_tier=service_tier,
-        service_tier_fallback=service_tier_fallback,
-    )
+    completions = fake_openai(monkeypatch, failures)
+    transport = private_transport(service_tier=service_tier, service_tier_fallback=fallback)
 
-    with pytest.raises(openai.RateLimitError):
-        transport.complete(_packet())
+    with pytest.raises(error):
+        transport.complete(prompt_packet())
 
-    assert len(completions.requests) == 1
-
-
-def test_service_tier_fallback_does_not_retry_non_rate_limit_errors(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    completions = _FakeCompletions([RuntimeError("provider failure")])
-    monkeypatch.setattr(
-        "openai.OpenAI",
-        lambda **kwargs: _FakeOpenAI(completions, **kwargs),
-    )
-    transport = PrivateModelAuthoringTransport(
-        base_url="https://private.invalid/v1",
-        api_key="secret-value",
-        model="luna",
-        service_tier="priority",
-        service_tier_fallback="auto",
-    )
-
-    with pytest.raises(RuntimeError, match="provider failure"):
-        transport.complete(_packet())
-
-    assert len(completions.requests) == 1
+    assert [request.get("service_tier") for request in completions.requests] == sent_tiers
 
 
 def test_reasoning_tokens_are_retained_in_usage_evidence(
@@ -329,24 +223,9 @@ def test_reasoning_tokens_are_retained_in_usage_evidence(
         total_tokens=30,
         completion_tokens_details=CompletionTokensDetails(reasoning_tokens=17),
     )
-    completions = _FakeCompletions(
-        [
-            _response(
-                usage=usage,
-            )
-        ]
-    )
-    monkeypatch.setattr(
-        "openai.OpenAI",
-        lambda **kwargs: _FakeOpenAI(completions, **kwargs),
-    )
-    transport = PrivateModelAuthoringTransport(
-        base_url="https://private.invalid/v1",
-        api_key="secret-value",
-        model="luna",
-    )
+    fake_openai(monkeypatch, [chat_completion(usage=usage)])
 
-    response = transport.complete(_packet())
+    response = private_transport().complete(prompt_packet())
 
     assert response.usage == {
         "prompt_tokens": 10,
@@ -360,20 +239,11 @@ def test_empty_length_completion_remains_typed_response_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    completions = _FakeCompletions(
-        [_response(content="", finish_reason="length", usage={"total_tokens": 32})]
-    )
-    monkeypatch.setattr(
-        "openai.OpenAI",
-        lambda **kwargs: _FakeOpenAI(completions, **kwargs),
-    )
-    transport = PrivateModelAuthoringTransport(
-        base_url="https://private.invalid/v1",
-        api_key="secret-value",
-        model="luna",
-    )
+    empty = chat_completion("", finish_reason="length", usage={"total_tokens": 32})
+    completions = fake_openai(monkeypatch, [empty])
+    transport = private_transport()
 
-    response = transport.complete(_packet())
+    response = transport.complete(prompt_packet())
 
     assert response.raw == b""
     assert response.response_capture is not None
@@ -382,9 +252,7 @@ def test_empty_length_completion_remains_typed_response_failure(
         "state": "value",
         "value": "length",
     }
-    completions.responses.append(
-        _response(content="", finish_reason="length", usage={"total_tokens": 32})
-    )
+    completions.responses.append(empty)
 
     result = stage_local_orchestrator(
         transport=transport,
@@ -398,21 +266,14 @@ def test_empty_length_completion_remains_typed_response_failure(
     assert result.findings[0].code == "ambiguous_content"
 
 
-def _transport(**options: object) -> PrivateModelAuthoringTransport:
-    return PrivateModelAuthoringTransport(
-        base_url="https://private.invalid/v1",
-        api_key="secret-value",
-        model="luna",
-        **options,  # type: ignore[arg-type]
-    )
-
-
 @pytest.mark.parametrize(
     ("options", "message"),
     [
         ({"max_completion_tokens": True}, "max_completion_tokens must be a positive integer"),
         ({"max_completion_tokens": 0}, "max_completion_tokens must be a positive integer"),
+        ({"max_completion_tokens": -1}, "max_completion_tokens must be a positive integer"),
         ({"max_completion_tokens": 1.5}, "max_completion_tokens must be a positive integer"),
+        ({"max_completion_tokens": "8192"}, "max_completion_tokens must be a positive integer"),
         ({"context_window_tokens": False}, "context_window_tokens must be a positive integer"),
         ({"context_window_tokens": -1}, "context_window_tokens must be a positive integer"),
         (
@@ -433,7 +294,7 @@ def _transport(**options: object) -> PrivateModelAuthoringTransport:
 )
 def test_transport_rejects_each_invalid_option(options: dict, message: str) -> None:
     with pytest.raises(ValueError, match=message):
-        _transport(**options)
+        private_transport(**options)
 
 
 def test_transport_reports_the_first_invalid_option_in_a_fixed_order() -> None:
@@ -451,7 +312,7 @@ def test_transport_reports_the_first_invalid_option_in_a_fixed_order() -> None:
     order = []
     while every_option_invalid:
         with pytest.raises(ValueError) as raised:
-            _transport(**every_option_invalid)
+            private_transport(**every_option_invalid)
         name = str(raised.value).split(" ", 1)[0]
         order.append(name)
         every_option_invalid.pop(name)
@@ -470,7 +331,7 @@ def test_transport_reports_the_first_invalid_option_in_a_fixed_order() -> None:
 
 
 def test_transport_keeps_valid_options_and_passes_the_timeout_to_the_client() -> None:
-    transport = _transport(
+    transport = private_transport(
         max_completion_tokens=1_000,
         context_window_tokens=32_000,
         review_fill_context=True,
@@ -493,10 +354,11 @@ def test_transport_keeps_valid_options_and_passes_the_timeout_to_the_client() ->
 def test_controls_record_extra_body_that_survives_disabled_sampling_controls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    completions = _FakeCompletions([_response()])
-    monkeypatch.setattr("openai.OpenAI", lambda **kwargs: _FakeOpenAI(completions, **kwargs))
+    completions = fake_openai(monkeypatch, [chat_completion()])
 
-    response = _transport(sampling_controls=False, extra_body={"custom": 1}).complete(_packet())
+    response = private_transport(sampling_controls=False, extra_body={"custom": 1}).complete(
+        prompt_packet()
+    )
 
     assert completions.requests[0]["extra_body"] == {"custom": 1}
     assert response.controls == {
@@ -504,3 +366,230 @@ def test_controls_record_extra_body_that_survives_disabled_sampling_controls(
         "extra_body": {"custom": 1},
         "sampling_controls": False,
     }
+
+
+def test_private_model_transport_constructs_with_zero_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completions = fake_openai(monkeypatch, [])
+
+    private_transport(api_key="secret-value")
+
+    init_kwargs = completions.clients[0].init_kwargs
+    assert init_kwargs["max_retries"] == 0
+    assert init_kwargs["base_url"] == "https://private.invalid/v1"
+
+
+def test_private_model_transport_sends_thinking_off_extra_body_for_every_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completions = fake_openai(monkeypatch, [chat_completion()] * 4)
+    transport = private_transport(extra_body=deepcopy(AUTHORING_THINKING_EXTRA_BODY))
+    responses = [
+        transport.complete(prompt_packet(stage))
+        for stage in ("call1", "call2", "correction", "plan_review")
+    ]
+
+    thinking_off = {"chat_template_kwargs": {"enable_thinking": False}}
+    assert AUTHORING_THINKING_EXTRA_BODY == thinking_off
+    assert completions.clients[0].init_kwargs["max_retries"] == 0
+    assert [request["extra_body"] for request in completions.requests] == [thinking_off] * 4
+    assert all(
+        response.controls
+        == {
+            "temperature": 0.0,
+            "max_retries": 0,
+            "extra_body": thinking_off,
+        }
+        for response in responses
+    )
+
+
+def test_private_model_transport_applies_review_extra_body_only_to_review_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review_answer = chat_completion('{"decision":"accept"}', reasoning_content="review reasoning")
+    completions = fake_openai(monkeypatch, [review_answer] * 5)
+    transport = private_transport(
+        extra_body=deepcopy(AUTHORING_THINKING_EXTRA_BODY),
+        review_extra_body={"chat_template_kwargs": {"enable_thinking": True}},
+    )
+    stages = ("call1", "plan_review", "correction", "call2", "artifact_review")
+    responses = [transport.complete(prompt_packet(stage)) for stage in stages]
+
+    thinking_off = {"chat_template_kwargs": {"enable_thinking": False}}
+    thinking_on = {"chat_template_kwargs": {"enable_thinking": True}}
+    assert REVIEW_THINKING_EXTRA_BODY == thinking_off
+    expected = [thinking_off, thinking_on, thinking_off, thinking_off, thinking_on]
+    assert [request["extra_body"] for request in completions.requests] == expected
+    assert [response.controls["extra_body"] for response in responses] == expected
+    review = responses[1]
+    assert review.raw == b'{"decision":"accept"}'
+    assert review.response_capture["reasoning"]["content"] == "review reasoning"
+    assert b"review reasoning" not in review.raw
+
+
+def test_private_model_transport_fills_remaining_context_for_review_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completions = fake_openai(monkeypatch, [chat_completion()] * 3)
+    transport = private_transport(
+        context_window_tokens=32_768,
+        max_completion_tokens=8_192,
+        review_fill_context=True,
+    )
+    packets = [
+        prompt_packet(stage, user="x" * 40_000)
+        for stage in ("call1", "plan_review", "artifact_review")
+    ]
+    responses = [transport.complete(packet) for packet in packets]
+
+    # Each stage has its own calibrated ratio, so each review fills from its own estimate.
+    estimates = [_context_budget_estimate(packet)["estimated_prompt_tokens"] for packet in packets]
+    filled = [32_768 - estimate - _CONTEXT_FRAMING_TOKEN_RESERVE for estimate in estimates[1:]]
+    assert all(limit > 8_192 for limit in filled)
+    expected = [8_192, *filled]
+    assert [request["max_completion_tokens"] for request in completions.requests] == expected
+    assert [response.controls["max_completion_tokens"] for response in responses] == expected
+    assert all(
+        estimate + limit + _CONTEXT_FRAMING_TOKEN_RESERVE <= 32_768
+        for estimate, limit in zip(estimates, expected, strict=True)
+    )
+
+
+def test_private_model_transport_preserves_default_request_shape_and_captures_completion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completions = fake_openai(
+        monkeypatch,
+        [
+            chat_completion(
+                '{"answer":"ok"}',
+                reasoning_content="private reasoning",
+                usage={"prompt_tokens": 3, "completion_tokens": 2},
+            )
+        ],
+    )
+
+    response = private_transport().complete(prompt_packet())
+
+    assert completions.requests == [
+        {
+            "model": "luna",
+            "temperature": 0.0,
+            "messages": [
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "user"},
+            ],
+        }
+    ]
+    assert response.raw == b'{"answer":"ok"}'
+    assert response.usage == {"prompt_tokens": 3, "completion_tokens": 2}
+    assert response.controls == {
+        "temperature": 0.0,
+        "max_retries": 0,
+        "extra_body": None,
+    }
+    assert response.response_capture == {
+        "schema_version": "authoring-response-capture-v1",
+        "final_answer": {"state": "text", "content": '{"answer":"ok"}'},
+        "reasoning": {
+            "state": "text",
+            "content": "private reasoning",
+            "source_field": "reasoning_content",
+        },
+        "finish_reason": {"state": "value", "value": "stop"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_state"),
+    [
+        (SimpleNamespace(), "absent"),
+        (SimpleNamespace(content=None), "null"),
+        (SimpleNamespace(content=""), "empty"),
+        (SimpleNamespace(content="final"), "text"),
+        (SimpleNamespace(content=["non-text"]), "non_text"),
+    ],
+    ids=["absent", "null", "empty", "text", "non-text"],
+)
+def test_private_model_transport_distinguishes_final_content_states(
+    monkeypatch: pytest.MonkeyPatch,
+    message: SimpleNamespace,
+    expected_state: str,
+) -> None:
+    fake_openai(monkeypatch, [chat_completion(message=message, finish_reason=None)])
+
+    response = private_transport().complete(prompt_packet())
+
+    expected_raw = b"final" if expected_state == "text" else b""
+    assert response.raw == expected_raw
+    assert response.response_capture is not None
+    assert response.response_capture["final_answer"]["state"] == expected_state
+    assert response.response_capture["reasoning"]["state"] == "absent"
+    assert response.response_capture["finish_reason"] == {"state": "null"}
+
+
+def test_private_model_transport_distinguishes_an_absent_finish_reason_from_a_null_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = chat_completion("final")
+    del completion.choices[0].finish_reason
+    fake_openai(monkeypatch, [completion])
+
+    response = private_transport().complete(prompt_packet())
+
+    assert response.response_capture is not None
+    assert response.response_capture["finish_reason"] == {"state": "absent"}
+
+
+def test_private_model_transport_captures_empty_reasoning_and_length_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completions = fake_openai(
+        monkeypatch,
+        [
+            chat_completion(
+                "",
+                reasoning_content="analysis",
+                finish_reason="length",
+                usage={"total_tokens": 8192},
+            )
+        ],
+    )
+    transport = private_transport(max_completion_tokens=8192)
+
+    response = transport.complete(prompt_packet("artifact_review"))
+
+    assert completions.requests[0]["max_completion_tokens"] == 8192
+    assert response.raw == b""
+    assert response.controls["max_completion_tokens"] == 8192
+    assert response.response_capture == {
+        "schema_version": "authoring-response-capture-v1",
+        "final_answer": {"state": "empty", "content": ""},
+        "reasoning": {
+            "state": "text",
+            "content": "analysis",
+            "source_field": "reasoning_content",
+        },
+        "finish_reason": {"state": "value", "value": "length"},
+    }
+
+
+def test_private_model_transport_rejects_context_overflow_before_provider_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completions = fake_openai(monkeypatch, [])
+    transport = private_transport(
+        context_window_tokens=AUTHORING_CONTEXT_WINDOW_TOKENS,
+        max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
+    )
+    # One byte past the largest correction prompt that fits the 24,320-token input budget.
+    fitting_bytes = math.floor(24_320 * _context_guard_ratio("correction"))
+    packet = prompt_packet("correction", user="x" * (fitting_bytes + 1 - len("system") - 128))
+
+    with pytest.raises(PromptOverflowError, match="context window") as overflow:
+        transport.complete(packet)
+    assert completions.requests == []
+    assert overflow.value.estimated_prompt_tokens == 24_321
+    assert overflow.value.remaining_input_budget == 24_320
