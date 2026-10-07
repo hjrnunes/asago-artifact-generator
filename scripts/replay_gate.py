@@ -113,6 +113,38 @@ class RecordedCall:
     reasoning: dict[str, Any]
     finish_reason: dict[str, Any]
     usage: dict[str, Any] | None
+    # The failures the transport retried before this response, oldest first;
+    # each is a recorded ``retry_of`` ({"type", "status_code"}).
+    retries: tuple[dict[str, Any], ...] = ()
+
+
+_RETRYABLE_ERROR_TYPES = frozenset({"APIConnectionError", "InternalServerError", "APIStatusError"})
+
+
+def _recorded_retries(attempt: dict[str, Any], where: str) -> tuple[dict[str, Any], ...]:
+    failures = []
+    for retry in attempt.get("transport_retries") or []:
+        failure = retry.get("retry_of") or {}
+        status = failure.get("status_code")
+        is_connection = failure.get("type") == "APIConnectionError"
+        if failure.get("type") not in _RETRYABLE_ERROR_TYPES or is_connection != (status is None):
+            raise ReplayRecordError(f"{where}: retry_of cannot be rebuilt: {failure}")
+        failures.append({"type": failure["type"], "status_code": status})
+    return tuple(failures)
+
+
+def _recorded_failure(failure: dict[str, Any]) -> Exception:
+    """Rebuild the provider error a recorded retry followed."""
+
+    import httpx2
+    import openai
+
+    request = httpx2.Request("POST", "https://replay.invalid/v1/chat/completions")
+    if failure["status_code"] is None:
+        return openai.APIConnectionError(message="replayed connection error", request=request)
+    response = httpx2.Response(failure["status_code"], request=request)
+    error_type = getattr(openai, failure["type"])
+    return error_type("replayed provider error", response=response, body=None)
 
 
 def _available(value: Any) -> Any:
@@ -152,6 +184,7 @@ def _recorded_call(attempt: dict[str, Any]) -> RecordedCall:
         reasoning=reasoning,
         finish_reason=finish_reason,
         usage=_available(attempt.get("usage")),
+        retries=_recorded_retries(attempt, where),
     )
 
 
@@ -197,6 +230,9 @@ class ReplayChatClient:
     model and the exact recorded system and user messages.  A mismatch, or a
     request beyond the recording, is reported and refused with a
     ``ConnectionError``, so the code under test sees a transport failure.
+    A dispatch recorded with a transport retry first raises each recorded
+    failure, then serves the response, so the transport's own retry runs for
+    real; a recording without a retry never sees one.
     """
 
     def __init__(self, calls: Sequence[RecordedCall]) -> None:
@@ -204,6 +240,7 @@ class ReplayChatClient:
         self.served = 0
         self.mismatches: list[dict[str, Any]] = []
         self.chat = SimpleNamespace(completions=_Completions(self))
+        self._failures_raised = 0
 
     @property
     def unused(self) -> int:
@@ -220,8 +257,14 @@ class ReplayChatClient:
                 }
             )
             raise ConnectionError("replay gate: no recorded response for this request")
-        call = self._calls.pop(0)
+        call = self._calls[0]
         detail = _request_mismatch(call, request)
+        if detail is None and self._failures_raised < len(call.retries):
+            failure = call.retries[self._failures_raised]
+            self._failures_raised += 1
+            raise _recorded_failure(failure)
+        self._calls.pop(0)
+        self._failures_raised = 0
         if detail is not None:
             self.mismatches.append(
                 {

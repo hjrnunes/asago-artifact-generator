@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx2
+import openai
 import pytest
 import yaml
 from typer.testing import CliRunner
@@ -46,12 +48,14 @@ TASK_ID = "SCN-901"
 class _ScriptedChatClient:
     """Stands in for ``openai.OpenAI`` while a test records an author item."""
 
-    def __init__(self, contents: list[str]) -> None:
+    def __init__(self, contents: list[str | BaseException]) -> None:
         self.contents = list(contents)
         self.chat = SimpleNamespace(completions=self)
 
     def create(self, **request: object) -> SimpleNamespace:
         content = self.contents.pop(0)
+        if isinstance(content, BaseException):
+            raise content
         return SimpleNamespace(
             model="profile-model",
             usage={"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
@@ -65,7 +69,7 @@ class _ScriptedChatClient:
 
 
 def _record_author_stage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contents: list[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contents: list[str | BaseException]
 ) -> Path:
     """Record one author item as an orch run would and return the stage directory."""
 
@@ -252,6 +256,65 @@ def test_replay_client_reports_a_request_beyond_the_recording() -> None:
     assert client.mismatches[0]["detail"] == "request beyond the recorded dispatches"
 
 
+_CONNECTION_RETRY = {"type": "APIConnectionError", "status_code": None}
+_STATUS_RETRY = {"type": "InternalServerError", "status_code": 502}
+
+
+def test_recorded_call_without_a_retry_has_no_recorded_failures() -> None:
+    assert replay_gate._recorded_call(_attempt()).retries == ()
+
+
+def test_recorded_call_reads_the_retries_recorded_on_its_dispatch() -> None:
+    retries = [{"attempt": 2, "retry_of": _STATUS_RETRY}]
+
+    call = replay_gate._recorded_call(_attempt(transport_retries=retries))
+
+    assert call.retries == (_STATUS_RETRY,)
+
+
+def test_recorded_call_rejects_a_retry_it_cannot_rebuild() -> None:
+    retries = [{"attempt": 2, "retry_of": {"type": "SomethingElse", "status_code": None}}]
+
+    with pytest.raises(ReplayRecordError, match="dispatch 3 \\(author\\): retry_of"):
+        replay_gate._recorded_call(_attempt(transport_retries=retries))
+
+
+@pytest.mark.parametrize(
+    ("recorded", "expected"),
+    [
+        (_CONNECTION_RETRY, openai.APIConnectionError),
+        (_STATUS_RETRY, openai.InternalServerError),
+    ],
+    ids=["connection", "502"],
+)
+def test_replay_client_raises_the_recorded_failure_then_serves_the_response(
+    recorded: dict, expected: type[Exception]
+) -> None:
+    client = ReplayChatClient([_call(retries=(recorded,))])
+
+    with pytest.raises(expected) as raised:
+        client.chat.completions.create(**_request())
+    response = client.chat.completions.create(**_request())
+
+    assert raised.value.__class__ is expected
+    assert getattr(raised.value, "status_code", None) == recorded["status_code"]
+    assert response.choices[0].message["content"] == "answer"
+    assert client.served == 1
+    assert client.unused == 0
+    assert client.mismatches == []
+
+
+def test_replay_client_checks_the_prompt_of_the_retried_request_too() -> None:
+    client = ReplayChatClient([_call(retries=(_CONNECTION_RETRY,))])
+
+    with pytest.raises(openai.APIConnectionError):
+        client.chat.completions.create(**_request())
+    with pytest.raises(ConnectionError, match="prompt mismatch"):
+        client.chat.completions.create(**_request(user="changed user text"))
+
+    assert client.mismatches[0]["detail"] == "user message differs from the recording"
+
+
 # --- environment and network ------------------------------------------------------
 
 
@@ -400,6 +463,28 @@ def test_gate_replays_a_recorded_stage_offline_and_passes(
     assert result.skipped == 1
     after = {path: path.read_bytes() for path in unresolved_stage.rglob("*") if path.is_file()}
     assert after == before, "the recorded stage is never written"
+
+
+def test_gate_replays_a_stage_recorded_with_a_transport_retry_identically(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("asago_artifact_generator.authoring.transport._sleep", lambda _: None)
+    request = httpx2.Request("POST", "https://profile.example.invalid/v1")
+    failure = openai.APIConnectionError(message="connection reset", request=request)
+    stage = _record_author_stage(
+        tmp_path, monkeypatch, [failure, "not a json plan", "still not a json plan"]
+    )
+    recorded = json.loads(_evidence_path(stage).read_text(encoding="utf-8"))
+    assert recorded["attempts"][0]["transport_retries"] == [
+        {"attempt": 2, "retry_of": _CONNECTION_RETRY}
+    ]
+
+    result = run_gate(stage, work=tmp_path / "work")
+
+    assert result.passed, result.report()
+    [item] = result.items
+    assert item.served == 2 and item.unused == 0
+    assert item.mismatches == [] and item.network_attempts == []
 
 
 def test_gate_fails_on_a_prompt_the_code_no_longer_renders(
