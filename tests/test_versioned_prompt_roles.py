@@ -193,6 +193,13 @@ def _summary_capture() -> dict:
     }
 
 
+def _summary_capture() -> dict:
+    return {
+        "tool_calls": [{"operation": "summarize_for_ehr", "arguments": {"patient_id": "P-1"}}],
+        "complete": True,
+    }
+
+
 def _framed() -> bytes:
     return b"```json\n" + json.dumps(_metadata(), sort_keys=True).encode() + b"\n```\n"
 

@@ -987,6 +987,7 @@ class AuthoringOrchestrator:
                 inventory,
                 runtime_contract,
                 transformations=self._transformations,
+                condition=view.tool_call_condition,
             )
 
         return _Stage(
