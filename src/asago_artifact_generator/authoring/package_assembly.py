@@ -24,6 +24,7 @@ from .inventory import (
     _source_input_payload,
 )
 from .prompt_safety import assert_no_secrets
+from .sequential_turns import stamped_stimulus
 
 
 def _package_from_responses(
@@ -69,7 +70,7 @@ def _package_from_responses(
     )
     members = {
         "plan.json": _json_bytes(plan),
-        "stimulus.json": _json_bytes(artifact["stimulus"]),
+        "stimulus.json": _json_bytes(stamped_stimulus(view, artifact["stimulus"])),
         "setup.json": _json_bytes(artifact["setup_recipe"]),
         "bindings.json": _json_bytes(artifact["runtime_bindings"]),
         "prerequisites.json": _json_bytes(artifact["prerequisites"]),

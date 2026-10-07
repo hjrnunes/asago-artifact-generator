@@ -153,6 +153,18 @@ def multi_turn_payload(view: InputView) -> dict[str, Any]:
     return {} if block is None else {BLOCK_KEY: deepcopy(block)}
 
 
+def stamped_stimulus(view: InputView, stimulus: dict[str, Any]) -> dict[str, Any]:
+    """Return the package stimulus; a v4 handoff's states its mode and turn count.
+
+    A v3 handoff's stimulus is returned as authored so its package stays byte-identical.
+    """
+
+    if not _is_sequential_input(view):
+        return stimulus
+    turns = turn_count(view)
+    return {**stimulus, "mode": "sequential" if turns > 1 else "single", "turn_count": turns}
+
+
 def _count_finding(turns: int, found: int, path: str) -> Finding | None:
     if 1 + found == turns:
         return None
