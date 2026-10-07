@@ -47,7 +47,7 @@ from .prompt_context import (
 )
 from .prompt_safety import assert_no_prompt_secrets, prompt_data_urls
 from .response_decode import _decode_review_json_response
-from .sequential_turns import multi_turn_payload, multi_turn_sections
+from .sequential_turns import multi_turn_payload, multi_turn_sections, review_sections
 
 _PLAN_REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
     {
@@ -762,7 +762,7 @@ def build_plan_review_packet(
         "interface": AUTHORING_INTERFACE_VERSION_V2,
         "stage": "plan_review",
         **context,
-        **multi_turn_payload(view),
+        **multi_turn_payload(view, runtime_contract),
     }
     assert_no_prompt_secrets(payload)
     packet = PromptPacket(
@@ -775,7 +775,7 @@ def build_plan_review_packet(
                 ("AUTHORITATIVE CONTEXT", context["authoritative_context"]),
             )
             + _owner_scope_prompt_sections(context)
-            + multi_turn_sections(view)
+            + multi_turn_sections(view, runtime_contract)
             + (
                 ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
                 ("BINDING AND SETUP RULES", context["binding_and_setup_rules"]),
@@ -822,7 +822,7 @@ def build_artifact_review_packet(
         "interface": AUTHORING_INTERFACE_VERSION_V2,
         "stage": "artifact_review",
         **context,
-        **multi_turn_payload(view),
+        **multi_turn_payload(view, runtime_contract),
     }
     assert_no_prompt_secrets(payload)
     sections: list[tuple[str, Any]] = [
@@ -834,7 +834,7 @@ def build_artifact_review_packet(
             },
         ),
         *_owner_scope_prompt_sections(context),
-        *multi_turn_sections(view),
+        *review_sections(view, metadata, runtime_contract),
         ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
         ("ACCEPTED PLAN", context["accepted_plan"]),
         ("REVIEW QUESTIONS", context["review_questions"]),

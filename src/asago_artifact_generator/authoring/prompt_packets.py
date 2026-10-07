@@ -33,6 +33,7 @@ from .sequential_turns import (
     multi_turn_payload,
     multi_turn_sections,
     plan_response_contract,
+    shape_delivery,
     turn_count,
 )
 
@@ -98,10 +99,10 @@ def build_call1_packet_v2(
         view=view,
         inventory=inventory,
         runtime_contract=runtime_contract,
-        response_contract=plan_response_contract(turn_count(view)),
+        response_contract=plan_response_contract(turn_count(view), shape_delivery(view)),
     )
     context = build_plan_author_context(view, inventory, runtime_contract)
-    payload.update(multi_turn_payload(view))
+    payload.update(multi_turn_payload(view, runtime_contract))
     payload.update(
         {
             "task": context["task"],
@@ -126,7 +127,7 @@ def build_call1_packet_v2(
                 ("TASK", context["task"]),
                 ("SCENARIO DESIGN", _scenario_design_prompt_view(context["scenario_design"])),
             )
-            + multi_turn_sections(view)
+            + multi_turn_sections(view, runtime_contract)
             + (("SOURCE CONTEXT", context["source_context"]),)
             + _owner_scope_prompt_sections(context)
             + (("EVIDENCE REFERENCES", context["evidence_references"]),)
@@ -186,7 +187,7 @@ def build_call2_packet_v2(
             "plan_field_meanings": context["plan_field_meanings"],
         }
     )
-    payload.update(multi_turn_payload(view))
+    payload.update(multi_turn_payload(view, runtime_contract))
     if "owner_scope" in context:
         payload["owner_scope"] = context["owner_scope"]
     assert_no_prompt_secrets(payload)
@@ -205,7 +206,7 @@ def build_call2_packet_v2(
             ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
             ("ACCEPTED PLAN — immutable", context["accepted_plan"]),
         )
-        + multi_turn_sections(view)
+        + multi_turn_sections(view, runtime_contract)
         + (("RUNTIME CAPABILITIES", context["runtime_contract"]),)
     )
     if _plan_semantic_judge_needed(plan):

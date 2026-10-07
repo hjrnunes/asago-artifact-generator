@@ -12,11 +12,10 @@ from typing import Any
 from ..attack_shape import CHANNEL_DIRECT, CHANNEL_FORGED, CHANNEL_INDIRECT
 from ..input_adapter import InputView
 from .core import Finding
-from .planted_item import choose_planted_target, unavailable_details
+from .planted_item import PLANTED_ITEM_DELIVERY, choose_planted_target, unavailable_details
 
 SEQUENTIAL_DELIVERY = "sequential_user_turns"
 DIRECT_DELIVERY = "direct_user_message"
-PLANTED_ITEM_DELIVERY = "planted_item"
 # The planned-turn limit a runtime contract without the field is read with.
 DEFAULT_MAX_PLANNED_TURNS = 4
 _SHAPE_PATH = "attack_shape"
