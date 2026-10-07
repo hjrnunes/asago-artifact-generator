@@ -6,6 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from ..contract_kit import ClaimLevel
 from ..failure_evidence import metadata_record
 from ..input_adapter import InputView
 from ..package_io import (
@@ -14,6 +15,7 @@ from ..package_io import (
     build_package,
     tool_call_condition_bytes,
 )
+from .checks import _plan_claim_level
 from .core import AUTHORING_INTERFACE_VERSION_V2, PromptPacket, _canonical_json, _json_bytes
 from .inventory import (
     _expected_authoring_input_pins,
@@ -90,11 +92,12 @@ def _package_from_responses(
         "examples.json": _json_bytes(artifact["examples"]),
         **authoring_records,
     }
+    claim_level = _plan_claim_level(plan)
     resolved_judge = _resolved_judge_spec(artifact["semantic_judge_spec"], inventory)
-    if resolved_judge is not None:
+    if resolved_judge is not None and claim_level == ClaimLevel.REPLY:
         members["judge.json"] = _json_bytes(resolved_judge)
     condition = view.tool_call_condition
-    if condition is not None:
+    if condition is not None and claim_level == ClaimLevel.COMMAND_ATTEMPT:
         members[TOOL_CALL_CONDITION_MEMBER] = tool_call_condition_bytes(condition)
     authoring_summary = {
         "interface": AUTHORING_INTERFACE_VERSION_V2,

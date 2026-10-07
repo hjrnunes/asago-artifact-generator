@@ -460,9 +460,10 @@ Each package carries the scoring input for its plan's claim level:
 
 - `tool_call_condition.json` holds the handoff's `tool_call_condition` exactly
   when its status is `bound`, serialized as sorted, two-space-indented UTF-8
-  JSON with a trailing newline. A `command_attempt` package requires it.
+  JSON with a trailing newline. Only a `command_attempt` package carries it, and
+  that package requires it.
 - `judge.json` holds the semantic judge specification and its resolved facts.
-  A `reply` package requires it.
+  Only a `reply` package carries it, and that package requires it.
 
 Runtime receipts remain outside the immutable package.
 
