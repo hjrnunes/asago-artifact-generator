@@ -107,6 +107,7 @@ from .response_decode import (
     _response_parts,
 )
 from .review import (
+    PriorReviewRound,
     _review_configuration_digest,
     _review_contract_digest,
     _review_finding_to_finding,
@@ -266,8 +267,9 @@ class _Stage:
     checks: Callable[[Any], list[Finding]]
     # Stands in for the findings when the author request left none.
     missing: Finding
-    # Builds the review packet for a checked candidate; None when review is off.
-    review_packet: Callable[[dict[str, Any]], PromptPacket] | None
+    # Builds the review packet for a checked candidate and the earlier review round
+    # it answers, if any; None when review is off.
+    review_packet: Callable[[dict[str, Any], PriorReviewRound | None], PromptPacket] | None
     # The run status when the review decides the candidate is blocked.
     review_blocked_status: str
     # Only a plan may decline the experiment; a blocked plan stops its stage.
@@ -283,6 +285,8 @@ class _Revision:
     """Semantic review findings that send the candidate back for a revision."""
 
     findings: tuple[Finding, ...]
+    # The in-scope findings as the reviewer wrote them.
+    records: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1000,8 +1004,8 @@ class AuthoringOrchestrator:
             missing=_staged(Finding("call1_failed", "Call 1 did not return a plan", "call1")),
             review_packet=(
                 (
-                    lambda candidate: build_plan_review_packet(
-                        view, candidate, inventory, runtime_contract
+                    lambda candidate, prior: build_plan_review_packet(
+                        view, candidate, inventory, runtime_contract, prior_round=prior
                     )
                 )
                 if self.policy.review_plan
@@ -1039,7 +1043,7 @@ class AuthoringOrchestrator:
             ),
             review_packet=(
                 (
-                    lambda candidate: build_artifact_review_packet(
+                    lambda candidate, _prior: build_artifact_review_packet(
                         view, plan, candidate, inventory, runtime_contract
                     )
                 )
@@ -1068,6 +1072,7 @@ class AuthoringOrchestrator:
         if any(finding.code == "prompt_preflight" for finding in pending):
             return _StageStop("failed", tuple(pending))
         review_driven = False
+        prior_round: PriorReviewRound | None = None
         while True:
             while candidate is None:
                 corrected = self._correction_round(
@@ -1083,12 +1088,13 @@ class AuthoringOrchestrator:
                     return corrected
                 review_driven = False
                 candidate, pending, raw = corrected
-            reviewed = self._review_candidate(stage, candidate)
+            reviewed = self._review_candidate(stage, candidate, prior_round)
             if not isinstance(reviewed, _Revision):
                 return reviewed
             # Semantic revise findings join the stage correction path but spend
             # the stage's separate review-revision allowance.
             pending = list(reviewed.findings)
+            prior_round = PriorReviewRound(reviewed.records, candidate)
             review_driven = True
             candidate = None
 
@@ -1151,7 +1157,7 @@ class AuthoringOrchestrator:
         return _StageStop("unresolved", tuple(self._findings or pending))
 
     def _review_candidate(
-        self, stage: _Stage, candidate: dict[str, Any]
+        self, stage: _Stage, candidate: dict[str, Any], prior: PriorReviewRound | None = None
     ) -> dict[str, Any] | _StageStop | _Revision:
         """Review a checked candidate.
 
@@ -1166,7 +1172,7 @@ class AuthoringOrchestrator:
             self._review_status[stage.key] = "not_requested"
             return candidate
         try:
-            review_packet = stage.review_packet(candidate)
+            review_packet = stage.review_packet(candidate, prior)
         except PromptPreflightError as exc:
             return _preflight_stop(exc, stage.review_stage)
         outcome = self._semantic_review(stage.key, review_packet)
@@ -1180,7 +1186,7 @@ class AuthoringOrchestrator:
             self._review_status[stage.key] = "blocked"
             return _StageStop(stage.review_blocked_status, findings)
         self._review_status[stage.key] = "revise"
-        return _Revision(findings)
+        return _Revision(findings, outcome.findings)
 
     @staticmethod
     def _artifact_parts(

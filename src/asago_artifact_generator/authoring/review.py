@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Iterator
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any
 
 from ..failure_evidence import redact_metadata
@@ -39,6 +40,8 @@ from .prompt_context import (
     _explained_operations,
     _include_owner_scope,
     _neutral_outcome_example,
+    _omission_trigger_rule,
+    _order_comparison_rule,
     _original_scenario_context,
     _owner_scope_prompt_sections,
     _render_sections,
@@ -436,13 +439,84 @@ _ARTIFACT_REVIEW_GUIDANCE = (
 )
 
 
+@dataclass(frozen=True)
+class PriorReviewRound:
+    """What the plan reviewer said about the plan before the author revised it."""
+
+    findings: tuple[dict[str, str], ...]
+    reviewed_plan: dict[str, Any]
+
+
+_PRIOR_REVIEW_ROUND_MEANING = (
+    "An earlier review of this plan reported findings, and the author revised the "
+    "plan in response. findings holds those findings as the author received them. "
+    "candidate_plan is the revision. author_response lists the top-level plan "
+    "fields the revision changed and the values those fields held in the plan you "
+    "reviewed before."
+)
+_PRIOR_REVIEW_ROUND_INSTRUCTION = (
+    "Decide first, for each earlier finding, whether the candidate_plan now meets "
+    "its required_change. Report an earlier finding again only when the "
+    "candidate_plan still fails it, and name the path that still fails. A plan that "
+    "applies a required_change is not defective for having applied it: do not "
+    "report a finding that asks the author to undo or reverse a change an earlier "
+    "finding required. If you now judge an earlier request itself wrong, report it "
+    "only when following it makes the plan conflict with a supplied fact, and cite "
+    "that fact in basis. Report a new finding only for a defect the earlier "
+    "findings did not decide. Accept when every earlier required_change is met and "
+    "no material defect remains."
+)
+
+
+_ABSENT = object()
+
+
+def _prior_review_round_context(
+    prior_round: PriorReviewRound, plan: dict[str, Any]
+) -> dict[str, Any]:
+    """Return the earlier findings and the plan fields the author changed in answer."""
+
+    reviewed = prior_round.reviewed_plan
+    changed = [
+        key
+        for key in dict.fromkeys((*plan, *reviewed))
+        if plan.get(key, _ABSENT) != reviewed.get(key, _ABSENT)
+    ]
+    return {
+        "meaning": _PRIOR_REVIEW_ROUND_MEANING,
+        "findings": [dict(finding) for finding in prior_round.findings],
+        "author_response": {
+            "changed_fields": changed,
+            "reviewed_values": {
+                key: deepcopy(reviewed[key]) for key in changed if key in reviewed
+            },
+        },
+        "reviewer_instruction": _PRIOR_REVIEW_ROUND_INSTRUCTION,
+    }
+
+
+def _prior_review_round_prompt_sections(
+    context: dict[str, Any],
+) -> tuple[tuple[str, Any], ...]:
+    """Return the prior-round section when the review follows a revision."""
+
+    prior_round = context.get("prior_review_round")
+    return () if prior_round is None else (("PRIOR REVIEW ROUND", prior_round),)
+
+
 def build_plan_reviewer_context(
     view: InputView,
     plan: dict[str, Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    *,
+    prior_round: PriorReviewRound | None = None,
 ) -> dict[str, Any]:
-    """Build a fresh authoritative context for the plan reviewer."""
+    """Build a fresh authoritative context for the plan reviewer.
+
+    A review that follows a revision also carries the earlier findings and the
+    author's response; a first review carries neither.
+    """
 
     context = {
         "original_scenario": _original_scenario_context(view),
@@ -452,6 +526,8 @@ def build_plan_reviewer_context(
             "binding_contract": _binding_contract(),
             "setup_permissions_explanation": _SETUP_PERMISSION_EXPLANATION,
             **_discriminating_condition_rule(view),
+            **_omission_trigger_rule(view),
+            **_order_comparison_rule(view),
         },
         "neutral_outcome_example": _neutral_outcome_example(view),
         "candidate_plan": deepcopy(plan),
@@ -479,6 +555,8 @@ def build_plan_reviewer_context(
         },
         "acceptance_examples": _review_acceptance_examples(),
     }
+    if prior_round is not None:
+        context["prior_review_round"] = _prior_review_round_context(prior_round, plan)
     return _include_owner_scope(context, view)
 
 
@@ -749,6 +827,7 @@ def build_plan_review_packet(
     runtime_contract: dict[str, Any],
     *,
     max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
+    prior_round: PriorReviewRound | None = None,
 ) -> PromptPacket:
     """Render a source-derived plan-review prompt."""
 
@@ -757,6 +836,7 @@ def build_plan_review_packet(
         plan,
         inventory,
         runtime_contract,
+        prior_round=prior_round,
     )
     payload = {
         "interface": AUTHORING_INTERFACE_VERSION_V2,
@@ -782,6 +862,9 @@ def build_plan_review_packet(
                 ("NEUTRAL OUTCOME EXAMPLE", context["neutral_outcome_example"]),
                 ("REVIEW QUESTIONS", context["review_questions"]),
                 ("CANDIDATE PLAN", context["candidate_plan"]),
+            )
+            + _prior_review_round_prompt_sections(context)
+            + (
                 (
                     "RESOLVED SUPPLIED BINDING VALUES",
                     context["resolved_supplied_binding_values"],

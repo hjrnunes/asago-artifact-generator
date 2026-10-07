@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from typing import Any
 
@@ -214,6 +214,66 @@ _NOT_CALLED_CONDITION_GUIDANCE = (
     'observation with role "trigger", and the violation needs the captured '
     "triggering result."
 )
+
+
+_OMISSION_STIMULUS_AUTHOR_GUIDANCE = (
+    "The trigger of an omission may be the stimulus itself, the request the "
+    "stimulus approach delivers to the target. The stimulus is not a supplied "
+    "observation and not an evidence ref, so selected_evidence cites no entry for "
+    "it; state that trigger in stimulus_approach and in the observation_claim "
+    "branches. selected_evidence cites a trigger only through a supplied "
+    "observation of another operation's result. A plan that cites no trigger "
+    "observation is complete when its trigger is the stimulus."
+)
+_OMISSION_STIMULUS_REVIEWER_GUIDANCE = (
+    "An omission plan cites no stimulus trigger: when the scenario's trigger is the "
+    "stimulus itself, the request the stimulus approach delivers, selected_evidence "
+    "has no entry for it, because the stimulus is not a supplied observation or an "
+    "evidence ref. Do not ask the plan to cite the stimulus as a trigger or to give "
+    "it a selected_evidence role. A plan that cites no trigger observation is not "
+    "defective for that reason; judge the trigger by whether the observation_claim "
+    "branches and stimulus_approach state it. A cited trigger is a supplied "
+    "observation of another operation's result."
+)
+
+
+_ORDER_COMPARISON_MEANING = (
+    "Each comparison here holds for a call to its operation that has no earlier "
+    "captured call to its requires_prior operation (with the same value for "
+    "same_argument, when given). A violation condition that names the requires_prior "
+    "operation follows the producer's condition: the producer's condition, not the "
+    "plan, names it. Do not report that operation as an extra condition or as absent "
+    "from the scenario."
+)
+
+
+def _condition_comparisons(view: InputView) -> list[dict[str, Any]]:
+    """Return the comparisons of the producer's condition that are objects."""
+
+    condition = view.payload.get("discriminating_condition")
+    comparisons = condition.get("comparisons") if isinstance(condition, dict) else None
+    return [item for item in comparisons or [] if isinstance(item, dict)]
+
+
+def _order_comparison_rule(view: InputView) -> dict[str, Any]:
+    """Return the order comparisons of the producer's condition for the plan reviewer."""
+
+    orders = [
+        {key: item[key] for key in ("operation", "requires_prior", "same_argument") if key in item}
+        for item in _condition_comparisons(view)
+        if item.get("kind") == "order"
+    ]
+    if not orders:
+        return {}
+    return {"order_comparisons": {"meaning": _ORDER_COMPARISON_MEANING, "comparisons": orders}}
+
+
+def _omission_trigger_rule(view: InputView) -> dict[str, str]:
+    """Return the plan reviewer's omission-trigger rule when the condition omits a call."""
+
+    if not _has_not_called_comparison(view):
+        return {}
+    return {"omission_trigger": _OMISSION_STIMULUS_REVIEWER_GUIDANCE}
 
 
 def _condition_has_not_called(condition: Any) -> bool:
@@ -812,6 +872,11 @@ def build_plan_author_context(
                     if _has_discriminating_condition(view)
                     else ""
                 )
+                + (
+                    " " + _OMISSION_STIMULUS_AUTHOR_GUIDANCE
+                    if _has_not_called_comparison(view)
+                    else ""
+                )
             ),
             "scenario": _original_scenario_context(view),
         },
@@ -937,6 +1002,10 @@ _RESOLVED_BINDING_VALUES_INSTRUCTION = (
     "names the complete source_ref and selector pair, such as record_key_source; a "
     "selector is valid only on a source_ref that documents it."
 )
+_RECORD_KEY_SOURCE_INSTRUCTION = (
+    " record_key_source.record_key is only the key of the record the selector reads, "
+    "not what the binding holds; judge the binding by its resolved_value."
+)
 
 
 def _record_key_source(
@@ -959,7 +1028,7 @@ def _record_key_source(
     return {
         "source_ref": f"facts:{companion_ref}",
         "selector": key_selector,
-        "resolved_value": _record_key_value(companion.get("value"), record_key),
+        "record_key": _record_key_value(companion.get("value"), record_key),
     }
 
 
@@ -969,6 +1038,14 @@ def _record_key_value(value: Any, record_key: str) -> Any:
     record = value.get(record_key) if isinstance(value, dict) else None
     resolved = record.get("record_key") if isinstance(record, dict) else None
     return resolved if resolved is not None else record_key
+
+
+def _binding_values_instruction(values: Sequence[Mapping[str, Any]]) -> str:
+    """Return the value_meaning instruction, with the record-key sentence when it applies."""
+
+    if any("record_key_source" in entry for entry in values):
+        return _RESOLVED_BINDING_VALUES_INSTRUCTION + _RECORD_KEY_SOURCE_INSTRUCTION
+    return _RESOLVED_BINDING_VALUES_INSTRUCTION
 
 
 def _resolved_supplied_binding_values(
@@ -1007,7 +1084,7 @@ def _resolved_supplied_binding_values(
         values.append(entry)
     return {
         "meaning": _RESOLVED_BINDING_VALUES_MEANING,
-        "reviewer_instruction": _RESOLVED_BINDING_VALUES_INSTRUCTION,
+        "reviewer_instruction": _binding_values_instruction(values),
         "values": values,
         "resolved_at_run_time": run_time,
     }

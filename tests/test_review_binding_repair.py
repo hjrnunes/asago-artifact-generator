@@ -92,12 +92,41 @@ def test_reviewer_sees_the_record_key_source_of_a_record_field_binding() -> None
             "record_key_source": {
                 "source_ref": "facts:state:orders:records",
                 "selector": "value.ORD-201.record_key",
-                "resolved_value": "ORD-201",
+                "record_key": "ORD-201",
             },
         }
     ]
     assert "record_key_source" in resolved["reviewer_instruction"]
     assert "source_ref and selector" in resolved["reviewer_instruction"]
+
+
+def test_the_record_key_is_not_named_like_the_binding_value() -> None:
+    context = build_plan_reviewer_context(
+        _view(), _field_binding_plan(), _keyed_orders_inventory(), _runtime_contract()
+    )
+
+    resolved = context["resolved_supplied_binding_values"]
+    (value,) = resolved["values"]
+    assert "resolved_value" not in value["record_key_source"]
+    assert (
+        "record_key_source.record_key is only the key of the record"
+        in (resolved["reviewer_instruction"])
+    )
+    assert "judge the binding by its resolved_value" in resolved["reviewer_instruction"]
+
+
+def test_the_record_key_sentence_is_absent_without_a_record_key_source() -> None:
+    plan = _field_binding_plan()
+    plan["runtime_bindings"] = [
+        _named_record_binding("facts:state:orders:records", "value.ORD-201.record_key")
+    ]
+
+    context = build_plan_reviewer_context(
+        _view(), plan, _keyed_orders_inventory(), _runtime_contract()
+    )
+
+    instruction = context["resolved_supplied_binding_values"]["reviewer_instruction"]
+    assert "only the key of the record" not in instruction
 
 
 def test_record_key_source_is_omitted_when_the_binding_already_selects_the_key() -> None:
