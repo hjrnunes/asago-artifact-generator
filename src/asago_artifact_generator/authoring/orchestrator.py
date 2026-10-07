@@ -1120,16 +1120,12 @@ class AuthoringOrchestrator:
         return _StageStop("unresolved", tuple(self._findings or pending))
 
     def _review_candidate(
-        self,
-        stage: _Stage,
-        candidate: dict[str, Any],
-        prior_round: PriorReviewRound | None = None,
+        self, stage: _Stage, candidate: dict[str, Any], prior: PriorReviewRound | None = None
     ) -> dict[str, Any] | _StageStop | _Revision:
         """Review a checked candidate.
 
         Return the accepted candidate, the stage stop, or the revise findings
-        that send the candidate back through correction. ``prior_round`` is the
-        earlier review the candidate answers.
+        that send the candidate back through correction.
         """
 
         if stage.may_block and _is_blocked_plan(candidate):
@@ -1139,7 +1135,7 @@ class AuthoringOrchestrator:
             self._review_status[stage.key] = "not_requested"
             return candidate
         try:
-            review_packet = stage.review_packet(candidate, prior_round)
+            review_packet = stage.review_packet(candidate, prior)
         except PromptPreflightError as exc:
             return _preflight_stop(exc, stage.review_stage)
         outcome = self._semantic_review(stage.key, review_packet)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from typing import Any
 
@@ -247,15 +247,21 @@ _ORDER_COMPARISON_MEANING = (
 )
 
 
-def _order_comparison_rule(view: InputView) -> dict[str, Any]:
-    """Return the order comparisons of the producer's condition for the plan reviewer."""
+def _condition_comparisons(view: InputView) -> list[dict[str, Any]]:
+    """Return the comparisons of the producer's condition that are objects."""
 
     condition = view.payload.get("discriminating_condition")
     comparisons = condition.get("comparisons") if isinstance(condition, dict) else None
+    return [item for item in comparisons or [] if isinstance(item, dict)]
+
+
+def _order_comparison_rule(view: InputView) -> dict[str, Any]:
+    """Return the order comparisons of the producer's condition for the plan reviewer."""
+
     orders = [
         {key: item[key] for key in ("operation", "requires_prior", "same_argument") if key in item}
-        for item in comparisons or []
-        if isinstance(item, dict) and item.get("kind") == "order"
+        for item in _condition_comparisons(view)
+        if item.get("kind") == "order"
     ]
     if not orders:
         return {}
@@ -1034,6 +1040,14 @@ def _record_key_value(value: Any, record_key: str) -> Any:
     return resolved if resolved is not None else record_key
 
 
+def _binding_values_instruction(values: Sequence[Mapping[str, Any]]) -> str:
+    """Return the value_meaning instruction, with the record-key sentence when it applies."""
+
+    if any("record_key_source" in entry for entry in values):
+        return _RESOLVED_BINDING_VALUES_INSTRUCTION + _RECORD_KEY_SOURCE_INSTRUCTION
+    return _RESOLVED_BINDING_VALUES_INSTRUCTION
+
+
 def _resolved_supplied_binding_values(
     plan: Mapping[str, Any], inventory: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -1068,11 +1082,9 @@ def _resolved_supplied_binding_values(
         if record_key_source is not None:
             entry["record_key_source"] = record_key_source
         values.append(entry)
-    has_record_key_source = any("record_key_source" in entry for entry in values)
     return {
         "meaning": _RESOLVED_BINDING_VALUES_MEANING,
-        "reviewer_instruction": _RESOLVED_BINDING_VALUES_INSTRUCTION
-        + (_RECORD_KEY_SOURCE_INSTRUCTION if has_record_key_source else ""),
+        "reviewer_instruction": _binding_values_instruction(values),
         "values": values,
         "resolved_at_run_time": run_time,
     }
