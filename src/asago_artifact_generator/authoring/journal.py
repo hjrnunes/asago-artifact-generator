@@ -208,6 +208,15 @@ class Finished:
     terminal: dict[str, Any]
 
 
+def _evidence_finding(finding: Finding) -> dict[str, Any]:
+    """Return the failure-evidence record of a finding: its fields and the stage that raised it."""
+
+    record = finding.to_dict()
+    if finding.stage is not None:
+        record["stage"] = finding.stage
+    return record
+
+
 def _record_controls(event: Any) -> dict[str, Any] | None:
     """Return the controls an event sets on its dispatch record, or None."""
 
@@ -394,7 +403,7 @@ class _EvidenceProjection:
             self.document["review_revision_allowances"] = dict(event.review_revision_allowances)
 
     def _on_RunFindingRecorded(self, event: RunFindingRecorded) -> None:
-        self.document["findings"].append(event.finding.to_dict())
+        self.document["findings"].append(_evidence_finding(event.finding))
 
     def _on_DispatchOpened(self, event: DispatchOpened) -> None:
         packet = event.packet
@@ -492,8 +501,8 @@ class _EvidenceProjection:
     def _on_AttemptFailed(self, event: AttemptFailed) -> None:
         attempt = self._attempt()
         for finding in event.findings:
-            attempt["findings"].append(finding.to_dict())
-            self.document["findings"].append(finding.to_dict())
+            attempt["findings"].append(_evidence_finding(finding))
+            self.document["findings"].append(_evidence_finding(finding))
         if event.findings:
             failure = attempt.setdefault("failure", {})
             failure.update(
@@ -525,7 +534,7 @@ class _EvidenceProjection:
 
     def _on_Finished(self, event: Finished) -> None:
         self.document["status"] = event.status
-        self.document["findings"] = [finding.to_dict() for finding in event.terminal_findings]
+        self.document["findings"] = [_evidence_finding(item) for item in event.terminal_findings]
         self.document["terminal"] = event.terminal
         for attempt in self.document["attempts"]:
             attempt["terminal_status"] = event.status

@@ -272,7 +272,7 @@ def test_package_assembly_rejection_fails_the_run_at_the_artifact_stage(
 
     assert result.status == "failed"
     assert [(f.code, f.path, f.stage) for f in result.findings] == [
-        ("assembly_validation", "judge.json", None)
+        ("assembly_validation", "judge.json", "artifact")
     ]
     assert result.findings[0].detail == "judge specification must be an object"
     assert result.package is None

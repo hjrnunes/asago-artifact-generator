@@ -50,6 +50,7 @@ from .core import (
     _safe_error,
     _safe_metadata,
     _sha256,
+    staged_findings,
 )
 from .correction import _render_correction_packet, build_correction_context
 from .journal import (
@@ -399,7 +400,9 @@ class AuthoringOrchestrator:
 
         path = packet.stage if path is None else path
         if isinstance(exc, PromptOverflowError):
-            finding = _prompt_overflow_finding(exc, packet.stage)
+            finding = replace(
+                _prompt_overflow_finding(exc, packet.stage), stage=FINDING_STAGE_KEYS.get(path)
+            )
         elif isinstance(exc, BudgetExceeded):
             finding = _staged(Finding("budget_exhausted", _safe_error(exc), path))
         else:
@@ -719,7 +722,10 @@ class AuthoringOrchestrator:
                 ),
             )
         except PromptPreflightError as exc:
-            finding = _prompt_preflight_finding(exc, "correction")
+            finding = replace(
+                _prompt_preflight_finding(exc, "correction"),
+                stage=FINDING_STAGE_KEYS.get(failed_stage),
+            )
             self._findings.append(finding)
             self._record_run_finding(finding)
             return None
@@ -893,12 +899,13 @@ class AuthoringOrchestrator:
             return self._policy_result(
                 "failed",
                 plan,
-                [_staged(Finding("assembly_validation", exc.message, exc.path))],
+                [Finding("assembly_validation", exc.message, exc.path, stage="artifact")],
             )
         try:
             path = write_package(self.package_dir, package)
         except Exception as exc:
-            return self._policy_result("failed", plan, [Finding("package_write_failed", str(exc))])
+            finding = Finding("package_write_failed", str(exc), stage="artifact")
+            return self._policy_result("failed", plan, [finding])
         self._journal.append(ReviewStatusRecorded(dict(self._review_status)))
         self._record_allowances()
         self._finish("accepted", [])
@@ -1246,7 +1253,7 @@ class AuthoringOrchestrator:
             effective_controls=effective_controls,
             packet=packet,
         )
-        self._record_failures(list(exc.findings))
+        self._record_failures(staged_findings(exc.findings, FINDING_STAGE_KEYS[packet.stage]))
         failure = {
             "phase": "post_response",
             "code": finding.code,

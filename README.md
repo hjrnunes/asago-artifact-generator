@@ -513,8 +513,9 @@ explicit `unavailable` marker. Provider endpoint and secret metadata are
 redacted from the sidecar. The sidecar uses
 `authoring-failure-evidence-v2`.
 `attempts` retains the full history, while top-level `findings` contains only
-the findings that caused the terminal status. The `terminal` object records the
-logical stage, zero-based attempt index, and terminal reason.
+the findings that caused the terminal status. Each finding record names the
+logical stage that raised it (`plan` or `artifact`) in `stage`. The `terminal`
+object records the logical stage, zero-based attempt index, and terminal reason.
 
 ### Runtime bindings
 
