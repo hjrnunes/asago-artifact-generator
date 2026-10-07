@@ -75,6 +75,22 @@ def test_invalid_v3_fixtures_report_expected_violations(relative: str) -> None:
         assert code in str(raised.value)
 
 
+@pytest.mark.parametrize("relative", sorted(_EXPECTED_VIOLATIONS))
+def test_invalid_v3_fixtures_report_exactly_the_producers_ownership_codes(relative: str) -> None:
+    prefix = "handoff ownership violation: "
+    with pytest.raises(InputSourceError) as raised:
+        load_input(_KIT / relative, kind=InputKind.SCENARIO_HANDOFF_V3)
+
+    message = str(raised.value)
+    reported = message.removeprefix(prefix).split(", ") if message.startswith(prefix) else []
+    expected = [
+        code
+        for code in _EXPECTED_VIOLATIONS[relative]
+        if code.startswith(("artifact_design_field:", "prose_hiding:"))
+    ]
+    assert reported == expected
+
+
 def test_v3_document_signed_in_v2_domain_is_rejected(tmp_path: Path) -> None:
     payload = json.loads(_OBSERVED.read_text(encoding="utf-8"))
     path = _write_signed(tmp_path, payload, "scenario-handoff-v2")

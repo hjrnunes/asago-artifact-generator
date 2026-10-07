@@ -38,6 +38,68 @@ _HANDOFF_CONDITION_FIELDS = (
 )
 _HANDOFF_TOOL_CALL_FIELDS = ("tool_call_condition_status", "tool_call_condition")
 _HANDOFF_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "scenario-handoff"
+# The ownership rules below follow the producer's handoff_ownership_violations;
+# the vendored kit's invalid cases fail when the two drift apart.
+_FORBIDDEN_KEYS = frozenset(
+    {
+        "prepared_user_text",
+        "stimulus_turns",
+        "turns",
+        "turn",
+        "role",
+        "roles",
+        "delivery",
+        "delivery_class",
+        "delivery_route",
+        "route",
+        "execution_route",
+        "oracle",
+        "oracle_kind",
+        "oracle_observes",
+        "oracle_basis",
+        "detector",
+        "judge",
+        "judge_prompt",
+        "prompt",
+        "prompts",
+        "setup",
+        "execution_setup",
+        "execution_contract",
+        "projection",
+        "bundle",
+        "payload",
+        "messages",
+        "message",
+        "replay",
+        "unsafe_outcome_condition",
+        "operands",
+        "reference_tool",
+        "reference_argument",
+        "applies_when",
+        "trigger_evidence",
+    }
+)
+_FORBIDDEN_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "role_serialization",
+        re.compile(r"\broles?\s*\"?\s*:\s*\"?(user|assistant|system)\b", re.I),
+    ),
+    ("turn_array", re.compile(r"\bturns?\s*\"?\s*:", re.I)),
+    ("prepared_message_field", re.compile(r"prepared_user_text", re.I)),
+    (
+        "detector_expression",
+        re.compile(r"\bgreater_than\b|\bless_than\b|\bamount\s*[<>=]", re.I),
+    ),
+    (
+        "ready_to_send_instruction",
+        re.compile(
+            r"\bsend this message\b|\bdeliver this message\b|"
+            r"\bexecute the following\b|\bsystem prompt is\b",
+            re.I,
+        ),
+    ),
+    ("judge_prompt", re.compile(r"\bjudge prompt\b", re.I)),
+)
 
 
 class InputKind(StrEnum):
@@ -635,71 +697,31 @@ def _validate_deduplication_key_fields(key: dict[str, Any]) -> None:
 
 
 def _ownership_violations(payload: dict[str, Any]) -> list[str]:
-    forbidden = {
-        "prepared_user_text",
-        "stimulus_turns",
-        "turns",
-        "turn",
-        "role",
-        "roles",
-        "delivery",
-        "delivery_class",
-        "delivery_route",
-        "route",
-        "execution_route",
-        "oracle",
-        "detector",
-        "judge",
-        "judge_prompt",
-        "prompt",
-        "prompts",
-        "setup",
-        "execution_setup",
-        "execution_contract",
-        "projection",
-        "bundle",
-        "payload",
-        "messages",
-        "message",
-        "replay",
-        "unsafe_outcome_condition",
-        "operands",
-        "reference_tool",
-        "reference_argument",
-        "applies_when",
-        "trigger_evidence",
-    }
-    patterns = (
-        ("prepared_message_field", re.compile(r"prepared_user_text", re.I)),
-        ("judge_prompt", re.compile(r"\bjudge prompt\b", re.I)),
-        (
-            "detector_expression",
-            re.compile(r"\bgreater_than\b|\bless_than\b|\bamount\s*[<>=]", re.I),
-        ),
-        (
-            "ready_to_send_instruction",
-            re.compile(r"\bsend this message\b|\bexecute the following\b", re.I),
-        ),
-    )
     found: list[str] = []
+    for path, text in _keys_and_strings(payload):
+        leaf = path.rsplit(".", 1)[-1].lower()
+        codes = [f"artifact_design_field:{leaf}"] if leaf in _FORBIDDEN_KEYS else []
+        codes.extend(
+            f"prose_hiding:{slug}"
+            for slug, pattern in _FORBIDDEN_VALUE_PATTERNS
+            if pattern.search(text)
+        )
+        found.extend(code for code in codes if code not in found)
+    return found
 
-    def walk(value: Any, path: str = "") -> None:
-        if isinstance(value, dict):
-            for key, item in value.items():
-                leaf = str(key).lower()
-                if leaf in forbidden and f"artifact_design_field:{leaf}" not in found:
-                    found.append(f"artifact_design_field:{leaf}")
-                walk(item, f"{path}.{key}")
-        elif isinstance(value, list):
-            for index, item in enumerate(value):
-                walk(item, f"{path}[{index}]")
-        elif isinstance(value, str):
-            for slug, pattern in patterns:
-                code = f"prose_hiding:{slug}"
-                if pattern.search(value) and code not in found:
-                    found.append(code)
 
-    walk(payload)
+def _keys_and_strings(value: Any, path: str = "") -> list[tuple[str, str]]:
+    """List ``(path, text)`` for every mapping key and string scalar, as the producer does."""
+    found: list[tuple[str, str]] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            found.append((f"{path}.{key}", str(key)))
+            found.extend(_keys_and_strings(item, f"{path}.{key}"))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            found.extend(_keys_and_strings(item, f"{path}[{index}]"))
+    elif isinstance(value, str):
+        found.append((path, value))
     return found
 
 
