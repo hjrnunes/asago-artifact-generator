@@ -27,6 +27,7 @@ from asago_artifact_generator.authoring.policy import AuthoringBudget
 from asago_artifact_generator.input_adapter import load_input
 
 from .support import (
+    HANDOFF,
     chat_completion,
     fake_openai,
     private_transport,
@@ -34,10 +35,6 @@ from .support import (
     stage_local_orchestrator,
     status_error,
     unreviewed_policy,
-)
-
-HANDOFF = (
-    Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "handoff-v3" / "refund-bound.json"
 )
 
 

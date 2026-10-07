@@ -22,9 +22,12 @@ from asago_artifact_generator.authoring.journal import (
 )
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 
-from .support import load_failure_evidence, scripted_orchestrator
+from .support import load_failure_evidence, scripted_orchestrator, world_builders
 from .test_stage_local_orchestration import _finding, _review
-from .test_versioned_authoring_wire import _framed, _inventory, _plan, _runtime_contract, _view
+
+_framed, _inventory, _plan, _runtime_contract, _view = world_builders(
+    "refund", "framed", "inventory", "plan", "runtime_contract", "view"
+)
 
 _PACKET = PromptPacket(
     stage="plan_review",

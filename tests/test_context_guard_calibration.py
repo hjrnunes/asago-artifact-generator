@@ -24,9 +24,12 @@ from asago_artifact_generator.authoring.core import (
 )
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringBudget, AuthoringPolicy
-from tests.test_versioned_authoring_wire import _inventory, _plan, _runtime_contract, _view
 
-from .support import ScriptedAuthoringTransport, stage_local_orchestrator
+from .support import ScriptedAuthoringTransport, stage_local_orchestrator, world_builders
+
+_inventory, _plan, _runtime_contract, _view = world_builders(
+    "refund", "inventory", "plan", "runtime_contract", "view"
+)
 
 
 class _ContextGuardedScriptedTransport:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,9 +30,10 @@ from asago_artifact_generator.authoring.core import (
     _sha256,
 )
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
-from asago_artifact_generator.authoring.policy import AuthoringPolicy
+from asago_artifact_generator.authoring.policy import AuthoringPolicy, AuthoringResult
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.failure_evidence import FAILURE_EVIDENCE_SCHEMA_VERSION
+from asago_artifact_generator.input_adapter import InputKind, load_input
 from asago_artifact_generator.package_io import (
     build_package,
     tool_call_condition_bytes,
@@ -92,6 +94,90 @@ class ScriptedAuthoringTransport:
         if isinstance(response, BaseException):
             raise response
         return response
+
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+HANDOFF = FIXTURES / "handoff-v3" / "refund-bound.json"
+
+_WORLD_PARTS = ("view", "inventory", "runtime_contract", "plan", "metadata", "framed")
+
+
+def _document(name: str) -> dict[str, Any]:
+    return json.loads((FIXTURES / "worlds" / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def world(name: str, **overrides: Any) -> dict[str, Any]:
+    """Load the example world ``name`` from ``fixtures/worlds`` as fresh copies.
+
+    The result holds ``view`` (loaded from the world's handoff), ``inventory``,
+    ``runtime_contract``, ``plan`` and ``metadata`` where the world defines them.
+    Each override replaces the entry of the same name.
+
+    The ``ehr`` world pairs the refund handoff with an EHR-summary inventory on purpose: the
+    prompt digests pinned in ``test_owner_scope_block`` and ``test_plan_contract_hazards``
+    render both, so making them agree changes every pinned digest.
+    """
+
+    document = {**_document(name), **deepcopy(overrides)}
+    if "view" not in document:
+        document["view"] = load_input(
+            FIXTURES / document["handoff"], kind=InputKind.SCENARIO_HANDOFF_V3
+        )
+    return document
+
+
+def world_builders(name: str, *parts: str) -> tuple[Callable[..., Any], ...]:
+    """Return one builder per requested part of the world ``name``; each call builds afresh.
+
+    The ``inventory``, ``runtime_contract``, ``plan`` and ``metadata`` builders take keyword
+    arguments that replace top-level keys. ``framed`` takes optional metadata and returns it
+    as the author sends it: a fenced JSON block or a bare object, per the world's ``framing``.
+    """
+
+    unknown = set(parts) - set(_WORLD_PARTS)
+    if unknown:
+        raise ValueError(f"unknown world parts: {sorted(unknown)}")
+
+    def builder(part: str) -> Callable[..., Any]:
+        if part == "view":
+            return lambda: world(name)["view"]
+        if part == "framed":
+            return lambda metadata=None: _framed(name, metadata)
+        return lambda **changes: {**_document(name)[part], **changes}
+
+    return tuple(builder(part) for part in parts)
+
+
+def _framed(name: str, metadata: dict | None) -> bytes:
+    document = _document(name)
+    metadata = document["metadata"] if metadata is None else metadata
+    if document["framing"] == "fenced":
+        return b"```json\n" + json.dumps(metadata, sort_keys=True).encode() + b"\n```\n"
+    return json.dumps(metadata, sort_keys=True, indent=2).encode() + b"\n"
+
+
+def assemble_refund_package(tmp_path: Path, plan: dict, metadata: dict) -> AuthoringResult:
+    """Run the stage-local path over the refund world with ``plan`` and ``metadata`` as answers."""
+
+    view, inventory, runtime_contract = world_builders(
+        "refund", "view", "inventory", "runtime_contract"
+    )
+    return stage_local_orchestrator(
+        transport=ScriptedAuthoringTransport([json.dumps(plan), _framed("refund", metadata)]),
+        package_dir=tmp_path / "package",
+        task_id="v2-members",
+    ).run(view(), inventory(), runtime_contract())
+
+
+def tool_call_runtime_contract() -> dict:
+    """Return a runtime contract that captures tool calls and permits no setup."""
+
+    return {
+        "delivery": ["direct_user_message"],
+        "setup_permissions": [],
+        "observation": {"tool_calls": {"availability": "captured_or_unavailable"}},
+        "limits": {"max_turns": 2},
+    }
 
 
 class FakeCompletions:

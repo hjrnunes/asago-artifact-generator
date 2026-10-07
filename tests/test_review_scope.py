@@ -16,14 +16,10 @@ from asago_artifact_generator.authoring.review import (
     parse_review_response,
 )
 
-from .support import ScriptedAuthoringTransport
-from .test_versioned_authoring_wire import (
-    _framed,
-    _inventory,
-    _metadata,
-    _plan,
-    _runtime_contract,
-    _view,
+from .support import ScriptedAuthoringTransport, world_builders
+
+_framed, _inventory, _metadata, _plan, _runtime_contract, _view = world_builders(
+    "refund", "framed", "inventory", "metadata", "plan", "runtime_contract", "view"
 )
 
 

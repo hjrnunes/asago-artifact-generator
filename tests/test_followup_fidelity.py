@@ -7,11 +7,7 @@ from pathlib import Path
 
 from asago_artifact_generator.authoring.contracts import neutral_artifact_plan_v2
 
-from .support import ScriptedAuthoringTransport, stage_local_orchestrator
-
-HANDOFF = (
-    Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "handoff-v3" / "refund-bound.json"
-)
+from .support import HANDOFF, ScriptedAuthoringTransport, stage_local_orchestrator
 
 
 def _inventory() -> dict:

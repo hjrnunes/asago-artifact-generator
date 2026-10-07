@@ -24,12 +24,13 @@ from .support import (
     scripted_client,
     stage_local_orchestrator,
     status_error,
+    world_builders,
 )
-from .test_authoring_orchestration import _view
-from .test_versioned_authoring_wire import _framed
-from .test_versioned_authoring_wire import _inventory as _inventory_v2
-from .test_versioned_authoring_wire import _plan as _plan_v2
-from .test_versioned_authoring_wire import _runtime_contract as _runtime_contract_v2
+
+(_view,) = world_builders("refund-minimal", "view")
+_framed, _inventory_v2, _plan_v2, _runtime_contract_v2 = world_builders(
+    "refund", "framed", "inventory", "plan", "runtime_contract"
+)
 
 _REQUEST = httpx2.Request("POST", "https://private.invalid/v1")
 

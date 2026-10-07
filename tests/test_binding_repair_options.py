@@ -25,7 +25,11 @@ from asago_artifact_generator.authoring.correction import (
 )
 from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
 
-from .test_versioned_prompt_roles import _inventory, _runtime_contract, _view
+from .support import world_builders
+
+_inventory, _runtime_contract, _view, _plan = world_builders(
+    "ehr", "inventory", "runtime_contract", "view", "plan"
+)
 
 _BINDING_VALIDATION = "plan_binding_validation"
 
@@ -46,9 +50,7 @@ def _context(
 
 
 def _candidate(*bindings: dict, **fields: object) -> dict:
-    from .test_versioned_prompt_roles import _plan
-
-    candidate = copy.deepcopy(_plan())
+    candidate = _plan()
     if bindings:
         candidate["runtime_bindings"] = list(bindings)
     candidate.update(fields)

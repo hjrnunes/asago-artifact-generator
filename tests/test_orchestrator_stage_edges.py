@@ -16,13 +16,10 @@ from asago_artifact_generator.authoring.core import (
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringPolicy, AuthoringResult
 
-from .support import ScriptedAuthoringTransport, load_failure_evidence
-from .test_versioned_authoring_wire import (
-    _framed,
-    _inventory,
-    _plan,
-    _runtime_contract,
-    _view,
+from .support import ScriptedAuthoringTransport, load_failure_evidence, world_builders
+
+_framed, _inventory, _plan, _runtime_contract, _view = world_builders(
+    "refund", "framed", "inventory", "plan", "runtime_contract", "view"
 )
 
 _NO_REVIEW = AuthoringPolicy(

@@ -6,7 +6,11 @@ from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
 from asago_artifact_generator.authoring.contracts import _binding_contract
 from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
 
-from .test_versioned_prompt_roles import _inventory, _plan, _runtime_contract, _view
+from .support import world_builders
+
+_inventory, _plan, _runtime_contract, _view = world_builders(
+    "ehr", "inventory", "plan", "runtime_contract", "view"
+)
 
 
 def _no_setup_runtime() -> dict:

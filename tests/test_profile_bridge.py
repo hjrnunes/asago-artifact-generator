@@ -19,9 +19,7 @@ from asago_artifact_generator.profiles import (
     load_authoring_profile,
 )
 
-HANDOFF = (
-    Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "handoff-v3" / "refund-bound.json"
-)
+from .support import HANDOFF
 
 
 def _inputs(tmp_path: Path) -> tuple[Path, Path]:

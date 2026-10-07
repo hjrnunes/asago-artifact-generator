@@ -16,13 +16,11 @@ from .support import (
     load_failure_evidence,
     private_transport,
     prompt_packet,
+    world_builders,
 )
-from .test_versioned_authoring_wire import (
-    _framed,
-    _inventory,
-    _plan,
-    _runtime_contract,
-    _view,
+
+_framed, _inventory, _plan, _runtime_contract, _view = world_builders(
+    "refund", "framed", "inventory", "plan", "runtime_contract", "view"
 )
 
 

@@ -29,13 +29,10 @@ from asago_artifact_generator.authoring.prompt_packets import (
 )
 from asago_artifact_generator.authoring.review import build_plan_review_packet
 
-from .test_versioned_prompt_roles import (
-    _framed,
-    _inventory,
-    _metadata,
-    _plan,
-    _runtime_contract,
-    _view,
+from .support import world_builders
+
+_framed, _inventory, _metadata, _plan, _runtime_contract, _view = world_builders(
+    "ehr", "framed", "inventory", "metadata", "plan", "runtime_contract", "view"
 )
 
 _CURRENT_PROMPT_DIGESTS = {

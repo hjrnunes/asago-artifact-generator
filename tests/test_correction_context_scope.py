@@ -11,7 +11,12 @@ from asago_artifact_generator.authoring.correction import (
     build_correction_context,
 )
 from asago_artifact_generator.authoring.prompt_context import build_artifact_author_context
-from tests.test_versioned_prompt_roles import _inventory, _plan, _runtime_contract, _view
+
+from .support import world_builders
+
+_inventory, _plan, _runtime_contract, _view = world_builders(
+    "ehr", "inventory", "plan", "runtime_contract", "view"
+)
 
 
 def test_artifact_correction_context_has_no_detector_sections() -> None:

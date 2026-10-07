@@ -16,15 +16,12 @@ from asago_artifact_generator.authoring.policy import (
     policy_role_limits,
 )
 
-from .support import ScriptedAuthoringTransport
-from .test_authoring_orchestration import HANDOFF
+from .support import HANDOFF, ScriptedAuthoringTransport, world_builders
 from .test_profile_bridge import _inputs as _cli_inputs
 from .test_profile_bridge import _profile_file
-from .test_versioned_authoring_wire import (
-    _inventory,
-    _plan,
-    _runtime_contract,
-    _view,
+
+_inventory, _plan, _runtime_contract, _view = world_builders(
+    "refund", "inventory", "plan", "runtime_contract", "view"
 )
 
 

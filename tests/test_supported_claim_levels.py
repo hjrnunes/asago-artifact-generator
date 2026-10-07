@@ -7,7 +7,11 @@ from asago_artifact_generator.authoring.checks import (
     collect_plan_findings_v2,
 )
 
-from .test_authoring_orchestration import _contract, _inventory, _plan
+from .support import world_builders
+
+_contract, _inventory, _plan = world_builders(
+    "refund-minimal", "runtime_contract", "inventory", "plan"
+)
 
 _JUDGE = {"needed": True, "scope": "Whether the reply discloses the record."}
 

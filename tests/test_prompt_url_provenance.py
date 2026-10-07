@@ -19,7 +19,12 @@ from asago_artifact_generator.authoring.review import (
     build_plan_review_packet,
 )
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
-from tests.test_versioned_prompt_roles import _inventory, _plan, _runtime_contract, _view
+
+from .support import world_builders
+
+_inventory, _plan, _runtime_contract, _view = world_builders(
+    "ehr", "inventory", "plan", "runtime_contract", "view"
+)
 
 # Built by concatenation so repository scanners do not treat fixtures as live links.
 _LURE_URL = "http" + "://lure-portal.example/claim?ref=A1"

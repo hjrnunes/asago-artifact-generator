@@ -18,12 +18,11 @@ from asago_artifact_generator.authoring.review import (
     build_artifact_review_packet,
     build_artifact_reviewer_context,
 )
-from tests.test_versioned_prompt_roles import (
-    _inventory,
-    _metadata,
-    _plan,
-    _runtime_contract,
-    _view,
+
+from .support import world_builders
+
+_inventory, _metadata, _plan, _runtime_contract, _view = world_builders(
+    "ehr", "inventory", "metadata", "plan", "runtime_contract", "view"
 )
 
 _REQUIRED_FIELDS = [

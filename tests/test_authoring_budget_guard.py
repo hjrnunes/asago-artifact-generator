@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .support import ScriptedAuthoringTransport, stage_local_orchestrator, unreviewed_policy
-from .test_versioned_authoring_wire import _inventory, _runtime_contract, _view
+from .support import (
+    ScriptedAuthoringTransport,
+    stage_local_orchestrator,
+    unreviewed_policy,
+    world_builders,
+)
+
+_inventory, _runtime_contract, _view = world_builders(
+    "refund", "inventory", "runtime_contract", "view"
+)
 
 
 def test_zero_corrections_failed_call1_stops_without_a_correction_contact(tmp_path: Path) -> None:

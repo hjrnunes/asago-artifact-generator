@@ -21,7 +21,11 @@ from asago_artifact_generator.authoring.prompt_context import (
 )
 from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 
-from .test_versioned_prompt_roles import _inventory, _plan, _runtime_contract, _view
+from .support import world_builders
+
+_inventory, _plan, _runtime_contract, _view = world_builders(
+    "ehr", "inventory", "plan", "runtime_contract", "view"
+)
 
 
 def _section(user: str, title: str) -> dict:
