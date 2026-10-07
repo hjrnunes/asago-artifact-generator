@@ -39,6 +39,7 @@ from .core import (
     staged_findings,
 )
 from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
+from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
 
 # The spelling JUDGE_CONSUMERS replaced. It stays out of the closed vocabulary, so a plan
@@ -562,6 +563,7 @@ def _artifact_stimulus_findings(
     findings = _stimulus_delivery_findings(stimulus.get("delivery"), plan, runtime_contract)
     findings.extend(_stimulus_history_findings(stimulus.get("history")))
     user_text = stimulus.get("user_text")
+    findings.extend(artifact_placeholder_findings(stimulus))
     findings.extend(_stimulus_slot_findings(stimulus, runtime_bindings))
     if isinstance(plan, dict) and isinstance(plan.get("runtime_bindings"), list):
         findings.extend(
@@ -1163,6 +1165,7 @@ def _stimulus_approach_findings(
                 "stimulus_approach.request",
             )
         )
+    findings.extend(plan_placeholder_findings(approach))
     delivery = approach.get("delivery")
     if delivery not in runtime_contract.get("delivery", []):
         findings.append(

@@ -23,6 +23,7 @@ from .checks import (
     collect_artifact_findings_v2,
     collect_plan_findings_v2,
 )
+from .condition_types import operand_type_findings
 from .context_budget import _enforce_prompt_size
 from .core import (
     _REVIEW_STAGES,
@@ -226,12 +227,21 @@ def _tool_call_condition_missing(view: InputView) -> Finding | None:
     )
 
 
-def _command_attempt_condition_missing(view: InputView, claim_level: Any) -> Finding | None:
-    """Return the missing-condition finding when a command-attempt claim has no bound condition."""
+def _command_attempt_condition_findings(
+    view: InputView, claim_level: Any, inventory: dict[str, Any]
+) -> list[Finding]:
+    """Return the findings that leave a command-attempt claim without a usable condition.
 
-    return (
-        _tool_call_condition_missing(view) if claim_level == ClaimLevel.COMMAND_ATTEMPT else None
-    )
+    A condition that is missing, or whose value comparisons compare operand
+    types that cannot match, decides nothing; the model cannot repair either.
+    """
+
+    if claim_level != ClaimLevel.COMMAND_ATTEMPT:
+        return []
+    missing = _tool_call_condition_missing(view)
+    if missing is not None:
+        return [missing]
+    return operand_type_findings(view.tool_call_condition, inventory)
 
 
 def _attempt_terminal_stage(stage: str, failed_stage: str | None) -> str | None:
@@ -841,18 +851,18 @@ class AuthoringOrchestrator:
             ReviewStatusRecorded(dict(self._review_status)),
         )
         self._journal.flush()
-        missing = _command_attempt_condition_missing(view, _handoff_claim_level(view))
-        if missing is not None:
-            return self._policy_result("failed", None, [missing])
+        unusable = _command_attempt_condition_findings(view, _handoff_claim_level(view), inventory)
+        if unusable:
+            return self._policy_result("failed", None, unusable)
         plan = self._run_stage(
             self._plan_stage(view, inventory, runtime_contract), view, inventory, runtime_contract
         )
         if isinstance(plan, _StageStop):
             return self._policy_result(plan.status, None, plan.findings)
-        missing = _command_attempt_condition_missing(view, _plan_claim_level(plan))
-        if missing is not None:
-            self._record_failures([missing])
-            return self._policy_result("failed", plan, [missing])
+        unusable = _command_attempt_condition_findings(view, _plan_claim_level(plan), inventory)
+        if unusable:
+            self._record_failures(unusable)
+            return self._policy_result("failed", plan, unusable)
         artifact = self._run_stage(
             self._artifact_stage(plan, view, inventory, runtime_contract),
             view,
