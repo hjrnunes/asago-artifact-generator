@@ -210,9 +210,9 @@ or empty block leaves rendered request bytes unchanged.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v19` renders the plan author context while preserving the
+- `authoring-call1-v20` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v18` reviews a fresh source-derived plan context. It
+- `authoring-plan-review-v19` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
   binding selects inside one record of a keyed fact, the value also carries
@@ -229,16 +229,16 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   does not end with a question mark. A plan that claims `reply` must return a
   `semantic_judge_spec` object; a missing one gets a
   `semantic_judge_spec_required` correction.
-- `authoring-artifact-review-v18` reviews the exact artifact object and the
+- `authoring-artifact-review-v19` reviews the exact artifact object and the
   binding and judge declarations.
-- `authoring-correction-v29` renders only the failed stage format and all
+- `authoring-correction-v31` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option
   lists the binding's documented selectors, the selected record's sources, and
   `review_selector_checks`: each selector path the required change names,
   checked against the sources that document it. Artifact corrections use
-  `authoring-correction-v30`.
+  `authoring-correction-v32`.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
 operations, schemas, provenance, and runtime capabilities. Reviewers do not

@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 
 from asago_artifact_generator.authoring.core import (
-    CALL1_PROMPT_VERSION_V19,
+    CALL1_PROMPT_VERSION_V20,
     PromptPacket,
     PromptPreflightError,
 )
@@ -108,7 +108,7 @@ def test_credentials_are_rejected_even_inside_candidate_text() -> None:
 def test_scan_reports_only_urls_outside_the_allowed_set() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V19,
+        version=CALL1_PROMPT_VERSION_V20,
         system="system",
         user=f"lure {_LURE_URL} and endpoint {_ENDPOINT}",
         payload={},
@@ -131,7 +131,7 @@ def _transport() -> PrivateModelAuthoringTransport:
 
 def _packet(user: str) -> PromptPacket:
     return PromptPacket(
-        stage="call1", version=CALL1_PROMPT_VERSION_V19, system="s", user=user, payload={}
+        stage="call1", version=CALL1_PROMPT_VERSION_V20, system="s", user=user, payload={}
     )
 
 

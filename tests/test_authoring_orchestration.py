@@ -27,7 +27,7 @@ from asago_artifact_generator.authoring.core import (
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
     AUTHORING_THINKING_EXTRA_BODY,
-    CALL1_PROMPT_VERSION_V19,
+    CALL1_PROMPT_VERSION_V20,
     REVIEW_THINKING_EXTRA_BODY,
     PromptOverflowError,
     PromptPacket,
@@ -627,7 +627,7 @@ def test_two_calls_build_an_immutable_package_without_detector_code(tmp_path: Pa
     assert result.package.manifest.authoring["usage"][0]["availability"] == "unavailable"
     assert result.raw_responses["call1"] == json.dumps(_plan_v2()).encode()
     assert result.raw_responses["call2"] == _framed()
-    assert result.prompts["call1"].version == CALL1_PROMPT_VERSION_V19
+    assert result.prompts["call1"].version == CALL1_PROMPT_VERSION_V20
     assert transport.max_retries == 0
 
 
