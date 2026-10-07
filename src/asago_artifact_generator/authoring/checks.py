@@ -2277,6 +2277,29 @@ def _or_list(values: tuple[str, ...]) -> str:
     return f"{', '.join(values[:-1])}, or {values[-1]}"
 
 
+# One clause per BINDING_SPEC field, in the order the guarantee states them.
+_RUNTIME_BINDING_CLAUSES = {
+    "name": "a unique nonblank name",
+    "source_kind": "a permitted source_kind",
+    "source_ref": "a source_ref that resolves to a supplied fact or a permitted setup operation",
+    "selector": (
+        "a documented selector rooted at value or result (including a validated "
+        "keyed-map source shorthand resolved to that form)"
+    ),
+    "expected_type": "a compatible expected_type",
+    "consumers": "a nonempty closed consumer list",
+    "on_missing": "a permitted on_missing policy",
+}
+
+
+def _runtime_bindings_guarantee() -> str:
+    clauses = list(_RUNTIME_BINDING_CLAUSES.values())
+    return (
+        "Every runtime binding has the required closed fields, "
+        f"{', '.join(clauses[:-1])}, and {clauses[-1]}."
+    )
+
+
 PLAN_MECHANICAL_CHECKS = (
     MechanicalCheck(
         "plan_root_fields",
@@ -2305,12 +2328,7 @@ PLAN_MECHANICAL_CHECKS = (
     ),
     MechanicalCheck(
         "runtime_bindings",
-        "Every runtime binding has the required closed fields, a unique nonblank name, "
-        "a permitted source_kind, a source_ref that resolves to a supplied fact or a "
-        "permitted setup operation, a documented selector rooted at value or result "
-        "(including a validated keyed-map source shorthand resolved to that form), a "
-        "compatible expected_type, a nonempty closed consumer list, and a permitted "
-        "on_missing policy.",
+        _runtime_bindings_guarantee(),
         (_collect_binding_findings,),
     ),
     MechanicalCheck(

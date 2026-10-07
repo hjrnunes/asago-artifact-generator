@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import dataclasses
 import re
 
 import pytest
 
-from asago_artifact_generator.authoring.checks import _collect_binding_findings
+from asago_artifact_generator.authoring import contracts
+from asago_artifact_generator.authoring.checks import (
+    _RUNTIME_BINDING_CLAUSES,
+    PLAN_MECHANICAL_CHECKS,
+    _collect_binding_findings,
+)
 from asago_artifact_generator.authoring.contracts import _binding_contract, _binding_list_schema
 from asago_artifact_generator.bindings import (
     BINDING_SPEC,
     BindingValidationError,
+    ConsumerPrefix,
     RuntimeBinding,
     canonical_binding_paths,
     find_stimulus_user_text_consumer_mismatches,
@@ -787,6 +794,51 @@ def test_binding_spec_is_the_contract_schema_vocabulary() -> None:
     assert BINDING_SPEC.string_fields == tuple(
         name for name, schema in item["properties"].items() if schema["type"] == "string"
     )
+
+
+def _consumer_rule_destinations(rule: str) -> list[str]:
+    """Return the destination entries a consumer rule lists, without their annotations."""
+
+    after_lead = rule.split("Write each entry as exactly one of: ", 1)[1]
+    listed = after_lead.split(". Write the actual", 1)[0]
+    entries = listed.replace("; or ", "; ").split("; ")
+    return [entry.split(", where ", 1)[0] for entry in entries]
+
+
+def test_consumer_rule_lists_the_spec_destinations_in_spec_order() -> None:
+    rule = _binding_contract()["consumer_rule"]
+
+    assert _consumer_rule_destinations(rule) == list(BINDING_SPEC.consumer_destinations)
+    assert BINDING_SPEC.consumer_destinations == (
+        "stimulus.user_text",
+        "stimulus.history",
+        "prerequisites.<binding name>",
+        "detector.<binding name>",
+        "setup.arguments.<argument name>",
+    )
+
+
+def test_consumer_rule_follows_a_changed_spec(monkeypatch: pytest.MonkeyPatch) -> None:
+    extra_family = ConsumerPrefix("extra.", "thing name")
+    changed = dataclasses.replace(
+        BINDING_SPEC,
+        consumer_paths=(*BINDING_SPEC.consumer_paths, "stimulus.extra"),
+        consumer_prefixes=(*BINDING_SPEC.consumer_prefixes, extra_family),
+    )
+    monkeypatch.setattr(contracts, "BINDING_SPEC", changed)
+
+    rule = contracts._binding_contract()["consumer_rule"]
+
+    assert _consumer_rule_destinations(rule) == list(changed.consumer_destinations)
+    assert "extra.<thing name>" in rule and "stimulus.extra" in rule
+
+
+def test_runtime_bindings_review_check_has_one_clause_per_spec_field() -> None:
+    check = next(c for c in PLAN_MECHANICAL_CHECKS if c.check_id == "runtime_bindings")
+    guarantee = check.guarantee
+
+    assert set(_RUNTIME_BINDING_CLAUSES) == set(BINDING_SPEC.fields)
+    assert all(clause in guarantee for clause in _RUNTIME_BINDING_CLAUSES.values())
 
 
 def test_binding_spec_field_set_drives_both_field_checks() -> None:
