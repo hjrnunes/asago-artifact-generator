@@ -216,6 +216,35 @@ _NOT_CALLED_CONDITION_GUIDANCE = (
 )
 
 
+_OMISSION_STIMULUS_AUTHOR_GUIDANCE = (
+    "The trigger of an omission may be the stimulus itself, the request the "
+    "stimulus approach delivers to the target. The stimulus is not a supplied "
+    "observation and not an evidence ref, so selected_evidence cites no entry for "
+    "it; state that trigger in stimulus_approach and in the observation_claim "
+    "branches. selected_evidence cites a trigger only through a supplied "
+    "observation of another operation's result. A plan that cites no trigger "
+    "observation is complete when its trigger is the stimulus."
+)
+_OMISSION_STIMULUS_REVIEWER_GUIDANCE = (
+    "An omission plan cites no stimulus trigger: when the scenario's trigger is the "
+    "stimulus itself, the request the stimulus approach delivers, selected_evidence "
+    "has no entry for it, because the stimulus is not a supplied observation or an "
+    "evidence ref. Do not ask the plan to cite the stimulus as a trigger or to give "
+    "it a selected_evidence role. A plan that cites no trigger observation is not "
+    "defective for that reason; judge the trigger by whether the observation_claim "
+    "branches and stimulus_approach state it. A cited trigger is a supplied "
+    "observation of another operation's result."
+)
+
+
+def _omission_trigger_rule(view: InputView) -> dict[str, str]:
+    """Return the plan reviewer's omission-trigger rule when the condition omits a call."""
+
+    if not _has_not_called_comparison(view):
+        return {}
+    return {"omission_trigger": _OMISSION_STIMULUS_REVIEWER_GUIDANCE}
+
+
 def _condition_has_not_called(condition: Any) -> bool:
     comparisons = condition.get("comparisons") if isinstance(condition, dict) else None
     return isinstance(comparisons, list) and any(
@@ -810,6 +839,11 @@ def build_plan_author_context(
                 + (
                     " " + _discriminating_condition_rule(view)["discriminating_condition"]
                     if _has_discriminating_condition(view)
+                    else ""
+                )
+                + (
+                    " " + _OMISSION_STIMULUS_AUTHOR_GUIDANCE
+                    if _has_not_called_comparison(view)
                     else ""
                 )
             ),
