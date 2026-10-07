@@ -1,0 +1,520 @@
+{
+  "allowed": [
+    {
+      "metadata": {
+        "interface": "artifact-authoring-v1",
+        "usage": [
+          {
+            "availability": "available",
+            "value": {
+              "completion_tokens": 3,
+              "completion_tokens_details": {
+                "reasoning_tokens": 2
+              },
+              "prompt_tokens": 4,
+              "prompt_tokens_details": {
+                "cached_tokens": 1,
+                "nested": {
+                  "audio_tokens": 0
+                }
+              },
+              "total_tokens": 7
+            }
+          }
+        ]
+      },
+      "name": "captured-provider-usage"
+    },
+    {
+      "metadata": {
+        "usage": {
+          "availability": "available",
+          "value": {
+            "completion_tokens": 2,
+            "completion_tokens_details": {},
+            "prompt_tokens": 1,
+            "prompt_tokens_details": null,
+            "total_tokens": 3
+          }
+        }
+      },
+      "name": "direct-usage-with-empty-details"
+    },
+    {
+      "metadata": {
+        "usage": {
+          "prompt_tokens": 1,
+          "prompt_tokens_details": null
+        }
+      },
+      "name": "raw-usage-counters"
+    },
+    {
+      "metadata": {
+        "usage": [
+          {
+            "availability": "unavailable",
+            "reason": "provider did not report usage"
+          }
+        ]
+      },
+      "name": "unavailable-usage-list"
+    },
+    {
+      "metadata": {
+        "usage": {
+          "availability": "unavailable",
+          "reason": "not reported"
+        }
+      },
+      "name": "unavailable-usage-direct"
+    },
+    {
+      "metadata": {
+        "interface": "artifact-authoring-v1",
+        "max_retries": 0
+      },
+      "name": "plain-authoring-controls"
+    },
+    {
+      "metadata": {
+        "context_window_tokens": 32768,
+        "interface": "artifact-authoring-v2",
+        "max_completion_tokens": 8192
+      },
+      "name": "model-controls"
+    },
+    {
+      "metadata": {
+        "ledger": [
+          {
+            "controls": {
+              "context_window_tokens": 32768,
+              "max_completion_tokens": 8192
+            },
+            "review": {
+              "effective_controls": {
+                "context_window_tokens": 32768,
+                "max_completion_tokens": 8192
+              }
+            }
+          }
+        ]
+      },
+      "name": "recorded-model-controls"
+    }
+  ],
+  "description": "Manifest metadata (authoring, runtime_capabilities, creation_model) under the closed secret policy. Each rejected entry lists the violation paths in the order the policy reports them.",
+  "rejected": [
+    {
+      "metadata": {
+        "usage": [
+          {
+            "availability": "available",
+            "value": {
+              "prompt_tokens": "4"
+            }
+          }
+        ]
+      },
+      "name": "string-counter",
+      "paths": [
+        "usage[0].value.prompt_tokens"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": [
+          {
+            "availability": "available",
+            "value": {
+              "prompt_tokens": -1
+            }
+          }
+        ]
+      },
+      "name": "negative-counter",
+      "paths": [
+        "usage[0].value.prompt_tokens"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": [
+          {
+            "availability": "available",
+            "value": {
+              "prompt_tokens": true
+            }
+          }
+        ]
+      },
+      "name": "boolean-counter",
+      "paths": [
+        "usage[0].value.prompt_tokens"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": [
+          {
+            "availability": "available",
+            "value": {
+              "completion_tokens": 1,
+              "prompt_tokens": 1,
+              "total_tokens": 2,
+              "total_tokens_extra": 2
+            }
+          }
+        ]
+      },
+      "name": "unknown-counter",
+      "paths": [
+        "usage[0].value.total_tokens_extra"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": [
+          {
+            "availability": "available",
+            "value": {
+              "prompt_tokens": 1,
+              "unexpected": 2
+            }
+          }
+        ]
+      },
+      "name": "unknown-usage-key",
+      "paths": [
+        "usage[0].value.unexpected"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": [
+          {
+            "availability": "available",
+            "value": {
+              "completion_tokens": 1,
+              "prompt_tokens": 1,
+              "prompt_tokens_details": {
+                "api_key": 1
+              },
+              "total_tokens": 2
+            }
+          }
+        ]
+      },
+      "name": "secret-in-detail-map",
+      "paths": [
+        "usage[0].value.prompt_tokens_details.api_key"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": [
+          {
+            "availability": "available",
+            "value": {
+              "completion_tokens": 1,
+              "prompt_tokens": 1,
+              "prompt_tokens_details": {
+                "api_tokens": 1
+              },
+              "total_tokens": 2
+            }
+          }
+        ]
+      },
+      "name": "api-token-in-detail-map",
+      "paths": [
+        "usage[0].value.prompt_tokens_details.api_tokens"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": {
+          "prompt_tokens": 1,
+          "prompt_tokens_details": 5
+        }
+      },
+      "name": "non-object-detail-map",
+      "paths": [
+        "usage.prompt_tokens_details"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": {
+          "prompt_tokens": 1,
+          "prompt_tokens_details": {
+            "cached_tokens": "1"
+          }
+        }
+      },
+      "name": "string-detail-value",
+      "paths": [
+        "usage.prompt_tokens_details.cached_tokens"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": {
+          "alpha": 2,
+          "zeta": 1
+        }
+      },
+      "name": "no-counter",
+      "paths": [
+        "usage.alpha",
+        "usage.zeta",
+        "usage"
+      ]
+    },
+    {
+      "metadata": {
+        "notes": [
+          {
+            "api_key": "redacted"
+          }
+        ]
+      },
+      "name": "secret-in-list",
+      "paths": [
+        "notes[0].api_key"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": {}
+      },
+      "name": "empty-usage",
+      "paths": [
+        "usage"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": "not-a-list"
+      },
+      "name": "string-usage",
+      "paths": [
+        "usage"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": [
+          {
+            "availability": "available",
+            "value": 7
+          }
+        ]
+      },
+      "name": "scalar-usage-value",
+      "paths": [
+        "usage[0].value"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": [
+          {
+            "availability": "available",
+            "value": {}
+          }
+        ]
+      },
+      "name": "empty-usage-value",
+      "paths": [
+        "usage[0].value"
+      ]
+    },
+    {
+      "metadata": {
+        "usage": [
+          {
+            "availability": "unavailable",
+            "reason": ""
+          }
+        ]
+      },
+      "name": "blank-unavailable-reason",
+      "paths": [
+        "usage[0]"
+      ]
+    },
+    {
+      "metadata": {
+        "max_completion_tokens_extra": 8192
+      },
+      "name": "extra-completion-control",
+      "paths": [
+        "max_completion_tokens_extra"
+      ]
+    },
+    {
+      "metadata": {
+        "context_window_tokens_extra": 32768
+      },
+      "name": "extra-context-control",
+      "paths": [
+        "context_window_tokens_extra"
+      ]
+    },
+    {
+      "metadata": {
+        "auth_token": "redacted"
+      },
+      "name": "secret-key-auth_token",
+      "paths": [
+        "auth_token"
+      ]
+    },
+    {
+      "metadata": {
+        "auth": "redacted"
+      },
+      "name": "secret-key-auth",
+      "paths": [
+        "auth"
+      ]
+    },
+    {
+      "metadata": {
+        "session_token": "redacted"
+      },
+      "name": "secret-key-session_token",
+      "paths": [
+        "session_token"
+      ]
+    },
+    {
+      "metadata": {
+        "session": "redacted"
+      },
+      "name": "secret-key-session",
+      "paths": [
+        "session"
+      ]
+    },
+    {
+      "metadata": {
+        "access_token": "redacted"
+      },
+      "name": "secret-key-access_token",
+      "paths": [
+        "access_token"
+      ]
+    },
+    {
+      "metadata": {
+        "access": "redacted"
+      },
+      "name": "secret-key-access",
+      "paths": [
+        "access"
+      ]
+    },
+    {
+      "metadata": {
+        "bearer_token": "redacted"
+      },
+      "name": "secret-key-bearer_token",
+      "paths": [
+        "bearer_token"
+      ]
+    },
+    {
+      "metadata": {
+        "bearer": "redacted"
+      },
+      "name": "secret-key-bearer",
+      "paths": [
+        "bearer"
+      ]
+    },
+    {
+      "metadata": {
+        "api_key": "redacted"
+      },
+      "name": "secret-key-api_key",
+      "paths": [
+        "api_key"
+      ]
+    },
+    {
+      "metadata": {
+        "apikey": "redacted"
+      },
+      "name": "secret-key-apikey",
+      "paths": [
+        "apikey"
+      ]
+    },
+    {
+      "metadata": {
+        "credential": "redacted"
+      },
+      "name": "secret-key-credential",
+      "paths": [
+        "credential"
+      ]
+    },
+    {
+      "metadata": {
+        "password": "redacted"
+      },
+      "name": "secret-key-password",
+      "paths": [
+        "password"
+      ]
+    },
+    {
+      "metadata": {
+        "authorization_header": "redacted"
+      },
+      "name": "secret-key-authorization_header",
+      "paths": [
+        "authorization_header"
+      ]
+    },
+    {
+      "metadata": {
+        "endpoint": "redacted"
+      },
+      "name": "secret-key-endpoint",
+      "paths": [
+        "endpoint"
+      ]
+    },
+    {
+      "metadata": {
+        "base_url": "redacted"
+      },
+      "name": "secret-key-base_url",
+      "paths": [
+        "base_url"
+      ]
+    },
+    {
+      "metadata": {
+        "base-url": "redacted"
+      },
+      "name": "secret-key-base-url",
+      "paths": [
+        "base-url"
+      ]
+    },
+    {
+      "metadata": {
+        "baseurl": "redacted"
+      },
+      "name": "secret-key-baseurl",
+      "paths": [
+        "baseurl"
+      ]
+    }
+  ]
+}

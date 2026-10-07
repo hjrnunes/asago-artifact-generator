@@ -1,0 +1,74 @@
+{
+  "description": "A source digest uses uppercase hex.",
+  "files": {
+    "bindings.json": "[]\n",
+    "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",
+    "plan.json": "{\"runtime_contract\":{\"setup_permissions\":[]}}\n",
+    "prerequisites.json": "[]\n",
+    "setup.json": "[]\n",
+    "stimulus.json": "{\"user_text\":\"hello\"}\n",
+    "tool_call_condition.json": "{\n  \"comparisons\": []\n}\n"
+  },
+  "manifest": {
+    "authoring": {
+      "interface": "artifact-authoring-v1",
+      "max_retries": 0
+    },
+    "creation_model": {
+      "model": "configured-private-authoring"
+    },
+    "input_kind": "scenario-handoff-v3",
+    "manifest_digest": "0e47feafb8e15741231ddd0fc4a74344ff126034f0bbf45aaa4b37bd4ec37076",
+    "members": [
+      {
+        "length": 3,
+        "media_type": "application/json",
+        "path": "bindings.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "length": 39,
+        "media_type": "application/json",
+        "path": "inputs.json",
+        "sha256": "0b9932bff0f80d8cb9e081d53d2b8096659d78a545e8e92240675b7e1c49ceb0"
+      },
+      {
+        "length": 46,
+        "media_type": "application/json",
+        "path": "plan.json",
+        "sha256": "c7ea6e3df7df863a5a9e8827633355cccb589a35885b5067031d52e94d39b02f"
+      },
+      {
+        "length": 3,
+        "media_type": "application/json",
+        "path": "prerequisites.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "length": 3,
+        "media_type": "application/json",
+        "path": "setup.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "length": 22,
+        "media_type": "application/json",
+        "path": "stimulus.json",
+        "sha256": "30a88c537670e9fdaf3176952284e3f2962092f3ac0d21038c15d0632ec75a9b"
+      },
+      {
+        "length": 24,
+        "media_type": "application/json",
+        "path": "tool_call_condition.json",
+        "sha256": "007e6080745589c44a205af0769ef22006a46e3f4d777ed0df8818452a31fb15"
+      }
+    ],
+    "package_id": "pkg-1",
+    "runtime_capabilities": {},
+    "scenario_id": "SCN-1",
+    "schema_version": "artifact-package-v3",
+    "source_digests": {
+      "input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  }
+}

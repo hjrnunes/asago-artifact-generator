@@ -1,0 +1,32 @@
+{
+  "description": "The manifest lists no members.",
+  "files": {
+    "bindings.json": "[]\n",
+    "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",
+    "plan.json": "{\"runtime_contract\":{\"setup_permissions\":[]}}\n",
+    "prerequisites.json": "[]\n",
+    "seed.json": "{\"schema_version\":\"mini-agents-seed-v1\",\"items\":[]}\n",
+    "setup.json": "[]\n",
+    "stimulus.json": "{\"user_text\":\"hello\",\"history\":[],\"mode\":\"single\",\"turn_count\":1}\n",
+    "tool_call_condition.json": "{\n  \"comparisons\": []\n}\n"
+  },
+  "manifest": {
+    "authoring": {
+      "interface": "artifact-authoring-v1",
+      "max_retries": 0
+    },
+    "creation_model": {
+      "model": "configured-private-authoring"
+    },
+    "input_kind": "scenario-handoff-v3",
+    "manifest_digest": "18d9729cd30afc0f6920c680cfdf95c91e125ef951947875f0a8cb7aa182137f",
+    "members": [],
+    "package_id": "pkg-1",
+    "runtime_capabilities": {},
+    "scenario_id": "SCN-1",
+    "schema_version": "artifact-package-v4",
+    "source_digests": {
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

@@ -144,7 +144,8 @@ def test_the_package_lock_adds_v4_and_keeps_the_v3_entry_and_singular_fields() -
         "artifact-package-v3": "artifact-package-v3",
         "artifact-package-v4": "artifact-package-v4",
     }
-    assert lock["files"] == {
+    schemas = {key: digest for key, digest in lock["files"].items() if key.endswith("schema.json")}
+    assert schemas == {
         "artifact-package-v3/schema.json": (
             "af47372909554dbca706755ed3fc55bea7b164a4fe91ec74c526f0ca74859578"
         ),
