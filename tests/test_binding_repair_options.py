@@ -7,7 +7,9 @@ import pytest
 
 from asago_artifact_generator.authoring.binding_repair import (
     CorrectionRepairInputs,
+    _indexed_field,
     _prerequisite_binding_repair_options,
+    _reference_field,
     _repair_review_binding_option,
     _repair_selector_option,
     _review_binding_indices,
@@ -25,6 +27,8 @@ from asago_artifact_generator.authoring.prompt_context import build_plan_author_
 
 from .test_versioned_prompt_roles import _inventory, _runtime_contract, _view
 
+_BINDING_VALIDATION = "plan_binding_validation"
+
 
 def _context(
     candidate: dict,
@@ -41,34 +45,77 @@ def _context(
     return context, correction_repair_inputs(_view(), inventory, runtime_contract)
 
 
-def _candidate() -> dict:
+def _candidate(*bindings: dict, **fields: object) -> dict:
     from .test_versioned_prompt_roles import _plan
 
-    return copy.deepcopy(_plan())
+    candidate = copy.deepcopy(_plan())
+    if bindings:
+        candidate["runtime_bindings"] = list(bindings)
+    candidate.update(fields)
+    return candidate
+
+
+def _binding(source_ref: str, selector: str = "value", **changes: object) -> dict:
+    return {
+        "name": "record_value",
+        "expected_type": "string",
+        "source_kind": "supplied_input",
+        "source_ref": source_ref,
+        "selector": selector,
+        "consumers": ["stimulus.user_text"],
+        "on_missing": "stop",
+        **changes,
+    }
+
+
+def _packet(
+    candidate: dict,
+    inventory: dict,
+    findings: list[Finding],
+    runtime_contract: dict | None = None,
+):
+    runtime_contract = _runtime_contract() if runtime_contract is None else runtime_contract
+    return _render_correction_packet(*_context(candidate, inventory, runtime_contract, findings))
+
+
+def _packet_for(
+    candidate: dict,
+    inventory: dict,
+    path: str,
+    detail: str,
+    *,
+    code: str = _BINDING_VALIDATION,
+    runtime_contract: dict | None = None,
+):
+    return _packet(candidate, inventory, [Finding(code, detail, path)], runtime_contract)
 
 
 def _option(packet):
     return packet.payload["binding_repair_options"]["options"][0]
 
 
+def _option_for(candidate: dict, inventory: dict, path: str, detail: str, **kwargs: object):
+    return _option(_packet_for(candidate, inventory, path, detail, **kwargs))
+
+
 def _unknown_binding_packet(binding_name: str):
-    candidate = _candidate()
-    candidate["prerequisites"] = [
-        {
-            "name": "record_ready",
-            "check": "The record is ready.",
-            "evidence_refs": ["reservation:RES-201"],
-            "binding": binding_name,
-            "equals": "ready",
-        }
-    ]
-    return _render_correction_packet(
-        *_context(
-            candidate,
-            _inventory(),
-            _runtime_contract(),
-            [Finding("unknown_binding", "binding is not declared", "prerequisites[0].binding")],
-        )
+    candidate = _candidate(
+        prerequisites=[
+            {
+                "name": "record_ready",
+                "check": "The record is ready.",
+                "evidence_refs": ["reservation:RES-201"],
+                "binding": binding_name,
+                "equals": "ready",
+            }
+        ]
+    )
+    return _packet_for(
+        candidate,
+        _inventory(),
+        "prerequisites[0].binding",
+        "binding is not declared",
+        code="unknown_binding",
     )
 
 
@@ -88,28 +135,12 @@ def test_selector_repair_lists_documented_paths_and_compatible_types() -> None:
             "items": {"type": "array", "items": {"type": "boolean"}},
         },
     }
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "number",
-            "source_kind": "supplied_input",
-            "source_ref": f"facts:{inventory['facts'][0]['ref']}",
-            "selector": "value.missing",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            _runtime_contract(),
-            [Finding("plan_binding_validation", "bad selector", "runtime_bindings[0].selector")],
-        )
+    binding = _binding("facts:session:actor", "value.missing", expected_type="number")
+
+    option = _option_for(
+        _candidate(binding), inventory, "runtime_bindings[0].selector", "bad selector"
     )
 
-    option = _option(packet)
     assert option["kind"] == "selector"
     assert option["documented_selectors"] == {
         "value": "object",
@@ -131,36 +162,23 @@ def test_unpermitted_setup_source_lists_referenced_facts_and_no_setup_sources() 
             "host_id": {"type": "string"},
         },
     }
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "patient_id",
-            "expected_type": "string",
-            "source_kind": "setup_output",
-            "source_ref": "setup:summarize_for_ehr",
-            "selector": "result.patient_id",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
+    binding = _binding(
+        "setup:summarize_for_ehr",
+        "result.patient_id",
+        name="patient_id",
+        source_kind="setup_output",
+    )
     runtime_contract = _runtime_contract()
     runtime_contract["setup_permissions"] = []
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            runtime_contract,
-            [
-                Finding(
-                    "plan_binding_validation",
-                    "setup operation is not permitted",
-                    "runtime_bindings[0].source_ref",
-                )
-            ],
-        )
+
+    option = _option_for(
+        _candidate(binding),
+        inventory,
+        "runtime_bindings[0].source_ref",
+        "setup operation is not permitted",
+        runtime_contract=runtime_contract,
     )
 
-    option = _option(packet)
     assert option["kind"] == "source"
     assert option["findings"] == [
         {
@@ -191,36 +209,13 @@ def test_unpermitted_setup_source_lists_referenced_facts_and_no_setup_sources() 
 
 
 def test_source_and_selector_findings_merge_into_one_source_option() -> None:
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": "facts:not-present",
-            "selector": "value.missing",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            _inventory(),
-            _runtime_contract(),
-            [
-                Finding(
-                    "plan_binding_validation",
-                    "bad source",
-                    "runtime_bindings[0].source_ref",
-                ),
-                Finding(
-                    "plan_binding_validation",
-                    "bad selector",
-                    "runtime_bindings[0].selector",
-                ),
-            ],
-        )
+    packet = _packet(
+        _candidate(_binding("facts:not-present", "value.missing")),
+        _inventory(),
+        [
+            Finding(_BINDING_VALIDATION, "bad source", "runtime_bindings[0].source_ref"),
+            Finding(_BINDING_VALIDATION, "bad selector", "runtime_bindings[0].selector"),
+        ],
     )
 
     options = packet.payload["binding_repair_options"]["options"]
@@ -238,36 +233,70 @@ def test_source_and_selector_findings_merge_into_one_source_option() -> None:
     ]
 
 
-def test_selector_repair_explicitly_reports_no_matching_type() -> None:
+_NO_MATCHING_TYPE_NOTE = (
+    "No documented selector of source facts:session:actor yields expected_type string."
+)
+
+
+@pytest.mark.parametrize(
+    ("schema", "selector", "expected", "absent", "lengths", "contains"),
+    [
+        pytest.param(
+            {"type": "object"},
+            "value.identifier",
+            {"matching_expected_type": [], "no_matching_selector_note": _NO_MATCHING_TYPE_NOTE},
+            (),
+            {},
+            {},
+            id="reports-no-matching-type",
+        ),
+        pytest.param(
+            None,
+            "value.missing",
+            {"path": "runtime_bindings[0].selector", "resolved_source": True},
+            ("findings",),
+            {},
+            {},
+            id="selector-only-finding-keeps-the-selector-option-shape",
+        ),
+        pytest.param(
+            {
+                "type": "object",
+                "properties": {f"field_{index:02d}": {"type": "string"} for index in range(45)},
+            },
+            "value.unknown",
+            {"truncated": True},
+            (),
+            {"documented_selectors": 40},
+            {"truncation_note": "truncated after 40 selectors"},
+            id="enumeration-is-capped-with-a-note",
+        ),
+    ],
+)
+def test_selector_repair_on_a_resolving_source(
+    schema: dict | None,
+    selector: str,
+    expected: dict,
+    absent: tuple[str, ...],
+    lengths: dict[str, int],
+    contains: dict[str, str],
+) -> None:
     inventory = _inventory()
-    inventory["facts"][0]["schema"] = {"type": "object"}
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": f"facts:{inventory['facts'][0]['ref']}",
-            "selector": "value.identifier",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            _runtime_contract(),
-            [Finding("plan_binding_validation", "bad selector", "runtime_bindings[0].selector")],
-        )
+    if schema is not None:
+        inventory["facts"][0]["schema"] = schema
+
+    option = _option_for(
+        _candidate(_binding("facts:session:actor", selector)),
+        inventory,
+        "runtime_bindings[0].selector",
+        "bad selector",
     )
 
-    option = _option(packet)
-    assert option["matching_expected_type"] == []
-    assert option["no_matching_selector_note"] == (
-        f"No documented selector of source facts:{inventory['facts'][0]['ref']} "
-        "yields expected_type string."
-    )
+    assert option["kind"] == "selector"
+    assert {name: option[name] for name in expected} == expected
+    assert all(name not in option for name in absent)
+    assert {name: len(option[name]) for name in lengths} == lengths
+    assert all(text in option[name] for name, text in contains.items())
 
 
 def _empty_list_inventory() -> dict:
@@ -283,16 +312,8 @@ def _empty_list_inventory() -> dict:
     return inventory
 
 
-def _empty_list_binding() -> dict:
-    return {
-        "name": "inbox_text",
-        "expected_type": "string",
-        "source_kind": "supplied_input",
-        "source_ref": "facts:state:inbox",
-        "selector": "value",
-        "consumers": ["stimulus.user_text"],
-        "on_missing": "stop",
-    }
+def _empty_list_binding(source_ref: str = "facts:state:inbox") -> dict:
+    return _binding(source_ref, name="inbox_text")
 
 
 _EMPTY_LIST_NOTE = (
@@ -302,21 +323,11 @@ _EMPTY_LIST_NOTE = (
 
 
 def test_selector_repair_marks_a_source_whose_supplied_value_is_empty() -> None:
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [_empty_list_binding()]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            _empty_list_inventory(),
-            _runtime_contract(),
-            [
-                Finding(
-                    "plan_binding_validation",
-                    "binding type mismatch for inbox_text: expected string, source is array",
-                    "runtime_bindings[0].selector",
-                )
-            ],
-        )
+    packet = _packet_for(
+        _candidate(_empty_list_binding()),
+        _empty_list_inventory(),
+        "runtime_bindings[0].selector",
+        "binding type mismatch for inbox_text: expected string, source is array",
     )
 
     option = _option(packet)
@@ -330,26 +341,13 @@ def test_selector_repair_marks_a_source_whose_supplied_value_is_empty() -> None:
 
 
 def test_source_repair_marks_referenced_facts_whose_supplied_value_is_empty() -> None:
-    candidate = _candidate()
-    binding = _empty_list_binding()
-    binding["source_ref"] = "state:inbox"
-    candidate["runtime_bindings"] = [binding]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            _empty_list_inventory(),
-            _runtime_contract(),
-            [
-                Finding(
-                    "plan_binding_validation",
-                    "supplied_input binding source_ref must be facts:<ref>: inbox_text",
-                    "runtime_bindings[0].source_ref",
-                )
-            ],
-        )
+    option = _option_for(
+        _candidate(_empty_list_binding("state:inbox")),
+        _empty_list_inventory(),
+        "runtime_bindings[0].source_ref",
+        "supplied_input binding source_ref must be facts:<ref>: inbox_text",
     )
 
-    option = _option(packet)
     assert option["kind"] == "source"
     sources = {entry["source_ref"]: entry for entry in option["referenced_fact_sources"]}
     assert sources["facts:state:inbox"] == {
@@ -416,15 +414,12 @@ def _keyed_orders_inventory() -> dict:
 
 
 def _named_record_binding(source_ref: str, selector: str) -> dict:
-    return {
-        "name": "target_order_id",
-        "expected_type": "string",
-        "source_kind": "supplied_input",
-        "source_ref": source_ref,
-        "selector": selector,
-        "consumers": ["setup.arguments.target_order_id"],
-        "on_missing": "stop",
-    }
+    return _binding(
+        source_ref,
+        selector,
+        name="target_order_id",
+        consumers=["setup.arguments.target_order_id"],
+    )
 
 
 _NAMED_ORDER_SOURCES = [
@@ -468,23 +463,11 @@ def _assert_named_sources_validate(inventory: dict, sources: list[dict]) -> None
 
 def test_selector_repair_lists_the_named_record_beyond_the_selector_cap() -> None:
     inventory = _keyed_orders_inventory()
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        _named_record_binding("facts:state:orders:ORD-201", "value.order_id")
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            _runtime_contract(),
-            [
-                Finding(
-                    "plan_binding_validation",
-                    "undocumented selector for binding target_order_id: value.order_id",
-                    "runtime_bindings[0].selector",
-                )
-            ],
-        )
+    packet = _packet_for(
+        _candidate(_named_record_binding("facts:state:orders:ORD-201", "value.order_id")),
+        inventory,
+        "runtime_bindings[0].selector",
+        "undocumented selector for binding target_order_id: value.order_id",
     )
 
     option = _option(packet)
@@ -499,143 +482,76 @@ def test_selector_repair_lists_the_named_record_beyond_the_selector_cap() -> Non
     assert descriptions["named_record_sources"]
 
 
-def test_source_repair_lists_the_named_record_of_an_unresolved_field_shorthand() -> None:
-    inventory = _keyed_orders_inventory()
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        _named_record_binding("facts:state:orders:ORD-201:order_id", "value")
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            _runtime_contract(),
-            [
-                Finding(
-                    "plan_binding_validation",
-                    "unknown supplied fact: state:orders:ORD-201:order_id",
-                    "runtime_bindings[0].source_ref",
-                )
-            ],
-        )
+@pytest.mark.parametrize(
+    ("source_ref", "selector", "path", "detail", "kind", "resolved_source", "names_record"),
+    [
+        pytest.param(
+            "facts:state:orders:ORD-201:order_id",
+            "value",
+            "runtime_bindings[0].source_ref",
+            "unknown supplied fact: state:orders:ORD-201:order_id",
+            "source",
+            False,
+            True,
+            id="unresolved-field-shorthand",
+        ),
+        pytest.param(
+            "facts:state:orders",
+            "value.ORD-201",
+            "runtime_bindings[0].selector",
+            "binding type mismatch for target_order_id: expected string, source is object",
+            "selector",
+            None,
+            True,
+            id="exact-fact-selector",
+        ),
+        pytest.param(
+            "facts:state:orders",
+            "value",
+            "runtime_bindings[0].selector",
+            "binding type mismatch for target_order_id: expected string, source is object",
+            "selector",
+            None,
+            False,
+            id="whole-fact-selector",
+        ),
+    ],
+)
+def test_repair_options_list_the_named_record_only_when_the_binding_names_one(
+    source_ref: str,
+    selector: str,
+    path: str,
+    detail: str,
+    kind: str,
+    resolved_source: bool | None,
+    names_record: bool,
+) -> None:
+    option = _option_for(
+        _candidate(_named_record_binding(source_ref, selector)),
+        _keyed_orders_inventory(),
+        path,
+        detail,
     )
 
-    option = _option(packet)
-    assert option["kind"] == "source"
-    assert option["resolved_source"] is False
-    assert option["named_record_key"] == "ORD-201"
-    assert option["named_record_sources"] == _NAMED_ORDER_SOURCES
-
-
-def test_repair_options_list_the_record_an_exact_fact_selector_names() -> None:
-    inventory = _keyed_orders_inventory()
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [_named_record_binding("facts:state:orders", "value.ORD-201")]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            _runtime_contract(),
-            [
-                Finding(
-                    "plan_binding_validation",
-                    "binding type mismatch for target_order_id: expected string, source is object",
-                    "runtime_bindings[0].selector",
-                )
-            ],
-        )
-    )
-
-    option = _option(packet)
-    assert option["kind"] == "selector"
-    assert option["named_record_key"] == "ORD-201"
-    assert option["named_record_sources"] == _NAMED_ORDER_SOURCES
-
-
-def test_repair_options_omit_named_record_fields_for_a_whole_fact_selector() -> None:
-    inventory = _keyed_orders_inventory()
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [_named_record_binding("facts:state:orders", "value")]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            _runtime_contract(),
-            [
-                Finding(
-                    "plan_binding_validation",
-                    "binding type mismatch for target_order_id: expected string, source is object",
-                    "runtime_bindings[0].selector",
-                )
-            ],
-        )
-    )
-
-    option = _option(packet)
-    assert option["kind"] == "selector"
-    assert "named_record_key" not in option
-    assert "named_record_sources" not in option
-
-
-def test_selector_only_finding_on_resolving_source_keeps_selector_option_shape() -> None:
-    inventory = _inventory()
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": "facts:session:actor",
-            "selector": "value.missing",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            _runtime_contract(),
-            [Finding("plan_binding_validation", "bad selector", "runtime_bindings[0].selector")],
-        )
-    )
-
-    option = _option(packet)
-    assert option["kind"] == "selector"
-    assert option["path"] == "runtime_bindings[0].selector"
-    assert "findings" not in option
-    assert option["resolved_source"] is True
+    assert option["kind"] == kind
+    if resolved_source is not None:
+        assert option["resolved_source"] is resolved_source
+    if names_record:
+        assert option["named_record_key"] == "ORD-201"
+        assert option["named_record_sources"] == _NAMED_ORDER_SOURCES
+    else:
+        assert "named_record_key" not in option
+        assert "named_record_sources" not in option
 
 
 def test_source_kind_finding_triggers_a_source_option() -> None:
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": "facts:session:actor",
-            "selector": "value",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            _inventory(),
-            _runtime_contract(),
-            [
-                Finding(
-                    "plan_binding_validation",
-                    "bad source kind",
-                    "runtime_bindings[0].source_kind",
-                )
-            ],
-        )
+    option = _option_for(
+        _candidate(_binding("facts:session:actor")),
+        _inventory(),
+        "runtime_bindings[0].source_kind",
+        "bad source kind",
     )
 
-    option = _option(packet)
     assert option["kind"] == "source"
     assert option["findings"] == [
         {
@@ -646,30 +562,13 @@ def test_source_kind_finding_triggers_a_source_option() -> None:
 
 
 def test_unresolved_selector_source_lists_facts_and_permitted_setup_sources() -> None:
-    inventory = _inventory()
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": "facts:not-present",
-            "selector": "value",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    runtime_contract = _runtime_contract()
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            runtime_contract,
-            [Finding("plan_binding_validation", "unknown source", "runtime_bindings[0].selector")],
-        )
+    option = _option_for(
+        _candidate(_binding("facts:not-present")),
+        _inventory(),
+        "runtime_bindings[0].selector",
+        "unknown source",
     )
 
-    option = _option(packet)
     assert option["kind"] == "source"
     assert option["resolved_source"] is False
     assert option["referenced_fact_sources"] == [
@@ -705,29 +604,11 @@ def test_substring_fact_reference_is_not_considered_a_citation() -> None:
             "provenance": "extended actor state",
         }
     )
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": "facts:not-present",
-            "selector": "value",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
+    candidate = _candidate(_binding("facts:not-present"))
     candidate["interpretation"]["failure"] = "facts:session:actor:extended is not exact"
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            _runtime_contract(),
-            [Finding("plan_binding_validation", "bad source", "runtime_bindings[0].source_ref")],
-        )
-    )
 
-    option = _option(packet)
+    option = _option_for(candidate, inventory, "runtime_bindings[0].source_ref", "bad source")
+
     assert "facts:session:actor:extended" in option["other_fact_source_refs"]
     assert not any(
         item["source_ref"] == "facts:session:actor:extended"
@@ -735,26 +616,19 @@ def test_substring_fact_reference_is_not_considered_a_citation() -> None:
     )
 
 
+def _string_fact(ref: str, index: int) -> dict:
+    return {
+        "ref": f"{ref}:{index:02d}",
+        "value": f"value-{index}",
+        "schema": {"type": "string"},
+        "provenance": "test",
+    }
+
+
 def test_source_lists_cap_referenced_setup_and_other_fact_sources() -> None:
     inventory = {
-        "facts": [
-            {
-                "ref": f"referenced:{index:02d}",
-                "value": f"value-{index}",
-                "schema": {"type": "string"},
-                "provenance": "test",
-            }
-            for index in range(41)
-        ]
-        + [
-            {
-                "ref": f"other:{index:02d}",
-                "value": f"value-{index}",
-                "schema": {"type": "string"},
-                "provenance": "test",
-            }
-            for index in range(41)
-        ],
+        "facts": [_string_fact("referenced", index) for index in range(41)]
+        + [_string_fact("other", index) for index in range(41)],
         "operations": [
             {
                 "name": f"operation_{index:02d}",
@@ -764,31 +638,21 @@ def test_source_lists_cap_referenced_setup_and_other_fact_sources() -> None:
             for index in range(41)
         ],
     }
-    candidate = _candidate()
-    candidate["selected_evidence"] = []
+    candidate = _candidate(
+        _binding("setup:not-present", "result", source_kind="setup_output"),
+        selected_evidence=[],
+    )
     candidate["interpretation"]["source_refs"] = [f"referenced:{index:02d}" for index in range(41)]
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "string",
-            "source_kind": "setup_output",
-            "source_ref": "setup:not-present",
-            "selector": "result",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
     runtime_contract = {"setup_permissions": [f"operation_{index:02d}" for index in range(41)]}
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            runtime_contract,
-            [Finding("plan_binding_validation", "bad source", "runtime_bindings[0].source_ref")],
-        )
+
+    option = _option_for(
+        candidate,
+        inventory,
+        "runtime_bindings[0].source_ref",
+        "bad source",
+        runtime_contract=runtime_contract,
     )
 
-    option = _option(packet)
     assert len(option["referenced_fact_sources"]) == 40
     assert option["referenced_fact_sources_truncated"] is True
     assert len(option["permitted_setup_sources"]) == 40
@@ -802,25 +666,11 @@ def test_source_lists_cap_referenced_setup_and_other_fact_sources() -> None:
 
 
 def test_source_option_fields_describe_new_fields() -> None:
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": "facts:not-present",
-            "selector": "value",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            _inventory(),
-            _runtime_contract(),
-            [Finding("plan_binding_validation", "bad source", "runtime_bindings[0].source_ref")],
-        )
+    packet = _packet_for(
+        _candidate(_binding("facts:not-present")),
+        _inventory(),
+        "runtime_bindings[0].source_ref",
+        "bad source",
     )
 
     descriptions = packet.payload["binding_repair_options"]["field_descriptions"]
@@ -840,45 +690,31 @@ def test_source_option_fields_describe_new_fields() -> None:
     assert "available_source_ref_forms" not in packet.user
 
 
-def test_unknown_binding_lists_names_rule_and_fact_selector_sources() -> None:
-    inventory = _inventory()
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "existing",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": "facts:session:actor",
-            "selector": "value",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    candidate["prerequisites"] = [
-        {
-            "name": "record_ready",
-            "check": "The record is ready.",
-            "evidence_refs": ["reservation:RES-201", "source:case"],
-            "binding": "missing_binding",
-            "equals": "ready",
-        }
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            _runtime_contract(),
-            [
-                Finding(
-                    "unknown_binding",
-                    "binding is not declared",
-                    "prerequisites[0].binding",
-                )
-            ],
-        )
+def _existing_binding_candidate(evidence_refs: list[str], **prerequisite: object) -> dict:
+    return _candidate(
+        _binding("facts:session:actor", name="existing"),
+        prerequisites=[
+            {
+                "name": "record_ready",
+                "check": "The record is ready.",
+                "evidence_refs": evidence_refs,
+                "binding": "missing_binding",
+                "equals": "ready",
+                **prerequisite,
+            }
+        ],
     )
 
-    option = _option(packet)
+
+def test_unknown_binding_lists_names_rule_and_fact_selector_sources() -> None:
+    option = _option_for(
+        _existing_binding_candidate(["reservation:RES-201", "source:case"]),
+        _inventory(),
+        "prerequisites[0].binding",
+        "binding is not declared",
+        code="unknown_binding",
+    )
+
     assert option["declared_binding_names"] == ["existing"]
     assert option["declaration_requirement"] == (
         'Add a runtime_bindings entry with name "missing_binding" whose consumers '
@@ -915,80 +751,18 @@ def test_prerequisite_options_skip_findings_that_name_no_prerequisite_object() -
 
 
 def test_consumer_mismatch_lists_the_exact_required_consumer() -> None:
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "existing",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": "facts:session:actor",
-            "selector": "value",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    candidate["prerequisites"] = [
-        {
-            "name": "record_ready",
-            "check": "The record is ready.",
-            "evidence_refs": ["reservation:RES-201"],
-            "binding": "existing",
-            "equals": "GST001",
-        }
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            _inventory(),
-            _runtime_contract(),
-            [
-                Finding(
-                    "consumer_mismatch",
-                    "consumer is missing",
-                    "prerequisites[0].binding",
-                )
-            ],
-        )
+    option = _option_for(
+        _existing_binding_candidate(["reservation:RES-201"], binding="existing", equals="GST001"),
+        _inventory(),
+        "prerequisites[0].binding",
+        "consumer is missing",
+        code="consumer_mismatch",
     )
 
-    option = _option(packet)
     assert option["required_consumer"] == "prerequisites.existing"
     assert option["consumer_requirement"] == (
         'Add "prerequisites.existing" to the consumers list of the "existing" runtime binding.'
     )
-
-
-def test_selector_enumeration_is_capped_with_an_explicit_note() -> None:
-    inventory = _inventory()
-    inventory["facts"][0]["schema"] = {
-        "type": "object",
-        "properties": {f"field_{index:02d}": {"type": "string"} for index in range(45)},
-    }
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": f"facts:{inventory['facts'][0]['ref']}",
-            "selector": "value.unknown",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            _runtime_contract(),
-            [Finding("plan_binding_validation", "bad selector", "runtime_bindings[0].selector")],
-        )
-    )
-
-    option = _option(packet)
-    assert len(option["documented_selectors"]) == 40
-    assert option["truncated"] is True
-    assert "truncated after 40 selectors" in option["truncation_note"]
 
 
 def test_static_repair_fields_are_case_independent_and_separate_from_options() -> None:
@@ -1024,21 +798,11 @@ def test_binding_selector_type_resolves_nested_schema_paths() -> None:
 
 
 def test_duplicate_findings_produce_one_option_per_kind_and_path() -> None:
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": "facts:session:actor",
-            "selector": "value.missing",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    finding = Finding("plan_binding_validation", "bad selector", "runtime_bindings[0].selector")
-    packet = _render_correction_packet(
-        *_context(candidate, _inventory(), _runtime_contract(), [finding, finding])
+    finding = Finding(_BINDING_VALIDATION, "bad selector", "runtime_bindings[0].selector")
+    packet = _packet(
+        _candidate(_binding("facts:session:actor", "value.missing")),
+        _inventory(),
+        [finding, finding],
     )
 
     options = packet.payload["binding_repair_options"]["options"]
@@ -1091,48 +855,28 @@ def test_review_binding_option_is_none_when_the_source_does_not_resolve() -> Non
 
 def _unknown_binding_option(declared: int, evidence: int) -> dict:
     inventory = {
-        "facts": [
-            {
-                "ref": f"fact:{index:02d}",
-                "value": f"value-{index}",
-                "schema": {"type": "string"},
-                "provenance": "test",
-            }
-            for index in range(evidence)
-        ],
+        "facts": [_string_fact("fact", index) for index in range(evidence)],
         "operations": [],
     }
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": f"binding_{index:02d}",
-            "expected_type": "string",
-            "source_kind": "supplied_input",
-            "source_ref": "facts:fact:00",
-            "selector": "value",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-        for index in range(declared)
-    ]
-    candidate["prerequisites"] = [
-        {
-            "name": "record_ready",
-            "check": "The record is ready.",
-            "evidence_refs": [f"fact:{index:02d}" for index in range(evidence)],
-            "binding": "missing_binding",
-            "equals": "ready",
-        }
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            _runtime_contract(),
-            [Finding("unknown_binding", "binding is not declared", "prerequisites[0].binding")],
-        )
+    candidate = _candidate(
+        *(_binding("facts:fact:00", name=f"binding_{index:02d}") for index in range(declared)),
+        prerequisites=[
+            {
+                "name": "record_ready",
+                "check": "The record is ready.",
+                "evidence_refs": [f"fact:{index:02d}" for index in range(evidence)],
+                "binding": "missing_binding",
+                "equals": "ready",
+            }
+        ],
     )
-    return _option(packet)
+    return _option_for(
+        candidate,
+        inventory,
+        "prerequisites[0].binding",
+        "binding is not declared",
+        code="unknown_binding",
+    )
 
 
 def test_unknown_binding_caps_declared_names_and_fact_sources_with_a_note() -> None:
@@ -1168,28 +912,15 @@ def test_source_repair_lists_a_repeated_setup_operation_once() -> None:
         "description": "test operation",
     }
     inventory = {"facts": [], "operations": [operation, copy.deepcopy(operation)]}
-    candidate = _candidate()
-    candidate["runtime_bindings"] = [
-        {
-            "name": "record_value",
-            "expected_type": "string",
-            "source_kind": "setup_output",
-            "source_ref": "setup:not-present",
-            "selector": "result",
-            "consumers": ["stimulus.user_text"],
-            "on_missing": "stop",
-        }
-    ]
-    packet = _render_correction_packet(
-        *_context(
-            candidate,
-            inventory,
-            {"setup_permissions": ["lookup_record"]},
-            [Finding("plan_binding_validation", "bad source", "runtime_bindings[0].source_ref")],
-        )
+
+    option = _option_for(
+        _candidate(_binding("setup:not-present", "result", source_kind="setup_output")),
+        inventory,
+        "runtime_bindings[0].source_ref",
+        "bad source",
+        runtime_contract={"setup_permissions": ["lookup_record"]},
     )
 
-    option = _option(packet)
     assert [source["source_ref"] for source in option["permitted_setup_sources"]] == [
         "setup:lookup_record"
     ]
@@ -1317,8 +1048,6 @@ def test_binding_selector_type_stops_at_an_undocumented_schema() -> None:
     ],
 )
 def test_indexed_field_reads_the_finding_target(path: str, expected: object) -> None:
-    from asago_artifact_generator.authoring.binding_repair import _indexed_field
-
     assert _indexed_field(Finding("c", "d", path), "runtime_bindings") == expected
     assert _indexed_field({"code": "c", "path": path}, "runtime_bindings") == expected
 
@@ -1338,6 +1067,4 @@ def test_indexed_field_reads_the_finding_target(path: str, expected: object) -> 
     ],
 )
 def test_reference_field_matches_target_shapes(path: object, expected: str | None) -> None:
-    from asago_artifact_generator.authoring.binding_repair import _reference_field
-
     assert _reference_field(path) == expected
