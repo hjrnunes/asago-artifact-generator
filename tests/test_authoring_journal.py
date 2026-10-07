@@ -22,8 +22,13 @@ from asago_artifact_generator.authoring.journal import (
 )
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 
-from .support import load_failure_evidence, scripted_orchestrator, world_builders
-from .test_stage_local_orchestration import _finding, _review
+from .support import (
+    load_failure_evidence,
+    review_finding,
+    review_response,
+    scripted_orchestrator,
+    world_builders,
+)
 
 _framed, _inventory, _plan, _runtime_contract, _view = world_builders(
     "refund", "framed", "inventory", "plan", "runtime_contract", "view"
@@ -313,12 +318,12 @@ def test_projections_are_a_function_of_the_events(tmp_path: Path) -> None:
         tmp_path,
         [
             json.dumps(_plan()),
-            _review("revise", [_finding()]),
+            review_response("revise", [review_finding()]),
             json.dumps(_plan()),
-            _review(),
+            review_response(),
             b"not json",
             _framed(),
-            _review(),
+            review_response(),
         ],
         task_id="replayed",
         policy=AuthoringPolicy(),

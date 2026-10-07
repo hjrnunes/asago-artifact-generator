@@ -6,18 +6,11 @@ import json
 
 from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 
-from .support import world_builders
+from .support import json_section, world_builders
 
 _inventory, _runtime_contract, _view = world_builders(
     "ehr", "inventory", "runtime_contract", "view"
 )
-
-
-def _section(user: str, title: str) -> dict:
-    marker = f"{title}\n" if user.startswith(f"{title}\n") else f"\n{title}\n"
-    start = user.index(marker) + len(marker)
-    end = user.index("\n\n", start)
-    return json.loads(user[start:end])
 
 
 def _view_with(**changes):
@@ -88,10 +81,10 @@ def test_call1_projects_kind_attack_tree_and_unavailable_classification() -> Non
     user = packet.user
     assert user.startswith("TASK\n")
     assert user.index("\nSCENARIO DESIGN\n") < user.index("\nSOURCE CONTEXT\n")
-    design = _section(user, "SCENARIO DESIGN")
+    design = json_section(user, "SCENARIO DESIGN")
     assert design["kind"] == "adversarial"
     assert "The message is the attack itself" in design["stimulus_rule"]
-    task = _section(user, "TASK")
+    task = json_section(user, "TASK")
     assert task["scenario"]["classification"]["status"] == "unavailable"
     assert "Do not infer" in task["scenario"]["classification"]["reason"]
     tree = design["attack_tree"]
@@ -110,7 +103,7 @@ def test_call1_projects_kind_attack_tree_and_unavailable_classification() -> Non
 def test_attack_tree_nodes_render_by_category_with_source_ids() -> None:
     view = _view_with(attack_tree=_NODE_TREE)
 
-    design = _section(
+    design = json_section(
         build_call1_packet_v2(view, _inventory(), _runtime_contract()).user,
         "SCENARIO DESIGN",
     )
@@ -128,13 +121,13 @@ def test_attack_tree_nodes_render_by_category_with_source_ids() -> None:
 
 
 def test_functional_and_missing_kinds_get_their_own_stimulus_rules() -> None:
-    functional = _section(
+    functional = json_section(
         build_call1_packet_v2(
             _view_with(kind="functional"), _inventory(), _runtime_contract()
         ).user,
         "SCENARIO DESIGN",
     )
-    missing = _section(
+    missing = json_section(
         build_call1_packet_v2(
             _view_with(kind=None, attack_tree=None), _inventory(), _runtime_contract()
         ).user,
@@ -153,7 +146,7 @@ def test_structured_classification_is_copied_when_supplied() -> None:
     classification = {"family": "refund", "test_class": "timing", "adversary": "customer"}
 
     assert (
-        _section(
+        json_section(
             build_call1_packet_v2(
                 _view_with(classification=classification), _inventory(), _runtime_contract()
             ).user,
@@ -166,6 +159,6 @@ def test_structured_classification_is_copied_when_supplied() -> None:
 def test_current_call1_lists_operations_once() -> None:
     packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
 
-    capabilities = _section(packet.user, "EXECUTION CAPABILITIES")
+    capabilities = json_section(packet.user, "EXECUTION CAPABILITIES")
     assert "SOURCE CONTEXT operations" in capabilities["available_operations"]
     assert "Return a draft and its status." not in json.dumps(capabilities)

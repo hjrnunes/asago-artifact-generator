@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -13,6 +14,7 @@ import httpx2
 import openai
 import pytest
 
+from asago_artifact_generator import cli
 from asago_artifact_generator.authoring.checks import (
     collect_artifact_findings_v2,
     collect_plan_findings_v2,
@@ -167,6 +169,88 @@ def assemble_refund_package(tmp_path: Path, plan: dict, metadata: dict) -> Autho
         package_dir=tmp_path / "package",
         task_id="v2-members",
     ).run(view(), inventory(), runtime_contract())
+
+
+@dataclass
+class CliCapture:
+    """What the `generate` command handed to the transport and the orchestrator."""
+
+    transport: dict[str, Any] = field(default_factory=dict)
+    orchestrator: dict[str, Any] = field(default_factory=dict)
+    run_inputs: tuple[Any, ...] = ()
+    constructed: bool = False
+
+
+def fake_cli_authoring(monkeypatch: pytest.MonkeyPatch) -> CliCapture:
+    """Replace the CLI's transport and orchestrator with recorders that fail the run.
+
+    The returned capture holds the keyword arguments each constructor received and the
+    inputs of `run`, so a test asserts what the command wired without any model request.
+    """
+
+    capture = CliCapture()
+
+    class FakeTransport:
+        max_retries = 0
+
+        def __init__(self, **kwargs: Any) -> None:
+            capture.transport.update(kwargs)
+
+    class FakeOrchestrator:
+        def __init__(self, **kwargs: Any) -> None:
+            capture.orchestrator.update(kwargs)
+
+        def run(self, *inputs: Any) -> SimpleNamespace:
+            capture.run_inputs = inputs
+            return SimpleNamespace(
+                status="failed", package_path=None, review_status={}, findings=[]
+            )
+
+    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FakeTransport)
+    monkeypatch.setattr(cli, "AuthoringOrchestrator", FakeOrchestrator)
+    return capture
+
+
+def forbid_cli_transport(monkeypatch: pytest.MonkeyPatch) -> CliCapture:
+    """Make constructing the CLI's transport raise and record that it happened."""
+
+    capture = CliCapture()
+
+    def fail_if_constructed(**_: Any) -> object:
+        capture.constructed = True
+        raise AssertionError("transport must not be constructed")
+
+    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", fail_if_constructed)
+    return capture
+
+
+def json_section(user: str, title: str) -> dict:
+    """Return the JSON object a prompt renders under the heading ``title``."""
+
+    marker = f"{title}\n" if user.startswith(f"{title}\n") else f"\n{title}\n"
+    start = user.index(marker) + len(marker)
+    end = user.index("\n\n", start)
+    return json.loads(user[start:end])
+
+
+def review_response(decision: str = "accept", findings: list[dict] | None = None) -> bytes:
+    """Return the bytes of a scripted reviewer answer."""
+
+    return json.dumps(
+        {"decision": decision, "summary": f"scripted {decision}", "findings": findings or []}
+    ).encode()
+
+
+def review_finding(question: str = "scenario_fidelity") -> dict[str, str]:
+    """Return one reviewer finding that answers ``question``."""
+
+    return {
+        "question": question,
+        "location": "plan.prerequisites[0]",
+        "problem": f"problem for {question}",
+        "basis": f"basis for {question}",
+        "required_change": f"change for {question}",
+    }
 
 
 def tool_call_runtime_contract() -> dict:

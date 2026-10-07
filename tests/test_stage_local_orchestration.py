@@ -19,6 +19,8 @@ from asago_artifact_generator.authoring.review import parse_review_response
 from .support import (
     ScriptedAuthoringTransport,
     load_failure_evidence,
+    review_finding,
+    review_response,
     scripted_orchestrator,
     world_builders,
 )
@@ -26,26 +28,6 @@ from .support import (
 _framed, _inventory, _plan, _runtime_contract, _view = world_builders(
     "refund", "framed", "inventory", "plan", "runtime_contract", "view"
 )
-
-
-def _review(decision: str = "accept", findings: list[dict] | None = None) -> bytes:
-    return json.dumps(
-        {
-            "decision": decision,
-            "summary": f"scripted {decision} routing example",
-            "findings": findings or [],
-        }
-    ).encode()
-
-
-def _finding(question: str = "scenario_fidelity") -> dict[str, str]:
-    return {
-        "question": question,
-        "location": "plan.prerequisites[0]",
-        "problem": "The prerequisite removes the scenario's starting condition.",
-        "basis": "The supplied scenario requires the condition to remain present.",
-        "required_change": "Preserve the supplied condition without inventing facts.",
-    }
 
 
 _orchestrator = partial(scripted_orchestrator, task_id="stage-local")
@@ -99,7 +81,9 @@ def test_orchestrator_records_the_supplied_stage_policy(tmp_path: Path) -> None:
 def test_reviewer_controls_record_profile_model_and_zero_temperature(
     tmp_path: Path,
 ) -> None:
-    transport = ScriptedAuthoringTransport([json.dumps(_plan()), _review(), _framed(), _review()])
+    transport = ScriptedAuthoringTransport(
+        [json.dumps(_plan()), review_response(), _framed(), review_response()]
+    )
     transport.model = "reviewer-model"
     orchestrator = AuthoringOrchestrator(
         transport=transport,
@@ -138,7 +122,7 @@ def test_unparseable_candidate_records_checks_that_did_not_run(tmp_path: Path) -
 
 
 def test_review_response_parser_accepts_bare_and_single_json_fenced_objects() -> None:
-    payload = _review()
+    payload = review_response()
     assert parse_review_response(payload).decision == "accept"
     fenced = parse_review_response(b"```json\n" + payload + b"\n```")
     assert fenced.findings == ()
@@ -154,7 +138,7 @@ def test_default_review_order_is_plan_author_review_artifact_author_review(
 ) -> None:
     orchestrator, transport = _orchestrator(
         tmp_path,
-        [json.dumps(_plan()), _review(), _framed(), _review()],
+        [json.dumps(_plan()), review_response(), _framed(), review_response()],
         policy=AuthoringPolicy(),
     )
 
@@ -203,11 +187,11 @@ def test_plan_review_revision_uses_only_plan_review_allowance_before_artifact(
         tmp_path,
         [
             json.dumps(_plan()),
-            _review("revise", [_finding()]),
+            review_response("revise", [review_finding()]),
             json.dumps(revised),
-            _review(),
+            review_response(),
             _framed(),
-            _review(),
+            review_response(),
         ],
         policy=AuthoringPolicy(),
     )
@@ -237,11 +221,11 @@ def test_artifact_review_revision_preserves_plan_and_uses_artifact_review_allowa
         tmp_path,
         [
             json.dumps(plan),
-            _review(),
+            review_response(),
             _framed(),
-            _review("revise", [_finding("judge_spec_implements_plan")]),
+            review_response("revise", [review_finding("judge_spec_implements_plan")]),
             _framed(),
-            _review(),
+            review_response(),
         ],
         policy=AuthoringPolicy(),
     )
@@ -270,7 +254,7 @@ def test_artifact_review_revision_preserves_plan_and_uses_artifact_review_allowa
 def test_reviewer_blocked_and_malformed_are_distinct_terminal_states(tmp_path: Path) -> None:
     blocked, blocked_transport = _orchestrator(
         tmp_path / "blocked",
-        [json.dumps(_plan()), _review("blocked", [_finding()])],
+        [json.dumps(_plan()), review_response("blocked", [review_finding()])],
         policy=AuthoringPolicy(),
     )
     blocked_result = blocked.run(_view(), _inventory(), _runtime_contract())
@@ -294,9 +278,9 @@ def test_artifact_review_blocked_requires_plan_revision_without_recursing(
         tmp_path,
         [
             json.dumps(_plan()),
-            _review(),
+            review_response(),
             _framed(),
-            _review("blocked", [_finding("judge_spec_implements_plan")]),
+            review_response("blocked", [review_finding("judge_spec_implements_plan")]),
         ],
         policy=AuthoringPolicy(),
     )
@@ -373,7 +357,7 @@ def test_zero_limit_disables_only_the_selected_stage(tmp_path: Path) -> None:
 
     artifact_disabled, artifact_transport = _orchestrator(
         tmp_path / "artifact-zero",
-        [json.dumps(_plan()), _review(), b"not a plan or artifact"],
+        [json.dumps(_plan()), review_response(), b"not a plan or artifact"],
         policy=AuthoringPolicy(artifact_max_corrections=0),
     )
     artifact_result = artifact_disabled.run(_view(), _inventory(), _runtime_contract())
@@ -398,9 +382,9 @@ def test_limit_of_two_permits_exactly_two_plan_corrections(tmp_path: Path) -> No
             b"{}",  # initial candidate fails mechanics
             b"{}",  # first correction fails mechanics
             json.dumps(_plan()),  # second correction passes mechanics
-            _review("revise", [_finding()]),  # semantic revise
+            review_response("revise", [review_finding()]),  # semantic revise
             json.dumps(_plan()),  # review revision passes mechanics
-            _review("revise", [_finding()]),  # no review revision remains
+            review_response("revise", [review_finding()]),  # no review revision remains
         ],
         policy=AuthoringPolicy(plan_max_corrections=2),
     )
@@ -433,11 +417,13 @@ def test_semantic_revise_after_mechanical_correction_uses_review_revision_allowa
         [
             b"{}",  # mechanical failure consumes the plan correction allowance
             json.dumps(_plan()),  # corrected plan passes mechanics
-            _review("revise", [_finding()]),  # semantic revise spends the review revision
+            review_response(
+                "revise", [review_finding()]
+            ),  # semantic revise spends the review revision
             json.dumps(_plan()),  # revised plan passes mechanics
-            _review(),
+            review_response(),
             _framed(),
-            _review(),
+            review_response(),
         ],
         policy=AuthoringPolicy(),
     )
@@ -466,9 +452,9 @@ def test_second_semantic_revise_exhausts_review_revision_allowance(
         tmp_path,
         [
             json.dumps(_plan()),
-            _review("revise", [_finding()]),
+            review_response("revise", [review_finding()]),
             json.dumps(_plan()),
-            _review("revise", [_finding()]),
+            review_response("revise", [review_finding()]),
         ],
         policy=AuthoringPolicy(),
     )
@@ -536,7 +522,7 @@ def test_reviewer_transport_failure_records_elapsed_time_and_cause(tmp_path: Pat
 def test_blocked_review_preserves_its_reason_as_terminal_state(tmp_path: Path) -> None:
     orchestrator, transport = _orchestrator(
         tmp_path,
-        [json.dumps(_plan()), _review("blocked", [_finding()])],
+        [json.dumps(_plan()), review_response("blocked", [review_finding()])],
         policy=AuthoringPolicy(),
     )
 
@@ -547,6 +533,6 @@ def test_blocked_review_preserves_its_reason_as_terminal_state(tmp_path: Path) -
     review_record = result.ledger[-1]["review"]
     assert review_record["decision"] == "blocked"
     assert review_record["summary"]
-    assert review_record["findings"] == [_finding()]
+    assert review_record["findings"] == [review_finding()]
     assert result.decoded_responses["plan_review"] == review_record
     assert not (tmp_path / "package").exists()

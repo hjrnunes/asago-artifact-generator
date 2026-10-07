@@ -16,7 +16,12 @@ from asago_artifact_generator.authoring.core import (
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringPolicy, AuthoringResult
 
-from .support import ScriptedAuthoringTransport, load_failure_evidence, world_builders
+from .support import (
+    ScriptedAuthoringTransport,
+    load_failure_evidence,
+    review_response,
+    world_builders,
+)
 
 _framed, _inventory, _plan, _runtime_contract, _view = world_builders(
     "refund", "framed", "inventory", "plan", "runtime_contract", "view"
@@ -42,12 +47,6 @@ _ONE_PLAN_CORRECTION = AuthoringPolicy(
     review_plan=False,
     review_artifact=False,
 )
-
-
-def _review(decision: str = "accept") -> bytes:
-    return json.dumps(
-        {"decision": decision, "summary": f"scripted {decision}", "findings": []}
-    ).encode()
 
 
 def _run(
@@ -362,7 +361,7 @@ def test_review_response_capture_is_kept_on_the_ledger_and_attempt(tmp_path: Pat
     transport = ScriptedAuthoringTransport(
         [
             json.dumps(_plan()),
-            TransportResponse(raw=_review(), response_capture=capture),
+            TransportResponse(raw=review_response(), response_capture=capture),
             _framed(),
         ]
     )
@@ -376,7 +375,7 @@ def test_review_response_capture_is_kept_on_the_ledger_and_attempt(tmp_path: Pat
 
 def test_fenced_review_response_records_its_transformation(tmp_path: Path) -> None:
     transport = ScriptedAuthoringTransport(
-        [json.dumps(_plan()), b"```json\n" + _review() + b"\n```", _framed()]
+        [json.dumps(_plan()), b"```json\n" + review_response() + b"\n```", _framed()]
     )
 
     result = _run(tmp_path, transport, _PLAN_REVIEW)

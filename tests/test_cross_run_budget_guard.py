@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -16,7 +15,13 @@ from asago_artifact_generator.authoring.policy import (
     policy_role_limits,
 )
 
-from .support import HANDOFF, ScriptedAuthoringTransport, world_builders
+from .support import (
+    HANDOFF,
+    ScriptedAuthoringTransport,
+    fake_cli_authoring,
+    forbid_cli_transport,
+    world_builders,
+)
 from .test_profile_bridge import _inputs as _cli_inputs
 from .test_profile_bridge import _profile_file
 
@@ -134,28 +139,7 @@ def test_author_cli_threads_prior_spend_to_orchestrator_without_provider_contact
     monkeypatch,
 ) -> None:
     target_profile, runtime_contract = _cli_inputs(tmp_path)
-    captured: dict[str, object] = {}
-
-    class FakeTransport:
-        max_retries = 0
-
-        def __init__(self, **_: object) -> None:
-            pass
-
-    class FakeOrchestrator:
-        def __init__(self, **kwargs: object) -> None:
-            captured.update(kwargs)
-
-        def run(self, *_: object) -> SimpleNamespace:
-            return SimpleNamespace(
-                status="failed",
-                package_path=None,
-                review_status={},
-                findings=[],
-            )
-
-    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FakeTransport)
-    monkeypatch.setattr(cli, "AuthoringOrchestrator", FakeOrchestrator)
+    captured = fake_cli_authoring(monkeypatch)
     profiles_file, _ = _profile_file(tmp_path)
 
     result = CliRunner().invoke(
@@ -181,8 +165,8 @@ def test_author_cli_threads_prior_spend_to_orchestrator_without_provider_contact
     )
 
     assert result.exit_code == 1, result.output
-    assert captured["prior_author_correction_spend"] == 1
-    assert captured["prior_review_spend"] == 2
+    assert captured.orchestrator["prior_author_correction_spend"] == 1
+    assert captured.orchestrator["prior_review_spend"] == 2
 
 
 def test_author_cli_rejects_negative_prior_spend_before_transport(
@@ -190,14 +174,7 @@ def test_author_cli_rejects_negative_prior_spend_before_transport(
     monkeypatch,
 ) -> None:
     target_profile, runtime_contract = _cli_inputs(tmp_path)
-    constructed = False
-
-    def fail_if_constructed(**_: object) -> object:
-        nonlocal constructed
-        constructed = True
-        raise AssertionError("transport must not be constructed")
-
-    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", fail_if_constructed)
+    transport = forbid_cli_transport(monkeypatch)
     profiles_file, _ = _profile_file(tmp_path)
 
     result = CliRunner().invoke(
@@ -224,7 +201,7 @@ def test_author_cli_rejects_negative_prior_spend_before_transport(
 
     assert result.exit_code == 2
     assert "nonnegative integer" in result.output
-    assert constructed is False
+    assert transport.constructed is False
 
 
 def test_budget_rejects_malformed_dispatch_counters() -> None:

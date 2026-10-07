@@ -16,31 +16,11 @@ from asago_artifact_generator.authoring.review import (
     parse_review_response,
 )
 
-from .support import ScriptedAuthoringTransport, world_builders
+from .support import ScriptedAuthoringTransport, review_finding, review_response, world_builders
 
 _framed, _inventory, _metadata, _plan, _runtime_contract, _view = world_builders(
     "refund", "framed", "inventory", "metadata", "plan", "runtime_contract", "view"
 )
-
-
-def _review(decision: str, findings: list[dict] | None = None) -> bytes:
-    return json.dumps(
-        {
-            "decision": decision,
-            "summary": f"scripted {decision}",
-            "findings": findings or [],
-        }
-    ).encode()
-
-
-def _finding(question: str) -> dict[str, str]:
-    return {
-        "question": question,
-        "location": "candidate_plan.observation_claim.violation",
-        "problem": f"problem for {question}",
-        "basis": f"basis for {question}",
-        "required_change": f"change for {question}",
-    }
 
 
 def _orchestrator(tmp_path: Path, responses: list[object]) -> AuthoringOrchestrator:
@@ -53,13 +33,13 @@ def _orchestrator(tmp_path: Path, responses: list[object]) -> AuthoringOrchestra
 
 
 def test_review_schema_requires_question_and_keeps_strict_single_object_framing() -> None:
-    missing = _review("revise", [_finding("scenario_fidelity")])
+    missing = review_response("revise", [review_finding("scenario_fidelity")])
     missing_object = json.loads(missing)
     del missing_object["findings"][0]["question"]
     parsed = parse_review_response(json.dumps(missing_object))
     assert "question" not in parsed.findings[0]
 
-    unknown = parse_review_response(_review("revise", [_finding("not_a_question")]))
+    unknown = parse_review_response(review_response("revise", [review_finding("not_a_question")]))
     assert unknown.findings[0]["question"] == "not_a_question"
 
 
@@ -68,9 +48,9 @@ def test_all_out_of_scope_revise_becomes_accept_and_is_recorded(tmp_path: Path) 
         tmp_path,
         [
             json.dumps(_plan()),
-            _review("revise", [_finding("not_a_question")]),
+            review_response("revise", [review_finding("not_a_question")]),
             _framed(),
-            _review("accept"),
+            review_response("accept"),
         ],
     )
 
@@ -88,21 +68,21 @@ def test_all_out_of_scope_revise_becomes_accept_and_is_recorded(tmp_path: Path) 
     assert review["original_decision"] == "revise"
     assert review["decision_after_scope_filter"] == "accept"
     assert review["findings"] == []
-    assert review["out_of_scope_findings"] == [_finding("not_a_question")]
+    assert review["out_of_scope_findings"] == [review_finding("not_a_question")]
     assert result.review_status["plan"] == "accepted"
 
 
 def test_only_in_scope_findings_reach_correction_prompt(tmp_path: Path) -> None:
-    out_of_scope = _finding("judge_spec_implements_plan")
-    in_scope = _finding("scenario_fidelity")
+    out_of_scope = review_finding("judge_spec_implements_plan")
+    in_scope = review_finding("scenario_fidelity")
     transport = ScriptedAuthoringTransport(
         [
             json.dumps(_plan()),
-            _review("revise", [in_scope, out_of_scope]),
+            review_response("revise", [in_scope, out_of_scope]),
             json.dumps(_plan()),
-            _review("accept"),
+            review_response("accept"),
             _framed(),
-            _review("accept"),
+            review_response("accept"),
         ]
     )
     orchestrator = AuthoringOrchestrator(
@@ -194,8 +174,8 @@ def test_review_envelope_problems_are_reported_together_in_order() -> None:
 
 
 def test_review_decision_must_agree_with_its_findings() -> None:
-    accept = json.loads(_review("accept", [_finding("scenario_fidelity")]))
-    blocked = json.loads(_review("blocked"))
+    accept = json.loads(review_response("accept", [review_finding("scenario_fidelity")]))
+    blocked = json.loads(review_response("blocked"))
     revise_without_list = {"decision": "revise", "summary": "s"}
 
     assert _review_problems(json.dumps(accept)) == [
@@ -223,6 +203,6 @@ def test_review_decision_must_agree_with_its_findings() -> None:
 
 
 def test_accepted_review_keeps_decision_summary_and_no_findings() -> None:
-    parsed = parse_review_response(_review("accept"))
+    parsed = parse_review_response(review_response("accept"))
 
     assert (parsed.decision, parsed.summary, parsed.findings) == ("accept", "scripted accept", ())
