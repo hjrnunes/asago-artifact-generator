@@ -343,8 +343,6 @@ def test_current_prompt_digests_pin_rendered_contract_evidence() -> None:
 
 
 def _hazard_inventory() -> dict:
-    from .test_versioned_prompt_roles import _inventory
-
     inventory = _inventory()
     inventory["operations"].append(
         {
@@ -374,16 +372,12 @@ def _hazard_inventory() -> dict:
 
 
 def _hazard_runtime_contract() -> dict:
-    from .test_versioned_prompt_roles import _runtime_contract
-
     contract = _runtime_contract()
     contract["setup_permissions"] = ["summarize_for_ehr", "typed_lookup"]
     return contract
 
 
 def _setup_findings(step: object) -> list[dict]:
-    from .test_versioned_prompt_roles import _plan
-
     plan = copy.deepcopy(_plan())
     plan["setup_recipe"] = [step]
     return [
@@ -476,8 +470,6 @@ def test_setup_argument_type_mismatches_name_the_expected_type() -> None:
 
 
 def test_plan_root_type_errors_for_assumptions_and_required_observations() -> None:
-    from .test_versioned_prompt_roles import _inventory, _plan, _runtime_contract
-
     plan = copy.deepcopy(_plan())
     plan["assumptions"] = "none"
     plan["required_observations"] = []
@@ -495,8 +487,6 @@ def test_plan_root_type_errors_for_assumptions_and_required_observations() -> No
 
 
 def test_each_malformed_assumption_is_reported_in_order() -> None:
-    from .test_versioned_prompt_roles import _inventory, _plan, _runtime_contract
-
     plan = copy.deepcopy(_plan())
     plan["assumptions"] = [
         "x",
@@ -536,8 +526,6 @@ def test_each_malformed_assumption_is_reported_in_order() -> None:
 
 
 def test_binding_sources_report_unknown_facts_and_unpermitted_setup() -> None:
-    from .test_versioned_prompt_roles import _plan
-
     def binding(name: str, kind: str, ref: str, selector: str) -> dict:
         return {
             "name": name,
