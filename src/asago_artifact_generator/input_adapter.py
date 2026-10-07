@@ -128,7 +128,8 @@ class ShapeVersionMalformed(InputSourceError):
         self.schema_path = schema_path
         self.reason = reason
         super().__init__(
-            f"handoff schema invalid: schema_violation:{violation} ({schema_path}: {reason})"
+            f"{self.code}: handoff schema invalid: schema_violation:{violation} "
+            f"({schema_path}: {reason})"
         )
 
 

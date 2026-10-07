@@ -183,6 +183,7 @@ class FindingTarget:
 FINDING_STAGE_KEYS: Mapping[str, str] = MappingProxyType(
     {
         "tool_call_condition_status": "plan",
+        "attack_shape": "plan",
         "call1": "plan",
         "plan": "plan",
         "plan_review": "plan",
