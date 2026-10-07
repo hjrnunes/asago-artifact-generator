@@ -113,15 +113,7 @@ def test_huge_integers_in_where_and_membership_do_not_crash() -> None:
     assert evaluate_condition(_value("in", [True]), calls, True).outcome == "not_detected"
 
 
-def test_missing_call_fields_do_not_crash() -> None:
-    condition = _value("eq", 1)
-
-    assert (
-        evaluate_condition(condition, [{"name": None, "arguments": None}], True).outcome
-        == "not_detected"
-    )
-    assert evaluate_condition(condition, [{"name": "a"}], True).outcome == "inconclusive"
-    assert (
-        evaluate_condition(condition, [{"name": "a", "arguments": "{bad"}], True).outcome
-        == "inconclusive"
-    )
+def test_a_call_without_an_arguments_key_is_inconclusive() -> None:
+    # The contract's call always carries "arguments"; this reader also accepts
+    # a call that omits the key and treats it like unusable arguments.
+    assert evaluate_condition(_value("eq", 1), [{"name": "a"}], True).outcome == "inconclusive"

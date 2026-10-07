@@ -3,7 +3,11 @@
   "contract": "target-profile",
   "digest_domain": "execution-target-profile-v1",
   "files": {
-    "target-profile-v1/schema.json": "b26528d27bbb3725f8bfedea9ca55c4ebae6b73f2d9050648009b06104bf1bb7"
+    "target-profile-v1/canonical-digests.json": "a113ca890da09b1303f9ab6d5209fe154758b7a4d6a3a2c377b854809aa7856b",
+    "target-profile-v1/expected-violations.json": "fca6290c25a069424caf4a1370eea868505bb35502a1e85aff6c3cd44e9b75c1",
+    "target-profile-v1/invalid/unknown-field.json": "8a006e84f36f3f6ab19075b76febf37201dd9547db4531cc6673fe181a91b4b0",
+    "target-profile-v1/schema.json": "b26528d27bbb3725f8bfedea9ca55c4ebae6b73f2d9050648009b06104bf1bb7",
+    "target-profile-v1/valid/minimal.json": "4f900d86ad3573de9b3a67ba0f04e3a228876fe64aa875a64803e34e46b3d033"
   },
   "schema_version": "execution-target-profile-v1"
 }
