@@ -46,7 +46,7 @@ def test_the_handoff_lock_lists_every_v4_file_with_its_digest() -> None:
 
 def test_the_vendored_v4_kit_has_the_producer_fixture_counts() -> None:
     assert len(list((_KIT / "valid").glob("*.json"))) == 12
-    assert len(list((_KIT / "invalid").glob("*.json"))) == 26
+    assert len(list((_KIT / "invalid").glob("*.json"))) == 38
     expected = _json(_KIT / "expected-violations.json")
     assert set(expected) == {f"invalid/{p.name}" for p in (_KIT / "invalid").glob("*.json")}
 
@@ -66,7 +66,7 @@ def test_the_v3_handoff_kit_is_unchanged_by_the_v4_mirror() -> None:
     lock = _json(_HANDOFF / "CONTRACT.lock")
 
     v3 = {name: digest for name, digest in lock["files"].items() if name.startswith("handoff-v3/")}
-    assert len(v3) == 10
+    assert len(v3) == 24
     assert v3["handoff-v3/schema.json"] == (
         "c6fd2083ff70bf0810be58e395385d39a2ad06c3bb40c5fde998c8375b92fb2c"
     )
