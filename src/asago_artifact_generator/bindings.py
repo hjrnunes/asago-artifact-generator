@@ -811,8 +811,6 @@ def _value_at_selector(value: Any, selector: str) -> Any:
     for part in parts[1:]:
         if isinstance(current, dict) and part in current:
             current = current[part]
-        elif isinstance(current, list) and part == "items":
-            continue
         else:
             raise BindingValidationError(f"supplied selector not found: {selector}")
     return current
@@ -915,8 +913,22 @@ def _child_schema(current: Any, part: str) -> Any:
         if not isinstance(properties, dict) or part not in properties:
             return None
         return properties[part]
-    if current.get("type") == "array" and part == "items":
-        return current.get("items")
+    return None
+
+
+def selector_array_step(schema: Any, selector: str) -> str | None:
+    """Return the selector prefix naming the array that ``selector`` steps into, or None.
+
+    A selector follows object properties only. The ``items`` schema keyword is not
+    a property, and a recorded value is never read through an array.
+    """
+
+    parts = selector.split(".")
+    current = schema
+    for index, part in enumerate(parts[1:], start=1):
+        if isinstance(current, dict) and current.get("type") == "array" and part == "items":
+            return ".".join(parts[:index])
+        current = _child_schema(current, part)
     return None
 
 

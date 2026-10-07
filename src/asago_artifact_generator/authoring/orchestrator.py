@@ -83,6 +83,7 @@ from .journal import (
     ValidationPassed,
     ValidationTransformed,
 )
+from .oracle_self_test import DEFECT_CODE, oracle_defect_findings
 from .package_assembly import _package_from_responses, _persist_blocked_plan
 from .policy import (
     AuthoringBudget,
@@ -981,7 +982,7 @@ class AuthoringOrchestrator:
         runtime_contract: dict[str, Any],
     ) -> _Stage:
         def checks(decoded: Any) -> list[Finding]:
-            return collect_artifact_findings_v2(
+            findings = collect_artifact_findings_v2(
                 decoded,
                 plan,
                 inventory,
@@ -989,6 +990,7 @@ class AuthoringOrchestrator:
                 transformations=self._transformations,
                 condition=view.tool_call_condition,
             )
+            return findings + oracle_defect_findings(findings, decoded, view.tool_call_condition)
 
         return _Stage(
             key="artifact",
@@ -1313,8 +1315,12 @@ class AuthoringOrchestrator:
 
     @staticmethod
     def _stop_for_author_findings(findings: list[Finding]) -> _StageStop | None:
-        """Return the terminal run stop for transport or budget failures."""
+        """Return the terminal run stop for transport, budget, or oracle failures."""
 
+        if any(finding.code == DEFECT_CODE for finding in findings):
+            # A correction keeps the plan and the producer's condition fixed, so
+            # no new example can change what the condition decides.
+            return _StageStop("failed", tuple(findings))
         stop_findings = [
             finding
             for finding in findings

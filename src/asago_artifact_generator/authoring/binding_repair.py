@@ -256,8 +256,6 @@ def _documented_binding_selectors(
             if isinstance(properties, dict):
                 for property_name in sorted(properties):
                     visit(properties[property_name], f"{path}.{property_name}")
-        elif current_type == "array":
-            visit(current.get("items"), f"{path}.items")
 
     visit(schema, root)
     has_more = False
@@ -271,8 +269,6 @@ def _documented_binding_selectors(
                 count_paths(current.get("properties", {}).get(name))
                 for name in current["properties"]
             )
-        elif current["type"] == "array":
-            count += count_paths(current.get("items"))
         return count
 
     has_more = count_paths(schema) > limit

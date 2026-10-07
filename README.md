@@ -33,7 +33,12 @@ JSON object with exactly `stimulus`, `semantic_judge_spec`, `examples`, and
 For a `command_attempt` claim, the `unsafe` and `safe` examples each carry a
 `capture`: `tool_calls` (each with an `operation` from the supplied inventory
 and its decoded `arguments`, in call order) and `complete`. The `inconclusive`
-example and every reply example stay prose. `examples.json` holds the examples
+example and every reply example stay prose. The Call 2 prompt says so. When the
+plan claims `reply` and an `unsafe` or `safe` example carries a capture, the
+correction gets one `unexpected_field` finding at `examples.<label>.capture`
+that says a reply claim carries no capture, ahead of any other finding; shape
+findings about that same capture are dropped, because the author removes the
+field. `examples.json` holds the examples
 as written; `artifact-package-v3` constrains only its manifest entry.
 Each v2 prompt carries the selected case meaning once under `case_meaning`;
 the input projection retains scenario/reference identities and narrative/Gherkin
@@ -225,7 +230,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `value.<record_key>.record_key` selector that bind the record key itself. A
   required change that replaces a binding path names the complete source and
   selector pair.
-- `authoring-call2-v24` renders the immutable accepted plan and the runtime
+- `authoring-call2-v25` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
   question whose yes answer is the violation, that the criteria are a
@@ -273,7 +278,12 @@ record key and field exist, then persists the documented
 source whose selector repeats its record key, such as
 `facts:state:loans:LN-101` with `value.LN-101.borrower_id`, resolves the
 same way. Unknown keys, fields, a selector that names a different key or
-field, and incompatible types remain invalid. Valid scenario lineage and
+field, and incompatible types remain invalid. A selector follows object
+properties only: one that steps into an array with `items`, such as
+`value.content.items.text`, gets a `selector_through_array` finding that names
+the array path, and the repair enumeration of documented selectors omits array
+items. The `artifact-package` contract defines no array traversal, and the
+orchestrator's selector resolver reads dictionary keys only. Valid scenario lineage and
 attack-tree IDs from the handoff are accepted in `interpretation.source_refs`
 and `assumptions[].ref`; correction feedback lists the valid provenance IDs,
 while invented IDs remain invalid.
@@ -463,6 +473,18 @@ disjoint types, `in` or `not_in` with a right side that is not a list or a list
 whose items cannot equal the left side, and `gt`, `ge`, `lt`, or `le` with an
 operand that is not numeric. An operand without a declared type passes. The
 check reads types only; what a value means stays with the model.
+
+After Call 2, a `command_attempt` package runs the condition on its own
+captures: the `unsafe` capture must be detected and the `safe` capture must not
+be (`oracle_quiet_on_unsafe_example`, `oracle_fires_on_safe_example`,
+`oracle_inconclusive_on_safe_example`). A correction cannot change the
+producer's condition or the fixed plan, so a disagreement ends the package at
+once with no correction call: status `failed`, terminal reason
+`oracle_condition_defective`. The failure evidence keeps the per-example
+findings and ends with one `oracle_condition_defective` finding whose `details`
+carry the evaluated `condition` and, for each captured example, the `outcome`,
+the evaluator's `reason`, the `matched_calls`, and the outcome the example
+`required`.
 
 Plan and artifact checks reject a stimulus that carries a bracketed
 placeholder, such as `[Obscene/Harmful Content Placeholder]`, in

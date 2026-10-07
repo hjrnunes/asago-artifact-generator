@@ -22,6 +22,7 @@ from ..bindings import (
     canonical_binding_paths,
     find_stimulus_user_text_consumer_mismatches,
     normalize_binding_declarations,
+    selector_array_step,
     supplied_binding_values,
     validate_bindings,
 )
@@ -38,7 +39,12 @@ from .core import (
     _supported_claim_levels,
     staged_findings,
 )
-from .example_capture import CAPTURED_EXAMPLES, capture_shape_findings, example_capture_findings
+from .example_capture import (
+    CAPTURED_EXAMPLES,
+    capture_shape_findings,
+    example_capture_findings,
+    reply_capture_findings,
+)
 from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
 from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
@@ -47,6 +53,7 @@ from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observation
 # The spelling JUDGE_CONSUMERS replaced. It stays out of the closed vocabulary, so a plan
 # that still writes it gets a finding that names the replacement instead of an alias.
 _RETIRED_DETECTOR_PREFIX = "detector."
+SELECTOR_THROUGH_ARRAY_CODE = "selector_through_array"
 
 
 def _validate_call2_metadata_shape(value: Any) -> list[Finding]:
@@ -474,12 +481,32 @@ def collect_artifact_findings_v2(
     by it: its unsafe capture must be detected and its safe capture must not be.
     """
 
-    findings = _validate_call2_metadata_shape(metadata)
+    findings = _reply_led_shape_findings(metadata, plan)
     if findings or not isinstance(metadata, dict):
         return staged_findings(findings, "artifact")
     _normalize_artifact_context(metadata, plan, inventory, transformations=transformations)
     findings.extend(_artifact_findings(metadata, plan, inventory, runtime_contract, condition))
     return staged_findings(findings, "artifact")
+
+
+def _reply_led_shape_findings(metadata: Any, plan: dict[str, Any]) -> list[Finding]:
+    """Return the shape findings, led by the claim-level capture finding under a reply claim.
+
+    A capture that a reply claim must not carry gets that one finding; the shape
+    findings about the same capture would only describe a field the author removes.
+    """
+
+    findings = _validate_call2_metadata_shape(metadata)
+    reply = _plan_claim_level(plan) == ClaimLevel.REPLY
+    if not findings or not reply or not isinstance(metadata, dict):
+        return findings
+    claim = reply_capture_findings(metadata.get("examples"))
+    owned = tuple(finding.path for finding in claim)
+    return claim + [
+        finding
+        for finding in findings
+        if not any(finding.path == path or finding.path.startswith(f"{path}.") for path in owned)
+    ]
 
 
 def _normalize_artifact_context(
@@ -1763,6 +1790,20 @@ def _binding_selector_findings(
         ]
     if source_schema is None:
         return []
+    array_path = selector_array_step(source_schema, selector)
+    if array_path is not None:
+        return [
+            Finding(
+                SELECTOR_THROUGH_ARRAY_CODE,
+                (
+                    f"selector for binding {name} steps into the array at {array_path}: "
+                    f"{selector}. A selector follows object properties only and cannot step "
+                    f"into an array or its items; select {array_path} itself or a documented "
+                    "selector that does not pass through an array."
+                ),
+                f"{path}.selector",
+            )
+        ]
     actual_type = _binding_selector_type(source_schema, selector)
     if actual_type is None:
         return [

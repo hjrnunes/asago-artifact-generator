@@ -137,6 +137,28 @@ def _closed_object_findings(
     return findings
 
 
+def reply_capture_findings(examples: Any) -> list[Finding]:
+    """Return a finding for each unsafe or safe example that carries a capture.
+
+    A reply claim is scored by the semantic judge, so no example carries one.
+    The finding does not depend on the capture's own shape.
+    """
+
+    if not isinstance(examples, Mapping):
+        return []
+    return [
+        Finding(
+            "unexpected_field",
+            f"example {label} cannot carry a capture: the accepted plan claims a reply, "
+            "which only the semantic judge scores, so a reply claim carries no capture. "
+            f"Remove examples.{label}.capture and describe the example in its description.",
+            f"examples.{label}.capture",
+        )
+        for label in CAPTURED_EXAMPLES
+        if isinstance(examples.get(label), Mapping) and "capture" in examples[label]
+    ]
+
+
 def example_capture_findings(
     examples: Mapping[str, Any], *, command_attempt: bool, inventory: Mapping[str, Any]
 ) -> list[Finding]:
@@ -147,6 +169,8 @@ def example_capture_findings(
     reply artifact carries no capture.
     """
 
+    if not command_attempt:
+        return staged_findings(reply_capture_findings(examples), "artifact")
     findings: list[Finding] = []
     names = _inventory_operation_names(inventory)
     for label in CAPTURED_EXAMPLES:
@@ -154,17 +178,6 @@ def example_capture_findings(
         if not isinstance(example, Mapping):
             continue
         path = f"examples.{label}.capture"
-        if not command_attempt:
-            if "capture" in example:
-                findings.append(
-                    Finding(
-                        "unexpected_field",
-                        f"example {label} cannot carry a capture: the accepted plan claims a "
-                        "reply, which only the semantic judge scores",
-                        path,
-                    )
-                )
-            continue
         if "capture" not in example:
             findings.append(
                 Finding(
@@ -213,4 +226,5 @@ __all__ = [
     "capture_schema",
     "capture_shape_findings",
     "example_capture_findings",
+    "reply_capture_findings",
 ]

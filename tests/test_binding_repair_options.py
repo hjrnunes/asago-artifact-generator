@@ -116,7 +116,6 @@ def test_selector_repair_lists_documented_paths_and_compatible_types() -> None:
         "value.count": "integer",
         "value.identifier": "string",
         "value.items": "array",
-        "value.items.items": "boolean",
     }
     assert option["matching_expected_type"] == ["value.count"]
     assert option["resolved_source"] is True
@@ -1288,14 +1287,14 @@ _ITEMS_SCHEMA = {
     [
         ("value", "object"),
         ("value.rows", "array"),
-        ("value.rows.items", "string"),
+        ("value.rows.items", None),
         ("value.rows.first", None),
         ("value.rows.items.deeper", None),
         ("value.", None),
         ("", None),
     ],
 )
-def test_binding_selector_type_follows_properties_and_array_items(
+def test_binding_selector_type_follows_properties_and_stops_at_an_array(
     selector: str, expected: str | None
 ) -> None:
     assert _binding_selector_type(_ITEMS_SCHEMA, selector) == expected

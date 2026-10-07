@@ -646,17 +646,83 @@ def test_validate_bindings_names_the_first_invalid_field(
         validate_bindings(declarations, inventory=_FACT_INVENTORY, runtime_contract={})
 
 
-def test_array_items_selector_documents_the_item_type() -> None:
+def test_array_items_selector_is_undocumented() -> None:
     declaration = _declaration(expected_type="integer", selector="value.a.items")
 
-    validated = validate_bindings([declaration], inventory=_FACT_INVENTORY, runtime_contract={})
+    with pytest.raises(BindingValidationError, match="undocumented selector"):
+        validate_bindings([declaration], inventory=_FACT_INVENTORY, runtime_contract={})
 
-    assert validated[0].selector == "value.a.items"
+
+_CONTENT_INVENTORY = {
+    "facts": [
+        {
+            "ref": "msg",
+            "value": {"content": [{"text": "hi"}], "items": {"text": "kept"}},
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {"text": {"type": "string"}},
+                        },
+                    },
+                    "items": {"type": "object", "properties": {"text": {"type": "string"}}},
+                },
+            },
+        }
+    ]
+}
+
+
+def _selector_findings(selector: str) -> list[tuple[str, str, str]]:
+    findings = _collect_binding_findings(
+        [_declaration(source_ref="facts:msg", selector=selector)],
+        _CONTENT_INVENTORY,
+        {},
+        finding_code="plan_binding_validation",
+    )
+    return _coded_findings(findings)
+
+
+@pytest.mark.parametrize("selector", ["value.content.items.text", "value.content.items"])
+def test_plan_rejects_a_selector_that_steps_into_an_array_with_its_own_code(
+    selector: str,
+) -> None:
+    findings = _selector_findings(selector)
+
+    assert [(code, path) for code, _detail, path in findings] == [
+        ("selector_through_array", "runtime_bindings[0].selector")
+    ]
+    detail = findings[0][1]
+    assert selector in detail
+    assert "array at value.content" in detail
+    assert "undocumented" not in detail
+
+
+def test_plan_accepts_a_property_named_items_and_the_array_itself() -> None:
+    assert _selector_findings("value.items.text") == []
+    assert _selector_findings("value.content") == [
+        (
+            "plan_binding_validation",
+            "binding type mismatch for n: expected string, source is array",
+            "runtime_bindings[0].selector",
+        )
+    ]
+
+
+def test_plan_still_reports_an_undocumented_selector_below_an_array_as_undocumented() -> None:
+    findings = _selector_findings("value.content.first")
+
+    assert [code for code, _detail, _path in findings] == ["plan_binding_validation"]
+    assert "undocumented selector" in findings[0][1]
 
 
 def test_supplied_binding_values_skip_unresolvable_sources() -> None:
     declarations = [
-        _declaration(name="a", selector="value.a.items"),
+        _declaration(name="a", selector="value.a"),
+        _declaration(name="i", selector="value.a.items"),
         _declaration(name="m", selector="value.missing"),
         _declaration(name="r", selector="result.s"),
     ]

@@ -14,7 +14,7 @@ from asago_artifact_generator.authoring.contracts import (
 from asago_artifact_generator.authoring.core import (
     ARTIFACT_REVIEW_PROMPT_VERSION_V20,
     CALL1_PROMPT_VERSION_V20,
-    CALL2_PROMPT_VERSION_V24,
+    CALL2_PROMPT_VERSION_V25,
     CORRECTION_PROMPT_VERSION_V31,
     CORRECTION_PROMPT_VERSION_V33,
     PLAN_REVIEW_PROMPT_VERSION_V19,
@@ -234,7 +234,7 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     assert [packet.version for packet in packets] == [
         CALL1_PROMPT_VERSION_V20,
         PLAN_REVIEW_PROMPT_VERSION_V19,
-        CALL2_PROMPT_VERSION_V24,
+        CALL2_PROMPT_VERSION_V25,
         ARTIFACT_REVIEW_PROMPT_VERSION_V20,
         CORRECTION_PROMPT_VERSION_V31,
     ]
@@ -545,7 +545,7 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
     [
         CALL1_PROMPT_VERSION_V20,
         PLAN_REVIEW_PROMPT_VERSION_V19,
-        CALL2_PROMPT_VERSION_V24,
+        CALL2_PROMPT_VERSION_V25,
         ARTIFACT_REVIEW_PROMPT_VERSION_V20,
         CORRECTION_PROMPT_VERSION_V31,
         CORRECTION_PROMPT_VERSION_V33,
