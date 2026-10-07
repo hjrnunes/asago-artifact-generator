@@ -8,7 +8,13 @@ from typing import Any
 
 from ..failure_evidence import redact_metadata
 from ..input_adapter import InputView
-from .checks import ARTIFACT_MECHANICAL_CHECKS, PLAN_MECHANICAL_CHECKS, MechanicalCheck
+from .checks import (
+    ARTIFACT_MECHANICAL_CHECKS,
+    PLAN_MECHANICAL_CHECKS,
+    MechanicalCheck,
+    collect_artifact_findings_v2,
+    collect_plan_findings_v2,
+)
 from .context_budget import _enforce_prompt_size
 from .contracts import (
     PLAN_FIELD_MEANINGS,
@@ -37,6 +43,7 @@ from .prompt_context import (
     _owner_scope_prompt_sections,
     _render_sections,
     _resolved_supplied_binding_values,
+    scenario_provenance_ids,
 )
 from .prompt_safety import assert_no_prompt_secrets, prompt_data_urls
 from .response_decode import _decode_review_json_response
@@ -356,14 +363,26 @@ _ARTIFACT_MECHANICAL_CHECK_MEANING = (
 
 
 def _mechanical_check_summary(
-    meaning: str, checks: tuple[MechanicalCheck, ...], instruction: str
+    meaning: str,
+    checks: tuple[MechanicalCheck, ...],
+    instruction: str,
+    *,
+    candidate: dict[str, Any],
+    findings: list[Finding],
 ) -> dict[str, Any]:
-    """Return the guarantees of the checks a candidate passed before semantic review."""
+    """Return the guarantees of the checks that examined the candidate and passed it.
+
+    The findings are the result of running every check on the candidate. A
+    candidate with a finding passed no check as a whole, so the summary lists no
+    guarantee for it.
+    """
 
     return {
-        "status": "passed",
+        "status": "failed" if findings else "passed",
         "meaning": meaning,
-        "checks": [check.guarantee for check in checks],
+        "checks": (
+            [] if findings else [check.guarantee for check in checks if check.applies(candidate)]
+        ),
         "documented_selector_forms": list(_PLAN_SELECTOR_FORMS),
         "reviewer_instruction": instruction,
     }
@@ -444,6 +463,14 @@ def build_plan_reviewer_context(
             _PLAN_MECHANICAL_CHECK_MEANING,
             PLAN_MECHANICAL_CHECKS,
             _PLAN_MECHANICAL_CHECK_INSTRUCTION,
+            candidate=plan,
+            findings=collect_plan_findings_v2(
+                deepcopy(plan),
+                inventory,
+                runtime_contract,
+                provenance_ids=scenario_provenance_ids(view),
+                condition=view.payload.get("discriminating_condition"),
+            ),
         ),
         "response_contract": {
             **_review_response_contract(question_ids=PLAN_REVIEW_QUESTION_IDS),
@@ -590,6 +617,10 @@ def build_artifact_reviewer_context(
             _ARTIFACT_MECHANICAL_CHECK_MEANING,
             ARTIFACT_MECHANICAL_CHECKS,
             _ARTIFACT_MECHANICAL_CHECK_INSTRUCTION,
+            candidate=metadata,
+            findings=collect_artifact_findings_v2(
+                deepcopy(metadata), deepcopy(plan), inventory, runtime_contract
+            ),
         ),
         "response_contract": {
             **_review_response_contract(question_ids=ARTIFACT_REVIEW_QUESTION_IDS),

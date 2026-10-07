@@ -198,8 +198,9 @@ class Finding:
     """A typed, deterministic finding retained beside the failed response.
 
     ``stage`` is the logical stage (``plan`` or ``artifact``) whose checks or
-    review produced the finding, when known. It is not serialized and does
-    not take part in equality.
+    review produced the finding. It does not take part in equality, and
+    ``to_dict`` leaves it out so that prompts keep their findings unchanged;
+    the failure-evidence records add it.
     """
 
     code: str

@@ -11,6 +11,7 @@ from asago_artifact_generator.authoring.checks import (
     _prerequisite_evidence_ref_findings,
     _stimulus_slot_findings,
     collect_plan_findings,
+    collect_plan_findings_v2,
 )
 
 
@@ -101,6 +102,61 @@ def test_collect_plan_findings_rejects_a_non_object_plan() -> None:
     findings = collect_plan_findings("plan", {}, {})
 
     assert _coded(findings) == [("response_type_error", "plan must be an object", "response")]
+
+
+_V2_ROOT_FIELDS_BESIDES_INTERPRETATION = (
+    "selected_evidence",
+    "assumptions",
+    "setup_recipe",
+    "runtime_bindings",
+    "prerequisites",
+    "stimulus_approach",
+    "observation_claim",
+    "required_observations",
+    "semantic_judge",
+    "unresolved_requirements",
+)
+
+
+def _root_presence(findings: list[Any]) -> list[tuple[str, str]]:
+    return [
+        (f.code, f.path) for f in findings if f.code in {"unexpected_field", "plan_validation"}
+    ]
+
+
+def test_collect_plan_findings_v2_reports_each_root_field_problem_once() -> None:
+    findings = collect_plan_findings_v2({"x": 1, "interpretation": "bad"}, {}, {})
+
+    assert _root_presence(findings) == [
+        ("unexpected_field", "x"),
+        *(("plan_validation", name) for name in _V2_ROOT_FIELDS_BESIDES_INTERPRETATION),
+    ]
+    assert len(_coded(findings)) == len(set(_coded(findings)))
+
+
+def test_collect_plan_findings_v2_still_reports_a_root_list_field_of_the_wrong_type() -> None:
+    plan = {"selected_evidence": "x", "setup_recipe": {}, "prerequisites": 1}
+
+    findings = collect_plan_findings_v2(plan, {}, {})
+
+    assert [(f.detail, f.path) for f in findings if f.code == "type_error"] == [
+        ("selected_evidence must be a list", "selected_evidence"),
+        ("setup_recipe must be a list", "setup_recipe"),
+        ("prerequisites must be a list", "prerequisites"),
+    ]
+
+
+def test_collect_plan_findings_keeps_reporting_the_shared_root_fields() -> None:
+    findings = collect_plan_findings({"x": 1, "interpretation": "bad"}, {}, {})
+
+    assert _root_presence(findings) == [
+        ("unexpected_field", "x"),
+        *(
+            ("plan_validation", name)
+            for name in _V2_ROOT_FIELDS_BESIDES_INTERPRETATION
+            if name not in {"assumptions", "required_observations"}
+        ),
+    ]
 
 
 def test_collect_plan_findings_checks_each_unresolved_requirement() -> None:

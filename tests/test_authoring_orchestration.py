@@ -591,14 +591,10 @@ def test_stage_correction_contains_complete_contract_and_all_findings(
     correction = transport.requests[1]
     original = transport.requests[0]
     payload = correction["payload"]
-    assert payload["original_request"]["system"] == original["system"]
-    assert payload["original_request"]["payload"] == original["payload"]
-    assert payload["failed_response"] == response
-    assert payload["failed_response_encoding"] == "utf-8-exact"
-    assert (
-        payload["original_request"]["payload"]["response_contract"]
-        == original["payload"]["response_contract"]
-    )
+    assert payload["current_output"] == response
+    assert payload["current_output_encoding"] == "utf-8-exact"
+    assert payload["response_contract"] == original["payload"]["response_contract"]
+    assert not {"original_request", "failed_response", "failed_response_encoding"} & set(payload)
     assert "failed_response_bytes_hex" not in payload
     assert "failed_response_bytes_base64" not in payload
     assert "failed_stage_contract" not in payload
@@ -728,10 +724,13 @@ def test_stage_correction_contains_exact_failure_and_never_fourth_request(
     assert correction["stage"] == "correction"
     assert correction["payload"]["failed_stage"] == failed_stage
     failed_index = 0 if failed_stage == "call1" else 1
-    assert correction["payload"]["failed_response"] == responses[failed_index].decode()
+    assert correction["payload"]["current_output"] == responses[failed_index].decode()
     assert (
-        correction["payload"]["original_request"]["payload"]["response_contract"]
+        correction["payload"]["response_contract"]
         == transport.requests[failed_index]["payload"]["response_contract"]
+    )
+    assert not {"original_request", "failed_response", "failed_response_encoding"} & set(
+        correction["payload"]
     )
     assert correction["payload"]["findings"]
 

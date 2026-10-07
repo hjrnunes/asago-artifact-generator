@@ -45,7 +45,8 @@ _BASE_STAGE_DIGESTS = {
     "call1": "b3edc0abddbb325ddbbfafaba662fb1a09fa21472ef1f1b747e5821c1af7abd0",
     "plan_review": "a83dc10af159e7675da3e9ca04b89b816056486c1a7c3a8a9906ce7ab15a7d7f",
     "call2": "47a71b291c2441644207e686b35d6a3072028d867bbf9476391895c8bcb2a3b7",
-    "artifact_review": "221d44a1892c9024b2fd9c5419cf0120f03a94d67b212814794fd56e76eda3da",
+    # The fixture artifact has no judge spec, so its summary omits the judge fact-ref check.
+    "artifact_review": "dc13e8b5cac74a41cfed50916ae6be006566c216f92592ae907e8a4c6017cba9",
     "plan_correction": "063acf09e08074886b259e0b6fdc4a323e6a25130de0e6608e053f20a162113e",
     "artifact_correction": "5ec41d9e1609ba3a9298abcfca9392172543a1f1433df0b9ccc35c8716dae572",
 }

@@ -50,6 +50,7 @@ from .core import (
     _safe_error,
     _safe_metadata,
     _sha256,
+    staged_findings,
 )
 from .correction import _render_correction_packet, build_correction_context
 from .journal import (
@@ -399,7 +400,9 @@ class AuthoringOrchestrator:
 
         path = packet.stage if path is None else path
         if isinstance(exc, PromptOverflowError):
-            finding = _prompt_overflow_finding(exc, packet.stage)
+            finding = replace(
+                _prompt_overflow_finding(exc, packet.stage), stage=FINDING_STAGE_KEYS.get(path)
+            )
         elif isinstance(exc, BudgetExceeded):
             finding = _staged(Finding("budget_exhausted", _safe_error(exc), path))
         else:
@@ -615,7 +618,6 @@ class AuthoringOrchestrator:
     def _correction_v2(
         self,
         stage: _Stage,
-        failed_packet: PromptPacket,
         *,
         failed_response: bytes,
         findings: list[Finding],
@@ -635,7 +637,6 @@ class AuthoringOrchestrator:
         failed_stage = stage.author
         packet = self._correction_packet(
             failed_stage=failed_stage,
-            failed_packet=failed_packet,
             failed_response=failed_response,
             findings=findings,
             view=view,
@@ -679,7 +680,6 @@ class AuthoringOrchestrator:
         self,
         *,
         failed_stage: str,
-        failed_packet: PromptPacket,
         failed_response: bytes,
         findings: list[Finding],
         view: InputView,
@@ -704,19 +704,6 @@ class AuthoringOrchestrator:
             current_output=failed_response,
             findings=findings,
         )
-        # Preserve the generic compatibility members consumed by historical
-        # offline evidence readers.  They are not rendered into the new
-        # sectioned user context, so the candidate is still shown once.
-        correction_payload.update(
-            {
-                "original_request": {
-                    "system": failed_packet.system,
-                    "payload": failed_packet.payload,
-                },
-                "failed_response": correction_payload["current_output"],
-                "failed_response_encoding": correction_payload["current_output_encoding"],
-            }
-        )
         packet = _render_correction_packet(
             correction_payload,
             correction_repair_inputs(
@@ -735,7 +722,10 @@ class AuthoringOrchestrator:
                 ),
             )
         except PromptPreflightError as exc:
-            finding = _prompt_preflight_finding(exc, "correction")
+            finding = replace(
+                _prompt_preflight_finding(exc, "correction"),
+                stage=FINDING_STAGE_KEYS.get(failed_stage),
+            )
             self._findings.append(finding)
             self._record_run_finding(finding)
             return None
@@ -909,12 +899,13 @@ class AuthoringOrchestrator:
             return self._policy_result(
                 "failed",
                 plan,
-                [_staged(Finding("assembly_validation", exc.message, exc.path))],
+                [Finding("assembly_validation", exc.message, exc.path, stage="artifact")],
             )
         try:
             path = write_package(self.package_dir, package)
         except Exception as exc:
-            return self._policy_result("failed", plan, [Finding("package_write_failed", str(exc))])
+            finding = Finding("package_write_failed", str(exc), stage="artifact")
+            return self._policy_result("failed", plan, [finding])
         self._journal.append(ReviewStatusRecorded(dict(self._review_status)))
         self._record_allowances()
         self._finish("accepted", [])
@@ -1027,7 +1018,6 @@ class AuthoringOrchestrator:
             while candidate is None:
                 corrected = self._correction_round(
                     stage,
-                    packet,
                     pending,
                     raw,
                     review_driven=review_driven,
@@ -1051,7 +1041,6 @@ class AuthoringOrchestrator:
     def _correction_round(
         self,
         stage: _Stage,
-        packet: PromptPacket,
         pending: Sequence[Finding],
         raw: bytes,
         *,
@@ -1085,7 +1074,6 @@ class AuthoringOrchestrator:
         self._record_allowances()
         corrected = self._correction_v2(
             stage,
-            packet,
             failed_response=raw,
             findings=list(pending),
             view=view,
@@ -1265,7 +1253,7 @@ class AuthoringOrchestrator:
             effective_controls=effective_controls,
             packet=packet,
         )
-        self._record_failures(list(exc.findings))
+        self._record_failures(staged_findings(exc.findings, FINDING_STAGE_KEYS[packet.stage]))
         failure = {
             "phase": "post_response",
             "code": finding.code,
@@ -1520,7 +1508,7 @@ class AuthoringOrchestrator:
         attempts = len(self._journal.dispatches())
         if not attempts and not findings:
             return None
-        terminal_findings = [] if status == "accepted" else self._latest_attempt_findings(findings)
+        terminal_findings = self._terminal_findings(status, findings)
         self._journal.append(
             Finished(
                 status,
@@ -1533,6 +1521,18 @@ class AuthoringOrchestrator:
             )
         )
         return self._journal.flush()
+
+    def _terminal_findings(self, status: str, findings: list[Finding]) -> list[Finding]:
+        """Return the findings the terminal record carries for ``status``."""
+
+        if status == "accepted":
+            return []
+        if status == "prompt_overflow":
+            # A correction overflow stops a request that never dispatched, so the
+            # latest attempt's findings belong to the response before it.
+            overflow = [finding for finding in findings if finding.code == "prompt_overflow"]
+            return overflow or list(findings)
+        return self._latest_attempt_findings(findings)
 
     def _terminal_stage(self, findings: list[Finding]) -> str | None:
         """Return the logical stage that produced the terminal outcome."""

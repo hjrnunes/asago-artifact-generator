@@ -218,5 +218,5 @@ def test_correction_preserves_safe_input_view_without_secret_values(
     assert result.status == "unresolved"
     assert len(transport.requests) == 2
     assert "correction" in result.prompts
-    original = result.prompts["correction"].payload["original_request"]["payload"]
-    assert original["case_meaning"]["semantic_failure"]
+    semantic_failure = transport.requests[0]["payload"]["case_meaning"]["semantic_failure"]
+    assert semantic_failure in result.prompts["correction"].user

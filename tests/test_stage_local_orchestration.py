@@ -491,7 +491,9 @@ def test_second_semantic_revise_exhausts_review_revision_allowance(
     assert evidence["policy"]["plan_max_review_revisions"] == 1
     correction = next(item for item in evidence["attempts"] if item["stage"] == "correction")
     assert correction["allowance"] == "review_revision"
-    assert evidence["findings"] == [finding.to_dict() for finding in result.findings]
+    assert evidence["findings"] == [
+        {**finding.to_dict(), "stage": finding.stage} for finding in result.findings
+    ]
     assert evidence["terminal"] == {
         "stage": "plan",
         "attempt_index": 3,

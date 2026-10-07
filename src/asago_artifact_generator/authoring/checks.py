@@ -273,18 +273,17 @@ def collect_plan_findings_v2(
                 "required_observations",
             )
         )
-    # The shared validator checks the other root fields again, so each
-    # unexpected or missing root field among them is reported twice.
     shared_plan = dict(plan)
     shared_plan.pop("assumptions", None)
     shared_plan.pop("required_observations", None)
     findings.extend(
-        collect_plan_findings(
+        _normalized_plan_findings(
             shared_plan,
             inventory,
             runtime_contract,
-            provenance_ids=provenance_ids,
-            transformations=transformations,
+            provenance_ids,
+            transformations,
+            report_root_presence=False,
         )
     )
     findings.extend(_unobtainable_requirement_findings(plan))
@@ -865,23 +864,49 @@ def collect_plan_findings(
     """Normalize the plan's bindings in place and return every structural Call 1 finding.
 
     This is the shared field validator behind ``collect_plan_findings_v2``.
-    Bindings are canonicalized before the checks; prerequisite binding
-    consumers are added after them, so the binding checks see the consumer
-    list the model wrote. Prerequisite contents are not validated here; the
+    Bindings are canonicalized and prerequisite binding consumers are added
+    before the checks, so the binding checks see the consumer list a
+    prerequisite completes. Prerequisite contents are not validated here; the
     canonical prerequisite validator runs only from the v2 entry point.
     """
 
     if not isinstance(plan, dict):
         return [Finding("response_type_error", "plan must be an object", "response", stage="plan")]
+    return _normalized_plan_findings(
+        plan,
+        inventory,
+        runtime_contract,
+        provenance_ids,
+        transformations,
+        report_root_presence=True,
+    )
+
+
+def _normalized_plan_findings(
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    provenance_ids: Collection[str],
+    transformations: list[dict[str, Any]] | None,
+    *,
+    report_root_presence: bool,
+) -> list[Finding]:
+    """Normalize the bindings and prerequisite consumers, then check the shared fields.
+
+    ``report_root_presence`` includes the unexpected and missing root fields;
+    the v2 entry point reports those against the full v2 field list itself.
+    """
+
     runtime_bindings = plan.get("runtime_bindings")
     if isinstance(runtime_bindings, list):
         normalize_binding_declarations(
             runtime_bindings, inventory=inventory, transformations=transformations
         )
-    findings = _plan_field_findings(plan, inventory, runtime_contract, provenance_ids)
     _normalize_prerequisite_binding_consumers(
         plan.get("prerequisites"), runtime_bindings, transformations=transformations
     )
+    findings = _plan_root_presence_findings(plan) if report_root_presence else []
+    findings.extend(_plan_field_findings(plan, inventory, runtime_contract, provenance_ids))
     return staged_findings(findings, "plan")
 
 
@@ -891,7 +916,7 @@ def _plan_field_findings(
     runtime_contract: dict[str, Any],
     provenance_ids: Collection[str],
 ) -> list[Finding]:
-    findings = _plan_root_field_findings(plan)
+    findings = _plan_list_type_findings(plan)
     references = _inventory_references(inventory)
     findings.extend(_selected_evidence_findings(plan.get("selected_evidence"), references))
     findings.extend(_interpretation_findings(plan, references, provenance_ids))
@@ -966,23 +991,12 @@ _PLAN_LIST_FIELDS = (
 )
 
 
-def _plan_root_field_findings(plan: dict[str, Any]) -> list[Finding]:
+def _plan_root_presence_findings(plan: dict[str, Any]) -> list[Finding]:
+    return _v2_root_field_findings(plan, list(_SHARED_PLAN_ROOT_FIELDS))
+
+
+def _plan_list_type_findings(plan: dict[str, Any]) -> list[Finding]:
     findings: list[Finding] = []
-    required = _SHARED_PLAN_ROOT_FIELDS
-    allowed = set(required)
-    for field_name in sorted(set(plan) - allowed):
-        findings.append(
-            Finding(
-                "unexpected_field",
-                f"unexpected plan field: {field_name}",
-                field_name,
-            )
-        )
-    for field_name in required:
-        if field_name not in plan:
-            findings.append(
-                Finding("plan_validation", f"missing plan field: {field_name}", field_name)
-            )
     for field_name in _PLAN_LIST_FIELDS:
         if field_name in plan and not isinstance(plan[field_name], list):
             findings.append(
@@ -2234,16 +2248,29 @@ def _is_blocked_plan(plan: Any) -> bool:
     )
 
 
+def _applies_to_every_candidate(candidate: Mapping[str, Any]) -> bool:
+    return True
+
+
+def _has_judge_spec(metadata: Mapping[str, Any]) -> bool:
+    """Tell whether the artifact carries a judge spec, the input of the fact-ref check."""
+
+    return isinstance(metadata.get("semantic_judge_spec"), dict)
+
+
 @dataclass(frozen=True)
 class MechanicalCheck:
     """A structural check and the property a candidate that passed it has.
 
     ``functions`` are the checks in this module that enforce the property.
+    ``applies`` tells whether the check examines a candidate at all; a check
+    that does not apply to a candidate gives it no guarantee.
     """
 
     check_id: str
     guarantee: str
     functions: tuple[Callable[..., Any], ...]
+    applies: Callable[[Mapping[str, Any]], bool] = _applies_to_every_candidate
 
 
 def _or_list(values: tuple[str, ...]) -> str:
@@ -2257,7 +2284,7 @@ PLAN_MECHANICAL_CHECKS = (
         "validator checks the object, list, string, boolean, enum, and JSON-value "
         "shapes for the plan fields it inspects, including required_observations as an "
         "object.",
-        (_v2_root_field_findings, _plan_root_field_findings),
+        (_v2_root_field_findings, _plan_list_type_findings),
     ),
     MechanicalCheck(
         "plan_references",
@@ -2341,5 +2368,6 @@ ARTIFACT_MECHANICAL_CHECKS = (
         "setup:<operation> plus result paths, and keyed-map "
         "<fact ref>:records plus value.<key>.record_key.",
         (_semantic_judge_fact_ref_findings, _canonical_prerequisite_findings),
+        applies=_has_judge_spec,
     ),
 )

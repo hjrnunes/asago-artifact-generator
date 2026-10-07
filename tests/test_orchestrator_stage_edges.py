@@ -167,6 +167,52 @@ def test_oversized_correction_prompt_stops_before_the_correction_dispatch(
     assert len(evidence["attempts"]) == 1
 
 
+def test_correction_overflow_evidence_names_the_overflow_as_its_terminal_finding(
+    tmp_path: Path,
+) -> None:
+    transport = ScriptedAuthoringTransport([json.dumps({"junk": "x" * 1_100_000})])
+
+    result = _run(tmp_path, transport, _ONE_PLAN_CORRECTION)
+
+    evidence = load_failure_evidence(result.failure_evidence_path)
+    assert evidence["status"] == "prompt_overflow"
+    assert [finding["code"] for finding in evidence["findings"]] == ["prompt_overflow"]
+    assert evidence["findings"][0]["path"] == "correction"
+    assert evidence["terminal"] == {
+        "stage": "plan",
+        "attempt_index": 0,
+        "reason": "prompt_overflow",
+    }
+    failed_attempt_codes = {finding["code"] for finding in evidence["attempts"][0]["findings"]}
+    assert "plan_validation" in failed_attempt_codes
+
+
+def test_artifact_correction_overflow_evidence_names_the_overflow_as_its_terminal_finding(
+    tmp_path: Path,
+) -> None:
+    policy = AuthoringPolicy(
+        plan_max_corrections=0,
+        artifact_max_corrections=1,
+        review_plan=False,
+        review_artifact=False,
+    )
+    transport = ScriptedAuthoringTransport(
+        [json.dumps(_plan()), _framed({"junk": "x" * 1_100_000})]
+    )
+
+    result = _run(tmp_path, transport, policy)
+
+    assert result.status == "prompt_overflow"
+    assert [request["stage"] for request in transport.requests] == ["call1", "call2"]
+    evidence = load_failure_evidence(result.failure_evidence_path)
+    assert [finding["code"] for finding in evidence["findings"]] == ["prompt_overflow"]
+    assert evidence["terminal"] == {
+        "stage": "artifact",
+        "attempt_index": 1,
+        "reason": "prompt_overflow",
+    }
+
+
 def _plan_needing_a_prerequisite_consumer() -> dict:
     plan = copy.deepcopy(_plan())
     plan["runtime_bindings"][0]["consumers"] = ["detector.owned_order"]
@@ -226,7 +272,7 @@ def test_package_assembly_rejection_fails_the_run_at_the_artifact_stage(
 
     assert result.status == "failed"
     assert [(f.code, f.path, f.stage) for f in result.findings] == [
-        ("assembly_validation", "judge.json", None)
+        ("assembly_validation", "judge.json", "artifact")
     ]
     assert result.findings[0].detail == "judge specification must be an object"
     assert result.package is None
