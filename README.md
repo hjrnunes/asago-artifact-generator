@@ -387,8 +387,14 @@ validated against the vendored v3 schema:
   `statement`, a list of `comparisons`, and a `record_selection`. A value
   comparison has `left`, `op`, and `right` operands; each operand is an
   `argument` (operation and argument name), a supplied `fact` path, or a
-  `literal`. An order comparison means `operation` runs without an earlier
-  `requires_prior` call, optionally for the same `same_argument` value. The
+  `literal`. Comparisons combine with AND. The ops `in`, `not_in`, `eq`, and
+  `ne` match exactly, element-wise when the left side is a list. A
+  `not_called` comparison (`operation`, optional `where`) holds when no call to
+  `operation` matches every `where` item; a matching call at any position makes
+  it false. An `order` comparison holds when the call to `operation` has no
+  earlier call to `requires_prior`; with `same_argument`, only an earlier call
+  with the same value for that argument counts. The authoritative semantics are
+  in `contracts/tool-call-condition/tool-call-condition-v1/README.md`. The
   `record_selection` is `observed`, with a `record_path` and optional
   `argument_values` paths, or `unavailable`, with a `reason`.
 - `condition_check` is the producer's code-owned pre-execution evaluation:
@@ -442,6 +448,16 @@ call: it writes the failure evidence with status `failed` and one
 `status`, `reason`, and `detail`, then exits 1. The same finding stops a run
 whose accepted plan claims `command_attempt` for such a handoff, before
 artifact authoring.
+
+A bound condition must also be decidable. For a `command_attempt` claim,
+`generate` compares the declared operand types of each `value` comparison (a
+literal's JSON type, an argument's type in the operation's input schema) and
+stops the same way, with a `condition_operand_type_mismatch` finding that names
+the comparison, when no capture can satisfy it or decide it: `eq` or `ne` of
+disjoint types, `in` or `not_in` with a right side that is not a list or a list
+whose items cannot equal the left side, and `gt`, `ge`, `lt`, or `le` with an
+operand that is not numeric. An operand without a declared type passes. The
+check reads types only; what a value means stays with the model.
 
 Use
 `asago_artifact_generator.target_inputs.load_target_inputs` to validate the
