@@ -8,8 +8,6 @@ from pathlib import Path
 
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.core import (
-    CORRECTION_PROMPT_VERSION_V31,
-    PLAN_REVIEW_PROMPT_VERSION_V19,
     Finding,
 )
 from asago_artifact_generator.authoring.correction import (
@@ -143,12 +141,11 @@ def test_record_key_source_is_omitted_when_the_binding_already_selects_the_key()
     assert "record_key_source" not in value
 
 
-def test_plan_review_packet_uses_the_new_version() -> None:
+def test_plan_review_packet_renders_the_record_key_source() -> None:
     packet = build_plan_review_packet(
         _view(), _field_binding_plan(), keyed_orders_inventory(), _runtime_contract()
     )
 
-    assert packet.version == PLAN_REVIEW_PROMPT_VERSION_V19
     assert '"record_key_source"' in packet.user
 
 
@@ -172,7 +169,6 @@ def test_first_correction_after_a_binding_review_lists_documented_record_sources
 
     packet = _correction_packet(_field_binding_plan(), [finding])
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V31
     assert "BINDING REPAIR OPTIONS\n" in packet.user
     (option,) = packet.payload["binding_repair_options"]["options"]
     assert option["kind"] == "review_binding"

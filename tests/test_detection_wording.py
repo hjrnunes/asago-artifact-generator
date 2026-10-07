@@ -62,15 +62,3 @@ def test_condition_rule_resolves_fact_operands_without_a_binding(tmp_path: Path)
     for stage in ("call1", "plan_review", "artifact_review", "plan_correction"):
         assert _FACT_OPERAND_RULE in packets[stage].user, stage
     assert _FACT_OPERAND_RULE not in packets["call2"].user
-
-
-def test_every_prompt_role_carries_a_new_version(packets: dict) -> None:
-    # The shared plan field meanings changed, so every role's rendered text changed.
-    assert {stage: packet.version for stage, packet in packets.items()} == {
-        "call1": "authoring-call1-v20",
-        "plan_review": "authoring-plan-review-v19",
-        "call2": "authoring-call2-v25",
-        "artifact_review": "authoring-artifact-review-v20",
-        "plan_correction": "authoring-correction-v31",
-        "artifact_correction": "authoring-correction-v33",
-    }

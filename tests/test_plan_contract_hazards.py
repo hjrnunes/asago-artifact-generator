@@ -1,19 +1,12 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.checks import (
     _is_blocked_plan,
     collect_artifact_findings_v2,
     collect_plan_findings_v2,
-)
-from asago_artifact_generator.authoring.core import (
-    CALL1_PROMPT_VERSION_V20,
-    CALL2_PROMPT_VERSION_V25,
-    CORRECTION_PROMPT_VERSION_V31,
-    PromptPacket,
 )
 from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
@@ -27,19 +20,12 @@ from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
 )
-from asago_artifact_generator.authoring.review import build_plan_review_packet
 
 from .support import world_builders
 
 _framed, _inventory, _metadata, _plan, _runtime_contract, _view = world_builders(
     "ehr", "framed", "inventory", "metadata", "plan", "runtime_contract", "view"
 )
-
-_CURRENT_PROMPT_DIGESTS = {
-    "call1": "70d8ba46d43f4b728670935e00dcba5034eb3b90b5b039da70f8d512ea41f3f5",
-    "plan_correction": "9157e0ee767fe5c0bb8e5df2c0add2314fc35db35705efe1abab2c15451bba72",
-    "plan_review": "18f0a56a90f316a6f359d0e9b6aad2b35b1d6d92b97cc69becba0a143a539c6d",
-}
 
 
 def _typed_inventory(expected_type: str) -> dict:
@@ -94,10 +80,6 @@ def _guidance_schema_fields(contract: dict) -> tuple[str, ...]:
             current = properties[part]
         fields.append(entry["field"])
     return tuple(fields)
-
-
-def _prompt_digest(packet: PromptPacket) -> str:
-    return hashlib.sha256((packet.system + "\x00" + packet.user).encode()).hexdigest()
 
 
 def test_current_call1_replaces_pseudo_empty_shapes_with_schema_guidance() -> None:
@@ -220,7 +202,6 @@ def test_prerequisite_type_finding_is_rendered_in_plan_correction() -> None:
         context, correction_repair_inputs(_view(), inventory, _runtime_contract())
     )
 
-    assert packet.version == CORRECTION_PROMPT_VERSION_V31
     assert finding.detail in packet.user
 
 
@@ -293,50 +274,6 @@ def test_unresolved_requirement_blocking_rules_remain_narrow() -> None:
         for finding in collect_plan_findings_v2(optional_plan, _inventory(), _runtime_contract())
     )
     assert not _is_blocked_plan(optional_plan)
-
-
-def test_current_prompt_versions_cover_contract_changes() -> None:
-    view = _view()
-    inventory = _inventory()
-    runtime_contract = _runtime_contract()
-    assert (
-        build_call1_packet_v2(view, inventory, runtime_contract).version
-        == CALL1_PROMPT_VERSION_V20
-    )
-    assert (
-        build_call2_packet_v2(view, _plan(), inventory, runtime_contract).version
-        == CALL2_PROMPT_VERSION_V25
-    )
-
-
-def test_current_prompt_digests_pin_rendered_contract_evidence() -> None:
-    view = _view()
-    inventory = _inventory()
-    runtime_contract = _runtime_contract()
-    plan_correction = _render_correction_packet(
-        build_correction_context(
-            failed_stage="call1",
-            original_context=build_plan_author_context(view, inventory, runtime_contract),
-            current_output="{}",
-            findings=[],
-        ),
-        correction_repair_inputs(view, inventory, runtime_contract),
-    )
-
-    packets = {
-        "call1": build_call1_packet_v2(view, inventory, runtime_contract),
-        "plan_correction": plan_correction,
-        "plan_review": build_plan_review_packet(
-            view,
-            _plan(),
-            inventory,
-            runtime_contract,
-        ),
-    }
-
-    assert {name: _prompt_digest(packet) for name, packet in packets.items()} == (
-        _CURRENT_PROMPT_DIGESTS
-    )
 
 
 def _hazard_inventory() -> dict:

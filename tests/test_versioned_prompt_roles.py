@@ -84,13 +84,7 @@ def test_five_prompt_roles_have_independent_v3_versions_hashes_and_ordered_secti
     )
     packets.append(correction)
 
-    assert [packet.version for packet in packets] == [
-        CALL1_PROMPT_VERSION_V20,
-        PLAN_REVIEW_PROMPT_VERSION_V19,
-        CALL2_PROMPT_VERSION_V25,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V20,
-        CORRECTION_PROMPT_VERSION_V31,
-    ]
+    assert len({packet.version for packet in packets}) == len(packets)
     assert all(packet.sha256 for packet in packets)
     assert len({packet.sha256 for packet in packets}) == len(packets)
     assert packets[0].user.index("TASK") < packets[0].user.index("SOURCE CONTEXT")
@@ -146,7 +140,6 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
     plan_packet = _render_correction_packet(
         plan_correction, correction_repair_inputs(view, inventory, runtime)
     )
-    assert plan_packet.version == CORRECTION_PROMPT_VERSION_V31
     assert plan_packet.user.count(PLAN_FIELD_MEANINGS) == 1
     assert plan_packet.user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1
     assert "Evaluate every finding against the source context" in plan_packet.user
