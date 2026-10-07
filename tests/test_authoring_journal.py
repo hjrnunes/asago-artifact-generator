@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
+
+import pytest
 
 from asago_artifact_generator.authoring.core import Finding, PromptPacket
 from asago_artifact_generator.authoring.journal import (
@@ -186,41 +189,36 @@ def _projected(journal: AuthoringJournal) -> tuple[str, str, str]:
     )
 
 
-def test_review_evidence_without_any_dispatch_is_ignored(tmp_path: Path) -> None:
-    journal = AuthoringJournal("journal", tmp_path / "package")
-    before = _projected(journal)
-
-    journal.append(_evidence_event())
-
-    assert _projected(journal) == before
-    assert journal.events == []
+def _no_dispatch(journal: AuthoringJournal) -> None:
+    pass
 
 
-def test_review_evidence_after_only_an_author_dispatch_is_ignored(tmp_path: Path) -> None:
-    journal = AuthoringJournal("journal", tmp_path / "package")
+def _author_dispatch_only(journal: AuthoringJournal) -> None:
     _open_author(journal)
-    before = _projected(journal)
-
-    journal.append(_evidence_event())
-
-    assert _projected(journal) == before
-    assert "review" not in journal.ledger[-1]
-    assert "review" not in journal.evidence["attempts"][-1]
-    assert journal.reviews == {}
 
 
-def test_review_evidence_for_a_review_dispatch_that_never_opened_is_ignored(
-    tmp_path: Path,
-) -> None:
-    journal = AuthoringJournal("journal", tmp_path / "package")
+def _review_requested_but_not_opened(journal: AuthoringJournal) -> None:
     _open_author(journal)
     journal.append(DispatchRequested("plan_review"))
+
+
+@pytest.mark.parametrize(
+    "setup",
+    [_no_dispatch, _author_dispatch_only, _review_requested_but_not_opened],
+)
+def test_review_evidence_without_an_open_review_dispatch_is_ignored(
+    tmp_path: Path, setup: Callable[[AuthoringJournal], None]
+) -> None:
+    journal = AuthoringJournal("journal", tmp_path / "package")
+    setup(journal)
     before = _projected(journal)
+    events_before = list(journal.events)
 
     journal.append(_evidence_event())
 
     assert _projected(journal) == before
-    assert "review" not in journal.ledger[-1]
+    assert journal.events == events_before
+    assert all("review" not in record for record in journal.ledger)
 
 
 def test_review_evidence_after_a_later_request_that_never_opened_is_ignored(
