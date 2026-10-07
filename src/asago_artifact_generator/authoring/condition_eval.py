@@ -217,14 +217,28 @@ def _assignment(
     ]
     if not all(candidates):
         return (False if complete else None), ()
+    picks, seen_unknown = _first_true_picks(comparisons, calls, operations, candidates)
+    if picks is not None:
+        return True, picks
+    return (None if seen_unknown or not complete else False), ()
+
+
+def _first_true_picks(
+    comparisons: Sequence[Mapping[str, Any]],
+    calls: Sequence[Call],
+    operations: Sequence[str],
+    candidates: Sequence[Sequence[int]],
+) -> tuple[tuple[int, ...] | None, bool]:
+    """Return the first choice that makes every comparison true, and whether any was unknown."""
+
     seen_unknown = False
     for picks in itertools.product(*candidates):
         choice = dict(zip(operations, picks, strict=True))
         truth = _all(_call_level_truth(comparison, calls, choice) for comparison in comparisons)
         if truth:
-            return True, picks
+            return picks, seen_unknown
         seen_unknown = seen_unknown or truth is None
-    return (None if seen_unknown or not complete else False), ()
+    return None, seen_unknown
 
 
 def _operations(comparisons: Sequence[Mapping[str, Any]]) -> list[str]:

@@ -204,6 +204,13 @@ def _call2_examples_findings(examples: Any) -> list[Finding]:
 
 
 def _call2_example_findings(label: str, item: Any) -> list[Finding]:
+    findings = _example_item_findings(label, item)
+    if findings or "capture" not in item:
+        return findings
+    return capture_shape_findings(label, item["capture"])
+
+
+def _example_item_findings(label: str, item: Any) -> list[Finding]:
     if item is None:
         return [
             Finding(
@@ -239,7 +246,7 @@ def _call2_example_findings(label: str, item: Any) -> list[Finding]:
                 f"examples.{label}.description",
             )
         ]
-    return capture_shape_findings(label, item["capture"]) if "capture" in item else []
+    return []
 
 
 def collect_plan_findings_v2(

@@ -82,6 +82,34 @@ def test_command_attempt_example_without_a_capture_is_a_missing_field(label: str
     assert [(f.code, f.path) for f in findings] == [("missing_field", f"examples.{label}.capture")]
 
 
+@pytest.mark.parametrize("label", ["unsafe", "safe", "inconclusive"])
+def test_a_missing_example_is_a_missing_field(label: str) -> None:
+    metadata = neutral_metadata()
+    del metadata["examples"][label]
+
+    findings = artifact_findings(metadata)
+
+    assert [(f.code, f.path) for f in findings] == [("missing_field", f"examples.{label}")]
+
+
+def test_an_example_that_is_not_author_proposed_is_an_example_shape_finding() -> None:
+    metadata = neutral_metadata()
+    metadata["examples"]["safe"]["label"] = "supplied"
+
+    findings = artifact_findings(metadata)
+
+    assert [(f.code, f.path) for f in findings] == [("example_shape", "examples.safe")]
+
+
+def test_a_description_that_is_not_a_string_is_a_type_error() -> None:
+    metadata = neutral_metadata()
+    metadata["examples"]["unsafe"]["description"] = 3
+
+    findings = artifact_findings(metadata)
+
+    assert [(f.code, f.path) for f in findings] == [("type_error", "examples.unsafe.description")]
+
+
 def test_inconclusive_example_cannot_carry_a_capture() -> None:
     metadata = neutral_metadata()
     metadata["examples"]["inconclusive"]["capture"] = capture()

@@ -9,6 +9,7 @@ from typing import Any
 
 from asago_artifact_generator.authoring.contracts import neutral_artifact_plan_v2
 from asago_artifact_generator.authoring.core import Finding
+from asago_artifact_generator.authoring.example_capture import example_capture_findings
 from asago_artifact_generator.authoring.oracle_self_test import (
     ORACLE_CODES,
     oracle_self_test_findings,
@@ -126,6 +127,30 @@ def test_reply_claim_is_not_scored_by_the_condition() -> None:
     document["semantic_judge_spec"] = {"question": "Is it?", "criteria": "c", "fact_refs": []}
 
     assert _findings(document, plan=plan) == []
+
+
+def test_a_claim_level_without_captures_skips_every_example_check() -> None:
+    plan = neutral_artifact_plan_v2()
+    plan["observation_claim"]["claim_level"] = "state_effect"
+    quiet = neutral_metadata(unsafe=capture(call(id="neutral-1", value=1)))
+
+    assert _findings(quiet, plan=plan) == []
+
+
+def test_an_example_without_a_capture_is_left_to_the_structural_checks() -> None:
+    examples = neutral_metadata(unsafe=None)["examples"]
+
+    assert oracle_self_test_findings(examples, NEUTRAL_TOOL_CALL_CONDITION) == []
+    assert oracle_self_test_findings({"unsafe": "prose"}, NEUTRAL_TOOL_CALL_CONDITION) == []
+
+
+def test_a_malformed_example_entry_carries_no_capture_finding() -> None:
+    inventory = {"operations": []}
+
+    assert (
+        example_capture_findings({"unsafe": "prose"}, command_attempt=True, inventory=inventory)
+        == []
+    )
 
 
 def test_no_condition_means_no_self_test() -> None:
