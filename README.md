@@ -278,7 +278,12 @@ record key and field exist, then persists the documented
 source whose selector repeats its record key, such as
 `facts:state:loans:LN-101` with `value.LN-101.borrower_id`, resolves the
 same way. Unknown keys, fields, a selector that names a different key or
-field, and incompatible types remain invalid. Valid scenario lineage and
+field, and incompatible types remain invalid. A selector follows object
+properties only: one that steps into an array with `items`, such as
+`value.content.items.text`, gets a `selector_through_array` finding that names
+the array path, and the repair enumeration of documented selectors omits array
+items. The `artifact-package` contract defines no array traversal, and the
+orchestrator's selector resolver reads dictionary keys only. Valid scenario lineage and
 attack-tree IDs from the handoff are accepted in `interpretation.source_refs`
 and `assumptions[].ref`; correction feedback lists the valid provenance IDs,
 while invented IDs remain invalid.

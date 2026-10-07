@@ -22,6 +22,7 @@ from ..bindings import (
     canonical_binding_paths,
     find_stimulus_user_text_consumer_mismatches,
     normalize_binding_declarations,
+    selector_array_step,
     supplied_binding_values,
     validate_bindings,
 )
@@ -52,6 +53,7 @@ from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observation
 # The spelling JUDGE_CONSUMERS replaced. It stays out of the closed vocabulary, so a plan
 # that still writes it gets a finding that names the replacement instead of an alias.
 _RETIRED_DETECTOR_PREFIX = "detector."
+SELECTOR_THROUGH_ARRAY_CODE = "selector_through_array"
 
 
 def _validate_call2_metadata_shape(value: Any) -> list[Finding]:
@@ -1788,6 +1790,20 @@ def _binding_selector_findings(
         ]
     if source_schema is None:
         return []
+    array_path = selector_array_step(source_schema, selector)
+    if array_path is not None:
+        return [
+            Finding(
+                SELECTOR_THROUGH_ARRAY_CODE,
+                (
+                    f"selector for binding {name} steps into the array at {array_path}: "
+                    f"{selector}. A selector follows object properties only and cannot step "
+                    f"into an array or its items; select {array_path} itself or a documented "
+                    "selector that does not pass through an array."
+                ),
+                f"{path}.selector",
+            )
+        ]
     actual_type = _binding_selector_type(source_schema, selector)
     if actual_type is None:
         return [
