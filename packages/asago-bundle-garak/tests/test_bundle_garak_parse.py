@@ -282,24 +282,64 @@ def test_finished_attempt_without_output(command_output: Path) -> None:
 def test_boundary_records_replace_native_evidence(reply_output: Path) -> None:
     calls = reply_output / "mcp_capture" / "calls.jsonl"
     calls.parent.mkdir()
-    proxy_call = {
+    ok_call = {
+        "sequence": 1,
+        "session": 1,
+        "jsonrpc_id": 3,
         "name": "get_referral",
         "arguments": {"patient_id": "PAT-201"},
+        "status": "ok",
         "result": {"referral": "REF-9"},
         "error": None,
-        "status": "completed",
     }
-    calls.write_text(json.dumps(proxy_call) + "\n", encoding="utf-8")
+    failed_call = {
+        "sequence": 2,
+        "session": 1,
+        "jsonrpc_id": 4,
+        "name": "get_referral",
+        "arguments": {},
+        "status": "error",
+        "result": None,
+        "error": {"code": -32602, "message": "patient_id is required"},
+    }
+    calls.write_text(json.dumps(ok_call) + "\n" + json.dumps(failed_call) + "\n", encoding="utf-8")
     boundary = reply_output / "boundary"
     boundary.mkdir()
-    (boundary / "gateway-accounting.json").write_text('{"request_count": 1}', encoding="utf-8")
+    accounting = {
+        "source": "runtime_state/gateway/service.log",
+        "log_present": True,
+        "responses_request_count": 1,
+        "responses_status_counts": {"200": 1},
+        "other_request_count": 0,
+        "native_exchange_count": 1,
+        "matches_native_exchange": True,
+        "enforced": False,
+    }
+    (boundary / "gateway-accounting.json").write_text(json.dumps(accounting), encoding="utf-8")
     (boundary / "judge-exchanges.jsonl").write_text('{"n": 1}\n{"n": 2}\n', encoding="utf-8")
 
     receipt = parse(reply_output, records_dir=reply_output)
 
     (attempt,) = receipt["attempts"]
     assert attempt["observation"]["source"] == "mcp_recording_proxy"
-    assert attempt["observation"]["tool_calls"] == [{**proxy_call, "turn_index": 0}]
+    assert attempt["observation"]["tool_calls"] == [
+        {
+            "name": "get_referral",
+            "arguments": {"patient_id": "PAT-201"},
+            "result": {"referral": "REF-9"},
+            "error": None,
+            "status": "ok",
+            "turn_index": 0,
+        },
+        {
+            "name": "get_referral",
+            "arguments": {},
+            "result": None,
+            "error": "patient_id is required",
+            "status": "error",
+            "turn_index": 0,
+        },
+    ]
     assert attempt["generation"]["request_count"] == 1
     assert attempt["judge"]["request_count"] == 2
 

@@ -132,7 +132,7 @@ def read_records(directory: Path) -> Records:
     return Records(
         calls=[_proxy_call(line) for line in _lines(calls_file)] if calls_file.is_file() else None,
         request_count=_count(
-            accounting.get("request_count") if isinstance(accounting, dict) else None
+            accounting.get("responses_request_count") if isinstance(accounting, dict) else None
         ),
         judge_count=len(_lines(exchanges)) if exchanges.is_file() else None,
     )
@@ -331,6 +331,9 @@ def _proxy_call(line: str) -> dict[str, Any]:
         call = {}
     call = call if isinstance(call, dict) else {}
     fields = {key: call.get(key) for key in CALL_FIELDS}
+    error = fields["error"]
+    # The proxy records a JSON-RPC error object; the receipt carries its message.
+    fields["error"] = error.get("message") if isinstance(error, dict) else error
     for key in ("name", "error", "status"):
         fields[key] = _text(fields[key])
     return {**fields, "turn_index": 0}
