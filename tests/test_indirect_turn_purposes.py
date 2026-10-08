@@ -22,7 +22,7 @@ from asago_artifact_generator.input_adapter import (
     load_input,
 )
 
-from .support import world
+from .support import json_section, world
 from .turn_support import indirect_inventory, indirect_runtime, indirect_shape
 
 _REFUND_BOUND = (
@@ -105,7 +105,7 @@ def test_the_indirect_plan_payload_builds_for_every_benign_turn_purpose(
 
     assert [turn["purpose"] for turn in block["turn_plan"]] == purposes
     assert all(turn["meaning"].strip() for turn in block["turn_plan"])
-    assert packet.payload["multi_turn_shape"]["turn_plan"] == block["turn_plan"]
+    assert json_section(packet.user, "INDIRECT SHAPE")["turn_plan"] == block["turn_plan"]
 
 
 def test_every_purpose_the_contract_allows_on_a_benign_user_turn_has_an_indirect_meaning() -> None:

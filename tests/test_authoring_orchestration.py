@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from asago_artifact_generator.authoring.contracts import _call2_contract_v2
 from asago_artifact_generator.authoring.core import (
     PromptOverflowError,
     TransportResponse,
@@ -14,6 +15,11 @@ from asago_artifact_generator.authoring.core import (
 from asago_artifact_generator.authoring.policy import AuthoringBudget, AuthoringResult
 from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
+)
+from asago_artifact_generator.authoring.sequential_turns import (
+    plan_response_contract,
+    shape_delivery,
+    turn_count,
 )
 
 from .support import (
@@ -59,11 +65,12 @@ def test_stage_correction_contains_complete_contract_and_all_findings(
     assert result.status == "unresolved"
     assert len(result.ledger) == 2
     correction = transport.requests[1]
-    original = transport.requests[0]
     payload = correction["payload"]
     assert payload["current_output"] == response
     assert payload["current_output_encoding"] == "utf-8-exact"
-    assert payload["response_contract"] == original["payload"]["response_contract"]
+    assert payload["response_contract"] == plan_response_contract(
+        turn_count(_view()), shape_delivery(_view())
+    )
     assert not {"original_request", "failed_response", "failed_response_encoding"} & set(payload)
     assert "failed_response_bytes_hex" not in payload
     assert "failed_response_bytes_base64" not in payload
@@ -195,9 +202,10 @@ def test_stage_correction_contains_exact_failure_and_never_fourth_request(
     assert correction["payload"]["failed_stage"] == failed_stage
     failed_index = 0 if failed_stage == "call1" else 1
     assert correction["payload"]["current_output"] == responses[failed_index].decode()
-    assert (
-        correction["payload"]["response_contract"]
-        == transport.requests[failed_index]["payload"]["response_contract"]
+    assert correction["payload"]["response_contract"] == (
+        plan_response_contract(turn_count(_view()), shape_delivery(_view()))
+        if failed_stage == "call1"
+        else _call2_contract_v2(_plan_v2())
     )
     assert not {"original_request", "failed_response", "failed_response_encoding"} & set(
         correction["payload"]

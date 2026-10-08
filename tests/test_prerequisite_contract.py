@@ -11,7 +11,7 @@ from asago_artifact_generator.authoring.checks import (
 from asago_artifact_generator.authoring.core import Finding
 from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 
-from .support import world_builders
+from .support import rendered_response_contract, world_builders
 
 _contract, _inventory, _plan, _view = world_builders(
     "refund-minimal", "runtime_contract", "inventory", "plan", "view"
@@ -61,7 +61,7 @@ def test_v2_prerequisites_use_only_canonical_fields_and_declared_binding() -> No
     assert collect_plan_findings_v2(plan, inventory, _contract()) == []
 
     packet = build_call1_packet_v2(_view(), inventory, _contract())
-    schema = packet.payload["response_contract"]["schema"]["properties"]["prerequisites"]
+    schema = rendered_response_contract(packet)["schema"]["properties"]["prerequisites"]
     assert schema["items"]["required"] == [
         "name",
         "check",

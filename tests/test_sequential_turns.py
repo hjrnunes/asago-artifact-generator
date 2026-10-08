@@ -17,6 +17,7 @@ from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
     build_correction_context,
 )
+from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
 from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
@@ -28,12 +29,13 @@ from asago_artifact_generator.authoring.review import (
 from asago_artifact_generator.authoring.sequential_turns import (
     SEQUENTIAL_DELIVERY,
     multi_turn_block,
+    multi_turn_payload,
     sequential_artifact_findings,
     sequential_plan_findings,
 )
 from asago_artifact_generator.input_adapter import InputView
 
-from .support import world
+from .support import json_section, rendered_response_contract, world
 from .turn_support import (
     EARLIER,
     PURPOSES,
@@ -100,7 +102,7 @@ def test_the_response_contract_of_a_one_turn_v4_handoff_is_the_v3_contract(
         v4_view(tmp_path, 1), refund["inventory"], refund["runtime_contract"]
     )
 
-    assert v4.payload["response_contract"] == v3.payload["response_contract"]
+    assert rendered_response_contract(v4) == rendered_response_contract(v3)
 
 
 # --- the multi-turn rule block ---------------------------------------------------
@@ -117,7 +119,7 @@ def test_every_packet_of_a_multi_turn_handoff_carries_the_rule_block(
 
     for stage, packet in packets.items():
         assert "MULTI-TURN SHAPE" in packet.user, stage
-        assert packet.payload["multi_turn_shape"]["turn_count"] == turns, stage
+        assert json_section(packet.user, "MULTI-TURN SHAPE")["turn_count"] == turns, stage
 
 
 def test_the_rule_block_explains_each_new_field_and_gives_one_example_of_it(
@@ -159,7 +161,7 @@ def test_a_multi_turn_plan_contract_names_the_sequential_delivery(tmp_path: Path
         v4_view(tmp_path, 3), refund["inventory"], sequential_runtime(refund["runtime_contract"])
     )
 
-    stimulus = packet.payload["response_contract"]["schema"]["properties"]["stimulus_approach"]
+    stimulus = rendered_response_contract(packet)["schema"]["properties"]["stimulus_approach"]
     assert stimulus["properties"]["delivery"]["enum"] == [SEQUENTIAL_DELIVERY]
 
 
@@ -284,11 +286,13 @@ def test_a_plan_correction_keeps_the_rule_block_and_the_contract_of_its_turn_cou
     refund = world("refund")
     view = v4_view(tmp_path, turns)
     rt = sequential_runtime(refund["runtime_contract"])
-    original = build_call1_packet_v2(view, refund["inventory"], rt)
     finding = Finding("shape_turn_count_mismatch", "found 0", "stimulus_approach.history")
     context = build_correction_context(
         failed_stage="call1",
-        original_context=original.payload,
+        original_context={
+            **build_plan_author_context(view, refund["inventory"], rt),
+            **multi_turn_payload(view, rt),
+        },
         current_output=b"{}",
         findings=[finding],
     )

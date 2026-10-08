@@ -12,6 +12,7 @@ from asago_artifact_generator.authoring.prompt_packets import (
 from asago_artifact_generator.bindings import validate_bindings
 
 from .support import (
+    rendered_response_contract,
     world_builders,
 )
 
@@ -44,12 +45,12 @@ def test_rendered_contracts_expose_complete_validator_shapes_and_empty_permissio
     call2 = build_call2_packet_v2(view, _plan_v2(), _inventory_v2(), contract)
 
     for packet in (call1, call2):
-        response_contract = packet.payload["response_contract"]
+        response_contract = rendered_response_contract(packet)
         schema = response_contract["schema"]
         assert schema["type"] == "object"
         assert set(schema["required"]) == set(response_contract["fields"])
 
-    call1_contract = call1.payload["response_contract"]
+    call1_contract = rendered_response_contract(call1)
     assert call1_contract["binding_declaration"]["required"] == [
         "name",
         "expected_type",
@@ -72,7 +73,7 @@ def test_rendered_contracts_expose_complete_validator_shapes_and_empty_permissio
     assert call1_schema["properties"]["semantic_judge"]["properties"]["needed"]["type"] == (
         "boolean"
     )
-    call2_contract = call2.payload["response_contract"]
+    call2_contract = rendered_response_contract(call2)
     assert call2_contract["schema"]["properties"]["explanation"]["type"] == "string"
     assert "detector_interface" not in call2_contract
 
@@ -80,7 +81,7 @@ def test_rendered_contracts_expose_complete_validator_shapes_and_empty_permissio
 def test_rendered_binding_contract_explains_direction_grammar_and_example() -> None:
     call1 = build_call1_packet_v2(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    binding = call1.payload["response_contract"]["binding_declaration"]
+    binding = rendered_response_contract(call1)["binding_declaration"]
     assert "facts:<fact ref>" in binding["source_ref_rule"]
     assert "setup:<operation>" in binding["source_ref_rule"]
     assert binding["direction"] == "source_ref -> selector -> consumers"
@@ -100,7 +101,7 @@ def test_rendered_binding_contract_explains_direction_grammar_and_example() -> N
 def test_rendered_binding_contract_explains_applicability_and_both_source_examples() -> None:
     call1 = build_call1_packet_v2(_view(), _inventory_v2(), _runtime_contract_v2())
 
-    binding = call1.payload["response_contract"]["binding_declaration"]
+    binding = rendered_response_contract(call1)["binding_declaration"]
     assert binding["source_scope"] == (
         "Only environment inventory facts are bindable supplied sources; "
         "input payloads and source handles remain context and are not bindable sources."
@@ -122,7 +123,7 @@ def test_rendered_binding_contract_explains_applicability_and_both_source_exampl
 
 def test_rendered_binding_examples_are_accepted_by_closed_validator() -> None:
     packet = build_call1_packet_v2(_view(), _inventory_v2(), _runtime_contract_v2())
-    examples = packet.payload["response_contract"]["binding_declaration"]["valid_examples"]
+    examples = rendered_response_contract(packet)["binding_declaration"]["valid_examples"]
     supplied = {
         **examples["supplied_input"],
         "source_ref": examples["supplied_input"]["source_ref"].replace("<fact ref>", "loan"),

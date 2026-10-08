@@ -27,6 +27,7 @@ from asago_artifact_generator.authoring.planted_item import (
     VERBATIM_RUN,
     planted_item_findings,
 )
+from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
 from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
@@ -37,6 +38,7 @@ from asago_artifact_generator.authoring.review import (
 )
 from asago_artifact_generator.authoring.sequential_turns import (
     multi_turn_block,
+    multi_turn_payload,
     sequential_artifact_findings,
     sequential_plan_findings,
 )
@@ -45,7 +47,9 @@ from asago_artifact_generator.package_io import load_package
 
 from .support import (
     ScriptedAuthoringTransport,
+    json_section,
     load_failure_evidence,
+    rendered_response_contract,
     stage_local_orchestrator,
     world,
 )
@@ -131,7 +135,7 @@ def test_every_packet_of_an_indirect_handoff_carries_the_block(tmp_path: Path) -
 
     for stage, packet in packets.items():
         assert "INDIRECT SHAPE" in packet.user, stage
-        assert packet.payload["multi_turn_shape"]["delivery"] == PLANTED_ITEM, stage
+        assert json_section(packet.user, "INDIRECT SHAPE")["delivery"] == PLANTED_ITEM, stage
         assert "MULTI-TURN SHAPE" not in packet.user, stage
 
 
@@ -142,7 +146,7 @@ def test_the_block_and_the_plan_contract_name_the_planted_item_delivery(
 
     packet = build_call1_packet_v2(view, inventory, rt)
 
-    properties = packet.payload["response_contract"]["schema"]["properties"]
+    properties = rendered_response_contract(packet)["schema"]["properties"]
     assert properties["stimulus_approach"]["properties"]["delivery"]["enum"] == [PLANTED_ITEM]
 
 
@@ -203,10 +207,12 @@ def test_a_plan_correction_keeps_the_block_and_the_planted_item_contract(
     tmp_path: Path, turns: int
 ) -> None:
     view, inventory, rt, _, _ = setup(tmp_path, turns)
-    original = build_call1_packet_v2(view, inventory, rt)
     context = build_correction_context(
         failed_stage="call1",
-        original_context=original.payload,
+        original_context={
+            **build_plan_author_context(view, inventory, rt),
+            **multi_turn_payload(view, rt),
+        },
         current_output=b"{}",
         findings=[Finding("shape_delivery_mismatch", "x", "stimulus_approach.delivery")],
     )

@@ -282,8 +282,17 @@ def json_section(user: str, title: str) -> dict:
 
     marker = f"{title}\n" if user.startswith(f"{title}\n") else f"\n{title}\n"
     start = user.index(marker) + len(marker)
-    end = user.index("\n\n", start)
-    return json.loads(user[start:end])
+    end = user.find("\n\n", start)
+    return json.loads(user[start:] if end < 0 else user[start:end])
+
+
+def rendered_response_contract(packet: PromptPacket) -> dict:
+    """Return the response contract a Call 1 or Call 2 prompt renders."""
+
+    if packet.stage == "call1":
+        return json_section(packet.user, "RESPONSE CONTRACT")
+    section = json_section(packet.user, "OUTPUT CONTRACT AND ONE NEUTRAL EXAMPLE")
+    return section["response_contract"]
 
 
 def review_response(decision: str = "accept", findings: list[dict] | None = None) -> bytes:

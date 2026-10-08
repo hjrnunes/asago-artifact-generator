@@ -24,7 +24,9 @@ from .support import (
     ScriptedAuthoringTransport,
     assemble_refund_package,
     build_neutral_artifact_package,
+    json_section,
     neutral_call2_response_v2,
+    rendered_response_contract,
     stage_local_orchestrator,
     unreviewed_policy,
     validate_neutral_example,
@@ -64,10 +66,15 @@ def _judged_metadata(*, captured: bool = False) -> dict:
     }
 
 
+def _rendered_scenario(packet) -> dict:
+    if packet.stage == "call1":
+        return json_section(packet.user, "TASK")["scenario"]
+    return json_section(packet.user, "ORIGINAL SCENARIO AND SOURCE CONTEXT")["scenario"]
+
+
 def test_call1_v2_has_closed_root_and_reports_all_root_faults() -> None:
     packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
-    assert packet.payload["interface"] == AUTHORING_INTERFACE_VERSION_V2
-    fields = packet.payload["response_contract"]["fields"]
+    fields = rendered_response_contract(packet)["fields"]
     assert fields == [
         "interpretation",
         "selected_evidence",
@@ -226,7 +233,7 @@ def test_v2_call1_accepts_one_lowercase_json_fence_through_orchestrator(tmp_path
     assert result.raw_responses["call1"] == raw_plan
     assert result.transformations == ["outer_fence_removed"]
     assert result.ledger[0]["transformation"] == "outer_fence_removed"
-    assert transport.requests[0]["payload"]["response_contract"]["framing"]["accepted"]
+    assert json_section(transport.requests[0]["user"], "RESPONSE CONTRACT")["framing"]["accepted"]
 
 
 def test_v2_call1_accepts_one_bare_object_without_transformation(tmp_path) -> None:
@@ -551,16 +558,7 @@ def test_v2_prompt_has_typed_references_selected_schemas_and_measured_bytes() ->
 
     for packet in (call1, call2):
         assert packet.byte_size == len(packet.system.encode()) + len(packet.user.encode())
-        assert packet.payload["identifier_kinds"] == [
-            "evidence references identify supplied facts",
-            "binding names identify values resolved later",
-            "operation names identify documented tools",
-        ]
-        assert packet.payload["case_meaning"]["semantic_failure"]
-    operations = call2.payload["selected_operations"]
-    assert [item["name"] for item in operations] == ["process_refund"]
-    assert operations[0]["arguments"]["properties"]["amount"]["type"] == "number"
-    assert operations[0]["result_schema"]["properties"]["ok"]["type"] == "boolean"
+        assert _rendered_scenario(packet)["semantic_failure"]
 
 
 def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
@@ -578,17 +576,17 @@ def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
     }
 
     for packet in (call1, call2):
-        assert set(packet.payload["input"]) == expected_input_fields
-        assert "narrative" not in packet.payload["input"]
-        assert "gherkin_text" not in packet.payload["input"]
-        assert packet.payload["input"]["scenario_id"] == view.scenario_id
-        assert packet.payload["input"]["source_digests"] == view.source_digests
-        assert packet.payload["case_meaning"]["narrative"] == view.narrative
-        assert packet.payload["case_meaning"]["gherkin"] == view.gherkin_text
-        assert packet.payload["case_meaning"]["semantic_failure"]
-        assert packet.payload["case_meaning"]["safe_behavior"]
-        assert packet.payload["case_meaning"]["observation_level"]
-        assert "classification" in packet.payload["case_meaning"]
+        scenario = _rendered_scenario(packet)
+        identity = scenario["input_identity"]
+        assert set(identity) == expected_input_fields
+        assert identity["scenario_id"] == view.scenario_id
+        assert identity["source_digests"] == view.source_digests
+        assert scenario["narrative"] == view.narrative
+        assert scenario["gherkin"] == view.gherkin_text
+        assert scenario["semantic_failure"]
+        assert scenario["safe_behavior"]
+        assert scenario["observation_level"]
+        assert "classification" in scenario
         narrative_literal = json.dumps(
             view.narrative,
             sort_keys=True,

@@ -21,7 +21,7 @@ from asago_artifact_generator.authoring.prompt_packets import (
     build_call2_packet_v2,
 )
 
-from .support import world_builders
+from .support import rendered_response_contract, world_builders
 
 _framed, _inventory, _metadata, _plan, _runtime_contract, _view = world_builders(
     "ehr", "framed", "inventory", "metadata", "plan", "runtime_contract", "view"
@@ -119,8 +119,8 @@ def test_current_call1_replaces_pseudo_empty_shapes_with_schema_guidance() -> No
     assert "runtime_bindings_for_static_concrete_stimulus" not in packets[0].user
     assert "prerequisites_when_none_are_required" not in packets[0].user
 
-    call1_contract = packets[0].payload["response_contract"]
-    call2_contract = packets[1].payload["response_contract"]
+    call1_contract = rendered_response_contract(packets[0])
+    call2_contract = rendered_response_contract(packets[1])
     assert _guidance_schema_fields(call1_contract) == (
         "setup_recipe",
         "runtime_bindings",
@@ -139,12 +139,12 @@ def test_current_contract_guidance_fields_resolve_to_response_schema_properties(
     view = _view()
     inventory = _inventory()
     runtime_contract = _runtime_contract()
-    call1_contract = build_call1_packet_v2(view, inventory, runtime_contract).payload[
-        "response_contract"
-    ]
-    call2_contract = build_call2_packet_v2(view, _plan(), inventory, runtime_contract).payload[
-        "response_contract"
-    ]
+    call1_contract = rendered_response_contract(
+        build_call1_packet_v2(view, inventory, runtime_contract)
+    )
+    call2_contract = rendered_response_contract(
+        build_call2_packet_v2(view, _plan(), inventory, runtime_contract)
+    )
 
     assert _guidance_schema_fields(call1_contract)
     assert "empty_value_guidance" not in call2_contract
@@ -206,9 +206,9 @@ def test_prerequisite_type_finding_is_rendered_in_plan_correction() -> None:
 
 
 def test_current_prerequisite_schema_explains_check_as_non_executable_text() -> None:
-    contract = build_call1_packet_v2(_view(), _inventory(), _runtime_contract()).payload[
-        "response_contract"
-    ]
+    contract = rendered_response_contract(
+        build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
+    )
     description = contract["schema"]["properties"]["prerequisites"]["items"]["properties"][
         "check"
     ]["description"]

@@ -20,7 +20,12 @@ from asago_artifact_generator.input_adapter import load_input
 from asago_artifact_generator.metadata_policy import prompt_secret_metadata_paths
 from asago_artifact_generator.package_io import PackageIntegrityError, build_package
 
-from .support import ScriptedAuthoringTransport, stage_local_orchestrator, world_builders
+from .support import (
+    ScriptedAuthoringTransport,
+    json_section,
+    stage_local_orchestrator,
+    world_builders,
+)
 
 (_runtime_contract,) = world_builders("refund-minimal", "runtime_contract")
 
@@ -125,19 +130,21 @@ def test_prompt_policy_keeps_scenario_handoff_meaning_in_call1_and_call2() -> No
         runtime_contract,
     )
 
-    for packet in (call1, call2):
-        meaning = packet.payload["case_meaning"]
+    meanings = (
+        json_section(call1.user, "TASK")["scenario"],
+        json_section(call2.user, "ORIGINAL SCENARIO AND SOURCE CONTEXT")["scenario"],
+    )
+    for meaning in meanings:
         assert meaning["semantic_failure"]
         assert meaning["safe_behavior"]
         assert "stimulus" not in meaning
         assert "oracle" not in meaning
-    operations = call1.payload["available_operations"]
+    operations = json_section(call1.user, "SOURCE CONTEXT")["operations"]
     assert len(operations) == 7
     assert all(
         operation["description"] and operation["arguments"] and operation["result_schema"]
         for operation in operations
     )
-    assert call2.payload["selected_operations"] == []
 
 
 def test_prompt_policy_allows_documented_session_identifier_schema() -> None:
@@ -220,5 +227,27 @@ def test_correction_preserves_safe_input_view_without_secret_values(
     assert result.status == "unresolved"
     assert len(transport.requests) == 2
     assert transport.requests[1]["stage"] == "correction"
-    semantic_failure = transport.requests[0]["payload"]["case_meaning"]["semantic_failure"]
+    semantic_failure = json_section(transport.requests[0]["user"], "TASK")["scenario"][
+        "semantic_failure"
+    ]
     assert semantic_failure in transport.requests[1]["user"]
+
+
+@pytest.mark.parametrize(
+    ("stage", "section"),
+    [("call1", "SOURCE CONTEXT"), ("call2", "ORIGINAL SCENARIO AND SOURCE CONTEXT")],
+)
+def test_author_packets_scan_the_rendered_sections_for_secret_keys(
+    stage: str, section: str
+) -> None:
+    inventory = _operation_inventory()
+    inventory["operations"][0]["arguments"]["properties"]["api_key"] = {"type": "string"}
+
+    with pytest.raises(AuthoringError, match="secret-bearing authoring evidence") as error:
+        if stage == "call1":
+            build_call1_packet_v2(_view(), inventory, _runtime_contract())
+        else:
+            build_call2_packet_v2(_view(), _saved_plan(), inventory, _runtime_contract())
+
+    assert f"{section}." in error.value.message
+    assert "api_key" in error.value.message
