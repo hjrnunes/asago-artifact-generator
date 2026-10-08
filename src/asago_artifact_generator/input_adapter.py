@@ -269,18 +269,21 @@ def _validate_handoff_payload(payload: dict[str, Any]) -> None:
     """
 
     ownership = _ownership_violations(payload)
-    breaks = _schema_violations(payload)
-    if not breaks:
-        hand = _hand_rule_violation(payload)
-        breaks = [hand] if hand is not None else []
-    if not ownership and breaks:
-        if {code for code, _, _ in breaks} <= _SHAPE_CODES:
-            refusal = _attack_shape_refusal(payload)
-            if refusal is not None:
-                raise refusal
+    breaks = _schema_violations(payload) or _hand_rule_violations(payload)
+    if not ownership:
+        _raise_shape_refusal(payload, breaks)
     violations = [*ownership, *breaks]
     if violations:
         raise HandoffSchemaInvalid(violations)
+
+
+def _raise_shape_refusal(payload: dict[str, Any], breaks: list[_Violation]) -> None:
+    """Raise the typed attack-shape refusal when every break concerns the shape."""
+
+    if breaks and {code for code, _, _ in breaks} <= _SHAPE_CODES:
+        refusal = _attack_shape_refusal(payload)
+        if refusal is not None:
+            raise refusal
 
 
 _SHAPE_CODES = frozenset({"schema_violation:attack_shape", "schema_violation:<root>"})
@@ -297,18 +300,26 @@ def _schema_violations(payload: dict[str, Any]) -> list[_Violation]:
     found: dict[str, _Violation] = {}
     rooted: _Violation | None = None
     for error in Draft202012Validator(_handoff_schema()).iter_errors(payload):
-        # best_match descends into anyOf branches, so the reason names the break
-        # inside an optional object rather than restating the whole object.
-        detail = best_match([error]) or error
-        where = ".".join(str(part) for part in detail.absolute_path) or "<root>"
-        if error.schema_path and error.schema_path[0] == "allOf":
-            rooted = rooted or ("schema_violation:<root>", where, detail.message)
+        where, reason = _error_detail(error)
+        if _is_root_pairing(error):
+            rooted = rooted or ("schema_violation:<root>", where, reason)
             continue
         for name in _error_fields(error):
-            found.setdefault(name, (f"schema_violation:{name}", where, detail.message))
-    if not found and rooted is not None:
-        return [rooted]
-    return list(found.values())
+            found.setdefault(name, (f"schema_violation:{name}", where, reason))
+    if found or rooted is None:
+        return list(found.values())
+    return [rooted]
+
+
+def _error_detail(error: Any) -> tuple[str, str]:
+    # best_match descends into anyOf branches, so the reason names the break
+    # inside an optional object rather than restating the whole object.
+    detail = best_match([error]) or error
+    return ".".join(str(part) for part in detail.absolute_path) or "<root>", detail.message
+
+
+def _is_root_pairing(error: Any) -> bool:
+    return bool(error.schema_path) and error.schema_path[0] == "allOf"
 
 
 def _error_fields(error: Any) -> list[str]:
@@ -337,6 +348,11 @@ def _attack_shape_refusal(payload: dict[str, Any]) -> ShapeVersionMalformed | No
         return None
     violation = attack_shape_violation(shape, _handoff_schema())
     return ShapeVersionMalformed(*violation) if violation is not None else None
+
+
+def _hand_rule_violations(payload: dict[str, Any]) -> list[_Violation]:
+    found = _hand_rule_violation(payload)
+    return [found] if found is not None else []
 
 
 def _hand_rule_violation(payload: dict[str, Any]) -> _Violation | None:
@@ -391,18 +407,27 @@ def _observation_criterion(criterion: dict[str, Any], path: str) -> _Break:
     for key in ("criterion_id", "outcome", "reason"):
         if not criterion[key].strip():
             return f"{path}.{key}", "must not be blank"
-    observable = criterion["observable"]
+    return _criterion_claim(criterion, path) or _criterion_operation(criterion, path)
+
+
+def _criterion_claim(criterion: dict[str, Any], path: str) -> _Break:
+    if not criterion["observable"]:
+        if any(criterion.get(key) is not None for key in ("claim_level", "evidence")):
+            return path, "an analytical-only criterion must omit claim_level and evidence"
+        return None
     for key in ("claim_level", "evidence"):
-        if observable and not is_nonblank_str(criterion.get(key)):
+        if not is_nonblank_str(criterion.get(key)):
             return path, f"an observable criterion requires {key}"
-    if not observable and any(
-        criterion.get(key) is not None for key in ("claim_level", "evidence")
-    ):
-        return path, "an analytical-only criterion must omit claim_level and evidence"
+    return None
+
+
+def _criterion_operation(criterion: dict[str, Any], path: str) -> _Break:
     operation_name = criterion.get("operation_name")
-    if operation_name is not None and not is_nonblank_str(operation_name):
+    if operation_name is None:
+        return None
+    if not is_nonblank_str(operation_name):
         return f"{path}.operation_name", "must not be blank"
-    if not observable and operation_name is not None:
+    if not criterion["observable"]:
         return path, "an analytical-only criterion must omit operation_name"
     return None
 
