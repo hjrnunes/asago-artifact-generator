@@ -20,7 +20,6 @@ from .prompt_context import (
     _explained_bindings,
     _explained_evidence,
     _explained_operations,
-    _owner_scope_prompt_sections,
     _plan_semantic_judge_needed,
     _render_sections,
     _scenario_design_prompt_view,
@@ -113,8 +112,6 @@ def build_call1_packet_v2(
             "neutral_outcome_example": context["neutral_outcome_example"],
         }
     )
-    if "owner_scope" in context:
-        payload["owner_scope"] = context["owner_scope"]
     payload["evidence_reference_rules"] = context["evidence_references"]
     payload["scenario_design"] = context["scenario_design"]
     assert_no_prompt_secrets(payload)
@@ -129,7 +126,6 @@ def build_call1_packet_v2(
             )
             + multi_turn_sections(view, runtime_contract)
             + (("SOURCE CONTEXT", context["source_context"]),)
-            + _owner_scope_prompt_sections(context)
             + (("EVIDENCE REFERENCES", context["evidence_references"]),)
             + (
                 ("EXECUTION CAPABILITIES", context["execution_capabilities"]),
@@ -188,8 +184,6 @@ def build_call2_packet_v2(
         }
     )
     payload.update(multi_turn_payload(view, runtime_contract))
-    if "owner_scope" in context:
-        payload["owner_scope"] = context["owner_scope"]
     assert_no_prompt_secrets(payload)
     sections: tuple[tuple[str, Any], ...] = (
         (
@@ -201,7 +195,6 @@ def build_call2_packet_v2(
                 },
             ),
         )
-        + _owner_scope_prompt_sections(context)
         + (
             ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
             ("ACCEPTED PLAN — immutable", context["accepted_plan"]),

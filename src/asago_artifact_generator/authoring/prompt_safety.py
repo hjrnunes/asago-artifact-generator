@@ -60,7 +60,6 @@ def prompt_data_urls(*values: Any) -> frozenset[str]:
     def visit(item: Any) -> None:
         if isinstance(item, InputView):
             visit(item.payload)
-            visit(item.owner_scope)
             visit(item.gherkin_text)
         elif isinstance(item, Finding):
             visit(item.to_dict())

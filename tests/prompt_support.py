@@ -1,7 +1,7 @@
 """Render every authoring stage's prompt from an example world.
 
-The golden-file test, the owner-scope test and the detection-wording tests share one render
-so that they describe the same six prompts.
+The golden-file test and the detection-wording tests share one render so that they
+describe the same six prompts.
 """
 
 from __future__ import annotations

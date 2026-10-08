@@ -24,7 +24,6 @@ from .core import (
     _canonical_json,
 )
 from .prompt_context import (
-    _OWNER_SCOPE_SECTION_TITLE,
     _scenario_design_prompt_view,
     _semantic_judge_fact_ref_guidance,
 )
@@ -43,7 +42,6 @@ class _CorrectionView:
     fact_ref_guidance: dict[str, Any] | None
     plan_field_meanings: Any
     neutral_outcome_example: Any
-    owner_scope: Any
     accepted_plan: Any
     binding_repair_options: dict[str, Any] | None = None
     reference_repair_options: dict[str, Any] | None = None
@@ -71,7 +69,6 @@ def _correction_view(correction_context: dict[str, Any]) -> _CorrectionView:
     plan_field_meanings = original_context.pop("plan_field_meanings", None)
     neutral_outcome_example = original_context.pop("neutral_outcome_example", None)
     original_context.pop("semantic_judge_fact_ref_guidance", None)
-    owner_scope = original_context.pop("owner_scope", None)
     accepted_plan = correction_context.get("original_context", {}).get("accepted_plan")
     artifact = correction_context.get("stage") == "artifact"
     return _CorrectionView(
@@ -81,7 +78,6 @@ def _correction_view(correction_context: dict[str, Any]) -> _CorrectionView:
         fact_ref_guidance=fact_ref_guidance,
         plan_field_meanings=plan_field_meanings,
         neutral_outcome_example=neutral_outcome_example,
-        owner_scope=owner_scope,
         accepted_plan=accepted_plan,
     )
 
@@ -113,12 +109,6 @@ def _fixed_plan_decision_section(view: _CorrectionView) -> tuple[str, Any] | Non
 
 def _original_stage_context_section(view: _CorrectionView) -> tuple[str, Any] | None:
     return ("ORIGINAL STAGE CONTEXT", view.original_context)
-
-
-def _owner_scope_section(view: _CorrectionView) -> tuple[str, Any] | None:
-    if view.owner_scope is None:
-        return None
-    return (_OWNER_SCOPE_SECTION_TITLE, view.owner_scope)
 
 
 def _supplied_stage_context_section(view: _CorrectionView) -> tuple[str, Any] | None:
@@ -250,7 +240,6 @@ _CORRECTION_CONTEXT_SECTIONS: tuple[_CorrectionSection, ...] = (
     _failed_stage_section,
     _fixed_plan_decision_section,
     _original_stage_context_section,
-    _owner_scope_section,
     _supplied_stage_context_section,
     _plan_field_meanings_section,
     _neutral_outcome_example_section,

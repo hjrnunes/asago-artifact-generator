@@ -53,75 +53,6 @@ def _authoritative_context(
     }
 
 
-_OWNER_SCOPE_SECTION_TITLE = "SOURCE CONTEXT — OWNER-SUPPLIED SCOPE (NOT OBSERVED TARGET FACTS)"
-
-
-def _owner_scope_section(view: InputView) -> dict[str, Any] | None:
-    """Validate and label optional owner-supplied premise and instruction text."""
-
-    raw_scope = view.owner_scope
-    if raw_scope is None:
-        return None
-    if not isinstance(raw_scope, dict):
-        raise ValueError("owner_scope must be a mapping")
-    allowed_categories = ("scenario_premises", "evaluation_instructions")
-    unknown_categories = set(raw_scope) - set(allowed_categories)
-    if unknown_categories:
-        raise ValueError(f"owner_scope has unsupported categories: {sorted(unknown_categories)}")
-
-    categories: dict[str, list[dict[str, str]]] = {}
-    for category in allowed_categories:
-        items = raw_scope.get(category, [])
-        if not isinstance(items, (list, tuple)):
-            raise ValueError(f"owner_scope.{category} must be a sequence")
-        if not items:
-            continue
-        categories[category] = [
-            _owner_scope_item(f"owner_scope.{category}[{index}]", item)
-            for index, item in enumerate(items)
-        ]
-    if not categories:
-        return None
-    return {
-        "classification": (
-            "This is owner-supplied context, separate from verified inventory facts "
-            "and policy data. It is not an observed target fact or runtime evidence."
-        ),
-        **categories,
-    }
-
-
-def _owner_scope_item(path: str, item: Any) -> dict[str, str]:
-    """Validate one owner scope entry as exactly a nonblank text and source."""
-
-    if not isinstance(item, dict) or set(item) != {"text", "source"}:
-        raise ValueError(f"{path} must contain exactly text and source")
-    text, source = item["text"], item["source"]
-    if not isinstance(text, str) or not text.strip():
-        raise ValueError(f"{path}.text must be nonblank")
-    if not isinstance(source, str) or not source.strip():
-        raise ValueError(f"{path}.source must be nonblank")
-    return {"text": text, "source": source}
-
-
-def _include_owner_scope(context: dict[str, Any], view: InputView) -> dict[str, Any]:
-    """Add non-empty owner scope outside the verified source context."""
-
-    owner_scope = _owner_scope_section(view)
-    if owner_scope is not None:
-        context["owner_scope"] = owner_scope
-    return context
-
-
-def _owner_scope_prompt_sections(context: dict[str, Any]) -> tuple[tuple[str, Any], ...]:
-    """Return the separate source-context section when owner scope is present."""
-
-    owner_scope = context.get("owner_scope")
-    if owner_scope is None:
-        return ()
-    return ((_OWNER_SCOPE_SECTION_TITLE, owner_scope),)
-
-
 _PLAN_AUTHOR_GUIDANCE = (
     "Write the three observation_claim branches as decision conditions. Prefer "
     'explicit conditional wording, such as "Return inconclusive if required capture '
@@ -972,15 +903,6 @@ def build_plan_author_context(
     design = _scenario_design(view)
     context["scenario_design"] = design
     context["task"]["scenario"]["classification"] = deepcopy(design["classification"])
-    owner_scope = _owner_scope_section(view)
-    if owner_scope is not None:
-        context["field_guide"]["owner_supplied_scope"] = (
-            "The SOURCE CONTEXT — OWNER-SUPPLIED SCOPE section contains owner-supplied "
-            "scenario_premises and evaluation_instructions with their sources. "
-            "Keep this material distinct from verified inventory facts and policy "
-            "data; it is not an observed target fact or runtime evidence."
-        )
-        context["owner_scope"] = owner_scope
     return context
 
 
@@ -1117,7 +1039,7 @@ def build_artifact_author_context(
     }
     context["evidence_references"] = _plan_evidence_references(view, inventory)
     context["semantic_judge_fact_ref_guidance"] = _semantic_judge_fact_ref_guidance(inventory)
-    return _include_owner_scope(context, view)
+    return context
 
 
 def _plan_semantic_judge_needed(plan: Any) -> bool:

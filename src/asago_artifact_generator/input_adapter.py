@@ -164,7 +164,6 @@ class InputView:
     gherkin_text: str
     gherkin_bytes: bytes
     source_digests: dict[str, str] = field(default_factory=dict)
-    owner_scope: dict[str, list[dict[str, str]]] | None = None
 
     @property
     def source_sha256(self) -> str:

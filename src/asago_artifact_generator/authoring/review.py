@@ -38,12 +38,10 @@ from .prompt_context import (
     _authoritative_context,
     _discriminating_condition_rule,
     _explained_operations,
-    _include_owner_scope,
     _neutral_outcome_example,
     _omission_trigger_rule,
     _order_comparison_rule,
     _original_scenario_context,
-    _owner_scope_prompt_sections,
     _render_sections,
     _resolved_supplied_binding_values,
     scenario_provenance_ids,
@@ -564,7 +562,7 @@ def build_plan_reviewer_context(
     }
     if prior_round is not None:
         context["prior_review_round"] = _prior_review_round_context(prior_round, plan)
-    return _include_owner_scope(context, view)
+    return context
 
 
 def _inventory_names(inventory: dict[str, Any], section: str, key: str) -> set[str]:
@@ -718,7 +716,7 @@ def build_artifact_reviewer_context(
         },
         "acceptance_examples": _review_acceptance_examples(),
     }
-    return _include_owner_scope(context, view)
+    return context
 
 
 def _review_response_example() -> dict[str, Any]:
@@ -861,7 +859,6 @@ def build_plan_review_packet(
                 ("ORIGINAL SCENARIO", context["original_scenario"]),
                 ("AUTHORITATIVE CONTEXT", context["authoritative_context"]),
             )
-            + _owner_scope_prompt_sections(context)
             + multi_turn_sections(view, runtime_contract)
             + (
                 ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
@@ -923,7 +920,6 @@ def build_artifact_review_packet(
                 "authoritative_context": context["authoritative_context"],
             },
         ),
-        *_owner_scope_prompt_sections(context),
         *review_sections(view, metadata, runtime_contract),
         ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
         ("ACCEPTED PLAN", context["accepted_plan"]),
