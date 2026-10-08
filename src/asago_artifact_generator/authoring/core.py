@@ -278,31 +278,40 @@ class PromptPacket:
         return _sha256(rendered.encode("utf-8"))
 
 
-class Call2FramingError(AuthoringError):
+class FramingError(AuthoringError):
+    """Raised when a model response fails its stage's framing checks.
+
+    The message joins the finding details; ``path`` names the stage.
+    """
+
+    stage = ""
+    empty_message = ""
+
+    def __init__(self, findings: list[Finding]) -> None:
+        self.findings = list(findings)
+        detail = "; ".join(finding.detail for finding in self.findings)
+        super().__init__(detail or self.empty_message, self.stage)
+
+
+class Call2FramingError(FramingError):
     """Raised when a v2 Call 2 response is not exactly one JSON object."""
 
-    def __init__(self, findings: list[Finding]) -> None:
-        self.findings = list(findings)
-        detail = "; ".join(finding.detail for finding in self.findings)
-        super().__init__(detail or "invalid Call 2 framing", "call2")
+    stage = "call2"
+    empty_message = "invalid Call 2 framing"
 
 
-class Call1FramingError(AuthoringError):
+class Call1FramingError(FramingError):
     """Raised when a v2 Call 1 response has unsupported outer framing."""
 
-    def __init__(self, findings: list[Finding]) -> None:
-        self.findings = list(findings)
-        detail = "; ".join(finding.detail for finding in self.findings)
-        super().__init__(detail or "invalid Call 1 framing", "call1")
+    stage = "call1"
+    empty_message = "invalid Call 1 framing"
 
 
-class ReviewResponseError(AuthoringError):
+class ReviewResponseError(FramingError):
     """Raised when a reviewer response fails framing, shape, or consistency."""
 
-    def __init__(self, findings: list[Finding]) -> None:
-        self.findings = list(findings)
-        detail = "; ".join(finding.detail for finding in self.findings)
-        super().__init__(detail or "invalid reviewer response", "review")
+    stage = "review"
+    empty_message = "invalid reviewer response"
 
 
 @dataclass(frozen=True)
