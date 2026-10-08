@@ -10,7 +10,6 @@ from asago_artifact_generator.authoring.checks import (
     _normalize_prerequisite_binding_consumers,
     _prerequisite_evidence_ref_findings,
     _stimulus_slot_findings,
-    collect_plan_findings,
     collect_plan_findings_v2,
 )
 
@@ -98,8 +97,8 @@ def test_stimulus_slot_findings_report_without_deriving_the_slots() -> None:
     assert stimulus == {"slots": [], "user_text": "Show {{item_id}}"}
 
 
-def test_collect_plan_findings_rejects_a_non_object_plan() -> None:
-    findings = collect_plan_findings("plan", {}, {})
+def test_collect_plan_findings_v2_rejects_a_non_object_plan() -> None:
+    findings = collect_plan_findings_v2("plan", {}, {})
 
     assert _coded(findings) == [("response_type_error", "plan must be an object", "response")]
 
@@ -146,27 +145,14 @@ def test_collect_plan_findings_v2_still_reports_a_root_list_field_of_the_wrong_t
     ]
 
 
-def test_collect_plan_findings_keeps_reporting_the_shared_root_fields() -> None:
-    findings = collect_plan_findings({"x": 1, "interpretation": "bad"}, {}, {})
-
-    assert _root_presence(findings) == [
-        ("unexpected_field", "x"),
-        *(
-            ("plan_validation", name)
-            for name in _V2_ROOT_FIELDS_BESIDES_INTERPRETATION
-            if name not in {"assumptions", "required_observations"}
-        ),
-    ]
-
-
-def test_collect_plan_findings_checks_each_unresolved_requirement() -> None:
+def test_collect_plan_findings_v2_checks_each_unresolved_requirement() -> None:
     unresolved = [
         "text",
         {"name": "n", "essential": "yes", "reason": "r"},
         {"name": "n", "essential": True, "reason": "r"},
     ]
 
-    findings = collect_plan_findings({"unresolved_requirements": unresolved}, {}, {})
+    findings = collect_plan_findings_v2({"unresolved_requirements": unresolved}, {}, {})
 
     assert [
         (f.detail, f.path) for f in findings if f.path.startswith("unresolved_requirements[")

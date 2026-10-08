@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from asago_artifact_generator.authoring.checks import (
     collect_artifact_findings_v2,
-    collect_plan_findings,
     collect_plan_findings_v2,
 )
 
@@ -15,9 +14,19 @@ from .support import (
 _inventory_v2, _plan_v2, _runtime_contract_v2 = world_builders(
     "refund", "inventory", "plan", "runtime_contract"
 )
-_inventory, _contract, _plan = world_builders(
+_inventory, _contract, _minimal_plan = world_builders(
     "refund-minimal", "inventory", "runtime_contract", "plan"
 )
+
+
+def _plan(**overrides):
+    """Return the minimal refund plan with the two root fields only v2 plans carry."""
+
+    return _minimal_plan(
+        assumptions=[],
+        required_observations={"tool_calls": {"required": True, "missing": "inconclusive"}},
+        **overrides,
+    )
 
 
 def test_plan_binding_findings_accumulate_nested_faults_without_coercion() -> None:
@@ -32,7 +41,7 @@ def test_plan_binding_findings_accumulate_nested_faults_without_coercion() -> No
     }
     plan = _plan(runtime_bindings=[malformed])
 
-    findings = collect_plan_findings(plan, _inventory(), _contract())
+    findings = collect_plan_findings_v2(plan, _inventory(), _contract())
 
     binding_findings = [
         finding for finding in findings if finding.path.startswith("runtime_bindings[0]")
@@ -104,7 +113,7 @@ def test_plan_validation_carries_canonical_deduplicated_bindings_into_prerequisi
     )
     transformations: list[dict] = []
 
-    findings = collect_plan_findings(
+    findings = collect_plan_findings_v2(
         plan,
         inventory,
         _contract(),
@@ -176,9 +185,10 @@ def test_plan_validation_accepts_a_record_shorthand_whose_selector_repeats_the_k
                 "on_missing": "stop",
             },
         ],
+        prerequisites=[],
     )
 
-    findings = collect_plan_findings(plan, inventory, _contract())
+    findings = collect_plan_findings_v2(plan, inventory, _contract())
 
     assert findings == []
     assert [(item["source_ref"], item["selector"]) for item in plan["runtime_bindings"]] == [
@@ -222,7 +232,7 @@ def test_plan_validation_adds_missing_prerequisite_consumer_and_records_rewrite(
     )
     transformations: list[dict] = []
 
-    findings = collect_plan_findings(
+    findings = collect_plan_findings_v2(
         plan,
         inventory,
         _contract(),

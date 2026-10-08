@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from .checks import (
     collect_artifact_findings_v2,
-    collect_plan_findings,
     collect_plan_findings_v2,
 )
 from .contracts import (
@@ -131,7 +130,6 @@ __all__ = [
     "PLAN_REVIEW_QUESTION_IDS",
     "ARTIFACT_REVIEW_QUESTION_IDS",
     "collect_artifact_findings_v2",
-    "collect_plan_findings",
     "collect_plan_findings_v2",
     "parse_review_response",
     "policy_max_dispatches",

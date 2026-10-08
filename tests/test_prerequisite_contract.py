@@ -1,14 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
-import pytest
-
 from asago_artifact_generator.authoring.checks import (
-    collect_plan_findings,
     collect_plan_findings_v2,
 )
-from asago_artifact_generator.authoring.core import Finding
 from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 
 from .support import world_builders
@@ -232,32 +226,27 @@ def test_v2_unknown_prerequisite_field_yields_only_the_canonical_finding() -> No
     assert findings == [("unexpected_field", "prerequisites[0].operator")]
 
 
-_Collector = Callable[..., list[Finding]]
-
-
 def _empty_consumer_plan(*, prerequisites: list[dict[str, object]]) -> tuple[dict, dict]:
     inventory, binding = _v2_inventory_and_binding()
     plan = _v2_plan(runtime_bindings=[{**binding, "consumers": []}], prerequisites=prerequisites)
     return plan, inventory
 
 
-@pytest.mark.parametrize("collect", [collect_plan_findings, collect_plan_findings_v2])
-def test_binding_a_prerequisite_uses_needs_no_consumer_from_the_model(collect: _Collector) -> None:
+def test_binding_a_prerequisite_uses_needs_no_consumer_from_the_model() -> None:
     plan, inventory = _empty_consumer_plan(prerequisites=[_canonical_prerequisite()])
     rewrites: list[dict[str, object]] = []
 
-    findings = collect(plan, inventory, _contract(), transformations=rewrites)
+    findings = collect_plan_findings_v2(plan, inventory, _contract(), transformations=rewrites)
 
     assert [finding for finding in findings if finding.path.startswith("runtime_bindings")] == []
     assert plan["runtime_bindings"][0]["consumers"] == ["prerequisites.booking_state"]
     assert [rewrite["transformation"] for rewrite in rewrites] == ["binding_consumer_added"]
 
 
-@pytest.mark.parametrize("collect", [collect_plan_findings, collect_plan_findings_v2])
-def test_binding_no_prerequisite_uses_still_needs_a_consumer(collect: _Collector) -> None:
+def test_binding_no_prerequisite_uses_still_needs_a_consumer() -> None:
     plan, inventory = _empty_consumer_plan(prerequisites=[])
 
-    findings = collect(plan, inventory, _contract())
+    findings = collect_plan_findings_v2(plan, inventory, _contract())
 
     assert [
         (finding.code, finding.path)

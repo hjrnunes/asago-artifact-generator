@@ -271,8 +271,8 @@ def collect_plan_findings_v2(
     """Return every structural finding for a v2 plan and normalize valid bindings.
 
     The v2 root fields (``assumptions`` and ``required_observations``) are
-    checked here; the remaining fields go through ``collect_plan_findings``,
-    the shared field validator, which skips prerequisite contents.
+    checked here; the remaining fields go through the shared field validator,
+    which skips prerequisite contents.
     Prerequisites are then checked once, against the closed v2 form,
     followed by the omission-trigger, stimulus-slot, and established-trigger
     cross-checks.
@@ -309,7 +309,6 @@ def collect_plan_findings_v2(
             runtime_contract,
             provenance_ids,
             transformations,
-            report_root_presence=False,
         )
     )
     findings.extend(_unobtainable_requirement_findings(plan))
@@ -930,49 +929,14 @@ def _plan_canonical_prerequisite_findings(
     )
 
 
-def collect_plan_findings(
-    plan: Any,
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-    *,
-    provenance_ids: Collection[str] = frozenset(),
-    transformations: list[dict[str, Any]] | None = None,
-) -> list[Finding]:
-    """Normalize the plan's bindings in place and return every structural Call 1 finding.
-
-    This is the shared field validator behind ``collect_plan_findings_v2``.
-    Bindings are canonicalized and prerequisite binding consumers are added
-    before the checks, so the binding checks see the consumer list a
-    prerequisite completes. Prerequisite contents are not validated here; the
-    canonical prerequisite validator runs only from the v2 entry point.
-    """
-
-    if not isinstance(plan, dict):
-        return [Finding("response_type_error", "plan must be an object", "response", stage="plan")]
-    return _normalized_plan_findings(
-        plan,
-        inventory,
-        runtime_contract,
-        provenance_ids,
-        transformations,
-        report_root_presence=True,
-    )
-
-
 def _normalized_plan_findings(
     plan: dict[str, Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
     provenance_ids: Collection[str],
     transformations: list[dict[str, Any]] | None,
-    *,
-    report_root_presence: bool,
 ) -> list[Finding]:
-    """Normalize the bindings and prerequisite consumers, then check the shared fields.
-
-    ``report_root_presence`` includes the unexpected and missing root fields;
-    the v2 entry point reports those against the full v2 field list itself.
-    """
+    """Normalize the bindings and prerequisite consumers, then check the shared fields."""
 
     runtime_bindings = plan.get("runtime_bindings")
     if isinstance(runtime_bindings, list):
@@ -982,9 +946,9 @@ def _normalized_plan_findings(
     _normalize_prerequisite_binding_consumers(
         plan.get("prerequisites"), runtime_bindings, transformations=transformations
     )
-    findings = _plan_root_presence_findings(plan) if report_root_presence else []
-    findings.extend(_plan_field_findings(plan, inventory, runtime_contract, provenance_ids))
-    return staged_findings(findings, "plan")
+    return staged_findings(
+        _plan_field_findings(plan, inventory, runtime_contract, provenance_ids), "plan"
+    )
 
 
 def _plan_field_findings(
@@ -1046,20 +1010,6 @@ def _unresolved_requirement_findings(unresolved: list[Any]) -> list[Finding]:
     return findings
 
 
-# The plan root fields the shared field validator checks: every root field
-# except assumptions and required_observations, which only the v2 entry point
-# checks.
-_SHARED_PLAN_ROOT_FIELDS = (
-    "interpretation",
-    "selected_evidence",
-    "setup_recipe",
-    "runtime_bindings",
-    "prerequisites",
-    "stimulus_approach",
-    "observation_claim",
-    "semantic_judge",
-    "unresolved_requirements",
-)
 _PLAN_LIST_FIELDS = (
     "selected_evidence",
     "setup_recipe",
@@ -1067,10 +1017,6 @@ _PLAN_LIST_FIELDS = (
     "prerequisites",
     "unresolved_requirements",
 )
-
-
-def _plan_root_presence_findings(plan: dict[str, Any]) -> list[Finding]:
-    return _v2_root_field_findings(plan, list(_SHARED_PLAN_ROOT_FIELDS))
 
 
 def _plan_list_type_findings(plan: dict[str, Any]) -> list[Finding]:
