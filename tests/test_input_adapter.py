@@ -14,7 +14,6 @@ from asago_artifact_generator.input_adapter import (
     InputSourceError,
     build_scenario_handoff_view,
     load_input,
-    snapshot_input,
 )
 
 CONTRACT_HANDOFF = (
@@ -31,25 +30,12 @@ CONTRACT_KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-han
 def test_handoff_view_preserves_source_hash_and_authoritative_content() -> None:
     source = CONTRACT_HANDOFF.read_bytes()
 
-    view = load_input(CONTRACT_HANDOFF, kind=InputKind.SCENARIO_HANDOFF_V3)
+    view = load_input(CONTRACT_HANDOFF)
 
     assert view.kind is InputKind.SCENARIO_HANDOFF_V3
     assert view.source_sha256 == hashlib.sha256(source).hexdigest()
     assert view.narrative == yaml.safe_load(source)["narrative"]
     assert view.gherkin["scenario"] == "Refund command exceeds the remaining balance of the order"
-
-
-def test_snapshot_reads_source_and_never_edits_it(tmp_path: Path) -> None:
-    source_path = tmp_path / "source.yaml"
-    source_path.write_bytes(b"source: exact\n")
-    before = source_path.read_bytes()
-
-    snapshot = snapshot_input(source_path, tmp_path / "snapshots")
-
-    assert source_path.read_bytes() == before
-    assert snapshot.sha256 == hashlib.sha256(before).hexdigest()
-    assert snapshot.snapshot_path is not None
-    assert Path(snapshot.snapshot_path).read_bytes() == before
 
 
 def test_non_handoff_source_is_rejected(tmp_path: Path) -> None:
@@ -66,7 +52,7 @@ def test_tampered_handoff_fails_before_a_view_is_created(tmp_path: Path) -> None
     source_path.write_bytes(payload)
 
     with pytest.raises(InputSourceError, match="content_digest"):
-        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
+        load_input(source_path)
 
 
 def test_observation_metadata_reaches_authoring_view(tmp_path: Path) -> None:
@@ -120,7 +106,7 @@ def test_observation_metadata_reaches_authoring_view(tmp_path: Path) -> None:
     source_path = tmp_path / "handoff.yaml"
     source_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
 
-    view = load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
+    view = load_input(source_path)
 
     assert view.payload["observation"]["assessment"]["disposition"] == "executable"
     assert view.payload["observation"]["criteria"][0]["claim_level"] == "reply"
@@ -164,7 +150,7 @@ def test_analytical_observation_criterion_may_omit_optional_fields(
     source_path = tmp_path / "handoff.yaml"
     source_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
 
-    view = load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
+    view = load_input(source_path)
 
     assert view.payload["observation"]["assessment"]["disposition"] == "analytical_only"
 
@@ -289,7 +275,7 @@ def test_handoff_validation_names_the_first_invalid_field(
     source_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(InputSourceError) as raised:
-        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
+        load_input(source_path)
 
     assert str(raised.value).startswith(message)
 
@@ -308,7 +294,7 @@ def test_valid_duplicate_metadata_passes_validation_and_reaches_the_digest_check
     source_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(InputSourceError, match="content_digest does not match"):
-        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
+        load_input(source_path)
 
 
 @pytest.mark.parametrize(
@@ -326,7 +312,7 @@ def test_handoff_validation_checks_the_condition_and_tool_call_fields(
     source_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(InputSourceError) as raised:
-        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
+        load_input(source_path)
 
     assert str(raised.value).startswith(message)
 
@@ -363,19 +349,16 @@ def test_frozen_handoff_versions_are_rejected_for_authoring(relative: str) -> No
     assert "scenario-handoff-v3" in str(raised.value)
 
 
-def test_unknown_input_kind_is_rejected() -> None:
-    with pytest.raises(InputSourceError, match="^unsupported input kind: bogus$"):
-        load_input(CONTRACT_HANDOFF, kind="bogus")
-
-
 def test_handoff_that_is_not_an_object_is_rejected(tmp_path: Path) -> None:
     source_path = tmp_path / "handoff.json"
     source_path.write_text("[1, 2]", encoding="utf-8")
 
     with pytest.raises(InputSourceError) as raised:
-        load_input(source_path, kind=InputKind.SCENARIO_HANDOFF_V3)
+        load_input(source_path)
 
-    assert str(raised.value) == "scenario handoff must be an object"
+    assert str(raised.value) == (
+        "authoring source must be a producer scenario-handoff-v3 or scenario-handoff-v4 document"
+    )
 
 
 def test_gherkin_companion_file_replaces_the_rendered_text(tmp_path: Path) -> None:
@@ -402,35 +385,6 @@ def test_gherkin_companion_must_be_utf8(tmp_path: Path) -> None:
         load_input(source_path)
 
     assert str(raised.value) == f"Gherkin companion is not UTF-8: {companion}"
-
-
-def test_snapshot_refuses_a_hash_addressed_file_with_other_bytes(tmp_path: Path) -> None:
-    source_path = tmp_path / "source.yaml"
-    source_path.write_bytes(b"source: exact\n")
-    snapshots = tmp_path / "snapshots"
-    snapshots.mkdir()
-    digest = hashlib.sha256(b"source: exact\n").hexdigest()
-    occupied = snapshots / f"{digest}-source.yaml"
-    occupied.write_bytes(b"source: other\n")
-
-    with pytest.raises(InputSourceError) as raised:
-        snapshot_input(source_path, snapshots)
-
-    assert str(raised.value) == f"snapshot collision for {source_path}"
-    assert occupied.read_bytes() == b"source: other\n"
-
-
-def test_snapshot_reuses_an_identical_hash_addressed_file(tmp_path: Path) -> None:
-    source_path = tmp_path / "source.yaml"
-    source_path.write_bytes(b"source: exact\n")
-
-    first = snapshot_input(source_path, tmp_path / "snapshots")
-    second = snapshot_input(source_path, tmp_path / "snapshots")
-
-    assert second == first
-    assert sorted(p.name for p in (tmp_path / "snapshots").iterdir()) == [
-        Path(first.snapshot_path).name
-    ]
 
 
 @pytest.mark.parametrize("schema_text", [None, "{not json"])

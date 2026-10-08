@@ -140,7 +140,7 @@ from tests.support import (
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
 source, destination = map(Path, sys.argv[1:3])
-view = load_input(source, kind=InputKind.SCENARIO_HANDOFF_V3)
+view = load_input(source)
 inventory = {
     "operations": [],
     "facts": [{"ref": "fact:one", "value": True, "schema": {"type": "boolean"}}],

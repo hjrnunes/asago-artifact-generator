@@ -78,7 +78,7 @@ def test_valid_v3_fixtures_load_with_their_digest_domain(relative: str) -> None:
 @pytest.mark.parametrize("relative", sorted(_EXPECTED_VIOLATIONS))
 def test_invalid_v3_fixtures_report_expected_violations(relative: str) -> None:
     with pytest.raises(InputSourceError) as raised:
-        load_input(HANDOFF_V3_KIT / relative, kind=InputKind.SCENARIO_HANDOFF_V3)
+        load_input(HANDOFF_V3_KIT / relative)
 
     for code in _EXPECTED_VIOLATIONS[relative]:
         assert code in str(raised.value)
@@ -88,7 +88,7 @@ def test_invalid_v3_fixtures_report_expected_violations(relative: str) -> None:
 def test_invalid_v3_fixtures_report_exactly_the_producers_ownership_codes(relative: str) -> None:
     prefix = "handoff ownership violation: "
     with pytest.raises(InputSourceError) as raised:
-        load_input(HANDOFF_V3_KIT / relative, kind=InputKind.SCENARIO_HANDOFF_V3)
+        load_input(HANDOFF_V3_KIT / relative)
 
     message = str(raised.value)
     reported = message.removeprefix(prefix).split(", ") if message.startswith(prefix) else []

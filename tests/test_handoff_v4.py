@@ -52,7 +52,7 @@ def test_every_valid_v4_fixture_is_accepted(relative: str) -> None:
     view = load_input(_KIT / relative)
 
     assert view.kind is InputKind.SCENARIO_HANDOFF_V4
-    assert view.input_kind == "scenario-handoff-v4"
+    assert view.kind.value == "scenario-handoff-v4"
     assert view.payload["content_digest"] == _DIGESTS[relative]
     assert view.attack_shape == view.payload["attack_shape"]
 
@@ -135,18 +135,6 @@ def test_the_implicit_shape_is_a_copy() -> None:
     view.attack_shape["turn_count"] = 9
 
     assert view.attack_shape["turn_count"] == 1
-
-
-def test_a_v4_handoff_is_not_a_v3_input_and_the_reverse() -> None:
-    with pytest.raises(InputSourceError, match="unknown scenario handoff schema version"):
-        load_input(
-            _KIT / "valid" / "adversarial-direct-single.json", kind=InputKind.SCENARIO_HANDOFF_V3
-        )
-    with pytest.raises(InputSourceError, match="unknown scenario handoff schema version"):
-        load_input(
-            _V3_KIT / "valid" / "adversarial-observed-record.json",
-            kind=InputKind.SCENARIO_HANDOFF_V4,
-        )
 
 
 def test_a_v4_handoff_signed_in_the_v3_digest_domain_is_rejected(tmp_path: Path) -> None:

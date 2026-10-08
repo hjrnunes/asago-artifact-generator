@@ -37,7 +37,7 @@ from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrato
 from asago_artifact_generator.authoring.policy import AuthoringPolicy, AuthoringResult
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.failure_evidence import FAILURE_EVIDENCE_SCHEMA_VERSION
-from asago_artifact_generator.input_adapter import InputKind, _framed_digest, load_input
+from asago_artifact_generator.input_adapter import _framed_digest, load_input
 from asago_artifact_generator.package_io import (
     build_package,
     tool_call_condition_bytes,
@@ -125,9 +125,7 @@ def world(name: str, **overrides: Any) -> dict[str, Any]:
 
     document = {**_document(name), **deepcopy(overrides)}
     if "view" not in document:
-        document["view"] = load_input(
-            _ROOT / document["handoff"], kind=InputKind.SCENARIO_HANDOFF_V3
-        )
+        document["view"] = load_input(_ROOT / document["handoff"])
     return document
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import tempfile
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -135,18 +134,11 @@ class ShapeVersionMalformed(InputSourceError):
 
 @dataclass(frozen=True)
 class SourceSnapshot:
-    """A hash-verified source and optional immutable working snapshot."""
+    """A hash-verified input source."""
 
     source_path: str
     sha256: str
     length: int
-    snapshot_path: str | None = None
-
-    @property
-    def digest(self) -> str:
-        """Compatibility name for callers that use digest terminology."""
-
-        return self.sha256
 
 
 @dataclass(frozen=True)
@@ -170,12 +162,6 @@ class InputView:
         """Return the exact source-file digest."""
 
         return self.source.sha256
-
-    @property
-    def input_kind(self) -> str:
-        """Return the wire value used in package manifests."""
-
-        return self.kind.value
 
     @property
     def tool_call_condition_status(self) -> dict[str, str]:
@@ -204,74 +190,14 @@ class InputView:
         return deepcopy(value) if value is not None else None
 
 
-def snapshot_input(source_path: str | Path, snapshot_dir: str | Path) -> SourceSnapshot:
-    """Read one source and copy its exact bytes into a hash-addressed snapshot.
-
-    The source is opened read-only.  The snapshot is written through a
-    temporary file and renamed only after its bytes have been flushed.
-    """
-
-    path = Path(source_path)
-    source_bytes = _read_source(path)
-    digest = sha256_hex(source_bytes)
-    directory = Path(snapshot_dir)
-    directory.mkdir(parents=True, exist_ok=True)
-    destination = directory / f"{digest}-{path.name}"
-    if destination.exists() and destination.read_bytes() != source_bytes:
-        raise InputSourceError(f"snapshot collision for {path}")
-    if not destination.exists():
-        fd, temporary_name = tempfile.mkstemp(
-            prefix=f".{destination.name}.", suffix=".tmp", dir=directory
-        )
-        temporary = Path(temporary_name)
-        try:
-            with open(fd, "wb", closefd=True) as handle:
-                handle.write(source_bytes)
-                handle.flush()
-            temporary.replace(destination)
-        finally:
-            temporary.unlink(missing_ok=True)
-    return SourceSnapshot(str(path), digest, len(source_bytes), str(destination))
-
-
-def load_input(
-    source_path: str | Path,
-    *,
-    kind: InputKind | str | None = None,
-    input_kind: InputKind | str | None = None,
-    snapshot_dir: str | Path | None = None,
-) -> InputView:
+def load_input(source_path: str | Path) -> InputView:
     """Load one producer scenario handoff and produce a source-pinned view."""
 
     path = Path(source_path)
-    requested_kind = _requested_kind(kind, input_kind)
     source_bytes = _read_source(path)
-    source = (
-        snapshot_input(path, snapshot_dir)
-        if snapshot_dir is not None
-        else SourceSnapshot(str(path), sha256_hex(source_bytes), len(source_bytes))
-    )
-    selected_kind = requested_kind or _infer_kind(path, source_bytes)
-    if selected_kind in (InputKind.SCENARIO_HANDOFF_V3, InputKind.SCENARIO_HANDOFF_V4):
-        return _handoff_view(path, source_bytes, source, selected_kind)
-    raise InputSourceError(f"unsupported input kind: {selected_kind}")
-
-
-def _requested_kind(
-    kind: InputKind | str | None, input_kind: InputKind | str | None
-) -> InputKind | None:
-    try:
-        explicit_kind = _coerce_kind(kind) if kind is not None else None
-        alternate_kind = _coerce_kind(input_kind) if input_kind is not None else None
-    except ValueError as exc:
-        raise InputSourceError(f"unsupported input kind: {kind or input_kind}") from exc
-    if (
-        explicit_kind is not None
-        and alternate_kind is not None
-        and explicit_kind != alternate_kind
-    ):
-        raise InputSourceError("kind and input_kind disagree")
-    return explicit_kind or alternate_kind
+    source = SourceSnapshot(str(path), sha256_hex(source_bytes), len(source_bytes))
+    payload = _parse_document(path, source_bytes)
+    return _handoff_view(path, payload, source_bytes, source, _infer_kind(payload))
 
 
 def build_scenario_handoff_view(view: InputView) -> dict[str, Any]:
@@ -312,10 +238,6 @@ def _read_source(path: Path) -> bytes:
         raise InputSourceError(f"cannot read input source {path}: {exc}") from exc
 
 
-def _coerce_kind(value: InputKind | str) -> InputKind:
-    return value if isinstance(value, InputKind) else InputKind(value)
-
-
 def _parse_document(path: Path, source_bytes: bytes) -> Any:
     try:
         if path.suffix.lower() == ".json":
@@ -326,12 +248,13 @@ def _parse_document(path: Path, source_bytes: bytes) -> Any:
 
 
 def _handoff_view(
-    path: Path, source_bytes: bytes, source: SourceSnapshot, kind: InputKind
+    path: Path,
+    payload: dict[str, Any],
+    source_bytes: bytes,
+    source: SourceSnapshot,
+    kind: InputKind,
 ) -> InputView:
     _validate_handoff_kit()
-    payload = _parse_document(path, source_bytes)
-    if not isinstance(payload, dict):
-        raise InputSourceError("scenario handoff must be an object")
     _validate_handoff_payload(payload, kind)
     expected_digest = payload.get("content_digest", "")
     digest_payload = {key: value for key, value in payload.items() if key != "content_digest"}
@@ -369,8 +292,7 @@ def _handoff_view(
     )
 
 
-def _infer_kind(path: Path, source_bytes: bytes) -> InputKind:
-    document = _parse_document(path, source_bytes)
+def _infer_kind(document: Any) -> InputKind:
     version = document.get("schema_version") if isinstance(document, dict) else None
     if version == _HANDOFF_SCHEMA_VERSION_V4:
         return InputKind.SCENARIO_HANDOFF_V4
@@ -833,5 +755,4 @@ __all__ = [
     "ShapeVersionMalformed",
     "SourceSnapshot",
     "load_input",
-    "snapshot_input",
 ]

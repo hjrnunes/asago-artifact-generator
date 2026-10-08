@@ -11,14 +11,14 @@ from asago_artifact_generator.authoring.package_assembly import (
     _package_from_responses,
     _package_review_records,
 )
-from asago_artifact_generator.input_adapter import InputKind, load_input
+from asago_artifact_generator.input_adapter import load_input
 
 from .support import HANDOFF
 
 
 def _package_with_usage(usage: object) -> object:
     return _package_from_responses(
-        view=load_input(HANDOFF, kind=InputKind.SCENARIO_HANDOFF_V3),
+        view=load_input(HANDOFF),
         plan={},
         artifact={
             "stimulus": {},
