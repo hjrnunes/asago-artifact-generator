@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from jsonschema import Draft202012Validator
 
 from .contract_kit import (
     canonical_json,
@@ -23,9 +24,11 @@ from .contract_kit import (
     sha256_hex,
     verify_contract_lock,
 )
-from .value_checks import SHA256_HEX_LENGTH, is_sha256_hex
+from .value_checks import SHA256_HEX_LENGTH
 
 _CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "target-profile"
+_RUNTIME_CONTEXT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "runtime-context"
+_RUNTIME_CONTEXT_VERSION = "runtime-context-v1"
 _PROFILE_SCHEMA_VERSION = "execution-target-profile-v1"
 _PROFILE_DIGEST_DOMAIN = _PROFILE_SCHEMA_VERSION
 
@@ -346,106 +349,69 @@ def _array_items_schema(value: list[Any]) -> dict[str, Any]:
 
 
 def _validate_observations(value: Any, *, profile: dict[str, Any]) -> None:
-    if not isinstance(value, dict):
-        raise TargetInputError("target observations must be an object")
-    allowed = {
-        "state",
-        "read_observations",
-        "target_profile_digest",
-        "read_observation_input",
-        "read_observation_diagnostics",
-    }
-    unknown = sorted(set(value) - allowed)
-    if unknown:
-        raise TargetInputError(
-            "target observations contain unsupported fields: " + ", ".join(unknown)
-        )
-    profile_digest = value.get("target_profile_digest")
-    if not is_sha256_hex(profile_digest):
-        raise TargetInputError("target observations require target_profile_digest")
-    state = value.get("state")
-    if not isinstance(state, dict):
-        raise TargetInputError("target observations state must be an object")
-    read_observations = _read_observation_list(value)
+    schema = _runtime_context_schema()
+    fault = _first_schema_fault(schema, value)
+    if fault is not None:
+        raise TargetInputError(f"target observations schema invalid {fault}")
+    profile_digest = value["target_profile_digest"]
     inventory = profile.get("inventory")
     profile_tool_names = (
         {tool.get("name") for tool in inventory.get("tools", []) if isinstance(tool, dict)}
         if isinstance(inventory, dict)
         else set()
     )
-    for index, observation in enumerate(read_observations):
-        _validate_read_observation(
-            index,
-            observation,
-            profile_digest=profile_digest,
-            profile_tool_names=profile_tool_names,
-        )
+    for index, observation in enumerate(value.get("read_observations") or []):
+        if observation["profile_digest"] != profile_digest:
+            raise TargetInputError(
+                f"target observations read_observations[{index}] profile digest does not match"
+            )
+        if observation["tool_name"] not in profile_tool_names:
+            raise TargetInputError(
+                f"target observations read_observations[{index}] names an unknown tool"
+            )
 
 
-def _read_observation_list(value: dict[str, Any]) -> list[Any]:
-    read_observations = value.get("read_observations", [])
-    if read_observations is None:
-        read_observations = []
-    if not isinstance(read_observations, list):
-        raise TargetInputError("target observations read_observations must be a list")
-    if len(read_observations) > 15:
-        raise TargetInputError("target observations cannot contain more than 15 reads")
-    return read_observations
-
-
-def _validate_read_observation(
-    index: int,
-    observation: Any,
-    *,
-    profile_digest: str,
-    profile_tool_names: set[Any],
-) -> None:
-    if not isinstance(observation, dict):
-        raise TargetInputError(f"target observations read_observations[{index}] must be an object")
-    if not isinstance(observation.get("profile_digest"), str) or (
-        observation["profile_digest"] != profile_digest
-    ):
-        raise TargetInputError(
-            f"target observations read_observations[{index}] profile digest does not match"
-        )
-    if not isinstance(observation.get("tool_name"), str) or not observation["tool_name"]:
-        raise TargetInputError(
-            f"target observations read_observations[{index}] requires tool_name"
-        )
-    if observation["tool_name"] not in profile_tool_names:
-        raise TargetInputError(
-            f"target observations read_observations[{index}] names an unknown tool"
-        )
-    _validate_read_outcome(index, observation)
-
-
-def _validate_read_outcome(index: int, observation: dict[str, Any]) -> None:
-    if not _is_string_mapping_or_none(observation.get("arguments")):
-        raise TargetInputError(
-            f"target observations read_observations[{index}] arguments must be a string mapping"
-        )
-    status = observation.get("status")
-    if (
-        not isinstance(status, dict)
-        or status.get("transport") != "verified"
-        or status.get("content") != "untrusted"
-    ):
-        raise TargetInputError(
-            f"target observations read_observations[{index}] must be verified and untrusted"
-        )
-    result = observation.get("result")
-    if not isinstance(result, dict) or result.get("isError") is True:
-        raise TargetInputError(
-            f"target observations read_observations[{index}] result must be successful"
-        )
-
-
-def _is_string_mapping_or_none(value: Any) -> bool:
-    if value is None:
-        return True
-    return isinstance(value, dict) and all(
-        isinstance(key, str) and isinstance(item, str) for key, item in value.items()
+def _runtime_context_schema() -> dict[str, Any]:
+    verify_contract_lock(
+        _RUNTIME_CONTEXT_ROOT,
+        TargetInputError,
+        lock_label="runtime-context contract lock",
+        member_label="runtime-context contract",
+        metadata={
+            "authority": "asago-orch",
+            "contract": "runtime-context",
+            "schema_version": _RUNTIME_CONTEXT_VERSION,
+        },
+        metadata_message="runtime-context contract lock metadata is invalid",
     )
+    return load_json_file(
+        _RUNTIME_CONTEXT_ROOT / f"{_RUNTIME_CONTEXT_VERSION}.schema.json",
+        TargetInputError,
+        "cannot validate runtime-context contract",
+    )
+
+
+def _first_schema_fault(schema: dict[str, Any], value: Any) -> str | None:
+    """Return ``at <location>: <keyword>`` for the first fault in path order, or None.
+
+    A runtime-context file holds up to 15 captured tool results, so the fault
+    omits jsonschema's message, which repeats the offending value in full. A
+    ``required`` fault lists the missing keys from the schema.
+    """
+
+    faults = sorted(
+        Draft202012Validator(schema).iter_errors(value),
+        key=lambda fault: tuple(str(part) for part in fault.path),
+    )
+    if not faults:
+        return None
+    first = faults[0]
+    location = ".".join(str(part) for part in first.path) or "<root>"
+    detail = first.validator
+    if first.validator == "required":
+        missing = [key for key in first.validator_value if key not in first.instance]
+        detail = f"required ({', '.join(missing)})"
+    return f"at {location}: {detail}"
 
 
 def _validate_profile_contract(profile: Any) -> None:

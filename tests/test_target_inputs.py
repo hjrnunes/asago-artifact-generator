@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -351,32 +352,62 @@ def _read(**changes: object):
     return mutate
 
 
+_SCHEMA_INVALID = "target observations schema invalid "
+
+
+@pytest.mark.parametrize(
+    ("mutate", "fault"),
+    [
+        (lambda o: o.update(bogus=1, extra=2), "at <root>: additionalProperties"),
+        (lambda o: o.update(target_profile_digest="abc"), "at target_profile_digest: pattern"),
+        (lambda o: o.update(state=[]), "at state: type"),
+        (lambda o: o.update(read_observations={}), "at read_observations: type"),
+        (
+            lambda o: o.update(read_observations=o["read_observations"] * 16),
+            "at read_observations: maxItems",
+        ),
+        (lambda o: o.update(read_observations=["x"]), "at read_observations.0: type"),
+        (_read(profile_digest=None), "at read_observations.0.profile_digest: type"),
+        (_read(tool_name=""), "at read_observations.0.tool_name: minLength"),
+        (_read(arguments={"record_id": 1}), "at read_observations.0.arguments.record_id: type"),
+        (_read(arguments=["record-1"]), "at read_observations.0.arguments: type"),
+        (
+            _read(status={"transport": "unverified", "content": "untrusted"}),
+            "at read_observations.0.status.transport: const",
+        ),
+        (
+            _read(status={"transport": "verified", "content": "trusted"}),
+            "at read_observations.0.status.content: const",
+        ),
+        (_read(status="verified"), "at read_observations.0.status: type"),
+        (_read(result={"isError": True}), "at read_observations.0.result: not"),
+        (_read(result=["ok"]), "at read_observations.0.result: type"),
+    ],
+)
+def test_target_observations_are_rejected_at_the_first_schema_fault(
+    tmp_path: Path, mutate, fault: str
+) -> None:
+    profile = tmp_path / "profile.json"
+    _write_profile(profile)
+    observations = _observations(_profile_digest(profile))
+    mutate(observations)
+    observations_path = tmp_path / "runtime-context.json"
+    observations_path.write_text(json.dumps(observations), encoding="utf-8")
+
+    with pytest.raises(TargetInputError) as raised:
+        load_target_inputs(profile, observations_path)
+
+    assert str(raised.value) == _SCHEMA_INVALID + fault
+
+
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
-        (lambda o: o.update(bogus=1, extra=2), "unsupported fields: bogus, extra"),
-        (lambda o: o.update(target_profile_digest="abc"), "require target_profile_digest"),
-        (lambda o: o.update(state=[]), "state must be an object"),
-        (lambda o: o.update(read_observations={}), "read_observations must be a list"),
-        (
-            lambda o: o.update(read_observations=o["read_observations"] * 16),
-            "cannot contain more than 15 reads",
-        ),
-        (lambda o: o.update(read_observations=["x"]), r"read_observations\[0\] must be an object"),
         (_read(profile_digest="d" * 64), r"read_observations\[0\] profile digest does not match"),
-        (_read(profile_digest=None), r"read_observations\[0\] profile digest does not match"),
-        (_read(tool_name=""), r"read_observations\[0\] requires tool_name"),
         (_read(tool_name="delete_record"), r"read_observations\[0\] names an unknown tool"),
-        (_read(arguments={"record_id": 1}), "arguments must be a string mapping"),
-        (_read(arguments=["record-1"]), "arguments must be a string mapping"),
-        (_read(status={"transport": "unverified", "content": "untrusted"}), "verified and"),
-        (_read(status={"transport": "verified", "content": "trusted"}), "verified and"),
-        (_read(status="verified"), "must be verified and untrusted"),
-        (_read(result={"isError": True}), r"read_observations\[0\] result must be successful"),
-        (_read(result=["ok"]), r"read_observations\[0\] result must be successful"),
     ],
 )
-def test_target_observations_are_rejected_at_the_first_invalid_field(
+def test_target_observations_are_rejected_when_they_disagree_with_the_profile(
     tmp_path: Path, mutate, message: str
 ) -> None:
     profile = tmp_path / "profile.json"
@@ -388,6 +419,40 @@ def test_target_observations_are_rejected_at_the_first_invalid_field(
 
     with pytest.raises(TargetInputError, match=message):
         load_target_inputs(profile, observations_path)
+
+
+def test_a_schema_fault_in_large_reads_gives_a_short_message(tmp_path: Path) -> None:
+    profile = tmp_path / "profile.json"
+    _write_profile(profile)
+    observations = _observations(_profile_digest(profile))
+    read = observations["read_observations"][0]
+    read["result"] = {"content": [{"type": "text", "text": "x" * 20000}]}
+    observations["read_observations"] = [read] * 16
+    observations_path = tmp_path / "runtime-context.json"
+    observations_path.write_text(json.dumps(observations), encoding="utf-8")
+
+    with pytest.raises(TargetInputError) as raised:
+        load_target_inputs(profile, observations_path)
+
+    assert str(raised.value) == _SCHEMA_INVALID + "at read_observations: maxItems"
+
+
+def test_a_tampered_runtime_context_kit_is_rejected(tmp_path: Path, monkeypatch) -> None:
+    kit = tmp_path / "runtime-context"
+    shutil.copytree(target_inputs._RUNTIME_CONTEXT_ROOT, kit)
+    schema = kit / "runtime-context-v1.schema.json"
+    schema.write_bytes(schema.read_bytes() + b" ")
+    monkeypatch.setattr(target_inputs, "_RUNTIME_CONTEXT_ROOT", kit)
+    profile = tmp_path / "profile.json"
+    _write_profile(profile)
+    observations = tmp_path / "runtime-context.json"
+    _write_observations(observations, _profile_digest(profile))
+
+    with pytest.raises(
+        TargetInputError,
+        match="^runtime-context contract digest mismatch: runtime-context-v1.schema.json$",
+    ):
+        load_target_inputs(profile, observations)
 
 
 def test_target_observations_must_be_an_object(tmp_path: Path) -> None:

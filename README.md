@@ -366,7 +366,7 @@ handoff:
 
 - `scenario-handoff-v4` JSON or YAML for scenario meaning.
 - `execution-target-profile-v1` JSON for the observed target inventory.
-- Optional normalized producer `runtime-context.json` for state and read observations.
+- Optional `runtime-context.json` (`runtime-context-v1`, written by orch's discover stage) for state and read observations.
 - A target-free runtime contract.
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
@@ -505,8 +505,14 @@ asks for the message itself. Only a bracketed span that contains the word
 Use
 `asago_artifact_generator.target_inputs.load_target_inputs` to validate the
 producer profile, verify its semantic digest, map observed tools to
-operations, infer fact schemas, and record discovery provenance. Authoring
-does not accept native semantic scenario files, reference tasks, benchmark
+operations, infer fact schemas, and record discovery provenance. When you
+supply a `runtime-context.json`, the loader checks it against the mirrored
+orch-owned `contracts/runtime-context/` schema (`runtime-context-v1`) and
+reports the first fault as `at <location>: <keyword>` without repeating the
+value. Three checks stay in code because they compare documents: each read's
+`profile_digest` equals the file's `target_profile_digest`, each read's
+`tool_name` is a profile tool, and that digest equals the profile's
+`semantic_digest`. Authoring does not accept native semantic scenario files, reference tasks, benchmark
 answers, or hand-built inventories.
 
 The consumer-owned artifact-package contract lives in

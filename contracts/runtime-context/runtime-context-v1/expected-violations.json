@@ -1,0 +1,90 @@
+{
+  "invalid/diagnostics-not-a-list.json": {
+    "path": "/read_observation_diagnostics",
+    "keyword": "type"
+  },
+  "invalid/input-not-object.json": {
+    "path": "/read_observation_input",
+    "keyword": "type"
+  },
+  "invalid/missing-profile-digest.json": {
+    "path": "/",
+    "keyword": "required"
+  },
+  "invalid/missing-state.json": {
+    "path": "/",
+    "keyword": "required"
+  },
+  "invalid/null-profile-digest.json": {
+    "path": "/target_profile_digest",
+    "keyword": "type"
+  },
+  "invalid/read-arguments-non-string.json": {
+    "path": "/read_observations/0/arguments/record_id",
+    "keyword": "type"
+  },
+  "invalid/read-arguments-not-object.json": {
+    "path": "/read_observations/0/arguments",
+    "keyword": "type"
+  },
+  "invalid/read-blank-tool-name.json": {
+    "path": "/read_observations/0/tool_name",
+    "keyword": "minLength"
+  },
+  "invalid/read-missing-profile-digest.json": {
+    "path": "/read_observations/0",
+    "keyword": "required"
+  },
+  "invalid/read-missing-result.json": {
+    "path": "/read_observations/0",
+    "keyword": "required"
+  },
+  "invalid/read-missing-tool-name.json": {
+    "path": "/read_observations/0",
+    "keyword": "required"
+  },
+  "invalid/read-not-object.json": {
+    "path": "/read_observations/0",
+    "keyword": "type"
+  },
+  "invalid/read-result-error.json": {
+    "path": "/read_observations/0/result",
+    "keyword": "not"
+  },
+  "invalid/read-result-not-object.json": {
+    "path": "/read_observations/0/result",
+    "keyword": "type"
+  },
+  "invalid/read-status-missing.json": {
+    "path": "/read_observations/0",
+    "keyword": "required"
+  },
+  "invalid/read-status-trusted.json": {
+    "path": "/read_observations/0/status/content",
+    "keyword": "const"
+  },
+  "invalid/read-status-unverified.json": {
+    "path": "/read_observations/0/status/transport",
+    "keyword": "const"
+  },
+  "invalid/reads-not-a-list.json": {
+    "path": "/read_observations",
+    "keyword": "type"
+  },
+  "invalid/sixteen-reads.json": {
+    "path": "/read_observations",
+    "keyword": "maxItems"
+  },
+  "invalid/state-not-object.json": {
+    "path": "/state",
+    "keyword": "type"
+  },
+  "invalid/unknown-top-level-key.json": {
+    "path": "/",
+    "keyword": "additionalProperties"
+  },
+  "invalid/uppercase-profile-digest.json": {
+    "path": "/target_profile_digest",
+    "keyword": "pattern"
+  }
+}

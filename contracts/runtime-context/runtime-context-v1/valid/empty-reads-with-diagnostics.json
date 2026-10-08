@@ -1,0 +1,23 @@
+{
+  "state": {
+    "orders": [
+      {
+        "id": "order-1",
+        "status": "open"
+      }
+    ]
+  },
+  "target_profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "read_observations": [],
+  "read_observation_input": {
+    "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "authorization_scope_id": "scope-1"
+  },
+  "read_observation_diagnostics": [
+    {
+      "code": "read_observation_error",
+      "detail": "No call was made.",
+      "status": "no_call"
+    }
+  ]
+}
