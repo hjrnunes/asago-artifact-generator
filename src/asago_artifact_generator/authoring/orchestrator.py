@@ -119,6 +119,9 @@ from .review import (
 from .sequential_turns import sequential_artifact_findings, sequential_plan_findings
 from .shape_gate import shape_refusal_findings
 
+CRASH_FINDING_CODE = "authoring_crashed"
+_CRASH_MESSAGE_LIMIT = 200
+
 
 @dataclass(frozen=True)
 class _StageStop:
@@ -325,6 +328,8 @@ class AuthoringOrchestrator:
         self._decoded_responses: dict[str, Any] = {}
         self._prompt_packets: dict[str, PromptPacket] = {}
         self._transformations: list[Any] = []
+        # The stage a crash is charged to; None until the first stage starts.
+        self._active_stage: str | None = None
 
     def _record_dispatch_failure(
         self,
@@ -799,9 +804,33 @@ class AuthoringOrchestrator:
 
         Each stage owns its correction allowance; deterministic checks precede
         every semantic review; and review decisions
-        route corrections without shared state or hidden retries.
+        route corrections without shared state or hidden retries. An exception
+        the machine does not handle ends the sidecar as ``failed`` with an
+        ``authoring_crashed`` finding, then propagates unchanged.
         """
 
+        try:
+            return self._run(view, inventory, runtime_contract)
+        except Exception as exc:
+            self._record_crash(exc)
+            raise
+
+    def _record_crash(self, exc: Exception) -> None:
+        """Close the journal for an unhandled exception without masking it."""
+
+        detail = f"{type(exc).__name__}: {_safe_error(exc)[:_CRASH_MESSAGE_LIMIT]}"
+        finding = Finding(CRASH_FINDING_CODE, detail, "run", stage=self._active_stage)
+        try:
+            self._finish("failed", [finding])
+        except Exception:  # noqa: BLE001 - the original exception is the one to surface
+            pass
+
+    def _run(
+        self,
+        view: InputView,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> AuthoringResult:
         policy = self.policy
         self._allowances = {
             "plan": policy.plan_max_corrections,
@@ -980,6 +1009,7 @@ class AuthoringOrchestrator:
     ) -> dict[str, Any] | _StageStop:
         """Author, check, correct, and review one stage within its allowances."""
 
+        self._active_stage = stage.key
         try:
             packet = stage.author_packet()
         except PromptPreflightError as exc:
@@ -1505,6 +1535,9 @@ class AuthoringOrchestrator:
 
         if status == "accepted":
             return []
+        crashed = [finding for finding in findings if finding.code == CRASH_FINDING_CODE]
+        if crashed:
+            return crashed
         if status == "prompt_overflow":
             # A correction overflow stops a request that never dispatched, so the
             # latest attempt's findings belong to the response before it.
