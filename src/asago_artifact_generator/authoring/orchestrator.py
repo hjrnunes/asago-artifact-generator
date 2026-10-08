@@ -741,12 +741,8 @@ class AuthoringOrchestrator:
     ) -> PromptPacket | None:
         """Render the correction prompt; record a preflight failure and return None."""
 
-        original_context = (
-            {
-                **build_plan_author_context(view, inventory, runtime_contract),
-                # The correction reads the turn count and delivery from this block.
-                **multi_turn_payload(view, runtime_contract),
-            }
+        stage_context = (
+            build_plan_author_context(view, inventory, runtime_contract)
             if failed_stage == "call1"
             else build_artifact_author_context(
                 view,
@@ -755,6 +751,9 @@ class AuthoringOrchestrator:
                 runtime_contract,
             )
         )
+        # The plan correction reads the turn count and delivery from this block; the artifact
+        # correction shows it to the model, as the first Call 2 request does.
+        original_context = {**stage_context, **multi_turn_payload(view, runtime_contract)}
         correction_payload = build_correction_context(
             failed_stage=failed_stage,
             original_context=original_context,
