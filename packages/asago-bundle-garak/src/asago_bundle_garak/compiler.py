@@ -1,9 +1,12 @@
 """compile: turn an artifact package into a Garak bundle template.
 
-The template is one ``IndirectInjection`` conversation entry and one Garak run
-configuration, both with slots for the values orch resolves at execute time,
-plus ``bundle.json`` (``tool-bundle-v1``), which names those values and the
-command that runs Garak on the concrete bundle.
+The template is one conversation entry and one Garak run configuration, both
+with slots for the values orch resolves at execute time, plus ``bundle.json``
+(``tool-bundle-v1``), which names those values and the command that runs Garak
+on the concrete bundle. ``injection.IndirectInjection`` sends a single-turn
+package's messages in one request; ``injection.SequentialInjection`` sends a
+sequential package's user turns one per request, each after the target's real
+reply to the one before.
 """
 
 from __future__ import annotations
@@ -20,7 +23,10 @@ BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "garak"
 TOOL_REVISION_RANGE = ">=1c2918ae"
 TARGET_MODE = "orch_hosted"
-PROBE = "injection.IndirectInjection"
+PROBES = {
+    "single": "injection.IndirectInjection",
+    "sequential": "injection.SequentialInjection",
+}
 DETECTORS = {
     "command_attempt": "toolcall.ToolCallCondition",
     "reply": "rubric_judge.RubricJudge",
@@ -38,6 +44,7 @@ RUN_TEMPLATE = "run.template.json"
 CONVERSATIONS = "conversations.jsonl"
 RUN_CONFIG = "run.yaml"
 REPORTS = "reports"
+USER_TURN_PREFIX = "user_turn_"
 # Values the entrypoint names as ``{key}``; the templates hold the others.
 ENTRYPOINT_VALUES = ("model",)
 
@@ -68,25 +75,35 @@ def compile_package(package_dir: str | Path, out_dir: str | Path) -> dict[str, A
     if gap is not None:
         raise CapabilityGap(gap)
     level = claim_level(_json_member(package, "plan.json"))
+    turns = user_turn_count(stimulus)
+    delivery = SINGLE if turns is None else SEQUENTIAL
     scenario_id = package.manifest.scenario_id
-    conversation = conversation_template(package, level)
-    run = run_template(level, scenario_id)
+    conversation = conversation_template(package, level, turns)
+    run = run_template(level, scenario_id, delivery)
     requires = sorted(template_slots([conversation, run]) | set(ENTRYPOINT_VALUES))
-    manifest = bundle_manifest(package, level, requires)
+    manifest = bundle_manifest(package, level, requires, delivery)
     _write(out, {CONVERSATION_TEMPLATE: conversation, RUN_TEMPLATE: run, BUNDLE_FILE: manifest})
     return manifest
+
+
+def delivery_mode(stimulus: Any) -> Any:
+    return stimulus.get("mode", SINGLE) if isinstance(stimulus, dict) else SINGLE
 
 
 def delivery_gap(package: ArtifactPackage, stimulus: Any) -> dict[str, Any] | None:
     """Return the capability gap for a delivery Garak cannot send, else None.
 
-    ``IndirectInjection`` sends fixed messages in one request, so it cannot
-    carry a sequential exchange in which every later turn follows the
-    target's real reply.
+    ``SequentialInjection`` sends only user turns, each after the target's
+    real reply; a sequential history holding any other message has no turn
+    it could send.
     """
 
-    mode = stimulus.get("mode", SINGLE) if isinstance(stimulus, dict) else SINGLE
-    if mode != SEQUENTIAL:
+    if delivery_mode(stimulus) != SEQUENTIAL:
+        return None
+    history = stimulus.get("history")
+    if isinstance(history, list) and all(
+        isinstance(item, dict) and item.get("role") == "user" for item in history
+    ):
         return None
     return {
         "kind": "capability_gap",
@@ -96,10 +113,26 @@ def delivery_gap(package: ArtifactPackage, stimulus: Any) -> dict[str, Any] | No
         "package_digest": package.manifest.manifest_digest,
         "delivery": SEQUENTIAL,
         "reason": (
-            "injection.IndirectInjection sends fixed messages; a sequential "
-            "package needs each later turn sent after the target's real reply"
+            "injection.SequentialInjection sends user turns only; this "
+            "sequential history holds another message"
         ),
     }
+
+
+def user_turn_count(stimulus: Any) -> int | None:
+    """Return a sequential stimulus's user turn count, or None for one request.
+
+    The count is the history's user turns plus the final user text, and the
+    stimulus's ``turn_count`` must state it.
+    """
+
+    if delivery_mode(stimulus) != SEQUENTIAL:
+        return None
+    count = len(stimulus["history"]) + 1
+    stated = stimulus.get("turn_count")
+    if type(stated) is not int or stated != count or count < 2:
+        raise CompileError(f"sequential turn_count {stated!r} does not match {count} user turns")
+    return count
 
 
 def claim_level(plan: Any) -> str:
@@ -110,11 +143,17 @@ def claim_level(plan: Any) -> str:
     return level
 
 
-def conversation_template(package: ArtifactPackage, level: str) -> dict[str, Any]:
-    """Return the conversation entry with its value slots."""
+def conversation_template(
+    package: ArtifactPackage, level: str, turns: int | None = None
+) -> dict[str, Any]:
+    """Return the conversation entry with its value slots.
+
+    A sequential entry holds one user message per turn, each text a
+    ``user_turn_<n>`` slot counted from 1.
+    """
 
     entry: dict[str, Any] = {
-        "messages": value_slot("messages"),
+        "messages": value_slot("messages") if turns is None else user_turn_messages(turns),
         "tools": [
             {
                 "type": "mcp",
@@ -132,6 +171,13 @@ def conversation_template(package: ArtifactPackage, level: str) -> dict[str, Any
     return entry
 
 
+def user_turn_messages(turns: int) -> list[dict[str, Any]]:
+    return [
+        {"role": "user", "content": value_slot(f"{USER_TURN_PREFIX}{number}")}
+        for number in range(1, turns + 1)
+    ]
+
+
 def judge_rubric(judge: Any) -> dict[str, Any]:
     """Return the rubric orch builds today, with the runtime facts as a slot."""
 
@@ -145,8 +191,17 @@ def judge_rubric(judge: Any) -> dict[str, Any]:
     return {**_slot_free(rubric), "runtime_facts": value_slot("judge_runtime_facts")}
 
 
-def run_template(level: str, scenario_id: str) -> dict[str, Any]:
-    """Return the Garak run configuration with its slots."""
+def run_template(level: str, scenario_id: str, delivery: str = SINGLE) -> dict[str, Any]:
+    """Return the Garak run configuration with its slots.
+
+    A sequential reply bundle takes ``judge_turns`` (``final`` or ``all``);
+    the tool-call condition runs after every turn and needs none.
+    """
+
+    probe = PROBES[delivery].split(".")[1]
+    options: dict[str, Any] = {"conversation_source": bundle_slot(CONVERSATIONS)}
+    if delivery == SEQUENTIAL and level == "reply":
+        options["judge_turns"] = value_slot("judge_turns")
 
     plugins: dict[str, Any] = {
         "generators": {
@@ -160,9 +215,7 @@ def run_template(level: str, scenario_id: str) -> dict[str, Any]:
                 }
             }
         },
-        "probes": {
-            "injection": {"IndirectInjection": {"conversation_source": bundle_slot(CONVERSATIONS)}}
-        },
+        "probes": {"injection": {probe: options}},
     }
     if level == "reply":
         plugins["detectors"] = {"rubric_judge": {"RubricJudge": _judge_model()}}
@@ -186,8 +239,11 @@ def _judge_model() -> dict[str, Any]:
     }
 
 
-def bundle_manifest(package: ArtifactPackage, level: str, requires: list[str]) -> dict[str, Any]:
+def bundle_manifest(
+    package: ArtifactPackage, level: str, requires: list[str], delivery: str = SINGLE
+) -> dict[str, Any]:
     detector = DETECTORS[level]
+    probe = PROBES[delivery]
     scenario_id = package.manifest.scenario_id
     return {
         "schema_version": BUNDLE_SCHEMA_VERSION,
@@ -197,9 +253,9 @@ def bundle_manifest(package: ArtifactPackage, level: str, requires: list[str]) -
         "scenario_id": scenario_id,
         "package_digest": package.manifest.manifest_digest,
         "claim_level": level,
-        "delivery": SINGLE,
+        "delivery": delivery,
         "target_mode": TARGET_MODE,
-        "plugins": [PROBE, detector],
+        "plugins": [probe, detector],
         "requires": requires,
         "environment": _environment(level),
         "templates": {"conversation": CONVERSATION_TEMPLATE, "run": RUN_TEMPLATE},
@@ -214,7 +270,7 @@ def bundle_manifest(package: ArtifactPackage, level: str, requires: list[str]) -
             "--target_name",
             "{model}",
             "--probes",
-            PROBE,
+            probe,
             "--detectors",
             detector,
         ],

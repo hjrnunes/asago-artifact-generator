@@ -1,7 +1,8 @@
 """instantiate: fill a bundle template with orch's values.
 
-orch knows the values (URLs, model, allowed tools, rendered messages, resolved
-judge facts); this module knows Garak's format. It substitutes no package
+orch knows the values (URLs, model, allowed tools, rendered messages or, for
+a sequential package, each rendered user turn, resolved judge facts, the
+turns the judge grades); this module knows Garak's format. It substitutes no package
 bindings: the messages and facts arrive already resolved.
 """
 
@@ -18,11 +19,13 @@ from .compiler import (
     CONVERSATIONS,
     REPORTS,
     RUN_CONFIG,
+    USER_TURN_PREFIX,
     canonical_text,
 )
 from .slots import BUNDLE, fill
 
 MESSAGE_ROLES = frozenset({"system", "user", "assistant"})
+JUDGE_TURNS = frozenset({"final", "all"})
 TEMPLATE_KEYS = frozenset({"requires", "templates", "entrypoint"})
 
 
@@ -83,9 +86,17 @@ def check_values(requires: list[str], values: Any) -> None:
     for key in requires:
         if key not in values:
             raise InstantiateError(f"values lack {key}")
-        check = CHECKS.get(key)
+        check = check_for(key)
         if check is not None and not check(values[key]):
             raise InstantiateError(f"values carry a malformed {key}")
+
+
+def check_for(key: str) -> Callable[[Any], bool] | None:
+    """Return the check of a value key; each ``user_turn_<n>`` is a text."""
+
+    if key.startswith(USER_TURN_PREFIX):
+        return _text
+    return CHECKS.get(key)
 
 
 def _url(value: Any) -> bool:
@@ -123,6 +134,10 @@ def _object(value: Any) -> bool:
     return isinstance(value, dict)
 
 
+def _judge_turns(value: Any) -> bool:
+    return isinstance(value, str) and value in JUDGE_TURNS
+
+
 CHECKS: dict[str, Callable[[Any], bool]] = {
     "gateway_url": _url,
     "mcp_url": _url,
@@ -132,6 +147,7 @@ CHECKS: dict[str, Callable[[Any], bool]] = {
     "allowed_tools": _names,
     "messages": _messages,
     "judge_runtime_facts": _object,
+    "judge_turns": _judge_turns,
 }
 
 
