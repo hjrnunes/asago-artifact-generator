@@ -154,7 +154,7 @@ def test_plan_correction_explains_each_unknown_reference() -> None:
         build_correction_context(
             failed_stage="call1",
             original_context=build_plan_author_context(_view(), _inventory(), _runtime_contract()),
-            current_output=json.dumps(candidate),
+            current_output=json.dumps(candidate).encode(),
             findings=findings,
         ),
         correction_repair_inputs(_view(), _inventory(), _runtime_contract()),
@@ -183,13 +183,11 @@ def test_artifact_correction_explains_provenance_ids_outside_source_refs() -> No
         build_correction_context(
             failed_stage="call2",
             original_context=context,
-            current_output="candidate",
+            current_output=b"candidate",
             findings=[
-                {
-                    "code": "unknown_reference",
-                    "detail": "unknown_reference: AT-REFUND-1",
-                    "path": "assumptions[0].ref",
-                }
+                Finding(
+                    "unknown_reference", "unknown_reference: AT-REFUND-1", "assumptions[0].ref"
+                )
             ],
         ),
         correction_repair_inputs(view, _inventory(), _runtime_contract()),
@@ -213,11 +211,9 @@ def test_correction_repair_reads_the_source_handles_of_the_inventory() -> None:
 def test_both_correction_stages_classify_runtime_observation_scopes() -> None:
     view, inventory, runtime = _view(), _inventory(), _runtime_contract()
     runtime["observation"]["record_state"] = {"availability": "captured"}
-    finding = {
-        "code": "unknown_reference",
-        "detail": "unknown_reference: record_state",
-        "path": "selected_evidence[0]",
-    }
+    finding = Finding(
+        "unknown_reference", "unknown_reference: record_state", "selected_evidence[0]"
+    )
     kinds = {}
     for failed_stage, original_context in (
         ("call1", build_plan_author_context(view, inventory, runtime)),
@@ -227,7 +223,7 @@ def test_both_correction_stages_classify_runtime_observation_scopes() -> None:
             build_correction_context(
                 failed_stage=failed_stage,
                 original_context=original_context,
-                current_output=json.dumps(_plan()),
+                current_output=json.dumps(_plan()).encode(),
                 findings=[finding],
             ),
             correction_repair_inputs(view, inventory, runtime),
@@ -243,14 +239,12 @@ def test_reference_options_skip_findings_outside_reference_fields() -> None:
         build_correction_context(
             failed_stage="call1",
             original_context=build_plan_author_context(_view(), _inventory(), _runtime_contract()),
-            current_output=json.dumps(_plan()),
+            current_output=json.dumps(_plan()).encode(),
             findings=[
-                {
-                    "code": "unknown_reference",
-                    "detail": "unknown_reference: missing:fact",
-                    "path": "stimulus.user_text",
-                },
-                {"code": "invalid_shape", "detail": "bad", "path": "selected_evidence[0]"},
+                Finding(
+                    "unknown_reference", "unknown_reference: missing:fact", "stimulus.user_text"
+                ),
+                Finding("invalid_shape", "bad", "selected_evidence[0]"),
             ],
         ),
         correction_repair_inputs(_view(), _inventory(), _runtime_contract()),

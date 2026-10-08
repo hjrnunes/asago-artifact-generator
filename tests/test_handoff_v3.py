@@ -32,6 +32,7 @@ from tests.support import (
     NO_CONDITION_HANDOFF,
     NOT_CALLED_HANDOFF,
     OBSERVED_HANDOFF,
+    rendered_response_contract,
     world_builders,
 )
 
@@ -172,7 +173,7 @@ def test_call1_renders_runtime_contract_and_binding_rules_once() -> None:
     view = load_input(OBSERVED_HANDOFF)
     runtime = _runtime_contract()
     packet = build_call1_packet_v2(view, _inventory(), runtime)
-    binding = packet.payload["response_contract"]["binding_declaration"]
+    binding = rendered_response_contract(packet)["binding_declaration"]
 
     runtime_text = json.dumps(runtime, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     assert packet.user.count(runtime_text) == 1

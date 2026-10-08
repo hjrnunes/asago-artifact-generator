@@ -63,7 +63,7 @@ def render_stage_packets(world: str = "ehr", view: Any = None) -> dict[str, Prom
             build_correction_context(
                 failed_stage="call1",
                 original_context=build_plan_author_context(view, inventory, runtime),
-                current_output="{}",
+                current_output=b"{}",
                 findings=[],
             ),
             correction_repair_inputs(view, inventory, runtime),

@@ -98,9 +98,9 @@ RECORDED_REPLIES = {
 }
 
 
-def _problems(raw: object) -> list[dict]:
+def _problems(raw: str | bytes) -> list[dict]:
     with pytest.raises(ReviewResponseError) as error:
-        parse_review_response(raw)  # type: ignore[arg-type]
+        parse_review_response(raw.encode() if isinstance(raw, str) else raw)
     return [finding.to_dict() for finding in error.value.findings]
 
 
@@ -125,7 +125,7 @@ def _run(tmp_path: Path, responses: list[object]):
 
 @pytest.mark.parametrize("raw", RECORDED_REPLIES.values(), ids=RECORDED_REPLIES.keys())
 def test_recorded_accept_without_findings_parses_as_an_empty_findings_accept(raw: str) -> None:
-    parsed = parse_review_response(raw)
+    parsed = parse_review_response(raw.encode())
 
     assert parsed.decision == "accept"
     assert parsed.findings == ()
@@ -134,7 +134,7 @@ def test_recorded_accept_without_findings_parses_as_an_empty_findings_accept(raw
 
 
 def test_bare_accept_without_findings_is_defaulted_without_a_fence_record() -> None:
-    parsed = parse_review_response(json.dumps({"decision": "accept", "summary": "ok"}))
+    parsed = parse_review_response(json.dumps({"decision": "accept", "summary": "ok"}).encode())
 
     assert (parsed.decision, parsed.findings, parsed.findings_omitted) == ("accept", (), True)
     assert parsed.transformation is None

@@ -574,7 +574,6 @@ class AuthoringJournal:
         self._ledger = _LedgerProjection()
         self._evidence = _EvidenceProjection(task_id, package_dir)
         self._path = failure_evidence_path(package_dir)
-        self._written: Path | None = None
 
     def append(self, *events: Any) -> None:
         for event in events:
@@ -589,8 +588,7 @@ class AuthoringJournal:
     def flush(self) -> Path:
         """Write the failure-evidence projection to its sidecar."""
 
-        self._written = write_failure_evidence(self._path, self._evidence.document)
-        return self._written
+        return write_failure_evidence(self._path, self._evidence.document)
 
     def dispatches(self) -> list[DispatchOpened]:
         return [event for event in self.events if isinstance(event, DispatchOpened)]
@@ -669,7 +667,3 @@ class AuthoringJournal:
     @property
     def evidence(self) -> dict[str, Any]:
         return self._evidence.document
-
-    @property
-    def written(self) -> Path | None:
-        return self._written

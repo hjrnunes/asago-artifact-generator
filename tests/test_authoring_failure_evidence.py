@@ -69,8 +69,8 @@ def test_failed_authoring_persists_reloadable_evidence_before_discarding_respons
     assert saved["task_id"] == "durable-failure"
     assert saved["attempts"]
     first = saved["attempts"][0]
-    assert first["prompt"]["system"] == result.prompts["call1"].system
-    assert first["prompt"]["user"] == result.prompts["call1"].user
+    assert first["prompt"]["system"] == transport.requests[0]["system"]
+    assert first["prompt"]["user"] == transport.requests[0]["user"]
     assert first["controls"]["availability"] == "available"
     assert first["controls"]["value"]["max_retries"] == 0
     assert first["findings"][0]["code"] == expected_code

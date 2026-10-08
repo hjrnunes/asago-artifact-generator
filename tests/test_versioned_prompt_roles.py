@@ -18,6 +18,7 @@ from asago_artifact_generator.authoring.core import (
     CORRECTION_PROMPT_VERSION_V33,
     CORRECTION_PROMPT_VERSION_V34,
     PLAN_REVIEW_PROMPT_VERSION_V20,
+    Finding,
     PromptOverflowError,
     PromptPacket,
     PromptPreflightError,
@@ -124,7 +125,7 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
     plan_correction = build_correction_context(
         failed_stage="call1",
         original_context=build_plan_author_context(view, inventory, runtime),
-        current_output="{}",
+        current_output=b"{}",
         findings=[],
     )
     plan_packet = _render_correction_packet(
@@ -136,7 +137,7 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
     artifact_correction = build_correction_context(
         failed_stage="call2",
         original_context=build_artifact_author_context(view, plan, inventory, runtime),
-        current_output="```json\n{}\n```\n",
+        current_output=b"```json\n{}\n```\n",
         findings=[],
     )
     artifact_packet = _render_correction_packet(
@@ -258,14 +259,11 @@ def test_artifact_reviewer_and_correction_contexts_bound_candidate_and_active_fo
     assert review.payload["candidate_artifact"] == _metadata()
     assert "candidate_python_source" not in review.payload
     correction = build_correction_context(
-        failed_stage="artifact",
+        failed_stage="call2",
         original_context=build_artifact_author_context(view, plan, inventory, runtime),
         current_output=_framed(),
         findings=[
-            {
-                "code": "semantic_judge_spec_required",
-                "detail": "a reply claim needs a semantic judge spec",
-            }
+            Finding("semantic_judge_spec_required", "a reply claim needs a semantic judge spec")
         ],
     )
     assert correction["stage"] == "artifact"

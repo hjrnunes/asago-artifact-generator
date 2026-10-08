@@ -6,7 +6,10 @@ from typing import Any
 from asago_artifact_generator.authoring.checks import (
     ARTIFACT_MECHANICAL_CHECKS,
     PLAN_MECHANICAL_CHECKS,
+    collect_artifact_findings_v2,
+    collect_plan_findings_v2,
 )
+from asago_artifact_generator.authoring.core import Finding
 from asago_artifact_generator.authoring.review import (
     build_artifact_reviewer_context,
     build_plan_reviewer_context,
@@ -30,10 +33,10 @@ def _guarantees(checks: tuple[Any, ...]) -> list[str]:
     return [check.guarantee for check in checks]
 
 
-def _plan_summary(plan: dict[str, Any]) -> dict[str, Any]:
-    return build_plan_reviewer_context(_view(), plan, _inventory(), _runtime_contract())[
-        "mechanical_check_summary"
-    ]
+def _plan_summary(plan: dict[str, Any], findings: list[Finding] | None = None) -> dict[str, Any]:
+    return build_plan_reviewer_context(
+        _view(), plan, _inventory(), _runtime_contract(), check_findings=findings or ()
+    )["mechanical_check_summary"]
 
 
 def test_plan_summary_passes_and_lists_every_check_for_a_plan_the_checks_accept() -> None:
@@ -46,8 +49,10 @@ def test_plan_summary_passes_and_lists_every_check_for_a_plan_the_checks_accept(
 def test_plan_summary_does_not_pass_a_plan_the_checks_reject() -> None:
     plan = _plan()
     plan["unexpected_root_field"] = "x"
+    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+    assert findings
 
-    summary = _plan_summary(plan)
+    summary = _plan_summary(plan, findings)
 
     assert summary["status"] == "failed"
     assert summary["checks"] == []
@@ -94,6 +99,10 @@ def test_artifact_summary_lists_the_judge_fact_check_when_the_artifact_has_a_jud
 def test_artifact_summary_does_not_pass_an_artifact_the_checks_reject() -> None:
     metadata = deepcopy(_metadata())
     metadata["semantic_judge_spec"] = {"question": "Not a question."}
+    findings = collect_artifact_findings_v2(
+        deepcopy(metadata), _plan(), _inventory(), _runtime_contract()
+    )
+    assert findings
 
     context = build_artifact_reviewer_context(
         _view(),
@@ -101,6 +110,7 @@ def test_artifact_summary_does_not_pass_an_artifact_the_checks_reject() -> None:
         metadata,
         _inventory(),
         _runtime_contract(),
+        check_findings=findings,
     )
 
     assert context["mechanical_check_summary"]["status"] == "failed"

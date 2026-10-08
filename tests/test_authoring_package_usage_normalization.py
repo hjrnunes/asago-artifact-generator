@@ -33,7 +33,6 @@ def _package_with_usage(usage: object) -> object:
         task_id="usage-normalization",
         ledger=[{"stage": "call2", "usage": deepcopy(usage)}],
         raw_responses={},
-        decoded_responses={},
         prompt_packets={},
         transformations=[],
         inventory={},

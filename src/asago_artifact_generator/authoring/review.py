@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterator
+from collections.abc import Collection, Iterator, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -13,8 +13,6 @@ from .checks import (
     ARTIFACT_MECHANICAL_CHECKS,
     PLAN_MECHANICAL_CHECKS,
     MechanicalCheck,
-    collect_artifact_findings_v2,
-    collect_plan_findings_v2,
 )
 from .context_budget import _enforce_prompt_size
 from .contracts import (
@@ -44,10 +42,9 @@ from .prompt_context import (
     _original_scenario_context,
     _render_sections,
     _resolved_supplied_binding_values,
-    scenario_provenance_ids,
 )
 from .prompt_safety import assert_no_prompt_secrets, prompt_data_urls
-from .response_decode import _decode_review_json_response
+from .response_decode import _decode_stage_response
 from .sequential_turns import multi_turn_payload, multi_turn_sections, review_sections
 
 _PLAN_REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
@@ -135,7 +132,7 @@ _REVIEW_FINDING_FIELDS = (
 )
 
 
-def parse_review_response(raw: bytes | str) -> ReviewResponse:
+def parse_review_response(raw: bytes) -> ReviewResponse:
     """Parse one strict reviewer response without changing its raw bytes.
 
     The accepted framing is one bare JSON object or exactly one lowercase
@@ -153,11 +150,10 @@ def parse_review_response(raw: bytes | str) -> ReviewResponse:
     evidence without reaching correction.
     """
 
-    source = raw.encode("utf-8") if isinstance(raw, str) else raw
-    if not isinstance(source, bytes):
-        raise TypeError("review response must be bytes or text")
+    if not isinstance(raw, bytes):
+        raise TypeError("review response must be bytes")
     try:
-        decoded, transformation = _decode_review_json_response(source)
+        decoded, transformation = _decode_stage_response("review", raw)
     except UnicodeDecodeError as exc:
         raise ReviewResponseError(
             [Finding("invalid_json", f"review response is not valid UTF-8: {exc}", "review")]
@@ -377,7 +373,7 @@ def _mechanical_check_summary(
     instruction: str,
     *,
     candidate: dict[str, Any],
-    findings: list[Finding],
+    findings: Sequence[Finding],
 ) -> dict[str, Any]:
     """Return the guarantees of the checks that examined the candidate and passed it.
 
@@ -516,11 +512,14 @@ def build_plan_reviewer_context(
     runtime_contract: dict[str, Any],
     *,
     prior_round: PriorReviewRound | None = None,
+    check_findings: Sequence[Finding] = (),
 ) -> dict[str, Any]:
     """Build a fresh authoritative context for the plan reviewer.
 
     A review that follows a revision also carries the earlier findings and the
-    author's response; a first review carries neither.
+    author's response; a first review carries neither.  ``check_findings`` are
+    the plan checks' findings on the candidate; a candidate reaches review only
+    after it passes them.
     """
 
     context = {
@@ -546,13 +545,7 @@ def build_plan_reviewer_context(
             PLAN_MECHANICAL_CHECKS,
             _PLAN_MECHANICAL_CHECK_INSTRUCTION,
             candidate=plan,
-            findings=collect_plan_findings_v2(
-                deepcopy(plan),
-                inventory,
-                runtime_contract,
-                provenance_ids=scenario_provenance_ids(view),
-                condition=view.payload.get("discriminating_condition"),
-            ),
+            findings=check_findings,
         ),
         "response_contract": {
             **_review_response_contract(question_ids=PLAN_REVIEW_QUESTION_IDS),
@@ -656,8 +649,14 @@ def build_artifact_reviewer_context(
     metadata: dict[str, Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    *,
+    check_findings: Sequence[Finding] = (),
 ) -> dict[str, Any]:
-    """Build exact candidate evidence for the artifact reviewer."""
+    """Build exact candidate evidence for the artifact reviewer.
+
+    ``check_findings`` are the artifact checks' findings on the candidate; a
+    candidate reaches review only after it passes them.
+    """
 
     judge_spec = metadata.get("semantic_judge_spec")
     fact_refs = (
@@ -702,13 +701,7 @@ def build_artifact_reviewer_context(
             ARTIFACT_MECHANICAL_CHECKS,
             _ARTIFACT_MECHANICAL_CHECK_INSTRUCTION,
             candidate=metadata,
-            findings=collect_artifact_findings_v2(
-                deepcopy(metadata),
-                deepcopy(plan),
-                inventory,
-                runtime_contract,
-                condition=view.tool_call_condition,
-            ),
+            findings=check_findings,
         ),
         "response_contract": {
             **_review_response_contract(question_ids=ARTIFACT_REVIEW_QUESTION_IDS),
@@ -833,6 +826,7 @@ def build_plan_review_packet(
     *,
     max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
     prior_round: PriorReviewRound | None = None,
+    check_findings: Sequence[Finding] = (),
 ) -> PromptPacket:
     """Render a source-derived plan-review prompt."""
 
@@ -842,6 +836,7 @@ def build_plan_review_packet(
         inventory,
         runtime_contract,
         prior_round=prior_round,
+        check_findings=check_findings,
     )
     payload = {
         "interface": AUTHORING_INTERFACE_VERSION_V2,
@@ -895,6 +890,7 @@ def build_artifact_review_packet(
     runtime_contract: dict[str, Any],
     *,
     max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
+    check_findings: Sequence[Finding] = (),
 ) -> PromptPacket:
     """Render an artifact-review prompt with exact candidate evidence."""
 
@@ -904,6 +900,7 @@ def build_artifact_review_packet(
         metadata,
         inventory,
         runtime_contract,
+        check_findings=check_findings,
     )
     payload = {
         "interface": AUTHORING_INTERFACE_VERSION_V2,

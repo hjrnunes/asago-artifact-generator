@@ -21,8 +21,7 @@ from .core import (
 from .prompt_safety import _endpoint_identity, _endpoint_prompt_paths
 from .response_decode import _provider_field, _provider_response_capture
 
-DEFAULT_RETRY_DELAY_SECONDS = 1.0
-RETRY_DELAY_SECONDS = DEFAULT_RETRY_DELAY_SECONDS
+RETRY_DELAY_SECONDS = 1.0
 _sleep = time.sleep
 
 
@@ -98,12 +97,6 @@ class PrivateModelAuthoringTransport:
         _validate_transport_options(
             max_completion_tokens=max_completion_tokens,
             context_window_tokens=context_window_tokens,
-            sampling_controls=sampling_controls,
-            reasoning_effort=reasoning_effort,
-            service_tier=service_tier,
-            service_tier_fallback=service_tier_fallback,
-            strict_json_schema=strict_json_schema,
-            timeout=timeout,
             review_fill_context=review_fill_context,
         )
         self.model = model
@@ -299,9 +292,7 @@ class PrivateModelAuthoringTransport:
 
         return RateLimitError
 
-    def preflight_context_budget(
-        self, packet: PromptPacket
-    ) -> dict[str, int | float | str] | None:
+    def preflight_context_budget(self, packet: PromptPacket) -> dict[str, int] | None:
         """Expose the guard so orchestration can reject before reserving budget.
 
         The guard also rejects a prompt that names this transport's configured
@@ -324,15 +315,17 @@ def _present_controls(**values: Any) -> dict[str, Any]:
     return {name: value for name, value in values.items() if value is not None}
 
 
-def _is_positive_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+def _validate_transport_options(
+    *,
+    max_completion_tokens: int | None,
+    context_window_tokens: int | None,
+    review_fill_context: bool,
+) -> None:
+    """Raise ValueError when the token options contradict each other.
 
+    The profile loader already checked each option on its own.
+    """
 
-def _validate_token_limits(max_completion_tokens: Any, context_window_tokens: Any) -> None:
-    if max_completion_tokens is not None and not _is_positive_int(max_completion_tokens):
-        raise ValueError("max_completion_tokens must be a positive integer when provided")
-    if context_window_tokens is not None and not _is_positive_int(context_window_tokens):
-        raise ValueError("context_window_tokens must be a positive integer when provided")
     if (
         context_window_tokens is not None
         and max_completion_tokens is not None
@@ -341,59 +334,6 @@ def _validate_token_limits(max_completion_tokens: Any, context_window_tokens: An
         raise ValueError(
             "max_completion_tokens leaves no room for the prompt in the context window"
         )
-
-
-def _is_valid_timeout(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and not value <= 0
-
-
-def _validate_request_controls(
-    *,
-    sampling_controls: Any,
-    reasoning_effort: Any,
-    service_tier: Any,
-    service_tier_fallback: Any,
-    strict_json_schema: Any,
-    timeout: Any,
-) -> None:
-    if not isinstance(sampling_controls, bool):
-        raise ValueError("sampling_controls must be a boolean")
-    for name, value in (
-        ("reasoning_effort", reasoning_effort),
-        ("service_tier", service_tier),
-        ("service_tier_fallback", service_tier_fallback),
-    ):
-        if value is not None and not is_nonblank_str(value):
-            raise ValueError(f"{name} must be a nonblank string when provided")
-    if strict_json_schema is not None and not isinstance(strict_json_schema, bool):
-        raise ValueError("strict_json_schema must be a boolean when provided")
-    if timeout is not None and not _is_valid_timeout(timeout):
-        raise ValueError("timeout must be a positive number when provided")
-
-
-def _validate_transport_options(
-    *,
-    max_completion_tokens: Any,
-    context_window_tokens: Any,
-    sampling_controls: Any,
-    reasoning_effort: Any,
-    service_tier: Any,
-    service_tier_fallback: Any,
-    strict_json_schema: Any,
-    timeout: Any,
-    review_fill_context: bool,
-) -> None:
-    """Raise ValueError for the first invalid transport option, in a fixed order."""
-
-    _validate_token_limits(max_completion_tokens, context_window_tokens)
-    _validate_request_controls(
-        sampling_controls=sampling_controls,
-        reasoning_effort=reasoning_effort,
-        service_tier=service_tier,
-        service_tier_fallback=service_tier_fallback,
-        strict_json_schema=strict_json_schema,
-        timeout=timeout,
-    )
     if review_fill_context and (context_window_tokens is None or max_completion_tokens is None):
         raise ValueError(
             "review_fill_context requires context_window_tokens and max_completion_tokens"

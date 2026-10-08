@@ -7,34 +7,22 @@ from typing import Any
 
 from ..input_adapter import InputView
 from .context_budget import _enforce_prompt_size
-from .contracts import _call2_contract_v2
 from .core import (
     CALL1_PROMPT_VERSION_V21,
     CALL2_PROMPT_VERSION_V25,
     MAX_RENDERED_PROMPT_BYTES,
     PromptPacket,
 )
-from .inventory import _selected_refs
 from .prompt_context import (
     _ARTIFACT_AUTHOR_GUIDANCE,
-    _explained_bindings,
-    _explained_evidence,
-    _explained_operations,
     _plan_semantic_judge_needed,
     _render_sections,
     _scenario_design_prompt_view,
-    _v2_prompt_payload,
     build_artifact_author_context,
     build_plan_author_context,
 )
 from .prompt_safety import assert_no_prompt_secrets, prompt_data_urls
-from .sequential_turns import (
-    multi_turn_payload,
-    multi_turn_sections,
-    plan_response_contract,
-    shape_delivery,
-    turn_count,
-)
+from .sequential_turns import multi_turn_sections
 
 
 def _artifact_response_contract_for_prompt(
@@ -94,52 +82,35 @@ def build_call1_packet_v2(
 ) -> PromptPacket:
     """Render the v3 plan-author prompt over the unchanged v2 response wire."""
 
-    payload = _v2_prompt_payload(
-        view=view,
-        inventory=inventory,
-        runtime_contract=runtime_contract,
-        response_contract=plan_response_contract(turn_count(view), shape_delivery(view)),
-    )
     context = build_plan_author_context(view, inventory, runtime_contract)
-    payload.update(multi_turn_payload(view, runtime_contract))
-    payload.update(
-        {
-            "task": context["task"],
-            "source_context": context["source_context"],
-            "execution_capabilities": context["execution_capabilities"],
-            "field_guide": context["field_guide"],
-            "plan_field_meanings": context["plan_field_meanings"],
-            "neutral_outcome_example": context["neutral_outcome_example"],
-        }
+    sections = (
+        (
+            ("TASK", context["task"]),
+            ("SCENARIO DESIGN", _scenario_design_prompt_view(context["scenario_design"])),
+        )
+        + multi_turn_sections(view, runtime_contract)
+        + (("SOURCE CONTEXT", context["source_context"]),)
+        + (("EVIDENCE REFERENCES", context["evidence_references"]),)
+        + (
+            ("EXECUTION CAPABILITIES", context["execution_capabilities"]),
+            ("FIELD GUIDE", context["field_guide"]),
+            ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
+            ("NEUTRAL OUTCOME EXAMPLE", context["neutral_outcome_example"]),
+            (
+                "RESPONSE CONTRACT",
+                _call1_response_contract_prompt_view(context["response_contract"]),
+            ),
+        )
     )
-    payload["evidence_reference_rules"] = context["evidence_references"]
-    payload["scenario_design"] = context["scenario_design"]
-    assert_no_prompt_secrets(payload)
+    assert_no_prompt_secrets(dict(sections))
     packet = PromptPacket(
         stage="call1",
         version=CALL1_PROMPT_VERSION_V21,
         system=_CALL1_SYSTEM_V3,
         user=_render_sections(
-            (
-                ("TASK", context["task"]),
-                ("SCENARIO DESIGN", _scenario_design_prompt_view(context["scenario_design"])),
-            )
-            + multi_turn_sections(view, runtime_contract)
-            + (("SOURCE CONTEXT", context["source_context"]),)
-            + (("EVIDENCE REFERENCES", context["evidence_references"]),)
-            + (
-                ("EXECUTION CAPABILITIES", context["execution_capabilities"]),
-                ("FIELD GUIDE", context["field_guide"]),
-                ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
-                ("NEUTRAL OUTCOME EXAMPLE", context["neutral_outcome_example"]),
-                (
-                    "RESPONSE CONTRACT",
-                    _call1_response_contract_prompt_view(context["response_contract"]),
-                ),
-            ),
-            compact_titles=frozenset({"FIELD GUIDE", "SOURCE CONTEXT"}),
+            sections, compact_titles=frozenset({"FIELD GUIDE", "SOURCE CONTEXT"})
         ),
-        payload=payload,
+        payload={},
     )
     _enforce_prompt_size(packet, max_prompt_bytes, allowed_urls=prompt_data_urls(view))
     return packet
@@ -155,36 +126,7 @@ def build_call2_packet_v2(
 ) -> PromptPacket:
     """Render the v3 artifact-author prompt over the unchanged v2 response wire."""
 
-    selected = _selected_refs(plan, inventory)
-    operations = _explained_operations(inventory, selected["operations"])
-    payload = _v2_prompt_payload(
-        view=view,
-        inventory=inventory,
-        runtime_contract=runtime_contract,
-        response_contract=_call2_contract_v2(plan),
-    )
-    payload.update(
-        {
-            "accepted_plan": deepcopy(plan),
-            "selected_operations": operations,
-            "selected_evidence": _explained_evidence(plan.get("selected_evidence", []), inventory),
-            "binding_names": _explained_bindings(plan.get("runtime_bindings", [])),
-        }
-    )
     context = build_artifact_author_context(view, plan, inventory, runtime_contract)
-    payload.update(
-        {
-            "original_scenario": context["original_scenario"],
-            "authoritative_context": context["authoritative_context"],
-            "accepted_plan_read_only": context["accepted_plan_read_only"],
-            "runtime_contract": context["runtime_contract"],
-            "semantic_judge_fact_ref_guidance": context["semantic_judge_fact_ref_guidance"],
-            "neutral_example": context["neutral_example"],
-            "plan_field_meanings": context["plan_field_meanings"],
-        }
-    )
-    payload.update(multi_turn_payload(view, runtime_contract))
-    assert_no_prompt_secrets(payload)
     sections: tuple[tuple[str, Any], ...] = (
         (
             (
@@ -220,6 +162,7 @@ def build_call2_packet_v2(
             },
         ),
     )
+    assert_no_prompt_secrets(dict(sections))
     packet = PromptPacket(
         stage="call2",
         version=CALL2_PROMPT_VERSION_V25,
@@ -231,7 +174,8 @@ def build_call2_packet_v2(
             sections,
             compact_titles=frozenset({"ORIGINAL SCENARIO AND SOURCE CONTEXT"}),
         ),
-        payload=payload,
+        # The duplicate-candidate scan reads the accepted plan from here.
+        payload={"accepted_plan": deepcopy(plan)},
     )
     _enforce_prompt_size(packet, max_prompt_bytes, allowed_urls=prompt_data_urls(view, plan))
     return packet

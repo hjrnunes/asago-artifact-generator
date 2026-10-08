@@ -49,7 +49,7 @@ def _context(
     context = build_correction_context(
         failed_stage="call1",
         original_context=build_plan_author_context(_view(), inventory, runtime_contract),
-        current_output=json.dumps(candidate),
+        current_output=json.dumps(candidate).encode(),
         findings=findings,
     )
     return context, correction_repair_inputs(_view(), inventory, runtime_contract)

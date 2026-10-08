@@ -16,7 +16,6 @@ from .core import (
     REVIEW_REVISION_ALLOWANCE_PER_STAGE,
     BudgetExceeded,
     Finding,
-    PromptPacket,
 )
 
 
@@ -54,79 +53,6 @@ class AuthoringBudget:
         for task_id, roles in self.dispatched_by_task_role.items():
             _validate_task_key("dispatched_by_task_role", task_id)
             _validate_role_counts(task_id, roles)
-
-    @classmethod
-    def from_prior_spend(
-        cls,
-        *,
-        task_id: str,
-        prior_author_correction_spend: int = 0,
-        prior_review_spend: int = 0,
-        aggregate_limit: int = MAX_AUTHORING_REQUESTS,
-        task_limit: int = MAX_REQUESTS_PER_TASK,
-        author_limit: int = MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK,
-        review_limit: int = MAX_REVIEW_REQUESTS_PER_TASK,
-        author_limit_increment: int = 0,
-        review_limit_increment: int = 0,
-    ) -> AuthoringBudget:
-        """Create a guard seeded with caller-supplied spend for one task."""
-
-        if not isinstance(task_id, str) or not task_id.strip():
-            raise ValueError("task_id must be a nonblank string")
-        _validate_nonnegative_integer(
-            "prior_author_correction_spend",
-            prior_author_correction_spend,
-        )
-        _validate_nonnegative_integer("prior_review_spend", prior_review_spend)
-        _validate_nonnegative_integer("author_limit_increment", author_limit_increment)
-        _validate_nonnegative_integer("review_limit_increment", review_limit_increment)
-        total = prior_author_correction_spend + prior_review_spend
-        return cls(
-            aggregate_limit=aggregate_limit,
-            task_limit=task_limit,
-            author_limit=author_limit + author_limit_increment,
-            review_limit=review_limit + review_limit_increment,
-            total_dispatched=total,
-            dispatched_by_task={task_id: total},
-            dispatched_by_task_role={
-                task_id: {
-                    "author": prior_author_correction_spend,
-                    "reviewer": prior_review_spend,
-                }
-            },
-        )
-
-    def seed_prior_spend(
-        self,
-        *,
-        task_id: str,
-        prior_author_correction_spend: int = 0,
-        prior_review_spend: int = 0,
-        author_limit_increment: int = 0,
-        review_limit_increment: int = 0,
-    ) -> None:
-        """Add caller-supplied prior spend before the first dispatch."""
-
-        seeded = self.from_prior_spend(
-            task_id=task_id,
-            prior_author_correction_spend=prior_author_correction_spend,
-            prior_review_spend=prior_review_spend,
-            aggregate_limit=self.aggregate_limit,
-            task_limit=self.task_limit,
-            author_limit=self.author_limit,
-            review_limit=self.review_limit,
-            author_limit_increment=author_limit_increment,
-            review_limit_increment=review_limit_increment,
-        )
-        self.total_dispatched += seeded.total_dispatched
-        self.dispatched_by_task[task_id] = (
-            self.dispatched_by_task.get(task_id, 0) + seeded.dispatched_by_task[task_id]
-        )
-        current_roles = self.dispatched_by_task_role.setdefault(task_id, {})
-        for role, count in seeded.dispatched_by_task_role[task_id].items():
-            current_roles[role] = current_roles.get(role, 0) + count
-        self.author_limit = seeded.author_limit
-        self.review_limit = seeded.review_limit
 
     def reserve(self, task_id: str, *, role: str = "author") -> int:
         if role not in {"author", "reviewer"}:
@@ -192,9 +118,6 @@ class AuthoringBudget:
         }
 
 
-_UNSET_CORRECTIONS = object()
-
-
 def _validate_nonnegative_integer(name: str, value: Any) -> None:
     """Reject booleans and other nonnegative-integer budget inputs."""
 
@@ -227,8 +150,8 @@ class AuthoringPolicy:
     Set a stage limit to zero to disable corrections for that stage.
     """
 
-    plan_max_corrections: Any = _UNSET_CORRECTIONS
-    artifact_max_corrections: Any = _UNSET_CORRECTIONS
+    plan_max_corrections: int = 1
+    artifact_max_corrections: int = 1
     review_plan: bool = True
     review_artifact: bool = True
     review_model_profile: str | None = None
@@ -242,12 +165,7 @@ class AuthoringPolicy:
         ):
             raise ValueError("review_model_profile must be a nonblank string when provided")
         for name in ("plan_max_corrections", "artifact_max_corrections"):
-            value = getattr(self, name)
-            if value is _UNSET_CORRECTIONS:
-                value = 1
-            else:
-                _validate_nonnegative_integer(name, value)
-            object.__setattr__(self, name, value)
+            _validate_nonnegative_integer(name, getattr(self, name))
 
     @classmethod
     def from_cli(
@@ -324,8 +242,6 @@ class AuthoringResult:
     ledger: list[dict[str, Any]] = field(default_factory=list)
     transformations: list[Any] = field(default_factory=list)
     raw_responses: dict[str, bytes] = field(default_factory=dict)
-    decoded_responses: dict[str, Any] = field(default_factory=dict)
-    prompts: dict[str, PromptPacket] = field(default_factory=dict)
     failure_evidence_path: Path | None = None
     review_status: dict[str, str] = field(default_factory=dict)
     allowances: dict[str, int] = field(default_factory=dict)

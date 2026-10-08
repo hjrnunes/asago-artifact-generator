@@ -19,7 +19,7 @@ from .authoring.core import (
     AuthoringTransport,
 )
 from .authoring.orchestrator import AuthoringOrchestrator
-from .authoring.policy import AuthoringBudget, AuthoringPolicy, AuthoringResult
+from .authoring.policy import AuthoringPolicy, AuthoringResult
 from .authoring.transport import PrivateModelAuthoringTransport
 from .contract_kit import parse_document
 from .input_adapter import InputSourceError, load_input
@@ -138,27 +138,6 @@ def generate(
             help="YAML file containing the named private authoring profiles.",
         ),
     ] = Path("config/model-profiles.yaml"),
-    prior_author_correction_spend: Annotated[
-        int,
-        typer.Option(
-            "--prior-author-correction-spend",
-            "--prior-author-spend",
-            help=(
-                "Caller-supplied prior author/correction requests for this case "
-                "(default: 0). Pass explicitly when resuming."
-            ),
-        ),
-    ] = 0,
-    prior_review_spend: Annotated[
-        int,
-        typer.Option(
-            "--prior-review-spend",
-            help=(
-                "Caller-supplied prior design-review requests for this case "
-                "(default: 0). Pass explicitly when resuming."
-            ),
-        ),
-    ] = 0,
 ) -> None:
     """Author one immutable package from a producer scenario handoff and discovery output."""
 
@@ -185,17 +164,6 @@ def generate(
     runtime_data = _load_mapping(runtime_contract, "runtime contract")
     stable_task_id = task_id or view.scenario_id
     try:
-        AuthoringBudget.from_prior_spend(
-            task_id=stable_task_id,
-            prior_author_correction_spend=prior_author_correction_spend,
-            prior_review_spend=prior_review_spend,
-        )
-    except ValueError as exc:
-        raise typer.BadParameter(
-            str(exc),
-            param_hint="--prior-author-correction-spend/--prior-review-spend",
-        ) from None
-    try:
         connection = load_authoring_profile(profiles_file, profile)
     except ProfileLoadError as exc:
         raise typer.BadParameter(str(exc), param_hint="--profile/--profiles-file") from None
@@ -213,8 +181,6 @@ def generate(
         package_dir=package_dir,
         task_id=stable_task_id,
         policy=policy,
-        prior_author_correction_spend=prior_author_correction_spend,
-        prior_review_spend=prior_review_spend,
         discovery_provenance=discovery_provenance,
     ).run(view, inventory_data, runtime_data)
     _report_result(result)

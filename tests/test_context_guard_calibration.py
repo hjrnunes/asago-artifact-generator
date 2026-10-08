@@ -122,8 +122,10 @@ def test_context_guard_fits_exact_input_budget_and_rejects_one_estimated_token_o
     exact_boundary_packet = _packet_with_model_facing_bytes(boundary_bytes)
     estimate = _context_budget_estimate(exact_boundary_packet)
 
-    assert estimate["model_facing_utf8_bytes"] == boundary_bytes
-    assert estimate["estimated_prompt_tokens"] == remaining_input_budget
+    assert estimate == {
+        "model_facing_utf8_bytes": boundary_bytes,
+        "estimated_prompt_tokens": remaining_input_budget,
+    }
     assert (
         _enforce_context_budget(
             exact_boundary_packet,

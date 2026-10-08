@@ -4,6 +4,7 @@ import copy
 import dataclasses
 import json
 
+from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
 from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
 
 from .support import json_section, world_builders
@@ -95,9 +96,9 @@ def test_call1_projects_kind_attack_tree_and_unavailable_classification() -> Non
         "before the turn; "
         "The clinician turn names a different patient than the one the chart holds"
     ]
+    context = build_plan_author_context(_view(), _inventory(), _runtime_contract())
     assert (
-        packet.payload["scenario_design"]["attack_tree"]["root"]
-        == _view().payload["attack_tree"]["root"]
+        context["scenario_design"]["attack_tree"]["root"] == _view().payload["attack_tree"]["root"]
     )
 
 

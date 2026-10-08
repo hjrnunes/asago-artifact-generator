@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -24,11 +23,12 @@ from .core import (
     _canonical_json,
 )
 from .prompt_context import (
+    _render_sections,
     _scenario_design_prompt_view,
     _semantic_judge_fact_ref_guidance,
 )
 from .prompt_packets import _artifact_response_contract_for_prompt
-from .response_decode import _decode_call2_json_response, _readable_response
+from .response_decode import _decode_stage_response, _readable_response
 from .sequential_turns import delivery_in_context, plan_response_contract, turns_in_context
 
 
@@ -109,13 +109,6 @@ def _fixed_plan_decision_section(view: _CorrectionView) -> tuple[str, Any] | Non
 
 def _original_stage_context_section(view: _CorrectionView) -> tuple[str, Any] | None:
     return ("ORIGINAL STAGE CONTEXT", view.original_context)
-
-
-def _supplied_stage_context_section(view: _CorrectionView) -> tuple[str, Any] | None:
-    supplied_stage_context = view.context.get("supplied_stage_context")
-    if supplied_stage_context is None:
-        return None
-    return ("SUPPLIED STAGE CONTEXT", supplied_stage_context)
 
 
 def _plan_field_meanings_section(view: _CorrectionView) -> tuple[str, Any] | None:
@@ -227,12 +220,6 @@ def _correction_instructions_section(view: _CorrectionView) -> tuple[str, Any] |
     )
 
 
-def _prior_unresolved_findings_section(view: _CorrectionView) -> tuple[str, Any] | None:
-    if "prior_unresolved_findings" not in view.context:
-        return None
-    return ("PRIOR UNRESOLVED FINDINGS", view.context["prior_unresolved_findings"])
-
-
 # The packet's section order.  The binding repair options are computed after
 # the context sections and the reference repair options after the output
 # sections, so the three groups also fix the order of those computations.
@@ -240,7 +227,6 @@ _CORRECTION_CONTEXT_SECTIONS: tuple[_CorrectionSection, ...] = (
     _failed_stage_section,
     _fixed_plan_decision_section,
     _original_stage_context_section,
-    _supplied_stage_context_section,
     _plan_field_meanings_section,
     _neutral_outcome_example_section,
     _fact_ref_guidance_section,
@@ -255,7 +241,6 @@ _CORRECTION_REPAIR_SECTIONS: tuple[_CorrectionSection, ...] = (
     _binding_repair_option_fields_section,
     _binding_repair_options_section,
     _correction_instructions_section,
-    _prior_unresolved_findings_section,
 )
 
 
@@ -293,7 +278,9 @@ def _render_correction_packet(
             CORRECTION_PROMPT_VERSION_V33 if view.artifact else CORRECTION_PROMPT_VERSION_V34
         ),
         system=_CORRECTION_SYSTEM,
-        user=_render_correction_sections(tuple(sections)),
+        user=_render_sections(
+            tuple(sections), compact_titles=frozenset(title for title, _ in sections)
+        ),
         payload=payload,
     )
     return packet
@@ -322,7 +309,7 @@ def _correction_current_output_view(value: Any, *, artifact: bool) -> Any:
     if not artifact or not isinstance(value, str):
         return value
     try:
-        decoded, _ = _decode_call2_json_response(value.encode("utf-8"))
+        decoded, _ = _decode_stage_response("call2", value.encode("utf-8"))
     except (Call2FramingError, UnicodeDecodeError, ValueError):
         return value
     return _canonical_json(decoded)
@@ -415,33 +402,25 @@ def build_correction_context(
     *,
     failed_stage: str,
     original_context: dict[str, Any],
-    current_output: bytes | str,
-    findings: list[dict[str, Any]] | tuple[dict[str, Any], ...] | list[Finding],
-    prior_unresolved_findings: list[dict[str, Any]] | None = None,
+    current_output: bytes,
+    findings: Sequence[Finding],
 ) -> dict[str, Any]:
-    """Build a stage-aware correction context without competing formats."""
+    """Build the correction context of a failed ``call1`` or ``call2`` response."""
 
-    stage = _correction_stage(failed_stage)
-    if isinstance(current_output, bytes):
-        output_text, output_encoding = _readable_response(current_output)
-    else:
-        output_text, output_encoding = current_output, "text-input"
-    normalized_findings = [
-        finding.to_dict() if isinstance(finding, Finding) else deepcopy(finding)
-        for finding in findings
-    ]
-    instruction = _correction_instruction(failed_stage, findings)
+    if failed_stage not in _CORRECTION_STAGES:
+        raise ValueError(f"unsupported correction stage: {failed_stage}")
+    stage = _CORRECTION_STAGES[failed_stage]
+    output_text, output_encoding = _readable_response(current_output)
+    instruction = _correction_instruction(findings)
     context: dict[str, Any] = {
         "stage": stage,
         "failed_stage": failed_stage,
         "original_context": deepcopy(original_context),
         "current_output": output_text,
         "current_output_encoding": output_encoding,
-        "findings": normalized_findings,
+        "findings": [finding.to_dict() for finding in findings],
         "instruction": instruction,
     }
-    if prior_unresolved_findings:
-        context["prior_unresolved_findings"] = deepcopy(prior_unresolved_findings)
     if stage == "plan":
         context.update(
             {
@@ -459,7 +438,7 @@ def build_correction_context(
             instruction + " Call 1 uses one bare JSON object or exactly one lowercase ```json "
             "fenced JSON object. " + _PLAN_CORRECTION_GUIDANCE
         )
-    elif stage == "artifact":
+    else:
         context.update(
             {
                 "accepted_plan_fixed": True,
@@ -467,36 +446,20 @@ def build_correction_context(
                     "Return one complete artifact replacement as one bare JSON object "
                     "or exactly one lowercase ```json fenced JSON object."
                 ),
-                "response_contract": _call2_contract_v2(
-                    original_context.get("accepted_plan")
-                    if isinstance(original_context, dict)
-                    else None,
-                ),
+                "response_contract": _call2_contract_v2(original_context.get("accepted_plan")),
             }
         )
         context["instruction"] = (
             instruction + " Call 2 uses one bare JSON object or exactly one lowercase ```json "
             "fenced JSON object. " + _ARTIFACT_CORRECTION_GUIDANCE
         )
-    else:
-        raise ValueError(f"unsupported correction stage: {failed_stage}")
     return context
 
 
-def _correction_stage(failed_stage: str) -> str:
-    """Map a failed stage name to the plan or artifact correction it belongs to."""
-
-    if failed_stage in {"plan", "call1", "plan_review"}:
-        return "plan"
-    if failed_stage in {"artifact", "call2", "artifact_review"}:
-        return "artifact"
-    return failed_stage
+_CORRECTION_STAGES = {"call1": "plan", "call2": "artifact"}
 
 
-def _correction_instruction(
-    failed_stage: str,
-    findings: list[dict[str, Any]] | tuple[dict[str, Any], ...] | list[Finding],
-) -> str:
+def _correction_instruction(findings: Sequence[Finding]) -> str:
     """Return the shared instruction, scoped to review findings when a review failed."""
 
     instruction = (
@@ -505,9 +468,7 @@ def _correction_instruction(
         "and retain an essential unsupported requirement as unresolved instead "
         "of inventing facts."
     )
-    if failed_stage in {"plan_review", "artifact_review"} or any(
-        isinstance(finding, Finding) and finding.code == "semantic_review" for finding in findings
-    ):
+    if any(finding.code == "semantic_review" for finding in findings):
         instruction += (
             " The CURRENT FINDINGS contain only semantic-review findings whose "
             "question IDs are in the closed scope for this stage. Out-of-scope "
@@ -515,21 +476,6 @@ def _correction_instruction(
             "address them."
         )
     return instruction
-
-
-def _render_correction_sections(sections: tuple[tuple[str, Any], ...]) -> str:
-    """Render correction sections compactly while preserving each value exactly."""
-
-    rendered: list[str] = []
-    for title, value in sections:
-        rendered.append(title)
-        rendered.append(
-            value
-            if isinstance(value, str)
-            else json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-        )
-        rendered.append("")
-    return "\n".join(rendered).rstrip() + "\n"
 
 
 _CORRECTION_SYSTEM = (

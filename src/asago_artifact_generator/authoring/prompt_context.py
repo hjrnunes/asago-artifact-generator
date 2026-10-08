@@ -26,7 +26,7 @@ from .contracts import (
     neutral_artifact_plan_v2,
     neutral_artifact_response_without_source,
 )
-from .core import AUTHORING_INTERFACE_VERSION_V2, _sha256
+from .core import _sha256
 from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
 from .sequential_turns import plan_response_contract, shape_delivery, turn_count
 
@@ -813,8 +813,13 @@ def build_plan_author_context(
         },
         "source_context": _authoritative_context(view, inventory, runtime_contract),
         "execution_capabilities": {
-            "available_operations": _explained_operations(inventory, None),
-            "runtime_contract": deepcopy(runtime_contract),
+            "available_operations": (
+                "The documented operations are listed once, in SOURCE CONTEXT operations; "
+                "cite each as operation:<name>."
+            ),
+            "runtime_contract": (
+                "The full runtime contract is listed once, in SOURCE CONTEXT runtime_capabilities."
+            ),
             "target_access": runtime_contract.get("target_access", "downstream_only"),
             "setup_permissions": deepcopy(runtime_contract.get("setup_permissions", [])),
             "observation": deepcopy(runtime_contract.get("observation", {})),
@@ -892,13 +897,6 @@ def build_plan_author_context(
         },
     }
     context["field_guide"]["keyed_map_path_forms"] = _keyed_map_binding_forms(inventory)
-    context["execution_capabilities"]["available_operations"] = (
-        "The documented operations are listed once, in SOURCE CONTEXT operations; "
-        "cite each as operation:<name>."
-    )
-    context["execution_capabilities"]["runtime_contract"] = (
-        "The full runtime contract is listed once, in SOURCE CONTEXT runtime_capabilities."
-    )
     context["evidence_references"] = _plan_evidence_references(view, inventory)
     design = _scenario_design(view)
     context["scenario_design"] = design
@@ -1091,36 +1089,6 @@ def _render_sections(
     return "\n".join(rendered).rstrip() + "\n"
 
 
-def _v2_prompt_payload(
-    *,
-    view: InputView,
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-    response_contract: dict[str, Any],
-) -> dict[str, Any]:
-    all_operations = "interpretation" in response_contract.get("fields", [])
-    return {
-        "interface": AUTHORING_INTERFACE_VERSION_V2,
-        "case_meaning": _case_meaning(view),
-        "input": _v2_input_projection(view),
-        "evidence_references": _explained_inventory_references(inventory),
-        "binding_names": [],
-        "operation_names": _operation_handles(inventory),
-        "identifier_kinds": [
-            "evidence references identify supplied facts",
-            "binding names identify values resolved later",
-            "operation names identify documented tools",
-        ],
-        "runtime_contract": runtime_contract,
-        "response_contract": response_contract,
-        **(
-            {"available_operations": _explained_operations(inventory, None)}
-            if all_operations
-            else {}
-        ),
-    }
-
-
 def _v2_input_projection(view: InputView) -> dict[str, Any]:
     """Return v2 input identity and digests without repeating case meaning."""
 
@@ -1136,15 +1104,11 @@ def _v2_input_projection(view: InputView) -> dict[str, Any]:
 def _case_meaning(view: InputView) -> dict[str, Any]:
     handoff = build_scenario_handoff_view(view)
     observation = handoff.get("observation")
-    if isinstance(observation, dict):
-        observation_level = observation["assessment"]["disposition"]
-    else:
-        observation_level = view.payload.get(
-            "observation_level",
-            view.payload.get(
-                "observation", "selected by the plan and bounded by runtime evidence"
-            ),
-        )
+    observation_level = (
+        observation["assessment"]["disposition"]
+        if isinstance(observation, dict)
+        else "selected by the plan and bounded by runtime evidence"
+    )
     result = {
         "scenario_id": view.scenario_id,
         "narrative": view.narrative,
@@ -1209,90 +1173,6 @@ def _condition_check_prompt_view(check: Any) -> Any:
     return result
 
 
-def _explained_inventory_references(inventory: dict[str, Any]) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    for fact in inventory.get("facts", []):
-        if isinstance(fact, dict) and isinstance(fact.get("ref"), str):
-            schema = fact.get("schema") if isinstance(fact.get("schema"), dict) else {}
-            result.append(
-                {
-                    "handle": fact["ref"],
-                    "kind": "evidence_reference",
-                    "meaning": fact.get("meaning", fact.get("provenance", "supplied fact")),
-                    "value_type": schema.get("type", "unknown"),
-                }
-            )
-    for handle in inventory.get("source_handles", []):
-        if isinstance(handle, dict) and isinstance(handle.get("ref"), str):
-            result.append(
-                {
-                    "handle": handle["ref"],
-                    "kind": "evidence_reference",
-                    "meaning": handle.get("meaning", "supplied source handle"),
-                    "value_type": handle.get("type", "source"),
-                }
-            )
-    return result
-
-
-def _operations_by_name(inventory: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {
-        operation["name"]: operation
-        for operation in inventory.get("operations", [])
-        if isinstance(operation, dict) and isinstance(operation.get("name"), str)
-    }
-
-
-def _explained_evidence(
-    selected: list[Any],
-    inventory: dict[str, Any],
-) -> list[dict[str, Any]]:
-    by_handle = {
-        item["handle"]: item
-        for item in _explained_inventory_references(inventory)
-        if isinstance(item.get("handle"), str)
-    }
-    result: list[dict[str, Any]] = []
-    operations = _operations_by_name(inventory)
-    for item in selected:
-        if not isinstance(item, dict):
-            continue
-        ref = item.get("ref")
-        if not isinstance(ref, str):
-            continue
-        explained = dict(by_handle.get(ref, {}))
-        operation_name = ref.split(":", 1)[1] if ref.startswith("operation:") else ref
-        operation = operations.get(operation_name)
-        if operation is not None:
-            explained.update(
-                {
-                    "kind": "operation_name",
-                    "meaning": operation.get("description", "documented operation"),
-                    "value_type": "operation",
-                    "argument_schema": operation.get("arguments", {}),
-                    "result_schema": operation.get("result_schema", {}),
-                }
-            )
-        explained.update({"handle": ref, "role": item.get("role"), "source": item.get("source")})
-        result.append(explained)
-    return result
-
-
-def _explained_bindings(bindings: list[Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            "name": item.get("name"),
-            "kind": "binding_name",
-            "meaning": "value resolved by downstream from the declared source",
-            "source_kind": item.get("source_kind"),
-            "source_ref": item.get("source_ref"),
-            "selector": item.get("selector"),
-        }
-        for item in bindings
-        if isinstance(item, dict)
-    ]
-
-
 def _explained_operations(
     inventory: dict[str, Any],
     selected_names: set[str] | None,
@@ -1314,15 +1194,3 @@ def _explained_operations(
             }
         )
     return result
-
-
-def _operation_handles(inventory: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            "handle": operation["name"],
-            "kind": "operation_name",
-            "meaning": operation.get("description", "documented operation"),
-        }
-        for operation in inventory.get("operations", [])
-        if isinstance(operation, dict) and isinstance(operation.get("name"), str)
-    ]

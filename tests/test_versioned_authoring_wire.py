@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 
 import pytest
@@ -13,18 +14,21 @@ from asago_artifact_generator.authoring.core import (
     AUTHORING_INTERFACE_VERSION_V2,
     Call2FramingError,
 )
+from asago_artifact_generator.authoring.prompt_context import _original_scenario_context
 from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
 )
-from asago_artifact_generator.authoring.response_decode import _decode_call2_json_response
+from asago_artifact_generator.authoring.response_decode import _decode_stage_response
 from asago_artifact_generator.package_io import tool_call_condition_bytes
 
 from .support import (
     ScriptedAuthoringTransport,
     assemble_refund_package,
     build_neutral_artifact_package,
+    json_section,
     neutral_call2_response_v2,
+    rendered_response_contract,
     stage_local_orchestrator,
     unreviewed_policy,
     validate_neutral_example,
@@ -64,10 +68,15 @@ def _judged_metadata(*, captured: bool = False) -> dict:
     }
 
 
+def _rendered_scenario(packet) -> dict:
+    if packet.stage == "call1":
+        return json_section(packet.user, "TASK")["scenario"]
+    return json_section(packet.user, "ORIGINAL SCENARIO AND SOURCE CONTEXT")["scenario"]
+
+
 def test_call1_v2_has_closed_root_and_reports_all_root_faults() -> None:
     packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
-    assert packet.payload["interface"] == AUTHORING_INTERFACE_VERSION_V2
-    fields = packet.payload["response_contract"]["fields"]
+    fields = rendered_response_contract(packet)["fields"]
     assert fields == [
         "interpretation",
         "selected_evidence",
@@ -226,7 +235,7 @@ def test_v2_call1_accepts_one_lowercase_json_fence_through_orchestrator(tmp_path
     assert result.raw_responses["call1"] == raw_plan
     assert result.transformations == ["outer_fence_removed"]
     assert result.ledger[0]["transformation"] == "outer_fence_removed"
-    assert result.prompts["call1"].payload["response_contract"]["framing"]["accepted"]
+    assert json_section(transport.requests[0]["user"], "RESPONSE CONTRACT")["framing"]["accepted"]
 
 
 def test_v2_call1_accepts_one_bare_object_without_transformation(tmp_path) -> None:
@@ -248,8 +257,9 @@ def test_v2_call1_correction_accepts_one_lowercase_json_fence(tmp_path) -> None:
     corrected_plan = (
         b"\n```json\r\n" + json.dumps(_plan(), sort_keys=True).encode("utf-8") + b"\r\n```\n"
     )
+    transport = ScriptedAuthoringTransport([invalid_plan, corrected_plan, _framed()])
     result = stage_local_orchestrator(
-        transport=ScriptedAuthoringTransport([invalid_plan, corrected_plan, _framed()]),
+        transport=transport,
         package_dir=tmp_path / "package",
         task_id="v2-corrected-fenced-call1",
     ).run(_view(), _inventory(), _runtime_contract())
@@ -259,7 +269,8 @@ def test_v2_call1_correction_accepts_one_lowercase_json_fence(tmp_path) -> None:
     assert result.raw_responses["correction"] == corrected_plan
     assert result.transformations == ["outer_fence_removed"]
     assert result.ledger[1]["transformation"] == "outer_fence_removed"
-    assert "lowercase ```json" in result.prompts["correction"].payload["instruction"]
+    assert transport.requests[1]["stage"] == "correction"
+    assert "lowercase ```json" in transport.requests[1]["payload"]["instruction"]
 
 
 @pytest.mark.parametrize(
@@ -321,8 +332,8 @@ def test_v2_call1_correction_rejects_unsupported_framing(
 
 
 def test_call2_decodes_a_fenced_or_bare_object_to_the_same_artifact() -> None:
-    fenced, transformation = _decode_call2_json_response(b"```json\n" + _framed() + b"```\n")
-    bare, no_transformation = _decode_call2_json_response(_framed())
+    fenced, transformation = _decode_stage_response("call2", b"```json\n" + _framed() + b"```\n")
+    bare, no_transformation = _decode_stage_response("call2", _framed())
 
     assert fenced == bare == _metadata()
     assert transformation == "outer_fence_removed"
@@ -343,7 +354,7 @@ def test_call2_decodes_a_fenced_or_bare_object_to_the_same_artifact() -> None:
 )
 def test_call2_rejects_each_malformed_framing_class(raw: bytes, code: str) -> None:
     with pytest.raises(Call2FramingError) as caught:
-        _decode_call2_json_response(raw)
+        _decode_stage_response("call2", raw)
     assert [finding.code for finding in caught.value.findings] == [code]
     assert caught.value.findings[0].path == "call2"
 
@@ -549,16 +560,7 @@ def test_v2_prompt_has_typed_references_selected_schemas_and_measured_bytes() ->
 
     for packet in (call1, call2):
         assert packet.byte_size == len(packet.system.encode()) + len(packet.user.encode())
-        assert packet.payload["identifier_kinds"] == [
-            "evidence references identify supplied facts",
-            "binding names identify values resolved later",
-            "operation names identify documented tools",
-        ]
-        assert packet.payload["case_meaning"]["semantic_failure"]
-    operations = call2.payload["selected_operations"]
-    assert [item["name"] for item in operations] == ["process_refund"]
-    assert operations[0]["arguments"]["properties"]["amount"]["type"] == "number"
-    assert operations[0]["result_schema"]["properties"]["ok"]["type"] == "boolean"
+        assert _rendered_scenario(packet)["semantic_failure"]
 
 
 def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
@@ -576,17 +578,17 @@ def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
     }
 
     for packet in (call1, call2):
-        assert set(packet.payload["input"]) == expected_input_fields
-        assert "narrative" not in packet.payload["input"]
-        assert "gherkin_text" not in packet.payload["input"]
-        assert packet.payload["input"]["scenario_id"] == view.scenario_id
-        assert packet.payload["input"]["source_digests"] == view.source_digests
-        assert packet.payload["case_meaning"]["narrative"] == view.narrative
-        assert packet.payload["case_meaning"]["gherkin"] == view.gherkin_text
-        assert packet.payload["case_meaning"]["semantic_failure"]
-        assert packet.payload["case_meaning"]["safe_behavior"]
-        assert packet.payload["case_meaning"]["observation_level"]
-        assert "classification" in packet.payload["case_meaning"]
+        scenario = _rendered_scenario(packet)
+        identity = scenario["input_identity"]
+        assert set(identity) == expected_input_fields
+        assert identity["scenario_id"] == view.scenario_id
+        assert identity["source_digests"] == view.source_digests
+        assert scenario["narrative"] == view.narrative
+        assert scenario["gherkin"] == view.gherkin_text
+        assert scenario["semantic_failure"]
+        assert scenario["safe_behavior"]
+        assert scenario["observation_level"]
+        assert "classification" in scenario
         narrative_literal = json.dumps(
             view.narrative,
             sort_keys=True,
@@ -611,6 +613,23 @@ def test_neutral_v2_example_uses_real_framing_and_package_check(tmp_path) -> Non
 
 
 def test_neutral_artifact_response_without_source_matches_v2_metadata() -> None:
-    decoded, _ = _decode_call2_json_response(neutral_call2_response_v2())
+    decoded, _ = _decode_stage_response("call2", neutral_call2_response_v2())
 
     assert decoded == neutral_artifact_response_without_source()
+
+
+@pytest.mark.parametrize(
+    "observation_fields",
+    [{}, {"observation": None}, {"observation_level": "ignored"}],
+    ids=["absent", "explicit-null", "observation-level-key"],
+)
+def test_a_handoff_without_an_observation_object_renders_the_default_level(
+    observation_fields: dict,
+) -> None:
+    view = _view()
+    payload = {key: value for key, value in view.payload.items() if key != "observation"}
+    view = dataclasses.replace(view, payload={**payload, **observation_fields})
+
+    scenario = _original_scenario_context(view)
+
+    assert scenario["observation_level"] == "selected by the plan and bounded by runtime evidence"

@@ -57,7 +57,7 @@ def test_building_the_artifact_prompts_leaves_the_accepted_plan_unchanged() -> N
         build_correction_context(
             failed_stage="call2",
             original_context=context,
-            current_output="candidate",
+            current_output=b"candidate",
             findings=[],
         ),
         correction_repair_inputs(view, inventory, runtime),
@@ -86,20 +86,16 @@ def test_artifact_review_does_not_replay_unrelated_judge_facts_or_capabilities()
     }
 
 
-def test_correction_renders_optional_stage_context_and_current_review_view() -> None:
+def test_tool_call_plan_renders_its_correction_and_artifact_review() -> None:
     plan, runtime = _tool_call_shaped_inputs()
     view, inventory = _view(), _inventory()
     original_context = build_artifact_author_context(view, plan, inventory, runtime)
     correction_context = build_correction_context(
         failed_stage="call2",
         original_context=original_context,
-        current_output="candidate",
+        current_output=b"candidate",
         findings=[],
     )
-    correction_context["supplied_stage_context"] = {
-        "fixture_identity": "scenario provenance; experiment uses its declared binding",
-        "control_feedback_provenance": "raw result unavailable; verdict read from source",
-    }
     correction = _render_correction_packet(
         correction_context, correction_repair_inputs(view, inventory, runtime)
     )
@@ -110,8 +106,7 @@ def test_correction_renders_optional_stage_context_and_current_review_view() -> 
         inventory,
         runtime,
     )
-    assert correction.user.count("SUPPLIED STAGE CONTEXT\n") == 1
-    assert "raw result unavailable; verdict read from source" in correction.user
+    assert correction.user.count("CURRENT OUTPUT\n") == 1
     assert review.version == ARTIFACT_REVIEW_PROMPT_VERSION
 
 
