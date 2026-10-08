@@ -25,6 +25,11 @@ from .prompt_context import _explained_operations, _plan_evidence_references
 from .response_decode import _decode_v2_json_response
 
 _BINDING_REPAIR_SELECTOR_LIMIT = 40
+_SELECTOR_TRUNCATION_NOTE = (
+    "Documented selector enumeration truncated after "
+    f"{_BINDING_REPAIR_SELECTOR_LIMIT} selectors; only the first "
+    f"{_BINDING_REPAIR_SELECTOR_LIMIT} sorted paths are shown."
+)
 # The binding fields whose findings group into one option per binding.
 _BINDING_REPAIR_FIELDS = ("source_ref", "source_kind", "selector")
 _BINDING_REPAIR_OPTIONS_DESCRIPTION = (
@@ -36,7 +41,7 @@ _BINDING_REPAIR_OPTIONS_DESCRIPTION = (
     "the RESPONSE CONTRACT empty_value_guidance entries still apply. An equals value "
     "remains a JSON literal and still requires a declared binding."
 )
-_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V9 = {
+_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS = {
     "description": (
         "Explains that this object is deterministic correction context, not a response "
         "field or a recommended repair."
@@ -45,9 +50,20 @@ _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V9 = {
         "Maps each binding_repair_options field name to its model-facing meaning."
     ),
     "options": ("One deterministic entry for each binding-related finding that can be assisted."),
-    "code": "The existing finding code; it does not change the finding or validation rules.",
-    "path": "The exact existing finding path in the candidate plan.",
-    "kind": ("The repair category: selector, unknown_binding, or consumer_mismatch."),
+    "code": (
+        "The existing finding code; it does not change the finding or validation rules. "
+        "semantic_review marks a binding that a semantic review finding concerns."
+    ),
+    "path": (
+        "The exact existing finding path in the candidate plan; for a review_binding "
+        "option, the runtime binding that the review finding concerns."
+    ),
+    "kind": (
+        "The repair category: source, selector, review_binding, unknown_binding, or "
+        "consumer_mismatch. review_binding lists the documented choices for a binding "
+        "that a semantic review finding concerns; when the binding selects inside one "
+        "keyed record, it lists only that record's sources in named_record_sources."
+    ),
     "binding_name": "The candidate runtime binding or prerequisite binding name.",
     "expected_type": (
         "The candidate binding expected_type used for selector compatibility checks."
@@ -104,14 +120,10 @@ _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V9 = {
         "An explicit note when a deterministic enumeration exceeds 40 entries and "
         "only the first 40 sorted entries are shown."
     ),
-}
-_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS = {
-    **_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V9,
     "findings": (
         "The grouped existing finding code and exact path entries for this binding, "
         "in finding order."
     ),
-    "kind": ("The repair category: source, selector, unknown_binding, or consumer_mismatch."),
     "referenced_fact_sources": (
         "Bindable supplied fact sources that the candidate plan cites by exact "
         "facts:<ref> or <ref> value, with their documented selectors."
@@ -141,7 +153,8 @@ _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS = {
     "supplied_value_empty_note": ("Names the empty supplied fact source and its empty shape."),
     "named_record_key": (
         "Present when source_ref names one record of a keyed supplied fact, as in "
-        "facts:<ref>:<record_key>; the record key it names."
+        "facts:<ref>:<record_key>, or when the selector selects inside one such "
+        "record, as in value.<record_key>.<field>; the record key it names."
     ),
     "named_record_sources": (
         "Each supplied fact that documents the named record, listing only that record's "
@@ -149,29 +162,7 @@ _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS = {
         "accepted as written. A facts:<ref>:records source holds the record key itself "
         "at value.<record_key>.record_key."
     ),
-}
-_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V26 = {
-    **_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS,
-    "code": (
-        "The existing finding code; it does not change the finding or validation rules. "
-        "semantic_review marks a binding that a semantic review finding concerns."
-    ),
-    "path": (
-        "The exact existing finding path in the candidate plan; for a review_binding "
-        "option, the runtime binding that the review finding concerns."
-    ),
-    "kind": (
-        "The repair category: source, selector, review_binding, unknown_binding, or "
-        "consumer_mismatch. review_binding lists the documented choices for a binding "
-        "that a semantic review finding concerns; when the binding selects inside one "
-        "keyed record, it lists only that record's sources in named_record_sources."
-    ),
     "selector": "The candidate binding selector, as written.",
-    "named_record_key": (
-        "Present when source_ref names one record of a keyed supplied fact, as in "
-        "facts:<ref>:<record_key>, or when the selector selects inside one such "
-        "record, as in value.<record_key>.<field>; the record key it names."
-    ),
     "review_selector_checks": (
         "Each selector path that the review finding's required change names, checked "
         "by code against the documented selectors. documented_on_binding_source states "
@@ -245,16 +236,18 @@ def _documented_binding_selectors(
     """Enumerate the selectors accepted by ``_binding_selector_type``."""
 
     discovered: dict[str, str] = {}
+    total = 0
 
     def visit(current: Any, path: str) -> None:
-        if len(discovered) >= limit:
-            return
+        nonlocal total
         if not isinstance(current, dict):
             return
         current_type = current.get("type")
         if not isinstance(current_type, str):
             return
-        discovered[path] = current_type
+        total += 1
+        if len(discovered) < limit:
+            discovered[path] = current_type
         if current_type == "object":
             properties = current.get("properties")
             if isinstance(properties, dict):
@@ -262,21 +255,7 @@ def _documented_binding_selectors(
                     visit(properties[property_name], f"{path}.{property_name}")
 
     visit(schema, root)
-    has_more = False
-
-    def count_paths(current: Any) -> int:
-        if not isinstance(current, dict) or not isinstance(current.get("type"), str):
-            return 0
-        count = 1
-        if current["type"] == "object" and isinstance(current.get("properties"), dict):
-            count += sum(
-                count_paths(current.get("properties", {}).get(name))
-                for name in current["properties"]
-            )
-        return count
-
-    has_more = count_paths(schema) > limit
-    return discovered, has_more
+    return discovered, total > limit
 
 
 def _repair_truncation_note(label: str) -> str:
@@ -302,15 +281,13 @@ def _repair_selector_option(
     rather than source_ref, names one keyed record.
     """
 
-    code = finding.code if isinstance(finding, Finding) else finding.get("code")
-    path = finding.path if isinstance(finding, Finding) else finding.get("path", "")
     name = binding.get("name")
     source_kind = binding.get("source_kind")
     source_ref = binding.get("source_ref")
     expected_type = binding.get("expected_type")
     option: dict[str, Any] = {
-        "code": code,
-        "path": path,
+        "code": _finding_field(finding, "code"),
+        "path": _finding_field(finding, "path", ""),
         "kind": "selector",
         "binding_name": name,
         "expected_type": expected_type,
@@ -360,11 +337,7 @@ def _selector_notes(
 ) -> dict[str, str]:
     notes: dict[str, str] = {}
     if truncated:
-        notes["truncation_note"] = (
-            "Documented selector enumeration truncated after "
-            f"{_BINDING_REPAIR_SELECTOR_LIMIT} selectors; only the first "
-            f"{_BINDING_REPAIR_SELECTOR_LIMIT} sorted paths are shown."
-        )
+        notes["truncation_note"] = _SELECTOR_TRUNCATION_NOTE
     if not matching:
         notes["no_matching_selector_note"] = (
             f"No documented selector of source {source_ref} yields expected_type {expected_type}."
@@ -429,26 +402,16 @@ def _named_record_source_fields(
             for item in inventory.get("facts", [])
             if isinstance(item, dict) and item.get("ref") == reference
         )
-        selectors, matching, truncated = _binding_selector_details(
-            record_schema,
-            root=f"value.{record_key}",
-            expected_type=expected_type,
-        )
-        entry: dict[str, Any] = {
-            "source_kind": "supplied_input",
-            "source_ref": f"facts:{reference}",
-            "source_schema_type": fact_schema.get("type"),
-            "documented_selectors": selectors,
-            "matching_expected_type": matching,
-            "truncated": truncated,
-        }
-        if truncated:
-            entry["truncation_note"] = (
-                "Documented selector enumeration truncated after "
-                f"{_BINDING_REPAIR_SELECTOR_LIMIT} selectors; only the first "
-                f"{_BINDING_REPAIR_SELECTOR_LIMIT} sorted paths are shown."
+        sources.append(
+            _repair_source_entry(
+                source_kind="supplied_input",
+                source_ref=f"facts:{reference}",
+                source_schema_type=fact_schema.get("type"),
+                schema=record_schema,
+                root=f"value.{record_key}",
+                expected_type=expected_type,
             )
-        sources.append(entry)
+        )
     return {"named_record_key": record_key, "named_record_sources": sources}
 
 
@@ -513,14 +476,7 @@ def _review_documented_sources(
 
 
 def _documented_fact_sources(inventory: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    return [
-        (f"facts:{fact['ref']}", fact["schema"])
-        for fact in inventory.get("facts", [])
-        if isinstance(fact, dict)
-        and isinstance(fact.get("ref"), str)
-        and fact["ref"]
-        and isinstance(fact.get("schema"), dict)
-    ]
+    return [(f"facts:{fact['ref']}", fact["schema"]) for fact in _bindable_facts(inventory)]
 
 
 def _documented_setup_sources(
@@ -531,6 +487,30 @@ def _documented_setup_sources(
     permitted_names = set(permitted) if isinstance(permitted, list) else set()
     return [
         (f"setup:{operation['name']}", operation["result_schema"])
+        for operation in _bindable_setup_operations(inventory, permitted_names)
+    ]
+
+
+def _bindable_facts(inventory: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the supplied facts with a nonblank string ref and an object schema."""
+
+    return [
+        fact
+        for fact in inventory.get("facts", [])
+        if isinstance(fact, dict)
+        and isinstance(fact.get("ref"), str)
+        and fact["ref"]
+        and isinstance(fact.get("schema"), dict)
+    ]
+
+
+def _bindable_setup_operations(
+    inventory: dict[str, Any], permitted_names: set[Any]
+) -> list[dict[str, Any]]:
+    """Return the permitted operations with a string name and an object result schema."""
+
+    return [
+        operation
         for operation in inventory.get("operations", [])
         if isinstance(operation, dict)
         and isinstance(operation.get("name"), str)
@@ -687,26 +667,18 @@ def _supplied_fact_selector_source(
     fact = _first_fact_named(inventory, reference)
     if not isinstance(fact, dict) or not isinstance(fact.get("schema"), dict):
         return None
-    selectors, _, truncated = _binding_selector_details(
-        fact["schema"],
-        root="value",
-        expected_type=None,
-    )
-    result: dict[str, Any] = {
+    return {
         "evidence_ref": reference,
-        "source_kind": "supplied_input",
-        "source_ref": f"facts:{reference}",
-        "source_schema_type": fact["schema"].get("type"),
-        "documented_selectors": selectors,
-        "truncated": truncated,
+        **_repair_source_entry(
+            source_kind="supplied_input",
+            source_ref=f"facts:{reference}",
+            source_schema_type=fact["schema"].get("type"),
+            schema=fact["schema"],
+            root="value",
+            expected_type=None,
+            with_matching=False,
+        ),
     }
-    if truncated:
-        result["truncation_note"] = (
-            "Documented selector enumeration truncated after "
-            f"{_BINDING_REPAIR_SELECTOR_LIMIT} selectors; only the first "
-            f"{_BINDING_REPAIR_SELECTOR_LIMIT} sorted paths are shown."
-        )
-    return result
 
 
 def _repair_unknown_binding_option(
@@ -717,8 +689,6 @@ def _repair_unknown_binding_option(
 ) -> dict[str, Any]:
     """Build declaration and evidence-source choices for an unknown binding."""
 
-    code = finding.code if isinstance(finding, Finding) else finding.get("code")
-    path = finding.path if isinstance(finding, Finding) else finding.get("path", "")
     name = prerequisite.get("binding")
     declared_bindings = candidate.get("runtime_bindings", [])
     all_declared_names = sorted(
@@ -733,8 +703,8 @@ def _repair_unknown_binding_option(
     evidence_sources = _prerequisite_evidence_sources(prerequisite, inventory)
     evidence_sources_truncated = len(evidence_sources) > _BINDING_REPAIR_SELECTOR_LIMIT
     option = {
-        "code": code,
-        "path": path,
+        "code": _finding_field(finding, "code"),
+        "path": _finding_field(finding, "path", ""),
         "kind": "unknown_binding",
         "binding_name": name,
         "declared_binding_names": declared_names,
@@ -783,13 +753,11 @@ def _repair_consumer_mismatch_option(
 ) -> dict[str, Any]:
     """Build the exact consumer repair for one prerequisite binding."""
 
-    code = finding.code if isinstance(finding, Finding) else finding.get("code")
-    path = finding.path if isinstance(finding, Finding) else finding.get("path", "")
     name = prerequisite.get("binding")
     consumer = f"prerequisites.{name}"
     return {
-        "code": code,
-        "path": path,
+        "code": _finding_field(finding, "code"),
+        "path": _finding_field(finding, "path", ""),
         "kind": "consumer_mismatch",
         "binding_name": name,
         "required_consumer": consumer,
@@ -803,12 +771,14 @@ def _repair_source_entry(
     *,
     source_kind: str,
     source_ref: str,
+    source_schema_type: Any,
     schema: dict[str, Any],
+    root: str,
     expected_type: Any,
+    with_matching: bool = True,
 ) -> dict[str, Any]:
-    """Build one source choice with selectors rooted at its source result."""
+    """Build one source choice with the selectors ``schema`` documents below ``root``."""
 
-    root = "value" if source_kind == "supplied_input" else "result"
     selectors, matching, truncated = _binding_selector_details(
         schema,
         root=root,
@@ -817,17 +787,14 @@ def _repair_source_entry(
     entry: dict[str, Any] = {
         "source_kind": source_kind,
         "source_ref": source_ref,
-        "source_schema_type": schema.get("type"),
+        "source_schema_type": source_schema_type,
         "documented_selectors": selectors,
-        "matching_expected_type": matching,
-        "truncated": truncated,
     }
+    if with_matching:
+        entry["matching_expected_type"] = matching
+    entry["truncated"] = truncated
     if truncated:
-        entry["truncation_note"] = (
-            "Documented selector enumeration truncated after "
-            f"{_BINDING_REPAIR_SELECTOR_LIMIT} selectors; only the first "
-            f"{_BINDING_REPAIR_SELECTOR_LIMIT} sorted paths are shown."
-        )
+        entry["truncation_note"] = _SELECTOR_TRUNCATION_NOTE
     return entry
 
 
@@ -925,19 +892,7 @@ def _fact_repair_sources(
 
     referenced_fact_sources: list[dict[str, Any]] = []
     other_fact_source_refs: list[str] = []
-    for fact in sorted(
-        (
-            item
-            for item in inventory.get("facts", [])
-            if (
-                isinstance(item, dict)
-                and isinstance(item.get("ref"), str)
-                and item["ref"]
-                and isinstance(item.get("schema"), dict)
-            )
-        ),
-        key=lambda item: item["ref"],
-    ):
+    for fact in sorted(_bindable_facts(inventory), key=lambda item: item["ref"]):
         reference = fact["ref"]
         if reference in cited_values or f"facts:{reference}" in cited_values:
             referenced_fact_sources.append(
@@ -945,7 +900,9 @@ def _fact_repair_sources(
                     **_repair_source_entry(
                         source_kind="supplied_input",
                         source_ref=f"facts:{reference}",
+                        source_schema_type=fact["schema"].get("type"),
                         schema=fact["schema"],
+                        root="value",
                         expected_type=expected_type,
                     ),
                     **_supplied_value_empty_fields(
@@ -973,17 +930,7 @@ def _permitted_setup_repair_sources(
     permitted_setup_sources: list[dict[str, Any]] = []
     seen_operations: set[str] = set()
     for operation in sorted(
-        (
-            item
-            for item in inventory.get("operations", [])
-            if (
-                isinstance(item, dict)
-                and isinstance(item.get("name"), str)
-                and item["name"] in permitted_names
-                and isinstance(item.get("result_schema"), dict)
-            )
-        ),
-        key=lambda item: item["name"],
+        _bindable_setup_operations(inventory, permitted_names), key=lambda item: item["name"]
     ):
         operation_name = operation["name"]
         if operation_name in seen_operations:
@@ -993,7 +940,9 @@ def _permitted_setup_repair_sources(
             _repair_source_entry(
                 source_kind="setup_output",
                 source_ref=f"setup:{operation_name}",
+                source_schema_type=operation["result_schema"].get("type"),
                 schema=operation["result_schema"],
+                root="result",
                 expected_type=expected_type,
             )
         )
@@ -1372,6 +1321,6 @@ def _binding_repair_options_for_correction(
         return None
     return {
         "description": _BINDING_REPAIR_OPTIONS_DESCRIPTION,
-        "field_descriptions": deepcopy(_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS_V26),
+        "field_descriptions": deepcopy(_BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS),
         "options": deduplicated,
     }
