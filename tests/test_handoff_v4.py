@@ -19,7 +19,7 @@ from asago_artifact_generator.input_adapter import (
 )
 
 _KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v4"
-# The schema-* cases run in tests/test_handoff_schema_cases.py with this reader's wording.
+# The schema-* cases run in tests/test_handoff_schema_cases.py.
 _EXPECTED = {
     relative: codes
     for relative, codes in json.loads(
@@ -31,7 +31,6 @@ _DIGESTS = json.loads((_KIT / "canonical-digests.json").read_text(encoding="utf-
     "handoff_digests"
 ]
 _OWNERSHIP_PREFIXES = ("artifact_design_field:", "prose_hiding:")
-_OWNERSHIP_MESSAGE = "handoff ownership violation: "
 
 
 def _signed(tmp_path: Path, payload: dict[str, Any], name: str = "handoff.json") -> Path:
@@ -65,19 +64,10 @@ def test_the_kit_holds_the_valid_fixtures_the_loop_covers() -> None:
 
 @pytest.mark.parametrize("relative", sorted(_EXPECTED))
 def test_every_invalid_v4_fixture_is_rejected_with_its_expected_codes(relative: str) -> None:
-    expected = _EXPECTED[relative]
-    ownership = [code for code in expected if code.startswith(_OWNERSHIP_PREFIXES)]
-
     with pytest.raises(InputSourceError) as raised:
         load_input(_KIT / relative)
 
-    message = str(raised.value)
-    if ownership:
-        assert message.startswith(_OWNERSHIP_MESSAGE)
-        assert message.removeprefix(_OWNERSHIP_MESSAGE).split(", ") == ownership
-    else:
-        for code in expected:
-            assert code in message
+    assert raised.value.codes == tuple(_EXPECTED[relative])
 
 
 _SCHEMA_ONLY = sorted(
