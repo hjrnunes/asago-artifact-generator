@@ -123,15 +123,22 @@ def _well_formed(slot: Any) -> bool:
 def slots_for_shape(
     shape: dict[str, Any], runtime_contract: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """Return the slots that carry the shape's operation and content kind."""
+    """Return the slots that carry the shape's operation, in the order to try them.
+
+    The producer's profile lists no content kind per resource, so the shape's
+    ``content_kind`` is a guess. Slots of that kind come first; when none
+    matches, every slot of the carrier follows in its listed order.
+    """
 
     indirect = shape["indirect"]
-    return [
+    carrying = [
         slot
         for slot in seed_slots(runtime_contract)
         if slot["carrier_operation"] == indirect["carrier_operation"]
-        and slot["content_kind"] == indirect["data_item"]["content_kind"]
     ]
+    kind = indirect["data_item"]["content_kind"]
+    matching = [slot for slot in carrying if slot["content_kind"] == kind]
+    return matching or carrying
 
 
 def _record_in(slot: dict[str, Any], record_ref: str | None) -> str | None:

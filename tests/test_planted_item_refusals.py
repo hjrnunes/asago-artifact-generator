@@ -109,14 +109,28 @@ def test_a_runtime_that_lists_no_slots_is_refused_as_slot_unavailable(tmp_path: 
     }
 
 
-def test_a_slot_for_the_carrier_with_another_content_kind_does_not_match(tmp_path: Path) -> None:
+def test_a_slot_for_the_carrier_with_another_content_kind_carries_the_shape(
+    tmp_path: Path,
+) -> None:
     other_kind = {**LISTING_SLOT, "content_kind": "review_content"}
 
     result, transport = _run(tmp_path, LISTING, INVENTORY, with_slots(other_kind, POLICY_SLOT))
 
+    assert [finding.code for finding in result.findings] != ["shape_seed_slot_unavailable"]
+    assert transport.requests
+
+
+def test_a_carrier_slot_of_another_kind_lacking_the_record_is_refused_as_record_not_listed(
+    tmp_path: Path,
+) -> None:
+    other_kind = {**LISTING_SLOT, "content_kind": "review_content", "records": ["LST-999"]}
+
+    result, transport = _run(tmp_path, LISTING, INVENTORY, with_slots(other_kind, POLICY_SLOT))
+
     finding = _assert_refused(result, transport, "shape_seed_slot_unavailable")
-    assert finding["details"]["reason"] == "no_slot"
-    assert finding["details"]["slots_for_carrier"] == ["airbnb.listing.title"]
+    assert finding["details"]["reason"] == "record_not_listed"
+    assert finding["details"]["slot"] == "airbnb.listing.title"
+    assert finding["details"]["listed_records"] == ["LST-999"]
 
 
 def test_a_record_the_slot_does_not_list_is_refused(tmp_path: Path) -> None:
@@ -214,3 +228,29 @@ def test_the_first_matching_slot_wins_and_the_choice_is_stable() -> None:
 def test_a_shape_with_no_carrier_slot_has_no_target() -> None:
     assert choose_planted_target(shape_of(LISTING), with_slots(POLICY_SLOT)) is None
     assert choose_planted_target(shape_of("adversarial-direct-single.json"), RUNTIME) is None
+
+
+def test_a_slot_of_the_shapes_content_kind_wins_over_an_earlier_slot_of_another_kind() -> None:
+    other_kind = {**LISTING_SLOT, "id": "airbnb.listing.other", "content_kind": "review_content"}
+    runtime = with_slots(other_kind, LISTING_SLOT)
+
+    target = choose_planted_target(shape_of(LISTING), runtime)
+
+    assert (target.slot, target.content_kind) == ("airbnb.listing.title", "listing_content")
+
+
+def test_without_a_matching_content_kind_the_first_carrier_slot_with_the_record_is_used() -> None:
+    first = {**LISTING_SLOT, "id": "airbnb.listing.a", "content_kind": "review_content"}
+    second = {**LISTING_SLOT, "id": "airbnb.listing.b", "content_kind": "message", "records": []}
+    third = {**LISTING_SLOT, "id": "airbnb.listing.c", "content_kind": "policy_document"}
+
+    target = choose_planted_target(shape_of(LISTING), with_slots(first, second, third))
+
+    assert target.slot == "airbnb.listing.a"
+    assert (target.content_kind, target.mode) == ("review_content", "replace")
+    appended = choose_planted_target(shape_of(LISTING), with_slots(second, third))
+    assert (appended.slot, appended.content_kind, appended.mode) == (
+        "airbnb.listing.c",
+        "policy_document",
+        "append",
+    )
