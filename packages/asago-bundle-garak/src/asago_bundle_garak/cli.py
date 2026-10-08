@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from .compiler import CapabilityGap, CompileError, compile_package
+from .instantiate import InstantiateError, instantiate_bundle
 
 EXIT_OK = 0
 EXIT_INPUT = 1
@@ -30,6 +31,13 @@ def build_parser() -> argparse.ArgumentParser:
     compile_cmd.add_argument("package", type=Path, help="artifact package directory")
     compile_cmd.add_argument("--out", type=Path, required=True, help="new template directory")
     compile_cmd.set_defaults(handler=_compile)
+    instantiate_cmd = commands.add_parser(
+        "instantiate", help="fill a bundle template with values.json into a concrete bundle"
+    )
+    instantiate_cmd.add_argument("template", type=Path, help="bundle template directory")
+    instantiate_cmd.add_argument("--values", type=Path, required=True, help="values.json")
+    instantiate_cmd.add_argument("--out", type=Path, required=True, help="new bundle directory")
+    instantiate_cmd.set_defaults(handler=_instantiate)
     return parser
 
 
@@ -46,5 +54,19 @@ def _compile(args: argparse.Namespace) -> int:
         return EXIT_CAPABILITY_GAP
     except CompileError as exc:
         print(f"compile: {exc}", file=sys.stderr)
+        return EXIT_INPUT
+    return EXIT_OK
+
+
+def _instantiate(args: argparse.Namespace) -> int:
+    try:
+        values = json.loads(args.values.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"instantiate: values are unreadable: {exc}", file=sys.stderr)
+        return EXIT_INPUT
+    try:
+        instantiate_bundle(args.template, values, args.out)
+    except InstantiateError as exc:
+        print(f"instantiate: {exc}", file=sys.stderr)
         return EXIT_INPUT
     return EXIT_OK

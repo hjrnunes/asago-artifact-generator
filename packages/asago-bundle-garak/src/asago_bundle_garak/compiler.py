@@ -259,5 +259,8 @@ def _write(out: Path, documents: dict[str, Any]) -> None:
         raise CompileError(f"output directory is not empty: {out}")
     out.mkdir(parents=True, exist_ok=True)
     for name, document in documents.items():
-        text = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-        (out / name).write_text(text, encoding="utf-8")
+        (out / name).write_text(canonical_text(document), encoding="utf-8")
+
+
+def canonical_text(document: Any) -> str:
+    return json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"

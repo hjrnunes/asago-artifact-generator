@@ -61,6 +61,11 @@
       "minItems": 1,
       "items": {"type": "string"}
     },
+    "values_digest": {
+      "description": "Concrete bundles only: SHA-256 of the canonical values.json that instantiate filled in.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "native_outputs": {
       "description": "Tool output paths relative to the concrete bundle.",
       "type": "array",
