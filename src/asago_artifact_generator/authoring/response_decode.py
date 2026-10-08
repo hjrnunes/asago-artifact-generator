@@ -121,12 +121,6 @@ def _decode_stage_response(stage: str, raw: bytes) -> tuple[dict[str, Any], str 
     return _decode_strict_single_json_response(raw, subject=subject, error=error, path=stage)
 
 
-def _decode_v2_json_response(raw: bytes) -> tuple[dict[str, Any], str | None]:
-    """Decode exactly one v2 Call 1 object without changing response bytes."""
-
-    return _decode_stage_response("call1", raw)
-
-
 def _decode_strict_single_json_response(
     raw: bytes,
     *,

@@ -22,7 +22,7 @@ from ..input_adapter import InputView
 from .checks import _binding_selector_type, _binding_source_schema, _binding_types_compatible
 from .core import Call1FramingError, Finding, FindingTarget
 from .prompt_context import _explained_operations, _plan_evidence_references
-from .response_decode import _decode_v2_json_response
+from .response_decode import _decode_stage_response
 
 _BINDING_REPAIR_SELECTOR_LIMIT = 40
 _SELECTOR_TRUNCATION_NOTE = (
@@ -221,7 +221,7 @@ def _correction_plan_candidate(current_output: Any) -> dict[str, Any] | None:
     if not isinstance(current_output, str) or not current_output.strip():
         return None
     try:
-        decoded, _ = _decode_v2_json_response(current_output.encode("utf-8"))
+        decoded, _ = _decode_stage_response("call1", current_output.encode("utf-8"))
     except (Call1FramingError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
         return None
     return decoded if isinstance(decoded, dict) else None
