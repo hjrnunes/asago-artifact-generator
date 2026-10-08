@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-# prompt_context.py still imports _first_fact_named from here.
-from ..bindings import _first_fact_named  # noqa: F401
 from ..input_adapter import InputView, build_scenario_handoff_view
 from .core import ArtifactValidationError, _mapping_sha256, _sha256
 

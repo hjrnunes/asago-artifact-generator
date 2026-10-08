@@ -1,4 +1,4 @@
-"""Deterministic author context views: supplied facts, owner scope, and guidance."""
+"""Deterministic author context views: supplied facts and guidance."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Any
 
 from ..bindings import (
     BindingValidationError,
+    _first_fact_named,
     canonical_binding_paths,
     normalize_binding_declarations,
     supplied_binding_values,
@@ -27,7 +28,7 @@ from .contracts import (
     neutral_artifact_response_without_source,
 )
 from .core import _sha256
-from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
+from .inventory import _inventory_fact_map, _inventory_references
 from .sequential_turns import plan_response_contract, shape_delivery, turn_count
 
 
