@@ -9,12 +9,14 @@ folded into one, so any change to a recorded value, shape, or list order fails.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 from asago_artifact_generator.authoring.core import Finding, PromptPacket
+from asago_artifact_generator.authoring import journal as journal_module
 from asago_artifact_generator.authoring.journal import (
     AllowancesRecorded,
     AttemptFailed,
@@ -287,3 +289,13 @@ def test_both_projections_keep_the_decoded_output_that_the_checks_rewrite(tmp_pa
 
     assert journal.ledger[-1]["decoded_output"]["stimulus"]["slots"] == ["owner"]
     assert journal.evidence["attempts"][-1]["decoded_output"]["stimulus"]["slots"] == ["owner"]
+
+
+def test_every_event_but_the_request_has_one_handler() -> None:
+    events = {
+        value
+        for value in vars(journal_module).values()
+        if dataclasses.is_dataclass(value) and value.__module__ == journal_module.__name__
+    }
+
+    assert set(journal_module._HANDLERS) == events - {DispatchRequested}
