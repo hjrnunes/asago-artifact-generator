@@ -21,7 +21,7 @@ from .slots import bundle_slot, contains_marker, template_slots, value_slot
 
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "garak"
-TOOL_REVISION_RANGE = ">=1c2918ae"
+TOOL_REVISION_RANGE = ">=968cc224"
 TARGET_MODE = "orch_hosted"
 PROBES = {
     "single": "injection.IndirectInjection",

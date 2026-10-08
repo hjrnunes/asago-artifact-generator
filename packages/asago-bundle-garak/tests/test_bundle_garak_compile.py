@@ -36,6 +36,7 @@ def test_command_attempt_bundle_manifest(command_package: Path, tmp_path: Path) 
     assert manifest == read(out / "bundle.json")
     assert manifest["schema_version"] == "tool-bundle-v1"
     assert manifest["tool"] == "garak"
+    assert manifest["tool_revision_range"] == ">=968cc224"
     assert manifest["package_id"] == "SCN-001-SCN-001"
     assert manifest["scenario_id"] == "SCN-001"
     assert manifest["package_digest"] == load_package(command_package).manifest.manifest_digest

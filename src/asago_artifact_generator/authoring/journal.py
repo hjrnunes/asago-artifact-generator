@@ -2,13 +2,14 @@
 
 The orchestrator records what happened as events. The ledger (returned with
 the result and packaged on acceptance), the failure-evidence sidecar, and the
-preserved review records are projections of those events: each projection
-applies every event in order, and ``flush`` writes the failure-evidence
-projection to its sidecar.
+preserved review records are one projection of those events: a table maps
+each event class to the one handler that applies it to all three, in order,
+and ``flush`` writes the failure-evidence document to its sidecar.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -282,162 +283,65 @@ def _review_evidence_update(
         )
 
 
-class _LedgerProjection:
-    """One record per dispatch, plus the latest review record of each stage."""
+def _dispatch_fields(event: DispatchOpened) -> dict[str, Any]:
+    """Return the fields a dispatch's ledger record and evidence attempt share."""
 
-    def __init__(self) -> None:
+    return {
+        "dispatch_index": event.dispatch_index,
+        "attempt_index": event.attempt_index,
+        "stage_attempt_index": event.attempt_index,
+        "correction_index": event.correction_index,
+        "role": event.role,
+        "stage": event.packet.stage,
+        "task_id": event.task_id,
+        "policy": deepcopy(event.policy),
+        "model_identity": deepcopy(event.model_identity),
+        "terminal_status": "in_progress",
+    }
+
+
+class _Projections:
+    """The ledger records, the preserved reviews, and the failure-evidence document.
+
+    Every dispatch opens one ledger record and one evidence attempt; the two
+    views differ in shape, so each handler writes both explicitly.
+    """
+
+    def __init__(self, task_id: str, package_dir: Path) -> None:
         self.records: list[dict[str, Any]] = []
         self.reviews: dict[str, dict[str, Any]] = {}
+        self.document = new_failure_evidence(task_id, package_dir)
+        # The pinned review digests of the latest dispatch, as its ledger record holds them.
+        self.pinned: dict[str, Any] = {}
+
+    @property
+    def attempt(self) -> dict[str, Any]:
+        return self.document["attempts"][-1]
+
+    def current(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Return the latest dispatch's ledger record and evidence attempt."""
+
+        return self.records[-1], self.attempt
 
     def apply(self, event: Any) -> None:
-        handler = getattr(self, f"_on_{type(event).__name__}", None)
+        handler = _HANDLERS.get(type(event))
         if handler is not None:
-            handler(event)
+            handler(self, event)
 
-    def _on_DispatchOpened(self, event: DispatchOpened) -> None:
+    def _on_dispatch_opened(self, event: DispatchOpened) -> None:
         packet = event.packet
         record = {
-            "dispatch_index": event.dispatch_index,
-            "attempt_index": event.attempt_index,
-            "stage_attempt_index": event.attempt_index,
-            "correction_index": event.correction_index,
-            "role": event.role,
-            "stage": packet.stage,
-            "task_id": event.task_id,
+            **_dispatch_fields(event),
             "prompt_version": packet.version,
             "prompt_sha256": packet.sha256,
             "prompt_hash": packet.sha256,
             "prompt_system": packet.system,
             "prompt_user": packet.user,
             "controls": {"max_retries": 0},
-            "policy": deepcopy(event.policy),
             "raw_response": event.raw_response_path,
-            "model_identity": deepcopy(event.model_identity),
-            "terminal_status": "in_progress",
         }
-        if event.review is not None:
-            record.update(deepcopy(event.review))
-        self.records.append(record)
-
-    def _on_FailureControlsRecorded(self, event: FailureControlsRecorded) -> None:
-        self.records[-1]["controls"] = _record_controls(event)
-
-    def _on_TransportRetried(self, event: TransportRetried) -> None:
-        self.records[-1].setdefault("transport_retries", []).append(_retry_record(event))
-
-    def _on_ResponseReturned(self, event: ResponseReturned) -> None:
-        record = self.records[-1]
-        record["model_identity"]["returned_model"] = metadata_record(
-            event.provider_model,
-            unavailable_reason="provider_did_not_report_model",
-        )
-        record["raw_response_key"] = event.raw_response_key
-        _set_record_usage(record, event.usage)
-        record["controls"] = _record_controls(event)
-        if event.response_capture is not None:
-            record["response_capture"] = deepcopy(event.response_capture)
-
-    def _on_CorrectionRecorded(self, event: CorrectionRecorded) -> None:
-        self.records[-1]["failed_stage"] = event.failed_stage
-        self.records[-1]["allowance"] = event.allowance
-
-    def _on_ReviewControlsRecorded(self, event: ReviewControlsRecorded) -> None:
-        self.records[-1]["controls"] = _record_controls(event)
-
-    def _on_TransformationRecorded(self, event: TransformationRecorded) -> None:
-        self.records[-1]["transformation"] = event.transformation
-
-    def _on_DecodedOutputRecorded(self, event: DecodedOutputRecorded) -> None:
-        if event.on_ledger:
-            self.records[-1]["decoded_output"] = event.output
-
-    def _on_CandidateDigested(self, event: CandidateDigested) -> None:
-        self.records[-1]["candidate_sha256"] = event.sha256
-
-    def _on_ValidationTransformed(self, event: ValidationTransformed) -> None:
-        if self.records:
-            self.records[-1]["transformations"] = deepcopy(list(event.changes))
-
-    def _on_LedgerFindingsRecorded(self, event: LedgerFindingsRecorded) -> None:
-        self.records[-1][event.field] = [finding.to_dict() for finding in event.findings]
-
-    def _on_ParseFailed(self, event: ParseFailed) -> None:
-        self.records[-1]["parse_error"] = event.error
-
-    def _on_ChecksSkipped(self, event: ChecksSkipped) -> None:
-        values = list(event.checks)
-        self.records[-1]["checks_not_run"] = values
-        self.records[-1]["checks"] = {"status": "not_run", "not_run": values}
-
-    def _on_ValidationPassed(self, event: ValidationPassed) -> None:
-        self.records[-1]["validation"] = "passed"
-
-    def _on_DispatchErrored(self, event: DispatchErrored) -> None:
-        self.records[-1]["error"] = event.error
-
-    def _on_ReviewDecided(self, event: ReviewDecided) -> None:
-        self.records[-1]["review"] = deepcopy(event.review)
-
-    def _on_ReviewEvidenceRecorded(self, event: ReviewEvidenceRecorded) -> None:
-        record = self.records[-1]
-        evidence = record.setdefault("review", {})
-        _review_evidence_update(evidence, record, event)
-        self.reviews[event.review_stage] = deepcopy(evidence)
-
-    def _on_ReviewFailed(self, event: ReviewFailed) -> None:
-        self.records[-1]["failure"] = dict(event.failure)
-
-    def _on_Finished(self, event: Finished) -> None:
-        for record in self.records:
-            record["terminal_status"] = event.status
-            record["stage_status"] = event.status
-
-
-class _EvidenceProjection:
-    """The failure-evidence document: run fields plus one attempt per dispatch."""
-
-    def __init__(self, task_id: str, package_dir: Path) -> None:
-        self.document = new_failure_evidence(task_id, package_dir)
-        # The pinned review digests of the latest dispatch, as its ledger record holds them.
-        self._pinned: dict[str, Any] = {}
-
-    def _attempt(self) -> dict[str, Any]:
-        return self.document["attempts"][-1]
-
-    def apply(self, event: Any) -> None:
-        handler = getattr(self, f"_on_{type(event).__name__}", None)
-        if handler is not None:
-            handler(event)
-
-    def _on_BudgetRecorded(self, event: BudgetRecorded) -> None:
-        self.document["budget"] = event.snapshot
-
-    def _on_PolicyRecorded(self, event: PolicyRecorded) -> None:
-        self.document["policy"] = event.policy
-
-    def _on_ReviewStatusRecorded(self, event: ReviewStatusRecorded) -> None:
-        self.document["review_status"] = dict(event.review_status)
-
-    def _on_AllowancesRecorded(self, event: AllowancesRecorded) -> None:
-        if event.allowances is not None:
-            self.document["allowances"] = dict(event.allowances)
-        if event.review_revision_allowances is not None:
-            self.document["review_revision_allowances"] = dict(event.review_revision_allowances)
-
-    def _on_RunFindingRecorded(self, event: RunFindingRecorded) -> None:
-        self.document["findings"].append(_evidence_finding(event.finding))
-
-    def _on_DispatchOpened(self, event: DispatchOpened) -> None:
-        packet = event.packet
         attempt = {
-            "dispatch_index": event.dispatch_index,
-            "attempt_index": event.attempt_index,
-            "stage_attempt_index": event.attempt_index,
-            "correction_index": event.correction_index,
-            "role": event.role,
-            "stage": packet.stage,
-            "task_id": event.task_id,
-            "policy": deepcopy(event.policy),
+            **_dispatch_fields(event),
             "prompt": {
                 "version": packet.version,
                 "sha256": packet.sha256,
@@ -446,85 +350,110 @@ class _EvidenceProjection:
                 "user": packet.user,
             },
             "controls": metadata_record(
-                {"max_retries": 0},
-                unavailable_reason="controls_not_recorded",
+                {"max_retries": 0}, unavailable_reason="controls_not_recorded"
             ),
-            "model_identity": deepcopy(event.model_identity),
             "raw_response": raw_response_record(b"", reason="not_returned"),
             "usage": metadata_record(None, unavailable_reason="not_returned"),
             "findings": [],
-            "terminal_status": "in_progress",
         }
-        self._pinned = deepcopy(event.review) if event.review is not None else {}
+        self.pinned = deepcopy(event.review) if event.review is not None else {}
         if event.review is not None:
+            record.update(deepcopy(event.review))
             attempt["review"] = deepcopy(event.review["review"])
             attempt["reviewed_input_sha256"] = event.review["reviewed_input_sha256"]
             attempt["reviewed_candidate_sha256"] = event.review["reviewed_candidate_sha256"]
+        self.records.append(record)
         self.document["attempts"].append(attempt)
 
-    def _on_FailureControlsRecorded(self, event: FailureControlsRecorded) -> None:
-        self._attempt()["controls"] = metadata_record(
-            event.controls,
-            unavailable_reason="provider_did_not_return_response",
+    def _on_failure_controls(self, event: FailureControlsRecorded) -> None:
+        record, attempt = self.current()
+        record["controls"] = _record_controls(event)
+        attempt["controls"] = metadata_record(
+            event.controls, unavailable_reason="provider_did_not_return_response"
         )
 
-    def _on_TransportRetried(self, event: TransportRetried) -> None:
-        self._attempt().setdefault("transport_retries", []).append(_retry_record(event))
+    def _on_transport_retried(self, event: TransportRetried) -> None:
+        for target in self.current():
+            target.setdefault("transport_retries", []).append(_retry_record(event))
 
-    def _on_ResponseReturned(self, event: ResponseReturned) -> None:
-        attempt = self._attempt()
-        attempt["model_identity"]["returned_model"] = metadata_record(
-            event.provider_model,
-            unavailable_reason="provider_did_not_report_model",
-        )
+    def _on_response_returned(self, event: ResponseReturned) -> None:
+        record, attempt = self.current()
+        for target in (record, attempt):
+            target["model_identity"]["returned_model"] = metadata_record(
+                event.provider_model, unavailable_reason="provider_did_not_report_model"
+            )
+            if event.response_capture is not None:
+                target["response_capture"] = deepcopy(event.response_capture)
+        record["raw_response_key"] = event.raw_response_key
+        _set_record_usage(record, event.usage)
+        record["controls"] = _record_controls(event)
         attempt["raw_response"] = raw_response_record(event.raw)
         attempt["usage"] = metadata_record(
             event.usage if event.usage else None,
             unavailable_reason="provider_did_not_report_usage",
         )
         attempt["controls"] = metadata_record(
-            event.controls or {"max_retries": 0},
-            unavailable_reason="controls_not_recorded",
+            event.controls or {"max_retries": 0}, unavailable_reason="controls_not_recorded"
         )
-        if event.response_capture is not None:
-            attempt["response_capture"] = deepcopy(event.response_capture)
 
-    def _on_CorrectionRecorded(self, event: CorrectionRecorded) -> None:
-        attempt = self._attempt()
-        attempt["failed_stage"] = event.failed_stage
-        attempt["allowance"] = event.allowance
+    def _on_correction(self, event: CorrectionRecorded) -> None:
+        record, attempt = self.current()
+        for target in (record, attempt):
+            target["failed_stage"] = event.failed_stage
+            target["allowance"] = event.allowance
         attempt["failed_response"] = raw_response_record(
-            event.failed_response,
-            reason="not_returned" if not event.failed_response else None,
+            event.failed_response, reason="not_returned" if not event.failed_response else None
         )
 
-    def _on_ReviewControlsRecorded(self, event: ReviewControlsRecorded) -> None:
-        self._attempt()["controls"] = metadata_record(
-            event.effective_controls,
-            unavailable_reason="controls_not_recorded",
+    def _on_review_controls(self, event: ReviewControlsRecorded) -> None:
+        record, attempt = self.current()
+        record["controls"] = _record_controls(event)
+        attempt["controls"] = metadata_record(
+            event.effective_controls, unavailable_reason="controls_not_recorded"
         )
 
-    def _on_TransformationRecorded(self, event: TransformationRecorded) -> None:
-        self._attempt()["transformation"] = event.transformation
+    def _on_transformation(self, event: TransformationRecorded) -> None:
+        for target in self.current():
+            target["transformation"] = event.transformation
         self.document["transformations"] = list(event.transformations)
 
-    def _on_DecodedOutputRecorded(self, event: DecodedOutputRecorded) -> None:
-        self._attempt()["decoded_output"] = event.output
+    def _on_decoded_output(self, event: DecodedOutputRecorded) -> None:
+        # Both views keep the decoded dict itself: the stage checks rewrite it in
+        # place afterwards, and the recorded output is the rewritten candidate.
+        record, attempt = self.current()
+        if event.on_ledger:
+            record["decoded_output"] = event.output
+        attempt["decoded_output"] = event.output
 
-    def _on_CandidateDigested(self, event: CandidateDigested) -> None:
-        self._attempt()["candidate_sha256"] = event.sha256
+    def _on_candidate_digested(self, event: CandidateDigested) -> None:
+        for target in self.current():
+            target["candidate_sha256"] = event.sha256
 
-    def _on_ValidationTransformed(self, event: ValidationTransformed) -> None:
+    def _on_validation_transformed(self, event: ValidationTransformed) -> None:
+        for target in self.current():
+            target["transformations"] = deepcopy(list(event.changes))
         self.document["transformations"] = list(event.transformations)
-        self._attempt()["transformations"] = deepcopy(list(event.changes))
 
-    def _on_ChecksSkipped(self, event: ChecksSkipped) -> None:
-        values = list(event.checks)
-        self._attempt()["checks_not_run"] = values
-        self._attempt()["checks"] = {"status": "not_run", "not_run": values}
+    def _on_ledger_findings(self, event: LedgerFindingsRecorded) -> None:
+        self.records[-1][event.field] = [finding.to_dict() for finding in event.findings]
 
-    def _on_AttemptFailed(self, event: AttemptFailed) -> None:
-        attempt = self._attempt()
+    def _on_parse_failed(self, event: ParseFailed) -> None:
+        self.records[-1]["parse_error"] = event.error
+
+    def _on_checks_skipped(self, event: ChecksSkipped) -> None:
+        for target in self.current():
+            values = list(event.checks)
+            target["checks_not_run"] = values
+            target["checks"] = {"status": "not_run", "not_run": values}
+
+    def _on_validation_passed(self, event: ValidationPassed) -> None:
+        self.records[-1]["validation"] = "passed"
+
+    def _on_dispatch_errored(self, event: DispatchErrored) -> None:
+        self.records[-1]["error"] = event.error
+
+    def _on_attempt_failed(self, event: AttemptFailed) -> None:
+        attempt = self.attempt
         for finding in event.findings:
             attempt["findings"].append(_evidence_finding(finding))
             self.document["findings"].append(_evidence_finding(finding))
@@ -538,32 +467,87 @@ class _EvidenceProjection:
                 }
             )
 
-    def _on_ResponseUnavailable(self, event: ResponseUnavailable) -> None:
-        attempt = self._attempt()
+    def _on_response_unavailable(self, event: ResponseUnavailable) -> None:
+        attempt = self.attempt
         attempt["raw_response"] = raw_response_record(b"", reason=event.reason)
         attempt["usage"] = metadata_record(None, unavailable_reason=event.reason)
         attempt["failure"] = {"detail": event.detail, "phase": "invocation"}
         if event.elapsed_ms is not None:
             attempt["failure"]["elapsed_ms"] = round(event.elapsed_ms, 3)
 
-    def _on_ReviewDecided(self, event: ReviewDecided) -> None:
-        self._attempt()["review"] = deepcopy(event.review)
+    def _on_review_decided(self, event: ReviewDecided) -> None:
+        for target in self.current():
+            target["review"] = deepcopy(event.review)
 
-    def _on_ReviewEvidenceRecorded(self, event: ReviewEvidenceRecorded) -> None:
-        attempt = self._attempt()
-        evidence = attempt.setdefault("review", {})
-        _review_evidence_update(evidence, self._pinned, event)
+    def _on_review_evidence(self, event: ReviewEvidenceRecorded) -> None:
+        record, attempt = self.current()
+        evidence = record.setdefault("review", {})
+        _review_evidence_update(evidence, record, event)
+        self.reviews[event.review_stage] = deepcopy(evidence)
+        _review_evidence_update(attempt.setdefault("review", {}), self.pinned, event)
 
-    def _on_ReviewFailed(self, event: ReviewFailed) -> None:
-        self._attempt()["failure"] = event.failure
+    def _on_review_failed(self, event: ReviewFailed) -> None:
+        record, attempt = self.current()
+        record["failure"] = dict(event.failure)
+        attempt["failure"] = event.failure
 
-    def _on_Finished(self, event: Finished) -> None:
+    def _on_finished(self, event: Finished) -> None:
+        for target in [*self.records, *self.document["attempts"]]:
+            target["terminal_status"] = event.status
+            target["stage_status"] = event.status
         self.document["status"] = event.status
         self.document["findings"] = [_evidence_finding(item) for item in event.terminal_findings]
         self.document["terminal"] = event.terminal
-        for attempt in self.document["attempts"]:
-            attempt["terminal_status"] = event.status
-            attempt["stage_status"] = event.status
+
+    def _on_budget(self, event: BudgetRecorded) -> None:
+        self.document["budget"] = event.snapshot
+
+    def _on_policy(self, event: PolicyRecorded) -> None:
+        self.document["policy"] = event.policy
+
+    def _on_review_status(self, event: ReviewStatusRecorded) -> None:
+        self.document["review_status"] = dict(event.review_status)
+
+    def _on_allowances(self, event: AllowancesRecorded) -> None:
+        if event.allowances is not None:
+            self.document["allowances"] = dict(event.allowances)
+        if event.review_revision_allowances is not None:
+            self.document["review_revision_allowances"] = dict(event.review_revision_allowances)
+
+    def _on_run_finding(self, event: RunFindingRecorded) -> None:
+        self.document["findings"].append(_evidence_finding(event.finding))
+
+
+# One handler per event. ``DispatchRequested`` has none: only
+# ``AuthoringJournal.open_dispatch`` reads it.
+_HANDLERS: dict[type, Callable[[_Projections, Any], None]] = {
+    BudgetRecorded: _Projections._on_budget,
+    PolicyRecorded: _Projections._on_policy,
+    ReviewStatusRecorded: _Projections._on_review_status,
+    AllowancesRecorded: _Projections._on_allowances,
+    RunFindingRecorded: _Projections._on_run_finding,
+    DispatchOpened: _Projections._on_dispatch_opened,
+    FailureControlsRecorded: _Projections._on_failure_controls,
+    TransportRetried: _Projections._on_transport_retried,
+    ResponseReturned: _Projections._on_response_returned,
+    CorrectionRecorded: _Projections._on_correction,
+    ReviewControlsRecorded: _Projections._on_review_controls,
+    TransformationRecorded: _Projections._on_transformation,
+    DecodedOutputRecorded: _Projections._on_decoded_output,
+    CandidateDigested: _Projections._on_candidate_digested,
+    ValidationTransformed: _Projections._on_validation_transformed,
+    LedgerFindingsRecorded: _Projections._on_ledger_findings,
+    ParseFailed: _Projections._on_parse_failed,
+    ChecksSkipped: _Projections._on_checks_skipped,
+    ValidationPassed: _Projections._on_validation_passed,
+    AttemptFailed: _Projections._on_attempt_failed,
+    ResponseUnavailable: _Projections._on_response_unavailable,
+    DispatchErrored: _Projections._on_dispatch_errored,
+    ReviewDecided: _Projections._on_review_decided,
+    ReviewEvidenceRecorded: _Projections._on_review_evidence,
+    ReviewFailed: _Projections._on_review_failed,
+    Finished: _Projections._on_finished,
+}
 
 
 class AuthoringJournal:
@@ -571,8 +555,7 @@ class AuthoringJournal:
 
     def __init__(self, task_id: str, package_dir: Path) -> None:
         self.events: list[Any] = []
-        self._ledger = _LedgerProjection()
-        self._evidence = _EvidenceProjection(task_id, package_dir)
+        self._view = _Projections(task_id, package_dir)
         self._path = failure_evidence_path(package_dir)
 
     def append(self, *events: Any) -> None:
@@ -581,14 +564,13 @@ class AuthoringJournal:
                 # Review evidence belongs to an open review dispatch. Without
                 # one it would land on whichever record came before.
                 continue
-            self._ledger.apply(event)
-            self._evidence.apply(event)
+            self._view.apply(event)
             self.events.append(event)
 
     def flush(self) -> Path:
         """Write the failure-evidence projection to its sidecar."""
 
-        return write_failure_evidence(self._path, self._evidence.document)
+        return write_failure_evidence(self._path, self._view.document)
 
     def dispatches(self) -> list[DispatchOpened]:
         return [event for event in self.events if isinstance(event, DispatchOpened)]
@@ -656,14 +638,14 @@ class AuthoringJournal:
 
     @property
     def ledger(self) -> list[dict[str, Any]]:
-        return self._ledger.records
+        return self._view.records
 
     @property
     def reviews(self) -> dict[str, dict[str, Any]]:
         """The latest review record of each stage, for the package."""
 
-        return self._ledger.reviews
+        return self._view.reviews
 
     @property
     def evidence(self) -> dict[str, Any]:
-        return self._evidence.document
+        return self._view.document

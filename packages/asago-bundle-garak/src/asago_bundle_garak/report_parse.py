@@ -14,7 +14,8 @@ last turn, yields a ``failed`` receipt with ``incomplete_reason``
 When orch's boundary services recorded the package, their records replace
 the report's evidence: ``mcp_capture/calls.jsonl`` the tool calls,
 ``boundary/gateway-accounting.json`` the generation request count, and
-``boundary/judge-exchanges.jsonl`` the judge request count.
+``boundary/judge-exchanges.jsonl`` the judge request count. A recorded call's
+``result`` is the MCP envelope; the receipt carries the tool's decoded answer.
 """
 
 from __future__ import annotations
@@ -496,14 +497,67 @@ def _proxy_call(line: str) -> dict[str, Any]:
         call = {}
     call = call if isinstance(call, dict) else {}
     fields = {key: call.get(key) for key in CALL_FIELDS}
-    error = fields["error"]
-    # The proxy records a JSON-RPC error object; the receipt carries its message.
-    fields["error"] = error.get("message") if isinstance(error, dict) else error
-    for key in ("name", "error", "status"):
+    fields["result"], decoded_error = _decoded_result(fields["result"])
+    fields["error"] = _error_text(fields["error"]) or decoded_error
+    for key in ("name", "status"):
         fields[key] = _text(fields[key])
     # Single-turn receipts put every call in turn 0; sequential ones keep a
     # recorded turn (see ``sequential_calls``).
     return {**fields, "turn_index": _count(call.get("turn_index"))}
+
+
+def _envelope_texts(result: Any) -> list[str] | None:
+    """Return the text blocks of an MCP tool result, or None for any other value."""
+
+    content = result.get("content") if isinstance(result, dict) else None
+    if not isinstance(content, list):
+        return None
+    return [
+        block["text"]
+        for block in content
+        if isinstance(block, dict)
+        and block.get("type") == "text"
+        and isinstance(block.get("text"), str)
+    ]
+
+
+def _decoded_result(result: Any) -> tuple[Any, str | None]:
+    """Return the ``(result, error)`` the proxy's recorded tool result stands for.
+
+    The proxy stores the MCP envelope the tool answered with; the receipt
+    carries what the tool returned: the text blocks joined by a newline and
+    parsed as JSON when they parse, else kept as text. A result flagged
+    ``isError`` is a failed call: no result, and the text as the error. Any
+    other value, or a successful envelope with no text block, stays as
+    recorded; ``structuredContent`` is never read.
+    """
+
+    texts = _envelope_texts(result)
+    if texts is None:
+        return result, None
+    if result.get("isError") is True:
+        return None, "\n".join(texts) or "isError"
+    if not texts:
+        return result, None
+    joined = "\n".join(texts)
+    try:
+        return json.loads(joined), None
+    except json.JSONDecodeError:
+        return joined, None
+
+
+def _error_text(error: Any) -> str | None:
+    """Return a JSON-RPC error's message, or the error object as compact JSON.
+
+    A call that failed at the protocol level did not run, so the receipt says
+    so even when the error carries no message.
+    """
+
+    if not isinstance(error, dict):
+        return _text(error)
+    return _text(error.get("message")) or json.dumps(
+        error, separators=(",", ":"), ensure_ascii=False
+    )
 
 
 def _decoded(value: Any) -> Any:

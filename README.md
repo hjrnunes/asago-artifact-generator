@@ -366,7 +366,7 @@ handoff:
 
 - `scenario-handoff-v4` JSON or YAML for scenario meaning.
 - `execution-target-profile-v1` JSON for the observed target inventory.
-- Optional normalized producer `runtime-context.json` for state and read observations.
+- Optional `runtime-context.json` (`runtime-context-v1`, written by orch's discover stage) for state and read observations.
 - A target-free runtime contract.
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
@@ -377,6 +377,15 @@ record SHA-256 source pins. The adapter verifies `content_digest` in the
 `scenario-handoff-v1` to `v3`, with "authoring source must be a producer
 scenario-handoff-v4 document; found <version>"; their kits stay vendored and
 frozen.
+
+Before the digest check, the adapter applies the mirrored v4 `schema.json`, the
+producer's ownership rules in the mirrored `ownership-rules.json`, and the
+rules the schema cannot state: non-blank text, the observation-contract format,
+and cross-field pairings. A rejection raises `HandoffSchemaInvalid`. Its `codes`
+are the producer's codes as the kit's `expected-violations.json` records them:
+ownership codes first, then `schema_violation:<top-level field>`. Its message is
+`handoff schema invalid: <codes> (<path>: <reason>)` for the first break. A
+break confined to `attack_shape` raises the subclass `ShapeVersionMalformed`.
 
 A v4 handoff carries `attack_shape`: the channel, the number of user turns (1
 to 4) and each turn's purpose, never attack text, or null for a functional
@@ -496,8 +505,15 @@ asks for the message itself. Only a bracketed span that contains the word
 Use
 `asago_artifact_generator.target_inputs.load_target_inputs` to validate the
 producer profile, verify its semantic digest, map observed tools to
-operations, infer fact schemas, and record discovery provenance. Authoring
-does not accept native semantic scenario files, reference tasks, benchmark
+operations, infer fact schemas, and record discovery provenance. When you
+supply a `runtime-context.json`, the loader checks it against the mirrored
+orch-owned `contracts/runtime-context/` schema (`runtime-context-v1`) and
+reports the first fault as `at <location>: <keyword>` without repeating the
+value. A missing-key fault lists the missing keys, and an unknown-key fault
+lists the unknown keys (sorted, at most 10, each cut to 64 characters). Three checks stay in code because they compare documents: each read's
+`profile_digest` equals the file's `target_profile_digest`, each read's
+`tool_name` is a profile tool, and that digest equals the profile's
+`semantic_digest`. Authoring does not accept native semantic scenario files, reference tasks, benchmark
 answers, or hand-built inventories.
 
 The consumer-owned artifact-package contract lives in

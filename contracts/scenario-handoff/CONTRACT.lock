@@ -212,7 +212,8 @@
     "handoff-v4/invalid/schema-unknown-not-text.json": "ae5005c39dd87b75b4493cc5d6ece50f570b61b51fe47e2b5ae3b0939344b04a",
     "handoff-v4/invalid/schema-unknown-version.json": "679cc82bc30f64253cd5b7e704a92ecb129c296347baa56a249327621a263585",
     "handoff-v3/invalid/schema-stimulus-turn-field-top-level.json": "03f5a9f817cffe8f2405c7732cc6d43d8c1880c8dcf8d5de926fe798e9ab95b9",
-    "handoff-v4/invalid/schema-stimulus-turn-field-top-level.json": "3a53547799fa3fd0063eb9464517030354c493c4981fc964ea07b1e62ea3800d"
+    "handoff-v4/invalid/schema-stimulus-turn-field-top-level.json": "3a53547799fa3fd0063eb9464517030354c493c4981fc964ea07b1e62ea3800d",
+    "ownership-rules.json": "d1c57c1298fc4eacf098508cf8294b95366a36041719bd4ebf906fb7f9e4742d"
   },
   "handoff_schema_version": "scenario-handoff-v1",
   "handoff_schema_versions": [

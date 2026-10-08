@@ -278,7 +278,12 @@ def test_proxy_calls_keep_a_recorded_turn_or_go_to_the_last(tmp_path: Path) -> N
     (records / "mcp_capture").mkdir(parents=True)
     lines = [
         {"name": "get_orders", "arguments": {}, "result": {}, "turn_index": 1},
-        {"name": "issue_refund", "arguments": {}, "result": {}},
+        {
+            "name": "issue_refund",
+            "arguments": {},
+            "result": {"content": [{"type": "text", "text": '{"status": "REJECTED"}'}]},
+        },
+        {"name": "issue_refund", "arguments": {}, "result": None, "error": {"code": -32601}},
     ]
     (records / "mcp_capture/calls.jsonl").write_text(
         "".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8"
@@ -289,9 +294,14 @@ def test_proxy_calls_keep_a_recorded_turn_or_go_to_the_last(tmp_path: Path) -> N
     )
 
     calls = receipt["attempts"][0]["observation"]["tool_calls"]
-    assert [c["turn_index"] for c in calls] == [1, 2]
+    assert [c["turn_index"] for c in calls] == [1, 2, 2]
     assert [t["response"]["tool_call_indices"] for t in receipt["attempts"][0]["turns"]] == [
         [],
         [0],
-        [1],
+        [1, 2],
+    ]
+    assert [(c["result"], c["error"]) for c in calls] == [
+        ({}, None),
+        ({"status": "REJECTED"}, None),
+        (None, '{"code":-32601}'),
     ]

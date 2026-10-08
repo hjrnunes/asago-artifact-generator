@@ -279,6 +279,107 @@ def test_finished_attempt_without_output(command_output: Path) -> None:
     assert receipt["attempts"] == []
 
 
+def envelope(*texts: str, is_error: bool = False, **extra: Any) -> dict[str, Any]:
+    """The MCP tool result the recording proxy stores in ``result``."""
+
+    body: dict[str, Any] = {"content": [{"type": "text", "text": t} for t in texts]}
+    if is_error:
+        body["isError"] = True
+    return {**body, **extra}
+
+
+IMAGE = {"type": "image", "data": "AAAA", "mimeType": "image/png"}
+REJECTED = {"status": "REJECTED", "reason": "over the limit"}
+
+
+@pytest.mark.parametrize(
+    ("record", "result", "error"),
+    [
+        pytest.param(
+            {"result": envelope(json.dumps(REJECTED))}, REJECTED, None, id="inner-rejection"
+        ),
+        pytest.param(
+            {"result": envelope('{"error": "no such order"}')},
+            {"error": "no such order"},
+            None,
+            id="inner-error-key",
+        ),
+        pytest.param(
+            {"result": envelope("Error (code 1): None", is_error=True)},
+            None,
+            "Error (code 1): None",
+            id="is-error-with-text",
+        ),
+        pytest.param(
+            {"result": envelope(is_error=True)}, None, "isError", id="is-error-without-text"
+        ),
+        pytest.param(
+            {"result": envelope("Refund issued.")}, "Refund issued.", None, id="plain-text"
+        ),
+        pytest.param(
+            {"result": envelope('{"ok": true}', structuredContent={"ok": False})},
+            {"ok": True},
+            None,
+            id="text-wins-over-structured-content",
+        ),
+        pytest.param(
+            {"result": envelope("first", "second")},
+            "first\nsecond",
+            None,
+            id="two-text-blocks-join",
+        ),
+        pytest.param(
+            {"result": {"content": [IMAGE, {"type": "text", "text": "[1, 2]"}]}},
+            [1, 2],
+            None,
+            id="non-text-blocks-are-skipped",
+        ),
+        pytest.param(
+            {"result": {"status": "REJECTED"}},
+            {"status": "REJECTED"},
+            None,
+            id="mapping-without-content-stays",
+        ),
+        pytest.param(
+            {"result": {"content": [IMAGE]}},
+            {"content": [IMAGE]},
+            None,
+            id="content-without-text-stays",
+        ),
+        pytest.param(
+            {"result": None, "error": {"code": -32602, "message": "bad arguments"}},
+            None,
+            "bad arguments",
+            id="rpc-error-message",
+        ),
+        pytest.param(
+            {"result": None, "error": {"code": -32601, "data": {"tool": "gone"}}},
+            None,
+            '{"code":-32601,"data":{"tool":"gone"}}',
+            id="rpc-error-without-message-is-compact-json",
+        ),
+        pytest.param(
+            {"result": None, "error": {"code": -32603, "message": ""}},
+            None,
+            '{"code":-32603,"message":""}',
+            id="rpc-error-with-empty-message-is-compact-json",
+        ),
+    ],
+)
+def test_a_recorded_call_carries_the_tools_decoded_result(
+    reply_output: Path, record: dict[str, Any], result: Any, error: str | None
+) -> None:
+    calls = reply_output / "mcp_capture" / "calls.jsonl"
+    calls.parent.mkdir()
+    line = {"name": "get_referral", "arguments": {}, "status": "ok", **record}
+    calls.write_text(json.dumps(line) + "\n", encoding="utf-8")
+
+    receipt = parse(reply_output, records_dir=reply_output)
+
+    (call,) = receipt["attempts"][0]["observation"]["tool_calls"]
+    assert (call["result"], call["error"]) == (result, error)
+
+
 def test_boundary_records_replace_native_evidence(reply_output: Path) -> None:
     calls = reply_output / "mcp_capture" / "calls.jsonl"
     calls.parent.mkdir()
@@ -289,7 +390,7 @@ def test_boundary_records_replace_native_evidence(reply_output: Path) -> None:
         "name": "get_referral",
         "arguments": {"patient_id": "PAT-201"},
         "status": "ok",
-        "result": {"referral": "REF-9"},
+        "result": envelope('{"referral": "REF-9"}'),
         "error": None,
     }
     failed_call = {
