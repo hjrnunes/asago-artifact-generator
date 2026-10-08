@@ -29,7 +29,7 @@ from .prompt_context import (
     _semantic_judge_fact_ref_guidance,
 )
 from .prompt_packets import _artifact_response_contract_for_prompt
-from .response_decode import _decode_call2_json_response, _readable_response
+from .response_decode import _decode_stage_response, _readable_response
 from .sequential_turns import delivery_in_context, plan_response_contract, turns_in_context
 
 
@@ -335,7 +335,7 @@ def _correction_current_output_view(value: Any, *, artifact: bool) -> Any:
     if not artifact or not isinstance(value, str):
         return value
     try:
-        decoded, _ = _decode_call2_json_response(value.encode("utf-8"))
+        decoded, _ = _decode_stage_response("call2", value.encode("utf-8"))
     except (Call2FramingError, UnicodeDecodeError, ValueError):
         return value
     return _canonical_json(decoded)

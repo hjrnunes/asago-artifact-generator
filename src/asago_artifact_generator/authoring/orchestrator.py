@@ -4,7 +4,6 @@ within the policy's request allowance and writes the package or failure evidence
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Callable, Sequence
 from copy import deepcopy
@@ -37,9 +36,8 @@ from .core import (
     AuthoringError,
     AuthoringTransport,
     BudgetExceeded,
-    Call1FramingError,
-    Call2FramingError,
     Finding,
+    FramingError,
     PromptOverflowError,
     PromptPacket,
     PromptPreflightError,
@@ -103,8 +101,7 @@ from .prompt_context import (
 from .prompt_packets import build_call1_packet_v2, build_call2_packet_v2
 from .prompt_safety import assert_no_secrets, prompt_data_urls
 from .response_decode import (
-    _decode_call2_json_response,
-    _decode_v2_json_response,
+    _decode_stage_response,
     _response_parts,
 )
 from .review import (
@@ -175,35 +172,20 @@ def _correction_checks_not_run(failed_stage: str) -> list[str]:
     return ["artifact_validation"]
 
 
-def _finding_from_record(item: Any, stage: str | None = None) -> Finding | None:
-    """Rebuild a finding from its recorded form, or None when the record is malformed."""
+def _secret_in(decoded: dict[str, Any]) -> str | None:
+    """Return why a decoded response is rejected for carrying a secret, if it is."""
 
-    if not isinstance(item, dict):
-        return None
-    code = item.get("code")
-    detail = item.get("detail")
-    path = item.get("path", "")
-    if not (isinstance(code, str) and isinstance(detail, str)):
-        return None
-    return Finding(
-        code,
-        detail,
-        path if isinstance(path, str) else "",
-        item.get("details", {}) if isinstance(item.get("details"), dict) else {},
-        stage=stage,
-    )
+    try:
+        assert_no_secrets(decoded)
+    except AuthoringError as exc:
+        return str(exc)
+    return None
 
 
 def _staged(finding: Finding) -> Finding:
     """Mark a finding located at a stage key with that key's logical stage."""
 
     return replace(finding, stage=FINDING_STAGE_KEYS.get(finding.path))
-
-
-def _decode_stage_json(stage: str, raw: bytes) -> tuple[dict[str, Any], str | None]:
-    if stage == "call2":
-        return _decode_call2_json_response(raw)
-    return _decode_v2_json_response(raw)
 
 
 def _handoff_claim_level(view: InputView) -> Any:
@@ -328,6 +310,9 @@ class AuthoringOrchestrator:
         self.discovery_provenance = deepcopy(discovery_provenance or {})
         self.policy = policy
         self.review_model_profile = policy.review_model_profile
+        # Policy and transport controls are fixed for the run.
+        self._policy_record = self._build_policy_record()
+        self._base_review_controls = self._build_base_review_controls()
         if budget is None:
             budget = _default_budget(policy)
         _validate_nonnegative_integer(
@@ -352,56 +337,6 @@ class AuthoringOrchestrator:
         self._decoded_responses: dict[str, Any] = {}
         self._prompt_packets: dict[str, PromptPacket] = {}
         self._transformations: list[Any] = []
-
-    def run(
-        self,
-        view: InputView,
-        inventory: dict[str, Any],
-        runtime_contract: dict[str, Any],
-    ) -> AuthoringResult:
-        return self._run_v2_policy(view, inventory, runtime_contract)
-
-    def _request_and_validate_v2(
-        self,
-        packet: PromptPacket,
-        findings_collector: Any,
-    ) -> tuple[dict[str, Any] | None, list[Finding], bytes]:
-        """Dispatch and validate one v2 stage without changing response bytes."""
-
-        stage = packet.stage
-        self._prompt_packets[stage] = packet
-        started = time.monotonic()
-        try:
-            response = self._dispatch(packet)
-        except Exception as exc:
-            return None, [self._record_dispatch_failure(exc, packet, started)], b""
-        raw = self._record_v2_response(stage, response)
-        try:
-            validation_value = self._decode_v2_stage(stage, raw)
-        except (
-            Call1FramingError,
-            Call2FramingError,
-            UnicodeDecodeError,
-            json.JSONDecodeError,
-            ValueError,
-        ) as exc:
-            return None, self._record_v2_decode_failure(exc, stage), raw
-        rejection = self._v2_response_rejection(stage, validation_value)
-        if rejection is not None:
-            self._findings.append(rejection)
-            self._record_failures([rejection])
-            return None, [rejection], raw
-        transformation_count = len(self._transformations)
-        findings = findings_collector(validation_value)
-        self._record_validation_transformations(transformation_count)
-        if findings:
-            self._findings.extend(findings)
-            self._journal.append(LedgerFindingsRecorded("findings", tuple(findings)))
-            self._record_failures(findings)
-            return None, findings, raw
-        self._journal.append(ValidationPassed())
-        self._journal.flush()
-        return validation_value, [], raw
 
     def _record_dispatch_failure(
         self,
@@ -450,59 +385,105 @@ class AuthoringOrchestrator:
         )
         return finding
 
-    def _record_v2_response(self, stage: str, response: TransportResponse | str | bytes) -> bytes:
-        """Keep a v2 stage response under its stage name; return the raw bytes.
+    def _author(
+        self, packet: PromptPacket, checks: Callable[[Any], list[Finding]]
+    ) -> tuple[dict[str, Any] | None, list[Finding], bytes]:
+        """Dispatch one stage author request and check its response.
 
-        ``_dispatch`` already journaled the response on its dispatch.
+        The returned candidate is None while findings remain.
         """
 
+        stage = packet.stage
+        self._prompt_packets[stage] = packet
+        started = time.monotonic()
+        try:
+            response = self._dispatch(packet)
+        except Exception as exc:
+            return None, [self._record_dispatch_failure(exc, packet, started)], b""
+        # ``_dispatch`` already journaled the response on its dispatch.
         raw = _response_parts(response)[0]
         self._raw_responses[stage] = raw
         self._journal.flush()
-        return raw
+        checked = self._decode_and_check(raw, stage, checks, correction=False)
+        assert checked is not None
+        return (*checked, raw)
 
-    def _decode_v2_stage(self, stage: str, raw: bytes) -> dict[str, Any]:
-        """Decode one v2 stage response and record the decoded output."""
+    def _decode_and_check(
+        self,
+        raw: bytes,
+        author_stage: str,
+        checks: Callable[[Any], list[Finding]],
+        *,
+        correction: bool,
+    ) -> tuple[dict[str, Any] | None, list[Finding]] | None:
+        """Decode one author or correction response of ``author_stage`` and run its checks.
 
-        decoded_json, transformation = _decode_stage_json(stage, raw)
+        Return the candidate (None while findings remain) and the recorded
+        findings.  A correction that fails to decode or carries a secret
+        returns None: its stage stops.  The two paths differ in finding codes
+        and journal events; both are part of the failure evidence.
+        """
+
+        checks_not_run = self._checks_skipped(_correction_checks_not_run(author_stage))
+        try:
+            decoded, transformation = _decode_stage_response(author_stage, raw)
+        except FramingError as exc:
+            findings = [_staged(finding) for finding in exc.findings]
+            self._reject(
+                findings,
+                LedgerFindingsRecorded("framing_findings", tuple(findings)),
+                checks_not_run,
+            )
+            return None if correction else (None, findings)
+        except UnicodeDecodeError as exc:
+            if correction:
+                finding = _staged(Finding("correction_failed", str(exc), author_stage))
+                self._reject(
+                    [finding],
+                    LedgerFindingsRecorded("findings", (finding,)),
+                    ParseFailed(str(exc)),
+                    checks_not_run,
+                )
+                return None
+            finding = _staged(Finding("response_parse_error", str(exc), author_stage))
+            self._reject([finding], ParseFailed(str(exc)), checks_not_run)
+            return None, [finding]
         if transformation:
             self._record_transformation(transformation)
-        self._decoded_responses[stage] = decoded_json
-        self._journal.append(DecodedOutputRecorded(decoded_json, on_ledger=True))
-        if isinstance(decoded_json, dict):
-            self._record_candidate_digest(decoded_json)
-        return decoded_json
+        secret = _secret_in(decoded)
+        if correction:
+            if secret is not None:
+                finding = _staged(Finding("correction_failed", secret, author_stage))
+                self._reject([finding], LedgerFindingsRecorded("findings", (finding,)))
+                return None
+            self._decoded_responses[f"correction-{author_stage}"] = decoded
+            self._journal.append(DecodedOutputRecorded(decoded, on_ledger=False))
+            self._record_candidate_digest(decoded)
+            self._journal.flush()
+        else:
+            self._decoded_responses[author_stage] = decoded
+            self._journal.append(DecodedOutputRecorded(decoded, on_ledger=True))
+            self._record_candidate_digest(decoded)
+            if secret is not None:
+                finding = _staged(Finding("secret_in_response", secret, author_stage))
+                self._reject([finding])
+                return None, [finding]
+        transformation_count = len(self._transformations)
+        findings = checks(decoded)
+        self._record_validation_transformations(transformation_count)
+        if findings:
+            self._reject(findings, LedgerFindingsRecorded("findings", tuple(findings)))
+            return None, findings
+        self._journal.append(ValidationPassed())
+        self._journal.flush()
+        return decoded, []
 
-    def _record_v2_decode_failure(self, exc: Exception, stage: str) -> list[Finding]:
-        """Record a framing or parse failure for a v2 stage and return its findings."""
+    def _reject(self, findings: list[Finding], *events: Any) -> None:
+        """Record the findings that reject a response, after the events that explain them."""
 
-        checks_not_run = _correction_checks_not_run(stage)
-        if isinstance(exc, (Call1FramingError, Call2FramingError)):
-            findings = [_staged(finding) for finding in exc.findings]
-            self._findings.extend(findings)
-            self._journal.append(
-                LedgerFindingsRecorded("framing_findings", tuple(findings)),
-                self._checks_skipped(checks_not_run),
-            )
-            self._record_failures(findings)
-            return findings
-        finding = _staged(Finding("response_parse_error", str(exc), stage))
-        self._journal.append(ParseFailed(str(exc)), self._checks_skipped(checks_not_run))
-        self._findings.append(finding)
-        self._record_failures([finding])
-        return [finding]
-
-    @staticmethod
-    def _v2_response_rejection(stage: str, validation_value: dict[str, Any]) -> Finding | None:
-        """Return the finding that rejects a decoded value before its stage checks run."""
-
-        try:
-            assert_no_secrets(validation_value)
-        except AuthoringError as exc:
-            return _staged(Finding("secret_in_response", str(exc), stage))
-        if stage == "call1" and not isinstance(validation_value, dict):
-            return _staged(Finding("response_type_error", "plan must decode to an object", stage))
-        return None
+        self._findings.extend(findings)
+        self._journal.append(*events)
+        self._record_failures(findings)
 
     def _dispatch(self, packet: PromptPacket) -> TransportResponse | str | bytes:
         self._journal.append(DispatchRequested(packet.stage))
@@ -720,17 +701,14 @@ class AuthoringOrchestrator:
             failed_response=failed_response,
             allowance_kind=allowance_kind,
         )
-        validated = self._validate_correction_response(raw, failed_stage, stage.checks)
-        if validated is None:
+        checked = self._decode_and_check(raw, failed_stage, stage.checks, correction=True)
+        if checked is None:
             return None
-        validation_value, decoded, replacement_findings = validated
-        if replacement_findings:
-            return validation_value, replacement_findings, raw
-        self._journal.append(ValidationPassed())
-        self._journal.flush()
-        self._raw_responses[failed_stage] = raw
-        self._decoded_responses[failed_stage] = decoded
-        return validation_value, [], raw
+        candidate, findings = checked
+        if candidate is not None:
+            self._raw_responses[failed_stage] = raw
+            self._decoded_responses[failed_stage] = candidate
+        return candidate, findings, raw
 
     def _correction_packet(
         self,
@@ -801,70 +779,7 @@ class AuthoringOrchestrator:
         self._journal.flush()
         return raw
 
-    def _decode_correction_response(self, raw: bytes, failed_stage: str) -> dict[str, Any]:
-        """Return the decoded output of a correction response."""
-
-        decoded, transformation = _decode_stage_json(failed_stage, raw)
-        if transformation:
-            self._record_transformation(transformation)
-        return decoded
-
-    def _validate_correction_response(
-        self,
-        raw: bytes,
-        failed_stage: str,
-        checks: Callable[[Any], list[Finding]],
-    ) -> tuple[dict[str, Any], Any, list[Finding]] | None:
-        """Decode and validate a correction; record a failure and return None.
-
-        Returns the value to validate, the decoded output, and the recorded
-        validation findings.
-        """
-
-        checks_not_run = _correction_checks_not_run(failed_stage)
-        try:
-            decoded = self._decode_correction_response(raw, failed_stage)
-            assert_no_secrets(decoded)
-            self._decoded_responses[f"correction-{failed_stage}"] = decoded
-            self._journal.append(DecodedOutputRecorded(decoded, on_ledger=False))
-            self._record_candidate_digest(decoded)
-            self._journal.flush()
-            if not isinstance(decoded, dict):
-                raise ValueError("correction response must decode to an object")
-            transformation_count = len(self._transformations)
-            replacement_findings = checks(decoded)
-            self._record_validation_transformations(transformation_count)
-            if replacement_findings:
-                self._journal.append(
-                    LedgerFindingsRecorded("findings", tuple(replacement_findings))
-                )
-                self._findings.extend(replacement_findings)
-                self._record_failures(replacement_findings)
-        except (Call1FramingError, Call2FramingError) as exc:
-            findings = [_staged(finding) for finding in exc.findings]
-            self._journal.append(
-                LedgerFindingsRecorded("framing_findings", tuple(findings)),
-                self._checks_skipped(checks_not_run),
-            )
-            self._findings.extend(findings)
-            self._record_failures(findings)
-            return None
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError, AuthoringError) as exc:
-            self._record_correction_failure(exc, failed_stage, checks_not_run)
-            return None
-        return decoded, decoded, replacement_findings
-
-    def _record_correction_failure(
-        self, exc: Exception, failed_stage: str, checks_not_run: list[str]
-    ) -> None:
-        finding = _staged(Finding("correction_failed", str(exc), failed_stage))
-        self._journal.append(LedgerFindingsRecorded("findings", (finding,)))
-        if isinstance(exc, (UnicodeDecodeError, json.JSONDecodeError)):
-            self._journal.append(ParseFailed(str(exc)), self._checks_skipped(checks_not_run))
-        self._findings.append(finding)
-        self._record_failures([finding])
-
-    def _run_v2_policy(
+    def run(
         self,
         view: InputView,
         inventory: dict[str, Any],
@@ -897,16 +812,16 @@ class AuthoringOrchestrator:
             _command_attempt_condition_findings(view, _handoff_claim_level(view), inventory)
         )
         if unusable:
-            return self._policy_result("failed", None, unusable)
+            return self._result("failed", None, unusable)
         plan = self._run_stage(
             self._plan_stage(view, inventory, runtime_contract), view, inventory, runtime_contract
         )
         if isinstance(plan, _StageStop):
-            return self._policy_result(plan.status, None, plan.findings)
+            return self._result(plan.status, None, plan.findings)
         unusable = _command_attempt_condition_findings(view, _plan_claim_level(plan), inventory)
         if unusable:
             self._record_failures(unusable)
-            return self._policy_result("failed", plan, unusable)
+            return self._result("failed", plan, unusable)
         artifact = self._run_stage(
             self._artifact_stage(plan, view, inventory, runtime_contract),
             view,
@@ -914,18 +829,14 @@ class AuthoringOrchestrator:
             runtime_contract,
         )
         if isinstance(artifact, _StageStop):
-            return self._policy_result(artifact.status, plan, artifact.findings)
-        metadata, artifact_definition = self._artifact_parts(artifact, plan)
-        return self._accept_package(
-            view, plan, metadata, artifact_definition, inventory, runtime_contract
-        )
+            return self._result(artifact.status, plan, artifact.findings)
+        return self._accept_package(view, plan, artifact, inventory, runtime_contract)
 
     def _accept_package(
         self,
         view: InputView,
         plan: dict[str, Any],
-        metadata: dict[str, Any],
-        artifact_definition: dict[str, Any],
+        artifact: dict[str, Any],
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
     ) -> AuthoringResult:
@@ -935,7 +846,15 @@ class AuthoringOrchestrator:
             package = _package_from_responses(
                 view=view,
                 plan=plan,
-                artifact=artifact_definition,
+                artifact={
+                    **artifact,
+                    # Copied from the accepted plan; Call 2 and its corrections
+                    # never rewrite them.
+                    "setup_recipe": plan["setup_recipe"],
+                    "runtime_bindings": plan["runtime_bindings"],
+                    "prerequisites": plan["prerequisites"],
+                    "required_observations": plan["required_observations"],
+                },
                 task_id=self.task_id,
                 ledger=self._journal.ledger,
                 raw_responses=self._raw_responses,
@@ -951,7 +870,7 @@ class AuthoringOrchestrator:
                 budget=self.budget.snapshot(self.task_id),
             )
         except ArtifactValidationError as exc:
-            return self._policy_result(
+            return self._result(
                 "failed",
                 plan,
                 [Finding("assembly_validation", exc.message, exc.path, stage="artifact")],
@@ -960,26 +879,9 @@ class AuthoringOrchestrator:
             path = write_package(self.package_dir, package)
         except Exception as exc:
             finding = Finding("package_write_failed", str(exc), stage="artifact")
-            return self._policy_result("failed", plan, [finding])
-        self._journal.append(ReviewStatusRecorded(dict(self._review_status)))
-        self._record_allowances()
-        self._finish("accepted", [])
-        return AuthoringResult(
-            status="accepted",
-            task_id=self.task_id,
-            plan=plan,
-            artifact=metadata,
-            package=package,
-            package_path=path,
-            findings=[],
-            ledger=list(self._journal.ledger),
-            transformations=list(self._transformations),
-            raw_responses=dict(self._raw_responses),
-            review_status=dict(self._review_status),
-            allowances=dict(self._allowances),
-            review_revision_allowances=dict(self._review_revision_allowances or {}),
-            failure_evidence_path=None,
-            budget=self.budget.snapshot(self.task_id),
+            return self._result("failed", plan, [finding])
+        return self._result(
+            "accepted", plan, [], artifact=artifact, package=package, package_path=path
         )
 
     def _plan_stage(
@@ -1067,7 +969,7 @@ class AuthoringOrchestrator:
             packet = stage.author_packet()
         except PromptPreflightError as exc:
             return _preflight_stop(exc, stage.author)
-        candidate, pending, raw = self._request_and_validate_v2(packet, stage.checks)
+        candidate, pending, raw = self._author(packet, stage.checks)
         if any(finding.code == "prompt_preflight" for finding in pending):
             return _StageStop("failed", tuple(pending))
         review_driven = False
@@ -1142,10 +1044,7 @@ class AuthoringOrchestrator:
         )
         if corrected is None:
             return self._failed_correction_stop(pending)
-        candidate, correction_findings, raw = corrected
-        if correction_findings:
-            return None, list(correction_findings), raw
-        return candidate, [], raw
+        return corrected
 
     def _failed_correction_stop(self, pending: Sequence[Finding]) -> _StageStop:
         """Stop the stage after a correction that returned no candidate."""
@@ -1186,24 +1085,6 @@ class AuthoringOrchestrator:
             return _StageStop(stage.review_blocked_status, findings)
         self._review_status[stage.key] = "revise"
         return _Revision(findings, outcome.findings)
-
-    @staticmethod
-    def _artifact_parts(
-        metadata: dict[str, Any],
-        plan: dict[str, Any],
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Join the validated candidate with the accepted plan-owned fields."""
-
-        artifact = {
-            **metadata,
-            # These values are copied from the accepted plan.  Call 2 and its
-            # corrections never rewrite them.
-            "setup_recipe": plan["setup_recipe"],
-            "runtime_bindings": plan["runtime_bindings"],
-            "prerequisites": plan["prerequisites"],
-            "required_observations": plan["required_observations"],
-        }
-        return metadata, artifact
 
     def _semantic_review(self, review_key: str, packet: PromptPacket) -> _ReviewOutcome:
         """Dispatch one semantic review and classify its closed outcome."""
@@ -1393,8 +1274,11 @@ class AuthoringOrchestrator:
     def _effective_policy_record(self) -> dict[str, Any]:
         """Return the effective stage policy and reviewer controls record."""
 
+        return dict(self._policy_record)
+
+    def _build_policy_record(self) -> dict[str, Any]:
         policy = self.policy
-        record = {
+        record: dict[str, Any] = {
             "plan_max_corrections": policy.plan_max_corrections,
             "artifact_max_corrections": policy.artifact_max_corrections,
             "plan_max_review_revisions": (
@@ -1417,20 +1301,21 @@ class AuthoringOrchestrator:
     def _review_controls(self, controls: Any) -> dict[str, Any]:
         """Return redacted effective reviewer controls for durable evidence."""
 
-        effective = {
+        return {**self._base_review_controls, **_safe_metadata(controls), "max_retries": 0}
+
+    def _build_base_review_controls(self) -> dict[str, Any]:
+        controls: dict[str, Any] = {
             "review_model_profile": self.review_model_profile,
             "max_retries": 0,
         }
         if getattr(self.transport, "sampling_controls", True):
-            effective["temperature"] = 0
+            controls["temperature"] = 0
         else:
-            effective["sampling_controls"] = False
+            controls["sampling_controls"] = False
         model = getattr(self.transport, "model", None)
         if isinstance(model, str) and model.strip():
-            effective["model"] = model
-        effective.update(_safe_metadata(controls))
-        effective["max_retries"] = 0
-        return effective
+            controls["model"] = model
+        return controls
 
     def _set_review_evidence(
         self,
@@ -1464,56 +1349,48 @@ class AuthoringOrchestrator:
             )
         )
 
-    def _policy_result(
-        self,
-        status: str,
-        plan: dict[str, Any] | None,
-        findings: tuple[Finding, ...] | list[Finding],
-    ) -> AuthoringResult:
-        if self._review_status is not None:
-            self._journal.append(ReviewStatusRecorded(dict(self._review_status)))
-        self._record_allowances()
-        result = self._result(status, plan, list(findings))
-        result.review_status = dict(self._review_status) if self._review_status else {}
-        result.allowances = dict(self._allowances) if self._allowances else {}
-        result.review_revision_allowances = (
-            dict(self._review_revision_allowances) if self._review_revision_allowances else {}
-        )
-        result.budget = self.budget.snapshot(self.task_id)
-        return result
-
     def _result(
         self,
         status: str,
         plan: dict[str, Any] | None,
-        findings: list[Finding],
+        findings: Sequence[Finding],
+        *,
+        artifact: dict[str, Any] | None = None,
+        package: Any = None,
+        package_path: Path | None = None,
     ) -> AuthoringResult:
+        """Close the run with ``status`` and return its result."""
+
+        assert self._review_status is not None
+        assert self._allowances is not None
+        assert self._review_revision_allowances is not None
+        self._journal.append(ReviewStatusRecorded(dict(self._review_status)))
+        self._record_allowances()
         if any(finding.code == "prompt_overflow" for finding in findings):
             status = "prompt_overflow"
-        failure_evidence_path = self._finish(status, findings)
+        failure_evidence_path = self._finish(status, list(findings))
         return AuthoringResult(
             status=status,
             task_id=self.task_id,
             plan=plan,
+            artifact=artifact,
+            package=package,
+            package_path=package_path,
             findings=list(findings),
             ledger=list(self._journal.ledger),
             transformations=list(self._transformations),
             raw_responses=dict(self._raw_responses),
-            failure_evidence_path=failure_evidence_path,
+            failure_evidence_path=None if status == "accepted" else failure_evidence_path,
+            review_status=dict(self._review_status),
+            allowances=dict(self._allowances),
+            review_revision_allowances=dict(self._review_revision_allowances),
             budget=self.budget.snapshot(self.task_id),
         )
 
     def _latest_attempt_findings(self, fallback: list[Finding]) -> list[Finding]:
-        """Return only the findings from the response that just terminated.
+        """Return only the findings from the response that just terminated."""
 
-        Each finding is read as its failure-evidence record carries it.
-        """
-
-        findings = (
-            _finding_from_record(finding.to_dict(), finding.stage)
-            for finding in self._journal.latest_attempt_findings()
-        )
-        return [finding for finding in findings if finding is not None] or list(fallback)
+        return self._journal.latest_attempt_findings() or list(fallback)
 
     def _record_candidate_digest(self, candidate: dict[str, Any]) -> None:
         """Pin the normalized candidate bytes to the current dispatch event."""

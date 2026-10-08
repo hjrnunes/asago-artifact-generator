@@ -17,7 +17,7 @@ from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
 )
-from asago_artifact_generator.authoring.response_decode import _decode_call2_json_response
+from asago_artifact_generator.authoring.response_decode import _decode_stage_response
 from asago_artifact_generator.package_io import tool_call_condition_bytes
 
 from .support import (
@@ -330,8 +330,8 @@ def test_v2_call1_correction_rejects_unsupported_framing(
 
 
 def test_call2_decodes_a_fenced_or_bare_object_to_the_same_artifact() -> None:
-    fenced, transformation = _decode_call2_json_response(b"```json\n" + _framed() + b"```\n")
-    bare, no_transformation = _decode_call2_json_response(_framed())
+    fenced, transformation = _decode_stage_response("call2", b"```json\n" + _framed() + b"```\n")
+    bare, no_transformation = _decode_stage_response("call2", _framed())
 
     assert fenced == bare == _metadata()
     assert transformation == "outer_fence_removed"
@@ -352,7 +352,7 @@ def test_call2_decodes_a_fenced_or_bare_object_to_the_same_artifact() -> None:
 )
 def test_call2_rejects_each_malformed_framing_class(raw: bytes, code: str) -> None:
     with pytest.raises(Call2FramingError) as caught:
-        _decode_call2_json_response(raw)
+        _decode_stage_response("call2", raw)
     assert [finding.code for finding in caught.value.findings] == [code]
     assert caught.value.findings[0].path == "call2"
 
@@ -611,6 +611,6 @@ def test_neutral_v2_example_uses_real_framing_and_package_check(tmp_path) -> Non
 
 
 def test_neutral_artifact_response_without_source_matches_v2_metadata() -> None:
-    decoded, _ = _decode_call2_json_response(neutral_call2_response_v2())
+    decoded, _ = _decode_stage_response("call2", neutral_call2_response_v2())
 
     assert decoded == neutral_artifact_response_without_source()

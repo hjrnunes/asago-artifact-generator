@@ -13,6 +13,7 @@ from .core import (
     Call1FramingError,
     Call2FramingError,
     Finding,
+    FramingError,
     ReviewResponseError,
     TransportResponse,
 )
@@ -105,37 +106,25 @@ def _readable_response(raw: bytes) -> tuple[str, str]:
         return raw.decode("utf-8", errors="replace"), "utf-8-replacement-inexact"
 
 
+# Each decoded stage: the subject its framing findings name and the error they raise.
+_STAGE_FRAMING: dict[str, tuple[str, type[FramingError]]] = {
+    "call1": ("Call 1", Call1FramingError),
+    "call2": ("Call 2", Call2FramingError),
+    "review": ("review response", ReviewResponseError),
+}
+
+
+def _decode_stage_response(stage: str, raw: bytes) -> tuple[dict[str, Any], str | None]:
+    """Decode exactly one ``stage`` JSON object without changing response bytes."""
+
+    subject, error = _STAGE_FRAMING[stage]
+    return _decode_strict_single_json_response(raw, subject=subject, error=error, path=stage)
+
+
 def _decode_v2_json_response(raw: bytes) -> tuple[dict[str, Any], str | None]:
     """Decode exactly one v2 Call 1 object without changing response bytes."""
 
-    return _decode_strict_single_json_response(
-        raw,
-        subject="Call 1",
-        error=Call1FramingError,
-        path="call1",
-    )
-
-
-def _decode_call2_json_response(raw: bytes) -> tuple[dict[str, Any], str | None]:
-    """Decode exactly one Call 2 artifact object without changing response bytes."""
-
-    return _decode_strict_single_json_response(
-        raw,
-        subject="Call 2",
-        error=Call2FramingError,
-        path="call2",
-    )
-
-
-def _decode_review_json_response(raw: bytes) -> tuple[dict[str, Any], str | None]:
-    """Decode exactly one reviewer object without changing response bytes."""
-
-    return _decode_strict_single_json_response(
-        raw,
-        subject="review response",
-        error=ReviewResponseError,
-        path="review",
-    )
+    return _decode_stage_response("call1", raw)
 
 
 def _decode_strict_single_json_response(

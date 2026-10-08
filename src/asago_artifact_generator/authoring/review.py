@@ -49,7 +49,7 @@ from .prompt_context import (
     scenario_provenance_ids,
 )
 from .prompt_safety import assert_no_prompt_secrets, prompt_data_urls
-from .response_decode import _decode_review_json_response
+from .response_decode import _decode_stage_response
 from .sequential_turns import multi_turn_payload, multi_turn_sections, review_sections
 
 _PLAN_REVIEW_QUESTIONS: tuple[dict[str, str], ...] = (
@@ -158,7 +158,7 @@ def parse_review_response(raw: bytes) -> ReviewResponse:
     if not isinstance(raw, bytes):
         raise TypeError("review response must be bytes")
     try:
-        decoded, transformation = _decode_review_json_response(raw)
+        decoded, transformation = _decode_stage_response("review", raw)
     except UnicodeDecodeError as exc:
         raise ReviewResponseError(
             [Finding("invalid_json", f"review response is not valid UTF-8: {exc}", "review")]
