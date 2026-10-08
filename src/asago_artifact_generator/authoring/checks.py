@@ -45,6 +45,7 @@ from .example_capture import (
     example_capture_findings,
     reply_capture_findings,
 )
+from .field_findings import missing_field_findings, unexpected_field_findings
 from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
 from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
@@ -111,14 +112,11 @@ def _call2_root_field_findings(value: dict[str, Any]) -> list[Finding]:
                 f"call2.{field_name}",
             )
         )
-    for field_name in sorted(_CALL2_METADATA_FIELDS - set(value)):
-        findings.append(
-            Finding(
-                "missing_field",
-                f"Call 2 metadata missing field: {field_name}",
-                f"call2.{field_name}",
-            )
+    findings.extend(
+        missing_field_findings(
+            value, sorted(_CALL2_METADATA_FIELDS), "Call 2 metadata missing field", "call2."
         )
+    )
     return findings
 
 
@@ -126,13 +124,11 @@ def _call2_stimulus_findings(stimulus: Any) -> list[Finding]:
     if not isinstance(stimulus, dict):
         return [Finding("type_error", "stimulus must be an object", "stimulus")]
     required = {"user_text", "history", "slots", "delivery"}
-    findings = [
-        Finding("missing_field", f"stimulus missing field: {name}", f"stimulus.{name}")
-        for name in sorted(required - set(stimulus))
-    ]
+    findings = missing_field_findings(
+        stimulus, sorted(required), "stimulus missing field", "stimulus."
+    )
     findings.extend(
-        Finding("unexpected_field", f"unexpected stimulus field: {name}", f"stimulus.{name}")
-        for name in sorted(set(stimulus) - required)
+        unexpected_field_findings(stimulus, required, "unexpected stimulus field", "stimulus.")
     )
     for name, valid, noun in (
         ("user_text", isinstance(stimulus.get("user_text"), str), "a string"),
@@ -163,22 +159,13 @@ def _call2_semantic_judge_spec_findings(spec: Any) -> list[Finding]:
             )
         ]
     fields = ("question", "criteria", "fact_refs")
-    findings = [
-        Finding(
-            "unexpected_field",
-            f"unexpected semantic_judge_spec field: {name}",
-            f"semantic_judge_spec.{name}",
-        )
-        for name in sorted(set(spec) - set(fields))
-    ]
+    findings = unexpected_field_findings(
+        spec, fields, "unexpected semantic_judge_spec field", "semantic_judge_spec."
+    )
     findings.extend(
-        Finding(
-            "missing_field",
-            f"semantic_judge_spec missing field: {name}",
-            f"semantic_judge_spec.{name}",
+        missing_field_findings(
+            spec, fields, "semantic_judge_spec missing field", "semantic_judge_spec."
         )
-        for name in fields
-        if name not in spec
     )
     for name, valid, noun in (
         ("question", isinstance(spec.get("question"), str), "a string"),
@@ -199,15 +186,9 @@ def _call2_semantic_judge_spec_findings(spec: Any) -> list[Finding]:
 def _call2_examples_findings(examples: Any) -> list[Finding]:
     if not isinstance(examples, dict):
         return [Finding("type_error", "examples must be an object", "examples")]
-    findings: list[Finding] = []
-    for label in sorted(set(examples) - {"unsafe", "safe", "inconclusive"}):
-        findings.append(
-            Finding(
-                "unexpected_field",
-                f"unexpected examples field: {label}",
-                f"examples.{label}",
-            )
-        )
+    findings = unexpected_field_findings(
+        examples, ("unsafe", "safe", "inconclusive"), "unexpected examples field", "examples."
+    )
     for label in ("unsafe", "safe", "inconclusive"):
         findings.extend(_call2_example_findings(label, examples.get(label)))
     return findings
@@ -238,16 +219,11 @@ def _example_item_findings(label: str, item: Any) -> list[Finding]:
             )
         ]
     allowed = {"label", "description"} | ({"capture"} if label in CAPTURED_EXAMPLES else set())
-    extra = sorted(set(item) - allowed)
+    extra = unexpected_field_findings(
+        item, allowed, "unexpected example field", f"examples.{label}."
+    )
     if extra:
-        return [
-            Finding(
-                "unexpected_field",
-                f"unexpected example field: {field_name}",
-                f"examples.{label}.{field_name}",
-            )
-            for field_name in extra
-        ]
+        return extra
     if not isinstance(item.get("description"), str):
         return [
             Finding(
@@ -820,14 +796,9 @@ def _semantic_judge_fact_ref_findings(
 def _v2_root_field_findings(plan: dict[str, Any], required: list[str]) -> list[Finding]:
     """Report root fields outside the contract, then required root fields that are absent."""
 
-    findings = [
-        Finding("unexpected_field", f"unexpected plan field: {field_name}", field_name)
-        for field_name in sorted(set(plan) - set(required))
-    ]
+    findings = unexpected_field_findings(plan, required, "unexpected plan field", "")
     findings.extend(
-        Finding("plan_validation", f"missing plan field: {field_name}", field_name)
-        for field_name in required
-        if field_name not in plan
+        missing_field_findings(plan, required, "missing plan field", "", code="plan_validation")
     )
     return findings
 
@@ -861,14 +832,9 @@ def _assumption_findings(
 ) -> list[Finding]:
     if not isinstance(assumption, dict):
         return [Finding("shape_error", "assumption must be an object", path)]
-    findings = [
-        Finding(
-            "unexpected_field",
-            f"unexpected assumption field: {field_name}",
-            f"{path}.{field_name}",
-        )
-        for field_name in sorted(set(assumption) - {"ref", "reason"})
-    ]
+    findings = unexpected_field_findings(
+        assumption, ("ref", "reason"), "unexpected assumption field", f"{path}."
+    )
     if not isinstance(assumption.get("ref"), str):
         findings.append(Finding("type_error", "assumption.ref must be a string", f"{path}.ref"))
     elif assumption["ref"] not in references and assumption["ref"] not in provenance_ids:
@@ -1078,17 +1044,12 @@ def _interpretation_findings(
         if "interpretation" in plan:
             return [Finding("type_error", "interpretation must be an object", "interpretation")]
         return []
-    findings: list[Finding] = []
-    for field_name in sorted(
-        set(interpretation) - {"failure", "safe_alternative", "conditions", "source_refs"}
-    ):
-        findings.append(
-            Finding(
-                "unexpected_field",
-                f"unexpected interpretation field: {field_name}",
-                f"interpretation.{field_name}",
-            )
-        )
+    findings = unexpected_field_findings(
+        interpretation,
+        ("failure", "safe_alternative", "conditions", "source_refs"),
+        "unexpected interpretation field",
+        "interpretation.",
+    )
     for field_name in ("failure", "safe_alternative"):
         if not isinstance(interpretation.get(field_name), str):
             findings.append(
@@ -1192,14 +1153,14 @@ def _stimulus_approach_findings(
             )
         )
     findings.extend(_stimulus_approach_history_findings(approach))
-    for field_name in sorted(set(approach) - {"request", "delivery", "history"}):
-        findings.append(
-            Finding(
-                "unexpected_field",
-                f"unexpected stimulus_approach field: {field_name}",
-                f"stimulus_approach.{field_name}",
-            )
+    findings.extend(
+        unexpected_field_findings(
+            approach,
+            ("request", "delivery", "history"),
+            "unexpected stimulus_approach field",
+            "stimulus_approach.",
         )
+    )
     return findings
 
 
@@ -1243,15 +1204,12 @@ def _observation_claim_findings(
                 Finding("type_error", "observation_claim must be an object", "observation_claim")
             ]
         return []
-    findings: list[Finding] = []
-    for field_name in sorted(set(claim) - {"violation", "absence", "inconclusive", "claim_level"}):
-        findings.append(
-            Finding(
-                "unexpected_field",
-                f"unexpected observation_claim field: {field_name}",
-                f"observation_claim.{field_name}",
-            )
-        )
+    findings = unexpected_field_findings(
+        claim,
+        ("violation", "absence", "inconclusive", "claim_level"),
+        "unexpected observation_claim field",
+        "observation_claim.",
+    )
     for field_name in ("violation", "absence", "inconclusive"):
         if not isinstance(claim.get(field_name), str):
             findings.append(
@@ -1315,14 +1273,11 @@ def _semantic_judge_plan_findings(plan: dict[str, Any]) -> list[Finding]:
                 "semantic_judge.needed",
             )
         )
-    for field_name in sorted(set(judge) - {"needed", "scope"}):
-        findings.append(
-            Finding(
-                "unexpected_field",
-                f"unexpected semantic_judge field: {field_name}",
-                f"semantic_judge.{field_name}",
-            )
+    findings.extend(
+        unexpected_field_findings(
+            judge, ("needed", "scope"), "unexpected semantic_judge field", "semantic_judge."
         )
+    )
     if "needed" not in judge:
         findings.append(
             Finding(
@@ -1500,24 +1455,15 @@ def _binding_field_findings(
     path: str,
     finding_code: str,
 ) -> list[Finding]:
-    findings: list[Finding] = []
     required = frozenset(BINDING_SPEC.fields)
-    for field_name in sorted(required - set(raw)):
-        findings.append(
-            Finding(
-                finding_code,
-                f"binding missing field: {field_name}",
-                f"{path}.{field_name}",
-            )
+    findings = missing_field_findings(
+        raw, sorted(required), "binding missing field", f"{path}.", code=finding_code
+    )
+    findings.extend(
+        unexpected_field_findings(
+            raw, required, "binding has unsupported field", f"{path}.", code=finding_code
         )
-    for field_name in sorted(set(raw) - required):
-        findings.append(
-            Finding(
-                finding_code,
-                f"binding has unsupported field: {field_name}",
-                f"{path}.{field_name}",
-            )
-        )
+    )
     for field_name in BINDING_SPEC.string_fields:
         if field_name in raw and not isinstance(raw[field_name], str):
             findings.append(
@@ -1945,23 +1891,17 @@ def _canonical_prerequisite_field_findings(
     prerequisite: dict[str, Any],
     path: str,
 ) -> list[Finding]:
-    findings: list[Finding] = []
-    for field_name in sorted(set(prerequisite) - _CANONICAL_PREREQUISITE_FIELDS):
-        findings.append(
-            Finding(
-                "unexpected_field",
-                f"unexpected prerequisite field: {field_name}",
-                f"{path}.{field_name}",
-            )
+    findings = unexpected_field_findings(
+        prerequisite, _CANONICAL_PREREQUISITE_FIELDS, "unexpected prerequisite field", f"{path}."
+    )
+    findings.extend(
+        missing_field_findings(
+            prerequisite,
+            sorted(_CANONICAL_PREREQUISITE_FIELDS),
+            "prerequisite missing field",
+            f"{path}.",
         )
-    for field_name in sorted(_CANONICAL_PREREQUISITE_FIELDS - set(prerequisite)):
-        findings.append(
-            Finding(
-                "missing_field",
-                f"prerequisite missing field: {field_name}",
-                f"{path}.{field_name}",
-            )
-        )
+    )
     if not isinstance(prerequisite.get("name"), str) or not prerequisite.get("name", "").strip():
         findings.append(
             Finding("type_error", "prerequisite.name must be a string", f"{path}.name")

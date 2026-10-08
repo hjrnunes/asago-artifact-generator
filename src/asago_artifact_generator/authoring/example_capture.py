@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .core import Finding, staged_findings
+from .field_findings import missing_field_findings, unexpected_field_findings
 
 CAPTURED_EXAMPLES = ("unsafe", "safe")
 UNKNOWN_OPERATION_CODE = "example_capture_unknown_operation"
@@ -125,14 +126,9 @@ def _call_shape_findings(label: str, item: Any, path: str) -> list[Finding]:
 def _closed_object_findings(
     value: dict[str, Any], fields: tuple[str, ...], path: str
 ) -> list[Finding]:
-    findings = [
-        Finding("missing_field", f"{path} missing field: {name}", f"{path}.{name}")
-        for name in fields
-        if name not in value
-    ]
+    findings = missing_field_findings(value, fields, f"{path} missing field", f"{path}.")
     findings.extend(
-        Finding("unexpected_field", f"unexpected field in {path}: {name}", f"{path}.{name}")
-        for name in sorted(set(value) - set(fields), key=str)
+        unexpected_field_findings(value, fields, f"unexpected field in {path}", f"{path}.")
     )
     return findings
 
