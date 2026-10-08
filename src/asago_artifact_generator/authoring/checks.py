@@ -54,9 +54,6 @@ from .placeholder import artifact_placeholder_findings, plan_placeholder_finding
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
 from .planted_item import PLANTED_TEXT_FIELD, planted_item_findings
 
-# The spelling JUDGE_CONSUMERS replaced. It stays out of the closed vocabulary, so a plan
-# that still writes it gets a finding that names the replacement instead of an alias.
-_RETIRED_DETECTOR_PREFIX = "detector."
 SELECTOR_THROUGH_ARRAY_CODE = "selector_through_array"
 
 
@@ -1599,16 +1596,6 @@ def _binding_consumer_findings(
                 Finding(
                     finding_code,
                     "binding consumers must be non-empty strings",
-                    consumer_path,
-                )
-            )
-        elif consumer.startswith(_RETIRED_DETECTOR_PREFIX):
-            judge_destination = JUDGE_CONSUMERS.prefix + consumer[len(_RETIRED_DETECTOR_PREFIX) :]
-            findings.append(
-                Finding(
-                    finding_code,
-                    f"binding consumer {consumer} is not a closed path; the semantic "
-                    f"judge of a reply claim reads {judge_destination}",
                     consumer_path,
                 )
             )

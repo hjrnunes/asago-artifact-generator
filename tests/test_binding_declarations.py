@@ -946,8 +946,7 @@ def test_detector_consumer_is_a_finding_without_an_alias(claim_level: str) -> No
     assert _consumer_plan_findings("detector.status", claim_level) == [
         (
             "plan_binding_validation",
-            "binding consumer detector.status is not a closed path; the semantic "
-            "judge of a reply claim reads judge.status",
+            "binding consumer is not a closed path",
             "runtime_bindings[0].consumers[0]",
         )
     ]
