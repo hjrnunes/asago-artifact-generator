@@ -27,7 +27,6 @@ def test_artifact_correction_context_has_no_detector_sections() -> None:
         ),
         current_output=b"candidate",
         findings=[Finding("semantic_review", "review", "artifact")],
-        prior_unresolved_findings=[{"code": "old", "detail": "z", "path": "p"}],
     )
 
     assert context["findings"] == [
@@ -41,7 +40,6 @@ def test_artifact_correction_context_has_no_detector_sections() -> None:
         "current_output_encoding",
         "findings",
         "instruction",
-        "prior_unresolved_findings",
         "accepted_plan_fixed",
         "format",
         "response_contract",
@@ -51,12 +49,13 @@ def test_artifact_correction_context_has_no_detector_sections() -> None:
     assert context["accepted_plan_fixed"] is True
 
 
-def test_correction_context_rejects_an_unknown_stage() -> None:
-    with pytest.raises(ValueError, match="unsupported correction stage: deploy"):
+@pytest.mark.parametrize("failed_stage", ["deploy", "plan", "artifact", "plan_review"])
+def test_correction_context_rejects_a_stage_other_than_call1_or_call2(failed_stage: str) -> None:
+    with pytest.raises(ValueError, match=f"unsupported correction stage: {failed_stage}"):
         build_correction_context(
-            failed_stage="deploy",
+            failed_stage=failed_stage,
             original_context={},
-            current_output="text",
+            current_output=b"text",
             findings=[],
         )
 

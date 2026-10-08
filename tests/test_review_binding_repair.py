@@ -60,7 +60,7 @@ def _correction_packet(plan: dict, findings: list[Finding], inventory: dict | No
     context = build_correction_context(
         failed_stage="call1",
         original_context=build_plan_author_context(_view(), inventory, _runtime_contract()),
-        current_output=json.dumps(plan),
+        current_output=json.dumps(plan).encode(),
         findings=findings,
     )
     return _render_correction_packet(

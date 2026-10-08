@@ -91,7 +91,7 @@ def test_current_call1_replaces_pseudo_empty_shapes_with_schema_guidance() -> No
         build_correction_context(
             failed_stage="call1",
             original_context=build_plan_author_context(view, inventory, runtime_contract),
-            current_output="{}",
+            current_output=b"{}",
             findings=[],
         ),
         correction_repair_inputs(view, inventory, runtime_contract),
@@ -195,7 +195,7 @@ def test_prerequisite_type_finding_is_rendered_in_plan_correction() -> None:
     context = build_correction_context(
         failed_stage="call1",
         original_context=build_plan_author_context(_view(), inventory, _runtime_contract()),
-        current_output="{}",
+        current_output=b"{}",
         findings=[finding],
     )
     packet = _render_correction_packet(
