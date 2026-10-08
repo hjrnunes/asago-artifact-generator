@@ -356,16 +356,21 @@ def sequential_calls(
             if call["turn_index"] is None:
                 call["turn_index"] = planned - 1
         return "mcp_recording_proxy", calls
-    calls = []
-    for turn in turns:
-        sequence = _sequence(turn)
-        native = output_notes(turn).get("tool_calls")
-        native = native if isinstance(native, list) else []
-        offset = _count(sequence.get("call_offset")) or 0
-        for call in native[offset:]:
-            if isinstance(call, dict):
-                calls.append({**_native_call(call), "turn_index": sequence["turn_index"]})
-    return "tool_native", calls
+    return "tool_native", [call for turn in turns for call in turn_calls(turn)]
+
+
+def turn_calls(turn: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the calls one turn made, from ``call_offset`` on in its ``tool_calls`` note."""
+
+    sequence = _sequence(turn)
+    native = output_notes(turn).get("tool_calls")
+    native = native if isinstance(native, list) else []
+    offset = _count(sequence.get("call_offset")) or 0
+    return [
+        {**_native_call(call), "turn_index": sequence["turn_index"]}
+        for call in native[offset:]
+        if isinstance(call, dict)
+    ]
 
 
 def sequential_judge(turns: list[dict[str, Any]], records: Records) -> dict[str, Any] | None:
