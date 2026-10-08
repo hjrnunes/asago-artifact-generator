@@ -1,7 +1,8 @@
 """Command line for the Garak adapter.
 
 Exit codes: 0 done, 1 the input cannot be used, 2 usage error, 3 capability
-gap (``compile`` only: Garak cannot deliver the package yet).
+gap (``compile`` only: Garak cannot deliver the package, such as a
+sequential history holding a message other than a user turn).
 """
 
 from __future__ import annotations

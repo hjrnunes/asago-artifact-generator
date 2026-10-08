@@ -4,6 +4,13 @@ A usable report holds exactly one finished attempt (status 2) with one output
 whose response completed. Anything else yields a ``failed`` receipt whose
 ``incomplete_reason`` names what was wrong; the receipt is still written.
 
+A sequential bundle's report holds one finished attempt per user turn, each
+naming its turn in ``notes.sequence``. The receipt lists every planned turn
+with the calls that turn made; the final turn's detections grade the
+conversation. A turn the probe marked failed, or a report that ends before the
+last turn, yields a ``failed`` receipt with ``incomplete_reason``
+``turn_failed:<position>`` (counted from 1), as orch names it.
+
 When orch's boundary services recorded the package, their records replace
 the report's evidence: ``mcp_capture/calls.jsonl`` the tool calls,
 ``boundary/gateway-accounting.json`` the generation request count, and
@@ -18,7 +25,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .compiler import BUNDLE_FILE, CONVERSATIONS, RUN_CONFIG, TOOL, canonical_text
+from .compiler import (
+    BUNDLE_FILE,
+    CONVERSATIONS,
+    RUN_CONFIG,
+    SEQUENTIAL,
+    TOOL,
+    canonical_text,
+)
 
 SCHEMA_VERSION = "execution-receipt-v1"
 ATTEMPT_COMPLETE = 2
@@ -82,9 +96,12 @@ def parse_report(
     out = Path(out_path)
     report_file = Path(report) if report else bundle.root / bundle.manifest["native_outputs"][0]
     records = read_records(Path(records_dir)) if records_dir else Records()
-    finished, reason = finished_attempt(report_file)
-    attempt = build_attempt(finished, bundle, records) if finished else None
-    reason = reason or generation_failure(finished)
+    if bundle.manifest.get("delivery") == SEQUENTIAL:
+        attempt, reason = sequential_attempt(report_file, bundle, records)
+    else:
+        finished, reason = finished_attempt(report_file)
+        attempt = build_attempt(finished, bundle, records) if finished else None
+        reason = reason or generation_failure(finished)
     receipt = {
         "schema_version": SCHEMA_VERSION,
         "tool": {"id": TOOL, "revision": tool_revision, "adapter_revision": adapter_revision},
@@ -225,9 +242,146 @@ def build_attempt(attempt: dict[str, Any], bundle: Bundle, records: Records) -> 
     }
 
 
+def sequential_attempt(
+    report_file: Path, bundle: Bundle, records: Records
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Return the receipt attempt of a sequential report and why it failed, if it did.
+
+    Only a conversation whose every turn finished is graded: it carries the
+    final turn's detections and verdict.
+    """
+
+    turns, reason = finished_turns(report_file)
+    if turns is None:
+        return None, reason
+    reason, error_type = turn_failure(turns, len(bundle.messages))
+    graded = reason is None
+    detections = detections_of(turns[-1]) if graded else []
+    source, calls = sequential_calls(turns, records, len(bundle.messages))
+    replies = turn_replies(turns)
+    status = _text(output_notes(turns[-1]).get("response_status"))
+    attempt = {
+        "index": 0,
+        "generation": {
+            "request_count": records.request_count,
+            "response_status": status if graded else None,
+            "error_type": error_type,
+        },
+        "turns": receipt_turns(bundle.messages, replies, calls),
+        "result": result_of(detections, bundle.manifest["claim_level"]),
+        "observation": {
+            "source": source,
+            "assistant_messages": [replies[index] for index in sorted(replies)],
+            "tool_calls": calls,
+        },
+        "runtime_observations": {"source": None, **{name: [] for name in RUNTIME_LISTS}},
+        "detections": detections,
+        "judge": sequential_judge(turns, records) if graded else None,
+    }
+    return attempt, reason
+
+
+def turn_replies(turns: list[dict[str, Any]]) -> dict[int, str]:
+    """Map each turn index to the reply text its output holds."""
+
+    texts = {_sequence(turn)["turn_index"]: single_output(turn).get("text") for turn in turns}
+    return {index: text for index, text in texts.items() if isinstance(text, str)}
+
+
+def receipt_turns(
+    messages: list[dict[str, str]], replies: dict[int, str], calls: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Return one receipt turn per planned user message: its request, reply, and calls."""
+
+    return [
+        {
+            "index": index,
+            "request": {"messages": [message]},
+            "response": {
+                "assistant_messages": [replies[index]] if index in replies else [],
+                "tool_call_indices": [
+                    position for position, call in enumerate(calls) if call["turn_index"] == index
+                ],
+            },
+        }
+        for index, message in enumerate(messages)
+    ]
+
+
+def finished_turns(path: Path) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """Return the report's finished per-turn attempts in turn order, or why not."""
+
+    entries, reason = read_entries(path)
+    if entries is None:
+        return None, reason
+    turns = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict)
+        and entry.get("entry_type") == "attempt"
+        and entry.get("status") == ATTEMPT_COMPLETE
+        and type(_sequence(entry).get("turn_index")) is int
+        and single_output(entry) is not None
+    ]
+    if not turns:
+        return None, "no_finished_attempt"
+    return sorted(turns, key=lambda turn: _sequence(turn)["turn_index"]), None
+
+
+def turn_failure(turns: list[dict[str, Any]], planned: int) -> tuple[str | None, str | None]:
+    """Return ``(incomplete_reason, error_type)`` for the first turn that failed."""
+
+    for turn in turns:
+        failure = _text(_sequence(turn).get("failure"))
+        if failure is not None:
+            position = _sequence(turn)["turn_index"] + 1
+            return f"turn_failed:{position}", f"generation_failed:{failure}"
+    if len(turns) < planned:
+        return f"turn_failed:{len(turns) + 1}", None
+    return None, None
+
+
+def sequential_calls(
+    turns: list[dict[str, Any]], records: Records, planned: int
+) -> tuple[str, list[dict[str, Any]]]:
+    """Return each call once, with the turn that made it.
+
+    A turn's ``tool_calls`` note holds every call so far; its own calls start
+    at ``call_offset``. A recorded proxy call without a turn goes to the last.
+    """
+
+    if records.calls is not None:
+        calls = [dict(call) for call in records.calls]
+        for call in calls:
+            if call["turn_index"] is None:
+                call["turn_index"] = planned - 1
+        return "mcp_recording_proxy", calls
+    calls = []
+    for turn in turns:
+        sequence = _sequence(turn)
+        native = output_notes(turn).get("tool_calls")
+        native = native if isinstance(native, list) else []
+        offset = _count(sequence.get("call_offset")) or 0
+        for call in native[offset:]:
+            if isinstance(call, dict):
+                calls.append({**_native_call(call), "turn_index": sequence["turn_index"]})
+    return "tool_native", calls
+
+
+def sequential_judge(turns: list[dict[str, Any]], records: Records) -> dict[str, Any] | None:
+    """Return the final turn's verdict and every judge request of the conversation."""
+
+    final = judge_of(turns[-1], records)
+    if final is None or records.judge_count is not None:
+        return final
+    judged = [record for turn in turns for record in _records(turn, "RubricJudge")]
+    dispatched = sum(1 for record in judged if record.get("request") is not None)
+    return {**final, "request_count": dispatched}
+
+
 def observed_calls(notes: dict[str, Any], records: Records) -> tuple[str, list[dict[str, Any]]]:
     if records.calls is not None:
-        return "mcp_recording_proxy", records.calls
+        return "mcp_recording_proxy", [{**call, "turn_index": 0} for call in records.calls]
     native = notes.get("tool_calls")
     native = native if isinstance(native, list) else []
     return "tool_native", [_native_call(call) for call in native if isinstance(call, dict)]
@@ -300,6 +454,12 @@ def native_files(report_file: Path, receipt_dir: Path) -> list[dict[str, str]]:
     return [{"path": relative.as_posix(), "sha256": digest}]
 
 
+def _sequence(attempt: dict[str, Any]) -> dict[str, Any]:
+    notes = attempt.get("notes")
+    sequence = notes.get("sequence") if isinstance(notes, dict) else None
+    return sequence if isinstance(sequence, dict) else {}
+
+
 def _records(attempt: dict[str, Any], detector: str) -> list[dict[str, Any]]:
     notes = attempt.get("notes")
     found = notes.get(RECORD_NOTES[detector]) if isinstance(notes, dict) else None
@@ -336,7 +496,9 @@ def _proxy_call(line: str) -> dict[str, Any]:
     fields["error"] = error.get("message") if isinstance(error, dict) else error
     for key in ("name", "error", "status"):
         fields[key] = _text(fields[key])
-    return {**fields, "turn_index": 0}
+    # Single-turn receipts put every call in turn 0; sequential ones keep a
+    # recorded turn (see ``sequential_calls``).
+    return {**fields, "turn_index": _count(call.get("turn_index"))}
 
 
 def _decoded(value: Any) -> Any:
