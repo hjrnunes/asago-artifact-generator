@@ -12,13 +12,12 @@ from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
+from jsonschema.exceptions import best_match
 
 from .attack_shape import attack_shape_violation
 from .contract_kit import (
-    CLAIM_LEVELS,
     ClaimLevel,
     canonical_json,
-    first_schema_error,
     framed_digest,
     load_json_file,
     parse_document,
@@ -34,7 +33,6 @@ _HANDOFF_CONDITION_FIELDS = (
     "condition_check",
     "condition_omitted_reason",
 )
-_HANDOFF_TOOL_CALL_FIELDS = ("tool_call_condition_status", "tool_call_condition")
 _HANDOFF_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "scenario-handoff"
 # The ownership rules below follow the producer's handoff_ownership_violations;
 # the vendored kit's invalid cases fail when the two drift apart.
@@ -110,8 +108,24 @@ class InputSourceError(ValueError):
     """Raised when an input or its vendored contract is not trustworthy."""
 
 
-class ShapeVersionMalformed(InputSourceError):
-    """Raised when a v4 handoff's ``attack_shape`` breaks the vendored contract.
+class HandoffSchemaInvalid(InputSourceError):
+    """Raised when a handoff breaks the producer's v4 contract.
+
+    ``codes`` holds the producer's violation codes in the order of the kit's
+    ``expected-violations.json``: ownership codes, then ``schema_violation:<field>``.
+    ``schema_path`` and ``reason`` describe the first code's break.
+    """
+
+    def __init__(self, violations: list[tuple[str, str, str]]) -> None:
+        self.codes = tuple(code for code, _, _ in violations)
+        _, self.schema_path, self.reason = violations[0]
+        super().__init__(
+            f"handoff schema invalid: {', '.join(self.codes)} ({self.schema_path}: {self.reason})"
+        )
+
+
+class ShapeVersionMalformed(HandoffSchemaInvalid):
+    """Raised when only a v4 handoff's ``attack_shape`` breaks the vendored contract.
 
     The pre-model refusal code is ``shape_version_malformed``; ``schema_path``
     locates the break.
@@ -120,12 +134,8 @@ class ShapeVersionMalformed(InputSourceError):
     code = "shape_version_malformed"
 
     def __init__(self, schema_path: str, reason: str, *, violation: str = "attack_shape") -> None:
-        self.schema_path = schema_path
-        self.reason = reason
-        super().__init__(
-            f"{self.code}: handoff schema invalid: schema_violation:{violation} "
-            f"({schema_path}: {reason})"
-        )
+        super().__init__([(f"schema_violation:{violation}", schema_path, reason)])
+        self.args = (f"{self.code}: {self.args[0]}",)
 
 
 @dataclass(frozen=True)
@@ -249,9 +259,6 @@ def _handoff_view(
     digest_payload = {key: value for key, value in payload.items() if key != "content_digest"}
     if expected_digest != _framed_digest(kind.value, digest_payload):
         raise InputSourceError("scenario handoff content_digest does not match source")
-    schema_error = first_schema_error(_handoff_schema(), payload)
-    if schema_error is not None:
-        raise InputSourceError(f"handoff schema invalid {schema_error}")
     gherkin = payload["gherkin"]
     gherkin_bytes = canonical_json(gherkin, nfc=True).encode("utf-8")
     companion = path.with_suffix(".feature")
@@ -309,238 +316,169 @@ def _handoff_schema() -> dict[str, Any]:
     )
 
 
+# One violation: its code, the dotted path of the break, and the reason.
+_Violation = tuple[str, str, str]
+
+
 def _validate_handoff_payload(payload: dict[str, Any]) -> None:
-    _validate_handoff_field_names(payload)
-    if payload.get("kind") not in {"adversarial", "functional"}:
-        raise InputSourceError("handoff kind is invalid")
-    for key in (
-        "scenario_id",
-        "hypothesis_framing",
-        "narrative",
-        "semantic_failure_criterion",
-        "safe_alternative",
-    ):
-        if not isinstance(payload[key], str) or not payload[key].strip():
-            raise InputSourceError(f"handoff field is blank or mistyped: {key}")
-    if not isinstance(payload["attack_tree"], dict) or not isinstance(payload["lineage"], dict):
-        raise InputSourceError("handoff attack_tree and lineage must be objects")
-    _validate_handoff_metadata(payload)
-    _validate_handoff_gherkin(payload["gherkin"])
-    violations = _ownership_violations(payload)
-    if violations:
-        raise InputSourceError(f"handoff ownership violation: {', '.join(violations)}")
-    _validate_attack_shape(payload)
+    """Report the producer's codes for every rule the handoff breaks, ownership first.
 
-
-def _validate_attack_shape(payload: dict[str, Any]) -> None:
-    """Validate the v4 ``attack_shape`` the top-level field-name check leaves unread.
-
-    The ownership scan has already run, so a forbidden key inside the shape is
-    reported by its own code first.
+    The mirrored schema runs whole. Only a schema-valid handoff reaches the hand
+    rules, which the schema cannot state; the first one that fails reports its
+    top-level field. A break confined to the attack shape keeps its typed refusal.
     """
 
+    ownership = _ownership_violations(payload)
+    breaks = _schema_violations(payload)
+    if not breaks:
+        hand = _hand_rule_violation(payload)
+        breaks = [hand] if hand is not None else []
+    if not ownership and breaks:
+        if {code for code, _, _ in breaks} <= _SHAPE_CODES:
+            refusal = _attack_shape_refusal(payload)
+            if refusal is not None:
+                raise refusal
+    violations = [*ownership, *breaks]
+    if violations:
+        raise HandoffSchemaInvalid(violations)
+
+
+_SHAPE_CODES = frozenset({"schema_violation:attack_shape", "schema_violation:<root>"})
+
+
+def _schema_violations(payload: dict[str, Any]) -> list[_Violation]:
+    """Map the schema's errors to the producer's codes: one per top-level field.
+
+    A ``required`` error names the missing field; an ``additionalProperties``
+    error names each extra field. The root if/then/else pairings report
+    ``<root>`` only when no field breaks.
+    """
+
+    found: dict[str, _Violation] = {}
+    rooted: _Violation | None = None
+    for error in Draft202012Validator(_handoff_schema()).iter_errors(payload):
+        # best_match descends into anyOf branches, so the reason names the break
+        # inside an optional object rather than restating the whole object.
+        detail = best_match([error]) or error
+        where = ".".join(str(part) for part in detail.absolute_path) or "<root>"
+        if error.schema_path and error.schema_path[0] == "allOf":
+            rooted = rooted or ("schema_violation:<root>", where, detail.message)
+            continue
+        for name in _error_fields(error):
+            found.setdefault(name, (f"schema_violation:{name}", where, detail.message))
+    if not found and rooted is not None:
+        return [rooted]
+    return list(found.values())
+
+
+def _error_fields(error: Any) -> list[str]:
+    if error.path:
+        return [str(error.path[0])]
+    if error.validator == "required":
+        return [error.message.split("'")[1]]
+    if error.validator == "additionalProperties":
+        return re.findall(r"'([^']+)'", error.message.split("(", 1)[1])
+    return ["<root>"]
+
+
+def _attack_shape_refusal(payload: dict[str, Any]) -> ShapeVersionMalformed | None:
+    if "attack_shape" not in payload:
+        return ShapeVersionMalformed("attack_shape", "the required property is missing")
     shape = payload["attack_shape"]
-    if (payload["kind"] == "adversarial") != (shape is not None):
-        raise ShapeVersionMalformed(
+    if (payload.get("kind") == "adversarial") != (shape is not None):
+        return ShapeVersionMalformed(
             "attack_shape",
-            f"a {payload['kind']} scenario "
+            f"a {payload.get('kind')} scenario "
             + ("has no" if shape is None else "must not have")
             + " attack_shape",
             violation="<root>",
         )
     if shape is None:
-        return
+        return None
     violation = attack_shape_violation(shape, _handoff_schema())
-    if violation is not None:
-        raise ShapeVersionMalformed(*violation)
+    return ShapeVersionMalformed(*violation) if violation is not None else None
 
 
-def _validate_handoff_field_names(payload: dict[str, Any]) -> None:
-    schema = _handoff_schema()
-    missing = set(schema["required"]) - payload.keys()
-    if "attack_shape" in missing:
-        raise ShapeVersionMalformed("attack_shape", "the required property is missing")
-    unknown = set(payload) - set(schema["properties"])
-    if missing or unknown:
-        raise InputSourceError(
-            f"handoff schema invalid (missing={sorted(missing)}, unknown={sorted(unknown)})"
-        )
+def _hand_rule_violation(payload: dict[str, Any]) -> _Violation | None:
+    """Return the first rule the schema cannot state that a schema-valid handoff breaks.
+
+    The rules are blank text, the observation-contract format, presence where
+    the schema has a default, and cross-field pairings. The reported code names
+    the top-level field the rule reads.
+    """
+
+    for key, rules in _HAND_RULES:
+        if payload.get(key) is None:
+            continue
+        for rule in rules:
+            found = rule(payload[key], key)
+            if found is not None:
+                return (f"schema_violation:{key}", *found)
+    if payload.get("attack_shape") is not None:
+        refusal = _attack_shape_refusal(payload)
+        if refusal is not None:
+            return ("schema_violation:attack_shape", refusal.schema_path, refusal.reason)
+    return None
 
 
-def _validate_handoff_metadata(payload: dict[str, Any]) -> None:
-    """Validate the optional producer metadata, the condition fields, and the tool-call fields."""
-
-    if payload.get("observation") is not None:
-        _validate_observation_metadata(payload["observation"])
-    if payload.get("safe_observable_outcome") is not None:
-        _validate_safe_observable_outcome(payload["safe_observable_outcome"])
-    if payload.get("deduplication") is not None:
-        _validate_deduplication(payload["deduplication"])
-    _validate_schema_fields(payload)
-    _validate_tool_call_status_reason(payload["tool_call_condition_status"])
+_Break = tuple[str, str] | None
 
 
-def _validate_handoff_gherkin(gherkin: Any) -> None:
-    if (
-        not isinstance(gherkin, dict)
-        or not isinstance(gherkin.get("feature"), str)
-        or not isinstance(gherkin.get("scenario"), str)
-    ):
-        raise InputSourceError("handoff Gherkin is invalid")
-    for key, value in gherkin.items():
-        if key not in {
-            "feature",
-            "scenario",
-            "given",
-            "when",
-            "then_expected",
-            "then_unsafe_alternative",
-        }:
-            raise InputSourceError(f"handoff Gherkin has unknown field: {key}")
-        if key not in {"feature", "scenario"} and not isinstance(value, list):
-            raise InputSourceError(f"handoff Gherkin field is not a list: {key}")
+def _nonblank_text(value: str, path: str) -> _Break:
+    return None if value.strip() else (path, "must not be blank")
 
 
-def _validate_observation_metadata(value: Any) -> None:
-    """Validate additive producer testability metadata without target facts."""
-
-    if not isinstance(value, dict):
-        raise InputSourceError("handoff observation metadata must be an object")
-    required = {"contract_schema", "contract_id", "contract_digest", "criteria", "assessment"}
-    unknown = set(value) - required
-    missing = required - set(value)
-    if missing or unknown:
-        raise InputSourceError(
-            "handoff observation metadata is invalid "
-            f"(missing={sorted(missing)}, unknown={sorted(unknown)})"
-        )
-    _validate_observation_contract(value)
-    criteria = value["criteria"]
-    if not isinstance(criteria, list) or not criteria:
-        raise InputSourceError("handoff observation criteria must be a non-empty list")
-    for criterion in criteria:
-        _validate_observation_criterion(criterion)
-    _validate_observation_assessment(value["assessment"])
-
-
-def _validate_observation_contract(value: dict[str, Any]) -> None:
+def _observation_contract(value: dict[str, Any], path: str) -> _Break:
     for key in ("contract_schema", "contract_id", "contract_digest"):
-        if not isinstance(value[key], str) or not value[key].strip():
-            raise InputSourceError(f"handoff observation field is blank or mistyped: {key}")
+        if not value[key].strip():
+            return f"{path}.{key}", "must not be blank"
     if not is_sha256_hex(value["contract_digest"]):
-        raise InputSourceError("handoff observation contract_digest is not a SHA-256 hex digest")
+        return f"{path}.contract_digest", "is not a SHA-256 hex digest"
     if value["contract_schema"] != "observation-contract-v1":
-        raise InputSourceError("unknown observation contract schema")
+        return f"{path}.contract_schema", "must be observation-contract-v1"
+    return None
 
 
-_OBSERVATION_CRITERION_KEYS = frozenset(
-    {
-        "criterion_id",
-        "outcome",
-        "observable",
-        "claim_level",
-        "evidence",
-        "operation_name",
-        "reason",
-    }
-)
-_REQUIRED_OBSERVATION_CRITERION_KEYS = frozenset(
-    {
-        "criterion_id",
-        "outcome",
-        "observable",
-        "reason",
-    }
-)
+def _observation_criteria(value: dict[str, Any], path: str) -> _Break:
+    for index, criterion in enumerate(value["criteria"]):
+        found = _observation_criterion(criterion, f"{path}.criteria.{index}")
+        if found is not None:
+            return found
+    return None
 
 
-def _validate_observation_criterion(criterion: Any) -> None:
-    if not isinstance(criterion, dict):
-        raise InputSourceError("handoff observation criterion must be an object")
-    if (
-        not _REQUIRED_OBSERVATION_CRITERION_KEYS <= set(criterion)
-        or not set(criterion) <= _OBSERVATION_CRITERION_KEYS
+def _observation_criterion(criterion: dict[str, Any], path: str) -> _Break:
+    for key in ("criterion_id", "outcome", "reason"):
+        if not criterion[key].strip():
+            return f"{path}.{key}", "must not be blank"
+    observable = criterion["observable"]
+    for key in ("claim_level", "evidence"):
+        if observable and not is_nonblank_str(criterion.get(key)):
+            return path, f"an observable criterion requires {key}"
+    if not observable and any(
+        criterion.get(key) is not None for key in ("claim_level", "evidence")
     ):
-        raise InputSourceError("handoff observation criterion fields are invalid")
-    if not all(is_nonblank_str(criterion[key]) for key in ("criterion_id", "outcome", "reason")):
-        raise InputSourceError("handoff observation criterion text is invalid")
-    if not isinstance(criterion["observable"], bool):
-        raise InputSourceError("handoff observation criterion observable is invalid")
-    _validate_observation_criterion_claim(criterion)
-    _validate_observation_criterion_operation(criterion)
-
-
-def _validate_observation_criterion_operation(criterion: dict[str, Any]) -> None:
+        return path, "an analytical-only criterion must omit claim_level and evidence"
     operation_name = criterion.get("operation_name")
     if operation_name is not None and not is_nonblank_str(operation_name):
-        raise InputSourceError("observation criterion operation_name is invalid")
-    if not criterion["observable"] and operation_name is not None:
-        raise InputSourceError("analytical-only criterion must omit operation_name")
+        return f"{path}.operation_name", "must not be blank"
+    if not observable and operation_name is not None:
+        return path, "an analytical-only criterion must omit operation_name"
+    return None
 
 
-def _validate_observation_criterion_claim(criterion: dict[str, Any]) -> None:
-    if criterion["observable"]:
-        if not is_nonblank_str(criterion.get("claim_level")):
-            raise InputSourceError("observable criterion requires claim_level")
-        if not is_nonblank_str(criterion.get("evidence")):
-            raise InputSourceError("observable criterion requires evidence")
-    elif criterion.get("claim_level") is not None or criterion.get("evidence") is not None:
-        raise InputSourceError("analytical-only criterion must omit claim_level and evidence")
-
-
-def _validate_observation_assessment(assessment: Any) -> None:
-    if not isinstance(assessment, dict):
-        raise InputSourceError("handoff observation assessment must be an object")
-    assessment_keys = {
-        "disposition",
-        "reason",
-        "supported_criteria",
-        "unsupported_criteria",
-    }
-    if set(assessment) != assessment_keys:
-        raise InputSourceError("handoff observation assessment fields are invalid")
-    if assessment["disposition"] not in {"executable", "analytical_only"}:
-        raise InputSourceError("handoff observation disposition is invalid")
-    if not isinstance(assessment["reason"], str) or not assessment["reason"].strip():
-        raise InputSourceError("handoff observation assessment reason is invalid")
+def _observation_assessment(value: dict[str, Any], path: str) -> _Break:
+    assessment = value["assessment"]
+    path = f"{path}.assessment"
+    if not {"supported_criteria", "unsupported_criteria"} <= set(assessment):
+        return path, "requires supported_criteria and unsupported_criteria"
+    if not assessment["reason"].strip():
+        return f"{path}.reason", "must not be blank"
     for key in ("supported_criteria", "unsupported_criteria"):
-        if not _is_nonblank_text_list(assessment[key]):
-            raise InputSourceError(f"handoff observation assessment {key} is invalid")
-
-
-def _is_nonblank_text_list(value: Any) -> bool:
-    return isinstance(value, list) and all(
-        isinstance(item, str) and bool(item.strip()) for item in value
-    )
-
-
-def _validate_safe_observable_outcome(value: Any) -> None:
-    """Validate the producer-owned scenario-specific safe boundary."""
-
-    if not isinstance(value, dict):
-        raise InputSourceError("handoff safe_observable_outcome must be an object")
-    allowed = {
-        "observable",
-        "statement",
-        "claim_level",
-        "evidence",
-        "operation_name",
-        "record_refs",
-        "fact_refs",
-    }
-    if set(value) - allowed:
-        raise InputSourceError("handoff safe_observable_outcome fields are invalid")
-    if not isinstance(value.get("observable"), bool):
-        raise InputSourceError("handoff safe outcome observable is invalid")
-    if not isinstance(value.get("statement"), str) or not value["statement"].strip():
-        raise InputSourceError("handoff safe outcome statement is invalid")
-    _validate_safe_outcome_claim(value)
-    for key in ("record_refs", "fact_refs"):
-        _validate_safe_outcome_refs(key, value.get(key))
-    if not value["observable"] and any(value.get(key) for key in ("record_refs", "fact_refs")):
-        raise InputSourceError(
-            "analytical-only handoff safe outcome must omit record and fact references"
-        )
+        for index, item in enumerate(assessment[key]):
+            if not item.strip():
+                return f"{path}.{key}.{index}", "must not be blank"
+    return None
 
 
 _SAFE_OUTCOME_EXPECTED_EVIDENCE = {
@@ -551,136 +489,100 @@ _SAFE_OUTCOME_EXPECTED_EVIDENCE = {
 }
 
 
-def _validate_safe_outcome_claim(value: dict[str, Any]) -> None:
+def _safe_outcome_claim(value: dict[str, Any], path: str) -> _Break:
+    if not value["statement"].strip():
+        return f"{path}.statement", "must not be blank"
     claim_level = value.get("claim_level")
-    evidence = value.get("evidence")
     operation_name = value.get("operation_name")
-    if value["observable"]:
-        if (
-            claim_level not in _SAFE_OUTCOME_EXPECTED_EVIDENCE
-            or evidence != _SAFE_OUTCOME_EXPECTED_EVIDENCE[claim_level]
+    if not value["observable"]:
+        if any(
+            value.get(key) is not None for key in ("claim_level", "evidence", "operation_name")
         ):
-            raise InputSourceError("handoff safe outcome claim_level and evidence do not match")
-        if operation_name is not None and not is_nonblank_str(operation_name):
-            raise InputSourceError("handoff safe outcome operation_name is invalid")
-    elif any(value.get(key) is not None for key in ("claim_level", "evidence", "operation_name")):
-        raise InputSourceError(
-            "analytical-only handoff safe outcome must omit claim and operation"
-        )
-
-
-def _validate_safe_outcome_refs(key: str, refs: Any) -> None:
-    if not isinstance(refs, list) or not all(is_nonblank_str(item) for item in refs):
-        raise InputSourceError(f"handoff safe outcome {key} is invalid")
-    if len(refs) != len(set(refs)):
-        raise InputSourceError(f"handoff safe outcome {key} must be unique")
-
-
-def _validate_schema_fields(payload: dict[str, Any]) -> None:
-    """Validate the condition and tool-call fields against the vendored producer schema.
-
-    The root check is the schema's own if/then/else: a bound status requires a
-    tool_call_condition, and any other status forbids one.
-    """
-
-    schema = _handoff_schema()
-    violations = []
-    for key in (*_HANDOFF_CONDITION_FIELDS, *_HANDOFF_TOOL_CALL_FIELDS):
-        validator = Draft202012Validator({"$defs": schema["$defs"], **schema["properties"][key]})
-        if not validator.is_valid(payload.get(key)):
-            violations.append(f"schema_violation:{key}")
-    root = Draft202012Validator({"$defs": schema["$defs"], "allOf": _tool_call_root_rules(schema)})
-    if not violations and not root.is_valid(payload):
-        violations.append("schema_violation:<root>")
-    if violations:
-        raise InputSourceError(f"handoff schema invalid: {', '.join(violations)}")
-
-
-def _tool_call_root_rules(schema: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return the schema's root if/then/else rules that pair the tool-call condition.
-
-    The schema holds them among its ``allOf`` rules, beside the attack-shape
-    pairing the shape validation owns.
-    """
-
-    return [
-        {key: rule[key] for key in ("if", "then", "else")}
-        for rule in schema["allOf"]
-        if "tool_call_condition" in rule["else"]["properties"]
-    ]
-
-
-def _validate_tool_call_status_reason(status: dict[str, Any]) -> None:
-    if (status["status"] == "bound") != (status["reason"] == "bound"):
-        raise InputSourceError(
-            "handoff tool_call_condition_status reason must be bound exactly when "
-            "the status is bound"
-        )
-
-
-def _validate_deduplication(value: Any) -> None:
-    """Validate producer duplicate metadata before authoring consumes it."""
-
-    if not isinstance(value, dict):
-        raise InputSourceError("handoff deduplication must be an object")
-    required = {"scenario_id", "status", "key"}
-    allowed = required | {"duplicate_of"}
-    if not required <= set(value) or not set(value) <= allowed:
-        raise InputSourceError("handoff deduplication fields are invalid")
-    if not isinstance(value["scenario_id"], str) or not value["scenario_id"].strip():
-        raise InputSourceError("handoff deduplication scenario_id is invalid")
-    status = value["status"]
-    if status not in {"canonical", "duplicate", "analytical_only"}:
-        raise InputSourceError("handoff deduplication status is invalid")
-    _validate_duplicate_of(status, value.get("duplicate_of"))
-    _validate_deduplication_key(value["key"])
-
-
-def _validate_duplicate_of(status: str, duplicate_of: Any) -> None:
-    if status == "duplicate":
-        if not isinstance(duplicate_of, str) or not duplicate_of.strip():
-            raise InputSourceError("duplicate handoff requires duplicate_of")
-    elif duplicate_of is not None:
-        raise InputSourceError("canonical and analytical-only handoffs must omit duplicate_of")
-
-
-def _validate_deduplication_key(key: Any) -> None:
-    key_required = {"uca_id", "control_action_id", "claim_level"}
-    key_optional = {"operation_name", "condition"}
-    # The producer omits null fields, so a key without an operation has no
-    # operation_name entry.
+            return path, (
+                "an analytical-only safe outcome must omit claim_level, evidence "
+                "and operation_name"
+            )
+        return None
     if (
-        not isinstance(key, dict)
-        or not key_required <= set(key)
-        or not set(key) <= key_required | key_optional
+        claim_level not in _SAFE_OUTCOME_EXPECTED_EVIDENCE
+        or value.get("evidence") != _SAFE_OUTCOME_EXPECTED_EVIDENCE[claim_level]
     ):
-        raise InputSourceError("handoff deduplication key is invalid")
-    _validate_deduplication_key_fields({"operation_name": None, "condition": None, **key})
+        return path, "claim_level and evidence do not match"
+    if operation_name is not None and not is_nonblank_str(operation_name):
+        return f"{path}.operation_name", "must not be blank"
+    return None
 
 
-def _validate_deduplication_key_fields(key: dict[str, Any]) -> None:
-    if key["condition"] is not None and not is_nonblank_str(key["condition"]):
-        raise InputSourceError("handoff deduplication condition is invalid")
-    if not all(is_nonblank_str(key[field]) for field in ("uca_id", "control_action_id")):
-        raise InputSourceError("handoff deduplication key identity is invalid")
-    if key["operation_name"] is not None and not is_nonblank_str(key["operation_name"]):
-        raise InputSourceError("handoff deduplication operation_name is invalid")
-    if key["claim_level"] not in {*CLAIM_LEVELS, "unknown"}:
-        raise InputSourceError("handoff deduplication claim_level is invalid")
+def _safe_outcome_refs(value: dict[str, Any], path: str) -> _Break:
+    for key in ("record_refs", "fact_refs"):
+        if key not in value:
+            return f"{path}.{key}", "is required"
+        refs = value[key]
+        for index, item in enumerate(refs):
+            if not item.strip():
+                return f"{path}.{key}.{index}", "must not be blank"
+        if len(refs) != len(set(refs)):
+            return f"{path}.{key}", "must be unique"
+    if not value["observable"] and (value["record_refs"] or value["fact_refs"]):
+        return path, "an analytical-only safe outcome must omit record and fact references"
+    return None
 
 
-def _ownership_violations(payload: dict[str, Any]) -> list[str]:
-    found: list[str] = []
+def _tool_call_status_reason(status: dict[str, Any], path: str) -> _Break:
+    if (status["status"] == "bound") != (status["reason"] == "bound"):
+        return path, "reason must be bound exactly when the status is bound"
+    return None
+
+
+def _deduplication(value: dict[str, Any], path: str) -> _Break:
+    if not value["scenario_id"].strip():
+        return f"{path}.scenario_id", "must not be blank"
+    duplicate_of = value.get("duplicate_of")
+    if value["status"] != "duplicate":
+        if duplicate_of is not None:
+            return path, "canonical and analytical-only handoffs must omit duplicate_of"
+    elif duplicate_of is None:
+        return path, "a duplicate requires duplicate_of"
+    elif not duplicate_of.strip():
+        return f"{path}.duplicate_of", "must not be blank"
+    key = value["key"]
+    for name in ("condition", "uca_id", "control_action_id", "operation_name"):
+        if key.get(name) is not None and not key[name].strip():
+            return f"{path}.key.{name}", "must not be blank"
+    return None
+
+
+_HAND_RULES: tuple[tuple[str, tuple[Any, ...]], ...] = (
+    *(
+        (key, (_nonblank_text,))
+        for key in (
+            "scenario_id",
+            "hypothesis_framing",
+            "narrative",
+            "semantic_failure_criterion",
+            "safe_alternative",
+        )
+    ),
+    ("observation", (_observation_contract, _observation_criteria, _observation_assessment)),
+    ("safe_observable_outcome", (_safe_outcome_claim, _safe_outcome_refs)),
+    ("deduplication", (_deduplication,)),
+    ("tool_call_condition_status", (_tool_call_status_reason,)),
+)
+
+
+def _ownership_violations(payload: dict[str, Any]) -> list[_Violation]:
+    found: dict[str, _Violation] = {}
     for path, text in _keys_and_strings(payload):
         leaf = path.rsplit(".", 1)[-1].lower()
-        codes = [f"artifact_design_field:{leaf}"] if leaf in _FORBIDDEN_KEYS else []
-        codes.extend(
-            f"prose_hiding:{slug}"
-            for slug, pattern in _FORBIDDEN_VALUE_PATTERNS
-            if pattern.search(text)
-        )
-        found.extend(code for code in codes if code not in found)
-    return found
+        where = path.lstrip(".")
+        if leaf in _FORBIDDEN_KEYS:
+            code = f"artifact_design_field:{leaf}"
+            found.setdefault(code, (code, where, "is an artifact-design field"))
+        for slug, pattern in _FORBIDDEN_VALUE_PATTERNS:
+            if pattern.search(text):
+                code = f"prose_hiding:{slug}"
+                found.setdefault(code, (code, where, f"matches the {slug} pattern"))
+    return list(found.values())
 
 
 def _keys_and_strings(value: Any, path: str = "") -> list[tuple[str, str]]:
@@ -715,6 +617,7 @@ def _render_handoff_gherkin(gherkin: dict[str, Any]) -> str:
 
 __all__ = [
     "build_scenario_handoff_view",
+    "HandoffSchemaInvalid",
     "InputKind",
     "InputSourceError",
     "InputView",
