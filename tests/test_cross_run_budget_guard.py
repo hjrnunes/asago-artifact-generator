@@ -4,24 +4,16 @@ import json
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
 
-from asago_artifact_generator import cli
 from asago_artifact_generator.authoring.core import MAX_AUTHORING_REQUESTS
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import (
     AuthoringBudget,
     AuthoringPolicy,
-    policy_role_limits,
 )
 
 from .support import (
-    HANDOFF,
     ScriptedAuthoringTransport,
-    fake_cli_authoring,
-    forbid_cli_transport,
-    profile_file,
-    target_inputs,
     world_builders,
 )
 
@@ -30,8 +22,7 @@ _inventory, _plan, _runtime_contract, _view = world_builders(
 )
 
 
-def test_prior_author_seed_stops_before_fourth_in_run_author_request(tmp_path: Path) -> None:
-    """Prior author spend leaves only three in-run author slots."""
+def test_author_limit_stops_before_the_fourth_author_request(tmp_path: Path) -> None:
 
     transport = ScriptedAuthoringTransport(
         [
@@ -44,11 +35,10 @@ def test_prior_author_seed_stops_before_fourth_in_run_author_request(tmp_path: P
 
     result = AuthoringOrchestrator(
         transport=transport,
-        package_dir=tmp_path / "prior-author-resume",
-        task_id="prior-author-resume",
+        package_dir=tmp_path / "author-limit",
+        task_id="author-limit",
+        budget=AuthoringBudget(author_limit=3),
         policy=AuthoringPolicy(),
-        prior_author_correction_spend=policy_role_limits(AuthoringPolicy())["author"] - 3,
-        prior_review_spend=0,
     ).run(_view(), _inventory(), _runtime_contract())
 
     assert result.status == "budget_exhausted"
@@ -68,21 +58,20 @@ def test_prior_author_seed_stops_before_fourth_in_run_author_request(tmp_path: P
     assert "author/correction" in result.findings[-1].detail
 
 
-_AUTHOR_CAP = policy_role_limits(AuthoringPolicy())["author"]
-_REVIEWER_CAP = policy_role_limits(AuthoringPolicy())["reviewer"]
-
-
 @pytest.mark.parametrize(
     ("orchestrator_options", "dispatched", "detail_fragment"),
     [
         pytest.param(
-            {"prior_author_correction_spend": _AUTHOR_CAP},
+            {"budget": AuthoringBudget(author_limit=0)},
             [],
             "author/correction",
-            id="author-spend-at-cap",
+            id="author-limit-zero",
         ),
         pytest.param(
-            {"prior_review_spend": _REVIEWER_CAP}, ["call1"], "review", id="review-spend-at-cap"
+            {"budget": AuthoringBudget(review_limit=0)},
+            ["call1"],
+            "review",
+            id="review-limit-zero",
         ),
         pytest.param(
             {
@@ -123,76 +112,6 @@ def test_exhausted_budget_stops_before_the_next_dispatch(
     assert [record["stage"] for record in result.ledger] == dispatched
     assert [finding.code for finding in result.findings] == ["budget_exhausted"]
     assert detail_fragment in result.findings[0].detail
-
-
-def test_author_cli_threads_prior_spend_to_orchestrator_without_provider_contact(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    target_profile, runtime_contract = target_inputs(tmp_path)
-    captured = fake_cli_authoring(monkeypatch)
-    profiles_file, _ = profile_file(tmp_path)
-
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "generate",
-            str(HANDOFF),
-            "--target-profile",
-            str(target_profile),
-            "--runtime-contract",
-            str(runtime_contract),
-            "--output-dir",
-            str(tmp_path / "output"),
-            "--profile",
-            "gemma4-oc",
-            "--profiles-file",
-            str(profiles_file),
-            "--prior-author-correction-spend",
-            "1",
-            "--prior-review-spend",
-            "2",
-        ],
-    )
-
-    assert result.exit_code == 1, result.output
-    assert captured.orchestrator["prior_author_correction_spend"] == 1
-    assert captured.orchestrator["prior_review_spend"] == 2
-
-
-def test_author_cli_rejects_negative_prior_spend_before_transport(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    target_profile, runtime_contract = target_inputs(tmp_path)
-    transport = forbid_cli_transport(monkeypatch)
-    profiles_file, _ = profile_file(tmp_path)
-
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "generate",
-            str(HANDOFF),
-            "--target-profile",
-            str(target_profile),
-            "--runtime-contract",
-            str(runtime_contract),
-            "--output-dir",
-            str(tmp_path / "output"),
-            "--profile",
-            "gemma4-oc",
-            "--profiles-file",
-            str(profiles_file),
-            "--prior-author-correction-spend",
-            "-1",
-            "--prior-review-spend",
-            "0",
-        ],
-    )
-
-    assert result.exit_code == 2
-    assert "nonnegative integer" in result.output
-    assert transport.constructed is False
 
 
 def test_budget_rejects_malformed_dispatch_counters() -> None:

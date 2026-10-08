@@ -89,7 +89,6 @@ from .policy import (
     AuthoringBudget,
     AuthoringPolicy,
     AuthoringResult,
-    _validate_nonnegative_integer,
     policy_max_dispatches,
     policy_role_limits,
 )
@@ -298,8 +297,6 @@ class AuthoringOrchestrator:
         package_dir: str | Path,
         task_id: str,
         budget: AuthoringBudget | None = None,
-        prior_author_correction_spend: int = 0,
-        prior_review_spend: int = 0,
         policy: AuthoringPolicy,
         discovery_provenance: dict[str, Any] | None = None,
     ) -> None:
@@ -315,17 +312,6 @@ class AuthoringOrchestrator:
         self._base_review_controls = self._build_base_review_controls()
         if budget is None:
             budget = _default_budget(policy)
-        _validate_nonnegative_integer(
-            "prior_author_correction_spend",
-            prior_author_correction_spend,
-        )
-        _validate_nonnegative_integer("prior_review_spend", prior_review_spend)
-        if prior_author_correction_spend or prior_review_spend:
-            budget.seed_prior_spend(
-                task_id=task_id,
-                prior_author_correction_spend=prior_author_correction_spend,
-                prior_review_spend=prior_review_spend,
-            )
         self.budget = budget
         self._journal = AuthoringJournal(task_id, self.package_dir)
         self._journal.append(BudgetRecorded(self.budget.snapshot(self.task_id)))
