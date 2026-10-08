@@ -34,68 +34,8 @@ _HANDOFF_CONDITION_FIELDS = (
     "condition_omitted_reason",
 )
 _HANDOFF_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "scenario-handoff"
-# The ownership rules below follow the producer's handoff_ownership_violations;
-# the vendored kit's invalid cases fail when the two drift apart.
-_FORBIDDEN_KEYS = frozenset(
-    {
-        "prepared_user_text",
-        "stimulus_turns",
-        "turns",
-        "turn",
-        "role",
-        "roles",
-        "delivery",
-        "delivery_class",
-        "delivery_route",
-        "route",
-        "execution_route",
-        "oracle",
-        "oracle_kind",
-        "oracle_observes",
-        "oracle_basis",
-        "detector",
-        "judge",
-        "judge_prompt",
-        "prompt",
-        "prompts",
-        "setup",
-        "execution_setup",
-        "execution_contract",
-        "projection",
-        "bundle",
-        "payload",
-        "messages",
-        "message",
-        "replay",
-        "unsafe_outcome_condition",
-        "operands",
-        "reference_tool",
-        "reference_argument",
-        "applies_when",
-        "trigger_evidence",
-    }
-)
-_FORBIDDEN_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    (
-        "role_serialization",
-        re.compile(r"\broles?\s*\"?\s*:\s*\"?(user|assistant|system)\b", re.I),
-    ),
-    ("turn_array", re.compile(r"\bturns?\s*\"?\s*:", re.I)),
-    ("prepared_message_field", re.compile(r"prepared_user_text", re.I)),
-    (
-        "detector_expression",
-        re.compile(r"\bgreater_than\b|\bless_than\b|\bamount\s*[<>=]", re.I),
-    ),
-    (
-        "ready_to_send_instruction",
-        re.compile(
-            r"\bsend this message\b|\bdeliver this message\b|"
-            r"\bexecute the following\b|\bsystem prompt is\b",
-            re.I,
-        ),
-    ),
-    ("judge_prompt", re.compile(r"\bjudge prompt\b", re.I)),
-)
+_REGEX_FLAGS = {"IGNORECASE": re.IGNORECASE}
+_OwnershipRules = tuple[frozenset[str], tuple[tuple[str, re.Pattern[str]], ...]]
 
 
 class InputKind(StrEnum):
@@ -570,15 +510,38 @@ _HAND_RULES: tuple[tuple[str, tuple[Any, ...]], ...] = (
 )
 
 
+def _ownership_rules() -> _OwnershipRules:
+    """Return the producer's ownership rules from the mirrored, lock-checked kit."""
+
+    return _read_ownership_rules(_HANDOFF_ROOT / "ownership-rules.json")
+
+
+def _read_ownership_rules(path: Path) -> _OwnershipRules:
+    rules = load_json_file(path, InputSourceError, "cannot read vendored ownership rules")
+    patterns = []
+    for entry in rules["forbidden_value_patterns"]:
+        unknown = sorted(set(entry["flags"]) - _REGEX_FLAGS.keys())
+        if unknown:
+            raise InputSourceError(
+                f"vendored ownership rule {entry['code']} has unknown flags: {unknown}"
+            )
+        flags = 0
+        for name in entry["flags"]:
+            flags |= _REGEX_FLAGS[name]
+        patterns.append((entry["code"], re.compile(entry["pattern"], flags)))
+    return frozenset(rules["forbidden_keys"]), tuple(patterns)
+
+
 def _ownership_violations(payload: dict[str, Any]) -> list[_Violation]:
+    forbidden_keys, forbidden_patterns = _ownership_rules()
     found: dict[str, _Violation] = {}
     for path, text in _keys_and_strings(payload):
         leaf = path.rsplit(".", 1)[-1].lower()
         where = path.lstrip(".")
-        if leaf in _FORBIDDEN_KEYS:
+        if leaf in forbidden_keys:
             code = f"artifact_design_field:{leaf}"
             found.setdefault(code, (code, where, "is an artifact-design field"))
-        for slug, pattern in _FORBIDDEN_VALUE_PATTERNS:
+        for slug, pattern in forbidden_patterns:
             if pattern.search(text):
                 code = f"prose_hiding:{slug}"
                 found.setdefault(code, (code, where, f"matches the {slug} pattern"))
