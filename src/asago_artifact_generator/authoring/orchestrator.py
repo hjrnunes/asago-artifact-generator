@@ -412,50 +412,16 @@ class AuthoringOrchestrator:
         and journal events; both are part of the failure evidence.
         """
 
-        checks_not_run = self._checks_skipped(_correction_checks_not_run(author_stage))
         try:
             decoded, transformation = _decode_stage_response(author_stage, raw)
-        except FramingError as exc:
-            findings = [_staged(finding) for finding in exc.findings]
-            self._reject(
-                findings,
-                LedgerFindingsRecorded("framing_findings", tuple(findings)),
-                checks_not_run,
-            )
+        except (FramingError, UnicodeDecodeError) as exc:
+            findings = self._reject_undecodable(exc, author_stage, correction=correction)
             return None if correction else (None, findings)
-        except UnicodeDecodeError as exc:
-            if correction:
-                finding = _staged(Finding("correction_failed", str(exc), author_stage))
-                self._reject(
-                    [finding],
-                    LedgerFindingsRecorded("findings", (finding,)),
-                    ParseFailed(str(exc)),
-                    checks_not_run,
-                )
-                return None
-            finding = _staged(Finding("response_parse_error", str(exc), author_stage))
-            self._reject([finding], ParseFailed(str(exc)), checks_not_run)
-            return None, [finding]
         if transformation:
             self._record_transformation(transformation)
-        secret = _secret_in(decoded)
-        if correction:
-            if secret is not None:
-                finding = _staged(Finding("correction_failed", secret, author_stage))
-                self._reject([finding], LedgerFindingsRecorded("findings", (finding,)))
-                return None
-            self._decoded_responses[f"correction-{author_stage}"] = decoded
-            self._journal.append(DecodedOutputRecorded(decoded, on_ledger=False))
-            self._record_candidate_digest(decoded)
-            self._journal.flush()
-        else:
-            self._decoded_responses[author_stage] = decoded
-            self._journal.append(DecodedOutputRecorded(decoded, on_ledger=True))
-            self._record_candidate_digest(decoded)
-            if secret is not None:
-                finding = _staged(Finding("secret_in_response", secret, author_stage))
-                self._reject([finding])
-                return None, [finding]
+        secret = self._record_decoded(decoded, author_stage, correction=correction)
+        if secret is not None:
+            return None if correction else (None, [secret])
         transformation_count = len(self._transformations)
         findings = checks(decoded)
         self._record_validation_transformations(transformation_count)
@@ -465,6 +431,62 @@ class AuthoringOrchestrator:
         self._journal.append(ValidationPassed())
         self._journal.flush()
         return decoded, []
+
+    def _reject_undecodable(
+        self, exc: FramingError | UnicodeDecodeError, author_stage: str, *, correction: bool
+    ) -> list[Finding]:
+        """Record a response that did not decode and return its findings."""
+
+        checks_not_run = self._checks_skipped(_correction_checks_not_run(author_stage))
+        if isinstance(exc, FramingError):
+            findings = [_staged(finding) for finding in exc.findings]
+            self._reject(
+                findings,
+                LedgerFindingsRecorded("framing_findings", tuple(findings)),
+                checks_not_run,
+            )
+            return findings
+        if correction:
+            finding = _staged(Finding("correction_failed", str(exc), author_stage))
+            self._reject(
+                [finding],
+                LedgerFindingsRecorded("findings", (finding,)),
+                ParseFailed(str(exc)),
+                checks_not_run,
+            )
+            return [finding]
+        finding = _staged(Finding("response_parse_error", str(exc), author_stage))
+        self._reject([finding], ParseFailed(str(exc)), checks_not_run)
+        return [finding]
+
+    def _record_decoded(
+        self, decoded: dict[str, Any], author_stage: str, *, correction: bool
+    ) -> Finding | None:
+        """Record a decoded response; return the finding that rejects it for a secret.
+
+        A correction is rejected before its decoded output is recorded; an
+        author response after.
+        """
+
+        secret = _secret_in(decoded)
+        if correction:
+            if secret is not None:
+                finding = _staged(Finding("correction_failed", secret, author_stage))
+                self._reject([finding], LedgerFindingsRecorded("findings", (finding,)))
+                return finding
+            self._decoded_responses[f"correction-{author_stage}"] = decoded
+            self._journal.append(DecodedOutputRecorded(decoded, on_ledger=False))
+            self._record_candidate_digest(decoded)
+            self._journal.flush()
+            return None
+        self._decoded_responses[author_stage] = decoded
+        self._journal.append(DecodedOutputRecorded(decoded, on_ledger=True))
+        self._record_candidate_digest(decoded)
+        if secret is None:
+            return None
+        finding = _staged(Finding("secret_in_response", secret, author_stage))
+        self._reject([finding])
+        return finding
 
     def _reject(self, findings: list[Finding], *events: Any) -> None:
         """Record the findings that reject a response, after the events that explain them."""
