@@ -506,6 +506,21 @@ def _proxy_call(line: str) -> dict[str, Any]:
     return {**fields, "turn_index": _count(call.get("turn_index"))}
 
 
+def _envelope_texts(result: Any) -> list[str] | None:
+    """Return the text blocks of an MCP tool result, or None for any other value."""
+
+    content = result.get("content") if isinstance(result, dict) else None
+    if not isinstance(content, list):
+        return None
+    return [
+        block["text"]
+        for block in content
+        if isinstance(block, dict)
+        and block.get("type") == "text"
+        and isinstance(block.get("text"), str)
+    ]
+
+
 def _decoded_result(result: Any) -> tuple[Any, str | None]:
     """Return the ``(result, error)`` the proxy's recorded tool result stands for.
 
@@ -517,16 +532,9 @@ def _decoded_result(result: Any) -> tuple[Any, str | None]:
     recorded; ``structuredContent`` is never read.
     """
 
-    content = result.get("content") if isinstance(result, dict) else None
-    if not isinstance(content, list):
+    texts = _envelope_texts(result)
+    if texts is None:
         return result, None
-    texts = [
-        block["text"]
-        for block in content
-        if isinstance(block, dict)
-        and block.get("type") == "text"
-        and isinstance(block.get("text"), str)
-    ]
     if result.get("isError") is True:
         return None, "\n".join(texts) or "isError"
     if not texts:
