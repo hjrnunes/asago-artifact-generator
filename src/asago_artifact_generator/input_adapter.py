@@ -20,6 +20,8 @@ from .contract_kit import (
     canonical_json,
     first_schema_error,
     framed_digest,
+    load_json_file,
+    parse_document,
     sha256_hex,
     verify_contract_lock,
 )
@@ -240,9 +242,7 @@ def _read_source(path: Path) -> bytes:
 
 def _parse_document(path: Path, source_bytes: bytes) -> Any:
     try:
-        if path.suffix.lower() == ".json":
-            return json.loads(source_bytes)
-        return yaml.safe_load(source_bytes)
+        return parse_document(path, source_bytes)
     except (json.JSONDecodeError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise InputSourceError(f"cannot parse input source {path}: {exc}") from exc
 
@@ -316,11 +316,9 @@ def _validate_handoff_kit() -> None:
 
 def _handoff_schema(version: str = _HANDOFF_SCHEMA_VERSION) -> dict[str, Any]:
     kit = version.removeprefix("scenario-")
-    schema_path = _HANDOFF_ROOT / kit / "schema.json"
-    try:
-        return json.loads(schema_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise InputSourceError(f"cannot read vendored {kit} schema: {exc}") from exc
+    return load_json_file(
+        _HANDOFF_ROOT / kit / "schema.json", InputSourceError, f"cannot read vendored {kit} schema"
+    )
 
 
 def _validate_handoff_payload(

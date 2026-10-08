@@ -14,6 +14,7 @@ from .contract_kit import (
     ClaimLevel,
     canonical_json,
     first_schema_error,
+    load_json_file,
     sha256_hex,
     verify_contract_lock,
 )
@@ -375,11 +376,11 @@ def _manifest_from_dict(value: Any) -> PackageManifest:
 
 
 def _manifest_schema(version: str = PACKAGE_SCHEMA_VERSION) -> dict[str, Any]:
-    schema_path = _CONTRACT_ROOT / version / "schema.json"
-    try:
-        return json.loads(schema_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise PackageIntegrityError(f"cannot read artifact package schema: {exc}") from exc
+    return load_json_file(
+        _CONTRACT_ROOT / version / "schema.json",
+        PackageIntegrityError,
+        "cannot read artifact package schema",
+    )
 
 
 def _validate_manifest_fields(manifest: PackageManifest) -> None:

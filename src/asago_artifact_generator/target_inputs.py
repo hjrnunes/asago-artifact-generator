@@ -18,6 +18,8 @@ from .contract_kit import (
     canonical_json,
     first_schema_error,
     framed_digest,
+    load_json_file,
+    parse_document,
     sha256_hex,
     verify_contract_lock,
 )
@@ -450,12 +452,13 @@ def _validate_profile_contract(profile: Any) -> None:
     if not isinstance(profile, dict):
         raise TargetInputError("target profile must be an object")
     contract_root = _validate_contract_lock()
-    schema_path = contract_root / "target-profile-v1" / "schema.json"
+    schema = load_json_file(
+        contract_root / "target-profile-v1" / "schema.json",
+        TargetInputError,
+        "cannot validate target profile contract",
+    )
     try:
-        schema = json.loads(schema_path.read_text(encoding="utf-8"))
         error = first_schema_error(schema, profile)
-    except (OSError, json.JSONDecodeError) as exc:
-        raise TargetInputError(f"cannot validate target profile contract: {exc}") from exc
     except Exception as exc:  # noqa: BLE001 - normalize validator failures
         raise TargetInputError(f"cannot validate target profile contract: {exc}") from exc
     if error is not None:
@@ -508,10 +511,7 @@ def _validate_profile_digest(profile: dict[str, Any]) -> None:
 
 def _parse_document(path: Path, content: bytes, label: str) -> dict[str, Any]:
     try:
-        if path.suffix.lower() == ".json":
-            value = json.loads(content, parse_constant=_reject_non_json_number)
-        else:
-            value = yaml.safe_load(content)
+        value = parse_document(path, content, parse_constant=_reject_non_json_number)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, yaml.YAMLError, ValueError) as exc:
         raise TargetInputError(f"cannot parse {label} {path}: {exc}") from exc
     if not isinstance(value, dict):

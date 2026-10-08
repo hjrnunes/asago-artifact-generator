@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import unicodedata
+from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+import yaml
 from jsonschema import Draft202012Validator
 
 
@@ -62,6 +64,28 @@ def first_schema_error(schema: dict[str, Any], value: Any) -> str | None:
     return f"at {location}: {errors[0].message}"
 
 
+def load_json_file(path: Path, error: type[Exception], message: str) -> Any:
+    """Read one JSON file; a read or parse failure raises ``error("<message>: <cause>")``."""
+
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise error(f"{message}: {exc}") from exc
+
+
+def parse_document(
+    path: Path, content: bytes | str, *, parse_constant: Callable[[str], Any] | None = None
+) -> Any:
+    """Parse ``content`` as JSON when ``path`` ends in .json, otherwise as YAML.
+
+    Callers translate the parser's exceptions into their own error types.
+    """
+
+    if path.suffix.lower() == ".json":
+        return json.loads(content, parse_constant=parse_constant)
+    return yaml.safe_load(content)
+
+
 def verify_contract_lock(
     root: Path,
     error: type[Exception],
@@ -77,10 +101,7 @@ def verify_contract_lock(
     reader keeps its own exception type and wording.
     """
 
-    try:
-        lock = json.loads((root / "CONTRACT.lock").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise error(f"cannot read {lock_label}: {exc}") from exc
+    lock = load_json_file(root / "CONTRACT.lock", error, f"cannot read {lock_label}")
     if any(lock.get(key) != value for key, value in metadata.items()):
         raise error(metadata_message)
     for relative, expected in lock.get("files", {}).items():

@@ -17,8 +17,6 @@ import json
 import sys
 from pathlib import Path
 
-import yaml
-
 from asago_artifact_generator.authoring.context_budget import _context_budget_estimate
 from asago_artifact_generator.authoring.core import (
     _CONTEXT_FRAMING_TOKEN_RESERVE,
@@ -26,12 +24,13 @@ from asago_artifact_generator.authoring.core import (
     AUTHORING_MAX_COMPLETION_TOKENS,
 )
 from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
+from asago_artifact_generator.contract_kit import parse_document
 from asago_artifact_generator.input_adapter import load_input
 from asago_artifact_generator.target_inputs import load_target_inputs
 
 
 def _load_mapping(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    return parse_document(path, path.read_bytes())
 
 
 def _section_sizes(user: str) -> list[tuple[str, int]]:

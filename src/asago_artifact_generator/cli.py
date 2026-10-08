@@ -21,6 +21,7 @@ from .authoring.core import (
 from .authoring.orchestrator import AuthoringOrchestrator
 from .authoring.policy import AuthoringBudget, AuthoringPolicy, AuthoringResult
 from .authoring.transport import PrivateModelAuthoringTransport
+from .contract_kit import parse_document
 from .input_adapter import InputSourceError, load_input
 from .profiles import AuthoringProfile, ProfileLoadError, load_authoring_profile
 from .target_inputs import TargetInputError, load_target_inputs
@@ -278,11 +279,7 @@ def _report_result(result: AuthoringResult) -> None:
 
 def _load_mapping(path: Path, label: str) -> dict:
     try:
-        document = (
-            json.loads(path.read_text(encoding="utf-8"))
-            if path.suffix.lower() == ".json"
-            else yaml.safe_load(path.read_text(encoding="utf-8"))
-        )
+        document = parse_document(path, path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, yaml.YAMLError) as exc:
         raise typer.BadParameter(f"cannot read {label}: {exc}", param_hint=str(path)) from exc
     if not isinstance(document, dict):
