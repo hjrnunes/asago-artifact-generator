@@ -509,7 +509,8 @@ operations, infer fact schemas, and record discovery provenance. When you
 supply a `runtime-context.json`, the loader checks it against the mirrored
 orch-owned `contracts/runtime-context/` schema (`runtime-context-v1`) and
 reports the first fault as `at <location>: <keyword>` without repeating the
-value. Three checks stay in code because they compare documents: each read's
+value. A missing-key fault lists the missing keys, and an unknown-key fault
+lists the unknown keys (sorted, at most 10, each cut to 64 characters). Three checks stay in code because they compare documents: each read's
 `profile_digest` equals the file's `target_profile_digest`, each read's
 `tool_name` is a profile tool, and that digest equals the profile's
 `semantic_digest`. Authoring does not accept native semantic scenario files, reference tasks, benchmark

@@ -358,7 +358,26 @@ _SCHEMA_INVALID = "target observations schema invalid "
 @pytest.mark.parametrize(
     ("mutate", "fault"),
     [
-        (lambda o: o.update(bogus=1, extra=2), "at <root>: additionalProperties"),
+        (
+            lambda o: o.update(extra=2, bogus=1),
+            "at <root>: additionalProperties (bogus, extra)",
+        ),
+        (
+            lambda o: o.update({"k" * 70: 1}),
+            f"at <root>: additionalProperties ({'k' * 64}...)",
+        ),
+        (
+            lambda o: o.update({f"key-{n:02d}": n for n in range(12)}),
+            "at <root>: additionalProperties ("
+            + ", ".join(f"key-{n:02d}" for n in range(10))
+            + " (+2 more))",
+        ),
+        (
+            lambda o: o.update({f"key-{n:02d}": n for n in range(10)}),
+            "at <root>: additionalProperties ("
+            + ", ".join(f"key-{n:02d}" for n in range(10))
+            + ")",
+        ),
         (lambda o: o.update(target_profile_digest="abc"), "at target_profile_digest: pattern"),
         (lambda o: o.update(state=[]), "at state: type"),
         (lambda o: o.update(read_observations={}), "at read_observations: type"),

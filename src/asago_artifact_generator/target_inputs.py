@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError
 
 from .contract_kit import (
     canonical_json,
@@ -29,6 +30,8 @@ from .value_checks import SHA256_HEX_LENGTH
 _CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "target-profile"
 _RUNTIME_CONTEXT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "runtime-context"
 _RUNTIME_CONTEXT_VERSION = "runtime-context-v1"
+_MAX_FAULT_KEYS = 10
+_MAX_FAULT_KEY_CHARS = 64
 _PROFILE_SCHEMA_VERSION = "execution-target-profile-v1"
 _PROFILE_DIGEST_DOMAIN = _PROFILE_SCHEMA_VERSION
 
@@ -396,7 +399,8 @@ def _first_schema_fault(schema: dict[str, Any], value: Any) -> str | None:
 
     A runtime-context file holds up to 15 captured tool results, so the fault
     omits jsonschema's message, which repeats the offending value in full. A
-    ``required`` fault lists the missing keys from the schema.
+    ``required`` fault lists the missing keys from the schema; an
+    ``additionalProperties`` fault lists the unknown keys.
     """
 
     faults = sorted(
@@ -407,11 +411,24 @@ def _first_schema_fault(schema: dict[str, Any], value: Any) -> str | None:
         return None
     first = faults[0]
     location = ".".join(str(part) for part in first.path) or "<root>"
-    detail = first.validator
-    if first.validator == "required":
-        missing = [key for key in first.validator_value if key not in first.instance]
-        detail = f"required ({', '.join(missing)})"
-    return f"at {location}: {detail}"
+    return f"at {location}: {_fault_detail(first)}"
+
+
+def _fault_detail(fault: ValidationError) -> str:
+    if fault.validator == "required":
+        missing = [key for key in fault.validator_value if key not in fault.instance]
+        return f"required ({', '.join(missing)})"
+    if fault.validator == "additionalProperties":
+        unknown = sorted(key for key in fault.instance if key not in fault.schema["properties"])
+        names = ", ".join(_bounded_key(key) for key in unknown[:_MAX_FAULT_KEYS])
+        if len(unknown) > _MAX_FAULT_KEYS:
+            names += f" (+{len(unknown) - _MAX_FAULT_KEYS} more)"
+        return f"additionalProperties ({names})"
+    return fault.validator
+
+
+def _bounded_key(key: str) -> str:
+    return key if len(key) <= _MAX_FAULT_KEY_CHARS else key[:_MAX_FAULT_KEY_CHARS] + "..."
 
 
 def _validate_profile_contract(profile: Any) -> None:

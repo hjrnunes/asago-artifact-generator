@@ -80,6 +80,17 @@ def test_the_fault_text_never_echoes_the_instance() -> None:
     assert len(fault) < 500
 
 
+def test_unknown_keys_are_named_within_a_bounded_message() -> None:
+    document = {"state": {}, "target_profile_digest": "a" * 64}
+    document.update({f"{n:04d}-" + "x" * 5000: "y" * 5000 for n in range(1000)})
+
+    fault = _first_schema_fault(_schema(), document)
+
+    assert fault is not None
+    assert fault.endswith(" (+990 more))")
+    assert len(fault) < 10 * (64 + 3 + 2) + 100
+
+
 def test_a_missing_key_is_named_from_the_schema_not_the_instance() -> None:
     fault = _first_schema_fault(
         _schema(), {"state": {}, "target_profile_digest": "a" * 64, "read_observations": [{}]}
