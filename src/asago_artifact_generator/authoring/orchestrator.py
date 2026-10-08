@@ -116,7 +116,11 @@ from .review import (
     build_plan_review_packet,
     parse_review_response,
 )
-from .sequential_turns import sequential_artifact_findings, sequential_plan_findings
+from .sequential_turns import (
+    multi_turn_payload,
+    sequential_artifact_findings,
+    sequential_plan_findings,
+)
 from .shape_gate import shape_refusal_findings
 
 CRASH_FINDING_CODE = "authoring_crashed"
@@ -738,7 +742,11 @@ class AuthoringOrchestrator:
         """Render the correction prompt; record a preflight failure and return None."""
 
         original_context = (
-            build_plan_author_context(view, inventory, runtime_contract)
+            {
+                **build_plan_author_context(view, inventory, runtime_contract),
+                # The correction reads the turn count and delivery from this block.
+                **multi_turn_payload(view, runtime_contract),
+            }
             if failed_stage == "call1"
             else build_artifact_author_context(
                 view,

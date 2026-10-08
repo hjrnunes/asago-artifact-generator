@@ -17,6 +17,7 @@ from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
     build_correction_context,
 )
+from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
 from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
@@ -35,7 +36,8 @@ from asago_artifact_generator.authoring.sequential_turns import (
 )
 from asago_artifact_generator.input_adapter import InputView
 
-from .support import json_section, rendered_response_contract, world
+from .policy_support import ONE_PLAN_CORRECTION
+from .support import ScriptedAuthoringTransport, json_section, rendered_response_contract, world
 from .turn_support import (
     EARLIER,
     PURPOSES,
@@ -306,3 +308,44 @@ def test_a_plan_correction_keeps_the_rule_block_and_the_contract_of_its_turn_cou
         "delivery"
     ]["enum"]
     assert (enum == [SEQUENTIAL_DELIVERY]) == (turns > 1)
+
+
+def _first_correction_payload(tmp_path: Path, turns: int) -> dict[str, Any]:
+    """Run the orchestrator on an empty plan and return its first correction request."""
+
+    refund = world("refund")
+    transport = ScriptedAuthoringTransport([b"{}", b"{}"])
+    AuthoringOrchestrator(
+        transport=transport,
+        package_dir=tmp_path / "package",
+        task_id="correction",
+        policy=ONE_PLAN_CORRECTION,
+    ).run(
+        v4_view(tmp_path, turns),
+        refund["inventory"],
+        sequential_runtime(refund["runtime_contract"]),
+    )
+    (correction,) = [r for r in transport.requests if r["stage"] == "correction"]
+    return correction
+
+
+@pytest.mark.parametrize("turns", [2, 3])
+def test_the_orchestrator_sends_a_multi_turn_plan_correction_the_rule_block_and_delivery(
+    tmp_path: Path, turns: int
+) -> None:
+    correction = _first_correction_payload(tmp_path, turns)
+
+    assert correction["payload"]["original_context"]["multi_turn_shape"]["turn_count"] == turns
+    assert "multi_turn_shape" in correction["user"]
+    contract = correction["payload"]["response_contract"]
+    enum = contract["schema"]["properties"]["stimulus_approach"]["properties"]["delivery"]["enum"]
+    assert enum == [SEQUENTIAL_DELIVERY]
+
+
+def test_the_orchestrator_leaves_a_one_turn_plan_correction_without_the_block(
+    tmp_path: Path,
+) -> None:
+    correction = _first_correction_payload(tmp_path, 1)
+
+    assert "multi_turn_shape" not in correction["user"]
+    assert "multi_turn_shape" not in correction["payload"]["original_context"]
