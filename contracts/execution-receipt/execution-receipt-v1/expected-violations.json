@@ -1,0 +1,62 @@
+{
+  "invalid/blank-tool-id.json": {
+    "path": "/tool/id",
+    "keyword": "minLength"
+  },
+  "invalid/matched-call-not-an-index.json": {
+    "path": "/attempts/0/detections/0/matched_calls/0",
+    "keyword": "type"
+  },
+  "invalid/missing-attempts.json": {
+    "path": "/",
+    "keyword": "required"
+  },
+  "invalid/native-path-escapes.json": {
+    "path": "/native/0/path",
+    "keyword": "pattern"
+  },
+  "invalid/negative-request-count.json": {
+    "path": "/attempts/0/generation/request_count",
+    "keyword": "minimum"
+  },
+  "invalid/runtime-without-source.json": {
+    "path": "/attempts/0/runtime_observations",
+    "keyword": "required"
+  },
+  "invalid/schema-version-v0.json": {
+    "path": "/schema_version",
+    "keyword": "const"
+  },
+  "invalid/tool-call-without-turn-index.json": {
+    "path": "/attempts/0/observation/tool_calls/0",
+    "keyword": "required"
+  },
+  "invalid/turn-without-request-messages.json": {
+    "path": "/attempts/0/turns/0/request/messages",
+    "keyword": "minItems"
+  },
+  "invalid/unknown-execution-status.json": {
+    "path": "/execution_status",
+    "keyword": "enum"
+  },
+  "invalid/unknown-field.json": {
+    "path": "/",
+    "keyword": "additionalProperties"
+  },
+  "invalid/unknown-observation-source.json": {
+    "path": "/attempts/0/observation/source",
+    "keyword": "enum"
+  },
+  "invalid/unknown-outcome.json": {
+    "path": "/attempts/0/result/outcome",
+    "keyword": "enum"
+  },
+  "invalid/unknown-target-mode.json": {
+    "path": "/target/mode",
+    "keyword": "enum"
+  },
+  "invalid/uppercase-package-digest.json": {
+    "path": "/package/digest",
+    "keyword": "pattern"
+  }
+}

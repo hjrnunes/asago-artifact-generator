@@ -1,0 +1,32 @@
+{
+  "schema_version": "execution-receipt-v1",
+  "tool": {
+    "id": "garak",
+    "revision": "1c2918aedb737d1aed19300d26fe63a7f7acd83f",
+    "adapter_revision": null
+  },
+  "package": {
+    "id": "SCN-001",
+    "digest": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "bundle_digest": null,
+  "target": {
+    "mode": "orch_hosted",
+    "image_digest": null,
+    "policy_digest": null,
+    "sandbox_id": null
+  },
+  "execution_status": "completed",
+  "runtime_status": "completed",
+  "incomplete_reason": null,
+  "native": [
+    {
+      "path": "generation_capture/garak-protocol.json",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "path": "generation_capture/garak.log",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    }
+  ]
+}

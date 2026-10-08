@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asago.local/contracts/execution-receipt/execution-receipt-v1.schema.json",
+  "title": "execution-receipt-v1",
+  "description": "What one tool observed when it executed one authored package against one target. Orch writes it beside the tool's native receipt and score reads it. One attempt per repeat; each attempt records its turns (requests and responses), its observation and where that evidence came from, its runtime observations, its detections, and its judge.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tool",
+    "package",
+    "bundle_digest",
+    "target",
+    "execution_status",
+    "runtime_status",
+    "incomplete_reason",
+    "attempts",
+    "native"
+  ],
+  "properties": {
+    "schema_version": {"const": "execution-receipt-v1"},
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision", "adapter_revision"],
+      "properties": {
+        "id": {"$ref": "#/$defs/name"},
+        "revision": {"$ref": "#/$defs/optional_text"},
+        "adapter_revision": {"$ref": "#/$defs/optional_text"}
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "digest"],
+      "properties": {
+        "id": {"$ref": "#/$defs/name"},
+        "digest": {"$ref": "#/$defs/optional_sha256"}
+      }
+    },
+    "bundle_digest": {"$ref": "#/$defs/optional_sha256"},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "image_digest", "policy_digest", "sandbox_id"],
+      "properties": {
+        "mode": {"enum": ["orch_hosted", "tool_hosted"]},
+        "image_digest": {"$ref": "#/$defs/optional_sha256"},
+        "policy_digest": {"$ref": "#/$defs/optional_sha256"},
+        "sandbox_id": {"$ref": "#/$defs/optional_text"}
+      }
+    },
+    "execution_status": {"enum": ["completed", "failed", "incomplete"]},
+    "runtime_status": {
+      "description": "Whether the target runtime started and finished: not_started means the tool never reached the target.",
+      "enum": ["completed", "failed", "not_started", null]
+    },
+    "incomplete_reason": {"$ref": "#/$defs/optional_text"},
+    "attempts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/attempt"}
+    },
+    "native": {
+      "description": "The tool's own output files, relative to the package's execute output directory.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {"$ref": "#/$defs/relative_path"},
+          "sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "name": {"type": "string", "minLength": 1},
+    "optional_text": {"type": ["string", "null"], "minLength": 1},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "optional_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "count": {"type": "integer", "minimum": 0},
+    "optional_count": {"type": ["integer", "null"], "minimum": 0},
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
+    },
+    "outcome": {"enum": ["detected", "not_detected", "inconclusive", null]},
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "content"],
+      "properties": {
+        "role": {"enum": ["user", "assistant", "system", "developer"]},
+        "content": {"type": "string"}
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "generation",
+        "turns",
+        "result",
+        "observation",
+        "runtime_observations",
+        "detections",
+        "judge"
+      ],
+      "properties": {
+        "index": {"$ref": "#/$defs/count"},
+        "generation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request_count", "response_status", "error_type"],
+          "properties": {
+            "request_count": {"$ref": "#/$defs/optional_count"},
+            "response_status": {"$ref": "#/$defs/optional_text"},
+            "error_type": {"$ref": "#/$defs/optional_text"}
+          }
+        },
+        "turns": {
+          "description": "One entry per request the tool sent to the target, in order: a single-turn package has one; a sequential package has one per user turn.",
+          "type": "array",
+          "items": {"$ref": "#/$defs/turn"}
+        },
+        "result": {
+          "description": "The attempt's measured outcome at the package's claim level.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "claim_level", "reason"],
+          "properties": {
+            "outcome": {"$ref": "#/$defs/outcome"},
+            "claim_level": {
+              "enum": ["command_attempt", "reply", "state_effect", null]
+            },
+            "reason": {"$ref": "#/$defs/optional_text"}
+          }
+        },
+        "observation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "assistant_messages", "tool_calls"],
+          "properties": {
+            "source": {
+              "enum": ["mcp_recording_proxy", "tool_native", "openshell_events"]
+            },
+            "assistant_messages": {
+              "type": "array",
+              "items": {"type": "string"}
+            },
+            "tool_calls": {
+              "description": "Captured target tool calls in call order; detections name them by index.",
+              "type": "array",
+              "items": {"$ref": "#/$defs/tool_call"}
+            }
+          }
+        },
+        "runtime_observations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "processes",
+            "network_calls_allowed",
+            "network_calls_blocked",
+            "files_created",
+            "files_modified",
+            "files_deleted",
+            "security_findings"
+          ],
+          "properties": {
+            "source": {"enum": ["openshell", null]},
+            "processes": {"type": "array"},
+            "network_calls_allowed": {"type": "array"},
+            "network_calls_blocked": {"type": "array"},
+            "files_created": {"type": "array"},
+            "files_modified": {"type": "array"},
+            "files_deleted": {"type": "array"},
+            "security_findings": {"type": "array"}
+          }
+        },
+        "detections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["detector", "outcome", "reason", "matched_calls"],
+            "properties": {
+              "detector": {"$ref": "#/$defs/name"},
+              "outcome": {"$ref": "#/$defs/outcome"},
+              "reason": {"$ref": "#/$defs/optional_text"},
+              "matched_calls": {
+                "description": "Indices into observation.tool_calls of the offending calls; null when the detector names none.",
+                "type": ["array", "null"],
+                "items": {"$ref": "#/$defs/count"}
+              }
+            }
+          }
+        },
+        "judge": {
+          "description": "The semantic judge's verdict; null when the package has no judge record.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["verdict", "reason", "request_count"],
+          "properties": {
+            "verdict": {"$ref": "#/$defs/optional_text"},
+            "reason": {"$ref": "#/$defs/optional_text"},
+            "request_count": {"$ref": "#/$defs/optional_count"}
+          }
+        }
+      }
+    },
+    "turn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "request", "response"],
+      "properties": {
+        "index": {"$ref": "#/$defs/count"},
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["messages"],
+          "properties": {
+            "messages": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"$ref": "#/$defs/message"}
+            }
+          }
+        },
+        "response": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["assistant_messages", "tool_call_indices"],
+          "properties": {
+            "assistant_messages": {
+              "type": "array",
+              "items": {"type": "string"}
+            },
+            "tool_call_indices": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/count"}
+            }
+          }
+        }
+      }
+    },
+    "tool_call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "arguments", "result", "error", "status", "turn_index"],
+      "properties": {
+        "name": {"$ref": "#/$defs/name"},
+        "arguments": {"description": "The decoded call arguments."},
+        "result": {"description": "The decoded call result."},
+        "error": {"$ref": "#/$defs/optional_text"},
+        "status": {"$ref": "#/$defs/optional_text"},
+        "turn_index": {"$ref": "#/$defs/optional_count"}
+      }
+    }
+  }
+}
