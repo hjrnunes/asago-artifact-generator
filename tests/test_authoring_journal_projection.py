@@ -299,3 +299,15 @@ def test_every_event_but_the_request_has_one_handler() -> None:
     }
 
     assert set(journal_module._HANDLERS) == events - {DispatchRequested}
+
+
+def test_a_validation_rewrite_without_an_open_dispatch_writes_nothing(tmp_path: Path) -> None:
+    journal = AuthoringJournal("projection", tmp_path / "package")
+    before = canonical_json(journal.evidence)
+
+    with pytest.raises(IndexError):
+        journal.append(ValidationTransformed(({"t": 1},), ({"t": 1},)))
+
+    assert canonical_json(journal.evidence) == before
+    assert journal.ledger == []
+    assert journal.events == []

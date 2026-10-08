@@ -430,10 +430,9 @@ class _Projections:
             target["candidate_sha256"] = event.sha256
 
     def _on_validation_transformed(self, event: ValidationTransformed) -> None:
-        if self.records:
-            self.records[-1]["transformations"] = deepcopy(list(event.changes))
+        for target in self.current():
+            target["transformations"] = deepcopy(list(event.changes))
         self.document["transformations"] = list(event.transformations)
-        self.attempt["transformations"] = deepcopy(list(event.changes))
 
     def _on_ledger_findings(self, event: LedgerFindingsRecorded) -> None:
         self.records[-1][event.field] = [finding.to_dict() for finding in event.findings]
