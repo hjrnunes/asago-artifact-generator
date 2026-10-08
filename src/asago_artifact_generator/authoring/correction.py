@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
@@ -25,6 +24,7 @@ from .core import (
 )
 from .prompt_context import (
     _OWNER_SCOPE_SECTION_TITLE,
+    _render_sections,
     _scenario_design_prompt_view,
     _semantic_judge_fact_ref_guidance,
 )
@@ -304,7 +304,9 @@ def _render_correction_packet(
             CORRECTION_PROMPT_VERSION_V33 if view.artifact else CORRECTION_PROMPT_VERSION_V34
         ),
         system=_CORRECTION_SYSTEM,
-        user=_render_correction_sections(tuple(sections)),
+        user=_render_sections(
+            tuple(sections), compact_titles=frozenset(title for title, _ in sections)
+        ),
         payload=payload,
     )
     return packet
@@ -526,21 +528,6 @@ def _correction_instruction(
             "address them."
         )
     return instruction
-
-
-def _render_correction_sections(sections: tuple[tuple[str, Any], ...]) -> str:
-    """Render correction sections compactly while preserving each value exactly."""
-
-    rendered: list[str] = []
-    for title, value in sections:
-        rendered.append(title)
-        rendered.append(
-            value
-            if isinstance(value, str)
-            else json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-        )
-        rendered.append("")
-    return "\n".join(rendered).rstrip() + "\n"
 
 
 _CORRECTION_SYSTEM = (
