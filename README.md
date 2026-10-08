@@ -378,6 +378,15 @@ record SHA-256 source pins. The adapter verifies `content_digest` in the
 scenario-handoff-v4 document; found <version>"; their kits stay vendored and
 frozen.
 
+Before the digest check, the adapter applies the mirrored v4 `schema.json`, the
+producer's ownership rules in the mirrored `ownership-rules.json`, and the
+rules the schema cannot state: non-blank text, the observation-contract format,
+and cross-field pairings. A rejection raises `HandoffSchemaInvalid`. Its `codes`
+are the producer's codes as the kit's `expected-violations.json` records them:
+ownership codes first, then `schema_violation:<top-level field>`. Its message is
+`handoff schema invalid: <codes> (<path>: <reason>)` for the first break. A
+break confined to `attack_shape` raises the subclass `ShapeVersionMalformed`.
+
 A v4 handoff carries `attack_shape`: the channel, the number of user turns (1
 to 4) and each turn's purpose, never attack text, or null for a functional
 scenario. `InputView.attack_shape` returns it. The consumer authors only
