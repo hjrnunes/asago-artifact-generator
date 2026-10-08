@@ -10,17 +10,10 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .metadata_policy import SECRET_KEY_BASE
+
 FAILURE_EVIDENCE_SCHEMA_VERSION = "authoring-failure-evidence-v2"
-_SENSITIVE_KEYS = {
-    "api_key",
-    "apikey",
-    "authorization",
-    "credential",
-    "endpoint",
-    "password",
-    "secret",
-    "token",
-}
+_SENSITIVE_KEYS = frozenset(SECRET_KEY_BASE)
 _URL_KEYS = {"base_url", "url", "uri"}
 
 

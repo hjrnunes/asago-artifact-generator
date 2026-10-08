@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-_SECRET_KEY_MARKERS = (
+# The credential key names every secret policy shares. failure_evidence
+# matches them as whole keys; this module matches them as key substrings.
+SECRET_KEY_BASE = (
     "api_key",
     "apikey",
     "authorization",
@@ -12,10 +14,10 @@ _SECRET_KEY_MARKERS = (
     "endpoint",
     "password",
     "secret",
-    "base_url",
-    "baseurl",
     "token",
 )
+_METADATA_URL_KEY_MARKERS = ("base_url", "baseurl")
+_SECRET_KEY_MARKERS = SECRET_KEY_BASE + _METADATA_URL_KEY_MARKERS
 _SECRET_KEY_PREFIXES = ("auth", "session", "access", "bearer")
 _NON_SECRET_CONTROL_KEYS = frozenset(
     {
