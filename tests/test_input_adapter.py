@@ -15,15 +15,9 @@ from asago_artifact_generator.input_adapter import (
     build_scenario_handoff_view,
     load_input,
 )
+from tests.support import HANDOFFS
 
-CONTRACT_HANDOFF = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "scenario-handoff"
-    / "handoff-v3"
-    / "valid"
-    / "refund-bound.json"
-)
+CONTRACT_HANDOFF = HANDOFFS / "refund-bound.json"
 CONTRACT_KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
 
 
@@ -32,7 +26,7 @@ def test_handoff_view_preserves_source_hash_and_authoritative_content() -> None:
 
     view = load_input(CONTRACT_HANDOFF)
 
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V3
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V4
     assert view.source_sha256 == hashlib.sha256(source).hexdigest()
     assert view.narrative == yaml.safe_load(source)["narrative"]
     assert view.gherkin["scenario"] == "Refund command exceeds the remaining balance of the order"
@@ -102,7 +96,7 @@ def test_observation_metadata_reaches_authoring_view(tmp_path: Path) -> None:
     }
     from asago_artifact_generator.input_adapter import _framed_digest
 
-    payload["content_digest"] = _framed_digest("scenario-handoff-v3", payload_without_digest)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload_without_digest)
     source_path = tmp_path / "handoff.yaml"
     source_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
 
@@ -146,7 +140,7 @@ def test_analytical_observation_criterion_may_omit_optional_fields(
     }
     from asago_artifact_generator.input_adapter import _framed_digest
 
-    payload["content_digest"] = _framed_digest("scenario-handoff-v3", payload_without_digest)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload_without_digest)
     source_path = tmp_path / "handoff.yaml"
     source_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
 
@@ -155,9 +149,7 @@ def test_analytical_observation_criterion_may_omit_optional_fields(
     assert view.payload["observation"]["assessment"]["disposition"] == "analytical_only"
 
 
-CONTRACT_HANDOFF_OBSERVED = (
-    CONTRACT_KIT / "handoff-v3" / "valid" / "adversarial-observed-record.json"
-)
+CONTRACT_HANDOFF_OBSERVED = HANDOFFS / "adversarial-observed-record.json"
 
 
 def _observation() -> dict:
@@ -329,7 +321,7 @@ def test_view_exposes_the_tool_call_status_and_condition() -> None:
 
 
 def test_unbound_view_has_no_tool_call_condition() -> None:
-    view = load_input(CONTRACT_KIT / "handoff-v3" / "valid" / "adversarial-condition-omitted.json")
+    view = load_input(HANDOFFS / "adversarial-condition-omitted.json")
 
     assert view.tool_call_condition_status["status"] == "not_executable"
     assert view.tool_call_condition is None

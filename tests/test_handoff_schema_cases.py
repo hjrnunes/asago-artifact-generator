@@ -1,10 +1,9 @@
 """The consumer rejects every producer schema case, in its own wording.
 
-The producer's v3 and v4 kits carry ``invalid/schema-*.json``, one broken
-field of a bound handoff each, with the producer's codes in
-``expected-violations.json``. This reader words most rejections differently,
-so ``_WORDING`` maps each case's codes to the message this reader gives. The
-same message applies to the v3 and v4 copy of a case.
+The producer's v4 kit carries ``invalid/schema-*.json``, one broken field of
+a bound handoff each, with the producer's codes in ``expected-violations.json``.
+This reader words most rejections differently, so ``_WORDING`` maps each
+case's codes to the message this reader gives.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ import pytest
 from asago_artifact_generator.input_adapter import InputSourceError, load_input
 
 _CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
-_KITS = ("handoff-v3", "handoff-v4")
+_KITS = ("handoff-v4",)
 _OBSERVATION = "handoff observation "
 _DEDUPLICATION = "handoff deduplication "
 _SCHEMA = "handoff schema invalid: "

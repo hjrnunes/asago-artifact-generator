@@ -9,7 +9,7 @@ from asago_artifact_generator.authoring.review import (
 from asago_artifact_generator.input_adapter import load_input
 
 from .support import (
-    HANDOFF_V3_KIT,
+    HANDOFFS,
     NO_CONDITION_HANDOFF,
     NOT_CALLED_HANDOFF,
     OBSERVED_HANDOFF,
@@ -20,7 +20,7 @@ _inventory, _metadata, _plan, _runtime_contract = world_builders(
     "ehr", "inventory", "metadata", "plan", "runtime_contract"
 )
 
-_ORDER_HANDOFF = HANDOFF_V3_KIT / "valid" / "functional-record-unavailable.json"
+_ORDER_HANDOFF = HANDOFFS / "functional-record-unavailable.json"
 
 
 def _rules(source) -> dict:

@@ -12,7 +12,7 @@ from asago_artifact_generator.authoring.checks import (
     collect_artifact_findings_v2,
     collect_plan_findings_v2,
 )
-from asago_artifact_generator.authoring.core import Finding, PromptPacket
+from asago_artifact_generator.authoring.core import Finding
 from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
     build_correction_context,
@@ -45,7 +45,7 @@ from .turn_support import (
     v4_view,
 )
 
-# --- prompts that must not change -------------------------------------------------
+# --- one-turn prompts -------------------------------------------------------------
 
 
 def _packets(view: InputView, refund: dict[str, Any], plan: dict, metadata: dict):
@@ -58,51 +58,12 @@ def _packets(view: InputView, refund: dict[str, Any], plan: dict, metadata: dict
     }
 
 
-def _as_v3(packet: PromptPacket, v3: InputView, v4: InputView) -> tuple[str, str]:
-    """Return the packet's model text with the v4 source identity written as the v3 one.
-
-    The two documents are different files: each prompt names its own input kind and
-    carries its own content digest. Nothing else may differ.
-    """
-
-    def rewrite(text: str) -> str:
-        text = text.replace(v4.kind.value, v3.kind.value)
-        return text.replace(v4.source_digests["input"], v3.source_digests["input"])
-
-    return rewrite(packet.system), rewrite(packet.user)
-
-
-def test_a_one_turn_v4_handoff_renders_the_prompts_of_the_v3_handoff(tmp_path: Path) -> None:
-    refund = world("refund")
-    plan, metadata = refund["plan"], refund["metadata"]
-    v4_input = v4_view(tmp_path, 1)
-    v3 = _packets(refund["view"], refund, plan, metadata)
-    v4 = _packets(v4_input, refund, plan, metadata)
-
-    for stage, packet in v3.items():
-        assert _as_v3(v4[stage], refund["view"], v4_input) == (packet.system, packet.user), stage
-        assert v4[stage].version == packet.version
-    assert "MULTI-TURN" not in "".join(packet.user for packet in v4.values())
-
-
-def test_a_v3_prompt_carries_no_multi_turn_block() -> None:
+def test_a_one_turn_prompt_carries_no_multi_turn_block() -> None:
     refund = world("refund")
 
     for packet in _packets(refund["view"], refund, refund["plan"], refund["metadata"]).values():
         assert "MULTI-TURN" not in packet.user
         assert "multi_turn_shape" not in packet.payload
-
-
-def test_the_response_contract_of_a_one_turn_v4_handoff_is_the_v3_contract(
-    tmp_path: Path,
-) -> None:
-    refund = world("refund")
-    v3 = build_call1_packet_v2(refund["view"], refund["inventory"], refund["runtime_contract"])
-    v4 = build_call1_packet_v2(
-        v4_view(tmp_path, 1), refund["inventory"], refund["runtime_contract"]
-    )
-
-    assert rendered_response_contract(v4) == rendered_response_contract(v3)
 
 
 # --- the multi-turn rule block ---------------------------------------------------
@@ -150,7 +111,7 @@ def test_the_rule_block_explains_each_new_field_and_gives_one_example_of_it(
     assert isinstance(fields["stimulus.user_text"]["example"], str)
 
 
-def test_the_rule_block_is_absent_for_one_turn_and_for_v3(tmp_path: Path) -> None:
+def test_the_rule_block_is_absent_for_one_turn(tmp_path: Path) -> None:
     assert multi_turn_block(v4_view(tmp_path, 1)) is None
     assert multi_turn_block(world("refund")["view"]) is None
 
@@ -212,17 +173,6 @@ def test_a_one_turn_plan_with_earlier_turns_or_the_sequential_delivery_is_found(
     codes = {finding.code for finding in sequential_plan_findings(v4_view(tmp_path, 1), plan)}
 
     assert codes == {"shape_turn_count_mismatch", "shape_delivery_mismatch"}
-
-
-def test_a_v3_plan_is_never_held_to_the_shape(tmp_path: Path) -> None:
-    refund = world("refund")
-    plan = sequential_plan(refund["plan"], 3)
-
-    assert sequential_plan_findings(refund["view"], plan) == []
-    assert (
-        sequential_artifact_findings(refund["view"], sequential_metadata(refund["metadata"], 3))
-        == []
-    )
 
 
 def test_an_artifact_with_the_right_number_of_turns_passes(tmp_path: Path) -> None:

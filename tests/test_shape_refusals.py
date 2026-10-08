@@ -125,21 +125,6 @@ def test_a_refusal_names_the_scenario_as_not_executable(tmp_path: Path) -> None:
     assert "forges a transcript" in finding.detail
 
 
-def test_a_v3_handoff_is_never_refused_for_its_shape(tmp_path: Path) -> None:
-    v3 = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v3"
-    runtime = {**_RUNTIME, "delivery": ["direct_user_message"], "limits": {"max_turns": 1}}
-    transport = ScriptedAuthoringTransport([])
-    orchestrator = stage_local_orchestrator(
-        transport=transport, package_dir=tmp_path / "package", task_id="task"
-    )
-
-    orchestrator.run(
-        load_input(v3 / "valid" / "adversarial-observed-record.json"), _INVENTORY, runtime
-    )
-
-    assert [request["stage"] for request in transport.requests] == ["call1"]
-
-
 def test_a_functional_v4_handoff_has_no_shape_to_refuse(tmp_path: Path) -> None:
     runtime = {**_RUNTIME, "delivery": ["direct_user_message"]}
     transport = ScriptedAuthoringTransport([])

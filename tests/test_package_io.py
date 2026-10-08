@@ -1,4 +1,4 @@
-"""Atomic, contained artifact-package-v3 persistence."""
+"""Atomic, contained artifact-package persistence."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def _package() -> ArtifactPackage:
     return build_package(
         package_id="pkg-1",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v3",
+        input_kind="scenario-handoff-v4",
         source_digests={"scenario.json": "a" * 64},
         members={
             "plan.json": b'{"plan":"exact"}\n',
@@ -41,7 +41,7 @@ def test_package_round_trip_reloads_and_preserves_raw_member_bytes(tmp_path: Pat
     written = write_package(destination, package)
     loaded = load_package(written)
 
-    assert loaded.manifest.schema_version == "artifact-package-v3"
+    assert loaded.manifest.schema_version == "artifact-package-v4"
     assert loaded.manifest.package_id == "pkg-1"
     assert loaded.members["authoring/raw-response.json"] == b'{"raw":true}\n'
     assert loaded.members["explanation.json"] == package.members["explanation.json"]
@@ -55,7 +55,7 @@ def test_package_rejects_absolute_and_traversal_members(tmp_path: Path, name: st
             build_package(
                 package_id="pkg-1",
                 scenario_id="scenario-1",
-                input_kind="scenario-handoff-v3",
+                input_kind="scenario-handoff-v4",
                 source_digests={"source": "a" * 64},
                 members={name: b"x"},
             ),
@@ -79,7 +79,7 @@ def test_writer_rejects_secret_bearing_manifest_metadata(tmp_path: Path) -> None
             build_package(
                 package_id="pkg-1",
                 scenario_id="scenario-1",
-                input_kind="scenario-handoff-v3",
+                input_kind="scenario-handoff-v4",
                 source_digests={"source": "a" * 64},
                 members={"explanation.json": b"{}\n"},
                 creation_model={"api_key": "not persisted"},
@@ -95,7 +95,7 @@ def test_interrupted_write_leaves_no_partial_package_and_preserves_previous(
     replacement = build_package(
         package_id="pkg-1",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v3",
+        input_kind="scenario-handoff-v4",
         source_digests={"scenario.json": "a" * 64},
         members={
             **_package().members,
@@ -127,7 +127,7 @@ def _replacement_package() -> ArtifactPackage:
     return build_package(
         package_id="pkg-2",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v3",
+        input_kind="scenario-handoff-v4",
         source_digests={"scenario.json": "b" * 64},
         members={**_package().members, "explanation.json": b"replacement\n"},
     )
@@ -268,7 +268,7 @@ def test_writer_rejects_a_package_without_members(tmp_path: Path) -> None:
     empty = build_package(
         package_id="pkg-1",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v3",
+        input_kind="scenario-handoff-v4",
         source_digests={"scenario.json": "a" * 64},
         members={},
     )
@@ -317,7 +317,7 @@ def test_build_package_names_the_rejected_member_path(name: str, message: str) -
         build_package(
             package_id="pkg-1",
             scenario_id="scenario-1",
-            input_kind="scenario-handoff-v3",
+            input_kind="scenario-handoff-v4",
             source_digests={"source": "a" * 64},
             members={name: b"x"},
         )
@@ -329,7 +329,7 @@ def _claim_package(claim_level: str, extra: dict[str, bytes]) -> ArtifactPackage
     return build_package(
         package_id="pkg-claim",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v3",
+        input_kind="scenario-handoff-v4",
         source_digests={"scenario.json": "a" * 64},
         members={"plan.json": json.dumps(plan).encode() + b"\n", **extra},
     )
@@ -341,7 +341,7 @@ def test_manifest_carries_no_detector_interface_and_rejects_a_detector_member(
     destination = write_package(tmp_path / "package", _package())
     manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
 
-    assert manifest["schema_version"] == "artifact-package-v3"
+    assert manifest["schema_version"] == "artifact-package-v4"
     assert "detector_interface" not in manifest
     assert set(manifest) == {
         "schema_version",
@@ -384,18 +384,18 @@ def test_claim_level_requires_its_scoring_member(
     assert load_package(written).members[member] == b"{}\n"
 
 
-def test_written_manifest_matches_the_locked_v3_schema(tmp_path: Path) -> None:
+def test_written_manifest_matches_the_locked_v4_schema(tmp_path: Path) -> None:
     import jsonschema
 
     root = Path(package_io.__file__).resolve().parents[2] / "contracts" / "artifact-package"
     lock = json.loads((root / "CONTRACT.lock").read_text(encoding="utf-8"))
-    schema = json.loads((root / "artifact-package-v3" / "schema.json").read_text(encoding="utf-8"))
+    schema = json.loads((root / "artifact-package-v4" / "schema.json").read_text(encoding="utf-8"))
     destination = write_package(tmp_path / "package", _package())
     manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
 
     assert lock["package_schema_version"] == package_io.PACKAGE_SCHEMA_VERSION
     assert lock["digest_domain"] == "artifact-package-v3"
-    assert "artifact-package-v3/schema.json" in lock["files"]
+    assert "artifact-package-v4/schema.json" in lock["files"]
     assert "artifact-package-v2/schema.json" not in lock["files"]
     jsonschema.validate(manifest, schema)
     with pytest.raises(jsonschema.ValidationError):

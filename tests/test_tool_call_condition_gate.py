@@ -9,7 +9,7 @@ from asago_artifact_generator.input_adapter import load_input
 
 from .support import ScriptedAuthoringTransport, load_failure_evidence, stage_local_orchestrator
 
-_KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v3"
+_HANDOFFS = Path(__file__).resolve().parent / "fixtures" / "handoffs"
 _RUNTIME = {
     "delivery": ["direct_user_message"],
     "setup_permissions": [],
@@ -72,7 +72,7 @@ def _run(tmp_path: Path, handoff: Path, responses: list[bytes]):
 def test_command_attempt_handoff_without_bound_condition_skips_every_model_call(
     tmp_path: Path,
 ) -> None:
-    handoff = _KIT / "valid" / "adversarial-condition-omitted.json"
+    handoff = _HANDOFFS / "adversarial-condition-omitted.json"
     status = json.loads(handoff.read_text(encoding="utf-8"))["tool_call_condition_status"]
 
     result, transport = _run(tmp_path, handoff, [])
@@ -104,7 +104,7 @@ def test_command_attempt_handoff_without_bound_condition_skips_every_model_call(
 def test_command_attempt_plan_without_bound_condition_stops_before_the_artifact(
     tmp_path: Path,
 ) -> None:
-    handoff = _KIT / "valid" / "analytical-only.json"
+    handoff = _HANDOFFS / "analytical-only.json"
     plan_bytes = json.dumps(_COMMAND_PLAN).encode("utf-8")
 
     result, transport = _run(tmp_path, handoff, [plan_bytes])
@@ -155,7 +155,7 @@ _REPLY_ARTIFACT = {
 def test_reply_package_without_bound_condition_has_a_judge_and_no_condition_member(
     tmp_path: Path,
 ) -> None:
-    handoff = _KIT / "valid" / "analytical-only.json"
+    handoff = _HANDOFFS / "analytical-only.json"
     responses = [json.dumps(_REPLY_PLAN).encode(), json.dumps(_REPLY_ARTIFACT).encode()]
 
     result, transport = _run(tmp_path, handoff, responses)
@@ -167,15 +167,15 @@ def test_reply_package_without_bound_condition_has_a_judge_and_no_condition_memb
     assert "tool_call_condition.json" not in members
     assert "detector.py" not in members
     manifest = json.loads((tmp_path / "package" / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == "artifact-package-v3"
-    assert manifest["input_kind"] == "scenario-handoff-v3"
+    assert manifest["schema_version"] == "artifact-package-v4"
+    assert manifest["input_kind"] == "scenario-handoff-v4"
     assert "detector_interface" not in manifest
 
 
 def test_reply_artifact_without_a_judge_spec_is_corrected_before_packaging(
     tmp_path: Path,
 ) -> None:
-    handoff = _KIT / "valid" / "analytical-only.json"
+    handoff = _HANDOFFS / "analytical-only.json"
     unjudged = {**_REPLY_ARTIFACT, "semantic_judge_spec": None}
     responses = [
         json.dumps(_REPLY_PLAN).encode(),

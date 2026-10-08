@@ -259,14 +259,7 @@ def test_defect_finding_is_never_a_per_example_oracle_code() -> None:
     assert DEFECT_CODE not in ORACLE_CODES
 
 
-_HANDOFF = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "scenario-handoff"
-    / "handoff-v3"
-    / "valid"
-    / "functional-not-called.json"
-)
+_HANDOFF = Path(__file__).resolve().parent / "fixtures" / "handoffs" / "functional-not-called.json"
 _TRANSFER_INVENTORY = {
     "facts": [],
     "operations": [
