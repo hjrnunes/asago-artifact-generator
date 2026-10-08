@@ -882,8 +882,13 @@ def build_plan_author_context(
         },
         "source_context": _authoritative_context(view, inventory, runtime_contract),
         "execution_capabilities": {
-            "available_operations": _explained_operations(inventory, None),
-            "runtime_contract": deepcopy(runtime_contract),
+            "available_operations": (
+                "The documented operations are listed once, in SOURCE CONTEXT operations; "
+                "cite each as operation:<name>."
+            ),
+            "runtime_contract": (
+                "The full runtime contract is listed once, in SOURCE CONTEXT runtime_capabilities."
+            ),
             "target_access": runtime_contract.get("target_access", "downstream_only"),
             "setup_permissions": deepcopy(runtime_contract.get("setup_permissions", [])),
             "observation": deepcopy(runtime_contract.get("observation", {})),
@@ -961,13 +966,6 @@ def build_plan_author_context(
         },
     }
     context["field_guide"]["keyed_map_path_forms"] = _keyed_map_binding_forms(inventory)
-    context["execution_capabilities"]["available_operations"] = (
-        "The documented operations are listed once, in SOURCE CONTEXT operations; "
-        "cite each as operation:<name>."
-    )
-    context["execution_capabilities"]["runtime_contract"] = (
-        "The full runtime contract is listed once, in SOURCE CONTEXT runtime_capabilities."
-    )
     context["evidence_references"] = _plan_evidence_references(view, inventory)
     design = _scenario_design(view)
     context["scenario_design"] = design
