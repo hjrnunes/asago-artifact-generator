@@ -324,7 +324,7 @@ def _handoff_schema(version: str = _HANDOFF_SCHEMA_VERSION) -> dict[str, Any]:
 def _validate_handoff_payload(
     payload: dict[str, Any], kind: InputKind = InputKind.SCENARIO_HANDOFF_V3
 ) -> None:
-    _validate_handoff_schema_version(payload.get("schema_version"), kind)
+    _validate_handoff_schema_version(payload.get("schema_version"))
     _validate_handoff_field_names(payload, kind)
     if payload.get("kind") not in {"adversarial", "functional"}:
         raise InputSourceError("handoff kind is invalid")
@@ -371,17 +371,13 @@ def _validate_attack_shape(payload: dict[str, Any]) -> None:
         raise ShapeVersionMalformed(*violation)
 
 
-def _validate_handoff_schema_version(
-    schema_version: Any, kind: InputKind = InputKind.SCENARIO_HANDOFF_V3
-) -> None:
+def _validate_handoff_schema_version(schema_version: Any) -> None:
     if schema_version is None or schema_version in _FROZEN_HANDOFF_SCHEMA_VERSIONS:
         raise InputSourceError(
             f"{schema_version or 'scenario-handoff-v1'} handoffs carry no "
             "tool_call_condition_status; authoring requires a scenario-handoff-v3 or "
             "scenario-handoff-v4 document"
         )
-    if schema_version != kind.value:
-        raise InputSourceError("unknown scenario handoff schema version")
 
 
 def _validate_handoff_field_names(
