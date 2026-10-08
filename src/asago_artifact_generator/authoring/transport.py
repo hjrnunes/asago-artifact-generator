@@ -298,9 +298,7 @@ class PrivateModelAuthoringTransport:
 
         return RateLimitError
 
-    def preflight_context_budget(
-        self, packet: PromptPacket
-    ) -> dict[str, int | float | str] | None:
+    def preflight_context_budget(self, packet: PromptPacket) -> dict[str, int] | None:
         """Expose the guard so orchestration can reject before reserving budget.
 
         The guard also rejects a prompt that names this transport's configured

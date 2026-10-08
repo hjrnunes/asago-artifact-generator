@@ -145,7 +145,7 @@ def _enforce_context_budget(
     *,
     context_window_tokens: int,
     max_completion_tokens: int,
-) -> dict[str, int | float | str]:
+) -> dict[str, int]:
     """Estimate model-facing prompt tokens and reject before dispatch if needed."""
 
     if context_window_tokens <= 0:
@@ -173,27 +173,16 @@ def _enforce_context_budget(
     return estimate
 
 
-def _context_budget_estimate(packet: PromptPacket) -> dict[str, int | float | str]:
+def _context_budget_estimate(packet: PromptPacket) -> dict[str, int]:
     """Return a conservative token estimate from every model-facing UTF-8 byte."""
 
-    system_utf8_bytes = len(packet.system.encode("utf-8"))
-    user_utf8_bytes = len(packet.user.encode("utf-8"))
     model_facing_utf8_bytes = (
-        system_utf8_bytes + user_utf8_bytes + _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES
+        len(packet.system.encode("utf-8"))
+        + len(packet.user.encode("utf-8"))
+        + _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES
     )
     ratio = _context_guard_ratio(packet.stage)
     return {
-        # Keep the byte fields explicit. Token estimates use the estimate
-        # suffix and calibrated ratio below.
-        "estimator": "utf8_bytes_conservative_prompt_estimate",
-        "system_bytes": system_utf8_bytes,
-        "user_bytes": user_utf8_bytes,
-        "schema_message_overhead_bytes": _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES,
-        "estimated_prompt_bytes": model_facing_utf8_bytes,
-        "system_utf8_bytes": system_utf8_bytes,
-        "user_utf8_bytes": user_utf8_bytes,
-        "schema_message_overhead_utf8_bytes": _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES,
         "model_facing_utf8_bytes": model_facing_utf8_bytes,
-        "calibrated_bytes_per_token_estimate": float(ratio),
         "estimated_prompt_tokens": math.ceil(Fraction(model_facing_utf8_bytes, 1) / ratio),
     }
