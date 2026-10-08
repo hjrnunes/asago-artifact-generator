@@ -24,7 +24,8 @@ _SCHEMA = "handoff schema invalid: "
 # case -> the start of this reader's message for the case's producer codes
 _WORDING = {
     "schema-unknown-version": (
-        "authoring source must be a producer scenario-handoff-v3 or scenario-handoff-v4 document"
+        "authoring source must be a producer scenario-handoff-v4 document; "
+        "found scenario-handoff-v9"
     ),
     "schema-missing-narrative": "handoff schema invalid (missing=['narrative'], unknown=[])",
     "schema-unknown-field": "handoff schema invalid (missing=[], unknown=['bogus'])",

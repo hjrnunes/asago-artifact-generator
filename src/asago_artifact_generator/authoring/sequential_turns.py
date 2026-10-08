@@ -2,8 +2,8 @@
 
 A scenario-handoff-v4 ``direct`` shape with ``turn_count`` N asks for N user
 messages sent in order. The plan states one intent per turn; Call 2 writes the
-messages. A one-turn shape and every v3 handoff stay on the single-message path,
-so nothing here changes their prompts or checks.
+messages. A one-turn shape and a functional handoff stay on the single-message
+path, so nothing here changes their prompts or checks.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from ..input_adapter import InputKind, InputView
+from ..input_adapter import InputView
 from .contracts import _call1_contract_v2
 from .core import Finding
 from .planted_item import (
@@ -53,7 +53,7 @@ _EXAMPLE_FINAL_MESSAGE = "Please go ahead with the request."
 
 
 def _is_sequential_input(view: InputView) -> bool:
-    return view.kind is InputKind.SCENARIO_HANDOFF_V4 and view.attack_shape is not None
+    return view.attack_shape is not None
 
 
 def turn_count(view: InputView) -> int:
@@ -198,9 +198,9 @@ def multi_turn_payload(
 
 
 def stamped_stimulus(view: InputView, stimulus: dict[str, Any]) -> dict[str, Any]:
-    """Return the package stimulus; a v4 handoff's states its mode and turn count.
+    """Return the package stimulus; an adversarial handoff's states its mode and turn count.
 
-    A v3 handoff's stimulus is returned as authored so its package stays byte-identical.
+    A functional handoff's stimulus is returned as authored.
     """
 
     if not _is_sequential_input(view):

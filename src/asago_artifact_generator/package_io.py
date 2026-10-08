@@ -21,7 +21,9 @@ from .contract_kit import (
 from .metadata_policy import secret_metadata_paths
 from .value_checks import is_sha256_hex
 
-PACKAGE_SCHEMA_VERSION = "artifact-package-v3"
+PACKAGE_SCHEMA_VERSION = "artifact-package-v4"
+# Read only: packages written before the writer moved to v4 still load.
+_PACKAGE_SCHEMA_VERSION_V3 = "artifact-package-v3"
 TOOL_CALL_CONDITION_MEMBER = "tool_call_condition.json"
 SEED_MEMBER = "seed.json"
 _ALLOWED_MEMBER_NAMES = {
@@ -46,22 +48,11 @@ _CLAIM_LEVEL_MEMBERS = {
     ClaimLevel.REPLY.value: "judge.json",
 }
 _CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "artifact-package"
-PACKAGE_SCHEMA_VERSION_V4 = "artifact-package-v4"
 # The input kinds each package version accepts, as its schema enumerates them.
 _INPUT_KINDS_BY_VERSION = {
-    PACKAGE_SCHEMA_VERSION: {"scenario-handoff-v3"},
-    PACKAGE_SCHEMA_VERSION_V4: {"scenario-handoff-v3", "scenario-handoff-v4"},
+    _PACKAGE_SCHEMA_VERSION_V3: {"scenario-handoff-v3"},
+    PACKAGE_SCHEMA_VERSION: {"scenario-handoff-v3", "scenario-handoff-v4"},
 }
-
-
-def package_schema_version_for(input_kind: str) -> str:
-    """Return the package version written for an input kind: v4 only for a v4 handoff."""
-
-    return (
-        PACKAGE_SCHEMA_VERSION_V4
-        if input_kind == "scenario-handoff-v4"
-        else PACKAGE_SCHEMA_VERSION
-    )
 
 
 class PackagePathError(ValueError):
@@ -135,7 +126,6 @@ def build_package(
         authoring=authoring or {},
         runtime_capabilities=runtime_capabilities or {},
         creation_model=creation_model or {},
-        schema_version=package_schema_version_for(input_kind),
     )
     manifest.manifest_digest = _manifest_digest(manifest.to_dict())
     _validate_manifest_fields(manifest)
@@ -491,14 +481,12 @@ def validate_artifact_package_contract() -> None:
 __all__ = [
     "ArtifactPackage",
     "PACKAGE_SCHEMA_VERSION",
-    "PACKAGE_SCHEMA_VERSION_V4",
     "PackageIntegrityError",
     "PackageManifest",
     "PackagePathError",
     "TOOL_CALL_CONDITION_MEMBER",
     "build_package",
     "load_package",
-    "package_schema_version_for",
     "tool_call_condition_bytes",
     "write_package",
     "validate_artifact_package_contract",

@@ -1,4 +1,4 @@
-"""Validation of a scenario-handoff-v4 ``attack_shape`` and the implicit v3 shape.
+"""Validation of a scenario-handoff-v4 ``attack_shape``.
 
 The vendored schema states the closed vocabularies, the identifier pattern and
 the length pairing. It cannot state the cross-field rules (positions, speakers
@@ -9,7 +9,6 @@ here with the producer's rule numbers.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from copy import deepcopy
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -22,23 +21,6 @@ _ATTACKER = "attacker_user"
 _BENIGN = "benign_user"
 _FORGED_SPEAKERS = frozenset({"forged_assistant", "forged_tool_result"})
 _BENIGN_ONLY_PURPOSES = frozenset({"ask_to_read_item", "follow_up_on_item"})
-
-# What a v3 handoff means: one attacker message, as authoring always assumed.
-IMPLICIT_ATTACK_SHAPE: Mapping[str, Any] = {
-    "channel": CHANNEL_DIRECT,
-    "turn_count": 1,
-    "turn_plan": [{"position": 1, "speaker": _ATTACKER, "purpose": "request_action"}],
-    "indirect": None,
-    "threat_label": None,
-    "source": "code_default",
-    "downgrade_reason": None,
-}
-
-
-def implicit_attack_shape() -> dict[str, Any]:
-    """Return a fresh copy of the single-turn direct shape a v3 handoff implies."""
-
-    return deepcopy(dict(IMPLICIT_ATTACK_SHAPE))
 
 
 def attack_shape_violation(shape: Any, schema: Mapping[str, Any]) -> tuple[str, str] | None:
@@ -175,7 +157,5 @@ __all__ = [
     "CHANNEL_DIRECT",
     "CHANNEL_FORGED",
     "CHANNEL_INDIRECT",
-    "IMPLICIT_ATTACK_SHAPE",
     "attack_shape_violation",
-    "implicit_attack_shape",
 ]

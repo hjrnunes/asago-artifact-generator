@@ -26,7 +26,7 @@ from .support import json_section, world
 from .turn_support import indirect_inventory, indirect_runtime, indirect_shape
 
 _REFUND_BOUND = Path(__file__).resolve().parent / "fixtures" / "handoffs" / "refund-bound.json"
-_SCHEMA = _handoff_schema("scenario-handoff-v4")
+_SCHEMA = _handoff_schema()
 _PURPOSES = _SCHEMA["$defs"]["TurnPurpose"]["enum"]
 _READ = "ask_to_read_item"
 

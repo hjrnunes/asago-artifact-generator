@@ -36,8 +36,12 @@ def test_non_handoff_source_is_rejected(tmp_path: Path) -> None:
     source_path = tmp_path / "native.yaml"
     source_path.write_text("scenario_id: native\n", encoding="utf-8")
 
-    with pytest.raises(InputSourceError, match="scenario-handoff-v3"):
+    with pytest.raises(InputSourceError) as raised:
         load_input(source_path)
+
+    assert str(raised.value) == (
+        "authoring source must be a producer scenario-handoff-v4 document; found no schema_version"
+    )
 
 
 def test_tampered_handoff_fails_before_a_view_is_created(tmp_path: Path) -> None:
@@ -328,17 +332,20 @@ def test_unbound_view_has_no_tool_call_condition() -> None:
 
 
 @pytest.mark.parametrize(
-    "relative",
+    ("relative", "version"),
     [
-        "handoff-v1/valid/adversarial-refund.json",
-        "handoff-v2/valid/adversarial-observed-record.json",
+        ("handoff-v1/valid/adversarial-refund.json", "scenario-handoff-v1"),
+        ("handoff-v2/valid/adversarial-observed-record.json", "scenario-handoff-v2"),
+        ("handoff-v3/valid/refund-bound.json", "scenario-handoff-v3"),
     ],
 )
-def test_frozen_handoff_versions_are_rejected_for_authoring(relative: str) -> None:
-    with pytest.raises(InputSourceError, match="carry no tool_call_condition_status") as raised:
+def test_retired_handoff_versions_are_rejected_for_authoring(relative: str, version: str) -> None:
+    with pytest.raises(InputSourceError) as raised:
         load_input(CONTRACT_KIT / relative)
 
-    assert "scenario-handoff-v3" in str(raised.value)
+    assert str(raised.value) == (
+        f"authoring source must be a producer scenario-handoff-v4 document; found {version}"
+    )
 
 
 def test_handoff_that_is_not_an_object_is_rejected(tmp_path: Path) -> None:
@@ -349,7 +356,7 @@ def test_handoff_that_is_not_an_object_is_rejected(tmp_path: Path) -> None:
         load_input(source_path)
 
     assert str(raised.value) == (
-        "authoring source must be a producer scenario-handoff-v3 or scenario-handoff-v4 document"
+        "authoring source must be a producer scenario-handoff-v4 document; found no schema_version"
     )
 
 
@@ -387,9 +394,9 @@ def test_unreadable_vendored_handoff_schema_is_a_source_error(
 
     monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", tmp_path)
     if schema_text is not None:
-        schema = tmp_path / "handoff-v3" / "schema.json"
+        schema = tmp_path / "handoff-v4" / "schema.json"
         schema.parent.mkdir()
         schema.write_text(schema_text, encoding="utf-8")
 
-    with pytest.raises(InputSourceError, match="^cannot read vendored handoff-v3 schema: "):
+    with pytest.raises(InputSourceError, match="^cannot read vendored handoff-v4 schema: "):
         input_adapter._handoff_schema()

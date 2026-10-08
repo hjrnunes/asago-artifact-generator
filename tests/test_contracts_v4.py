@@ -1,7 +1,7 @@
 """The vendored scenario-handoff-v4 kit and the consumer-owned artifact-package-v4 contract.
 
 The input adapter reads the v4 kit (tests/test_handoff_v4.py) and the package
-writer writes artifact-package-v4 for a v4 input; the v3 default stays v3.
+writer writes only artifact-package-v4; the package loader still reads v3.
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def test_the_v3_handoff_kit_is_unchanged_by_the_v4_mirror() -> None:
     assert v3["handoff-v3/schema.json"] == (
         "c6fd2083ff70bf0810be58e395385d39a2ad06c3bb40c5fde998c8375b92fb2c"
     )
-    assert input_adapter._HANDOFF_SCHEMA_VERSION == "scenario-handoff-v3"
+    assert input_adapter._HANDOFF_SCHEMA_VERSION == "scenario-handoff-v4"
 
 
 # --- artifact-package-v4 ---------------------------------------------------------
@@ -156,5 +156,6 @@ def test_the_package_lock_adds_v4_and_keeps_the_v3_entry_and_singular_fields() -
     package_io.validate_artifact_package_contract()
 
 
-def test_the_package_writer_defaults_to_v3() -> None:
-    assert package_io.PACKAGE_SCHEMA_VERSION == "artifact-package-v3"
+def test_the_package_writer_writes_only_v4() -> None:
+    assert package_io.PACKAGE_SCHEMA_VERSION == "artifact-package-v4"
+    assert not hasattr(package_io, "package_schema_version_for")
