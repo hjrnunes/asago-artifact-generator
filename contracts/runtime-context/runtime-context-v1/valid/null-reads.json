@@ -1,0 +1,12 @@
+{
+  "state": {
+    "orders": [
+      {
+        "id": "order-1",
+        "status": "open"
+      }
+    ]
+  },
+  "target_profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "read_observations": null
+}

@@ -1,0 +1,114 @@
+{
+  "state": {
+    "orders": [
+      {
+        "id": "order-1",
+        "status": "open"
+      }
+    ],
+    "enabled": true
+  },
+  "target_profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "read_observations": [
+    {
+      "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tool_name": "lookup_record",
+      "tool_description": "Look up one record by identifier.",
+      "tool_schema": {
+        "type": "object",
+        "properties": {
+          "record_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id"
+        ]
+      },
+      "arguments": {
+        "record_id": "record-1"
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"status\": \"ok\"}"
+          }
+        ],
+        "structuredContent": {
+          "status": "ok"
+        },
+        "isError": false
+      },
+      "status": {
+        "transport": "verified",
+        "content": "untrusted"
+      }
+    },
+    {
+      "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tool_name": "search_records",
+      "tool_description": "Search records by free text.",
+      "tool_schema": {
+        "type": "object",
+        "properties": {
+          "record_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id"
+        ]
+      },
+      "arguments": {
+        "terms": "refund"
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"status\": \"ok\"}"
+          }
+        ],
+        "structuredContent": {
+          "status": "ok"
+        },
+        "isError": false
+      },
+      "status": {
+        "transport": "verified",
+        "content": "untrusted"
+      }
+    }
+  ],
+  "read_observation_input": {
+    "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "authorization_scope_id": "scope-1",
+    "source_query_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "source_query_chars": 6,
+    "query_plan": {
+      "queries": [
+        {
+          "query": "refund"
+        }
+      ]
+    },
+    "id_lookup_plan": {
+      "lookups": [
+        {
+          "tool_name": "lookup_record",
+          "arguments": {
+            "record_id": "record-1"
+          }
+        }
+      ]
+    }
+  },
+  "read_observation_diagnostics": [
+    {
+      "code": "id_lookup_skipped",
+      "detail": "No identifier matched.",
+      "status": "no_call"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asago.local/contracts/runtime-context/runtime-context-v1.schema.json",
+  "title": "runtime-context-v1",
+  "description": "What orch's discover stage captures from a live target: the target's state, the reads taken through the profile's tools, and the digest of the target profile they pair with. The document carries no version field, because the producer rejects unknown top-level keys; the version lives in this file's name and the lock. Two checks compare documents and stay in code: each read's profile_digest equals the top-level target_profile_digest, and the top-level digest equals the target profile's semantic_digest with every read's tool_name a profile tool.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["state", "target_profile_digest"],
+  "properties": {
+    "state": {"type": "object"},
+    "target_profile_digest": {"$ref": "#/$defs/sha256"},
+    "read_observations": {
+      "type": ["array", "null"],
+      "maxItems": 15,
+      "items": {"$ref": "#/$defs/read_observation"}
+    },
+    "read_observation_input": {"type": "object"},
+    "read_observation_diagnostics": {"type": "array", "items": {"type": "object"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "read_observation": {
+      "type": "object",
+      "required": ["profile_digest", "tool_name", "status", "result"],
+      "properties": {
+        "profile_digest": {"$ref": "#/$defs/sha256"},
+        "tool_name": {"type": "string", "minLength": 1},
+        "tool_description": {"type": ["string", "null"]},
+        "tool_schema": {"type": ["object", "null"]},
+        "arguments": {
+          "type": ["object", "null"],
+          "additionalProperties": {"type": "string"}
+        },
+        "status": {
+          "type": "object",
+          "required": ["transport", "content"],
+          "properties": {
+            "transport": {"const": "verified"},
+            "content": {"const": "untrusted"}
+          }
+        },
+        "result": {
+          "type": "object",
+          "not": {
+            "required": ["isError"],
+            "properties": {"isError": {"const": true}}
+          }
+        }
+      }
+    }
+  }
+}

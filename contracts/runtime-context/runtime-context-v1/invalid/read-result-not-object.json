@@ -1,0 +1,27 @@
+{
+  "state": {
+    "orders": [
+      {
+        "id": "order-1",
+        "status": "open"
+      }
+    ]
+  },
+  "target_profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "read_observations": [
+    {
+      "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tool_name": "lookup_record",
+      "arguments": {
+        "record_id": "record-1"
+      },
+      "result": [
+        "ok"
+      ],
+      "status": {
+        "transport": "verified",
+        "content": "untrusted"
+      }
+    }
+  ]
+}
