@@ -12,14 +12,8 @@ from typing import Any
 from .core import (
     _CONTEXT_FRAMING_TOKEN_RESERVE,
     _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES,
-    ARTIFACT_REVIEW_PROMPT_VERSION_V20,
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
-    CALL1_PROMPT_VERSION_V21,
-    CALL2_PROMPT_VERSION_V25,
-    CORRECTION_PROMPT_VERSION_V33,
-    CORRECTION_PROMPT_VERSION_V34,
-    PLAN_REVIEW_PROMPT_VERSION_V20,
     PromptOverflowError,
     PromptPacket,
 )
@@ -123,15 +117,7 @@ def _enforce_prompt_size(
     allowed_urls: Collection[str] = (),
 ) -> None:
     assert_no_prompt_secrets(packet, allowed_urls=allowed_urls)
-    if packet.version in {
-        CALL1_PROMPT_VERSION_V21,
-        CALL2_PROMPT_VERSION_V25,
-        CORRECTION_PROMPT_VERSION_V33,
-        CORRECTION_PROMPT_VERSION_V34,
-        PLAN_REVIEW_PROMPT_VERSION_V20,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V20,
-    }:
-        assert_no_prompt_duplicates(packet)
+    assert_no_prompt_duplicates(packet)
     if maximum <= 0:
         raise PromptOverflowError("prompt size limit must be positive")
     rendered = packet.byte_size
