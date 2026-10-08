@@ -1332,19 +1332,18 @@ def _collect_setup_findings(
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
 ) -> list[Finding]:
+    operations = {
+        item.get("name"): item
+        for item in inventory.get("operations", [])
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    permissions = runtime_contract.get("setup_permissions", [])
     findings: list[Finding] = []
     for index, step in enumerate(recipe):
-        try:
-            _validate_setup_recipe([step], inventory, runtime_contract)
-        except PlanValidationError as exc:
-            child = _findings_from_error(exc)[0]
-            findings.append(
-                Finding(
-                    child.code,
-                    child.detail,
-                    f"setup_recipe[{index}]",
-                )
-            )
+        problem = _setup_step_problem(index, step, operations, permissions)
+        if problem is not None:
+            code = _findings_from_error(PlanValidationError(problem))[0].code
+            findings.append(Finding(code, problem, f"setup_recipe[{index}]"))
     return findings
 
 
@@ -2198,57 +2197,40 @@ def _declared_binding_expected_types(runtime_bindings: Any) -> dict[str, str]:
     }
 
 
-def _validate_setup_recipe(
-    recipe: Any,
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-) -> None:
-    if not isinstance(recipe, list):
-        raise PlanValidationError("setup_recipe must be a list")
-    operations = {
-        item.get("name"): item
-        for item in inventory.get("operations", [])
-        if isinstance(item, dict) and isinstance(item.get("name"), str)
-    }
-    permissions = runtime_contract.get("setup_permissions", [])
-    for index, step in enumerate(recipe):
-        _validate_setup_step_shape(index, step)
-        name = step["operation"]
-        if name not in operations:
-            raise PlanValidationError(f"unknown setup operation: {name}")
-        if name not in permissions:
-            raise PlanValidationError(f"setup operation is not permitted: {name}")
-        supplied_args = step.get("arguments", {})
-        if not isinstance(supplied_args, dict):
-            raise PlanValidationError(f"setup_recipe[{index}].arguments must be an object")
-        _validate_setup_arguments(supplied_args, operations[name].get("arguments", {}))
-
-
-def _validate_setup_step_shape(index: int, step: Any) -> None:
-    """Require one setup step to name an operation and carry only operation and arguments."""
+def _setup_step_problem(
+    index: int, step: Any, operations: dict[str, Any], permissions: Any
+) -> str | None:
+    """Return the first problem of setup step ``index``, or None when the step is valid."""
 
     if not isinstance(step, dict) or not isinstance(step.get("operation"), str):
-        raise PlanValidationError(f"setup_recipe[{index}] must name an operation")
+        return f"setup_recipe[{index}] must name an operation"
     unexpected = set(step) - {"operation", "arguments"}
     if unexpected:
-        raise PlanValidationError(
-            f"setup_recipe[{index}] has unsupported fields: {sorted(unexpected)}"
-        )
+        return f"setup_recipe[{index}] has unsupported fields: {sorted(unexpected)}"
     if "arguments" not in step:
-        raise PlanValidationError(f"setup_recipe[{index}] must include arguments")
+        return f"setup_recipe[{index}] must include arguments"
+    name = step["operation"]
+    if name not in operations:
+        return f"unknown setup operation: {name}"
+    if name not in permissions:
+        return f"setup operation is not permitted: {name}"
+    supplied_args = step["arguments"]
+    if not isinstance(supplied_args, dict):
+        return f"setup_recipe[{index}].arguments must be an object"
+    return _setup_arguments_problem(supplied_args, operations[name].get("arguments", {}))
 
 
-def _validate_setup_arguments(supplied_args: dict[str, Any], schema: Any) -> None:
-    """Check supplied setup arguments against the operation's argument schema."""
+def _setup_arguments_problem(supplied_args: dict[str, Any], schema: Any) -> str | None:
+    """Return the first mismatch between setup arguments and the operation's schema."""
 
     properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
     required = schema.get("required", []) if isinstance(schema, dict) else []
     missing = set(required) - set(supplied_args)
     if missing:
-        raise PlanValidationError(f"missing setup argument: {sorted(missing)[0]}")
+        return f"missing setup argument: {sorted(missing)[0]}"
     unknown = set(supplied_args) - set(properties)
     if unknown:
-        raise PlanValidationError(f"unknown setup argument: {sorted(unknown)[0]}")
+        return f"unknown setup argument: {sorted(unknown)[0]}"
     for argument, value in supplied_args.items():
         schema_type = (
             properties.get(argument, {}).get("type")
@@ -2256,9 +2238,8 @@ def _validate_setup_arguments(supplied_args: dict[str, Any], schema: Any) -> Non
             else None
         )
         if schema_type and not _matches_schema_type(value, schema_type):
-            raise PlanValidationError(
-                f"schema_type_mismatch: setup argument {argument} expects {schema_type}"
-            )
+            return f"schema_type_mismatch: setup argument {argument} expects {schema_type}"
+    return None
 
 
 def _is_blocked_plan(plan: Any) -> bool:

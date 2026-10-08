@@ -354,6 +354,28 @@ def test_setup_step_shape_errors_are_reported_at_the_step() -> None:
         ], name
 
 
+def test_setup_step_details_name_the_step_index() -> None:
+    plan = copy.deepcopy(_plan())
+    plan["setup_recipe"] = [
+        {"operation": "summarize_for_ehr", "arguments": {"patient_id": "P1"}},
+        {"operation": "summarize_for_ehr"},
+        {"operation": "summarize_for_ehr", "arguments": []},
+    ]
+
+    findings = [
+        (finding.detail, finding.path)
+        for finding in collect_plan_findings_v2(
+            plan, _hazard_inventory(), _hazard_runtime_contract()
+        )
+        if finding.path.startswith("setup_recipe")
+    ]
+
+    assert findings == [
+        ("setup_recipe[1] must include arguments", "setup_recipe[1]"),
+        ("setup_recipe[2].arguments must be an object", "setup_recipe[2]"),
+    ]
+
+
 def test_unpermitted_setup_step_is_an_unpermitted_setup_finding() -> None:
     assert _setup_findings({"operation": "locked", "arguments": {}}) == [
         {
