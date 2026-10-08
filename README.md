@@ -39,7 +39,7 @@ correction gets one `unexpected_field` finding at `examples.<label>.capture`
 that says a reply claim carries no capture, ahead of any other finding; shape
 findings about that same capture are dropped, because the author removes the
 field. `examples.json` holds the examples
-as written; `artifact-package-v3` constrains only its manifest entry.
+as written; `artifact-package-v4` constrains only its manifest entry.
 Each v2 prompt carries the selected case meaning once under `case_meaning`;
 the input projection retains scenario/reference identities and narrative/Gherkin
 SHA-256 digests without repeating those texts.
@@ -302,7 +302,7 @@ finish reason separate. Absent, null, empty, text, and non-text final content
 remain distinct, and reasoning is never parsed as the final answer.
 
 The producer owns scenario meaning. From the producer repository root, run the
-normal producer command and then hand the resulting `scenario-handoff-v3`
+normal producer command and then hand the resulting `scenario-handoff-v4`
 input to `generate`:
 
 ```bash
@@ -364,7 +364,7 @@ credential from the named profile passed to `generate --profile`.
 The authoring path accepts producer-owned discovery outputs and one scenario
 handoff:
 
-- `scenario-handoff-v3` JSON or YAML for scenario meaning.
+- `scenario-handoff-v4` JSON or YAML for scenario meaning.
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional normalized producer `runtime-context.json` for state and read observations.
 - A target-free runtime contract.
@@ -372,21 +372,22 @@ handoff:
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
 vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and
 record SHA-256 source pins. The adapter verifies `content_digest` in the
-`scenario-handoff-v3` digest domain, and packages record `input_kind`
-`scenario-handoff-v3`. Authoring rejects `scenario-handoff-v1` and
-`scenario-handoff-v2` documents because they carry no
-`tool_call_condition_status`; their kits stay vendored and frozen.
+`scenario-handoff-v4` digest domain, and packages record `input_kind`
+`scenario-handoff-v4`. Authoring rejects every other document, including
+`scenario-handoff-v1` to `v3`, with "authoring source must be a producer
+scenario-handoff-v4 document; found <version>"; their kits stay vendored and
+frozen.
 
-The adapter also accepts `scenario-handoff-v4`, which adds `attack_shape`: the
-channel, the number of user turns (1 to 4) and each turn's purpose, never attack
-text. `InputView.attack_shape` returns it; a v3 handoff gets the implicit
-single-turn direct shape. The consumer authors only `direct` shapes. A `direct`
+A v4 handoff carries `attack_shape`: the channel, the number of user turns (1
+to 4) and each turn's purpose, never attack text, or null for a functional
+scenario. `InputView.attack_shape` returns it. The consumer authors only
+`direct` shapes. A `direct`
 shape with more than one turn is authored as sequential user turns: the plan
 states one intent per turn, Call 2 writes the earlier turns as `history` and the
 last as `user_text`, and code checks `1 + len(history) == turn_count`. The
 package is `artifact-package-v4`, and its `stimulus.json` states `mode`
-(`single` or `sequential`) and `turn_count`; a v3 handoff still yields a
-byte-identical v3 package. Before any model request, a shape the consumer cannot
+(`single` or `sequential`) and `turn_count`; a functional handoff's stimulus
+stays as authored. Before any model request, a shape the consumer cannot
 author stops with a typed finding: `shape_channel_unsupported` (the runtime
 contract lists no matching `delivery`, such as `planted_item` for `indirect`),
 `shape_forged_transcript_unsupported`, or `shape_turn_count_unsupported`
@@ -395,7 +396,7 @@ contract lists no matching `delivery`, such as `planted_item` for `indirect`),
 at load with `shape_version_malformed`.
 
 A handoff carries two optional condition fields and two tool-call fields, all
-validated against the vendored v3 schema:
+validated against the vendored v4 schema:
 
 - `discriminating_condition` states what makes the behavior unsafe: a
   `statement`, a list of `comparisons`, and a `record_selection`. A value
@@ -499,11 +500,12 @@ operations, infer fact schemas, and record discovery provenance. Authoring
 does not accept native semantic scenario files, reference tasks, benchmark
 answers, or hand-built inventories.
 
-The consumer-owned `artifact-package-v3` contract lives in
-`contracts/artifact-package/artifact-package-v3/`. The v2 schema file stays
-for reference but is no longer in `CONTRACT.lock`. `package_io.write_package`
+The consumer-owned artifact-package contract lives in
+`contracts/artifact-package/`: `artifact-package-v4/` for the packages the
+writer writes and `artifact-package-v3/` for earlier packages. The v2 schema
+file stays for reference but is no longer in `CONTRACT.lock`. `package_io.write_package`
 writes a complete directory atomically, and `load_package` verifies its
-manifest, member paths, lengths, and digests before returning content. A v3
+manifest, member paths, lengths, and digests before returning content. A
 manifest has no `detector_interface`, and a package has no `detector.py`.
 Each package carries the scoring input for its plan's claim level:
 
@@ -514,9 +516,8 @@ Each package carries the scoring input for its plan's claim level:
 - `judge.json` holds the semantic judge specification and its resolved facts.
   Only a `reply` package carries it, and that package requires it.
 
-The writer chooses the package version from the input kind: a v4 handoff gives
-`artifact-package-v4` (`contracts/artifact-package/artifact-package-v4/`), a v3
-handoff gives `artifact-package-v3`; the loader reads both.
+The writer writes only `artifact-package-v4`; the loader reads both v4 and
+the `artifact-package-v3` packages written before.
 
 Each version directory also holds the contract's cases: `valid/` packages every
 reader must load, `invalid/` packages every reader must reject, and
