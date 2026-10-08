@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "asago-bundle-garak"
+version = "0.1.0"
+description = "Garak adapter: compiles an artifact package into a Garak bundle and parses Garak's report into an execution receipt"
+requires-python = ">=3.11"
+dependencies = [
+    "asago-artifact-generator",
+]
+
+[project.scripts]
+asago-bundle-garak = "asago_bundle_garak.cli:main"
+
+[tool.uv.sources]
+asago-artifact-generator = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/asago_bundle_garak"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

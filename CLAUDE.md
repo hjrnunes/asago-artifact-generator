@@ -94,6 +94,7 @@ Deterministic tests must not contact a model endpoint or target.
   contracts and structural checks; `transport.py` is the provider client.
 - `src/asago_artifact_generator/bindings.py`: binding sources and destinations.
 - `src/asago_artifact_generator/package_io.py`: the artifact-package-v3 and v4 writer and loader.
+- `packages/asago-bundle-garak/`: the Garak adapter workspace member; test it with `uv run pytest packages/asago-bundle-garak/tests -q`.
 - `tests/`: executable examples and regression coverage for the changed behavior.
 - Orch qualification runbook `asago-orch/docs/qualification.md`; its modules
   live under `asago-orch/src/asago_orch/qualification/`.

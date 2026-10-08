@@ -10,6 +10,12 @@ resolution-markers = [
 exclude-newer = "2026-09-18T08:17:20.318336Z"
 exclude-newer-span = "P7D"
 
+[manifest]
+members = [
+    "asago-artifact-generator",
+    "asago-bundle-garak",
+]
+
 [[package]]
 name = "annotated-doc"
 version = "0.0.5"
@@ -61,6 +67,7 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "asago-bundle-garak" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -79,9 +86,21 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "asago-bundle-garak", editable = "packages/asago-bundle-garak" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.6" },
 ]
+
+[[package]]
+name = "asago-bundle-garak"
+version = "0.1.0"
+source = { editable = "packages/asago-bundle-garak" }
+dependencies = [
+    { name = "asago-artifact-generator" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "asago-artifact-generator", editable = "." }]
 
 [[package]]
 name = "attrs"
