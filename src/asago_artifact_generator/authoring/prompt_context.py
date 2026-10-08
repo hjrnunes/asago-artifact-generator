@@ -1182,15 +1182,11 @@ def _v2_input_projection(view: InputView) -> dict[str, Any]:
 def _case_meaning(view: InputView) -> dict[str, Any]:
     handoff = build_scenario_handoff_view(view)
     observation = handoff.get("observation")
-    if isinstance(observation, dict):
-        observation_level = observation["assessment"]["disposition"]
-    else:
-        observation_level = view.payload.get(
-            "observation_level",
-            view.payload.get(
-                "observation", "selected by the plan and bounded by runtime evidence"
-            ),
-        )
+    observation_level = (
+        observation["assessment"]["disposition"]
+        if isinstance(observation, dict)
+        else "selected by the plan and bounded by runtime evidence"
+    )
     result = {
         "scenario_id": view.scenario_id,
         "narrative": view.narrative,

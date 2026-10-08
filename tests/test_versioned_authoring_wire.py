@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 
 import pytest
@@ -13,6 +14,7 @@ from asago_artifact_generator.authoring.core import (
     AUTHORING_INTERFACE_VERSION_V2,
     Call2FramingError,
 )
+from asago_artifact_generator.authoring.prompt_context import _original_scenario_context
 from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
@@ -614,3 +616,20 @@ def test_neutral_artifact_response_without_source_matches_v2_metadata() -> None:
     decoded, _ = _decode_stage_response("call2", neutral_call2_response_v2())
 
     assert decoded == neutral_artifact_response_without_source()
+
+
+@pytest.mark.parametrize(
+    "observation_fields",
+    [{}, {"observation": None}, {"observation_level": "ignored"}],
+    ids=["absent", "explicit-null", "observation-level-key"],
+)
+def test_a_handoff_without_an_observation_object_renders_the_default_level(
+    observation_fields: dict,
+) -> None:
+    view = _view()
+    payload = {key: value for key, value in view.payload.items() if key != "observation"}
+    view = dataclasses.replace(view, payload={**payload, **observation_fields})
+
+    scenario = _original_scenario_context(view)
+
+    assert scenario["observation_level"] == "selected by the plan and bounded by runtime evidence"
