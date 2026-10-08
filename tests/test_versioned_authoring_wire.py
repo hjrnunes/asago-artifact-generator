@@ -226,7 +226,7 @@ def test_v2_call1_accepts_one_lowercase_json_fence_through_orchestrator(tmp_path
     assert result.raw_responses["call1"] == raw_plan
     assert result.transformations == ["outer_fence_removed"]
     assert result.ledger[0]["transformation"] == "outer_fence_removed"
-    assert result.prompts["call1"].payload["response_contract"]["framing"]["accepted"]
+    assert transport.requests[0]["payload"]["response_contract"]["framing"]["accepted"]
 
 
 def test_v2_call1_accepts_one_bare_object_without_transformation(tmp_path) -> None:
@@ -248,8 +248,9 @@ def test_v2_call1_correction_accepts_one_lowercase_json_fence(tmp_path) -> None:
     corrected_plan = (
         b"\n```json\r\n" + json.dumps(_plan(), sort_keys=True).encode("utf-8") + b"\r\n```\n"
     )
+    transport = ScriptedAuthoringTransport([invalid_plan, corrected_plan, _framed()])
     result = stage_local_orchestrator(
-        transport=ScriptedAuthoringTransport([invalid_plan, corrected_plan, _framed()]),
+        transport=transport,
         package_dir=tmp_path / "package",
         task_id="v2-corrected-fenced-call1",
     ).run(_view(), _inventory(), _runtime_contract())
@@ -259,7 +260,8 @@ def test_v2_call1_correction_accepts_one_lowercase_json_fence(tmp_path) -> None:
     assert result.raw_responses["correction"] == corrected_plan
     assert result.transformations == ["outer_fence_removed"]
     assert result.ledger[1]["transformation"] == "outer_fence_removed"
-    assert "lowercase ```json" in result.prompts["correction"].payload["instruction"]
+    assert transport.requests[1]["stage"] == "correction"
+    assert "lowercase ```json" in transport.requests[1]["payload"]["instruction"]
 
 
 @pytest.mark.parametrize(

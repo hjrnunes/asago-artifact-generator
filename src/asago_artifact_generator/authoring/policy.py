@@ -16,7 +16,6 @@ from .core import (
     REVIEW_REVISION_ALLOWANCE_PER_STAGE,
     BudgetExceeded,
     Finding,
-    PromptPacket,
 )
 
 
@@ -324,8 +323,6 @@ class AuthoringResult:
     ledger: list[dict[str, Any]] = field(default_factory=list)
     transformations: list[Any] = field(default_factory=list)
     raw_responses: dict[str, bytes] = field(default_factory=dict)
-    decoded_responses: dict[str, Any] = field(default_factory=dict)
-    prompts: dict[str, PromptPacket] = field(default_factory=dict)
     failure_evidence_path: Path | None = None
     review_status: dict[str, str] = field(default_factory=dict)
     allowances: dict[str, int] = field(default_factory=dict)

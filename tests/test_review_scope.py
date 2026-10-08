@@ -36,7 +36,7 @@ def test_review_schema_requires_question_and_keeps_strict_single_object_framing(
     missing = review_response("revise", [review_finding("scenario_fidelity")])
     missing_object = json.loads(missing)
     del missing_object["findings"][0]["question"]
-    parsed = parse_review_response(json.dumps(missing_object))
+    parsed = parse_review_response(json.dumps(missing_object).encode())
     assert "question" not in parsed.findings[0]
 
     unknown = parse_review_response(review_response("revise", [review_finding("not_a_question")]))
@@ -125,15 +125,16 @@ def test_review_prompts_render_every_closed_question() -> None:
         assert all(question_id in packet.user for question_id in question_ids)
 
 
-def _review_problems(raw: object) -> list[dict]:
+def _review_problems(raw: str | bytes) -> list[dict]:
     with pytest.raises(ReviewResponseError) as error:
-        parse_review_response(raw)
+        parse_review_response(raw.encode() if isinstance(raw, str) else raw)
     return [finding.to_dict() for finding in error.value.findings]
 
 
-def test_review_response_must_be_bytes_or_text() -> None:
-    with pytest.raises(TypeError, match="review response must be bytes or text"):
-        parse_review_response(42)  # type: ignore[arg-type]
+@pytest.mark.parametrize("raw", [42, '{"decision": "accept", "summary": "ok"}'])
+def test_review_response_must_be_bytes(raw: object) -> None:
+    with pytest.raises(TypeError, match="review response must be bytes"):
+        parse_review_response(raw)  # type: ignore[arg-type]
 
 
 def test_review_response_must_be_utf8() -> None:

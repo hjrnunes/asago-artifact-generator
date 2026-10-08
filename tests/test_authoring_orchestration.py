@@ -49,11 +49,12 @@ def test_stage_correction_contains_complete_contract_and_all_findings(
     response = json.dumps(malformed)
     transport = ScriptedAuthoringTransport([response, response])
 
-    result = stage_local_orchestrator(
+    orchestrator = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="complete-correction",
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    )
+    result = orchestrator.run(_view(), _inventory_v2(), _runtime_contract_v2())
 
     assert result.status == "unresolved"
     assert len(result.ledger) == 2
@@ -70,7 +71,7 @@ def test_stage_correction_contains_complete_contract_and_all_findings(
     assert len(payload["findings"]) >= 11
     assert len(result.ledger[1]["findings"]) >= 11
     assert result.raw_responses["call1"] == response.encode()
-    assert result.decoded_responses["call1"] == malformed
+    assert orchestrator._decoded_responses["call1"] == malformed
 
 
 def test_two_calls_build_an_immutable_package_without_detector_code(tmp_path: Path) -> None:
@@ -148,14 +149,15 @@ def test_essential_missing_information_is_retained_as_blocked_plan(tmp_path: Pat
     ]
     transport = ScriptedAuthoringTransport([json.dumps(plan)])
 
-    result = stage_local_orchestrator(
+    orchestrator = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="blocked",
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    )
+    result = orchestrator.run(_view(), _inventory_v2(), _runtime_contract_v2())
 
     assert result.status == "blocked"
-    assert result.decoded_responses["call1"] == plan
+    assert orchestrator._decoded_responses["call1"] == plan
     assert len(transport.requests) == 1
     assert not (tmp_path / "package").exists()
 

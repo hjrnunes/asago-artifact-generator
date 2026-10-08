@@ -21,8 +21,7 @@ from .core import (
 from .prompt_safety import _endpoint_identity, _endpoint_prompt_paths
 from .response_decode import _provider_field, _provider_response_capture
 
-DEFAULT_RETRY_DELAY_SECONDS = 1.0
-RETRY_DELAY_SECONDS = DEFAULT_RETRY_DELAY_SECONDS
+RETRY_DELAY_SECONDS = 1.0
 _sleep = time.sleep
 
 

@@ -42,10 +42,11 @@ def _view():
 
 def test_correction_size_accounting_is_evidence_only(tmp_path: Path) -> None:
     invalid = b"```json\n{}\n```\n"
+    transport = ScriptedAuthoringTransport(
+        [json.dumps(neutral_artifact_plan_v2()), invalid, invalid]
+    )
     result = stage_local_orchestrator(
-        transport=ScriptedAuthoringTransport(
-            [json.dumps(neutral_artifact_plan_v2()), invalid, invalid]
-        ),
+        transport=transport,
         package_dir=tmp_path / "package",
         task_id="size-followup",
     ).run(
@@ -55,9 +56,10 @@ def test_correction_size_accounting_is_evidence_only(tmp_path: Path) -> None:
     )
 
     assert result.status == "unresolved"
-    correction = result.prompts["correction"]
-    assert "size_comparison" not in correction.payload
-    assert "tokens" not in correction.payload
-    assert "cost" not in correction.payload
-    assert correction.payload["current_output"] == invalid.decode()
-    assert "failed_response" not in correction.payload
+    corrections = [request for request in transport.requests if request["stage"] == "correction"]
+    payload = corrections[-1]["payload"]
+    assert "size_comparison" not in payload
+    assert "tokens" not in payload
+    assert "cost" not in payload
+    assert payload["current_output"] == invalid.decode()
+    assert "failed_response" not in payload

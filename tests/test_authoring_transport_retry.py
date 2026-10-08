@@ -157,7 +157,7 @@ def test_the_retry_waits_the_fixed_delay_once(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_the_default_delay_is_short() -> None:
-    assert 0 <= transport_module.DEFAULT_RETRY_DELAY_SECONDS <= 2
+    assert 0 <= transport_module.RETRY_DELAY_SECONDS <= 2
 
 
 def test_sdk_retries_stay_off_and_the_controls_say_so() -> None:

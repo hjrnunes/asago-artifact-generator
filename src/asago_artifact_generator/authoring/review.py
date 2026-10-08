@@ -137,7 +137,7 @@ _REVIEW_FINDING_FIELDS = (
 )
 
 
-def parse_review_response(raw: bytes | str) -> ReviewResponse:
+def parse_review_response(raw: bytes) -> ReviewResponse:
     """Parse one strict reviewer response without changing its raw bytes.
 
     The accepted framing is one bare JSON object or exactly one lowercase
@@ -155,11 +155,10 @@ def parse_review_response(raw: bytes | str) -> ReviewResponse:
     evidence without reaching correction.
     """
 
-    source = raw.encode("utf-8") if isinstance(raw, str) else raw
-    if not isinstance(source, bytes):
-        raise TypeError("review response must be bytes or text")
+    if not isinstance(raw, bytes):
+        raise TypeError("review response must be bytes")
     try:
-        decoded, transformation = _decode_review_json_response(source)
+        decoded, transformation = _decode_review_json_response(raw)
     except UnicodeDecodeError as exc:
         raise ReviewResponseError(
             [Finding("invalid_json", f"review response is not valid UTF-8: {exc}", "review")]

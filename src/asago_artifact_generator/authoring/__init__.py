@@ -18,7 +18,6 @@ from .contracts import (
     NEUTRAL_OMISSION_OUTCOME_EXAMPLE,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
-    neutral_artifact_plan,
     neutral_artifact_plan_v2,
     neutral_artifact_response_without_source,
 )
@@ -137,7 +136,6 @@ __all__ = [
     "policy_max_dispatches",
     "policy_role_limits",
     "neutral_artifact_response_without_source",
-    "neutral_artifact_plan",
     "scan_for_secrets",
     "prompt_data_urls",
     "scan_for_prompt_secrets",

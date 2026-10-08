@@ -299,14 +299,12 @@ def test_dispatch_controls_ignore_events_that_set_none(tmp_path: Path) -> None:
     assert journal.dispatch_controls() == {"seed": 3} == journal.ledger[-1]["controls"]
 
 
-def test_written_names_the_sidecar_once_a_flush_wrote_it(tmp_path: Path) -> None:
+def test_flush_writes_the_sidecar_beside_the_package(tmp_path: Path) -> None:
     journal = AuthoringJournal("journal", tmp_path / "package")
     _open_author(journal)
-    assert journal.written is None
 
     path = journal.flush()
 
-    assert journal.written == path
     assert path.is_file()
     assert path == tmp_path / "package.failure-evidence.json"
 

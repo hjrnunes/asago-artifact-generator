@@ -36,7 +36,6 @@ def _package_from_responses(
     task_id: str,
     ledger: list[dict[str, Any]],
     raw_responses: dict[str, bytes],
-    decoded_responses: dict[str, Any],
     prompt_packets: dict[str, PromptPacket],
     transformations: list[Any],
     inventory: dict[str, Any],
