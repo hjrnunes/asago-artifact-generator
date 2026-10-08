@@ -1,0 +1,56 @@
+{
+  "schema_version": "execution-receipt-v1",
+  "tool": {
+    "id": "garak",
+    "revision": "1c2918aedb737d1aed19300d26fe63a7f7acd83f",
+    "adapter_revision": null
+  },
+  "package": {
+    "id": "SCN-003",
+    "digest": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "bundle_digest": null,
+  "target": {
+    "mode": "orch_hosted",
+    "image_digest": null,
+    "policy_digest": null,
+    "sandbox_id": null
+  },
+  "execution_status": "failed",
+  "runtime_status": "not_started",
+  "incomplete_reason": null,
+  "attempts": [
+    {
+      "index": 0,
+      "generation": {
+        "request_count": 0,
+        "response_status": "not_started",
+        "error_type": "generation_failed:RuntimeError"
+      },
+      "turns": [],
+      "result": {
+        "outcome": "inconclusive",
+        "claim_level": "reply",
+        "reason": null
+      },
+      "observation": {
+        "source": "tool_native",
+        "assistant_messages": [],
+        "tool_calls": []
+      },
+      "runtime_observations": {
+        "source": null,
+        "processes": [],
+        "network_calls_allowed": [],
+        "network_calls_blocked": [],
+        "files_created": [],
+        "files_modified": [],
+        "files_deleted": [],
+        "security_findings": []
+      },
+      "detections": [],
+      "judge": null
+    }
+  ],
+  "native": []
+}

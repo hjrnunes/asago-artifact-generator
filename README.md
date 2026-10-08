@@ -635,6 +635,7 @@ The unit test suite is deterministic and does not require an LLM endpoint.
 
 ```
 ├── src/asago_artifact_generator/    # authoring, packages, CLI
+├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse
 ├── contracts/                        # vendored and consumer-owned contracts
 ├── scripts/                          # quality, replay, and budget tools
 ├── tests/                            # unit tests

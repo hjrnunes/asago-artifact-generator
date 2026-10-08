@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tool-bundle-v1",
+  "title": "Tool bundle manifest",
+  "description": "bundle.json: what a tool adapter's compile wrote, which values orch must supply, and how to run the tool on the concrete bundle.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tool",
+    "tool_revision_range",
+    "package_id",
+    "scenario_id",
+    "package_digest",
+    "claim_level",
+    "delivery",
+    "target_mode",
+    "plugins",
+    "requires",
+    "environment",
+    "templates",
+    "entrypoint",
+    "native_outputs"
+  ],
+  "properties": {
+    "schema_version": {"const": "tool-bundle-v1"},
+    "tool": {"type": "string", "minLength": 1},
+    "tool_revision_range": {"type": "string", "minLength": 1},
+    "package_id": {"type": "string", "minLength": 1},
+    "scenario_id": {"type": "string", "minLength": 1},
+    "package_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "claim_level": {"enum": ["command_attempt", "reply"]},
+    "delivery": {"enum": ["single", "sequential"]},
+    "target_mode": {"enum": ["orch_hosted", "tool_hosted"]},
+    "plugins": {
+      "description": "Tool plugins the bundle loads, in the tool's own naming.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "requires": {
+      "description": "Keys values.json must carry; instantiate refuses a missing one.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "environment": {
+      "description": "Environment variable names the entrypoint reads; orch sets placeholder keys, never real credentials.",
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$"},
+      "uniqueItems": true
+    },
+    "templates": {
+      "description": "Template files relative to the bundle template directory.",
+      "type": "object",
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "entrypoint": {
+      "description": "Argument vector. {tool_python} is the tool interpreter orch runs; in a template, {bundle} and value keys such as {model} are placeholders that instantiate renders.",
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string"}
+    },
+    "values_digest": {
+      "description": "Concrete bundles only: SHA-256 of the canonical values.json that instantiate filled in.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "native_outputs": {
+      "description": "Tool output paths relative to the concrete bundle.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "authority": "asago-orch",
+  "contract": "execution-receipt",
+  "schema_version": "execution-receipt-v1",
+  "files": {
+    "execution-receipt-v1/expected-violations.json": "b2b692af31a015e32d9decd238ce277884e8d5a02b4183bbe12ec1deddd1d331",
+    "execution-receipt-v1/invalid/blank-tool-id.json": "742b4b14bc4d76f7a252ee56fc9232f2cc9ecf4707d39d1f45ec1c1b4ac6673b",
+    "execution-receipt-v1/invalid/matched-call-not-an-index.json": "837ed9988d50a0e2c7a92c5e54123b061a5654c4a41f1655ac8d362164ebaeda",
+    "execution-receipt-v1/invalid/missing-attempts.json": "e9152e33091f390b402e2adc9b0cf6b9b0c953816bc4b231c0b90e51e4700bc6",
+    "execution-receipt-v1/invalid/native-path-escapes.json": "490f67b22c9528e648b17dbb65ee02e0f617d87ad62239b23d88a5ea7a78db7d",
+    "execution-receipt-v1/invalid/negative-request-count.json": "ed26294705624da3b3b06eb3a05477c000ef1452a8500210e8852edbe3ad441c",
+    "execution-receipt-v1/invalid/runtime-without-source.json": "9aeff01b58825c9702e0b74f9d6d64b95c6110f8c2f8bb3754bf78eabc023e05",
+    "execution-receipt-v1/invalid/schema-version-v0.json": "a45a5cef89972e09f4b6133fd9a9e49f3782f8b9b24ecff031ed93b56ab9e836",
+    "execution-receipt-v1/invalid/tool-call-without-turn-index.json": "0feedcef0168d77a66163babf4874ad21b4fdd9a6225082ca0918c6b9f8a2091",
+    "execution-receipt-v1/invalid/turn-without-request-messages.json": "f6b68e7941088e215058ffd2bd283e16a12f87645bbfe4edb6fb04d6111dfd8f",
+    "execution-receipt-v1/invalid/unknown-execution-status.json": "1ac0d6940565fb973145ee184baf7d126298765b62ca0065a1eceaa380020f6a",
+    "execution-receipt-v1/invalid/unknown-field.json": "b22e51a6253a2fc493cf3a3bfc416bd1471a22b838f34db3bf6a4c43f98887ec",
+    "execution-receipt-v1/invalid/unknown-observation-source.json": "6204da1bbf102d5cb922b1dd2977f6773ff069441078f2166b4ae245de20e93a",
+    "execution-receipt-v1/invalid/unknown-outcome.json": "dc3388ba6a04273f7b48a46068895dff20b01c5a756a9653e3fc1f3245868e85",
+    "execution-receipt-v1/invalid/unknown-target-mode.json": "00901f17387617cd9ac559d9534e445a04148d27bdc09192cb2961a74f21be10",
+    "execution-receipt-v1/invalid/uppercase-package-digest.json": "efc0c3e03027774e4fdf477b9861a5645e4df174a3edf0d49e74e288d5bb7714",
+    "execution-receipt-v1/valid/garak-not-started.json": "15c85050862577d381f3250e82e9aa75f892e6314069d240abdafbac7cef2bce",
+    "execution-receipt-v1/valid/garak-sequential.json": "90654460ae60c1e0a88f6bc67abb0dbcfa3e4dc14b7a8b1c6fcec87d8b4df33c",
+    "execution-receipt-v1/valid/garak-single-turn.json": "5b532b559c56116580489f9d52f5b51f18018b0e8c2e18934fa67830be28ad81",
+    "execution-receipt-v1/valid/incomplete-without-attempts.json": "484a842c6377d0cee5b31d5ca317c759758cee4662d19fa2884aa443370b1efc",
+    "execution-receipt-v1/valid/sandboxed-repeats.json": "a2b071fec30de4509a7a4f6272a5f65d9242f64dadb03c8204f13da9b680ab02",
+    "execution-receipt-v1.schema.json": "342c7b5fabe4e00195189c246d5fb87fc5496196226b2950c9da01404feb3c38"
+  }
+}
