@@ -561,7 +561,12 @@ output.
 New v2 executable prerequisites use exactly `name`, `check`, `evidence_refs`,
 `binding`, and `equals`. The binding names a declared runtime binding, and
 `equals` is always present as a JSON literal, including when its value is
-explicitly `null`. Static judge `fact_refs` resolve from the supplied inventory
+explicitly `null`. When the binding is a `supplied_input` that resolves from the
+inventory, `equals` must equal the whole resolved value, because execute fails
+a prerequisite on any difference: a partial object or a JSON string that holds
+the status never passes. The plan check reports `prerequisite_value_mismatch`
+at `prerequisites[i].equals` and names the resolved value (cut at 200
+characters). It skips `setup_output` and unresolvable bindings. Static judge `fact_refs` resolve from the supplied inventory
 into `judge.json` facts with their exact source reference before publication.
 Facts that depend on setup, live reads, or captured output remain declarations
 in `bindings.json`; the consumer never substitutes a static value for them.
@@ -580,6 +585,14 @@ redacted from the sidecar. The sidecar uses
 the findings that caused the terminal status. Each finding record names the
 logical stage that raised it (`plan` or `artifact`) in `stage`. The `terminal`
 object records the logical stage, zero-based attempt index, and terminal reason.
+The sidecar first reads `status: in_progress` with `terminal: null`, and the
+run replaces that when it ends. An exception the state machine does not handle
+ends the sidecar as `failed` with one `authoring_crashed` finding: its detail
+is the exception type and the redacted message cut at 200 characters, and its
+`stage` is the stage that was running. The original exception then propagates.
+A sidecar that still reads `in_progress` after the process exited means the
+run stopped without an `Exception` (a kill or an interrupt) or the failed
+sidecar write itself raised.
 
 ### Runtime bindings
 
