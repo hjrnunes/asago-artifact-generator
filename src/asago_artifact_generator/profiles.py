@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -106,19 +107,19 @@ def load_authoring_profile(
                 field=field_name,
             )
         values[field_name] = value
-    readers: tuple[tuple[str, Any, dict[str, Any]], ...] = (
-        ("reasoning_effort", _optional_nonblank_string, {}),
-        ("service_tier", _optional_nonblank_string, {}),
-        ("service_tier_fallback", _optional_nonblank_string, {}),
-        ("sampling_controls", _optional_boolean, {"default": True}),
-        ("strict_json_schema", _optional_boolean, {"default": None}),
-        ("context_window", _optional_positive_integer, {}),
-        ("max_completion_tokens", _optional_positive_integer, {}),
-        ("timeout", _optional_positive_number, {}),
+    optional_fields: tuple[tuple[str, Callable[[Any], bool], bool | None], ...] = (
+        ("reasoning_effort", _is_nonblank_string, None),
+        ("service_tier", _is_nonblank_string, None),
+        ("service_tier_fallback", _is_nonblank_string, None),
+        ("sampling_controls", _is_boolean, True),
+        ("strict_json_schema", _is_boolean, None),
+        ("context_window", _is_positive_integer, None),
+        ("max_completion_tokens", _is_positive_integer, None),
+        ("timeout", _is_positive_number, None),
     )
     optional = {
-        name: read(entry, name, path=path, profile_name=profile_name, **extra)
-        for name, read, extra in readers
+        name: _optional(entry, name, valid, default, path=path, profile_name=profile_name)
+        for name, valid, default in optional_fields
     }
     return AuthoringProfile(name=profile_name, **values, **optional)
 
@@ -161,38 +162,19 @@ def _profile_lookup(path: Path, profile_name: str) -> dict[Any, Any]:
     return lookup
 
 
-def _optional_nonblank_string(
+def _optional(
     entry: dict[str, Any],
     field_name: str,
-    *,
-    path: Path,
-    profile_name: str,
-) -> str | None:
-    value = entry.get(field_name)
-    if value is None:
-        return None
-    if not isinstance(value, str) or not value.strip():
-        raise ProfileFieldError(
-            f"profile {profile_name!r} has invalid field {field_name!r}",
-            path=path,
-            profile_name=profile_name,
-            field=field_name,
-        )
-    return value
-
-
-def _optional_boolean(
-    entry: dict[str, Any],
-    field_name: str,
-    *,
+    valid: Callable[[Any], bool],
     default: bool | None,
+    *,
     path: Path,
     profile_name: str,
-) -> bool | None:
+) -> Any:
     value = entry.get(field_name)
     if value is None:
         return default
-    if not isinstance(value, bool):
+    if not valid(value):
         raise ProfileFieldError(
             f"profile {profile_name!r} has invalid field {field_name!r}",
             path=path,
@@ -202,44 +184,20 @@ def _optional_boolean(
     return value
 
 
-def _optional_positive_integer(
-    entry: dict[str, Any],
-    field_name: str,
-    *,
-    path: Path,
-    profile_name: str,
-) -> int | None:
-    value = entry.get(field_name)
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ProfileFieldError(
-            f"profile {profile_name!r} has invalid field {field_name!r}",
-            path=path,
-            profile_name=profile_name,
-            field=field_name,
-        )
-    return value
+def _is_nonblank_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
-def _optional_positive_number(
-    entry: dict[str, Any],
-    field_name: str,
-    *,
-    path: Path,
-    profile_name: str,
-) -> float | int | None:
-    value = entry.get(field_name)
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        raise ProfileFieldError(
-            f"profile {profile_name!r} has invalid field {field_name!r}",
-            path=path,
-            profile_name=profile_name,
-            field=field_name,
-        )
-    return value
+def _is_boolean(value: Any) -> bool:
+    return isinstance(value, bool)
+
+
+def _is_positive_integer(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, int) and value > 0
+
+
+def _is_positive_number(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and value > 0
 
 
 __all__ = [
