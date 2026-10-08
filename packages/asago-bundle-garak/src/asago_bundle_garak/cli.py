@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .compiler import CapabilityGap, CompileError, compile_package
 from .instantiate import InstantiateError, instantiate_bundle
+from .report_parse import ParseError, parse_report
 
 EXIT_OK = 0
 EXIT_INPUT = 1
@@ -38,6 +39,21 @@ def build_parser() -> argparse.ArgumentParser:
     instantiate_cmd.add_argument("--values", type=Path, required=True, help="values.json")
     instantiate_cmd.add_argument("--out", type=Path, required=True, help="new bundle directory")
     instantiate_cmd.set_defaults(handler=_instantiate)
+    parse_cmd = commands.add_parser(
+        "parse",
+        help="write execution-receipt-v1 from Garak's report; a failed run still exits 0",
+    )
+    parse_cmd.add_argument("bundle", type=Path, help="concrete bundle directory")
+    parse_cmd.add_argument("--out", type=Path, required=True, help="receipt path")
+    parse_cmd.add_argument(
+        "--report", type=Path, help="Garak report (default: the bundle's native output)"
+    )
+    parse_cmd.add_argument(
+        "--records", type=Path, help="package output directory holding boundary records"
+    )
+    parse_cmd.add_argument("--tool-revision", help="Garak commit that ran the bundle")
+    parse_cmd.add_argument("--adapter-revision", help="consumer commit of this adapter")
+    parse_cmd.set_defaults(handler=_parse)
     return parser
 
 
@@ -68,5 +84,21 @@ def _instantiate(args: argparse.Namespace) -> int:
         instantiate_bundle(args.template, values, args.out)
     except InstantiateError as exc:
         print(f"instantiate: {exc}", file=sys.stderr)
+        return EXIT_INPUT
+    return EXIT_OK
+
+
+def _parse(args: argparse.Namespace) -> int:
+    try:
+        parse_report(
+            args.bundle,
+            args.out,
+            report=args.report,
+            records_dir=args.records,
+            tool_revision=args.tool_revision,
+            adapter_revision=args.adapter_revision,
+        )
+    except ParseError as exc:
+        print(f"parse: {exc}", file=sys.stderr)
         return EXIT_INPUT
     return EXIT_OK
