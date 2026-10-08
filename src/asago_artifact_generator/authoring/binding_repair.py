@@ -12,11 +12,15 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from ..bindings import CLOSED_TYPES, canonical_binding_paths, named_record_facts
+from ..bindings import (
+    CLOSED_TYPES,
+    _first_fact_named,
+    canonical_binding_paths,
+    named_record_facts,
+)
 from ..input_adapter import InputView
 from .checks import _binding_selector_type, _binding_source_schema, _binding_types_compatible
 from .core import Call1FramingError, Finding, FindingTarget
-from .inventory import _first_fact_named
 from .prompt_context import _explained_operations, _plan_evidence_references
 from .response_decode import _decode_v2_json_response
 

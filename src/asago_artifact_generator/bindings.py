@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 
@@ -97,15 +97,7 @@ class RuntimeBinding:
     on_missing: str
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "expected_type": self.expected_type,
-            "source_kind": self.source_kind,
-            "source_ref": self.source_ref,
-            "selector": self.selector,
-            "consumers": list(self.consumers),
-            "on_missing": self.on_missing,
-        }
+        return {**asdict(self), "consumers": list(self.consumers)}
 
     @classmethod
     def from_dict(cls, value: Any) -> RuntimeBinding:
@@ -228,7 +220,14 @@ def _require_record_key_selector(binding: RuntimeBinding, inventory: dict[str, A
 
 
 def _fact_provenance(inventory: dict[str, Any], reference: str) -> Any:
-    fact = next(
+    fact = _first_fact_named(inventory, reference)
+    return fact.get("provenance") if fact is not None else None
+
+
+def _first_fact_named(inventory: Mapping[str, Any], reference: Any) -> dict[str, Any] | None:
+    """Return the first supplied fact whose ref equals ``reference``."""
+
+    return next(
         (
             item
             for item in inventory.get("facts", [])
@@ -236,7 +235,6 @@ def _fact_provenance(inventory: dict[str, Any], reference: str) -> Any:
         ),
         None,
     )
-    return fact.get("provenance") if isinstance(fact, dict) else None
 
 
 def canonical_binding_paths(
@@ -518,8 +516,7 @@ def normalize_binding_declarations(
     if not isinstance(declarations, (list, tuple)):
         raise BindingValidationError("runtime_bindings must be a list")
     normalized: list[dict[str, Any]] = []
-    seen: set[tuple[Any, ...]] = set()
-    first_indices: dict[tuple[Any, ...], int] = {}
+    first_indices: dict[RuntimeBinding, int] = {}
     for declaration_index, raw in enumerate(declarations):
         if not isinstance(raw, dict):
             normalized.append(raw)
@@ -541,14 +538,8 @@ def normalize_binding_declarations(
             binding.source_ref,
             binding.selector,
         ):
-            binding = RuntimeBinding(
-                name=binding.name,
-                expected_type=binding.expected_type,
-                source_kind=binding.source_kind,
-                source_ref=canonical_source_ref,
-                selector=canonical_selector,
-                consumers=binding.consumers,
-                on_missing=binding.on_missing,
+            binding = replace(
+                binding, source_ref=canonical_source_ref, selector=canonical_selector
             )
             _record_binding_transformation(
                 transformations,
@@ -559,17 +550,7 @@ def normalize_binding_declarations(
                 canonical_source_ref=canonical_source_ref,
                 canonical_selector=canonical_selector,
             )
-        declaration = binding.to_dict()
-        key = (
-            binding.name,
-            binding.expected_type,
-            binding.source_kind,
-            binding.source_ref,
-            binding.selector,
-            binding.consumers,
-            binding.on_missing,
-        )
-        if key in seen:
+        if binding in first_indices:
             _record_binding_transformation(
                 transformations,
                 transformation="binding_duplicate_dropped",
@@ -578,13 +559,12 @@ def normalize_binding_declarations(
                 original_selector=original_selector,
                 canonical_source_ref=binding.source_ref,
                 canonical_selector=binding.selector,
-                kept_index=first_indices[key],
+                kept_index=first_indices[binding],
                 dropped_index=declaration_index,
             )
             continue
-        seen.add(key)
-        first_indices[key] = declaration_index
-        normalized.append(declaration)
+        first_indices[binding] = declaration_index
+        normalized.append(binding.to_dict())
     if isinstance(declarations, list):
         declarations[:] = normalized
     return normalized
@@ -712,14 +692,9 @@ def supplied_binding_values(
 def _supplied_facts_by_ref(declarations: Any, inventory: Any) -> dict[str, Any] | None:
     if not isinstance(declarations, (list, tuple)) or not isinstance(inventory, Mapping):
         return None
-    facts = inventory.get("facts", [])
-    if not isinstance(facts, list):
+    if not isinstance(inventory.get("facts", []), list):
         return None
-    return {
-        item["ref"]: item
-        for item in facts
-        if isinstance(item, dict) and isinstance(item.get("ref"), str)
-    }
+    return _facts_by_ref(inventory)
 
 
 def _supplied_declaration_paths(raw: Any) -> tuple[str, str, str] | None:
@@ -869,22 +844,27 @@ def _supplied_fact_schema(binding: RuntimeBinding, inventory: dict[str, Any]) ->
         raise BindingValidationError(
             f"supplied binding source_ref must be facts:<ref>: {binding.name}"
         )
-    facts = inventory.get("facts", [])
-    fact = next(
-        (item for item in facts if isinstance(item, dict) and item.get("ref") == reference),
-        None,
-    )
+    fact = _first_fact_named(inventory, reference)
     if fact is None:
         raise BindingValidationError(f"unknown supplied fact: {reference}")
     return fact.get("schema")
 
 
 def _schema_at_selector(schema: dict[str, Any], selector: str) -> str | None:
-    # Setup outputs are documented relative to ``result``; supplied facts use
-    # ``value``.  Requiring the root makes accidental field-name inference fail.
-    if selector.split(".", 1)[0] not in {"result", "value"}:
+    if _selector_root(selector) is None:
         return None
     return _binding_selector_type(schema, selector)
+
+
+def _selector_root(selector: str) -> str | None:
+    """Return a selector's root part when it is ``result`` or ``value``, else None.
+
+    Setup outputs are documented relative to ``result``; supplied facts use
+    ``value``.  Requiring the root makes accidental field-name inference fail.
+    """
+
+    root = selector.split(".", 1)[0]
+    return root if root in {"result", "value"} else None
 
 
 def _binding_selector_type(schema: Any, selector: str) -> str | None:

@@ -19,6 +19,8 @@ from ..bindings import (
     BindingValidationError,
     _binding_selector_type,
     _binding_types_compatible,
+    _first_fact_named,
+    _selector_root,
     canonical_binding_paths,
     find_stimulus_user_text_consumer_mismatches,
     normalize_binding_declarations,
@@ -46,7 +48,7 @@ from .example_capture import (
     reply_capture_findings,
 )
 from .field_findings import missing_field_findings, unexpected_field_findings
-from .inventory import _first_fact_named, _inventory_fact_map, _inventory_references
+from .inventory import _inventory_fact_map, _inventory_references
 from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
@@ -1795,11 +1797,6 @@ def _supplied_input_source_schema(
     if fact is None:
         return None, f"unknown supplied fact: {reference}"
     return fact.get("schema"), None
-
-
-def _selector_root(selector: str) -> str | None:
-    root = selector.split(".", 1)[0]
-    return root if root in {"result", "value"} else None
 
 
 def _collect_canonical_prerequisite_findings(

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+# prompt_context.py still imports _first_fact_named from here.
+from ..bindings import _first_fact_named  # noqa: F401
 from ..input_adapter import InputView, build_scenario_handoff_view
 from .core import ArtifactValidationError, _mapping_sha256, _sha256
 
@@ -43,19 +45,6 @@ def _inventory_references(inventory: dict[str, Any]) -> set[str]:
         if isinstance(item, dict) and item.get("name")
     )
     return references
-
-
-def _first_fact_named(inventory: dict[str, Any], reference: Any) -> dict[str, Any] | None:
-    """Return the first supplied fact whose ref equals ``reference``."""
-
-    return next(
-        (
-            item
-            for item in inventory.get("facts", [])
-            if isinstance(item, dict) and item.get("ref") == reference
-        ),
-        None,
-    )
 
 
 def _inventory_fact_map(inventory: dict[str, Any]) -> dict[str, dict[str, Any]]:

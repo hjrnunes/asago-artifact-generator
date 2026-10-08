@@ -5,7 +5,8 @@ from typing import Any
 import pytest
 
 from asago_artifact_generator.authoring.core import ArtifactValidationError
-from asago_artifact_generator.authoring.inventory import _first_fact_named, _resolved_judge_spec
+from asago_artifact_generator.authoring.inventory import _resolved_judge_spec
+from asago_artifact_generator.bindings import _first_fact_named
 
 _INVENTORY = {
     "facts": [
