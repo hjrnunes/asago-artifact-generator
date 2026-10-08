@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from asago_artifact_generator.authoring.core import Finding, PromptPacket
 from asago_artifact_generator.authoring import journal as journal_module
+from asago_artifact_generator.authoring.core import Finding, PromptPacket
 from asago_artifact_generator.authoring.journal import (
     AllowancesRecorded,
     AttemptFailed,
