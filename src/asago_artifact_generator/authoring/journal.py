@@ -648,4 +648,13 @@ class AuthoringJournal:
 
     @property
     def evidence(self) -> dict[str, Any]:
+        """The in-memory failure-evidence projection that ``flush`` writes.
+
+        Production code never reads this property: ``flush`` writes
+        ``self._view.document`` itself. It is the test seam for the document
+        before any write, such as the status of an orchestrator that has
+        written nothing, or a second read that must not mutate the projection.
+        Treat the returned dict as read-only.
+        """
+
         return self._view.document
