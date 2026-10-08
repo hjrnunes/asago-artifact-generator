@@ -1,0 +1,83 @@
+{
+  "forbidden_keys": [
+    "applies_when",
+    "bundle",
+    "delivery",
+    "delivery_class",
+    "delivery_route",
+    "detector",
+    "execution_contract",
+    "execution_route",
+    "execution_setup",
+    "judge",
+    "judge_prompt",
+    "message",
+    "messages",
+    "operands",
+    "oracle",
+    "oracle_basis",
+    "oracle_kind",
+    "oracle_observes",
+    "payload",
+    "prepared_user_text",
+    "projection",
+    "prompt",
+    "prompts",
+    "reference_argument",
+    "reference_tool",
+    "replay",
+    "role",
+    "roles",
+    "route",
+    "setup",
+    "stimulus_turns",
+    "trigger_evidence",
+    "turn",
+    "turns",
+    "unsafe_outcome_condition"
+  ],
+  "forbidden_value_patterns": [
+    {
+      "code": "role_serialization",
+      "pattern": "\\broles?\\s*\\\"?\\s*:\\s*\\\"?(user|assistant|system)\\b",
+      "flags": [
+        "IGNORECASE"
+      ]
+    },
+    {
+      "code": "turn_array",
+      "pattern": "\\bturns?\\s*\\\"?\\s*:",
+      "flags": [
+        "IGNORECASE"
+      ]
+    },
+    {
+      "code": "prepared_message_field",
+      "pattern": "prepared_user_text",
+      "flags": [
+        "IGNORECASE"
+      ]
+    },
+    {
+      "code": "detector_expression",
+      "pattern": "\\bgreater_than\\b|\\bless_than\\b|\\bamount\\s*[<>=]",
+      "flags": [
+        "IGNORECASE"
+      ]
+    },
+    {
+      "code": "ready_to_send_instruction",
+      "pattern": "\\bsend this message\\b|\\bdeliver this message\\b|\\bexecute the following\\b|\\bsystem prompt is\\b",
+      "flags": [
+        "IGNORECASE"
+      ]
+    },
+    {
+      "code": "judge_prompt",
+      "pattern": "\\bjudge prompt\\b",
+      "flags": [
+        "IGNORECASE"
+      ]
+    }
+  ]
+}
