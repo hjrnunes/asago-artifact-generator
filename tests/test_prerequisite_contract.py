@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from asago_artifact_generator.authoring.checks import (
     collect_plan_findings_v2,
 )
@@ -14,6 +16,7 @@ _contract, _inventory, _plan, _view = world_builders(
 
 def _v2_inventory_and_binding() -> tuple[dict[str, object], dict[str, object]]:
     inventory = _inventory()
+    inventory["facts"][0]["value"] = {"status": "awaiting_review"}
     inventory["facts"][0]["schema"] = {
         "type": "object",
         "properties": {
@@ -164,6 +167,7 @@ def test_v2_prerequisites_reject_closed_forms() -> None:
     )
 
     explicit_null = {**base, "equals": None}
+    inventory["facts"][0]["value"] = None
     assert (
         collect_plan_findings_v2(
             _v2_plan(runtime_bindings=[binding], prerequisites=[explicit_null]),
@@ -263,3 +267,121 @@ def test_collecting_a_plan_twice_records_the_consumer_rewrite_once() -> None:
     collect_plan_findings_v2(plan, inventory, _contract(), transformations=rewrites)
 
     assert [rewrite["transformation"] for rewrite in rewrites] == ["binding_consumer_added"]
+
+
+def _value_plan(
+    value: object, equals: object, *, source_kind: str = "supplied_input", **binding: object
+) -> tuple[dict, dict]:
+    """A plan whose one prerequisite compares ``equals`` with the supplied fact ``value``."""
+
+    inventory, declared = _v2_inventory_and_binding()
+    inventory["facts"][0]["value"] = value
+    declared = {**declared, "source_kind": source_kind, **binding}
+    prerequisite = {**_canonical_prerequisite(), "equals": equals}
+    return _v2_plan(runtime_bindings=[declared], prerequisites=[prerequisite]), inventory
+
+
+def _mismatches(plan: dict, inventory: dict) -> list[tuple[str, str]]:
+    return [
+        (finding.code, finding.path)
+        for finding in collect_plan_findings_v2(plan, inventory, _contract())
+        if finding.code == "prerequisite_value_mismatch"
+    ]
+
+
+def test_a_prerequisite_equal_to_the_resolved_supplied_value_passes() -> None:
+    record = {"id": "RES-104", "status": "awaiting_review"}
+
+    assert _mismatches(*_value_plan(record, dict(record))) == []
+
+
+@pytest.mark.parametrize(
+    ("value", "equals"),
+    [
+        pytest.param({"id": "RES-104", "status": "open"}, {"id": "RES-104"}, id="partial-object"),
+        pytest.param(
+            '{"result": "NO_WHITELIST_HIT"}', "NO_WHITELIST_HIT", id="json-string-status"
+        ),
+        pytest.param({"status": "open"}, {"status": "closed"}, id="different-value"),
+        pytest.param({"status": "open"}, None, id="null-expected-non-null-value"),
+        pytest.param(None, {"status": "open"}, id="null-value-non-null-expected"),
+    ],
+)
+def test_a_prerequisite_that_differs_from_the_resolved_supplied_value_is_rejected(
+    value: object, equals: object
+) -> None:
+    plan, inventory = _value_plan(value, equals)
+
+    assert _mismatches(plan, inventory) == [
+        ("prerequisite_value_mismatch", "prerequisites[0].equals")
+    ]
+
+
+def test_a_null_prerequisite_equal_to_a_null_supplied_value_passes() -> None:
+    assert _mismatches(*_value_plan(None, None)) == []
+
+
+def test_the_mismatch_names_the_resolved_value_and_cuts_it_at_200_characters() -> None:
+    plan, inventory = _value_plan({"note": "x" * 500}, {"note": "y"})
+
+    (finding,) = [
+        finding
+        for finding in collect_plan_findings_v2(plan, inventory, _contract())
+        if finding.code == "prerequisite_value_mismatch"
+    ]
+
+    assert finding.stage == "plan"
+    assert '"note": "xxx' in finding.detail
+    assert "x" * 201 not in finding.detail
+    assert "booking_state" in finding.detail
+
+
+def test_the_mismatch_names_the_whole_short_value() -> None:
+    plan, inventory = _value_plan({"status": "open"}, {"status": "closed"})
+
+    (finding,) = [
+        finding
+        for finding in collect_plan_findings_v2(plan, inventory, _contract())
+        if finding.code == "prerequisite_value_mismatch"
+    ]
+
+    assert '{"status": "open"}' in finding.detail
+
+
+def test_a_setup_output_binding_is_not_compared() -> None:
+    plan, inventory = _value_plan(
+        {"status": "open"},
+        {"status": "closed"},
+        source_kind="setup_output",
+        source_ref="setup:create_order",
+        selector="result.id",
+    )
+
+    assert _mismatches(plan, inventory) == []
+
+
+def test_an_unresolvable_supplied_binding_is_not_compared() -> None:
+    plan, inventory = _value_plan(
+        {"status": "open"}, {"status": "closed"}, source_ref="facts:order:missing"
+    )
+
+    assert _mismatches(plan, inventory) == []
+
+
+def test_a_prerequisite_without_equals_is_left_to_the_closed_form_check() -> None:
+    plan, inventory = _value_plan({"status": "open"}, None)
+    del plan["prerequisites"][0]["equals"]
+
+    findings = collect_plan_findings_v2(plan, inventory, _contract())
+
+    assert "prerequisite_value_mismatch" not in [finding.code for finding in findings]
+
+
+def test_the_value_check_survives_malformed_bindings_and_prerequisites() -> None:
+    plan, inventory = _value_plan({"status": "open"}, {"status": "closed"})
+    plan["prerequisites"].append("not an object")
+    plan["runtime_bindings"].append(7)
+
+    findings = collect_plan_findings_v2(plan, inventory, _contract())
+
+    assert [finding.code for finding in findings].count("prerequisite_value_mismatch") == 1

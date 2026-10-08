@@ -6,6 +6,7 @@ review.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -891,7 +892,49 @@ def _plan_canonical_prerequisite_findings(
         declared_bindings,
         plan.get("runtime_bindings"),
         safe_behavior=_plan_safe_behavior(plan),
-    )
+    ) + _prerequisite_value_findings(prerequisites, plan.get("runtime_bindings"), inventory)
+
+
+_VALUE_DETAIL_LIMIT = 200
+
+
+def _prerequisite_value_findings(
+    prerequisites: list[Any],
+    runtime_bindings: Any,
+    inventory: dict[str, Any],
+) -> list[Finding]:
+    """Reject a prerequisite whose ``equals`` differs from its supplied binding's value.
+
+    Execute compares the whole resolved value with ``equals`` and fails the
+    prerequisite on any difference, so a partial object or a value in another
+    encoding can never pass. Only ``supplied_input`` bindings resolve here.
+    """
+
+    if not isinstance(runtime_bindings, list):
+        return []
+    resolved = supplied_binding_values(runtime_bindings, inventory)
+    return [
+        Finding(
+            "prerequisite_value_mismatch",
+            (
+                f"prerequisite binding {prerequisite['binding']} resolves to "
+                f"{_value_excerpt(resolved[prerequisite['binding']])}, but equals differs; "
+                "equals must be the whole resolved value"
+            ),
+            f"prerequisites[{index}].equals",
+        )
+        for index, prerequisite in enumerate(prerequisites)
+        if isinstance(prerequisite, dict)
+        and "equals" in prerequisite
+        and isinstance(prerequisite.get("binding"), str)
+        and prerequisite["binding"] in resolved
+        and resolved[prerequisite["binding"]] != prerequisite["equals"]
+    ]
+
+
+def _value_excerpt(value: Any) -> str:
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    return text if len(text) <= _VALUE_DETAIL_LIMIT else f"{text[:_VALUE_DETAIL_LIMIT]}..."
 
 
 def _normalized_plan_findings(
