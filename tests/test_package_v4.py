@@ -1,4 +1,4 @@
-"""A v4 handoff yields an artifact-package-v4 whose stimulus states its turns; v3 stays v3."""
+"""A v4 handoff yields an artifact-package-v4 whose stimulus states its turns."""
 
 from __future__ import annotations
 
@@ -9,10 +9,8 @@ from typing import Any
 import jsonschema
 import pytest
 
-from asago_artifact_generator.authoring.core import _json_bytes
 from asago_artifact_generator.input_adapter import InputView
 from asago_artifact_generator.package_io import (
-    PACKAGE_SCHEMA_VERSION,
     PackageIntegrityError,
     build_package,
     load_package,
@@ -83,26 +81,6 @@ def test_a_one_turn_v4_handoff_costs_the_same_requests_and_states_a_single_turn(
     assert _manifest(tmp_path)["schema_version"] == "artifact-package-v4"
 
 
-def test_a_v3_handoff_still_writes_the_v3_package_byte_for_byte(tmp_path: Path) -> None:
-    refund = world("refund")
-    transport = ScriptedAuthoringTransport(
-        [json.dumps(refund["plan"]), json.dumps(refund["metadata"])]
-    )
-
-    result = stage_local_orchestrator(
-        transport=transport, package_dir=tmp_path / "package", task_id="task"
-    ).run(refund["view"], refund["inventory"], refund["runtime_contract"])
-
-    assert result.status == "accepted", result.findings
-    manifest = _manifest(tmp_path)
-    assert manifest["schema_version"] == PACKAGE_SCHEMA_VERSION == "artifact-package-v3"
-    assert manifest["input_kind"] == "scenario-handoff-v3"
-    assert (tmp_path / "package" / "stimulus.json").read_bytes() == _json_bytes(
-        refund["metadata"]["stimulus"]
-    )
-    assert set(_stimulus(tmp_path)) == {"user_text", "delivery", "history", "slots"}
-
-
 def _build(input_kind: str, **changes: Any):
     return build_package(
         package_id="p",
@@ -114,15 +92,8 @@ def _build(input_kind: str, **changes: Any):
     )
 
 
-@pytest.mark.parametrize(
-    ("input_kind", "version"),
-    [
-        ("scenario-handoff-v3", "artifact-package-v3"),
-        ("scenario-handoff-v4", "artifact-package-v4"),
-    ],
-)
-def test_the_package_version_follows_the_input_kind(input_kind: str, version: str) -> None:
-    assert _build(input_kind).manifest.schema_version == version
+def test_a_v4_input_builds_a_v4_package() -> None:
+    assert _build("scenario-handoff-v4").manifest.schema_version == "artifact-package-v4"
 
 
 def test_an_unknown_input_kind_is_refused() -> None:

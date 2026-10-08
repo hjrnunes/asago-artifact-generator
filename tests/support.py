@@ -102,11 +102,18 @@ class ScriptedAuthoringTransport:
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _ROOT = Path(__file__).resolve().parents[1]
-HANDOFF_V3_KIT = _ROOT / "contracts" / "scenario-handoff" / "handoff-v3"
-HANDOFF = HANDOFF_V3_KIT / "valid" / "refund-bound.json"
-NO_CONDITION_HANDOFF = HANDOFF_V3_KIT / "valid" / "adversarial-condition-omitted.json"
-OBSERVED_HANDOFF = HANDOFF_V3_KIT / "valid" / "adversarial-observed-record.json"
-NOT_CALLED_HANDOFF = HANDOFF_V3_KIT / "valid" / "functional-not-called.json"
+# The v4 test handoffs: earlier kit payloads with an explicit attack_shape, re-signed as v4.
+HANDOFFS = FIXTURES / "handoffs"
+HANDOFF = HANDOFFS / "refund-bound.json"
+NO_CONDITION_HANDOFF = HANDOFFS / "adversarial-condition-omitted.json"
+OBSERVED_HANDOFF = HANDOFFS / "adversarial-observed-record.json"
+NOT_CALLED_HANDOFF = HANDOFFS / "functional-not-called.json"
+# One attacker message sent directly: the shape every adversarial test handoff above carries.
+DIRECT_SINGLE_SHAPE: dict[str, Any] = json.loads(
+    (
+        _ROOT / "contracts/scenario-handoff/handoff-v4/valid/adversarial-direct-single.json"
+    ).read_text(encoding="utf-8")
+)["attack_shape"]
 
 _WORLD_PARTS = ("view", "inventory", "runtime_contract", "plan", "metadata", "framed")
 
@@ -203,7 +210,7 @@ def signed_omission_view(tmp_path: Path):
     ]
     payload.pop("condition_check", None)
     payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    payload["content_digest"] = _framed_digest("scenario-handoff-v3", payload)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload)
     path = tmp_path / "handoff.yaml"
     path.write_text(yaml.safe_dump(payload), encoding="utf-8")
     return load_input(path)
@@ -509,7 +516,7 @@ def build_neutral_artifact_package(destination: str | Path) -> Path:
     package = build_package(
         package_id="offline-neutral-example-v2",
         scenario_id="neutral-example",
-        input_kind="scenario-handoff-v3",
+        input_kind="scenario-handoff-v4",
         source_digests={"neutral": _sha256(b"neutral-example-v2")},
         members=members,
         authoring={

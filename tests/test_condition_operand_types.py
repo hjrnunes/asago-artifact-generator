@@ -18,8 +18,7 @@ from .support import (
 )
 
 _NOT_CALLED = (
-    Path(__file__).resolve().parents[1]
-    / "contracts/scenario-handoff/handoff-v3/valid/functional-not-called.json"
+    Path(__file__).resolve().parent / "fixtures" / "handoffs" / "functional-not-called.json"
 )
 _RUNTIME = {
     "delivery": ["direct_user_message"],
@@ -186,7 +185,7 @@ def _signed_handoff(tmp_path: Path, comparison: dict) -> Path:
     payload = json.loads(_NOT_CALLED.read_text(encoding="utf-8"))
     payload["tool_call_condition"]["comparisons"][0] = comparison
     payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    payload["content_digest"] = _framed_digest("scenario-handoff-v3", payload)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload)
     path = tmp_path / "handoff.yaml"
     path.write_text(yaml.safe_dump(payload), encoding="utf-8")
     return path

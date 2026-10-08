@@ -48,9 +48,9 @@ def shape_refusal_findings(
 ) -> list[Finding]:
     """Return the findings that make the handoff's attack shape unauthorable.
 
-    An empty list means the shape (or its absence) is authorable. v3 handoffs
-    and functional v4 handoffs carry a single-turn direct shape, which the
-    runtime contract of every release delivers. An indirect shape also needs its
+    An empty list means the shape (or its absence) is authorable. A functional
+    handoff carries no shape, and a single-turn direct shape needs only the
+    direct delivery the runtime contract of every release offers. An indirect shape also needs its
     carrier in the ``inventory`` and a seed slot in the runtime contract.
     """
 

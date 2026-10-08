@@ -1,5 +1,5 @@
 {
-  "handoff": "contracts/scenario-handoff/handoff-v3/valid/refund-bound.json",
+  "handoff": "tests/fixtures/handoffs/refund-bound.json",
   "inventory": {
     "operations": [
       {

@@ -18,7 +18,7 @@ contracts and historical experiment details belong in their own documents.
   failure criterion, safe alternative, and metadata.
 - This consumer designs concrete stimuli, setup declarations, runtime bindings,
   and semantic judge specifications using supplied facts and documented
-  capabilities. Packages (`artifact-package-v3`, or v4 for a v4 handoff) contain no detector code.
+  capabilities. Packages (`artifact-package-v4`, from a `scenario-handoff-v4` input) contain no detector code.
 - `generate` is target-free. The plan owns the experiment; artifact authoring turns
   the accepted plan into a frozen package. Code checks run before the applicable
   semantic review. Corrections stay within their stage.
@@ -93,7 +93,7 @@ Deterministic tests must not contact a model endpoint or target.
   `correction.py` build prompts; `contracts.py` and `checks.py` hold response
   contracts and structural checks; `transport.py` is the provider client.
 - `src/asago_artifact_generator/bindings.py`: binding sources and destinations.
-- `src/asago_artifact_generator/package_io.py`: the artifact-package-v3 and v4 writer and loader.
+- `src/asago_artifact_generator/package_io.py`: the artifact-package-v4 writer and the v3 and v4 loader.
 - `packages/asago-bundle-garak/`: the Garak adapter workspace member; test it with `uv run pytest packages/asago-bundle-garak/tests -q`.
 - `tests/`: executable examples and regression coverage for the changed behavior.
 - Orch qualification runbook `asago-orch/docs/qualification.md`; its modules

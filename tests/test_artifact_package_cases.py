@@ -148,7 +148,7 @@ def _package_with(authoring: dict[str, Any]) -> object:
     return build_package(
         package_id="usage-policy",
         scenario_id="usage-policy",
-        input_kind="scenario-handoff-v3",
+        input_kind="scenario-handoff-v4",
         source_digests={"input": "a" * 64},
         members={"explanation.json": b"{}\n"},
         authoring=authoring,

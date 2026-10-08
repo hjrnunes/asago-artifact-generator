@@ -6,14 +6,7 @@ from typer.testing import CliRunner, Result
 
 from asago_artifact_generator import cli
 
-_HANDOFF = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "scenario-handoff"
-    / "handoff-v3"
-    / "valid"
-    / "refund-bound.json"
-)
+_HANDOFF = Path(__file__).resolve().parent / "fixtures" / "handoffs" / "refund-bound.json"
 
 
 def test_cli_exposes_generate_as_its_only_command():

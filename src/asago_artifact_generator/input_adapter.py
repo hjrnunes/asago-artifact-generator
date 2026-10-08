@@ -13,7 +13,7 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
-from .attack_shape import attack_shape_violation, implicit_attack_shape
+from .attack_shape import attack_shape_violation
 from .contract_kit import (
     CLAIM_LEVELS,
     ClaimLevel,
@@ -27,13 +27,8 @@ from .contract_kit import (
 )
 from .value_checks import is_nonblank_str, is_sha256_hex
 
-_HANDOFF_SCHEMA_VERSION = "scenario-handoff-v3"
-_HANDOFF_SCHEMA_VERSION_V4 = "scenario-handoff-v4"
-_HANDOFF_DIGEST_DOMAIN = "scenario-handoff-v3"
-# v1 and v2 kits stay mirrored as frozen contract files, but their documents
-# carry no tool_call_condition_status, so authoring cannot decide whether a
-# command_attempt scenario is executable.
-_FROZEN_HANDOFF_SCHEMA_VERSIONS = frozenset({"scenario-handoff-v1", "scenario-handoff-v2"})
+# The v1 to v3 kits stay mirrored as frozen contract files; authoring reads only v4.
+_HANDOFF_SCHEMA_VERSION = "scenario-handoff-v4"
 _HANDOFF_CONDITION_FIELDS = (
     "discriminating_condition",
     "condition_check",
@@ -108,7 +103,6 @@ _FORBIDDEN_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 class InputKind(StrEnum):
     """The supported design-time input representation, recorded in package manifests."""
 
-    SCENARIO_HANDOFF_V3 = "scenario-handoff-v3"
     SCENARIO_HANDOFF_V4 = "scenario-handoff-v4"
 
 
@@ -180,14 +174,8 @@ class InputView:
 
     @property
     def attack_shape(self) -> dict[str, Any] | None:
-        """Return the producer's attack shape; None for a functional v4 scenario.
+        """Return the producer's attack shape; None for a functional scenario."""
 
-        A handoff without the key (v3) carries one attacker message, so it gets
-        the implicit single-turn direct shape.
-        """
-
-        if "attack_shape" not in self.payload:
-            return implicit_attack_shape()
         value = self.payload["attack_shape"]
         return deepcopy(value) if value is not None else None
 
@@ -199,7 +187,8 @@ def load_input(source_path: str | Path) -> InputView:
     source_bytes = _read_source(path)
     source = SourceSnapshot(str(path), sha256_hex(source_bytes), len(source_bytes))
     payload = _parse_document(path, source_bytes)
-    return _handoff_view(path, payload, source_bytes, source, _infer_kind(payload))
+    _validate_handoff_schema_version(payload)
+    return _handoff_view(path, payload, source_bytes, source)
 
 
 def build_scenario_handoff_view(view: InputView) -> dict[str, Any]:
@@ -252,15 +241,15 @@ def _handoff_view(
     payload: dict[str, Any],
     source_bytes: bytes,
     source: SourceSnapshot,
-    kind: InputKind,
 ) -> InputView:
+    kind = InputKind.SCENARIO_HANDOFF_V4
     _validate_handoff_kit()
-    _validate_handoff_payload(payload, kind)
+    _validate_handoff_payload(payload)
     expected_digest = payload.get("content_digest", "")
     digest_payload = {key: value for key, value in payload.items() if key != "content_digest"}
     if expected_digest != _framed_digest(kind.value, digest_payload):
         raise InputSourceError("scenario handoff content_digest does not match source")
-    schema_error = first_schema_error(_handoff_schema(kind.value), payload)
+    schema_error = first_schema_error(_handoff_schema(), payload)
     if schema_error is not None:
         raise InputSourceError(f"handoff schema invalid {schema_error}")
     gherkin = payload["gherkin"]
@@ -292,15 +281,14 @@ def _handoff_view(
     )
 
 
-def _infer_kind(document: Any) -> InputKind:
+def _validate_handoff_schema_version(document: Any) -> None:
     version = document.get("schema_version") if isinstance(document, dict) else None
-    if version == _HANDOFF_SCHEMA_VERSION_V4:
-        return InputKind.SCENARIO_HANDOFF_V4
-    if version in {_HANDOFF_SCHEMA_VERSION, *_FROZEN_HANDOFF_SCHEMA_VERSIONS}:
-        return InputKind.SCENARIO_HANDOFF_V3
-    raise InputSourceError(
-        "authoring source must be a producer scenario-handoff-v3 or scenario-handoff-v4 document"
-    )
+    if version != _HANDOFF_SCHEMA_VERSION:
+        found = version if isinstance(version, str) else "no schema_version"
+        raise InputSourceError(
+            f"authoring source must be a producer {_HANDOFF_SCHEMA_VERSION} document; "
+            f"found {found}"
+        )
 
 
 def _validate_handoff_kit() -> None:
@@ -314,18 +302,15 @@ def _validate_handoff_kit() -> None:
     )
 
 
-def _handoff_schema(version: str = _HANDOFF_SCHEMA_VERSION) -> dict[str, Any]:
-    kit = version.removeprefix("scenario-")
+def _handoff_schema() -> dict[str, Any]:
+    kit = _HANDOFF_SCHEMA_VERSION.removeprefix("scenario-")
     return load_json_file(
         _HANDOFF_ROOT / kit / "schema.json", InputSourceError, f"cannot read vendored {kit} schema"
     )
 
 
-def _validate_handoff_payload(
-    payload: dict[str, Any], kind: InputKind = InputKind.SCENARIO_HANDOFF_V3
-) -> None:
-    _validate_handoff_schema_version(payload.get("schema_version"))
-    _validate_handoff_field_names(payload, kind)
+def _validate_handoff_payload(payload: dict[str, Any]) -> None:
+    _validate_handoff_field_names(payload)
     if payload.get("kind") not in {"adversarial", "functional"}:
         raise InputSourceError("handoff kind is invalid")
     for key in (
@@ -344,8 +329,7 @@ def _validate_handoff_payload(
     violations = _ownership_violations(payload)
     if violations:
         raise InputSourceError(f"handoff ownership violation: {', '.join(violations)}")
-    if kind is InputKind.SCENARIO_HANDOFF_V4:
-        _validate_attack_shape(payload)
+    _validate_attack_shape(payload)
 
 
 def _validate_attack_shape(payload: dict[str, Any]) -> None:
@@ -366,24 +350,13 @@ def _validate_attack_shape(payload: dict[str, Any]) -> None:
         )
     if shape is None:
         return
-    violation = attack_shape_violation(shape, _handoff_schema(_HANDOFF_SCHEMA_VERSION_V4))
+    violation = attack_shape_violation(shape, _handoff_schema())
     if violation is not None:
         raise ShapeVersionMalformed(*violation)
 
 
-def _validate_handoff_schema_version(schema_version: Any) -> None:
-    if schema_version is None or schema_version in _FROZEN_HANDOFF_SCHEMA_VERSIONS:
-        raise InputSourceError(
-            f"{schema_version or 'scenario-handoff-v1'} handoffs carry no "
-            "tool_call_condition_status; authoring requires a scenario-handoff-v3 or "
-            "scenario-handoff-v4 document"
-        )
-
-
-def _validate_handoff_field_names(
-    payload: dict[str, Any], kind: InputKind = InputKind.SCENARIO_HANDOFF_V3
-) -> None:
-    schema = _handoff_schema(kind.value)
+def _validate_handoff_field_names(payload: dict[str, Any]) -> None:
+    schema = _handoff_schema()
     missing = set(schema["required"]) - payload.keys()
     if "attack_shape" in missing:
         raise ShapeVersionMalformed("attack_shape", "the required property is missing")
@@ -610,7 +583,7 @@ def _validate_schema_fields(payload: dict[str, Any]) -> None:
     tool_call_condition, and any other status forbids one.
     """
 
-    schema = _handoff_schema(payload["schema_version"])
+    schema = _handoff_schema()
     violations = []
     for key in (*_HANDOFF_CONDITION_FIELDS, *_HANDOFF_TOOL_CALL_FIELDS):
         validator = Draft202012Validator({"$defs": schema["$defs"], **schema["properties"][key]})
@@ -626,14 +599,13 @@ def _validate_schema_fields(payload: dict[str, Any]) -> None:
 def _tool_call_root_rules(schema: dict[str, Any]) -> list[dict[str, Any]]:
     """Return the schema's root if/then/else rules that pair the tool-call condition.
 
-    A v3 schema holds that one rule at its root; a v4 schema holds it among the
-    ``allOf`` rules, beside the attack-shape pairing the shape validation owns.
+    The schema holds them among its ``allOf`` rules, beside the attack-shape
+    pairing the shape validation owns.
     """
 
-    rules = schema["allOf"] if "allOf" in schema else [schema]
     return [
         {key: rule[key] for key in ("if", "then", "else")}
-        for rule in rules
+        for rule in schema["allOf"]
         if "tool_call_condition" in rule["else"]["properties"]
     ]
 

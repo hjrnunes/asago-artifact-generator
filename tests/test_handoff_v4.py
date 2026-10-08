@@ -19,7 +19,6 @@ from asago_artifact_generator.input_adapter import (
 )
 
 _KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v4"
-_V3_KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v3"
 # The schema-* cases run in tests/test_handoff_schema_cases.py with this reader's wording.
 _EXPECTED = {
     relative: codes
@@ -112,29 +111,6 @@ def test_v4_views_expose_the_shape_but_not_to_the_model_projection() -> None:
 
 def test_a_functional_v4_handoff_has_no_shape() -> None:
     assert load_input(_KIT / "valid" / "functional-null-shape.json").attack_shape is None
-
-
-def test_a_v3_handoff_gets_an_implicit_single_turn_direct_shape() -> None:
-    view = load_input(_V3_KIT / "valid" / "adversarial-observed-record.json")
-
-    assert "attack_shape" not in view.payload
-    assert view.attack_shape == {
-        "channel": "direct",
-        "turn_count": 1,
-        "turn_plan": [{"position": 1, "speaker": "attacker_user", "purpose": "request_action"}],
-        "indirect": None,
-        "threat_label": None,
-        "source": "code_default",
-        "downgrade_reason": None,
-    }
-
-
-def test_the_implicit_shape_is_a_copy() -> None:
-    view = load_input(_V3_KIT / "valid" / "adversarial-observed-record.json")
-
-    view.attack_shape["turn_count"] = 9
-
-    assert view.attack_shape["turn_count"] == 1
 
 
 def test_a_v4_handoff_signed_in_the_v3_digest_domain_is_rejected(tmp_path: Path) -> None:
