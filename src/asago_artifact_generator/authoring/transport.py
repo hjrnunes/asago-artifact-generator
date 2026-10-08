@@ -315,10 +315,6 @@ def _present_controls(**values: Any) -> dict[str, Any]:
     return {name: value for name, value in values.items() if value is not None}
 
 
-def _is_positive_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
-
-
 def _validate_transport_options(
     *,
     max_completion_tokens: int | None,
