@@ -15,6 +15,7 @@ members = [
     "asago-artifact-generator",
     "asago-bundle-core",
     "asago-bundle-garak",
+    "asago-bundle-midojo",
 ]
 
 [[package]]
@@ -70,6 +71,7 @@ dev = [
 dev = [
     { name = "asago-bundle-core" },
     { name = "asago-bundle-garak" },
+    { name = "asago-bundle-midojo" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -90,6 +92,7 @@ provides-extras = ["dev"]
 dev = [
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
     { name = "asago-bundle-garak", editable = "packages/asago-bundle-garak" },
+    { name = "asago-bundle-midojo", editable = "packages/asago-bundle-midojo" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.6" },
 ]
@@ -113,6 +116,21 @@ requires-dist = [
 name = "asago-bundle-garak"
 version = "0.1.0"
 source = { editable = "packages/asago-bundle-garak" }
+dependencies = [
+    { name = "asago-artifact-generator" },
+    { name = "asago-bundle-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asago-artifact-generator", editable = "." },
+    { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
+]
+
+[[package]]
+name = "asago-bundle-midojo"
+version = "0.1.0"
+source = { editable = "packages/asago-bundle-midojo" }
 dependencies = [
     { name = "asago-artifact-generator" },
     { name = "asago-bundle-core" },

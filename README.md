@@ -667,6 +667,7 @@ The unit test suite is deterministic and does not require an LLM endpoint.
 ├── src/asago_artifact_generator/    # authoring, packages, CLI
 ├── packages/asago-bundle-core/      # shared adapter core (workspace member): tool-bundle-v1 schema, slots, conformance helper
 ├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse
+├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): command-attempt packages; sequential and reply packages exit 3
 ├── contracts/                        # vendored and consumer-owned contracts
 ├── scripts/                          # quality, replay, and budget tools
 ├── tests/                            # unit tests
