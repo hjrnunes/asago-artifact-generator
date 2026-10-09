@@ -6,18 +6,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-import jsonschema
 import pytest
 
+from asago_bundle_core.schema import validate_manifest
 from asago_bundle_garak.cli import main
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import InstantiateError, instantiate_bundle
 from conftest import CONDITION, JUDGE
 
-SCHEMA = (
-    Path(__file__).resolve().parents[1]
-    / "src/asago_bundle_garak/schemas/tool-bundle-v1.schema.json"
-)
 MESSAGES = [
     {"role": "user", "content": "Earlier turn."},
     {"role": "assistant", "content": "Earlier reply."},
@@ -122,7 +118,7 @@ def test_concrete_manifest_renders_the_entrypoint(command_template: Path, tmp_pa
     assert not any("{bundle}" in arg or "{model}" in arg for arg in manifest["entrypoint"])
     assert manifest["templates"] == {}
     assert len(manifest["values_digest"]) == 64
-    jsonschema.validate(manifest, read(SCHEMA))
+    validate_manifest(manifest)
 
 
 def test_reply_entry_carries_the_resolved_judge_facts(

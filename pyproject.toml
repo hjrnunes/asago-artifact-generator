@@ -26,6 +26,7 @@ asago-artifact-generator = "asago_artifact_generator.cli:app"
 
 [dependency-groups]
 dev = [
+    "asago-bundle-core",
     "asago-bundle-garak",
     "pytest>=8.0",
     "ruff>=0.6",
@@ -35,9 +36,10 @@ dev = [
 exclude-newer = "7 days"
 
 [tool.uv.workspace]
-members = ["packages/asago-bundle-garak"]
+members = ["packages/*"]
 
 [tool.uv.sources]
+asago-bundle-core = { workspace = true }
 asago-bundle-garak = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
@@ -46,7 +48,7 @@ packages = ["src/asago_artifact_generator"]
 [tool.ruff]
 target-version = "py311"
 line-length = 99
-src = ["src", "tests", "scripts", "packages/asago-bundle-garak/src"]
+src = ["src", "tests", "scripts", "packages/asago-bundle-core/src", "packages/asago-bundle-garak/src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]

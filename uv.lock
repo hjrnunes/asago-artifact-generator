@@ -7,12 +7,13 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-09-18T08:17:20.318336Z"
+exclude-newer = "2026-10-02T09:06:52.647181Z"
 exclude-newer-span = "P7D"
 
 [manifest]
 members = [
     "asago-artifact-generator",
+    "asago-bundle-core",
     "asago-bundle-garak",
 ]
 
@@ -67,6 +68,7 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "asago-bundle-core" },
     { name = "asago-bundle-garak" },
     { name = "pytest" },
     { name = "ruff" },
@@ -86,9 +88,25 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
     { name = "asago-bundle-garak", editable = "packages/asago-bundle-garak" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.6" },
+]
+
+[[package]]
+name = "asago-bundle-core"
+version = "0.1.0"
+source = { editable = "packages/asago-bundle-core" }
+dependencies = [
+    { name = "asago-artifact-generator" },
+    { name = "jsonschema" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asago-artifact-generator", editable = "." },
+    { name = "jsonschema", specifier = ">=4.0" },
 ]
 
 [[package]]
@@ -97,10 +115,14 @@ version = "0.1.0"
 source = { editable = "packages/asago-bundle-garak" }
 dependencies = [
     { name = "asago-artifact-generator" },
+    { name = "asago-bundle-core" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "asago-artifact-generator", editable = "." }]
+requires-dist = [
+    { name = "asago-artifact-generator", editable = "." },
+    { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
+]
 
 [[package]]
 name = "attrs"
