@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -12,13 +13,16 @@ from asago_artifact_generator.authoring.checks import (
     collect_artifact_findings_v2,
     collect_plan_findings_v2,
 )
-from asago_artifact_generator.authoring.core import Finding
+from asago_artifact_generator.authoring.core import MAX_RENDERED_PROMPT_BYTES, Finding
 from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
     build_correction_context,
 )
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
-from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
+from asago_artifact_generator.authoring.prompt_context import (
+    build_artifact_author_context,
+    build_plan_author_context,
+)
 from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
@@ -37,10 +41,22 @@ from asago_artifact_generator.authoring.sequential_turns import (
 from asago_artifact_generator.input_adapter import InputView
 
 from .policy_support import ONE_PLAN_CORRECTION
-from .support import ScriptedAuthoringTransport, json_section, rendered_response_contract, world
+from .support import (
+    ScriptedAuthoringTransport,
+    json_section,
+    rendered_response_contract,
+    stage_local_orchestrator,
+    world,
+)
 from .turn_support import (
     EARLIER,
+    PLANTED_ITEM,
     PURPOSES,
+    indirect_inventory,
+    indirect_metadata,
+    indirect_plan,
+    indirect_runtime,
+    indirect_view,
     sequential_metadata,
     sequential_plan,
     sequential_runtime,
@@ -299,3 +315,114 @@ def test_the_orchestrator_leaves_a_one_turn_plan_correction_without_the_block(
 
     assert "multi_turn_shape" not in correction["user"]
     assert "multi_turn_shape" not in correction["payload"]["original_context"]
+
+
+def _artifact_correction(
+    tmp_path: Path,
+    view: InputView,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    plan: dict[str, Any],
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Author an accepted plan and a faulty artifact; return the artifact correction request."""
+
+    transport = ScriptedAuthoringTransport(
+        [
+            json.dumps(plan),
+            json.dumps({**metadata, "setup_recipe": []}),
+            json.dumps(metadata),
+        ]
+    )
+    result = stage_local_orchestrator(
+        transport=transport, package_dir=tmp_path / "package", task_id="correction"
+    ).run(view, inventory, runtime_contract)
+    assert result.status == "accepted", result.findings
+    (correction,) = [r for r in transport.requests if r["stage"] == "correction"]
+    assert correction["payload"]["failed_stage"] == "call2"
+    return correction
+
+
+def _sequential_artifact_correction(tmp_path: Path, turns: int) -> dict[str, Any]:
+    refund = world("refund")
+    return _artifact_correction(
+        tmp_path,
+        v4_view(tmp_path, turns),
+        refund["inventory"],
+        sequential_runtime(refund["runtime_contract"]),
+        sequential_plan(refund["plan"], turns),
+        sequential_metadata(refund["metadata"], turns),
+    )
+
+
+def _indirect_artifact_correction(tmp_path: Path, turns: int) -> dict[str, Any]:
+    refund = world("refund")
+    return _artifact_correction(
+        tmp_path,
+        indirect_view(tmp_path, turns),
+        indirect_inventory(refund["inventory"]),
+        indirect_runtime(refund["runtime_contract"]),
+        indirect_plan(refund["plan"], turns),
+        indirect_metadata(refund["metadata"], turns),
+    )
+
+
+@pytest.mark.parametrize("turns", [2, 3, 4])
+def test_the_orchestrator_sends_a_multi_turn_artifact_correction_the_rule_block(
+    tmp_path: Path, turns: int
+) -> None:
+    correction = _sequential_artifact_correction(tmp_path, turns)
+
+    block = correction["payload"]["original_context"]["multi_turn_shape"]
+    assert (
+        block
+        == multi_turn_payload(
+            v4_view(tmp_path, turns), sequential_runtime(world("refund")["runtime_contract"])
+        )["multi_turn_shape"]
+    )
+    assert "multi_turn_shape" in correction["user"]
+
+
+def test_the_orchestrator_sends_an_indirect_artifact_correction_the_rule_block(
+    tmp_path: Path,
+) -> None:
+    correction = _indirect_artifact_correction(tmp_path, 2)
+
+    block = correction["payload"]["original_context"]["multi_turn_shape"]
+    assert block["delivery"] == PLANTED_ITEM
+    assert block["turn_count"] == 2
+    assert "multi_turn_shape" in correction["user"]
+
+
+def test_the_orchestrator_leaves_a_one_turn_artifact_correction_as_it_was(
+    tmp_path: Path,
+) -> None:
+    refund = world("refund")
+    view = v4_view(tmp_path, 1)
+    runtime = sequential_runtime(refund["runtime_contract"])
+    plan = sequential_plan(refund["plan"], 1)
+
+    correction = _artifact_correction(
+        tmp_path,
+        view,
+        refund["inventory"],
+        runtime,
+        plan,
+        sequential_metadata(refund["metadata"], 1),
+    )
+
+    assert correction["payload"]["original_context"] == build_artifact_author_context(
+        view, plan, refund["inventory"], runtime
+    )
+    assert "multi_turn_shape" not in correction["user"]
+
+
+@pytest.mark.parametrize(
+    ("build", "turns"), [(_sequential_artifact_correction, 4), (_indirect_artifact_correction, 2)]
+)
+def test_the_rule_block_keeps_an_artifact_correction_under_the_prompt_limit(
+    tmp_path: Path, build: Any, turns: int
+) -> None:
+    correction = build(tmp_path, turns)
+
+    assert len(correction["user"].encode("utf-8")) < MAX_RENDERED_PROMPT_BYTES
