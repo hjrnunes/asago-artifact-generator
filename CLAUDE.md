@@ -102,6 +102,10 @@ Deterministic tests must not contact a model endpoint or target.
   stay out of a bundle that does not need them: Garak omits both, because `bundle.json`
   feeds the receipt's `bundle_digest`.
 - `packages/asago-bundle-garak/`: the Garak adapter workspace member.
+- `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It serves command-attempt
+  packages with one user prompt; sequential, reply and state_effect packages exit 3. Its suite
+  code under `bundle_files/` runs in MiDojo's interpreter, so it imports the standard library
+  and, lazily, `midojo`. Tests marked `midojo` need `ASAGO_MIDOJO_PYTHON` and skip without it.
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-bundle-garak/tests -q`.
