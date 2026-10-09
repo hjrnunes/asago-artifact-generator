@@ -394,20 +394,23 @@ def _message_content_index(reference: str) -> int | None:
     if reference.startswith("$."):
         reference = reference[2:]
     if reference.startswith("/"):
-        parts = reference.split("/")
-        if (
-            len(parts) == 4
-            and parts[1] == "messages"
-            and parts[2].isdigit()
-            and parts[3] == "content"
-        ):
-            return int(parts[2])
+        return _pointer_content_index(reference)
+    return _dotted_content_index(reference)
+
+
+def _pointer_content_index(reference: str) -> int | None:
+    parts = reference.split("/")
+    ok = (
+        len(parts) == 4 and parts[1] == "messages" and parts[2].isdigit() and parts[3] == "content"
+    )
+    return int(parts[2]) if ok else None
+
+
+def _dotted_content_index(reference: str) -> int | None:
+    if not (reference.startswith("messages[") and reference.endswith("].content")):
         return None
-    if reference.startswith("messages[") and reference.endswith("].content"):
-        index = reference[len("messages[") : -len("].content")]
-        if index.isdigit():
-            return int(index)
-    return None
+    index = reference[len("messages[") : -len("].content")]
+    return int(index) if index.isdigit() else None
 
 
 def _resolve_evidence_ref(evidence: dict[str, Any], reference: str) -> Any:
