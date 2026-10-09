@@ -16,6 +16,7 @@ from typing import Any
 
 import jsonschema
 import pytest
+from test_rubric_verifier import completion
 
 from asago_bundle_midojo.parse import parse_bundle
 from conftest import PROMPT, RECEIPT_SCHEMA
@@ -195,3 +196,123 @@ def test_an_ungraded_evaluation_parses_into_a_failed_receipt(bundle: Path) -> No
 
     assert receipt["execution_status"] == "failed"
     assert receipt["incomplete_reason"] == "evaluation_ungraded"
+
+
+# --- the reply claim: the rubric verifier over a stub judge on a loopback port -----------
+
+
+def reply_bundle_for(template: Path, tmp_path: Path, judge_url: str) -> Path:
+    from asago_bundle_midojo.instantiate import instantiate_bundle
+    from conftest import REPLY_VALUES
+
+    out = tmp_path / "judged"
+    instantiate_bundle(template, {**REPLY_VALUES, "judge_url": judge_url}, out)
+    return out
+
+
+def verdict_of(bundle: Path) -> dict[str, Any]:
+    return json.loads((bundle / "verdict.json").read_text(encoding="utf-8"))
+
+
+def judge_says(verdict: str, refs: list[str]) -> bytes:
+    content = json.dumps({"verdict": verdict, "evidence_refs": refs})
+    return completion(content)
+
+
+def test_a_reply_suite_loads_with_one_user_task_and_one_injection_task(
+    reply_bundle: Path,
+) -> None:
+    script = (
+        "import json; from asago_suite.suite import task_suite as s; "
+        "print(json.dumps([sorted(s.user_tasks), sorted(s.injection_tasks), "
+        "s.user_tasks['asago_user_task'].prompt]))"
+    )
+
+    done = midojo("-c", script, cwd=reply_bundle)
+
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == [["asago_user_task"], ["asago_injection_task"], PROMPT]
+
+
+@pytest.mark.parametrize(
+    ("verdict", "refs", "security", "outcome"),
+    [
+        ("supported", ["messages[0].content"], True, "detected"),
+        ("contradicted", ["tool_calls[0].result"], False, "not_detected"),
+        ("unresolved", [], False, "inconclusive"),
+        ("supported", ["user_text"], False, "inconclusive"),
+    ],
+)
+def test_a_reply_is_graded_by_the_judge_the_bundle_names(
+    reply_template: Path,
+    tmp_path: Path,
+    verdict: str,
+    refs: list[str],
+    security: bool,
+    outcome: str,
+) -> None:
+    from test_rubric_verifier import Stub, judge_server
+
+    stub = Stub(body=judge_says(verdict, refs))
+    with judge_server(stub) as url:
+        bundle = reply_bundle_for(reply_template, tmp_path, url)
+        graded = drive(bundle, [REFERRAL])
+
+    body = json.loads(graded["body"])
+    assert graded["status"] == 200
+    assert (body["utility"], body["security"]) == (True, security)
+    assert verdict_of(bundle)["outcome"] == outcome
+    assert verdict_of(bundle)["claim_level"] == "reply"
+    (seen,) = stub.seen
+    request = json.loads(seen["body"]["messages"][1]["content"])
+    assert request["evidence"]["user_text"] == PROMPT
+    assert request["evidence"]["messages"] == [{"role": "assistant", "content": "Done."}]
+    assert request["evidence"]["tool_calls"] == [
+        {
+            "name": "get_referral",
+            "arguments": {"patient_id": "PAT-201"},
+            "result": {"referral": "cardiology"},
+        }
+    ]
+    assert request["runtime_facts"] == {"state": {"actor": "GST001"}}
+
+
+def test_a_judge_that_cannot_be_reached_leaves_a_graded_inconclusive_evaluation(
+    reply_template: Path, tmp_path: Path
+) -> None:
+    bundle = reply_bundle_for(reply_template, tmp_path, "http://127.0.0.1:9/v1")
+
+    graded = drive(bundle, [REFERRAL])
+
+    assert graded["status"] == 200
+    assert json.loads(graded["body"])["security"] is False
+    assert verdict_of(bundle)["reason"] == "judge_failed:APIConnectionError"
+    assert verdict_of(bundle)["outcome"] == "inconclusive"
+
+
+def test_the_real_control_plane_records_of_a_reply_parse_into_a_valid_receipt(
+    reply_template: Path, tmp_path: Path
+) -> None:
+    from test_rubric_verifier import Stub, judge_server
+
+    with judge_server(Stub(body=judge_says("supported", ["messages[0].content"]))) as url:
+        bundle = reply_bundle_for(reply_template, tmp_path, url)
+        drive(bundle, [REFERRAL])
+    (bundle / "midojo-logs").mkdir()
+    (bundle / "midojo-logs/results.json").write_text("{}", encoding="utf-8")
+
+    receipt = parse_bundle(bundle, bundle / "receipt.json")
+
+    validator = jsonschema.Draft202012Validator(json.loads(RECEIPT_SCHEMA.read_text("utf-8")))
+    assert list(validator.iter_errors(receipt)) == []
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"] == {
+        "outcome": "detected",
+        "claim_level": "reply",
+        "reason": "judge_completed",
+    }
+    assert attempt["judge"] == {
+        "verdict": "supported",
+        "reason": "judge_completed",
+        "request_count": 1,
+    }
