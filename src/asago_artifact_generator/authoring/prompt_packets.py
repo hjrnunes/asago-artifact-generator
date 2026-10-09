@@ -8,7 +8,7 @@ from typing import Any
 from ..input_adapter import InputView
 from .context_budget import _enforce_prompt_size
 from .core import (
-    CALL1_PROMPT_VERSION_V21,
+    CALL1_PROMPT_VERSION_V22,
     CALL2_PROMPT_VERSION_V25,
     MAX_RENDERED_PROMPT_BYTES,
     PromptPacket,
@@ -105,7 +105,7 @@ def build_call1_packet_v2(
     assert_no_prompt_secrets(dict(sections))
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V21,
+        version=CALL1_PROMPT_VERSION_V22,
         system=_CALL1_SYSTEM_V3,
         user=_render_sections(
             sections, compact_titles=frozenset({"FIELD GUIDE", "SOURCE CONTEXT"})

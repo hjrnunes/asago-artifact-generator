@@ -168,15 +168,16 @@ counts as an empty findings list, and the run records the
 stage) in its transformations and on that review's ledger entry; `findings`
 set to `null` or any non-list value, and an omitted `findings` on `revise` or
 `blocked`, stay invalid. `revise` feeds a stage correction that repeats
-all checks and the review. Each reviewed stage has one review revision
-that is separate from its correction allowance: a `revise` spends the review
+all checks and the review. Each reviewed stage has a review-revision
+allowance that is separate from its correction allowance (two for the plan
+stage, one for the artifact stage): a `revise` spends a review
 revision, while mechanical findings, including findings on the
 revised candidate, spend the correction allowance. The ledger and failure
 evidence record which allowance each correction spent (`allowance`), the
 remaining `allowances` and `review_revision_allowances`, and the effective
 `plan_max_review_revisions`/`artifact_max_review_revisions`. The default
 per-task budget is the policy's closed worst case, which includes each review
-revision and its review (12 dispatches, at most 6 author and 6 review, with
+revision and its review (14 dispatches, at most 7 author and 7 review, with
 default settings); `blocked` at the artifact stage stops as
 `needs_plan_revision` without recursing into plan authoring. Malformed or
 contradictory reviewer responses and reviewer transport failures produce
@@ -202,7 +203,7 @@ anything other than a supplied result observation.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v21` renders the plan author context while preserving the
+- `authoring-call1-v22` renders the plan author context while preserving the
   existing 11-field plan response.
 - `authoring-plan-review-v21` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
@@ -223,7 +224,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `semantic_judge_spec_required` correction.
 - `authoring-artifact-review-v21` reviews the exact artifact object and the
   binding and judge declarations.
-- `authoring-correction-v34` renders only the failed stage format and all
+- `authoring-correction-v35` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option

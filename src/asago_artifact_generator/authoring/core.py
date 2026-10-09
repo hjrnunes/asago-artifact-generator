@@ -21,10 +21,10 @@ from ..failure_evidence import redact_metadata
 AUTHORING_INTERFACE_VERSION_V2 = "artifact-authoring-v2"
 # The response wire remains v2, while its model-facing templates advance
 # independently; each constant names the template version dispatched now.
-CALL1_PROMPT_VERSION_V21 = "authoring-call1-v21"
+CALL1_PROMPT_VERSION_V22 = "authoring-call1-v22"
 CALL2_PROMPT_VERSION_V25 = "authoring-call2-v25"
 CORRECTION_PROMPT_VERSION_V33 = "authoring-correction-v33"
-CORRECTION_PROMPT_VERSION_V34 = "authoring-correction-v34"
+CORRECTION_PROMPT_VERSION_V35 = "authoring-correction-v35"
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
@@ -40,9 +40,10 @@ _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 # policy_max_dispatches/policy_role_limits; these constants are the defaults for
 # a budget built without a policy.
 MAX_AUTHORING_REQUESTS = 32
-# One revision requested by semantic review per reviewed stage, independent of
-# the stage's mechanical correction allowance.
-REVIEW_REVISION_ALLOWANCE_PER_STAGE = 1
+# Defaults for the revisions that semantic review may request per reviewed stage,
+# independent of the stage's mechanical correction allowance.
+PLAN_REVIEW_REVISION_ALLOWANCE = 2
+ARTIFACT_REVIEW_REVISION_ALLOWANCE = 1
 MAX_REQUESTS_PER_TASK = 8
 MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK = 4
 MAX_REVIEW_REQUESTS_PER_TASK = 4

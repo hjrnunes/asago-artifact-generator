@@ -9,11 +9,12 @@ from typing import Any
 from ..package_io import ArtifactPackage
 from ..value_checks import is_nonblank_str
 from .core import (
+    ARTIFACT_REVIEW_REVISION_ALLOWANCE,
     MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK,
     MAX_AUTHORING_REQUESTS,
     MAX_REQUESTS_PER_TASK,
     MAX_REVIEW_REQUESTS_PER_TASK,
-    REVIEW_REVISION_ALLOWANCE_PER_STAGE,
+    PLAN_REVIEW_REVISION_ALLOWANCE,
     BudgetExceeded,
     Finding,
 )
@@ -148,6 +149,10 @@ class AuthoringPolicy:
     types are rejected and values are never clamped.  ``review_plan`` and
     ``review_artifact`` default to enabled and are validated independently.
     Set a stage limit to zero to disable corrections for that stage.
+    ``plan_max_review_revisions`` (default two) and
+    ``artifact_max_review_revisions`` (default one) bound the revisions that
+    a semantic review of that stage may request; they apply only while the
+    stage is reviewed and follow the same integer rules.
     """
 
     plan_max_corrections: int = 1
@@ -155,6 +160,8 @@ class AuthoringPolicy:
     review_plan: bool = True
     review_artifact: bool = True
     review_model_profile: str | None = None
+    plan_max_review_revisions: int = PLAN_REVIEW_REVISION_ALLOWANCE
+    artifact_max_review_revisions: int = ARTIFACT_REVIEW_REVISION_ALLOWANCE
 
     def __post_init__(self) -> None:
         for name in ("review_plan", "review_artifact"):
@@ -164,8 +171,25 @@ class AuthoringPolicy:
             self.review_model_profile
         ):
             raise ValueError("review_model_profile must be a nonblank string when provided")
-        for name in ("plan_max_corrections", "artifact_max_corrections"):
+        for name in (
+            "plan_max_corrections",
+            "artifact_max_corrections",
+            "plan_max_review_revisions",
+            "artifact_max_review_revisions",
+        ):
             _validate_nonnegative_integer(name, getattr(self, name))
+
+    @property
+    def plan_review_revisions(self) -> int:
+        """Return the plan stage's review-revision allowance; zero while unreviewed."""
+
+        return self.plan_max_review_revisions if self.review_plan else 0
+
+    @property
+    def artifact_review_revisions(self) -> int:
+        """Return the artifact stage's review-revision allowance; zero while unreviewed."""
+
+        return self.artifact_max_review_revisions if self.review_artifact else 0
 
     @classmethod
     def from_cli(
@@ -191,8 +215,7 @@ class AuthoringPolicy:
         return cls(**kwargs)
 
 
-def _stage_author_dispatches(corrections: int, reviewed: bool) -> int:
-    revisions = REVIEW_REVISION_ALLOWANCE_PER_STAGE if reviewed else 0
+def _stage_author_dispatches(corrections: int, revisions: int) -> int:
     return corrections + 1 + revisions
 
 
@@ -204,9 +227,11 @@ def policy_role_limits(policy: AuthoringPolicy) -> dict[str, int]:
     can cost at most one review.
     """
 
-    plan_author = _stage_author_dispatches(policy.plan_max_corrections, policy.review_plan)
+    plan_author = _stage_author_dispatches(
+        policy.plan_max_corrections, policy.plan_review_revisions
+    )
     artifact_author = _stage_author_dispatches(
-        policy.artifact_max_corrections, policy.review_artifact
+        policy.artifact_max_corrections, policy.artifact_review_revisions
     )
     return {
         "author": plan_author + artifact_author,

@@ -16,6 +16,9 @@ cases:
         - 'so it reads no runtime binding'
         - 'receives every resolved runtime binding'
         - 'the producer''s tool-call condition for a command_attempt claim reads none'
+        - 'When the scenario concerns a record that a supplied inventory fact holds'
+        - 'through its {{binding_name}} slot and declare its runtime binding'
+        - 'it needs no binding'
       forbidden:
         - 'An omission plan cites no stimulus trigger'
         - 'A not_called comparison is an omission'

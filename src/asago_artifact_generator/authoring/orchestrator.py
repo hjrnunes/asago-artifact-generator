@@ -31,7 +31,6 @@ from .core import (
     MAX_AUTHORING_REQUESTS,
     MAX_RENDERED_PROMPT_BYTES,
     MAX_REVIEW_REQUESTS_PER_TASK,
-    REVIEW_REVISION_ALLOWANCE_PER_STAGE,
     ArtifactValidationError,
     AuthoringError,
     AuthoringTransport,
@@ -842,8 +841,8 @@ class AuthoringOrchestrator:
             "artifact": policy.artifact_max_corrections,
         }
         self._review_revision_allowances = {
-            "plan": REVIEW_REVISION_ALLOWANCE_PER_STAGE if policy.review_plan else 0,
-            "artifact": REVIEW_REVISION_ALLOWANCE_PER_STAGE if policy.review_artifact else 0,
+            "plan": policy.plan_review_revisions,
+            "artifact": policy.artifact_review_revisions,
         }
         self._record_allowances()
         self._review_status = {"plan": "not_requested", "artifact": "not_requested"}
@@ -1329,12 +1328,8 @@ class AuthoringOrchestrator:
         record: dict[str, Any] = {
             "plan_max_corrections": policy.plan_max_corrections,
             "artifact_max_corrections": policy.artifact_max_corrections,
-            "plan_max_review_revisions": (
-                REVIEW_REVISION_ALLOWANCE_PER_STAGE if policy.review_plan else 0
-            ),
-            "artifact_max_review_revisions": (
-                REVIEW_REVISION_ALLOWANCE_PER_STAGE if policy.review_artifact else 0
-            ),
+            "plan_max_review_revisions": policy.plan_review_revisions,
+            "artifact_max_review_revisions": policy.artifact_review_revisions,
             "review_plan": policy.review_plan,
             "review_artifact": policy.review_artifact,
             "review_model_profile": self.review_model_profile,
