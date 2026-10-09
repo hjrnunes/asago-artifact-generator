@@ -1,12 +1,12 @@
 """Compare the string MiDojo's sink stores for a tool result with Garak's evidence value.
 
-usage: <garak venv python> generate_fidelity.py OUT.json
+usage: <garak venv python> generate_fidelity.py RUNS_DIR SINK_MODULE OUT.json
 
-Run it with the Garak interpreter (orch's ``.runtime/garak/venv``), read-only. It writes
-two groups of cases, each holding the MCP result the recording proxy saw, the body the
-sink's ``call_body`` makes of it (executed from the source of
-``asago_orch/qualification/boundary/midojo_sink.py``, orch branch ``w5/d5-o-sink``), and
-the value Garak's judge evidence holds for the same call:
+``RUNS_DIR`` is orch's ``runs/`` directory and ``SINK_MODULE`` the path of
+``midojo_sink.py`` in an orch checkout. Run it with the Garak interpreter (orch's
+``.runtime/garak/venv``), read-only. It writes two groups of cases, each holding the
+MCP result the recording proxy saw, the body the sink's ``call_body`` makes of it
+(executed from that source), and the value Garak's judge evidence holds for the same call:
 
 ``real``       pairs of a saved proxy record with the call Garak captured for the same
                exchange in the saved dry-run executes (``runs/run-dryrun-*``); the
@@ -31,23 +31,17 @@ from typing import Any
 
 from garak.detectors.toolcall import normalise_tool_call
 
-RUNS = Path("/Users/hjrnunes/workspace/hjrnunes/asago-orch/runs")
-SINK = Path(
-    "/Users/hjrnunes/workspace/phase1/wt/d5-o-sink-o/src/asago_orch/qualification/boundary/"
-    "midojo_sink.py"
-)
 
-
-def sink_call_body() -> Any:
-    tree = ast.parse(SINK.read_text(encoding="utf-8"))
+def sink_call_body(sink: Path) -> Any:
+    tree = ast.parse(sink.read_text(encoding="utf-8"))
     wanted = {"_text", "_error", "call_body"}
     body = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
     scope: dict[str, Any] = {"json": json, "Any": object}
-    exec(compile(ast.Module(body=body, type_ignores=[]), str(SINK), "exec"), scope)
+    exec(compile(ast.Module(body=body, type_ignores=[]), str(sink), "exec"), scope)
     return scope["call_body"]
 
 
-CALL_BODY = sink_call_body()
+CALL_BODY: Any = None
 
 
 def sink_of(name: str, arguments: Any, result: Any, error: Any = None) -> dict[str, Any]:
@@ -72,11 +66,11 @@ def captured_calls(report: Path) -> list[dict[str, Any]]:
     return found
 
 
-def real_cases() -> tuple[list[dict[str, Any]], int]:
+def real_cases(runs: Path) -> tuple[list[dict[str, Any]], int]:
     cases: dict[str, dict[str, Any]] = {}
     skipped = 0
     for calls_file in sorted(
-        RUNS.glob("run-dryrun-*/stages/execute/output/*/mcp_capture/calls.jsonl")
+        runs.glob("run-dryrun-*/stages/execute/output/*/mcp_capture/calls.jsonl")
     ):
         scenario = calls_file.parents[1]
         reports = sorted(scenario.glob("generation_capture/bundle/reports/*.report.jsonl"))
@@ -173,8 +167,10 @@ def synthetic_cases() -> list[dict[str, Any]]:
     return cases
 
 
-def main(out: Path) -> None:
-    real, skipped = real_cases()
+def main(runs: Path, sink: Path, out: Path) -> None:
+    global CALL_BODY
+    CALL_BODY = sink_call_body(sink)
+    real, skipped = real_cases(runs)
     document = {
         "version": 1,
         "garak_function": "garak.detectors.toolcall.normalise_tool_call",
@@ -185,7 +181,7 @@ def main(out: Path) -> None:
             "function": "call_body",
         },
         "real_source": (
-            "saved dry-run executes (runs/run-dryrun-*): proxy records paired with Garak captures"
+            "saved dry-run executes (runs/run-dryrun-*), proxy records paired with Garak captures"
         ),
         "real_skipped_outputs": skipped,
         "real": real,
@@ -195,4 +191,4 @@ def main(out: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]))
+    main(Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]))
