@@ -201,6 +201,10 @@ class FakeAdapter:
         (out / "run.json").write_text(canonical_text(run))
         (out / "bundle.json").write_text(canonical_text(concrete))
         (out / "reports").mkdir()
+        if "marker-in-lines" in self.flaws:
+            (out / "extra.jsonl").write_text('{"a": 1}\n{"$value": "x"}\n')
+        if "plain-text-file" in self.flaws:
+            (out / "notes.txt").write_text("not json\nat all\n")
         return concrete
 
     def parse(self, bundle: Path, out: Path) -> dict[str, Any]:
@@ -314,6 +318,18 @@ def test_an_instantiate_defect_is_named(
     failures = round_trip(tmp_path, package, flaw)
 
     assert any(expected in failure for failure in failures), failures
+
+
+def test_a_slot_marker_on_a_line_of_a_json_lines_file_is_named(
+    tmp_path: Path, package: Path
+) -> None:
+    failures = round_trip(tmp_path, package, "marker-in-lines")
+
+    assert failures == ["extra.jsonl still holds a slot marker"]
+
+
+def test_a_file_that_is_not_json_is_not_scanned_for_markers(tmp_path: Path, package: Path) -> None:
+    assert round_trip(tmp_path, package, "plain-text-file") == []
 
 
 @pytest.mark.parametrize(
