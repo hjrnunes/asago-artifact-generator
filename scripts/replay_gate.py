@@ -116,6 +116,9 @@ class RecordedCall:
     # The failures the transport retried before this response, oldest first;
     # each is a recorded ``retry_of`` ({"type", "status_code"}).
     retries: tuple[dict[str, Any], ...] = ()
+    # The dispatch ended in a provider timeout: no response was recorded, and
+    # the replay raises the timeout instead of serving one.
+    timed_out: bool = False
 
 
 _RETRYABLE_ERROR_TYPES = frozenset({"APIConnectionError", "InternalServerError", "APIStatusError"})
@@ -133,13 +136,19 @@ def _recorded_retries(attempt: dict[str, Any], where: str) -> tuple[dict[str, An
     return tuple(failures)
 
 
+def _replay_request() -> Any:
+    import httpx2
+
+    return httpx2.Request("POST", "https://replay.invalid/v1/chat/completions")
+
+
 def _recorded_failure(failure: dict[str, Any]) -> Exception:
     """Rebuild the provider error a recorded retry followed."""
 
     import httpx2
     import openai
 
-    request = httpx2.Request("POST", "https://replay.invalid/v1/chat/completions")
+    request = _replay_request()
     if failure["status_code"] is None:
         return openai.APIConnectionError(message="replayed connection error", request=request)
     response = httpx2.Response(failure["status_code"], request=request)
@@ -153,10 +162,24 @@ def _available(value: Any) -> Any:
     return None
 
 
-def _recorded_call(attempt: dict[str, Any]) -> RecordedCall:
-    index = attempt.get("dispatch_index")
-    where = f"dispatch {index} ({attempt.get('stage')})"
-    raw_record = attempt.get("raw_response") or {}
+# The transport's failure record keeps only the redacted message, and this is
+# the one provider error whose message identifies its type.
+_TIMEOUT_DETAIL = "Request timed out."
+
+
+def _is_recorded_timeout(attempt: dict[str, Any], raw_record: dict[str, Any]) -> bool:
+    failure = attempt.get("failure") or {}
+    return (
+        raw_record.get("availability") == "unavailable"
+        and raw_record.get("reason") == "provider_failure"
+        and failure.get("phase") == "invocation"
+        and failure.get("detail") == _TIMEOUT_DETAIL
+    )
+
+
+def _recorded_response(
+    attempt: dict[str, Any], raw_record: dict[str, Any], where: str
+) -> tuple[bytes, dict[str, Any], dict[str, Any], dict[str, Any]]:
     if raw_record.get("availability") != "available":
         # Provider errors are recorded only as a failure code and detail, so
         # the exception the live call raised cannot be raised again.
@@ -169,6 +192,20 @@ def _recorded_call(attempt: dict[str, Any]) -> RecordedCall:
     expected_raw = content.encode("utf-8") if isinstance(content, str) else b""
     if raw != expected_raw:
         raise ReplayRecordError(f"{where}: raw_response differs from final_answer content")
+    return raw, final_answer, reasoning, finish_reason
+
+
+def _recorded_call(attempt: dict[str, Any]) -> RecordedCall:
+    index = attempt.get("dispatch_index")
+    where = f"dispatch {index} ({attempt.get('stage')})"
+    raw_record = attempt.get("raw_response") or {}
+    timed_out = _is_recorded_timeout(attempt, raw_record)
+    if timed_out:
+        raw, final_answer, reasoning, finish_reason = b"", {}, {}, {}
+    else:
+        raw, final_answer, reasoning, finish_reason = _recorded_response(
+            attempt, raw_record, where
+        )
     prompt = attempt["prompt"]
     identity = attempt["model_identity"]
     return RecordedCall(
@@ -185,6 +222,7 @@ def _recorded_call(attempt: dict[str, Any]) -> RecordedCall:
         finish_reason=finish_reason,
         usage=_available(attempt.get("usage")),
         retries=_recorded_retries(attempt, where),
+        timed_out=timed_out,
     )
 
 
@@ -232,7 +270,9 @@ class ReplayChatClient:
     ``ConnectionError``, so the code under test sees a transport failure.
     A dispatch recorded with a transport retry first raises each recorded
     failure, then serves the response, so the transport's own retry runs for
-    real; a recording without a retry never sees one.
+    real; a recording without a retry never sees one.  A dispatch recorded as a
+    timeout raises ``openai.APITimeoutError`` in place of a response, which the
+    transport never retries.
     """
 
     def __init__(self, calls: Sequence[RecordedCall]) -> None:
@@ -278,7 +318,15 @@ class ReplayChatClient:
                 f"replay gate: prompt mismatch at dispatch {call.dispatch_index} ({call.stage})"
             )
         self.served += 1
-        return _rebuilt_response(call)
+        return _serve(call)
+
+
+def _serve(call: RecordedCall) -> SimpleNamespace:
+    if call.timed_out:
+        import openai
+
+        raise openai.APITimeoutError(request=_replay_request())
+    return _rebuilt_response(call)
 
 
 def _request_mismatch(call: RecordedCall, request: dict[str, Any]) -> str | None:
@@ -484,6 +532,27 @@ def _json_or_none(text: str) -> Any:
         return None
 
 
+def _mask_attempt_duration(attempt: Any) -> Any:
+    failure = attempt.get("failure") if isinstance(attempt, dict) else None
+    duration = failure.get("elapsed_ms") if isinstance(failure, dict) else None
+    if not isinstance(duration, int | float):
+        return attempt
+    return {**attempt, "failure": {**failure, "elapsed_ms": "<wall-clock milliseconds>"}}
+
+
+def _mask_wall_clock(document: Any) -> Any:
+    """Hide the measured time of each failed dispatch, the one value that differs.
+
+    A replayed failure returns at once, so the time the live call took cannot
+    recur.  Its presence and type still compare.
+    """
+
+    attempts = document.get("attempts") if isinstance(document, dict) else None
+    if not isinstance(attempts, list):
+        return document
+    return {**document, "attempts": [_mask_attempt_duration(item) for item in attempts]}
+
+
 def _compare_structured(
     left_text: str, right_text: str, relative: str, aliases: dict[str, str]
 ) -> str | None:
@@ -491,6 +560,8 @@ def _compare_structured(
     right = _json_or_none(right_text)
     if left is None or right is None:
         return "content is not JSON on both sides"
+    if relative.endswith(FAILURE_EVIDENCE_SUFFIX):
+        left, right = _mask_wall_clock(left), _mask_wall_clock(right)
     return _first_difference(left, _apply_allowances(right, relative, aliases))
 
 
