@@ -206,7 +206,7 @@ def test_the_neutral_check_always_passes(monkeypatch: pytest.MonkeyPatch) -> Non
         neutral.parse({"anything": 1})
 
 
-def test_register_adds_both_verifiers_once(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_adds_the_verifiers_once(monkeypatch: pytest.MonkeyPatch) -> None:
     registered: list[str] = []
 
     def register_verifier(verifier: Any) -> None:
@@ -222,4 +222,4 @@ def test_register_adds_both_verifiers_once(monkeypatch: pytest.MonkeyPatch) -> N
     verifiers.register()
     verifiers.register()
 
-    assert registered == ["asago_tool_call_condition", "asago_neutral"]
+    assert registered == ["asago_tool_call_condition", "asago_rubric_judge", "asago_neutral"]

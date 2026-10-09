@@ -28,9 +28,10 @@ from asago_bundle_core.text import canonical_text
 from .compiler import (
     BUNDLE_CODE,
     BUNDLE_FILE,
-    CLAIM_LEVEL,
+    COMMAND_ATTEMPT,
     EVALUATION_DUMP,
     NATIVE_OUTPUTS,
+    REPLY,
     RUN_DUMP,
     SUITE_FILE,
     TOOL,
@@ -39,8 +40,14 @@ from .compiler import (
 from .records import Records, native_call, read_json, read_records, text
 
 SCHEMA_VERSION = "execution-receipt-v1"
-DETECTOR = "ToolCallCondition"
+DETECTORS = {COMMAND_ATTEMPT: "ToolCallCondition", REPLY: "RubricJudge"}
 OUTCOMES = ("detected", "not_detected", "inconclusive")
+# The judge's three verdicts and the outcome each stands for.
+JUDGE_OUTCOMES = {
+    "supported": "detected",
+    "contradicted": "not_detected",
+    "unresolved": "inconclusive",
+}
 DIGESTED = (BUNDLE_FILE, SUITE_FILE, *BUNDLE_CODE)
 MANIFEST_KEYS = frozenset({"scenario_id", "package_digest", "target_mode", "claim_level"})
 RUNTIME_LISTS = (
@@ -196,15 +203,43 @@ def _graded(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
 
 def _verdict_shape(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
     verdict = evidence.verdict
-    matched = verdict.get("matched_calls")
+    level = bundle.manifest["claim_level"]
     ok = (
         verdict.get("outcome") in OUTCOMES
-        and verdict.get("claim_level") == bundle.manifest["claim_level"] == CLAIM_LEVEL
+        and verdict.get("claim_level") == level
         and text(verdict.get("reason")) is not None
-        and isinstance(matched, list)
-        and all(type(index) is int and index >= 0 for index in matched)
+        and LEVEL_SHAPES.get(level, _never)(verdict)
     )
     return None if ok else "verdict_malformed"
+
+
+def _never(verdict: dict[str, Any]) -> bool:
+    return False
+
+
+def _command_shape(verdict: dict[str, Any]) -> bool:
+    matched = verdict.get("matched_calls")
+    return isinstance(matched, list) and all(_is_count(index) for index in matched)
+
+
+def _reply_shape(verdict: dict[str, Any]) -> bool:
+    refs = verdict.get("evidence_refs")
+    return (
+        JUDGE_OUTCOMES.get(verdict.get("verdict")) == verdict["outcome"]
+        and isinstance(refs, list)
+        and all(isinstance(ref, str) for ref in refs)
+        and _is_count(verdict.get("request_count"))
+    )
+
+
+def _is_count(value: Any) -> bool:
+    return type(value) is int and value >= 0
+
+
+LEVEL_SHAPES: dict[str, Callable[[dict[str, Any]], bool]] = {
+    COMMAND_ATTEMPT: _command_shape,
+    REPLY: _reply_shape,
+}
 
 
 def _verdict_agrees(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
@@ -276,16 +311,29 @@ def attempt_of(evidence: Evidence, bundle: Bundle, records: Records) -> dict[str
         },
         "observation": {"source": source, "assistant_messages": replies, "tool_calls": calls},
         "runtime_observations": {"source": None, **{name: [] for name in RUNTIME_LISTS}},
-        "detections": [
-            {
-                "detector": DETECTOR,
-                "outcome": verdict["outcome"],
-                "reason": verdict["reason"],
-                "matched_calls": verdict["matched_calls"],
-            }
-        ],
-        "judge": None,
+        "detections": [detection_of(verdict)],
+        "judge": judge_of(verdict, records),
     }
+
+
+def detection_of(verdict: dict[str, Any]) -> dict[str, Any]:
+    """Return the detection the verifier's verdict stands for; the judge names no calls."""
+
+    return {
+        "detector": DETECTORS[verdict["claim_level"]],
+        "outcome": verdict["outcome"],
+        "reason": verdict["reason"],
+        "matched_calls": verdict.get("matched_calls"),
+    }
+
+
+def judge_of(verdict: dict[str, Any], records: Records) -> dict[str, Any] | None:
+    """Return the judge record of a reply verdict; the boundary judge's count replaces its own."""
+
+    if verdict["claim_level"] != REPLY:
+        return None
+    count = records.judge_count if records.judge_count is not None else verdict["request_count"]
+    return {"verdict": verdict["verdict"], "reason": verdict["reason"], "request_count": count}
 
 
 def observed_calls(

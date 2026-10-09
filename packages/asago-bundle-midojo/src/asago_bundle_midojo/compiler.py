@@ -22,6 +22,7 @@ from asago_bundle_core.gap import CapabilityGap, capability_gap_record
 from asago_bundle_core.slots import bundle_slot, contains_marker, template_slots, value_slot
 from asago_bundle_core.text import canonical_text
 
+from .bundle_files.asago_rubric import RUBRIC_NAME
 from .bundle_files.asago_verifiers import (
     CONDITION_NAME,
     NEUTRAL_NAME,
@@ -32,11 +33,13 @@ BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "midojo"
 TOOL_REVISION_RANGE = ">=9ceb22e3"
 TARGET_MODE = "orch_hosted"
-CLAIM_LEVEL = "command_attempt"
+COMMAND_ATTEMPT = "command_attempt"
+REPLY = "reply"
 CLAIM_LEVELS = ("command_attempt", "reply", "state_effect")
 SINGLE = "single"
 SEQUENTIAL = "sequential"
 CONDITION_MEMBER = "tool_call_condition.json"
+JUDGE_MEMBER = "judge.json"
 BUNDLE_FILE = "bundle.json"
 SUITE_TEMPLATE = "suite.template.json"
 SUITE_PACKAGE = "asago_suite"
@@ -48,6 +51,8 @@ MCP_SERVER_LABEL = "qualification_target"
 USER_TASK_ID = "asago_user_task"
 INJECTION_TASK_ID = "asago_injection_task"
 CONTROL_URL = "http://127.0.0.1:{service_port}"
+# The judge's key is read from the environment; orch's boundary judge adds the real one.
+JUDGE_KEY = "OPENAICOMPATIBLE_API_KEY"
 # Values the commands name as ``{key}``; the suite template holds the others.
 ENTRYPOINT_VALUES = ("gateway_url", "mcp_url", "model", "service_port")
 # Bundle path -> file of ``bundle_files`` it copies.
@@ -55,6 +60,7 @@ BUNDLE_CODE = {
     f"{SUITE_PACKAGE}/__init__.py": "suite_package.py",
     f"{SUITE_PACKAGE}/suite.py": "suite_module.py",
     f"{SUITE_PACKAGE}/asago_verifiers.py": "asago_verifiers.py",
+    f"{SUITE_PACKAGE}/asago_rubric.py": "asago_rubric.py",
     RUN_SCRIPT: "run_midojo.py",
 }
 RUN_DUMP = "control-plane/run.json"
@@ -78,9 +84,9 @@ def compile_package(package_dir: str | Path, out_dir: str | Path) -> dict[str, A
     if reasons:
         delivery = SEQUENTIAL if delivery_mode(stimulus) == SEQUENTIAL else SINGLE
         raise CapabilityGap(capability_gap_record(TOOL, package, delivery, "; ".join(reasons)))
-    suite = suite_template(package, _condition(package))
+    suite = suite_template(package, level)
     requires = sorted(template_slots([suite]) | set(ENTRYPOINT_VALUES))
-    manifest = bundle_manifest(package, requires)
+    manifest = bundle_manifest(package, level, requires)
     _write(out, {SUITE_TEMPLATE: suite, BUNDLE_FILE: manifest})
     return manifest
 
@@ -118,20 +124,18 @@ def _delivery_reason(stimulus: Any) -> str | None:
 
 
 def _claim_reason(level: str) -> str | None:
-    """Only the command attempt is graded here; the reply claim needs the rubric judge."""
+    """The command attempt and the reply are graded here; the state effect is not."""
 
-    if level == "reply":
-        return "the reply claim needs the rubric judge, which this adapter does not ship yet"
-    if level != CLAIM_LEVEL:
+    if level not in (COMMAND_ATTEMPT, REPLY):
         return f"the {level} claim is not graded by this adapter"
     return None
 
 
-def suite_template(package: ArtifactPackage, condition: dict[str, Any]) -> dict[str, Any]:
+def suite_template(package: ArtifactPackage, level: str) -> dict[str, Any]:
     """Return the suite file with its slots: one user task and one injection task."""
 
     scenario_id = package.manifest.scenario_id
-    check = {"condition": condition, "verdict_file": bundle_slot(VERDICT_FILE)}
+    name, check = _security_check(package, level)
     return {
         "agent_runtime": {"type": "unmanaged"},
         "user_tasks": [
@@ -144,14 +148,36 @@ def suite_template(package: ArtifactPackage, condition: dict[str, Any]) -> dict[
         "injection_tasks": [
             {
                 "id": INJECTION_TASK_ID,
-                "description": f"{scenario_id}: the target attempts the command",
-                "security": {CONDITION_NAME: check},
+                "description": f"{scenario_id}: {_DESCRIPTIONS[level]}",
+                "security": {name: check},
             }
         ],
     }
 
 
-def bundle_manifest(package: ArtifactPackage, requires: list[str]) -> dict[str, Any]:
+_DESCRIPTIONS = {
+    COMMAND_ATTEMPT: "the target attempts the command",
+    REPLY: "the target's reply answers the rubric question",
+}
+
+
+def _security_check(package: ArtifactPackage, level: str) -> tuple[str, dict[str, Any]]:
+    """Return the verifier name and spec that grade the claim; the verdict path is a slot."""
+
+    verdict_file = bundle_slot(VERDICT_FILE)
+    if level == REPLY:
+        return RUBRIC_NAME, {
+            "rubric": _rubric(package),
+            "user_text": value_slot("messages"),
+            "judge_url": value_slot("judge_url"),
+            "judge_model": value_slot("judge_model"),
+            "verdict_file": verdict_file,
+        }
+    return CONDITION_NAME, {"condition": _condition(package), "verdict_file": verdict_file}
+
+
+def bundle_manifest(package: ArtifactPackage, level: str, requires: list[str]) -> dict[str, Any]:
+    reply = level == REPLY
     return {
         "schema_version": BUNDLE_SCHEMA_VERSION,
         "tool": TOOL,
@@ -159,12 +185,12 @@ def bundle_manifest(package: ArtifactPackage, requires: list[str]) -> dict[str, 
         "package_id": package.manifest.package_id,
         "scenario_id": package.manifest.scenario_id,
         "package_digest": package.manifest.manifest_digest,
-        "claim_level": CLAIM_LEVEL,
+        "claim_level": level,
         "delivery": SINGLE,
         "target_mode": TARGET_MODE,
-        "plugins": [CONDITION_NAME, NEUTRAL_NAME],
+        "plugins": [RUBRIC_NAME if reply else CONDITION_NAME, NEUTRAL_NAME],
         "requires": requires,
-        "environment": ["OPENAI_API_KEY"],
+        "environment": ["OPENAI_API_KEY", JUDGE_KEY] if reply else ["OPENAI_API_KEY"],
         "templates": {"suite": SUITE_TEMPLATE},
         "serve": {
             "argv": [
@@ -215,6 +241,22 @@ def _condition(package: ArtifactPackage) -> dict[str, Any]:
     if problem:
         raise CompileError(f"{CONDITION_MEMBER}: condition is invalid: {problem}")
     return condition
+
+
+def _rubric(package: ArtifactPackage) -> dict[str, Any]:
+    """Return the judge's rubric; the runtime facts are a slot orch fills."""
+
+    judge = _json_member(package, JUDGE_MEMBER)
+    if not isinstance(judge, dict) or not isinstance(judge.get("question"), str):
+        raise CompileError(f"{JUDGE_MEMBER} has no question text")
+    rubric = {
+        "question": judge["question"],
+        "criteria": judge.get("criteria", []),
+        "facts": judge.get("facts", []),
+    }
+    if contains_marker(rubric):
+        raise CompileError("package content contains a slot marker")
+    return {**rubric, "runtime_facts": value_slot("judge_runtime_facts")}
 
 
 def _load(package_dir: Path) -> ArtifactPackage:

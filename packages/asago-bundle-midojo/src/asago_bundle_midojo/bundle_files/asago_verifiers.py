@@ -479,11 +479,13 @@ class NeutralVerifier:
 
 
 def register() -> None:
-    """Register both verifiers; a module imported twice registers them once."""
+    """Register the verifiers; a module imported twice registers them once."""
 
     from midojo.verifiers import register_verifier
 
-    for verifier in (ToolCallConditionVerifier(), NeutralVerifier()):
+    from .asago_rubric import RubricJudgeVerifier
+
+    for verifier in (ToolCallConditionVerifier(), RubricJudgeVerifier(), NeutralVerifier()):
         try:
             register_verifier(verifier)
         except ValueError:

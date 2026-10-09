@@ -51,15 +51,9 @@ def test_a_single_package_with_earlier_user_turns_is_a_gap(tmp_path: Path) -> No
     assert "non-user" not in record["reason"]
 
 
-def test_a_reply_package_is_a_gap(reply_package: Path, tmp_path: Path) -> None:
-    record = gap_of(reply_package, tmp_path)
-
-    assert record["delivery"] == "single"
-    assert "reply" in record["reason"]
-    assert "rubric" in record["reason"]
-
-
-def test_a_reply_package_with_sequential_turns_names_both_reasons(tmp_path: Path) -> None:
+def test_a_reply_package_with_sequential_turns_is_a_gap_for_the_turns_alone(
+    tmp_path: Path,
+) -> None:
     package = write_test_package(
         tmp_path / "packages", claim_level="reply", stimulus=sequential_stimulus()
     )
@@ -68,7 +62,20 @@ def test_a_reply_package_with_sequential_turns_names_both_reasons(tmp_path: Path
 
     assert record["delivery"] == "sequential"
     assert "one prompt" in record["reason"]
-    assert "rubric" in record["reason"]
+    assert "rubric" not in record["reason"]
+    assert "reply" not in record["reason"]
+
+
+def test_a_reply_package_with_earlier_user_turns_is_a_gap_for_the_turns_alone(
+    tmp_path: Path,
+) -> None:
+    stimulus = {**single_stimulus(), "history": [{"role": "user", "content": "Hello."}]}
+    package = write_test_package(tmp_path / "packages", claim_level="reply", stimulus=stimulus)
+
+    record = gap_of(package, tmp_path)
+
+    assert record["delivery"] == "single"
+    assert "rubric" not in record["reason"]
 
 
 def test_a_state_effect_package_is_a_gap(tmp_path: Path) -> None:

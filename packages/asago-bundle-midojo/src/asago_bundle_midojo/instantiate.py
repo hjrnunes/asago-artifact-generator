@@ -118,12 +118,19 @@ def _messages(value: Any) -> bool:
     )
 
 
+def _facts(value: Any) -> bool:
+    return isinstance(value, dict)
+
+
 CHECKS: dict[str, Callable[[Any], bool]] = {
     "gateway_url": _url,
     "mcp_url": _url,
     "model": _text,
     "messages": _messages,
     "service_port": _port,
+    "judge_url": _url,
+    "judge_model": _text,
+    "judge_runtime_facts": _facts,
 }
 
 

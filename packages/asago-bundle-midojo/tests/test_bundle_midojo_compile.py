@@ -11,7 +11,7 @@ import pytest
 
 from asago_bundle_core.schema import manifest_errors, validate_manifest
 from asago_bundle_core.slots import VALUE
-from asago_bundle_core.testing import CONDITION, write_test_package
+from asago_bundle_core.testing import CONDITION, JUDGE, write_test_package
 from asago_bundle_midojo import compiler
 from asago_bundle_midojo.compiler import CompileError, compile_package
 
@@ -158,7 +158,7 @@ def test_compile_twice_gives_the_same_bytes(command_package: Path, tmp_path: Pat
         return {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
 
     assert tree(tmp_path / "one") == tree(tmp_path / "two")
-    assert len(tree(tmp_path / "one")) == 6
+    assert len(tree(tmp_path / "one")) == 7
 
 
 def test_compile_returns_the_manifest_it_wrote(command_package: Path, tmp_path: Path) -> None:
@@ -201,3 +201,120 @@ def test_compile_refuses_an_invalid_condition(tmp_path: Path) -> None:
 def test_the_suite_module_and_the_tool_revision_are_fixed_by_compile() -> None:
     assert compiler.SUITE_MODULE == "asago_suite.suite"
     assert compiler.TOOL_REVISION_RANGE == ">=9ceb22e3"
+
+
+# --- the reply claim ---------------------------------------------------------------------
+
+
+def reply_manifest(reply_template: Path) -> dict[str, Any]:
+    return manifest_of(reply_template)
+
+
+def test_a_reply_manifest_names_the_reply_claim_the_rubric_plugin_and_the_judge_key(
+    reply_template: Path,
+) -> None:
+    manifest = reply_manifest(reply_template)
+
+    validate_manifest(manifest)
+    assert manifest["claim_level"] == "reply"
+    assert manifest["delivery"] == "single"
+    assert manifest["plugins"] == ["asago_rubric_judge", "asago_neutral"]
+    assert manifest["environment"] == ["OPENAI_API_KEY", "OPENAICOMPATIBLE_API_KEY"]
+    assert manifest["native_outputs"] == [
+        "control-plane/run.json",
+        "control-plane/evaluation.json",
+        "midojo-logs/results.json",
+        "verdict.json",
+    ]
+
+
+def test_a_reply_manifest_requires_the_judge_values(reply_template: Path) -> None:
+    assert reply_manifest(reply_template)["requires"] == [
+        "gateway_url",
+        "judge_model",
+        "judge_runtime_facts",
+        "judge_url",
+        "mcp_url",
+        "messages",
+        "model",
+        "service_port",
+    ]
+
+
+def test_a_reply_suite_template_holds_the_rubric_and_the_judge_slots(
+    reply_template: Path,
+) -> None:
+    suite = json.loads((reply_template / "suite.template.json").read_text(encoding="utf-8"))
+
+    (user_task,) = suite["user_tasks"]
+    (injection_task,) = suite["injection_tasks"]
+    assert user_task["prompt"] == {VALUE: "messages"}
+    assert injection_task["security"] == {
+        "asago_rubric_judge": {
+            "rubric": {
+                "question": JUDGE["question"],
+                "criteria": JUDGE["criteria"],
+                "facts": JUDGE["facts"],
+                "runtime_facts": {VALUE: "judge_runtime_facts"},
+            },
+            "user_text": {VALUE: "messages"},
+            "judge_url": {VALUE: "judge_url"},
+            "judge_model": {VALUE: "judge_model"},
+            "verdict_file": {"$bundle": "verdict.json"},
+        }
+    }
+
+
+def test_a_reply_template_copies_the_rubric_module_with_the_other_bundle_code(
+    reply_template: Path, template: Path
+) -> None:
+    source = files("asago_bundle_midojo").joinpath("bundle_files")
+
+    for root in (reply_template, template):
+        assert (root / "asago_suite/asago_rubric.py").read_bytes() == source.joinpath(
+            "asago_rubric.py"
+        ).read_bytes()
+
+
+def test_a_command_template_is_unchanged_by_the_reply_claim(template: Path) -> None:
+    manifest = manifest_of(template)
+
+    assert manifest["environment"] == ["OPENAI_API_KEY"]
+    assert not {"judge_url", "judge_model", "judge_runtime_facts"} & set(manifest["requires"])
+
+
+def test_a_reply_package_without_judge_text_is_a_compile_error(tmp_path: Path) -> None:
+    package = write_test_package(
+        tmp_path / "packages", claim_level="reply", judge={"criteria": "c"}
+    )
+
+    with pytest.raises(CompileError, match="question"):
+        compile_package(package, tmp_path / "out")
+
+
+def test_a_reply_package_without_a_judge_file_is_a_compile_error(tmp_path: Path) -> None:
+    package = write_test_package(tmp_path / "packages", claim_level="reply")
+    (package / "judge.json").unlink()
+
+    with pytest.raises(CompileError):
+        compile_package(package, tmp_path / "out")
+
+
+def test_a_reply_package_refuses_a_slot_marker_in_the_judge_file(tmp_path: Path) -> None:
+    judge = {**JUDGE, "facts": [{"$value": "model"}]}
+    package = write_test_package(tmp_path / "packages", claim_level="reply", judge=judge)
+
+    with pytest.raises(CompileError, match="slot marker"):
+        compile_package(package, tmp_path / "out")
+
+
+def test_a_reply_package_compiles_to_the_same_bytes_twice(
+    reply_package: Path, tmp_path: Path
+) -> None:
+    compile_package(reply_package, tmp_path / "one")
+    compile_package(reply_package, tmp_path / "two")
+
+    def tree(root: Path) -> dict[Path, bytes]:
+        return {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+    assert tree(tmp_path / "one") == tree(tmp_path / "two")
