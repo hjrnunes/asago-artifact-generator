@@ -273,6 +273,15 @@ def test_an_inconsistent_record_gives_a_failed_receipt(
     assert len(receipt["native"]) == 4
 
 
+def test_a_grade_that_raised_names_the_ungraded_evaluation_not_the_missing_verdict(
+    bundle: Path,
+) -> None:
+    write_native(bundle, evaluation=evaluation_dump(security=None))
+    (bundle / "verdict.json").unlink()
+
+    assert receipt_of(bundle)["incomplete_reason"] == "evaluation_ungraded"
+
+
 def write_records(
     directory: Path,
     calls: list[dict[str, Any]],

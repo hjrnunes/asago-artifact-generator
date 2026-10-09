@@ -147,7 +147,8 @@ def read_evidence(root: Path) -> tuple[Evidence | None, str | None]:
         documents.append(document)
     verdict, reason = read_document(root / VERDICT_FILE, "verdict")
     if verdict is None:
-        return None, reason
+        # A grade that raised leaves no verdict; the ungraded evaluation is the cause.
+        return None, reason if is_graded(documents[1]) else "evaluation_ungraded"
     return Evidence(documents[0], documents[1], verdict), None
 
 
@@ -185,10 +186,12 @@ def _evaluation_identity(evidence: Evidence, bundle: Bundle, records: Records) -
     return None if same else "evaluation_mismatch"
 
 
+def is_graded(evaluation: dict[str, Any]) -> bool:
+    return evaluation.get("completed") is True and isinstance(evaluation.get("security"), bool)
+
+
 def _graded(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
-    evaluation = evidence.evaluation
-    ok = evaluation.get("completed") is True and isinstance(evaluation.get("security"), bool)
-    return None if ok else "evaluation_ungraded"
+    return None if is_graded(evidence.evaluation) else "evaluation_ungraded"
 
 
 def _verdict_shape(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
