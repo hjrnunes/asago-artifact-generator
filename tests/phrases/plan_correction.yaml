@@ -8,6 +8,7 @@ cases:
         - 'so it reads no runtime binding'
         - 'receives every resolved runtime binding'
         - 'the producer''s tool-call condition for a command_attempt claim reads none'
+        - 'through its {{binding_name}} slot and declare its runtime binding'
   omission:
     user:
       required:

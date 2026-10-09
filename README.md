@@ -203,7 +203,7 @@ anything other than a supplied result observation.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v21` renders the plan author context while preserving the
+- `authoring-call1-v22` renders the plan author context while preserving the
   existing 11-field plan response.
 - `authoring-plan-review-v21` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
@@ -224,7 +224,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `semantic_judge_spec_required` correction.
 - `authoring-artifact-review-v21` reviews the exact artifact object and the
   binding and judge declarations.
-- `authoring-correction-v34` renders only the failed stage format and all
+- `authoring-correction-v35` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option
