@@ -29,7 +29,7 @@
     "package_id": {"type": "string", "minLength": 1},
     "scenario_id": {"type": "string", "minLength": 1},
     "package_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "claim_level": {"enum": ["command_attempt", "reply"]},
+    "claim_level": {"enum": ["command_attempt", "reply", "state_effect"]},
     "delivery": {"enum": ["single", "sequential"]},
     "target_mode": {"enum": ["orch_hosted", "tool_hosted"]},
     "plugins": {
@@ -70,6 +70,23 @@
       "description": "Tool output paths relative to the concrete bundle.",
       "type": "array",
       "items": {"type": "string", "minLength": 1}
+    },
+    "repeats": {
+      "description": "Optional; a bundle that omits it is read as {\"native\": false}. native true means the tool repeats the run by itself, with the count arriving as a requires value; false means orch runs the bundle again for each repeat.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["native"],
+      "properties": {"native": {"type": "boolean"}}
+    },
+    "serve": {
+      "description": "Optional; a tool that must be serving before entrypoint runs. argv starts the service (placeholders as in entrypoint); ready_url is a template over the same value keys that answers once the service is ready.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv", "ready_url"],
+      "properties": {
+        "argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "ready_url": {"type": "string", "minLength": 1}
+      }
     }
   }
 }

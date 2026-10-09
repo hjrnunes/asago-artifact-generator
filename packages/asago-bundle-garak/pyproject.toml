@@ -9,6 +9,7 @@ description = "Garak adapter: compiles an artifact package into a Garak bundle a
 requires-python = ">=3.11"
 dependencies = [
     "asago-artifact-generator",
+    "asago-bundle-core",
 ]
 
 [project.scripts]
@@ -16,6 +17,7 @@ asago-bundle-garak = "asago_bundle_garak.cli:main"
 
 [tool.uv.sources]
 asago-artifact-generator = { workspace = true }
+asago-bundle-core = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/asago_bundle_garak"]

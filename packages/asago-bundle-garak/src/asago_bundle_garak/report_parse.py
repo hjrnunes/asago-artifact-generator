@@ -26,13 +26,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from asago_bundle_core.errors import BundleError
+from asago_bundle_core.text import canonical_text
+
 from .compiler import (
     BUNDLE_FILE,
     CONVERSATIONS,
     RUN_CONFIG,
     SEQUENTIAL,
     TOOL,
-    canonical_text,
 )
 
 SCHEMA_VERSION = "execution-receipt-v1"
@@ -62,7 +64,7 @@ MANIFEST_KEYS = frozenset(
 )
 
 
-class ParseError(ValueError):
+class ParseError(BundleError):
     """The bundle cannot be read, so no receipt can name its package."""
 
 

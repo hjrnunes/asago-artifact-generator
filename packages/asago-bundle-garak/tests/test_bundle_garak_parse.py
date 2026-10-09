@@ -15,11 +15,11 @@ import jsonschema
 import pytest
 
 from asago_artifact_generator.package_io import load_package
+from asago_bundle_core.testing import write_test_package
 from asago_bundle_garak.cli import main
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import instantiate_bundle
 from asago_bundle_garak.report_parse import parse_report
-from conftest import write_test_package
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 RECEIPT_SCHEMA = (

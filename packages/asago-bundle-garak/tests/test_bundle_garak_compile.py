@@ -5,22 +5,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import jsonschema
 import pytest
 
 from asago_artifact_generator.package_io import load_package
+from asago_bundle_core.schema import validate_manifest
+from asago_bundle_core.slots import template_slots
+from asago_bundle_core.testing import CONDITION, JUDGE, sequential_stimulus, write_test_package
 from asago_bundle_garak.cli import main
 from asago_bundle_garak.compiler import (
     CapabilityGap,
     CompileError,
     compile_package,
-)
-from asago_bundle_garak.slots import template_slots
-from conftest import CONDITION, JUDGE, sequential_stimulus, write_test_package
-
-SCHEMA = (
-    Path(__file__).resolve().parents[1]
-    / "src/asago_bundle_garak/schemas/tool-bundle-v1.schema.json"
 )
 
 
@@ -53,7 +48,7 @@ def test_command_attempt_bundle_manifest(command_package: Path, tmp_path: Path) 
     ]
     assert manifest["entrypoint"][-2:] == ["--detectors", "toolcall.ToolCallCondition"]
     assert manifest["native_outputs"] == ["reports/SCN-001.report.jsonl"]
-    jsonschema.validate(manifest, read(SCHEMA))
+    validate_manifest(manifest)
 
 
 def test_command_attempt_template_carries_the_package_condition(
@@ -89,7 +84,7 @@ def test_reply_template_carries_the_judge_and_its_runtime_facts_slot(
     assert manifest["entrypoint"][-1] == "rubric_judge.RubricJudge"
     assert {"judge_url", "judge_model", "judge_runtime_facts"} <= set(manifest["requires"])
     assert template_slots([conversation, run]) | {"model"} == set(manifest["requires"])
-    jsonschema.validate(manifest, read(SCHEMA))
+    validate_manifest(manifest)
 
 
 def test_sequential_package_bundle_sends_one_user_turn_per_slot(
@@ -113,7 +108,7 @@ def test_sequential_package_bundle_sends_one_user_turn_per_slot(
     }, "a command attempt is graded after every turn, so it needs no judge_turns"
     assert "messages" not in manifest["requires"]
     assert template_slots([conversation, run]) | {"model"} == set(manifest["requires"])
-    jsonschema.validate(manifest, read(SCHEMA))
+    validate_manifest(manifest)
 
 
 def test_sequential_reply_bundle_takes_judge_turns(tmp_path: Path) -> None:

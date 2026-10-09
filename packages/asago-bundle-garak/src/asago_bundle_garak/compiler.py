@@ -16,8 +16,10 @@ from pathlib import Path
 from typing import Any
 
 from asago_artifact_generator.package_io import ArtifactPackage, load_package
-
-from .slots import bundle_slot, contains_marker, template_slots, value_slot
+from asago_bundle_core.errors import BundleError
+from asago_bundle_core.gap import CapabilityGap, capability_gap_record
+from asago_bundle_core.slots import bundle_slot, contains_marker, template_slots, value_slot
+from asago_bundle_core.text import canonical_text
 
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "garak"
@@ -49,16 +51,8 @@ USER_TURN_PREFIX = "user_turn_"
 ENTRYPOINT_VALUES = ("model",)
 
 
-class CompileError(ValueError):
+class CompileError(BundleError):
     """The package cannot become a Garak bundle."""
-
-
-class CapabilityGap(Exception):
-    """Garak cannot run the package yet; ``record`` says why."""
-
-    def __init__(self, record: dict[str, Any]) -> None:
-        super().__init__(record["reason"])
-        self.record = record
 
 
 def compile_package(package_dir: str | Path, out_dir: str | Path) -> dict[str, Any]:
@@ -105,18 +99,13 @@ def delivery_gap(package: ArtifactPackage, stimulus: Any) -> dict[str, Any] | No
         isinstance(item, dict) and item.get("role") == "user" for item in history
     ):
         return None
-    return {
-        "kind": "capability_gap",
-        "tool": TOOL,
-        "package_id": package.manifest.package_id,
-        "scenario_id": package.manifest.scenario_id,
-        "package_digest": package.manifest.manifest_digest,
-        "delivery": SEQUENTIAL,
-        "reason": (
-            "injection.SequentialInjection sends user turns only; this "
-            "sequential history holds another message"
-        ),
-    }
+    return capability_gap_record(
+        TOOL,
+        package,
+        SEQUENTIAL,
+        "injection.SequentialInjection sends user turns only; this "
+        "sequential history holds another message",
+    )
 
 
 def user_turn_count(stimulus: Any) -> int | None:
@@ -316,7 +305,3 @@ def _write(out: Path, documents: dict[str, Any]) -> None:
     out.mkdir(parents=True, exist_ok=True)
     for name, document in documents.items():
         (out / name).write_text(canonical_text(document), encoding="utf-8")
-
-
-def canonical_text(document: Any) -> str:
-    return json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"

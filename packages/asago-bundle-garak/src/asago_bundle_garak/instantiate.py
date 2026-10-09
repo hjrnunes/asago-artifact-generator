@@ -14,22 +14,26 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from asago_bundle_core.errors import BundleError
+from asago_bundle_core.slots import BUNDLE, fill
+from asago_bundle_core.text import canonical_text
+from asago_bundle_core.values import check_values, render_entrypoint
+
 from .compiler import (
     BUNDLE_FILE,
     CONVERSATIONS,
+    ENTRYPOINT_VALUES,
     REPORTS,
     RUN_CONFIG,
     USER_TURN_PREFIX,
-    canonical_text,
 )
-from .slots import BUNDLE, fill
 
 MESSAGE_ROLES = frozenset({"system", "user", "assistant"})
 JUDGE_TURNS = frozenset({"final", "all"})
 TEMPLATE_KEYS = frozenset({"requires", "templates", "entrypoint"})
 
 
-class InstantiateError(ValueError):
+class InstantiateError(BundleError):
     """The template or the values cannot make a concrete bundle."""
 
 
@@ -43,7 +47,7 @@ def instantiate_bundle(
     manifest = _read_json(template / BUNDLE_FILE)
     if not isinstance(manifest, dict) or not TEMPLATE_KEYS <= manifest.keys():
         raise InstantiateError(f"{BUNDLE_FILE} is not a bundle template manifest")
-    check_values(manifest["requires"], values)
+    check_values(manifest["requires"], values, check_for, InstantiateError)
     templates = {role: _read_json(template / name) for role, name in manifest["templates"].items()}
 
     def resolve(kind: str, argument: Any) -> Any:
@@ -54,7 +58,7 @@ def instantiate_bundle(
     concrete = {
         **manifest,
         "templates": {},
-        "entrypoint": render_entrypoint(manifest["entrypoint"], out, values),
+        "entrypoint": render_entrypoint(manifest["entrypoint"], out, values, ENTRYPOINT_VALUES),
         "values_digest": hashlib.sha256(canonical_text(values).encode()).hexdigest(),
     }
     _write(
@@ -67,28 +71,6 @@ def instantiate_bundle(
     )
     (out / REPORTS).mkdir()
     return concrete
-
-
-def render_entrypoint(entrypoint: list[str], out: Path, values: dict[str, Any]) -> list[str]:
-    """Render ``{bundle}`` and ``{model}``; ``{tool_python}`` stays for orch."""
-
-    return [
-        arg.replace("{bundle}", str(out)).replace("{model}", str(values["model"]))
-        for arg in entrypoint
-    ]
-
-
-def check_values(requires: list[str], values: Any) -> None:
-    """Refuse values that lack a required key or carry a malformed one."""
-
-    if not isinstance(values, dict):
-        raise InstantiateError("values must be a JSON object")
-    for key in requires:
-        if key not in values:
-            raise InstantiateError(f"values lack {key}")
-        check = check_for(key)
-        if check is not None and not check(values[key]):
-            raise InstantiateError(f"values carry a malformed {key}")
 
 
 def check_for(key: str) -> Callable[[Any], bool] | None:

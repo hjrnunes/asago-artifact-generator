@@ -12,13 +12,11 @@ import json
 import sys
 from pathlib import Path
 
-from .compiler import CapabilityGap, CompileError, compile_package
+from asago_bundle_core.gap import EXIT_CAPABILITY_GAP, EXIT_INPUT, EXIT_OK, CapabilityGap
+
+from .compiler import CompileError, compile_package
 from .instantiate import InstantiateError, instantiate_bundle
 from .report_parse import ParseError, parse_report
-
-EXIT_OK = 0
-EXIT_INPUT = 1
-EXIT_CAPABILITY_GAP = 3
 
 
 def build_parser() -> argparse.ArgumentParser:
