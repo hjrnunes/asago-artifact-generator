@@ -57,12 +57,10 @@ BUNDLE_CODE = {
     f"{SUITE_PACKAGE}/asago_verifiers.py": "asago_verifiers.py",
     RUN_SCRIPT: "run_midojo.py",
 }
-NATIVE_OUTPUTS = (
-    "control-plane/run.json",
-    "control-plane/evaluation.json",
-    "midojo-logs/results.json",
-    VERDICT_FILE,
-)
+RUN_DUMP = "control-plane/run.json"
+EVALUATION_DUMP = "control-plane/evaluation.json"
+RESULTS_FILE = "midojo-logs/results.json"
+NATIVE_OUTPUTS = (RUN_DUMP, EVALUATION_DUMP, RESULTS_FILE, VERDICT_FILE)
 
 
 class CompileError(BundleError):

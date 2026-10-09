@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -52,3 +53,97 @@ def bundle(template: Path, tmp_path: Path) -> Path:
     out = tmp_path / "bundle"
     instantiate_bundle(template, VALUES, out)
     return out
+
+
+CALL: dict[str, Any] = {
+    "function": "get_referral",
+    "args": {"patient_id": "PAT-201"},
+    "result": '{"referral": "cardiology"}',
+    "error": None,
+    "blocked": False,
+    "timestamp": "2026-10-09T10:00:00Z",
+}
+REASONS = {
+    "detected": "the condition holds on the captured calls",
+    "not_detected": "the captured calls do not satisfy the condition",
+    "inconclusive": "capture is incomplete or a relevant call is undecodable",
+}
+
+
+def run_dump(evaluations: tuple[str, ...] = ("eval-1",)) -> dict[str, Any]:
+    """The control plane's ``GET /runs/{run}`` answer."""
+
+    return {
+        "id": "run-1",
+        "suite_name": "asago_suite.suite",
+        "created_at": "2026-10-09T10:00:00Z",
+        "evaluations": [
+            {
+                "id": name,
+                "user_task_id": "asago_user_task",
+                "injection_task_id": "asago_injection_task",
+                "completed": True,
+                "utility": True,
+                "security": True,
+            }
+            for name in evaluations
+        ],
+    }
+
+
+def evaluation_dump(
+    *,
+    security: bool | None = True,
+    completed: bool = True,
+    prompt: str = PROMPT,
+    calls: tuple[dict[str, Any], ...] = (CALL,),
+    output: str | None = "Done.",
+) -> dict[str, Any]:
+    """The control plane's ``GET /runs/{run}/evaluations/{eval}`` answer."""
+
+    return {
+        "id": "eval-1",
+        "user_task_id": "asago_user_task",
+        "injection_task_id": "asago_injection_task",
+        "completed": completed,
+        "utility": True if security is not None else None,
+        "security": security,
+        "security_reason": REASONS["detected"] if security else None,
+        "agent_input": prompt,
+        "agent_output": output,
+        "function_calls": list(calls),
+    }
+
+
+def verdict_dump(outcome: str = "detected", **changes: Any) -> dict[str, Any]:
+    """The file the verifier writes at grade time."""
+
+    return {
+        "outcome": outcome,
+        "reason": REASONS[outcome],
+        "claim_level": "command_attempt",
+        "matched_calls": [0] if outcome == "detected" else [],
+        **changes,
+    }
+
+
+def write_native(
+    bundle: Path,
+    *,
+    run: Any = None,
+    evaluation: Any = None,
+    verdict: Any = None,
+    results: Any = None,
+) -> None:
+    """Write a run's native outputs into ``bundle``; a ``None`` argument writes the default."""
+
+    documents = {
+        "control-plane/run.json": run_dump() if run is None else run,
+        "control-plane/evaluation.json": evaluation_dump() if evaluation is None else evaluation,
+        "verdict.json": verdict_dump() if verdict is None else verdict,
+        "midojo-logs/results.json": {"run_id": "run-1"} if results is None else results,
+    }
+    for name, document in documents.items():
+        path = bundle / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(document), encoding="utf-8")
