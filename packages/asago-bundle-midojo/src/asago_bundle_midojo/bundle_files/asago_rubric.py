@@ -20,7 +20,8 @@ Three things differ from Garak, each by what MiDojo hands a verifier:
   ``no_response`` marker), where Garak uses the response status.
 - A recorded call's ``result`` is the string the recording proxy's sink posted (text
   blocks of the MCP result joined by newlines); the port decodes it the way Garak decodes
-  a captured ``output``: ``json.loads``, and ``None`` when the text is not JSON.
+  a captured ``output``: ``json.loads``, and ``None`` when the text is not JSON or the call
+  failed (Garak captures no output for a failed call).
 - The judge request goes over ``urllib`` to ``<judge_url>/chat/completions`` with the body
   Garak's OpenAI-compatible client sends (``request_body``), and a failed call gives
   ``judge_failed:<label>`` with the label of the OpenAI SDK error Garak would name; a 400
@@ -133,12 +134,17 @@ def field(call: Any, name: str) -> Any:
 
 
 def tool_call_of(call: Any) -> dict[str, Any]:
-    """Return a recorded call as the evidence's tool call."""
+    """Return a recorded call as the evidence's tool call.
 
+    A failed call records its error text as the result; Garak captures no output for it,
+    so the evidence result is null whatever the text decodes to.
+    """
+
+    failed = bool(field(call, "error"))
     return {
         "name": field(call, "function"),
         "arguments": field(call, "args"),
-        "result": decode_payload(field(call, "result")),
+        "result": None if failed else decode_payload(field(call, "result")),
     }
 
 
