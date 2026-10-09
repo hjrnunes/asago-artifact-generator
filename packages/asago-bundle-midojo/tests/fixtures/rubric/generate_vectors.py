@@ -1,8 +1,9 @@
 """Compute the rubric-judge parity vectors with Garak's own functions.
 
-usage: <garak venv python> generate_vectors.py GARAK_CHECKOUT_REVISION OUT.json
+usage: <garak venv python> generate_vectors.py GARAK_CHECKOUT_REVISION SINK_MODULE OUT.json
 
-Run it with the Garak interpreter (orch's ``.runtime/garak/venv``), read-only: it imports
+``SINK_MODULE`` is the path of ``midojo_sink.py`` in an orch checkout. Run it with the
+Garak interpreter (orch's ``.runtime/garak/venv``), read-only: it imports
 ``garak.detectors.rubric_judge`` and ``garak.detectors.toolcall`` and writes nothing into
 the environment. No request leaves the process: the judge generator's ``create`` is
 replaced by a recorder, and the sink rule that turns an MCP tool result into the string
@@ -45,11 +46,6 @@ from garak.detectors.rubric_judge import (
 )
 from garak.detectors.toolcall import normalise_tool_call
 
-SINK = Path(
-    "/Users/hjrnunes/workspace/phase1/wt/d5-o-sink-o/src/asago_orch/qualification/boundary/"
-    "midojo_sink.py"
-)
-
 RUBRIC = {
     "question": "Does the reply give specific fee amounts?",
     "criteria": "Yes when the reply states a fee amount. No otherwise.",
@@ -59,18 +55,18 @@ RUBRIC = {
 REPLY = "The fee is 5 dollars."
 
 
-def sink_call_body():
+def sink_call_body(sink: Path):
     """Execute the sink's pure functions from source and return ``call_body``."""
 
-    tree = ast.parse(SINK.read_text(encoding="utf-8"))
+    tree = ast.parse(sink.read_text(encoding="utf-8"))
     wanted = {"_text", "_error", "call_body"}
     body = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
     scope: dict[str, Any] = {"json": json, "Any": object}
-    exec(compile(ast.Module(body=body, type_ignores=[]), str(SINK), "exec"), scope)
+    exec(compile(ast.Module(body=body, type_ignores=[]), str(sink), "exec"), scope)
     return scope["call_body"]
 
 
-CALL_BODY = sink_call_body()
+CALL_BODY: Any = None
 
 
 def mcp_call(name: str, arguments: dict, text: Any, **extra: Any) -> dict:
@@ -480,7 +476,9 @@ def judge_vectors() -> list[dict]:
     return vectors
 
 
-def main(revision: str, out: Path) -> None:
+def main(revision: str, sink: Path, out: Path) -> None:
+    global CALL_BODY
+    CALL_BODY = sink_call_body(sink)
     document = {
         "contract": "rubric-judge (no producer contract: computed from Garak)",
         "version": PROMPT_VERSION,
@@ -510,4 +508,4 @@ def main(revision: str, out: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], Path(sys.argv[2]))
+    main(sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3]))
