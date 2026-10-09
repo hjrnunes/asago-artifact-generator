@@ -257,11 +257,9 @@ class _Stage:
     checks: Callable[[Any], list[Finding]]
     # Stands in for the findings when the author request left none.
     missing: Finding
-    # Builds the review packet for a checked candidate, the earlier review round
-    # it answers (if any), and its check findings; None when review is off.
-    review_packet: (
-        Callable[[dict[str, Any], PriorReviewRound | None, Sequence[Finding]], PromptPacket] | None
-    )
+    # Builds the review packet for a checked candidate and the earlier review round
+    # it answers (if any); None when review is off.
+    review_packet: Callable[[dict[str, Any], PriorReviewRound | None], PromptPacket] | None
     # The run status when the review decides the candidate is blocked.
     review_blocked_status: str
     # Only a plan may decline the experiment; a blocked plan stops its stage.
@@ -951,13 +949,8 @@ class AuthoringOrchestrator:
             missing=_staged(Finding("call1_failed", "Call 1 did not return a plan", "call1")),
             review_packet=(
                 (
-                    lambda candidate, prior, findings: build_plan_review_packet(
-                        view,
-                        candidate,
-                        inventory,
-                        runtime_contract,
-                        prior_round=prior,
-                        check_findings=findings,
+                    lambda candidate, prior: build_plan_review_packet(
+                        view, candidate, inventory, runtime_contract, prior_round=prior
                     )
                 )
                 if self.policy.review_plan
@@ -995,8 +988,8 @@ class AuthoringOrchestrator:
             ),
             review_packet=(
                 (
-                    lambda candidate, _prior, findings: build_artifact_review_packet(
-                        view, plan, candidate, inventory, runtime_contract, check_findings=findings
+                    lambda candidate, _prior: build_artifact_review_packet(
+                        view, plan, candidate, inventory, runtime_contract
                     )
                 )
                 if self.policy.review_artifact
@@ -1041,7 +1034,7 @@ class AuthoringOrchestrator:
                     return corrected
                 review_driven = False
                 candidate, pending, raw = corrected
-            reviewed = self._review_candidate(stage, candidate, pending, prior_round)
+            reviewed = self._review_candidate(stage, candidate, prior_round)
             if not isinstance(reviewed, _Revision):
                 return reviewed
             # Semantic revise findings join the stage correction path but spend
@@ -1110,7 +1103,6 @@ class AuthoringOrchestrator:
         self,
         stage: _Stage,
         candidate: dict[str, Any],
-        check_findings: Sequence[Finding],
         prior: PriorReviewRound | None = None,
     ) -> dict[str, Any] | _StageStop | _Revision:
         """Review a checked candidate.
@@ -1126,7 +1118,7 @@ class AuthoringOrchestrator:
             self._review_status[stage.key] = "not_requested"
             return candidate
         try:
-            review_packet = stage.review_packet(candidate, prior, check_findings)
+            review_packet = stage.review_packet(candidate, prior)
         except PromptPreflightError as exc:
             return _preflight_stop(exc, stage.review_stage)
         outcome = self._semantic_review(stage.key, review_packet)

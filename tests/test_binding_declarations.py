@@ -9,8 +9,6 @@ import pytest
 
 from asago_artifact_generator.authoring import contracts
 from asago_artifact_generator.authoring.checks import (
-    _RUNTIME_BINDING_CLAUSES,
-    PLAN_MECHANICAL_CHECKS,
     _collect_binding_findings,
     collect_plan_findings_v2,
 )
@@ -990,14 +988,6 @@ def test_consumer_rule_follows_a_changed_spec(monkeypatch: pytest.MonkeyPatch) -
 
     assert _consumer_rule_destinations(rule) == list(changed.consumer_destinations)
     assert "extra.<thing name>" in rule and "stimulus.extra" in rule
-
-
-def test_runtime_bindings_review_check_has_one_clause_per_spec_field() -> None:
-    check = next(c for c in PLAN_MECHANICAL_CHECKS if c.check_id == "runtime_bindings")
-    guarantee = check.guarantee
-
-    assert set(_RUNTIME_BINDING_CLAUSES) == set(BINDING_SPEC.fields)
-    assert all(clause in guarantee for clause in _RUNTIME_BINDING_CLAUSES.values())
 
 
 def test_binding_spec_field_set_drives_both_field_checks() -> None:

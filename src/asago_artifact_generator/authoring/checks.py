@@ -2279,132 +2279,36 @@ def _is_blocked_plan(plan: Any) -> bool:
     )
 
 
-def _applies_to_every_candidate(candidate: Mapping[str, Any]) -> bool:
-    return True
-
-
-def _has_judge_spec(metadata: Mapping[str, Any]) -> bool:
-    """Tell whether the artifact carries a judge spec, the input of the fact-ref check."""
-
-    return isinstance(metadata.get("semantic_judge_spec"), dict)
-
-
 @dataclass(frozen=True)
 class MechanicalCheck:
-    """A structural check and the property a candidate that passed it has.
-
-    ``functions`` are the checks in this module that enforce the property.
-    ``applies`` tells whether the check examines a candidate at all; a check
-    that does not apply to a candidate gives it no guarantee.
-    """
+    """A structural check of one stage and the functions in this module that enforce it."""
 
     check_id: str
-    guarantee: str
     functions: tuple[Callable[..., Any], ...]
-    applies: Callable[[Mapping[str, Any]], bool] = _applies_to_every_candidate
-
-
-def _or_list(values: tuple[str, ...]) -> str:
-    return f"{', '.join(values[:-1])}, or {values[-1]}"
-
-
-# One clause per BINDING_SPEC field, in the order the guarantee states them.
-_RUNTIME_BINDING_CLAUSES = {
-    "name": "a unique nonblank name",
-    "source_kind": "a permitted source_kind",
-    "source_ref": "a source_ref that resolves to a supplied fact or a permitted setup operation",
-    "selector": (
-        "a documented selector rooted at value or result (including a validated "
-        "keyed-map source shorthand resolved to that form)"
-    ),
-    "expected_type": "a compatible expected_type",
-    "consumers": "a nonempty closed consumer list",
-    "on_missing": "a permitted on_missing policy",
-}
-
-
-def _runtime_bindings_guarantee() -> str:
-    clauses = list(_RUNTIME_BINDING_CLAUSES.values())
-    return (
-        "Every runtime binding has the required closed fields, "
-        f"{', '.join(clauses[:-1])}, and {clauses[-1]}."
-    )
 
 
 PLAN_MECHANICAL_CHECKS = (
-    MechanicalCheck(
-        "plan_root_fields",
-        "The v2 plan has the required root fields and no unsupported root fields; the "
-        "validator checks the object, list, string, boolean, enum, and JSON-value "
-        "shapes for the plan fields it inspects, including required_observations as an "
-        "object.",
-        (_v2_root_field_findings, _plan_list_type_findings),
-    ),
+    MechanicalCheck("plan_root_fields", (_v2_root_field_findings, _plan_list_type_findings)),
     MechanicalCheck(
         "plan_references",
-        "Selected evidence, assumptions, prerequisite evidence references, and "
-        "interpretation source references resolve to supplied inventory references; "
-        "operation evidence references use the documented operation:<name> form, and "
-        "interpretation may additionally cite supplied scenario-lineage or attack-tree "
-        "provenance IDs.",
         (_selected_evidence_findings, _plan_assumptions_findings, _interpretation_findings),
     ),
-    MechanicalCheck(
-        "setup_recipe",
-        "Every setup_recipe operation exists in the operation inventory, is listed in "
-        "runtime_contract.setup_permissions, has an arguments object, satisfies required "
-        "and known argument names, and matches documented argument types or an allowed "
-        "binding slot.",
-        (_collect_setup_findings,),
-    ),
-    MechanicalCheck(
-        "runtime_bindings",
-        _runtime_bindings_guarantee(),
-        (_collect_binding_findings,),
-    ),
-    MechanicalCheck(
-        "prerequisites",
-        "Every prerequisite has the canonical closed fields and types, references a "
-        "declared binding, uses an equals JSON value compatible with that binding's "
-        "expected_type, requires any evidence_refs entries to resolve, and has the "
-        "binding's prerequisite consumer declared.",
-        (_plan_canonical_prerequisite_findings,),
-    ),
+    MechanicalCheck("setup_recipe", (_collect_setup_findings,)),
+    MechanicalCheck("runtime_bindings", (_collect_binding_findings,)),
+    MechanicalCheck("prerequisites", (_plan_canonical_prerequisite_findings,)),
     MechanicalCheck(
         "stimulus_claim_judge",
-        "Stimulus delivery is listed in runtime_contract.delivery; claim_level is one "
-        f"of {_or_list(CLAIM_LEVELS)}; and "
-        "semantic_judge.needed and semantic_judge.scope have the enforced boolean and "
-        "string-or-null shapes.",
         (_stimulus_approach_findings, _observation_claim_findings, _semantic_judge_plan_findings),
     ),
     MechanicalCheck(
         "unresolved_requirements",
-        "Each unresolved requirement has the enforced shape; no essential requirement "
-        "with source_kind setup_output is marked obtainable_via_setup false; and every "
-        "other essential requirement is marked obtainable_via_setup true.",
         (_unresolved_requirement_findings, _unobtainable_requirement_findings),
     ),
 )
 ARTIFACT_MECHANICAL_CHECKS = (
-    MechanicalCheck(
-        "accepted_plan",
-        "The accepted plan already passed the plan validator: root and nested field "
-        "rules, reference existence, setup operation permissions and argument schemas, "
-        "claim-level enum values, runtime-binding selector syntax and source type, "
-        "binding consumers, prerequisite binding/equality rules, and unresolved "
-        "requirement rules are facts established before this review.",
-        (collect_plan_findings_v2,),
-    ),
+    MechanicalCheck("accepted_plan", (collect_plan_findings_v2,)),
     MechanicalCheck(
         "call2_response",
-        "The Call 2 response passed strict single-object framing and field validation: "
-        "artifact fields, stimulus shape and delivery, user-only history, slot "
-        "declarations, plan-owned-field preservation, required_observations shape, "
-        "judge-spec shape, the accepted-plan judge choice, a judge spec for a reply "
-        "claim, author-proposed example shapes, and, for a command_attempt claim, an "
-        "unsafe and a safe capture whose calls name supplied operations, with the scenario's "
-        "tool-call condition detecting the unsafe capture and not detecting the safe one.",
         (
             _validate_call2_metadata_shape,
             _artifact_stimulus_findings,
@@ -2413,12 +2317,6 @@ ARTIFACT_MECHANICAL_CHECKS = (
     ),
     MechanicalCheck(
         "judge_fact_refs",
-        "Candidate judge fact_refs resolve to supplied inventory facts with supplied "
-        "values; the accepted plan's binding and prerequisite declarations remain "
-        "fixed. The documented selector forms are facts:<ref> plus value paths, "
-        "setup:<operation> plus result paths, and keyed-map "
-        "<fact ref>:records plus value.<key>.record_key.",
         (_semantic_judge_fact_ref_findings, _canonical_prerequisite_findings),
-        applies=_has_judge_spec,
     ),
 )
