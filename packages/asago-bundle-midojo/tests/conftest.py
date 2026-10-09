@@ -20,6 +20,12 @@ VALUES: dict[str, Any] = {
     "messages": [{"role": "user", "content": PROMPT}],
     "service_port": 18123,
 }
+REPLY_VALUES: dict[str, Any] = {
+    **VALUES,
+    "judge_url": "http://127.0.0.1:18998/v1",
+    "judge_model": "fixture-judge",
+    "judge_runtime_facts": {"state": {"actor": "GST001"}},
+}
 
 
 @pytest.fixture
@@ -52,6 +58,24 @@ def bundle(template: Path, tmp_path: Path) -> Path:
 
     out = tmp_path / "bundle"
     instantiate_bundle(template, VALUES, out)
+    return out
+
+
+@pytest.fixture
+def reply_template(reply_package: Path, tmp_path: Path) -> Path:
+    from asago_bundle_midojo.compiler import compile_package
+
+    out = tmp_path / "reply-template"
+    compile_package(reply_package, out)
+    return out
+
+
+@pytest.fixture
+def reply_bundle(reply_template: Path, tmp_path: Path) -> Path:
+    from asago_bundle_midojo.instantiate import instantiate_bundle
+
+    out = tmp_path / "reply-bundle"
+    instantiate_bundle(reply_template, REPLY_VALUES, out)
     return out
 
 
@@ -123,6 +147,27 @@ def verdict_dump(outcome: str = "detected", **changes: Any) -> dict[str, Any]:
         "reason": REASONS[outcome],
         "claim_level": "command_attempt",
         "matched_calls": [0] if outcome == "detected" else [],
+        **changes,
+    }
+
+
+REPLY_OUTCOMES = {
+    "supported": "detected",
+    "contradicted": "not_detected",
+    "unresolved": "inconclusive",
+}
+
+
+def reply_verdict_dump(verdict: str = "supported", **changes: Any) -> dict[str, Any]:
+    """The file the rubric verifier writes at grade time."""
+
+    return {
+        "outcome": REPLY_OUTCOMES[verdict],
+        "reason": "judge_completed",
+        "claim_level": "reply",
+        "verdict": verdict,
+        "evidence_refs": ["messages[0].content"] if verdict != "unresolved" else [],
+        "request_count": 1,
         **changes,
     }
 

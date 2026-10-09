@@ -1,7 +1,9 @@
 """What orch's boundary services recorded for the package, read for ``parse``.
 
 ``mcp_capture/calls.jsonl`` holds the tool calls the MCP recording proxy saw and
-``boundary/gateway-accounting.json`` the generation request count. With the
+``boundary/gateway-accounting.json`` the generation request count;
+``boundary/judge-exchanges.jsonl`` holds one line per request the boundary judge
+served (a reply package's rubric judge). With the
 MiDojo call sink on, each recorded call also says whether the sink delivered it
 to the control plane (``sink: ok|failed|no_token``). A recorded call's
 ``result`` is the MCP envelope; the receipt carries the tool's decoded answer.
@@ -16,6 +18,7 @@ from typing import Any
 
 PROXY_CALLS = Path("mcp_capture/calls.jsonl")
 GATEWAY_ACCOUNTING = Path("boundary/gateway-accounting.json")
+JUDGE_EXCHANGES = Path("boundary/judge-exchanges.jsonl")
 CALL_FIELDS = ("name", "arguments", "result", "error", "status")
 SINK_DELIVERED = "ok"
 
@@ -26,6 +29,7 @@ class Records:
 
     calls: list[dict[str, Any]] | None = None
     request_count: int | None = None
+    judge_count: int | None = None
     malformed: bool = False
     undelivered: bool = False
 
@@ -33,16 +37,19 @@ class Records:
 def read_records(directory: Path) -> Records:
     accounting = read_json(directory / GATEWAY_ACCOUNTING)
     count = accounting.get("responses_request_count") if isinstance(accounting, dict) else None
+    exchanges = directory / JUDGE_EXCHANGES
+    counts = {
+        "request_count": _count(count),
+        "judge_count": len(_lines(exchanges)) if exchanges.is_file() else None,
+    }
     calls_file = directory / PROXY_CALLS
     if not calls_file.is_file():
-        return Records(request_count=_count(count))
+        return Records(**counts)
     raw = [_raw_call(line) for line in _lines(calls_file)]
     if not all(isinstance(call, dict) for call in raw):
-        return Records(calls=[], request_count=_count(count), malformed=True)
+        return Records(calls=[], malformed=True, **counts)
     return Records(
-        calls=[proxy_call(call) for call in raw],
-        request_count=_count(count),
-        undelivered=_undelivered(raw),
+        calls=[proxy_call(call) for call in raw], undelivered=_undelivered(raw), **counts
     )
 
 

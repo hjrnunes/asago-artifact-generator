@@ -13,10 +13,10 @@ import yaml
 
 from asago_bundle_core.schema import validate_manifest
 from asago_bundle_core.slots import contains_marker
-from asago_bundle_core.testing import CONDITION
+from asago_bundle_core.testing import CONDITION, JUDGE
 from asago_bundle_core.text import canonical_text
 from asago_bundle_midojo.instantiate import InstantiateError, instantiate_bundle
-from conftest import PROMPT, VALUES
+from conftest import PROMPT, REPLY_VALUES, VALUES
 
 
 def suite_of(bundle: Path) -> dict[str, Any]:
@@ -193,3 +193,85 @@ def test_a_template_without_its_bundle_code_is_refused(template: Path, tmp_path:
 
     with pytest.raises(InstantiateError, match="run_midojo.py"):
         instantiate_bundle(template, VALUES, tmp_path / "out")
+
+
+# --- the reply claim ---------------------------------------------------------------------
+
+
+def test_a_reply_suite_file_holds_the_rubric_the_prompt_and_the_judge_values(
+    reply_bundle: Path,
+) -> None:
+    suite = suite_of(reply_bundle)
+
+    (injection_task,) = suite["injection_tasks"]
+    assert injection_task["security"] == {
+        "asago_rubric_judge": {
+            "rubric": {
+                "question": JUDGE["question"],
+                "criteria": JUDGE["criteria"],
+                "facts": JUDGE["facts"],
+                "runtime_facts": REPLY_VALUES["judge_runtime_facts"],
+            },
+            "user_text": PROMPT,
+            "judge_url": "http://127.0.0.1:18998/v1",
+            "judge_model": "fixture-judge",
+            "verdict_file": str(reply_bundle.resolve() / "verdict.json"),
+        }
+    }
+    assert not contains_marker(suite)
+
+
+def test_a_reply_bundle_validates_and_keeps_the_key_name_without_a_value(
+    reply_bundle: Path,
+) -> None:
+    manifest = manifest_of(reply_bundle)
+
+    validate_manifest(manifest)
+    assert manifest["environment"] == ["OPENAI_API_KEY", "OPENAICOMPATIBLE_API_KEY"]
+    assert "OPENAICOMPATIBLE_API_KEY" not in json.dumps(suite_of(reply_bundle))
+    assert (
+        manifest["values_digest"]
+        == hashlib.sha256(canonical_text(REPLY_VALUES).encode()).hexdigest()
+    )
+
+
+def test_a_reply_bundle_copies_the_rubric_module(reply_template: Path, reply_bundle: Path) -> None:
+    name = "asago_suite/asago_rubric.py"
+
+    assert (reply_bundle / name).read_bytes() == (reply_template / name).read_bytes()
+
+
+@pytest.mark.parametrize("key", ["judge_url", "judge_model", "judge_runtime_facts"])
+def test_a_missing_judge_value_is_refused(reply_template: Path, tmp_path: Path, key: str) -> None:
+    values = {name: value for name, value in REPLY_VALUES.items() if name != key}
+
+    with pytest.raises(InstantiateError, match=f"values lack {key}"):
+        instantiate_bundle(reply_template, values, tmp_path / "out")
+
+
+@pytest.mark.parametrize(
+    ("key", "bad"),
+    [
+        ("judge_url", "ftp://x"),
+        ("judge_url", 3),
+        ("judge_model", ""),
+        ("judge_model", " "),
+        ("judge_model", ["m"]),
+        ("judge_runtime_facts", "facts"),
+        ("judge_runtime_facts", [1]),
+        ("judge_runtime_facts", None),
+    ],
+)
+def test_a_malformed_judge_value_is_refused(
+    reply_template: Path, tmp_path: Path, key: str, bad: Any
+) -> None:
+    values = {**REPLY_VALUES, key: bad}
+
+    with pytest.raises(InstantiateError, match=f"malformed {key}"):
+        instantiate_bundle(reply_template, values, tmp_path / "out")
+
+
+def test_a_command_template_ignores_the_judge_values(template: Path, tmp_path: Path) -> None:
+    instantiate_bundle(template, REPLY_VALUES, tmp_path / "out")
+
+    assert (tmp_path / "out" / "bundle.json").is_file()

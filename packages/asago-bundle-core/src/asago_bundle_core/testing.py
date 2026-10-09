@@ -51,6 +51,7 @@ def write_test_package(
     stimulus: dict[str, Any] | None = None,
     scenario_id: str = "SCN-001",
     condition: dict[str, Any] | None = None,
+    judge: dict[str, Any] | None = None,
 ) -> Path:
     members = {
         "plan.json": _json({"observation_claim": {"claim_level": claim_level}}),
@@ -59,7 +60,7 @@ def write_test_package(
     if claim_level == "command_attempt":
         members["tool_call_condition.json"] = _json(condition or CONDITION)
     if claim_level == "reply":
-        members["judge.json"] = _json(JUDGE)
+        members["judge.json"] = _json(judge if judge is not None else JUDGE)
     package = build_package(
         package_id=f"{scenario_id}-{scenario_id}",
         scenario_id=scenario_id,
