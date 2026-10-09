@@ -112,6 +112,70 @@ def test_an_invalid_manifest_is_refused(manifest: dict[str, Any]) -> None:
         validate_manifest(manifest)
 
 
+SERVE = {
+    "argv": ["{tool_python}", "-m", "serve", "--port", "{service_port}"],
+    "ready_url": "http://127.0.0.1:{service_port}/health",
+}
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"claim_level": "state_effect"},
+        {"repeats": {"native": True}},
+        {"repeats": {"native": False}},
+        {"serve": SERVE},
+        {"claim_level": "state_effect", "repeats": {"native": True}, "serve": SERVE},
+    ],
+    ids=["state-effect", "repeats-native", "repeats-not-native", "serve", "all-three"],
+)
+def test_the_optional_fields_are_valid(changes: dict[str, Any]) -> None:
+    assert manifest_errors(with_change(**changes)) == []
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"repeats": 0},
+        {"repeats": 3},
+        {"repeats": True},
+        {"repeats": {}},
+        {"repeats": {"native": "yes"}},
+        {"repeats": {"native": True, "count": 3}},
+        {"serve": {"ready_url": SERVE["ready_url"]}},
+        {"serve": {"argv": SERVE["argv"]}},
+        {"serve": {**SERVE, "entrypoint": ["x"]}},
+        {"serve": {"argv": [], "ready_url": SERVE["ready_url"]}},
+        {"serve": {"argv": SERVE["argv"], "ready_url": ""}},
+        {"serve": "midojo-serve"},
+        {"phases": {"serve": SERVE}},
+    ],
+    ids=[
+        "repeats-zero",
+        "repeats-integer",
+        "repeats-boolean",
+        "repeats-without-native",
+        "repeats-native-not-boolean",
+        "repeats-unknown-key",
+        "serve-without-argv",
+        "serve-without-ready-url",
+        "serve-unknown-key",
+        "serve-empty-argv",
+        "serve-empty-ready-url",
+        "serve-not-an-object",
+        "phases-is-not-a-field",
+    ],
+)
+def test_a_malformed_optional_field_is_refused(changes: dict[str, Any]) -> None:
+    assert manifest_errors(with_change(**changes))
+
+
+def test_the_optional_fields_stay_optional() -> None:
+    required = set(load_schema()["required"])
+
+    assert {"repeats", "serve"}.isdisjoint(required)
+
+
 def test_the_table_does_not_mutate_its_input() -> None:
     manifest = garak_manifest()
     before = copy.deepcopy(manifest)
