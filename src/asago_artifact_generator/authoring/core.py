@@ -40,9 +40,10 @@ _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 # policy_max_dispatches/policy_role_limits; these constants are the defaults for
 # a budget built without a policy.
 MAX_AUTHORING_REQUESTS = 32
-# One revision requested by semantic review per reviewed stage, independent of
-# the stage's mechanical correction allowance.
-REVIEW_REVISION_ALLOWANCE_PER_STAGE = 1
+# Defaults for the revisions that semantic review may request per reviewed stage,
+# independent of the stage's mechanical correction allowance.
+PLAN_REVIEW_REVISION_ALLOWANCE = 2
+ARTIFACT_REVIEW_REVISION_ALLOWANCE = 1
 MAX_REQUESTS_PER_TASK = 8
 MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK = 4
 MAX_REVIEW_REQUESTS_PER_TASK = 4

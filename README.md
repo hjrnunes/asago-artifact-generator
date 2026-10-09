@@ -168,15 +168,16 @@ counts as an empty findings list, and the run records the
 stage) in its transformations and on that review's ledger entry; `findings`
 set to `null` or any non-list value, and an omitted `findings` on `revise` or
 `blocked`, stay invalid. `revise` feeds a stage correction that repeats
-all checks and the review. Each reviewed stage has one review revision
-that is separate from its correction allowance: a `revise` spends the review
+all checks and the review. Each reviewed stage has a review-revision
+allowance that is separate from its correction allowance (two for the plan
+stage, one for the artifact stage): a `revise` spends a review
 revision, while mechanical findings, including findings on the
 revised candidate, spend the correction allowance. The ledger and failure
 evidence record which allowance each correction spent (`allowance`), the
 remaining `allowances` and `review_revision_allowances`, and the effective
 `plan_max_review_revisions`/`artifact_max_review_revisions`. The default
 per-task budget is the policy's closed worst case, which includes each review
-revision and its review (12 dispatches, at most 6 author and 6 review, with
+revision and its review (14 dispatches, at most 7 author and 7 review, with
 default settings); `blocked` at the artifact stage stops as
 `needs_plan_revision` without recursing into plan authoring. Malformed or
 contradictory reviewer responses and reviewer transport failures produce

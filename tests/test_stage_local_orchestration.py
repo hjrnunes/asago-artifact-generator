@@ -208,7 +208,7 @@ def test_plan_review_revision_uses_only_plan_review_allowance_before_artifact(
         "artifact_review",
     ]
     assert result.allowances == {"plan": 1, "artifact": 1}
-    assert result.review_revision_allowances == {"plan": 0, "artifact": 1}
+    assert result.review_revision_allowances == {"plan": 1, "artifact": 1}
     correction = next(record for record in result.ledger if record["stage"] == "correction")
     assert correction["allowance"] == "review_revision"
 
@@ -242,7 +242,7 @@ def test_artifact_review_revision_preserves_plan_and_uses_artifact_review_allowa
         "artifact_review",
     ]
     assert result.allowances == {"plan": 1, "artifact": 1}
-    assert result.review_revision_allowances == {"plan": 1, "artifact": 0}
+    assert result.review_revision_allowances == {"plan": 2, "artifact": 0}
     assert result.package is not None
     assert json.loads(result.package.members["plan.json"]) == plan
     assert (
@@ -386,7 +386,7 @@ def test_limit_of_two_permits_exactly_two_plan_corrections(tmp_path: Path) -> No
             json.dumps(_plan()),  # review revision passes mechanics
             review_response("revise", [review_finding()]),  # no review revision remains
         ],
-        policy=AuthoringPolicy(plan_max_corrections=2),
+        policy=AuthoringPolicy(plan_max_corrections=2, plan_max_review_revisions=1),
     )
 
     result = orchestrator.run(_view(), _inventory(), _runtime_contract())
@@ -441,11 +441,11 @@ def test_semantic_revise_after_mechanical_correction_uses_review_revision_allowa
         "artifact_review",
     ]
     assert result.allowances == {"plan": 0, "artifact": 1}
-    assert result.review_revision_allowances == {"plan": 0, "artifact": 1}
+    assert result.review_revision_allowances == {"plan": 1, "artifact": 1}
     assert result.budget["task_limit"] == policy_max_dispatches(AuthoringPolicy())
 
 
-def test_second_semantic_revise_exhausts_review_revision_allowance(
+def test_second_semantic_revise_exhausts_a_single_review_revision_allowance(
     tmp_path: Path,
 ) -> None:
     orchestrator, transport = _orchestrator(
@@ -456,7 +456,7 @@ def test_second_semantic_revise_exhausts_review_revision_allowance(
             json.dumps(_plan()),
             review_response("revise", [review_finding()]),
         ],
-        policy=AuthoringPolicy(),
+        policy=AuthoringPolicy(plan_max_review_revisions=1),
     )
 
     result = orchestrator.run(_view(), _inventory(), _runtime_contract())
@@ -477,6 +477,7 @@ def test_second_semantic_revise_exhausts_review_revision_allowance(
     assert evidence["allowances"] == {"plan": 1, "artifact": 1}
     assert evidence["review_revision_allowances"] == {"plan": 0, "artifact": 1}
     assert evidence["policy"]["plan_max_review_revisions"] == 1
+    assert evidence["budget"]["task_limit"] == 12
     correction = next(item for item in evidence["attempts"] if item["stage"] == "correction")
     assert correction["allowance"] == "review_revision"
     assert evidence["findings"] == [
@@ -491,11 +492,120 @@ def test_second_semantic_revise_exhausts_review_revision_allowance(
 
 def test_policy_budget_covers_review_revisions() -> None:
     policy = AuthoringPolicy()
-    assert policy_role_limits(policy) == {"author": 6, "reviewer": 6}
-    assert policy_max_dispatches(policy) == 12
+    assert policy_role_limits(policy) == {"author": 7, "reviewer": 7}
+    assert policy_max_dispatches(policy) == 14
+    single = AuthoringPolicy(plan_max_review_revisions=1)
+    assert policy_role_limits(single) == {"author": 6, "reviewer": 6}
+    assert policy_max_dispatches(single) == 12
     unreviewed = AuthoringPolicy(review_plan=False, review_artifact=False)
     assert policy_role_limits(unreviewed) == {"author": 4, "reviewer": 0}
     assert policy_max_dispatches(unreviewed) == 4
+
+
+def test_review_revision_allowances_default_per_stage_and_validate_strictly() -> None:
+    policy = AuthoringPolicy()
+    assert policy.plan_max_review_revisions == 2
+    assert policy.artifact_max_review_revisions == 1
+
+    for field_name in ("plan_max_review_revisions", "artifact_max_review_revisions"):
+        for value in (True, False, -1, 1.5, "1"):
+            with pytest.raises(ValueError, match=field_name):
+                AuthoringPolicy(**{field_name: value})
+
+
+def _revising_plan_script(revisions: int) -> list[bytes | str]:
+    script: list[bytes | str] = [json.dumps(_plan())]
+    for _ in range(revisions):
+        script += [review_response("revise", [review_finding()]), json.dumps(_plan())]
+    return script
+
+
+def test_plan_stage_accepts_after_two_consecutive_review_revisions(tmp_path: Path) -> None:
+    orchestrator, transport = _orchestrator(
+        tmp_path,
+        [*_revising_plan_script(2), review_response(), _framed(), review_response()],
+        policy=AuthoringPolicy(),
+    )
+
+    result = orchestrator.run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "accepted"
+    assert [request["stage"] for request in transport.requests] == [
+        "call1",
+        "plan_review",
+        "correction",
+        "plan_review",
+        "correction",
+        "plan_review",
+        "call2",
+        "artifact_review",
+    ]
+    assert result.allowances == {"plan": 1, "artifact": 1}
+    assert result.review_revision_allowances == {"plan": 0, "artifact": 1}
+    assert result.budget["task_limit"] == 14
+    assert result.package is not None
+    policy = result.package.manifest.authoring["policy"]
+    assert policy["plan_max_review_revisions"] == 2
+    assert policy["artifact_max_review_revisions"] == 1
+
+
+def test_third_plan_revise_exhausts_the_default_review_revision_allowance(
+    tmp_path: Path,
+) -> None:
+    orchestrator, transport = _orchestrator(
+        tmp_path,
+        [*_revising_plan_script(2), review_response("revise", [review_finding()])],
+        policy=AuthoringPolicy(),
+    )
+
+    result = orchestrator.run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "unresolved"
+    assert [request["stage"] for request in transport.requests] == [
+        "call1",
+        "plan_review",
+        "correction",
+        "plan_review",
+        "correction",
+        "plan_review",
+    ]
+    assert result.review_revision_allowances == {"plan": 0, "artifact": 1}
+    assert result.findings[-1].code == "correction_limit_exhausted"
+    assert "plan review revision" in result.findings[-1].detail
+    assert result.failure_evidence_path is not None
+    evidence = load_failure_evidence(result.failure_evidence_path)
+    assert evidence["policy"]["plan_max_review_revisions"] == 2
+    assert evidence["budget"]["task_limit"] == 14
+
+
+def test_artifact_stage_still_stops_after_one_review_revision(tmp_path: Path) -> None:
+    orchestrator, transport = _orchestrator(
+        tmp_path,
+        [
+            json.dumps(_plan()),
+            review_response(),
+            _framed(),
+            review_response("revise", [review_finding("judge_spec_implements_plan")]),
+            _framed(),
+            review_response("revise", [review_finding("judge_spec_implements_plan")]),
+        ],
+        policy=AuthoringPolicy(),
+    )
+
+    result = orchestrator.run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "unresolved"
+    assert [request["stage"] for request in transport.requests] == [
+        "call1",
+        "plan_review",
+        "call2",
+        "artifact_review",
+        "correction",
+        "artifact_review",
+    ]
+    assert result.review_revision_allowances == {"plan": 2, "artifact": 0}
+    assert result.findings[-1].code == "correction_limit_exhausted"
+    assert "artifact review revision" in result.findings[-1].detail
 
 
 def test_reviewer_transport_failure_records_elapsed_time_and_cause(tmp_path: Path) -> None:
