@@ -10,13 +10,13 @@ import pytest
 from asago_artifact_generator.package_io import load_package
 from asago_bundle_core.schema import validate_manifest
 from asago_bundle_core.slots import template_slots
+from asago_bundle_core.testing import CONDITION, JUDGE, sequential_stimulus, write_test_package
 from asago_bundle_garak.cli import main
 from asago_bundle_garak.compiler import (
     CapabilityGap,
     CompileError,
     compile_package,
 )
-from conftest import CONDITION, JUDGE, sequential_stimulus, write_test_package
 
 
 def read(path: Path) -> dict:

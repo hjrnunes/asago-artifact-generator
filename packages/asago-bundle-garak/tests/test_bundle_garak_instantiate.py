@@ -9,10 +9,10 @@ from typing import Any
 import pytest
 
 from asago_bundle_core.schema import validate_manifest
+from asago_bundle_core.testing import CONDITION, JUDGE
 from asago_bundle_garak.cli import main
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import InstantiateError, instantiate_bundle
-from conftest import CONDITION, JUDGE
 
 MESSAGES = [
     {"role": "user", "content": "Earlier turn."},

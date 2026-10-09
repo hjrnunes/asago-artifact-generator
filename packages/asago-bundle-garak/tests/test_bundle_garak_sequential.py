@@ -14,10 +14,10 @@ from typing import Any
 import jsonschema
 import pytest
 
+from asago_bundle_core.testing import sequential_stimulus, write_test_package
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import InstantiateError, instantiate_bundle
 from asago_bundle_garak.report_parse import parse_report
-from conftest import sequential_stimulus, write_test_package
 
 RECEIPT_SCHEMA = (
     Path(__file__).resolve().parents[3]
