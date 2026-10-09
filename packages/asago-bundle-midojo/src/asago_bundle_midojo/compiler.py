@@ -18,6 +18,7 @@ from typing import Any
 
 from asago_artifact_generator.package_io import ArtifactPackage, load_package
 from asago_bundle_core.errors import BundleError
+from asago_bundle_core.gap import CapabilityGap, capability_gap_record
 from asago_bundle_core.slots import bundle_slot, contains_marker, template_slots, value_slot
 from asago_bundle_core.text import canonical_text
 
@@ -32,7 +33,9 @@ TOOL = "midojo"
 TOOL_REVISION_RANGE = ">=9ceb22e3"
 TARGET_MODE = "orch_hosted"
 CLAIM_LEVEL = "command_attempt"
+CLAIM_LEVELS = ("command_attempt", "reply", "state_effect")
 SINGLE = "single"
+SEQUENTIAL = "sequential"
 CONDITION_MEMBER = "tool_call_condition.json"
 BUNDLE_FILE = "bundle.json"
 SUITE_TEMPLATE = "suite.template.json"
@@ -71,9 +74,12 @@ def compile_package(package_dir: str | Path, out_dir: str | Path) -> dict[str, A
 
     out = Path(out_dir)
     package = _load(Path(package_dir))
+    stimulus = _json_member(package, "stimulus.json")
     level = claim_level(_json_member(package, "plan.json"))
-    if level != CLAIM_LEVEL:
-        raise CompileError(f"unsupported claim level: {level!r}")
+    reasons = gap_reasons(level, stimulus)
+    if reasons:
+        delivery = SEQUENTIAL if delivery_mode(stimulus) == SEQUENTIAL else SINGLE
+        raise CapabilityGap(capability_gap_record(TOOL, package, delivery, "; ".join(reasons)))
     suite = suite_template(package, _condition(package))
     requires = sorted(template_slots([suite]) | set(ENTRYPOINT_VALUES))
     manifest = bundle_manifest(package, requires)
@@ -81,9 +87,46 @@ def compile_package(package_dir: str | Path, out_dir: str | Path) -> dict[str, A
     return manifest
 
 
-def claim_level(plan: Any) -> Any:
+def claim_level(plan: Any) -> str:
     claim = plan.get("observation_claim") if isinstance(plan, dict) else None
-    return claim.get("claim_level") if isinstance(claim, dict) else None
+    level = claim.get("claim_level") if isinstance(claim, dict) else None
+    if level not in CLAIM_LEVELS:
+        raise CompileError(f"unsupported claim level: {level!r}")
+    return level
+
+
+def delivery_mode(stimulus: Any) -> Any:
+    return stimulus.get("mode", SINGLE) if isinstance(stimulus, dict) else SINGLE
+
+
+def gap_reasons(level: str, stimulus: Any) -> list[str]:
+    """Return why MiDojo cannot run the package, one text per cause; empty when it can."""
+
+    reasons = [_delivery_reason(stimulus), _claim_reason(level)]
+    return [reason for reason in reasons if reason]
+
+
+def _delivery_reason(stimulus: Any) -> str | None:
+    """MiDojo sends one user prompt per evaluation, so any other history is a gap."""
+
+    if delivery_mode(stimulus) == SEQUENTIAL:
+        return "MiDojo sends one prompt per evaluation; this package holds several user turns"
+    history = stimulus.get("history") if isinstance(stimulus, dict) else None
+    if not history:
+        return None
+    if all(isinstance(item, dict) and item.get("role") == "user" for item in history):
+        return "MiDojo sends one prompt per evaluation; this stimulus holds earlier user turns"
+    return "MiDojo sends one user prompt; this stimulus holds a non-user message"
+
+
+def _claim_reason(level: str) -> str | None:
+    """Only the command attempt is graded here; the reply claim needs the rubric judge."""
+
+    if level == "reply":
+        return "the reply claim needs the rubric judge, which this adapter does not ship yet"
+    if level != CLAIM_LEVEL:
+        return f"the {level} claim is not graded by this adapter"
+    return None
 
 
 def suite_template(package: ArtifactPackage, condition: dict[str, Any]) -> dict[str, Any]:
