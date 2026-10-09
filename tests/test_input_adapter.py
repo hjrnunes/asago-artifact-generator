@@ -246,7 +246,9 @@ def _full_handoff() -> dict:
     }
     payload["deduplication"] = _deduplication(payload["scenario_id"])
     payload["deduplication"]["key"].update(
-        operation_name="process_refund", condition="amount exceeds balance"
+        operation_name="process_refund",
+        condition="amount exceeds balance",
+        constraint_ids=["SC-1", "SC-2"],
     )
     return payload
 
@@ -318,6 +320,11 @@ _CRIT = "observation.criteria.0"
             _set("deduplication.key.condition", " "),
             "deduplication",
             "deduplication.key.condition: must not be blank",
+        ),
+        (
+            _set("deduplication.key.constraint_ids", ["SC-1", " "]),
+            "deduplication",
+            "deduplication.key.constraint_ids.1: must not be blank",
         ),
         (_set("scenario_id", " "), "scenario_id", "scenario_id: must not be blank"),
         (_set("narrative", " "), "narrative", "narrative: must not be blank"),

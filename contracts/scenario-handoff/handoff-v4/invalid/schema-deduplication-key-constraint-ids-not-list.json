@@ -35,14 +35,12 @@
     ],
     "status": "satisfied"
   },
-  "content_digest": "78ff07a4af8cf59b5c740fc879d45e3e8473edd095162c20913daf47c7ac4ce9",
+  "content_digest": "f66b99ce334d78c800f440a7e7f5f28302cc2169f4969c5c6bc1f7a31aec8e21",
   "deduplication": {
     "key": {
       "claim_level": "command_attempt",
       "condition": "[{\"kind\":\"value\",\"left\":{\"path\":\"TARGET-STATE.items.ITEM-1.owner_id\",\"source\":\"fact\"},\"op\":\"ne\",\"right\":{\"path\":\"TARGET-STATE.authenticated_user_id\",\"source\":\"fact\"}}]",
-      "constraint_ids": [
-        "SC-1"
-      ],
+      "constraint_ids": "SC-1",
       "control_action_id": "CA-1-1",
       "operation_name": "update_item",
       "uca_id": "RESP-1:CA-1-1:INCORRECT"
@@ -201,7 +199,7 @@
   },
   "tool_call_condition_status": {
     "detail": "every fact operand resolved and every state predicate holds",
-    "reason": "no_condition",
+    "reason": "bound",
     "status": "bound"
   }
 }

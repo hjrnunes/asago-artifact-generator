@@ -35,11 +35,14 @@
     ],
     "status": "satisfied"
   },
-  "content_digest": "2b2acf5bd882ed9f05cb9e8b73e663b239f84709441332536bc67ca307d3a002",
+  "content_digest": "249709f28afd72157bdb224d7831cb066f2ad8c582b0df7e728b0fecd4cfbf14",
   "deduplication": {
     "key": {
       "claim_level": "command_attempt",
       "condition": "[{\"kind\":\"value\",\"left\":{\"path\":\"TARGET-STATE.items.ITEM-1.owner_id\",\"source\":\"fact\"},\"op\":\"ne\",\"right\":{\"path\":\"TARGET-STATE.authenticated_user_id\",\"source\":\"fact\"}}]",
+      "constraint_ids": [
+        "SC-1"
+      ],
       "control_action_id": "CA-1-1",
       "operation_name": "update_item",
       "uca_id": "RESP-1:CA-1-1:INCORRECT"

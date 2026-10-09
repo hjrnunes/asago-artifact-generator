@@ -510,10 +510,16 @@ def _deduplication(value: dict[str, Any], path: str) -> _Break:
         return path, "a duplicate requires duplicate_of"
     elif not duplicate_of.strip():
         return f"{path}.duplicate_of", "must not be blank"
-    key = value["key"]
+    return _deduplication_key(value["key"], f"{path}.key")
+
+
+def _deduplication_key(key: dict[str, Any], path: str) -> _Break:
     for name in ("condition", "uca_id", "control_action_id", "operation_name"):
         if key.get(name) is not None and not key[name].strip():
-            return f"{path}.key.{name}", "must not be blank"
+            return f"{path}.{name}", "must not be blank"
+    for index, constraint_id in enumerate(key.get("constraint_ids", ())):
+        if not constraint_id.strip():
+            return f"{path}.constraint_ids.{index}", "must not be blank"
     return None
 
 
