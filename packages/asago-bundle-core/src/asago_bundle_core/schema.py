@@ -28,7 +28,7 @@ def manifest_errors(manifest: Any) -> list[str]:
     """Return one message per schema violation, ordered by location; empty when valid."""
 
     validator = jsonschema.Draft202012Validator(load_schema())
-    errors = sorted(validator.iter_errors(manifest), key=lambda error: list(error.path))
+    errors = sorted(validator.iter_errors(manifest), key=lambda e: [str(part) for part in e.path])
     return [error.message for error in errors]
 
 
