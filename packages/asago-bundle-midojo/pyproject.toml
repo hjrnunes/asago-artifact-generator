@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "asago-bundle-midojo"
+version = "0.1.0"
+description = "MiDojo adapter: compiles an artifact package into a MiDojo bundle (suite directory, serve and run phases) and parses MiDojo's control-plane records into an execution receipt"
+requires-python = ">=3.11"
+dependencies = [
+    "asago-artifact-generator",
+    "asago-bundle-core",
+]
+
+[project.scripts]
+asago-bundle-midojo = "asago_bundle_midojo.cli:main"
+
+[tool.uv.sources]
+asago-artifact-generator = { workspace = true }
+asago-bundle-core = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/asago_bundle_midojo"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "midojo: runs MiDojo's own interpreter (ASAGO_MIDOJO_PYTHON); skipped without it",
+]
