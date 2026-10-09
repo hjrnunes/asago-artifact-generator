@@ -45,7 +45,7 @@ def test_the_handoff_lock_lists_every_v4_file_with_its_digest() -> None:
 
 def test_the_vendored_v4_kit_has_the_producer_fixture_counts() -> None:
     assert len(list((_KIT / "valid").glob("*.json"))) == 12
-    assert len(list((_KIT / "invalid").glob("*.json"))) == 91
+    assert len(list((_KIT / "invalid").glob("*.json"))) == 93
     expected = _json(_KIT / "expected-violations.json")
     assert set(expected) == {f"invalid/{p.name}" for p in (_KIT / "invalid").glob("*.json")}
 
