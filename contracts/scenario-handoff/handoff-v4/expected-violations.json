@@ -89,6 +89,12 @@
   "invalid/schema-deduplication-key-claim-not-enumerated.json": [
     "schema_violation:deduplication"
   ],
+  "invalid/schema-deduplication-key-constraint-id-blank.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-key-constraint-ids-not-list.json": [
+    "schema_violation:deduplication"
+  ],
   "invalid/schema-deduplication-key-missing-claim.json": [
     "schema_violation:deduplication"
   ],
