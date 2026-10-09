@@ -94,7 +94,17 @@ Deterministic tests must not contact a model endpoint or target.
   contracts and structural checks; `transport.py` is the provider client.
 - `src/asago_artifact_generator/bindings.py`: binding sources and destinations.
 - `src/asago_artifact_generator/package_io.py`: the artifact-package-v4 writer and the v3 and v4 loader.
-- `packages/asago-bundle-garak/`: the Garak adapter workspace member; test it with `uv run pytest packages/asago-bundle-garak/tests -q`.
+- `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
+  `tool-bundle-v1` schema, slot markers, the capability-gap record, `BundleError`, the
+  `testing` package builders, and the `conformance` helper that round-trips `compile`,
+  `instantiate` and `parse` of an adapter and returns failure messages). A new adapter
+  runs `check_round_trip` in its tests. The optional schema fields `repeats` and `serve`
+  stay out of a bundle that does not need them: Garak omits both, because `bundle.json`
+  feeds the receipt's `bundle_digest`.
+- `packages/asago-bundle-garak/`: the Garak adapter workspace member.
+- Each `packages/*` member runs in its own pytest session, for example
+  `uv run pytest packages/asago-bundle-core/tests -q` and
+  `uv run pytest packages/asago-bundle-garak/tests -q`.
 - `tests/`: executable examples and regression coverage for the changed behavior.
 - Orch qualification runbook `asago-orch/docs/qualification.md`; its modules
   live under `asago-orch/src/asago_orch/qualification/`.
