@@ -63,7 +63,7 @@ def test_plan_review_packet_renders_resolved_values_after_candidate_plan() -> No
 
     section = packet.user.index("RESOLVED SUPPLIED BINDING VALUES")
     assert packet.user.index("CANDIDATE PLAN") < section
-    assert section < packet.user.index("MECHANICAL GUARANTEES (NOT REVIEW QUESTIONS)")
+    assert section < packet.user.index("REVIEW RESPONSE CONTRACT")
     assert '"resolved_value": "GST002"' in packet.user[section:]
     assert packet.payload["resolved_supplied_binding_values"]["values"][0]["name"] == (
         "target_record_id"

@@ -13,7 +13,7 @@ _inventory, _plan, _runtime_contract, _view = world_builders(
 )
 
 
-def test_plan_reviewer_v3_renders_shared_binding_rules_and_mechanical_checks() -> None:
+def test_plan_reviewer_v3_renders_the_shared_binding_rules() -> None:
     view = _view()
     inventory = _inventory()
     runtime = _runtime_contract()
@@ -26,9 +26,6 @@ def test_plan_reviewer_v3_renders_shared_binding_rules_and_mechanical_checks() -
         "Apply BINDING AND SETUP RULES when interpreting runtime_bindings, "
         "setup_recipe, and setup_permissions"
     ) in packet.system
-    assert "MECHANICAL CHECK SUMMARY lists structural properties already verified by code." in (
-        packet.system
-    )
     assert packet.user.index("PLAN FIELD MEANINGS") < packet.user.index("BINDING AND SETUP RULES")
     assert packet.user.index("BINDING AND SETUP RULES") < packet.user.index(
         "NEUTRAL OUTCOME EXAMPLE"
@@ -55,32 +52,3 @@ def test_plan_reviewer_v3_renders_shared_binding_rules_and_mechanical_checks() -
         "stimulus text back into the stimulus."
     )
     assert context["binding_and_setup_rules"]["setup_permissions_explanation"] in packet.user
-    summary = context["mechanical_check_summary"]
-    assert summary["status"] == "passed"
-    assert summary["checks"]
-    assert summary["reviewer_instruction"] in packet.user
-    assert "wrong record, field, actor, or value" in summary["reviewer_instruction"]
-    assert '"checks": [' in packet.user
-
-
-def test_mechanical_check_summary_lists_the_registered_guarantees_in_order() -> None:
-    from asago_artifact_generator.authoring.checks import PLAN_MECHANICAL_CHECKS
-    from asago_artifact_generator.contract_kit import CLAIM_LEVELS
-
-    summary = build_plan_reviewer_context(_view(), _plan(), _inventory(), _runtime_contract())[
-        "mechanical_check_summary"
-    ]
-
-    assert list(summary) == [
-        "status",
-        "meaning",
-        "checks",
-        "documented_selector_forms",
-        "reviewer_instruction",
-    ]
-    assert summary["checks"] == [check.guarantee for check in PLAN_MECHANICAL_CHECKS]
-    assert (
-        "claim_level is one of command_attempt, reply, returned_result, or state_effect;"
-        in summary["checks"][5]
-    )
-    assert CLAIM_LEVELS[-1] == "state_effect"

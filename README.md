@@ -204,7 +204,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
 
 - `authoring-call1-v21` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v20` reviews a fresh source-derived plan context. It
+- `authoring-plan-review-v21` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
   binding selects inside one record of a keyed fact, the value also carries
@@ -221,7 +221,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   does not end with a question mark. A plan that claims `reply` must return a
   `semantic_judge_spec` object; a missing one gets a
   `semantic_judge_spec_required` correction.
-- `authoring-artifact-review-v20` reviews the exact artifact object and the
+- `authoring-artifact-review-v21` reviews the exact artifact object and the
   binding and judge declarations.
 - `authoring-correction-v34` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that

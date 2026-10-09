@@ -9,16 +9,18 @@ cases:
         - 'A blocking finding must show a different experiment, wrong decisive observation, execution-preventing defect, or authority/evidence breach grounded in supplied facts.'
       forbidden:
         - 'def evaluate'
+        - 'MECHANICAL GUARANTEES'
     user:
       required:
         - REVIEW QUESTIONS
-        - 'MECHANICAL GUARANTEES (NOT REVIEW QUESTIONS)'
         - 'exactly one JSON object as the whole response'
         - 'no text before or after'
         - example_finding
         - 'value.<key>.record_key'
         - 'the producer''s tool-call condition for a command_attempt claim reads none'
       forbidden:
+        - 'MECHANICAL GUARANTEES'
+        - mechanical_check_summary
         - PRIOR REVIEW ROUND
         - EXACT DETECTOR PYTHON
         - ACTUAL OFFLINE CONTROL RESULTS
