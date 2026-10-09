@@ -96,6 +96,9 @@ the output directory. The list lives in `ALLOWED_DIFFERENCES` in
 that legitimately differs between two executions of the same code on the same
 responses. Fix nondeterminism in the code instead of listing it.
 
+One measured value is masked in a different way: `attempts[].failure.elapsed_ms`
+in `*.failure-evidence.json` (see Limits).
+
 ## Limits
 
 - The recorded inputs must still exist. Orch does not snapshot the runtime
@@ -103,9 +106,16 @@ responses. Fix nondeterminism in the code instead of listing it.
   changed since the recording, the prompts differ and the gate fails.
 - The model profile must be unchanged. Its controls are part of each recorded
   dispatch, and the outputs compare them.
-- The gate cannot replay a provider exception that ended a dispatch: failure
-  evidence records only a failure code and detail for it. It rejects a
-  recording with an unavailable response.
+- The gate cannot replay most provider exceptions that ended a dispatch:
+  failure evidence records only a failure code and detail for them. It rejects
+  a recording with an unavailable response, except a timeout. A dispatch whose
+  response is unavailable with reason `provider_failure` and whose invocation
+  failure detail is `Request timed out.` replays as an `openai`
+  `APITimeoutError` raised in place of the response, after the same request
+  checks. The transport never retries a timeout, so the replayed item records
+  the same failure. The gate compares the measured `failure.elapsed_ms` of
+  each failed dispatch by presence and type only, because a replayed failure
+  returns at once.
 - The gate replays a dispatch recorded with a transport retry. The dispatch
   holds `transport_retries`, a list with `{"attempt": 2, "retry_of":
   {"type": <error class>, "status_code": <HTTP status or null>}}`. For each

@@ -303,6 +303,89 @@ def test_replay_client_raises_the_recorded_failure_then_serves_the_response(
     assert client.mismatches == []
 
 
+def _timed_out_attempt(**failure: object) -> dict:
+    return _attempt(
+        raw_response={"availability": "unavailable", "reason": "provider_failure"},
+        response_capture=None,
+        model_identity={
+            "requested_model": "model-a",
+            "returned_model": {"availability": "unavailable", "reason": "not_returned"},
+        },
+        failure={
+            "code": "transport_failure",
+            "detail": "Request timed out.",
+            "elapsed_ms": 26910.979,
+            "phase": "invocation",
+            **failure,
+        },
+    )
+
+
+def test_recorded_call_reads_a_recorded_timeout_as_a_failed_dispatch() -> None:
+    call = replay_gate._recorded_call(_timed_out_attempt())
+
+    assert call.timed_out
+    assert (call.dispatch_index, call.stage, call.prompt_version) == (3, "author", "v1")
+    assert call.system == "system text" and call.user == "user text"
+    assert call.requested_model == "model-a" and call.returned_model is None
+    assert not replay_gate._recorded_call(_attempt()).timed_out
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        {"detail": "Connection error."},
+        {"detail": "Error code: 429"},
+        {"phase": "post_response"},
+    ],
+    ids=["connection", "429", "not-an-invocation"],
+)
+def test_recorded_call_still_rejects_an_unavailable_response_that_is_not_a_timeout(
+    failure: dict,
+) -> None:
+    with pytest.raises(ReplayRecordError, match="raw_response is not available"):
+        replay_gate._recorded_call(_timed_out_attempt(**failure))
+
+
+def test_recorded_call_rejects_an_unavailable_response_with_another_reason() -> None:
+    attempt = _timed_out_attempt()
+    attempt["raw_response"] = {"availability": "unavailable", "reason": "not_returned"}
+
+    with pytest.raises(ReplayRecordError, match="raw_response is not available"):
+        replay_gate._recorded_call(attempt)
+
+
+def test_replay_client_raises_the_recorded_timeout_and_the_transport_never_retries_it() -> None:
+    client = ReplayChatClient([_call(timed_out=True)])
+
+    with pytest.raises(openai.APITimeoutError, match="Request timed out."):
+        client.chat.completions.create(**_request())
+
+    assert client.served == 1
+    assert client.unused == 0
+    assert client.mismatches == []
+
+
+def test_replay_client_checks_the_prompt_of_a_timed_out_request_too() -> None:
+    client = ReplayChatClient([_call(timed_out=True)])
+
+    with pytest.raises(ConnectionError, match="prompt mismatch"):
+        client.chat.completions.create(**_request(user="changed user text"))
+
+    assert client.served == 0
+
+
+def test_replay_client_raises_the_recorded_retries_before_the_recorded_timeout() -> None:
+    client = ReplayChatClient([_call(timed_out=True, retries=(_CONNECTION_RETRY,))])
+
+    with pytest.raises(openai.APIConnectionError):
+        client.chat.completions.create(**_request())
+    with pytest.raises(openai.APITimeoutError):
+        client.chat.completions.create(**_request())
+
+    assert client.served == 1
+
+
 def test_replay_client_checks_the_prompt_of_the_retried_request_too() -> None:
     client = ReplayChatClient([_call(retries=(_CONNECTION_RETRY,))])
 
@@ -418,6 +501,57 @@ def test_package_path_elsewhere_and_other_fields_still_differ(tmp_path: Path) ->
     assert "$.status" in details[f"items/{TASK_ID}.log"]
 
 
+def _compare_evidence(tmp_path: Path, recorded: dict, replayed: dict) -> str | None:
+    name = f"{TASK_ID}.failure-evidence.json"
+    left, right = tmp_path / "recorded.json", tmp_path / "replayed.json"
+    left.write_text(json.dumps(recorded), encoding="utf-8")
+    right.write_text(json.dumps(replayed), encoding="utf-8")
+    return replay_gate.compare_file(left, right, name, {})
+
+
+def _failed_attempt(elapsed_ms: object = 26910.979, **failure: object) -> dict:
+    return {
+        "attempts": [
+            {
+                "dispatch_index": 1,
+                "failure": {"code": "transport_failure", "elapsed_ms": elapsed_ms, **failure},
+            }
+        ],
+        "status": "transport_failure",
+    }
+
+
+def test_the_wall_clock_time_of_a_failed_dispatch_may_differ(tmp_path: Path) -> None:
+    assert _compare_evidence(tmp_path, _failed_attempt(26910.979), _failed_attempt(0.4)) is None
+
+
+@pytest.mark.parametrize(
+    ("replayed", "path"),
+    [
+        (_failed_attempt(detail="Connection error."), "$.attempts[0].failure.detail"),
+        (_failed_attempt(code="other"), "$.attempts[0].failure.code"),
+        (_failed_attempt(None), "$.attempts[0].failure.elapsed_ms"),
+        (_failed_attempt("slow"), "$.attempts[0].failure.elapsed_ms"),
+    ],
+    ids=["extra-field", "other-code", "no-time", "non-numeric-time"],
+)
+def test_only_the_wall_clock_time_of_a_failed_dispatch_is_exempt(
+    tmp_path: Path, replayed: dict, path: str
+) -> None:
+    found = _compare_evidence(tmp_path, _failed_attempt(), replayed)
+
+    assert found is not None and found.startswith(path + ":")
+
+
+def test_a_failed_dispatch_time_present_on_one_side_only_is_a_difference(tmp_path: Path) -> None:
+    replayed = _failed_attempt()
+    del replayed["attempts"][0]["failure"]["elapsed_ms"]
+
+    found = _compare_evidence(tmp_path, _failed_attempt(), replayed)
+
+    assert found == "$.attempts[0].failure.elapsed_ms: only in recording"
+
+
 def test_missing_and_extra_files_are_differences(tmp_path: Path) -> None:
     recorded, replayed = tmp_path / "recorded", tmp_path / "replayed"
     _write_tree(recorded, f"{recorded / 'output'}/{TASK_ID}")
@@ -483,6 +617,29 @@ def test_gate_replays_a_stage_recorded_with_a_transport_retry_identically(
     assert result.passed, result.report()
     [item] = result.items
     assert item.served == 2 and item.unused == 0
+    assert item.mismatches == [] and item.network_attempts == []
+
+
+def test_gate_replays_a_stage_whose_plan_request_timed_out_identically(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = httpx2.Request("POST", "https://profile.example.invalid/v1")
+    stage = _record_author_stage(tmp_path, monkeypatch, [openai.APITimeoutError(request=request)])
+    [attempt] = json.loads(_evidence_path(stage).read_text(encoding="utf-8"))["attempts"]
+    assert attempt["raw_response"] == {
+        "availability": "unavailable",
+        "reason": "provider_failure",
+    }
+    assert attempt["failure"]["detail"] == "Request timed out."
+    assert "transport_retries" not in attempt
+
+    result = run_gate(stage, work=tmp_path / "work")
+
+    assert result.passed, result.report()
+    [item] = result.items
+    assert item.exit_code == item.recorded_exit_code == 1
+    assert item.status == item.recorded_status == "transport_failure"
+    assert item.served == 1 and item.unused == 0
     assert item.mismatches == [] and item.network_attempts == []
 
 
