@@ -9,6 +9,7 @@ import yaml
 from typer.testing import CliRunner
 
 from asago_artifact_generator import cli
+from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.profiles import (
     ProfileFieldError,
     ProfileFileError,
@@ -18,9 +19,12 @@ from asago_artifact_generator.profiles import (
 
 from .support import (
     HANDOFF,
+    chat_completion,
     fake_cli_authoring,
+    fake_openai,
     forbid_cli_transport,
     profile_file,
+    prompt_packet,
     target_inputs,
 )
 
@@ -186,6 +190,118 @@ def test_author_cli_passes_optional_profile_controls_to_transport(
     assert captured.transport["review_extra_body"] is None
 
 
+def test_loader_reads_repetition_penalty_and_defaults_it_to_none(tmp_path: Path) -> None:
+    (tmp_path / "set").mkdir()
+    (tmp_path / "bare").mkdir()
+    with_penalty, _ = profile_file(tmp_path / "set", repetition_penalty=1.05)
+    without_penalty, _ = profile_file(tmp_path / "bare")
+
+    assert load_authoring_profile(with_penalty, "gemma4-oc").repetition_penalty == 1.05
+    assert load_authoring_profile(without_penalty, "gemma4-oc").repetition_penalty is None
+
+
+def test_profile_without_the_field_loads_beside_a_profile_that_sets_it(tmp_path: Path) -> None:
+    base = {"base_url": "https://profile.example.invalid/v1", "api_key": "k", "model": "m"}
+    profiles_file = tmp_path / "two.yaml"
+    profiles_file.write_text(
+        yaml.safe_dump(
+            {"gemma": dict(base), "glm": {**base, "repetition_penalty": 1.05}},
+        ),
+        encoding="utf-8",
+    )
+
+    profile = load_authoring_profile(profiles_file, "gemma")
+
+    assert (profile.name, profile.model) == ("gemma", "m")
+
+
+def test_author_cli_merges_the_penalty_into_both_thinking_bodies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profiles_file, _ = profile_file(tmp_path, repetition_penalty=1.05)
+    review_body = {"chat_template_kwargs": {"enable_thinking": True}}
+    monkeypatch.setattr(cli, "REVIEW_THINKING_EXTRA_BODY", review_body)
+    captured = fake_cli_authoring(monkeypatch)
+
+    result = _invoke_generate(
+        tmp_path,
+        extra_args=["--profile", "gemma4-oc", "--profiles-file", str(profiles_file)],
+    )
+
+    assert result.exit_code == 1
+    assert captured.transport["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": False},
+        "repetition_penalty": 1.05,
+    }
+    assert captured.transport["review_extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": True},
+        "repetition_penalty": 1.05,
+    }
+    assert review_body == {"chat_template_kwargs": {"enable_thinking": True}}
+    assert "repetition_penalty" not in captured.transport
+
+
+def test_author_cli_omits_the_penalty_when_sampling_controls_are_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profiles_file, _ = profile_file(tmp_path, repetition_penalty=1.05, sampling_controls=False)
+    captured = fake_cli_authoring(monkeypatch)
+
+    _invoke_generate(
+        tmp_path,
+        extra_args=["--profile", "gemma4-oc", "--profiles-file", str(profiles_file)],
+    )
+
+    assert captured.transport["extra_body"] is None
+    assert captured.transport["review_extra_body"] is None
+
+
+def test_penalty_profile_reaches_author_and_review_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profiles_file, _ = profile_file(tmp_path, repetition_penalty=1.05)
+    captured = fake_cli_authoring(monkeypatch)
+    _invoke_generate(
+        tmp_path,
+        extra_args=["--profile", "gemma4-oc", "--profiles-file", str(profiles_file)],
+    )
+    completions = fake_openai(monkeypatch, [chat_completion(), chat_completion()])
+    transport = PrivateModelAuthoringTransport(**captured.transport)
+
+    transport.complete(prompt_packet("call1"))
+    transport.complete(prompt_packet("plan_review"))
+
+    body = {"chat_template_kwargs": {"enable_thinking": False}, "repetition_penalty": 1.05}
+    assert [request["extra_body"] for request in completions.requests] == [body, body]
+    assert all("repetition_penalty" not in request for request in completions.requests)
+
+
+def test_profile_without_the_penalty_sends_the_unchanged_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profiles_file, _ = profile_file(tmp_path)
+    captured = fake_cli_authoring(monkeypatch)
+    _invoke_generate(
+        tmp_path,
+        extra_args=["--profile", "gemma4-oc", "--profiles-file", str(profiles_file)],
+    )
+    completions = fake_openai(monkeypatch, [chat_completion(), chat_completion()])
+    transport = PrivateModelAuthoringTransport(**captured.transport)
+
+    transport.complete(prompt_packet("call1"))
+    transport.complete(prompt_packet("plan_review"))
+
+    for request in completions.requests:
+        assert request["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+        assert set(request) == {
+            "model",
+            "messages",
+            "temperature",
+            "extra_body",
+            "max_completion_tokens",
+        }
+
+
 def test_author_cli_rejects_missing_named_profile_before_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -298,6 +414,10 @@ def test_loader_reads_profiles_nested_under_a_profiles_key(tmp_path: Path) -> No
         ("max_completion_tokens", True),
         ("timeout", -1),
         ("timeout", "fast"),
+        ("repetition_penalty", 0),
+        ("repetition_penalty", -1.5),
+        ("repetition_penalty", "1.05"),
+        ("repetition_penalty", True),
     ],
 )
 def test_loader_rejects_an_invalid_optional_request_control(

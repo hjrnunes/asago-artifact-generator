@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -65,6 +66,7 @@ class AuthoringProfile:
     context_window: int | None = None
     max_completion_tokens: int | None = None
     timeout: float | int | None = None
+    repetition_penalty: float | int | None = None
 
     def __repr__(self) -> str:
         """Avoid exposing connection values in test failures or diagnostics."""
@@ -116,6 +118,7 @@ def load_authoring_profile(
         ("context_window", _is_positive_integer, None),
         ("max_completion_tokens", _is_positive_integer, None),
         ("timeout", _is_positive_number, None),
+        ("repetition_penalty", _is_positive_finite_number, None),
     )
     optional = {
         name: _optional(entry, name, valid, default, path=path, profile_name=profile_name)
@@ -198,6 +201,10 @@ def _is_positive_integer(value: Any) -> bool:
 
 def _is_positive_number(value: Any) -> bool:
     return not isinstance(value, bool) and isinstance(value, (int, float)) and value > 0
+
+
+def _is_positive_finite_number(value: Any) -> bool:
+    return _is_positive_number(value) and math.isfinite(value)
 
 
 __all__ = [

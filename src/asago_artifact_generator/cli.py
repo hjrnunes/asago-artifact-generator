@@ -167,12 +167,11 @@ def generate(
         connection = load_authoring_profile(profiles_file, profile)
     except ProfileLoadError as exc:
         raise typer.BadParameter(str(exc), param_hint="--profile/--profiles-file") from None
-    sampling_controls = connection.sampling_controls
     transport_factory = ctx.obj if ctx.obj is not None else PrivateModelAuthoringTransport
     transport = transport_factory(
         **_transport_options(connection),
-        extra_body=(deepcopy(AUTHORING_THINKING_EXTRA_BODY) if sampling_controls else None),
-        review_extra_body=(deepcopy(REVIEW_THINKING_EXTRA_BODY) if sampling_controls else None),
+        extra_body=_request_body(AUTHORING_THINKING_EXTRA_BODY, connection),
+        review_extra_body=_request_body(REVIEW_THINKING_EXTRA_BODY, connection),
         review_fill_context=True,
     )
     package_dir = output_dir / stable_task_id
@@ -191,6 +190,22 @@ def _authoring_policy(**options: Any) -> AuthoringPolicy:
         return AuthoringPolicy.from_cli(**options)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from None
+
+
+def _request_body(
+    thinking_body: dict[str, Any], connection: AuthoringProfile
+) -> dict[str, Any] | None:
+    """Return a role's extra_body: its thinking control plus the profile's repetition penalty.
+
+    A profile with ``sampling_controls`` off sends no extra_body at all.
+    """
+
+    if not connection.sampling_controls:
+        return None
+    body = deepcopy(thinking_body)
+    if connection.repetition_penalty is not None:
+        body["repetition_penalty"] = connection.repetition_penalty
+    return body
 
 
 def _transport_options(connection: AuthoringProfile) -> dict[str, object]:
