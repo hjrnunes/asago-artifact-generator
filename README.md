@@ -73,7 +73,11 @@ requests preserve the existing temperature and per-role
 `chat_template_kwargs.enable_thinking=false` controls. With
 `sampling_controls=false`, the transport omits `temperature`, `top_p`, `top_k`,
 and `seed`,
-and the thinking `chat_template_kwargs` entirely. Each call records only the
+and the thinking `chat_template_kwargs` entirely. The optional
+`repetition_penalty` profile field (a number greater than 0) joins the
+`extra_body` of author, correction, and review requests next to the thinking
+control; the transport sends it only when the profile sets it and
+`sampling_controls` is on. Each call records only the
 controls it actually sends and keeps `max_retries=0`. `reasoning_effort` and
 `service_tier` become top-level request fields; a configured
 `service_tier_fallback` retries one 429 once with the fallback tier. After an
