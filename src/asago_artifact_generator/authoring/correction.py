@@ -30,6 +30,7 @@ from .prompt_context import (
 from .prompt_packets import _artifact_response_contract_for_prompt
 from .response_decode import _decode_stage_response, _readable_response
 from .sequential_turns import delivery_in_context, plan_response_contract, turns_in_context
+from .templates import prose
 
 
 @dataclass
@@ -478,13 +479,4 @@ def _correction_instruction(findings: Sequence[Finding]) -> str:
     return instruction
 
 
-_CORRECTION_SYSTEM = (
-    "Correct the current output for the named authoring stage. Return a complete "
-    "replacement in that stage's required format and address every substantiated "
-    "finding together. Verify criticism against the original scenario and supplied "
-    "evidence, preserve supported meaning, and retain an essential unsupported "
-    "requirement as unresolved instead of inventing facts. Plan correction may revise "
-    "the plan within the supplied context. Artifact correction keeps the accepted plan "
-    "fixed and cannot rewrite setup, bindings, prerequisites, or observation level. "
-    "Do not add target access, setup, judge calls, retries, or self-approval."
-)
+_CORRECTION_SYSTEM = prose("correction/correction_system")
