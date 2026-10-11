@@ -388,21 +388,35 @@ def _plan_stimulus_slot_findings(
         "stimulus_approach.request", request, "stimulus_approach.history", approach.get("history")
     ):
         findings.extend(_invalid_slot_name_findings(path, text))
-        findings.extend(
-            Finding(
-                "undeclared_slot",
-                (
-                    f"{path} uses {{{{{slot}}}}}, but no runtime binding is "
-                    f"named {slot!r}; declared binding names: "
-                    f"{', '.join(sorted(declared)) or '(none)'}. Declare the binding or "
-                    "remove the slot."
-                ),
-                f"{path}:{slot}",
-            )
-            for slot in _identifier_slots(text)
-            if slot not in declared
-        )
+        findings.extend(_plan_undeclared_slot_findings(path, text, declared))
         findings.extend(_non_scalar_slot_findings(path, text, expected_types))
+    findings.extend(_plan_consumer_mismatch_findings(bindings, request, inventory))
+    return findings
+
+
+def _plan_undeclared_slot_findings(path: str, text: str, declared: set[str]) -> list[Finding]:
+    return [
+        Finding(
+            "undeclared_slot",
+            (
+                f"{path} uses {{{{{slot}}}}}, but no runtime binding is "
+                f"named {slot!r}; declared binding names: "
+                f"{', '.join(sorted(declared)) or '(none)'}. Declare the binding or "
+                "remove the slot."
+            ),
+            f"{path}:{slot}",
+        )
+        for slot in _identifier_slots(text)
+        if slot not in declared
+    ]
+
+
+def _plan_consumer_mismatch_findings(
+    bindings: list[Any], request: str, inventory: dict[str, Any]
+) -> list[Finding]:
+    """Flag each stimulus.user_text consumer whose binding the request does not use."""
+
+    findings: list[Finding] = []
     values = supplied_binding_values(bindings, inventory)
     for mismatch in find_stimulus_user_text_consumer_mismatches(
         bindings, request, resolved_values=values
@@ -695,21 +709,25 @@ def _stimulus_slot_findings(stimulus: dict[str, Any], runtime_bindings: Any) -> 
         "stimulus.user_text", user_text, "stimulus.history", stimulus.get("history")
     ):
         findings.extend(_invalid_slot_name_findings(path, text))
-        undeclared = [slot for slot in _identifier_slots(text) if slot not in declared]
-        findings.extend(
-            Finding(
-                "undeclared_slot",
-                (
-                    f"stimulus contains undeclared binding placeholder(s): "
-                    f"{', '.join(sorted(set(undeclared)))}; declared binding "
-                    f"names: {', '.join(sorted(declared)) or '(none)'}"
-                ),
-                f"{path}:{slot}",
-            )
-            for slot in undeclared
-        )
+        findings.extend(_artifact_undeclared_slot_findings(path, text, declared))
         findings.extend(_non_scalar_slot_findings(path, text, expected_types))
     return findings
+
+
+def _artifact_undeclared_slot_findings(path: str, text: str, declared: set[str]) -> list[Finding]:
+    undeclared = [slot for slot in _identifier_slots(text) if slot not in declared]
+    return [
+        Finding(
+            "undeclared_slot",
+            (
+                f"stimulus contains undeclared binding placeholder(s): "
+                f"{', '.join(sorted(set(undeclared)))}; declared binding "
+                f"names: {', '.join(sorted(declared)) or '(none)'}"
+            ),
+            f"{path}:{slot}",
+        )
+        for slot in undeclared
+    ]
 
 
 def _stimulus_slot_texts(
