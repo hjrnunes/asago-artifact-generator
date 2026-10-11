@@ -23,154 +23,57 @@ from .checks import _binding_selector_type, _binding_source_schema, _binding_typ
 from .core import Call1FramingError, Finding, FindingTarget
 from .prompt_context import _explained_operations, _plan_evidence_references
 from .response_decode import _decode_stage_response
+from .templates import prose
 
 _BINDING_REPAIR_SELECTOR_LIMIT = 40
-_SELECTOR_TRUNCATION_NOTE = (
-    "Documented selector enumeration truncated after "
-    f"{_BINDING_REPAIR_SELECTOR_LIMIT} selectors; only the first "
-    f"{_BINDING_REPAIR_SELECTOR_LIMIT} sorted paths are shown."
+_SELECTOR_TRUNCATION_NOTE = prose(
+    "binding_repair/selector_truncation_note", limit=_BINDING_REPAIR_SELECTOR_LIMIT
 )
 # The binding fields whose findings group into one option per binding.
 _BINDING_REPAIR_FIELDS = ("source_ref", "source_kind", "selector")
-_BINDING_REPAIR_OPTIONS_DESCRIPTION = (
-    "binding_repair_options is deterministic, source-derived assistance for binding "
-    "findings. It is prompt context, not a new response field and not a recommended "
-    "repair. Each option lists the exact source, selector, declaration, or consumer "
-    "choices that the current validator accepts; choose among them using the scenario "
-    "meaning and preserve supported content. If no listed option fits the scenario, "
-    "the RESPONSE CONTRACT empty_value_guidance entries still apply. An equals value "
-    "remains a JSON literal and still requires a declared binding."
-)
+_BINDING_REPAIR_OPTIONS_DESCRIPTION = prose("binding_repair/options_description")
 _BINDING_REPAIR_OPTION_FIELD_DESCRIPTIONS = {
-    "description": (
-        "Explains that this object is deterministic correction context, not a response "
-        "field or a recommended repair."
-    ),
-    "field_descriptions": (
-        "Maps each binding_repair_options field name to its model-facing meaning."
-    ),
-    "options": ("One deterministic entry for each binding-related finding that can be assisted."),
-    "code": (
-        "The existing finding code; it does not change the finding or validation rules. "
-        "semantic_review marks a binding that a semantic review finding concerns."
-    ),
-    "path": (
-        "The exact existing finding path in the candidate plan; for a review_binding "
-        "option, the runtime binding that the review finding concerns."
-    ),
-    "kind": (
-        "The repair category: source, selector, review_binding, unknown_binding, or "
-        "consumer_mismatch. review_binding lists the documented choices for a binding "
-        "that a semantic review finding concerns; when the binding selects inside one "
-        "keyed record, it lists only that record's sources in named_record_sources."
-    ),
-    "binding_name": "The candidate runtime binding or prerequisite binding name.",
-    "expected_type": (
-        "The candidate binding expected_type used for selector compatibility checks."
-    ),
-    "source_kind": ("The candidate binding source kind: supplied_input or setup_output."),
-    "source_ref": "The candidate binding source_ref, when one is present.",
-    "resolved_source": (
-        "Whether source_kind and source_ref resolve to a documented source under the "
-        "current inventory and runtime contract."
-    ),
-    "source_schema_type": (
-        "The JSON type at the resolved source root, when the source schema declares one."
-    ),
-    "documented_selectors": (
-        "A path-to-JSON-type mapping. Paths are the exact documented selectors accepted "
-        "by the current selector validator, rooted at value for supplied_input or result "
-        "for setup_output."
-    ),
-    "matching_expected_type": (
-        "The documented selector paths whose JSON types are compatible with "
-        "expected_type; integer is compatible with expected number."
-    ),
-    "no_matching_selector_note": (
-        "Explicitly states that no enumerated documented selector produces the "
-        "candidate expected type."
-    ),
-    "declared_binding_names": (
-        "The currently declared runtime binding names, sorted deterministically; an "
-        "empty list means no bindings are declared."
-    ),
-    "declared_binding_names_truncated": (
-        "Whether the declared binding name list was capped at the deterministic enumeration limit."
-    ),
-    "declaration_requirement": (
-        "The exact requirement for repairing unknown_binding: a runtime_bindings entry "
-        "with the named binding whose consumers include prerequisites.<name>."
-    ),
-    "evidence_ref_sources": (
-        "For each evidence_refs entry that exactly names a supplied fact, the "
-        "corresponding facts:<ref> source and its documented selectors and JSON types."
-    ),
-    "evidence_ref_sources_truncated": (
-        "Whether the supplied fact source list was capped at the deterministic enumeration limit."
-    ),
-    "evidence_ref": "The supplied fact reference copied from the prerequisite evidence_refs.",
-    "required_consumer": ("The exact consumer path that the binding declaration must include."),
-    "consumer_requirement": (
-        "The exact action needed to repair consumer_mismatch without changing the consumer rule."
-    ),
-    "truncated": (
-        "Whether the selector mapping was capped at the deterministic enumeration limit."
-    ),
-    "truncation_note": (
-        "An explicit note when a deterministic enumeration exceeds 40 entries and "
-        "only the first 40 sorted entries are shown."
-    ),
-    "findings": (
-        "The grouped existing finding code and exact path entries for this binding, "
-        "in finding order."
-    ),
-    "referenced_fact_sources": (
-        "Bindable supplied fact sources that the candidate plan cites by exact "
-        "facts:<ref> or <ref> value, with their documented selectors."
-    ),
-    "referenced_fact_sources_truncated": (
-        "Whether the referenced supplied fact source list was capped at 40 entries."
-    ),
-    "permitted_setup_sources": (
-        "Bindable setup operation results permitted by the runtime contract, with "
-        "result-rooted documented selectors; an empty list means no setup operation "
-        "is permitted."
-    ),
-    "permitted_setup_sources_truncated": (
-        "Whether the permitted setup source list was capped at 40 entries."
-    ),
-    "other_fact_source_refs": (
-        "Bindable supplied fact source names not cited by exact reference in the "
-        "candidate plan, sorted and capped at 40."
-    ),
-    "other_fact_source_refs_truncated": (
-        "Whether the other supplied fact source name list was capped at 40 entries."
-    ),
-    "supplied_value_empty": (
-        "Present and true when the supplied fact value is an empty list or empty "
-        "object; the source then contains nothing to bind."
-    ),
-    "supplied_value_empty_note": ("Names the empty supplied fact source and its empty shape."),
-    "named_record_key": (
-        "Present when source_ref names one record of a keyed supplied fact, as in "
-        "facts:<ref>:<record_key>, or when the selector selects inside one such "
-        "record, as in value.<record_key>.<field>; the record key it names."
-    ),
-    "named_record_sources": (
-        "Each supplied fact that documents the named record, listing only that record's "
-        "selectors written in full from value; each source_ref and selector pair is "
-        "accepted as written. A facts:<ref>:records source holds the record key itself "
-        "at value.<record_key>.record_key."
-    ),
-    "selector": "The candidate binding selector, as written.",
-    "review_selector_checks": (
-        "Each selector path that the review finding's required change names, checked "
-        "by code against the documented selectors. documented_on_binding_source states "
-        "whether the binding's current source_ref documents that selector; "
-        "documented_source_refs lists every source_ref that documents it. A selector is "
-        "valid only together with a listed source_ref; an empty list means no supplied "
-        "source documents it."
-    ),
+    key: prose(f"binding_repair/option_fields/{key}")
+    for key in (
+        "description",
+        "field_descriptions",
+        "options",
+        "code",
+        "path",
+        "kind",
+        "binding_name",
+        "expected_type",
+        "source_kind",
+        "source_ref",
+        "resolved_source",
+        "source_schema_type",
+        "documented_selectors",
+        "matching_expected_type",
+        "no_matching_selector_note",
+        "declared_binding_names",
+        "declared_binding_names_truncated",
+        "declaration_requirement",
+        "evidence_ref_sources",
+        "evidence_ref_sources_truncated",
+        "evidence_ref",
+        "required_consumer",
+        "consumer_requirement",
+        "truncated",
+        "truncation_note",
+        "findings",
+        "referenced_fact_sources",
+        "referenced_fact_sources_truncated",
+        "permitted_setup_sources",
+        "permitted_setup_sources_truncated",
+        "other_fact_source_refs",
+        "other_fact_source_refs_truncated",
+        "supplied_value_empty",
+        "supplied_value_empty_note",
+        "named_record_key",
+        "named_record_sources",
+        "selector",
+        "review_selector_checks",
+    )
 }
 _REVIEW_BINDING_LOCATION = re.compile(r"^(?:candidate_plan\.|plan\.)?runtime_bindings\[(\d+)\]")
 _REVIEW_SELECTOR_TOKEN = re.compile(r"(?<![\w.:-])((?:value|result)(?:\.[A-Za-z0-9_-]+)+)")
@@ -259,9 +162,8 @@ def _documented_binding_selectors(
 
 
 def _repair_truncation_note(label: str) -> str:
-    return (
-        f"{label} enumeration truncated after {_BINDING_REPAIR_SELECTOR_LIMIT} entries; "
-        f"only the first {_BINDING_REPAIR_SELECTOR_LIMIT} sorted entries are shown."
+    return prose(
+        "binding_repair/truncation_note", label=label, limit=_BINDING_REPAIR_SELECTOR_LIMIT
     )
 
 
@@ -339,8 +241,10 @@ def _selector_notes(
     if truncated:
         notes["truncation_note"] = _SELECTOR_TRUNCATION_NOTE
     if not matching:
-        notes["no_matching_selector_note"] = (
-            f"No documented selector of source {source_ref} yields expected_type {expected_type}."
+        notes["no_matching_selector_note"] = prose(
+            "binding_repair/no_matching_selector_note",
+            source_ref=source_ref,
+            expected_type=expected_type,
         )
     return notes
 
@@ -369,9 +273,8 @@ def _supplied_value_empty_fields(
     shape = "list" if isinstance(value, list) else "object"
     return {
         "supplied_value_empty": True,
-        "supplied_value_empty_note": (
-            f"The supplied value of source facts:{reference} is an empty {shape}; "
-            "it contains no element or field to bind."
+        "supplied_value_empty_note": prose(
+            "binding_repair/supplied_value_empty_note", reference=reference, shape=shape
         ),
     }
 
@@ -709,10 +612,7 @@ def _repair_unknown_binding_option(
         "binding_name": name,
         "declared_binding_names": declared_names,
         "declared_binding_names_truncated": declared_names_truncated,
-        "declaration_requirement": (
-            f'Add a runtime_bindings entry with name "{name}" whose consumers '
-            f'include "prerequisites.{name}".'
-        ),
+        "declaration_requirement": prose("binding_repair/declaration_requirement", name=name),
         "evidence_ref_sources": evidence_sources[:_BINDING_REPAIR_SELECTOR_LIMIT],
         "evidence_ref_sources_truncated": evidence_sources_truncated,
     }
@@ -761,8 +661,8 @@ def _repair_consumer_mismatch_option(
         "kind": "consumer_mismatch",
         "binding_name": name,
         "required_consumer": consumer,
-        "consumer_requirement": (
-            f'Add "{consumer}" to the consumers list of the "{name}" runtime binding.'
+        "consumer_requirement": prose(
+            "binding_repair/consumer_requirement", consumer=consumer, name=name
         ),
     }
 
@@ -957,30 +857,11 @@ _REFERENCE_FIELD_SHAPES: tuple[tuple[str, tuple[tuple[str | type, ...], ...]], .
     ("assumptions[].ref", (("assumptions", int, "ref"),)),
     ("prerequisites[].evidence_refs", (("prerequisites", int, "evidence_refs", int),)),
 )
-_REFERENCE_REPAIR_DESCRIPTION = (
-    "Each option explains one unknown_reference finding: the rejected value, what "
-    "kind of value it is, and the reference rule for its field from EVIDENCE "
-    "REFERENCES in the original stage context. Replace the value with a listed "
-    "reference that supports the same claim, keep a valid scenario lineage or "
-    "attack-tree node ID in interpretation.source_refs or assumptions[].ref as "
-    "permitted by that field, move an observation scope to required_observations, "
-    "or remove the entry when no supplied reference supports it."
-)
+_REFERENCE_REPAIR_DESCRIPTION = prose("binding_repair/reference_repair_description")
 _REFERENCE_VALUE_KIND_REPAIRS = {
-    "provenance_id": (
-        "This is a scenario lineage or attack-tree node ID. It is valid only in "
-        "interpretation.source_refs or assumptions[].ref; keep it at this field "
-        "only when that field's rule permits provenance_ids."
-    ),
-    "observation_scope": (
-        "This is an observation scope, not a reference. Declare the capture in "
-        "required_observations and cite a supplied fact, source handle, or "
-        "operation:<name> at this field."
-    ),
-    "unlisted": (
-        "This value is not listed in EVIDENCE REFERENCES. Use an exact listed "
-        "reference, or remove the entry when no supplied reference supports it."
-    ),
+    "provenance_id": prose("binding_repair/reference_value_kinds/provenance_id"),
+    "observation_scope": prose("binding_repair/reference_value_kinds/observation_scope"),
+    "unlisted": prose("binding_repair/reference_value_kinds/unlisted"),
 }
 
 

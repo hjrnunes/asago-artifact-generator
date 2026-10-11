@@ -103,8 +103,7 @@ def _fixed_plan_decision_section(view: _CorrectionView) -> tuple[str, Any] | Non
         return None
     return (
         "FIXED PLAN DECISION",
-        "The accepted plan requires no semantic judge. semantic_judge_spec must be null. "
-        "This decision is fixed; correct the artifact within it.",
+        prose("correction/fixed_plan_decision"),
     )
 
 
@@ -369,34 +368,9 @@ def _scope_correction_authoritative_context(
         ]
 
 
-_PLAN_CORRECTION_GUIDANCE = (
-    "Evaluate every finding against the source context and PLAN FIELD MEANINGS. "
-    "Preserve a correct distinction between evidence requirements and missing-"
-    "evidence fallback. Do not make violation, absence, and inconclusive describe "
-    "the same situation merely to satisfy a criticism that confuses alternative "
-    "branches. Correct real schema, reference, or semantic errors and retain "
-    "supported meaning elsewhere. If criticism is not substantiated, preserve the "
-    "supported content; do not invent a defect or new field. Return only the complete "
-    "replacement plan in the existing response format. Your response will still "
-    "undergo the normal checks and review."
-)
-_ARTIFACT_CORRECTION_GUIDANCE = (
-    "Keep the accepted plan fixed. Correct the artifact using the substantiated "
-    "deterministic and review findings, and preserve working content beyond them. "
-    "Return a complete replacement artifact as one JSON object in the unchanged "
-    "response format. Keep an accepted no-judge decision as null judge metadata, "
-    "and return a semantic_judge_spec object when the accepted plan claims reply; "
-    "repair the candidate rather than changing the plan to fit it. Use the accepted "
-    "plan's runtime binding for execution identities; the neutral example uses "
-    "substitute values."
-)
-_CURRENT_ARTIFACT_CORRECTION_GUIDANCE = (
-    "Runtime bindings come from the accepted plan, and artifact authoring cannot add, "
-    "rename, or change one, so a correction cannot declare a new binding. If a "
-    "binding lists stimulus.user_text, keep that consumer only when its exact "
-    "resolved value occurs in the authored text or the text contains its "
-    "{{binding_name}} slot; otherwise remove the consumer."
-)
+_PLAN_CORRECTION_GUIDANCE = prose("correction/plan_correction_guidance")
+_ARTIFACT_CORRECTION_GUIDANCE = prose("correction/artifact_correction_guidance")
+_CURRENT_ARTIFACT_CORRECTION_GUIDANCE = prose("correction/current_artifact_correction_guidance")
 
 
 def build_correction_context(
@@ -426,33 +400,29 @@ def build_correction_context(
         context.update(
             {
                 "accepted_plan_fixed": False,
-                "format": (
-                    "Return one complete plan replacement as one bare JSON object or "
-                    "exactly one lowercase ```json fenced JSON object."
-                ),
+                "format": prose("correction/plan_format"),
                 "response_contract": plan_response_contract(
                     turns_in_context(original_context), delivery_in_context(original_context)
                 ),
             }
         )
         context["instruction"] = (
-            instruction + " Call 1 uses one bare JSON object or exactly one lowercase ```json "
-            "fenced JSON object. " + _PLAN_CORRECTION_GUIDANCE
+            instruction + " " + prose("correction/plan_framing") + " " + _PLAN_CORRECTION_GUIDANCE
         )
     else:
         context.update(
             {
                 "accepted_plan_fixed": True,
-                "format": (
-                    "Return one complete artifact replacement as one bare JSON object "
-                    "or exactly one lowercase ```json fenced JSON object."
-                ),
+                "format": prose("correction/artifact_format"),
                 "response_contract": _call2_contract_v2(original_context.get("accepted_plan")),
             }
         )
         context["instruction"] = (
-            instruction + " Call 2 uses one bare JSON object or exactly one lowercase ```json "
-            "fenced JSON object. " + _ARTIFACT_CORRECTION_GUIDANCE
+            instruction
+            + " "
+            + prose("correction/artifact_framing")
+            + " "
+            + _ARTIFACT_CORRECTION_GUIDANCE
         )
     return context
 
@@ -463,19 +433,9 @@ _CORRECTION_STAGES = {"call1": "plan", "call2": "artifact"}
 def _correction_instruction(findings: Sequence[Finding]) -> str:
     """Return the shared instruction, scoped to review findings when a review failed."""
 
-    instruction = (
-        "Address every substantiated finding together. Verify criticism against "
-        "the original scenario and supplied evidence, preserve supported meaning, "
-        "and retain an essential unsupported requirement as unresolved instead "
-        "of inventing facts."
-    )
+    instruction = prose("correction/instruction")
     if any(finding.code == "semantic_review" for finding in findings):
-        instruction += (
-            " The CURRENT FINDINGS contain only semantic-review findings whose "
-            "question IDs are in the closed scope for this stage. Out-of-scope "
-            "review findings are intentionally omitted; do not reconstruct or "
-            "address them."
-        )
+        instruction += " " + prose("correction/semantic_review_scope")
     return instruction
 
 
