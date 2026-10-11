@@ -17,7 +17,7 @@ _inventory, _runtime_contract, _plan, _metadata = world_builders(
     "refund", "inventory", "runtime_contract", "plan", "metadata"
 )
 
-_SLOT_CODES = {"undeclared_slot", "non_scalar_slot"}
+_SLOT_CODES = {"undeclared_slot", "non_scalar_slot", "invalid_slot_name"}
 
 
 def _binding(name: str, expected_type: str, selector: str = "value") -> dict[str, Any]:
@@ -138,3 +138,34 @@ def test_each_turn_reports_its_own_undeclared_slots() -> None:
     ]
     assert "second_missing" not in findings[0].detail
     assert "first_missing" not in findings[1].detail
+
+
+@pytest.mark.parametrize("name", ["order id", "order.id", "order-id", "1st"])
+def test_a_declared_binding_name_that_is_not_an_identifier_is_not_a_slot(name: str) -> None:
+    binding = _binding(name, "string", "value.id")
+
+    plan = _plan_slot_findings("Refund it.", [f"Order {{{{{name}}}}}."], binding)
+    artifact = _artifact_slot_findings(f"Refund {{{{{name}}}}}.", [], binding)
+
+    assert _summary(plan) == [("invalid_slot_name", f"stimulus_approach.history[0]:{name}")]
+    assert _summary(artifact) == [("invalid_slot_name", f"stimulus.user_text:{name}")]
+    assert f"{{{{{name}}}}}" in plan[0].detail
+    assert "identifier" in plan[0].detail
+
+
+@pytest.mark.parametrize("slot", [" order_id ", ""])
+def test_a_slot_that_is_not_an_identifier_is_invalid_rather_than_undeclared(slot: str) -> None:
+    binding = _binding("order_id", "string", "value.id")
+
+    plan = _plan_slot_findings(f"Refund {{{{{slot}}}}}.", [], binding)
+    artifact = _artifact_slot_findings("Refund it.", [f"Order {{{{{slot}}}}}."], binding)
+
+    assert _summary(plan) == [("invalid_slot_name", f"stimulus_approach.request:{slot}")]
+    assert _summary(artifact) == [("invalid_slot_name", f"stimulus.history[0].content:{slot}")]
+
+
+def test_an_identifier_slot_with_digits_and_underscores_passes() -> None:
+    binding = _binding("_order_id2", "string", "value.id")
+
+    assert _plan_slot_findings("Refund {{_order_id2}}.", [], binding) == []
+    assert _artifact_slot_findings("Refund it.", ["Order {{_order_id2}}."], binding) == []
