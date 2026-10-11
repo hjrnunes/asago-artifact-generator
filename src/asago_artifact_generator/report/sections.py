@@ -86,25 +86,45 @@ class Counts:
         return f"{round(100 * self.failed_tokens / self.tokens)}%" if self.tokens else "0%"
 
 
-def counts(items: Sequence[Authoring]) -> Counts:
-    attack = [i for i in items if i.scenario.kind == "adversarial"]
-    everyday = [i for i in items if i.scenario.kind == "functional"]
-    review_left = [i for i in items if i.cause == "review_not_satisfied"]
+def _of_kind(items: Sequence[Authoring], kind: str) -> list[Authoring]:
+    return [item for item in items if item.scenario.kind == kind]
+
+
+def _packaged(items: Sequence[Authoring]) -> int:
+    return sum(item.accepted for item in items)
+
+
+def _failed_tokens(items: Sequence[Authoring]) -> int:
+    return sum(item.tokens for item in items if not item.accepted)
+
+
+def _usage(items: Sequence[Authoring]) -> tuple[int, int, int]:
+    """Return the requests, prompt tokens, and completion tokens of every step."""
+
     steps = [step for item in items for step in item.steps]
+    prompt = sum(step.prompt_tokens for step in steps)
+    return len(steps), prompt, sum(step.completion_tokens for step in steps)
+
+
+def counts(items: Sequence[Authoring]) -> Counts:
+    attack = _of_kind(items, "adversarial")
+    everyday = _of_kind(items, "functional")
+    review_left = [i for i in items if i.cause == "review_not_satisfied"]
+    requests, prompt_tokens, completion_tokens = _usage(items)
     return Counts(
         sent=len(items),
-        packaged=sum(i.accepted for i in items),
+        packaged=_packaged(items),
         attack=len(attack),
-        attack_packaged=sum(i.accepted for i in attack),
+        attack_packaged=_packaged(attack),
         everyday=len(everyday),
-        everyday_packaged=sum(i.accepted for i in everyday),
+        everyday_packaged=_packaged(everyday),
         review_left=len(review_left),
         asked_again=sum(asked_again(i) for i in review_left),
         tokens=sum(i.tokens for i in items),
-        failed_tokens=sum(i.tokens for i in items if not i.accepted),
-        requests=len(steps),
-        prompt_tokens=sum(step.prompt_tokens for step in steps),
-        completion_tokens=sum(step.completion_tokens for step in steps),
+        failed_tokens=_failed_tokens(items),
+        requests=requests,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
     )
 
 

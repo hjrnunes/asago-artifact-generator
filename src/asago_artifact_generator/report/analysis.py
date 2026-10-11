@@ -91,15 +91,25 @@ def signals_of(item: Authoring) -> list[str]:
 
     if item.accepted:
         return []
-    stage = [step for step in item.steps if step.group == item.terminal_stage]
-    reviews = [step for step in stage if step.kind == "review" and step.findings]
-    authored = [step for step in stage if step.kind != "review"]
+    reviews, authored = _terminal_steps(item)
     found = {
         _review_signal(reviews),
-        UNCHANGED if any(step.unchanged for step in item.steps) else None,
+        _unchanged_signal(item.steps),
         _check_signal(authored),
     }
     return [signal for signal in SIGNALS if signal in found]
+
+
+def _terminal_steps(item: Authoring) -> tuple[list[Step], list[Step]]:
+    """Return the terminal stage's reviews that found something, and its author steps."""
+
+    stage = [step for step in item.steps if step.group == item.terminal_stage]
+    reviews = [step for step in stage if step.kind == "review" and step.findings]
+    return reviews, [step for step in stage if step.kind != "review"]
+
+
+def _unchanged_signal(steps: list[Step]) -> str | None:
+    return UNCHANGED if any(step.unchanged for step in steps) else None
 
 
 _PART = re.compile(r"\.(\w+)|\[(\d+)\]")
@@ -159,17 +169,24 @@ def attach_comparisons(item: Authoring) -> None:
     if item.accepted or not item.steps:
         return
     last = item.steps[-1]
-    if last.kind != "review" or last.reviewed is None:
-        return
-    earlier = [
-        step
-        for step in item.steps[:-1]
-        if step.kind == "review" and step.group == last.group and step.reviewed is not None
-    ]
-    if not earlier:
+    previous = _previous_review(item.steps[:-1], last)
+    if previous is None:
         return
     for finding in last.findings:
-        finding.compare = _comparison(last, earlier[-1], finding)
+        finding.compare = _comparison(last, previous, finding)
+
+
+def _previous_review(steps: list[Step], last: Step) -> Step | None:
+    """Return the review before *last* in its stage, when both kept their candidates."""
+
+    if last.kind != "review" or last.reviewed is None:
+        return None
+    earlier = [
+        step
+        for step in steps
+        if step.kind == "review" and step.group == last.group and step.reviewed is not None
+    ]
+    return earlier[-1] if earlier else None
 
 
 def analyse(items: list[Authoring]) -> None:
