@@ -122,17 +122,30 @@ class RecordedCall:
 
 
 _RETRYABLE_ERROR_TYPES = frozenset({"APIConnectionError", "InternalServerError", "APIStatusError"})
+# The transport's reason for the request it sends on the fallback tier after a
+# rate limit; a transport retry records no reason.
+SERVICE_TIER_FALLBACK_REASON = "service_tier_fallback"
+_FALLBACK_FAILURE = {"type": "RateLimitError", "status_code": 429}
+
+
+def _rebuildable_retry(failure: dict[str, Any], reason: Any) -> bool:
+    """Return whether the transport records this failure with this reason."""
+
+    if reason == SERVICE_TIER_FALLBACK_REASON:
+        return failure == _FALLBACK_FAILURE
+    if reason is not None or failure.get("type") not in _RETRYABLE_ERROR_TYPES:
+        return False
+    is_connection = failure.get("type") == "APIConnectionError"
+    return is_connection == (failure.get("status_code") is None)
 
 
 def _recorded_retries(attempt: dict[str, Any], where: str) -> tuple[dict[str, Any], ...]:
     failures = []
     for retry in attempt.get("transport_retries") or []:
         failure = retry.get("retry_of") or {}
-        status = failure.get("status_code")
-        is_connection = failure.get("type") == "APIConnectionError"
-        if failure.get("type") not in _RETRYABLE_ERROR_TYPES or is_connection != (status is None):
+        if not _rebuildable_retry(failure, retry.get("reason")):
             raise ReplayRecordError(f"{where}: retry_of cannot be rebuilt: {failure}")
-        failures.append({"type": failure["type"], "status_code": status})
+        failures.append({"type": failure["type"], "status_code": failure.get("status_code")})
     return tuple(failures)
 
 
@@ -268,9 +281,10 @@ class ReplayChatClient:
     model and the exact recorded system and user messages.  A mismatch, or a
     request beyond the recording, is reported and refused with a
     ``ConnectionError``, so the code under test sees a transport failure.
-    A dispatch recorded with a transport retry first raises each recorded
-    failure, then serves the response, so the transport's own retry runs for
-    real; a recording without a retry never sees one.  A dispatch recorded as a
+    A dispatch recorded with a transport retry or a service-tier fallback
+    first raises each recorded failure (a 429 ``RateLimitError`` before the
+    fallback), then serves the response, so the transport's own retry and
+    fallback run for real; a recording without either never sees one.  A dispatch recorded as a
     timeout raises ``openai.APITimeoutError`` in place of a response, which the
     transport never retries.
     """

@@ -68,9 +68,16 @@ class _ScriptedChatClient:
 
 
 def _record_author_stage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contents: list[str | BaseException]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    contents: list[str | BaseException],
+    **profile_options: str,
 ) -> Path:
-    """Record one author item as an orch run would and return the stage directory."""
+    """Record one author item as an orch run would and return the stage directory.
+
+    *profile_options* add fields to the recorded model profile, for example a
+    service tier and its fallback.
+    """
 
     run = tmp_path / "runs" / "run-test"
     scenarios = run / "stages" / "generate" / "output" / "scenarios"
@@ -88,6 +95,7 @@ def _record_author_stage(
                     "base_url": "https://profile.example.invalid/v1",
                     "api_key": "profile-secret-value",
                     "model": "profile-model",
+                    **profile_options,
                 }
             }
         ),
@@ -257,6 +265,8 @@ def test_replay_client_reports_a_request_beyond_the_recording() -> None:
 
 _CONNECTION_RETRY = {"type": "APIConnectionError", "status_code": None}
 _STATUS_RETRY = {"type": "InternalServerError", "status_code": 502}
+_FALLBACK_RETRY = {"type": "RateLimitError", "status_code": 429}
+_FALLBACK = {"attempt": 2, "retry_of": _FALLBACK_RETRY, "reason": "service_tier_fallback"}
 
 
 def test_recorded_call_without_a_retry_has_no_recorded_failures() -> None:
@@ -278,13 +288,45 @@ def test_recorded_call_rejects_a_retry_it_cannot_rebuild() -> None:
         replay_gate._recorded_call(_attempt(transport_retries=retries))
 
 
+def test_recorded_call_reads_a_service_tier_fallback_as_a_recorded_rate_limit() -> None:
+    retries = [_FALLBACK, {"attempt": 3, "retry_of": _STATUS_RETRY}]
+
+    call = replay_gate._recorded_call(_attempt(transport_retries=retries))
+
+    assert call.retries == (_FALLBACK_RETRY, _STATUS_RETRY)
+
+
+@pytest.mark.parametrize(
+    "retry",
+    [
+        {"attempt": 2, "retry_of": _FALLBACK_RETRY},
+        {"attempt": 2, "retry_of": _STATUS_RETRY, "reason": "service_tier_fallback"},
+        {"attempt": 2, "retry_of": {**_FALLBACK_RETRY, "status_code": 503}, "reason": "x"},
+        {"attempt": 2, "retry_of": _CONNECTION_RETRY, "reason": "another_reason"},
+    ],
+    ids=["429-without-reason", "fallback-of-a-502", "unknown-reason", "connection-with-reason"],
+)
+def test_recorded_call_rejects_a_rate_limit_or_reason_the_transport_never_records(
+    retry: dict,
+) -> None:
+    with pytest.raises(ReplayRecordError, match="retry_of cannot be rebuilt"):
+        replay_gate._recorded_call(_attempt(transport_retries=[retry]))
+
+
+def test_the_gate_names_the_fallback_reason_the_transport_records() -> None:
+    from asago_artifact_generator.authoring.transport import SERVICE_TIER_FALLBACK_REASON
+
+    assert replay_gate.SERVICE_TIER_FALLBACK_REASON == SERVICE_TIER_FALLBACK_REASON
+
+
 @pytest.mark.parametrize(
     ("recorded", "expected"),
     [
         (_CONNECTION_RETRY, openai.APIConnectionError),
         (_STATUS_RETRY, openai.InternalServerError),
+        (_FALLBACK_RETRY, openai.RateLimitError),
     ],
-    ids=["connection", "502"],
+    ids=["connection", "502", "fallback-429"],
 )
 def test_replay_client_raises_the_recorded_failure_then_serves_the_response(
     recorded: dict, expected: type[Exception]
@@ -618,6 +660,64 @@ def test_gate_replays_a_stage_recorded_with_a_transport_retry_identically(
     [item] = result.items
     assert item.served == 2 and item.unused == 0
     assert item.mismatches == [] and item.network_attempts == []
+
+
+def test_gate_replays_a_stage_recorded_with_a_service_tier_fallback_identically(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stage = _record_author_stage(
+        tmp_path,
+        monkeypatch,
+        [_rate_limit(), "not a json plan", "still not a json plan"],
+        service_tier="flex",
+        service_tier_fallback="default",
+    )
+    recorded = json.loads(_evidence_path(stage).read_text(encoding="utf-8"))
+    first = recorded["attempts"][0]
+    assert first["transport_retries"] == [_FALLBACK]
+    assert first["controls"]["value"]["service_tier_fallback_used"] is True
+
+    result = run_gate(stage, work=tmp_path / "work")
+
+    assert result.passed, result.report()
+    [item] = result.items
+    assert item.served == 2 and item.unused == 0
+    assert item.mismatches == [] and item.network_attempts == []
+
+
+def test_gate_replays_a_fallback_followed_by_a_transport_retry_identically(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("asago_artifact_generator.authoring.transport._sleep", lambda _: None)
+    request = httpx2.Request("POST", "https://profile.example.invalid/v1")
+    bad_gateway = openai.InternalServerError(
+        "upstream failed", response=httpx2.Response(502, request=request), body=None
+    )
+    stage = _record_author_stage(
+        tmp_path,
+        monkeypatch,
+        [_rate_limit(), bad_gateway, "not a json plan", "still not a json plan"],
+        service_tier="flex",
+        service_tier_fallback="default",
+    )
+    recorded = json.loads(_evidence_path(stage).read_text(encoding="utf-8"))
+    assert recorded["attempts"][0]["transport_retries"] == [
+        _FALLBACK,
+        {"attempt": 3, "retry_of": _STATUS_RETRY},
+    ]
+
+    result = run_gate(stage, work=tmp_path / "work")
+
+    assert result.passed, result.report()
+    [item] = result.items
+    assert item.served == 2 and item.unused == 0
+    assert item.mismatches == [] and item.network_attempts == []
+
+
+def _rate_limit() -> openai.RateLimitError:
+    request = httpx2.Request("POST", "https://profile.example.invalid/v1")
+    response = httpx2.Response(429, request=request)
+    return openai.RateLimitError("rate limited", response=response, body=None)
 
 
 def test_gate_replays_a_stage_whose_plan_request_timed_out_identically(
