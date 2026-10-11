@@ -1,0 +1,12 @@
+{
+  "authority": "asago-orch",
+  "contract": "report-kit",
+  "schema_version": "report-kit-v1",
+  "files": {
+    "__init__.py": "9d12b5af819030f7d0e55dc9bb56d19a73c7ae8aedbbbc662ae6cd828e8e4a59",
+    "catalog.html": "b2ce25b505194985d24e89fdc54898eb805001b5cd9a2f3ab7ce5716247e6e14",
+    "kit.css": "c2834dced482228cad94b58fba28046029c6dfbc12a99c9465657b786f93a3ca",
+    "kit.js": "19a7e0931b26471172b1649c18cea147afd669f9d116df5c1d535908492556e7",
+    "stage-summary-v1.schema.json": "da49efe3c81eda093c87e529494e2449ee4c0e66e1a7c7e14259c53dc287f9c7"
+  }
+}
