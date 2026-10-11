@@ -7,6 +7,7 @@ review.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Collection, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -58,6 +59,8 @@ from .planted_item import PLANTED_TEXT_FIELD, planted_item_findings
 SELECTOR_THROUGH_ARRAY_CODE = "selector_through_array"
 # Execution fills a slot with one scalar and rejects a binding of these types.
 _NON_SCALAR_TYPES = frozenset({"array", "object"})
+# Execution fills only a slot whose name is an identifier, whatever the bindings declare.
+_SLOT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _validate_call2_metadata_shape(value: Any) -> list[Finding]:
@@ -384,21 +387,36 @@ def _plan_stimulus_slot_findings(
     for path, text in _stimulus_slot_texts(
         "stimulus_approach.request", request, "stimulus_approach.history", approach.get("history")
     ):
-        findings.extend(
-            Finding(
-                "undeclared_slot",
-                (
-                    f"{path} uses {{{{{slot}}}}}, but no runtime binding is "
-                    f"named {slot!r}; declared binding names: "
-                    f"{', '.join(sorted(declared)) or '(none)'}. Declare the binding or "
-                    "remove the slot."
-                ),
-                f"{path}:{slot}",
-            )
-            for slot in _slot_names_in_order(text)
-            if slot not in declared
-        )
+        findings.extend(_invalid_slot_name_findings(path, text))
+        findings.extend(_plan_undeclared_slot_findings(path, text, declared))
         findings.extend(_non_scalar_slot_findings(path, text, expected_types))
+    findings.extend(_plan_consumer_mismatch_findings(bindings, request, inventory))
+    return findings
+
+
+def _plan_undeclared_slot_findings(path: str, text: str, declared: set[str]) -> list[Finding]:
+    return [
+        Finding(
+            "undeclared_slot",
+            (
+                f"{path} uses {{{{{slot}}}}}, but no runtime binding is "
+                f"named {slot!r}; declared binding names: "
+                f"{', '.join(sorted(declared)) or '(none)'}. Declare the binding or "
+                "remove the slot."
+            ),
+            f"{path}:{slot}",
+        )
+        for slot in _identifier_slots(text)
+        if slot not in declared
+    ]
+
+
+def _plan_consumer_mismatch_findings(
+    bindings: list[Any], request: str, inventory: dict[str, Any]
+) -> list[Finding]:
+    """Flag each stimulus.user_text consumer whose binding the request does not use."""
+
+    findings: list[Finding] = []
     values = supplied_binding_values(bindings, inventory)
     for mismatch in find_stimulus_user_text_consumer_mismatches(
         bindings, request, resolved_values=values
@@ -690,22 +708,26 @@ def _stimulus_slot_findings(stimulus: dict[str, Any], runtime_bindings: Any) -> 
     for path, text in _stimulus_slot_texts(
         "stimulus.user_text", user_text, "stimulus.history", stimulus.get("history")
     ):
-        rendered_slots = _slot_names_in_order(text)
-        undeclared = [slot for slot in rendered_slots if slot not in declared]
-        findings.extend(
-            Finding(
-                "undeclared_slot",
-                (
-                    f"stimulus contains undeclared binding placeholder(s): "
-                    f"{', '.join(sorted(set(undeclared)))}; declared binding "
-                    f"names: {', '.join(sorted(declared)) or '(none)'}"
-                ),
-                f"{path}:{slot}",
-            )
-            for slot in undeclared
-        )
+        findings.extend(_invalid_slot_name_findings(path, text))
+        findings.extend(_artifact_undeclared_slot_findings(path, text, declared))
         findings.extend(_non_scalar_slot_findings(path, text, expected_types))
     return findings
+
+
+def _artifact_undeclared_slot_findings(path: str, text: str, declared: set[str]) -> list[Finding]:
+    undeclared = [slot for slot in _identifier_slots(text) if slot not in declared]
+    return [
+        Finding(
+            "undeclared_slot",
+            (
+                f"stimulus contains undeclared binding placeholder(s): "
+                f"{', '.join(sorted(set(undeclared)))}; declared binding "
+                f"names: {', '.join(sorted(declared)) or '(none)'}"
+            ),
+            f"{path}:{slot}",
+        )
+        for slot in undeclared
+    ]
 
 
 def _stimulus_slot_texts(
@@ -726,6 +748,29 @@ def _stimulus_slot_texts(
             path, text = f"{history_path}[{index}]", turn
         if isinstance(text, str):
             yield path, text
+
+
+def _identifier_slots(text: str) -> list[str]:
+    return [slot for slot in _slot_names_in_order(text) if _SLOT_NAME.fullmatch(slot)]
+
+
+def _invalid_slot_name_findings(path: str, text: str) -> list[Finding]:
+    """Flag each slot whose name is not an identifier; execution cannot fill it."""
+
+    return [
+        Finding(
+            "invalid_slot_name",
+            (
+                f"{path} uses {{{{{slot}}}}}, but a slot name must be an identifier: "
+                "letters, digits, and underscores, not starting with a digit, with no "
+                "spaces inside the braces. Give the binding an identifier name and write "
+                "its slot as {{binding_name}}."
+            ),
+            f"{path}:{slot}",
+        )
+        for slot in _slot_names_in_order(text)
+        if not _SLOT_NAME.fullmatch(slot)
+    ]
 
 
 def _non_scalar_slot_findings(

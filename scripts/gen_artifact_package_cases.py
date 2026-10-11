@@ -9,6 +9,11 @@ reader runs the same cases: ``valid/`` cases must load, and each
 metadata the closed policy accepts, and rejected metadata with the exact
 violation paths.
 
+``binding-cases/`` holds hand-written binding conformance cases: binding
+declarations, the inventory and stimulus they apply to, and the expected outcome
+of each binding check. Authoring and execute run them through their own
+functions. This script copies them unchanged and locks them.
+
 Run ``uv run python scripts/gen_artifact_package_cases.py`` after changing a
 case; ``tests/test_artifact_package_cases.py`` checks that the committed files
 equal this script's output.
@@ -26,6 +31,7 @@ from typing import Any
 CONTRACT_ROOT = Path(__file__).resolve().parents[1] / "contracts" / "artifact-package"
 V3 = "artifact-package-v3"
 V4 = "artifact-package-v4"
+BINDING_CASES = "binding-cases"
 _HANDOFF_V3 = "scenario-handoff-v3"
 _HANDOFF_V4 = "scenario-handoff-v4"
 _CONDITION = '{\n  "comparisons": []\n}\n'
@@ -490,10 +496,20 @@ def _json_text(value: Any) -> str:
     return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
+def _binding_cases() -> dict[str, str]:
+    """Return each hand-written binding case's text by path relative to the contract root."""
+
+    return {
+        f"{BINDING_CASES}/{path.name}": path.read_text(encoding="utf-8")
+        for path in sorted((CONTRACT_ROOT / BINDING_CASES).glob("*.json"))
+    }
+
+
 def expected_files() -> dict[str, str]:
-    """Return every generated case file's text by path relative to the contract root."""
+    """Return every case file's text by path relative to the contract root."""
 
     files: dict[str, str] = {"metadata-policy.json": _json_text(_metadata_policy())}
+    files.update(_binding_cases())
     for version, (valid, invalid) in ((V3, _v3_cases()), (V4, _v4_cases())):
         for name, case in valid.items():
             files[f"{version}/valid/{name}.json"] = _json_text(case)
