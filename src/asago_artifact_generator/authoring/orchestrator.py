@@ -114,6 +114,7 @@ from .review import (
     build_artifact_review_packet,
     build_plan_review_packet,
     parse_review_response,
+    review_packet_candidate,
 )
 from .sequential_turns import (
     multi_turn_payload,
@@ -599,6 +600,7 @@ class AuthoringOrchestrator:
         """Return the event that opens the ledger record and attempt of a dispatch."""
 
         stage_attempt_index, correction_index = self._dispatch_attempt_indices(packet)
+        reviewed = packet.stage in _REVIEW_STAGES
         return DispatchOpened(
             dispatch_index=dispatch_index,
             attempt_index=stage_attempt_index,
@@ -609,9 +611,8 @@ class AuthoringOrchestrator:
             policy=self._effective_policy_record(),
             raw_response_path=f"authoring/{dispatch_index:02d}-{packet.stage}.raw",
             model_identity=self._dispatch_model_identity(),
-            review=(
-                self._review_dispatch_fields(packet) if packet.stage in _REVIEW_STAGES else None
-            ),
+            review=self._review_dispatch_fields(packet) if reviewed else None,
+            reviewed_candidate=review_packet_candidate(packet) if reviewed else None,
         )
 
     def _review_dispatch_fields(self, packet: PromptPacket) -> dict[str, Any]:

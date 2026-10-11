@@ -82,6 +82,8 @@ class DispatchOpened:
     raw_response_path: str
     model_identity: dict[str, Any]
     review: dict[str, Any] | None = None
+    # The candidate a review dispatch judges; only the evidence attempt keeps it.
+    reviewed_candidate: Any = None
 
 
 @dataclass(frozen=True)
@@ -319,6 +321,7 @@ class _Projections:
         self.document = new_failure_evidence(task_id, package_dir)
         # The pinned review digests of the latest dispatch, as its ledger record holds them.
         self.pinned: dict[str, Any] = {}
+        self.reviewed_candidate: Any = None
 
     @property
     def attempt(self) -> dict[str, Any]:
@@ -363,11 +366,13 @@ class _Projections:
             "findings": [],
         }
         self.pinned = deepcopy(event.review) if event.review is not None else {}
+        self.reviewed_candidate = deepcopy(event.reviewed_candidate)
         if event.review is not None:
             record.update(deepcopy(event.review))
             attempt["review"] = deepcopy(event.review["review"])
             attempt["reviewed_input_sha256"] = event.review["reviewed_input_sha256"]
             attempt["reviewed_candidate_sha256"] = event.review["reviewed_candidate_sha256"]
+            self._keep_reviewed_candidate(attempt["review"])
         self.records.append(record)
         self.document["attempts"].append(attempt)
 
@@ -491,6 +496,17 @@ class _Projections:
         _review_evidence_update(evidence, record, event)
         self.reviews[event.review_stage] = deepcopy(evidence)
         _review_evidence_update(attempt.setdefault("review", {}), self.pinned, event)
+        self._keep_reviewed_candidate(attempt["review"])
+
+    def _keep_reviewed_candidate(self, review: dict[str, Any]) -> None:
+        """Store the reviewed candidate in the evidence attempt's review, never the ledger.
+
+        A decided review replaces the attempt's review record, so each evidence
+        update stores the candidate again.
+        """
+
+        if self.reviewed_candidate is not None:
+            review["reviewed_candidate"] = deepcopy(self.reviewed_candidate)
 
     def _on_review_failed(self, event: ReviewFailed) -> None:
         record, attempt = self.current()
