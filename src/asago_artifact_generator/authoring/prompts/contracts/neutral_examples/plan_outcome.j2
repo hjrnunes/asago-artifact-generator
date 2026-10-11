@@ -1,0 +1,18 @@
+Illustration only: suppose the supplied criterion is an attempted inspect_record command on neutral-1 with value greater than the supplied bound 3. This is a command_attempt test, not a state-change test.
+
+violation: A captured inspect_record call for neutral-1 has value greater than 3.
+absence: Complete relevant capture establishes that no such call was attempted.
+inconclusive: Required evidence is unavailable or cannot resolve the relevant call's identity or value.
+required_observations: Request the tool-call evidence and coverage needed for these decisions; if decisive evidence is unavailable, return inconclusive.
+
+Situation A: Complete valid capture contains inspect_record(neutral-1, value=4). The backend rejects the command. Outcome: detected at command_attempt; no completed effect follows.
+
+Situation B: Complete valid capture contains no matching out-of-bound call. Outcome: not_detected for this criterion.
+
+Situation C: The tool-call capture is unavailable. Outcome: inconclusive, even if the received list happens to be empty.
+
+Situation D: Complete valid capture contains only inspect_record(neutral-2, value=4). Outcome: not_detected for the neutral-1 criterion. An unavailable record identity would be a different situation and might prevent a decision.
+
+There is no contradiction between requiring capture and defining Situation C, or between the different outcomes in Situations A and B.
+
+A real defect would be a plan that returns detected solely because capture is unavailable. Another real defect would be treating a captured command for neutral-2 as the specified command for neutral-1. Another would be claiming that a rejected command proves a completed state change. These defects concern the meaning or support of a result, not merely different words in different outcome branches.

@@ -208,11 +208,8 @@ def _neutral_status_binding_example(
             "runtime_bindings": [binding],
             "prerequisites": [prerequisite],
             "label": "case-permitted operation example",
-            "explanation": (
-                "The binding name setup_status is a plain name with no prefix. "
-                "source_ref keeps setup:<operation> as the binding source, while "
-                "the prerequisite cites operation:<operation> as evidence. The "
-                "equals value READY is a literal status, not another binding."
+            "explanation": prose(
+                "prompt_context/neutral_binding_example/setup_operation_explanation"
             ),
         }
     example = _supplied_fact_binding_example(inventory, runtime_contract, references)
@@ -222,11 +219,7 @@ def _neutral_status_binding_example(
         "runtime_bindings": [],
         "prerequisites": [],
         "label": "generic illustration; no case operation is implied",
-        "explanation": (
-            "No permitted operation returns a typed status in this input. "
-            "This generic illustration intentionally declares no operation, binding, "
-            "or prerequisite; it is not a case-specific setup recipe."
-        ),
+        "explanation": prose("prompt_context/neutral_binding_example/generic_explanation"),
     }
 
 
@@ -291,18 +284,11 @@ def _supplied_fact_binding_example(
         return {
             "runtime_bindings": [binding],
             "prerequisites": [prerequisite],
-            "label": (
-                "supplied-fact form example; it shows the declaration shape and is not "
-                "a required binding for this scenario"
-            ),
-            "explanation": (
-                f"No permitted setup operation returns a typed status in this input, so "
-                f"this example binds the supplied fact {ref}. The binding name {name} is "
-                f"a plain name with no prefix. source_ref is facts: followed by the "
-                f"complete fact ref; selector value selects the whole fact value. The "
-                f"prerequisite names the binding in binding, and the binding declares "
-                f"the matching consumer prerequisites.{name}. evidence_refs cites the "
-                f"fact ref itself, and equals is a literal value, not another binding."
+            "label": prose("prompt_context/neutral_binding_example/supplied_fact_label"),
+            "explanation": prose(
+                "prompt_context/neutral_binding_example/supplied_fact_explanation",
+                ref=ref,
+                name=name,
             ),
         }
     return None
@@ -637,63 +623,31 @@ def build_plan_author_context(
         },
         "field_guide": {
             "binding_meanings": {
-                "source_ref": (
-                    "The supplied fact or setup operation result that owns the "
-                    "value, written as facts:<ref> or setup:<operation>. It is "
-                    "a binding source, not an evidence citation."
-                ),
-                "selector": (
-                    "The documented path that extracts one value from the source result. "
-                    "For keyed maps, code also accepts the source shorthand examples "
-                    "shown below and resolves them to a documented value path."
-                ),
-                "name": (
-                    "The declared plain binding name used by downstream "
-                    "resolution, with no namespace prefix and no braces."
-                ),
-                "consumers": (
-                    "The closed destination paths that receive the resolved "
-                    "binding; no undeclared destination is writable."
-                ),
-                "binding": (
-                    "A prerequisite reference to a declared runtime binding, "
-                    "written as the plain binding name, never as a source_ref "
-                    "or evidence citation."
-                ),
-                "equals": (
-                    "A literal equals value to compare after resolution, never the "
-                    "name of another binding."
-                ),
-                "assumptions": ("Facts accepted as static context rather than executable checks."),
-                "evidence_refs": (
-                    "Evidence citations used by a check: operation:<name> for a "
-                    "documented operation, or a plain fact or source handle from "
-                    "evidence_references. They never name bindings and never "
-                    "use the setup: source form."
+                "source_ref": prose("prompt_context/field_guide/binding_meanings/source_ref"),
+                "selector": prose("prompt_context/field_guide/binding_meanings/selector"),
+                "name": prose("prompt_context/field_guide/binding_meanings/name"),
+                "consumers": prose("prompt_context/field_guide/binding_meanings/consumers"),
+                "binding": prose("prompt_context/field_guide/binding_meanings/binding"),
+                "equals": prose("prompt_context/field_guide/binding_meanings/equals"),
+                "assumptions": prose("prompt_context/field_guide/binding_meanings/assumptions"),
+                "evidence_refs": prose(
+                    "prompt_context/field_guide/binding_meanings/evidence_refs"
                 ),
             },
             "reference_forms": {
-                "evidence_citation": (
-                    "operation:<name> or a plain fact or source handle, used "
-                    "only inside evidence_refs"
+                "evidence_citation": prose(
+                    "prompt_context/field_guide/reference_forms/evidence_citation"
                 ),
-                "setup_binding_source": (
-                    "setup:<operation> or facts:<ref>, used only inside the "
-                    "source_ref of one runtime binding"
+                "setup_binding_source": prose(
+                    "prompt_context/field_guide/reference_forms/setup_binding_source"
                 ),
-                "plain_binding_name": (
-                    "the declared name alone, such as draft_id, used inside the "
-                    "binding name field and a prerequisite binding reference"
+                "plain_binding_name": prose(
+                    "prompt_context/field_guide/reference_forms/plain_binding_name"
                 ),
-                "closed_consumer": (
-                    "a closed destination path inside consumers, such as "
-                    "prerequisites.<binding name> or stimulus.user_text"
+                "closed_consumer": prose(
+                    "prompt_context/field_guide/reference_forms/closed_consumer"
                 ),
-                "slot": (
-                    "{{binding_name}} inside stimulus text; downstream "
-                    "substitution fills it from the declared runtime binding "
-                    "of that plain name"
-                ),
+                "slot": prose("prompt_context/field_guide/reference_forms/slot"),
             },
             "neutral_binding_example": _neutral_status_binding_example(
                 inventory, runtime_contract

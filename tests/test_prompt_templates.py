@@ -59,6 +59,16 @@ def test_prose_renders_a_named_file() -> None:
     )
 
 
+def test_prose_accepts_a_value_called_name() -> None:
+    explanation = prose(
+        "prompt_context/neutral_binding_example/supplied_fact_explanation",
+        ref="state:mode",
+        name="mode",
+    )
+
+    assert "binds the supplied fact state:mode. The binding name mode is" in explanation
+
+
 def test_prose_lines_returns_one_entry_per_line() -> None:
     assert prose_lines("review/plan_review_binding_rules") == (
         prose("review/plan_review_binding_rules"),

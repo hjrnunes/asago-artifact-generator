@@ -25,8 +25,8 @@ def _environment() -> Environment:
     )
 
 
-def prose(name: str, **values: Any) -> str:
-    """Return ``prompts/<name>.j2`` rendered with ``values``."""
+def prose(name: str, /, **values: Any) -> str:
+    """Return ``prompts/<name>.j2`` rendered with ``values``; a value may itself be ``name``."""
 
     return _environment().get_template(f"{name}.j2").render(**values)
 
