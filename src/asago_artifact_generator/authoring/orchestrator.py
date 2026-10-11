@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..contract_kit import ClaimLevel
-from ..failure_evidence import metadata_record
+from ..failure_evidence import metadata_record, request_files_path, write_request_files
 from ..input_adapter import InputView
 from ..package_io import write_package
 from .binding_repair import correction_repair_inputs
@@ -83,7 +83,7 @@ from .journal import (
     ValidationTransformed,
 )
 from .oracle_self_test import DEFECT_CODE, oracle_defect_findings
-from .package_assembly import _package_from_responses, _persist_blocked_plan
+from .package_assembly import _attempt_records, _package_from_responses, _persist_blocked_plan
 from .policy import (
     AuthoringBudget,
     AuthoringPolicy,
@@ -1525,7 +1525,22 @@ class AuthoringOrchestrator:
                 },
             )
         )
+        if status != "accepted" and attempts:
+            self._write_request_files()
         return self._journal.flush()
+
+    def _write_request_files(self) -> None:
+        """Write a failed run's prompts and raw responses under the package's names."""
+
+        records = _attempt_records(
+            list(self._journal.ledger), self._raw_responses, self._prompt_packets, None
+        )
+        files = {
+            name.removeprefix("authoring/"): payload
+            for name, payload in records.items()
+            if name.endswith((".prompt", ".raw"))
+        }
+        write_request_files(request_files_path(self.package_dir), files)
 
     def _terminal_findings(self, status: str, findings: list[Finding]) -> list[Finding]:
         """Return the findings the terminal record carries for ``status``."""
