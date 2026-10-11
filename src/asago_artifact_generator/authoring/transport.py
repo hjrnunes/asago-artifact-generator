@@ -22,8 +22,63 @@ from .prompt_safety import _endpoint_identity, _endpoint_prompt_paths
 from .response_decode import _provider_field, _provider_response_capture
 
 RETRY_DELAY_SECONDS = 1.0
+# Why a physical request was sent.  The ledger keeps the first attempt as the
+# dispatch record itself and lists later attempts in ``transport_retries``,
+# where only the service-tier fallback spells out its reason.
+FIRST_ATTEMPT = "first_attempt"
+TRANSPORT_RETRY = "transport_retry"
 SERVICE_TIER_FALLBACK_REASON = "service_tier_fallback"
 _sleep = time.sleep
+
+
+class AttemptRefused(Exception):
+    """The request budget refused one more physical request."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"request budget refused the {reason} request")
+        self.reason = reason
+
+
+class RequestBoundary:
+    """The one place a physical model request is sent.
+
+    :meth:`dispatch` asks ``gate`` to reserve the request, records the
+    attempt with its reason, and sends exactly one request through ``send``.
+    Retry and fallback rules decide whether to ask for another dispatch; they
+    never send.  ``gate`` returns False to refuse; it may also raise, and the
+    exception surfaces unchanged.  Without a gate every attempt is allowed.
+    """
+
+    def __init__(
+        self, send: Callable[..., Any], gate: Callable[[str], bool] | None = None
+    ) -> None:
+        self._send = send
+        self._gate = gate
+        self.attempts: list[dict[str, Any]] = []
+
+    def dispatch(
+        self, request: dict[str, Any], reason: str, retry_of: dict[str, Any] | None = None
+    ) -> Any:
+        if self._gate is not None and not self._gate(reason):
+            raise AttemptRefused(reason)
+        self.attempts.append(
+            {"attempt": len(self.attempts) + 1, "reason": reason, "retry_of": retry_of}
+        )
+        if reason == TRANSPORT_RETRY:
+            _sleep(RETRY_DELAY_SECONDS)
+        return self._send(**request)
+
+    def extra_requests(self) -> list[dict[str, Any]]:
+        """Return the attempts after the first as the ledger's ``transport_retries``."""
+
+        return [_ledger_retry(attempt) for attempt in self.attempts[1:]]
+
+
+def _ledger_retry(attempt: dict[str, Any]) -> dict[str, Any]:
+    record: dict[str, Any] = {"attempt": attempt["attempt"], "retry_of": attempt["retry_of"]}
+    if attempt["reason"] != TRANSPORT_RETRY:
+        record["reason"] = attempt["reason"]
+    return record
 
 
 def retryable_failure(error: BaseException) -> dict[str, Any] | None:
