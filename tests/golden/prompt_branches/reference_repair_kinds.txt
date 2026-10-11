@@ -1,0 +1,29 @@
+{
+  "description": "Each option explains one unknown_reference finding: the rejected value, what kind of value it is, and the reference rule for its field from EVIDENCE REFERENCES in the original stage context. Replace the value with a listed reference that supports the same claim, keep a valid scenario lineage or attack-tree node ID in interpretation.source_refs or assumptions[].ref as permitted by that field, move an observation scope to required_observations, or remove the entry when no supplied reference supports it.",
+  "options": [
+    {
+      "field_rule": "Each entry is exactly one citable_references value.",
+      "path": "selected_evidence[0].ref",
+      "rejected_value": "LIN-1",
+      "rejected_value_kind": "provenance_id",
+      "repair": "This is a scenario lineage or attack-tree node ID. It is valid only in interpretation.source_refs or assumptions[].ref; keep it at this field only when that field's rule permits provenance_ids."
+    },
+    {
+      "field_rule": "Each entry is exactly one citable_references value.",
+      "path": "selected_evidence[1].ref",
+      "rejected_value": "tool_calls",
+      "rejected_value_kind": "observation_scope",
+      "repair": "This is an observation scope, not a reference. Declare the capture in required_observations and cite a supplied fact, source handle, or operation:<name> at this field."
+    },
+    {
+      "field_rule": "Each entry is one supplied fact or provenance ID.",
+      "path": "assumptions[0].ref",
+      "rejected_value": "state:missing",
+      "rejected_value_kind": "unlisted",
+      "repair": "This value is not listed in EVIDENCE REFERENCES. Use an exact listed reference, or remove the entry when no supplied reference supports it."
+    }
+  ],
+  "valid_provenance_ids": [
+    "LIN-1"
+  ]
+}

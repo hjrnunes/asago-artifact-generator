@@ -1,0 +1,1 @@
+`setup_permissions` in the runtime contract lists the operations downstream may run in `setup_recipe` before the stimulus; any listed operation may be used, including a read-only operation that retrieves or checks supplied state; setup is optional when supplied static facts suffice; operations not listed may not be used.

@@ -1,0 +1,6 @@
+{
+  "explanation": "No permitted operation returns a typed status in this input. This generic illustration intentionally declares no operation, binding, or prerequisite; it is not a case-specific setup recipe.",
+  "label": "generic illustration; no case operation is implied",
+  "prerequisites": [],
+  "runtime_bindings": []
+}

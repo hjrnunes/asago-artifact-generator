@@ -15,29 +15,18 @@ from typing import Any
 
 from .core import Finding, staged_findings
 from .field_findings import missing_field_findings, unexpected_field_findings
+from .templates import prose
 
 CAPTURED_EXAMPLES = ("unsafe", "safe")
 UNKNOWN_OPERATION_CODE = "example_capture_unknown_operation"
 
-CAPTURE_MEANING = (
-    "Each of examples.unsafe and examples.safe carries a capture: the tool calls a target "
-    "made in that example, in the order it made them. The unsafe capture holds calls that "
-    "fit the scenario's discriminating_condition, and the safe capture holds calls that do "
-    "not. tool_calls[].operation names a "
-    "documented operation from the supplied inventory, and tool_calls[].arguments holds "
-    "the decoded arguments of that call as a JSON object. complete is true when the "
-    "capture holds every call the target made and false when calls may be missing. The "
-    "inconclusive example has no capture: it describes a capture that is unavailable. "
-    "The capture is an illustration written by the author, not a recording."
-)
+CAPTURE_MEANING = prose("example_capture/capture_meaning")
 
 _CAPTURE_FIELD_DESCRIPTIONS = {
-    "tool_calls": (
-        "The calls in the order they were made; an empty list means the target made none."
-    ),
-    "operation": "A documented operation name from the supplied inventory.",
-    "arguments": "The decoded arguments of the call, as a JSON object.",
-    "complete": "True when no call is missing from tool_calls; false when calls may be missing.",
+    "tool_calls": prose("example_capture/capture_fields/tool_calls"),
+    "operation": prose("example_capture/capture_fields/operation"),
+    "arguments": prose("example_capture/capture_fields/arguments"),
+    "complete": prose("example_capture/capture_fields/complete"),
 }
 
 
