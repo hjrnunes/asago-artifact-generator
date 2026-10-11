@@ -103,11 +103,13 @@ def retryable_failure(error: BaseException) -> dict[str, Any] | None:
 class PrivateModelAuthoringTransport:
     """Explicit OpenAI-compatible private authoring client.
 
-    The SDK's own retries are off (``max_retries = 0``).  The transport makes
-    one retry of its own after a transport error (see
-    :func:`retryable_failure`); ``last_retries`` records it for the caller, and
-    ``retry_gate`` lets the caller refuse it, for example when the request
-    budget has no request left.
+    The SDK's own retries are off (``max_retries = 0``).  Every physical
+    request goes through one :class:`RequestBoundary`: the first attempt, the
+    one retry after a transport error (see :func:`retryable_failure`), and the
+    service-tier fallback after a rate limit.  ``attempt_gate`` receives the
+    reason of each request and lets the caller reserve or refuse it, for
+    example when the request budget has no request left.  ``last_retries``
+    lists the requests after the first in the ledger's shape.
     """
 
     max_retries = 0
@@ -165,8 +167,7 @@ class PrivateModelAuthoringTransport:
         self.strict_json_schema = strict_json_schema
         self.timeout = timeout
         self.last_controls: dict[str, Any] | None = None
-        self.last_retries: list[dict[str, Any]] = []
-        self.retry_gate: Callable[[], bool] | None = None
+        self.attempt_gate: Callable[[str], bool] | None = None
         self.extra_body = deepcopy(extra_body) if extra_body is not None else None
         self.review_extra_body = (
             deepcopy(review_extra_body) if review_extra_body is not None else None
@@ -183,6 +184,7 @@ class PrivateModelAuthoringTransport:
         if timeout is not None:
             client_options["timeout"] = timeout
         self._client = client if client is not None else OpenAI(**client_options)
+        self._boundary = self._new_boundary()
 
     def extra_body_for(self, packet: PromptPacket) -> dict[str, Any] | None:
         """Return the extra_body controls for this packet's role."""
@@ -220,8 +222,19 @@ class PrivateModelAuthoringTransport:
             return max(filled, self.max_completion_tokens)
         return self.max_completion_tokens
 
+    def _new_boundary(self) -> RequestBoundary:
+        """Return the boundary of one call: the only sender of the SDK's create request."""
+
+        return RequestBoundary(self._client.chat.completions.create, self.attempt_gate)
+
+    @property
+    def last_retries(self) -> list[dict[str, Any]]:
+        """The requests after the first of the latest call, as the ledger records them."""
+
+        return self._boundary.extra_requests()
+
     def complete(self, packet: PromptPacket) -> TransportResponse:
-        self.last_retries = []
+        self._boundary = self._new_boundary()
         self.preflight_context_budget(packet)
         extra_body = self.extra_body_for(packet)
         max_completion_tokens = self.max_completion_tokens_for(packet)
@@ -261,7 +274,7 @@ class PrivateModelAuthoringTransport:
         extra_body: dict[str, Any] | None,
         max_completion_tokens: int | None,
     ) -> Any:
-        """Send one request, retrying once on the fallback tier after a rate limit."""
+        """Dispatch the request; after a rate limit, ask once for the fallback tier."""
 
         self.last_controls = self._request_controls(
             extra_body=extra_body,
@@ -270,56 +283,57 @@ class PrivateModelAuthoringTransport:
             fallback_used=False,
         )
         try:
-            return self._send(request)
+            return self._send(request, FIRST_ATTEMPT)
         except self._rate_limit_error_type() as rate_limit:
             if self.service_tier is None or self.service_tier_fallback is None:
                 raise
-            if not self._retry_allowed():
-                raise
-            self._record_extra_request(
-                {"type": type(rate_limit).__name__, "status_code": 429},
-                reason=SERVICE_TIER_FALLBACK_REASON,
-            )
-            fallback_request = deepcopy(request)
-            fallback_request["service_tier"] = self.service_tier_fallback
-            self.last_controls = self._request_controls(
-                extra_body=extra_body,
-                max_completion_tokens=max_completion_tokens,
-                service_tier=fallback_request["service_tier"],
-                fallback_used=True,
-            )
-            return self._send(fallback_request)
+            return self._fall_back(request, rate_limit, extra_body, max_completion_tokens)
 
-    def _send(self, request: dict[str, Any]) -> Any:
-        """Send one request; after a transport error, retry it once and record it.
+    def _fall_back(
+        self,
+        request: dict[str, Any],
+        rate_limit: BaseException,
+        extra_body: dict[str, Any] | None,
+        max_completion_tokens: int | None,
+    ) -> Any:
+        """Ask for the fallback-tier request; a refusal surfaces the rate limit."""
 
-        The SDK client has retries off, so each attempt reaches this method.
-        ``retry_gate`` may refuse the retry, in which case the first error
-        surfaces unchanged.
-        """
+        sent_controls = self.last_controls
+        fallback_request = deepcopy(request)
+        fallback_request["service_tier"] = self.service_tier_fallback
+        self.last_controls = self._request_controls(
+            extra_body=extra_body,
+            max_completion_tokens=max_completion_tokens,
+            service_tier=fallback_request["service_tier"],
+            fallback_used=True,
+        )
+        retry_of = {"type": type(rate_limit).__name__, "status_code": 429}
+        try:
+            return self._send(fallback_request, SERVICE_TIER_FALLBACK_REASON, retry_of)
+        except AttemptRefused:
+            self.last_controls = sent_controls
+            raise rate_limit from None
+
+    def _send(
+        self, request: dict[str, Any], reason: str, retry_of: dict[str, Any] | None = None
+    ) -> Any:
+        """Dispatch one request; after a transport error, ask once for a retry."""
 
         try:
-            return self._client.chat.completions.create(**request)
+            return self._boundary.dispatch(request, reason, retry_of)
         except Exception as error:
             failure = retryable_failure(error)
-            if failure is None or not self._retry_allowed():
+            if failure is None:
                 raise
-        self._record_extra_request(failure)
-        _sleep(RETRY_DELAY_SECONDS)
-        return self._client.chat.completions.create(**request)
+            return self._retry(request, failure, error)
 
-    def _retry_allowed(self) -> bool:
-        """Reserve one more physical request; every request after the first asks here."""
+    def _retry(self, request: dict[str, Any], failure: dict[str, Any], error: Exception) -> Any:
+        """Ask for the one transport retry; a refusal surfaces the first error."""
 
-        return self.retry_gate is None or self.retry_gate()
-
-    def _record_extra_request(self, failure: dict[str, Any], *, reason: str | None = None) -> None:
-        """Record a request beyond the first; only a non-retry carries its ``reason``."""
-
-        record: dict[str, Any] = {"attempt": len(self.last_retries) + 2, "retry_of": failure}
-        if reason is not None:
-            record["reason"] = reason
-        self.last_retries.append(record)
+        try:
+            return self._boundary.dispatch(request, TRANSPORT_RETRY, failure)
+        except AttemptRefused:
+            raise error from None
 
     def _request_controls(
         self,
