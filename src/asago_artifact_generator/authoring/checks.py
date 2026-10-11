@@ -2184,8 +2184,10 @@ def _normalize_prerequisite_binding_consumers(
         if not isinstance(prerequisite, dict):
             continue
         binding_name = prerequisite.get("binding")
+        if not isinstance(binding_name, str):
+            continue
         declaration = by_name.get(binding_name)
-        if not isinstance(binding_name, str) or not isinstance(declaration, dict):
+        if not isinstance(declaration, dict):
             continue
         required_consumer = f"prerequisites.{binding_name}"
         consumers = declaration["consumers"]
