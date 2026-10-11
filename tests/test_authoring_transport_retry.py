@@ -12,7 +12,12 @@ import pytest
 
 from asago_artifact_generator.authoring import transport as transport_module
 from asago_artifact_generator.authoring.policy import AuthoringBudget
-from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
+from asago_artifact_generator.authoring.transport import (
+    FIRST_ATTEMPT,
+    SERVICE_TIER_FALLBACK_REASON,
+    TRANSPORT_RETRY,
+    PrivateModelAuthoringTransport,
+)
 
 from .support import (
     FakeOpenAI,
@@ -144,7 +149,7 @@ def test_the_service_tier_fallback_keeps_its_own_rule_and_a_5xx_on_it_retries() 
 def test_a_refusing_gate_stops_the_tier_fallback_and_surfaces_the_rate_limit() -> None:
     client = scripted_client([status_error(429), chat_completion()])
     transport = _transport(client, service_tier="flex", service_tier_fallback="default")
-    transport.retry_gate = lambda: False
+    transport.attempt_gate = lambda reason: reason == FIRST_ATTEMPT
 
     with pytest.raises(openai.RateLimitError):
         transport.complete(prompt_packet())
@@ -154,14 +159,14 @@ def test_a_refusing_gate_stops_the_tier_fallback_and_surfaces_the_rate_limit() -
 
 
 def test_the_tier_fallback_is_recorded_with_its_reason_and_asks_the_gate_once() -> None:
-    asked: list[bool] = []
+    asked: list[str] = []
     client = scripted_client([status_error(429), chat_completion()])
     transport = _transport(client, service_tier="flex", service_tier_fallback="default")
-    transport.retry_gate = lambda: asked.append(True) or True
+    transport.attempt_gate = lambda reason: asked.append(reason) or True
 
     transport.complete(prompt_packet())
 
-    assert asked == [True]
+    assert asked == [FIRST_ATTEMPT, SERVICE_TIER_FALLBACK_REASON]
     assert transport.last_retries == [
         {
             "attempt": 2,
@@ -172,14 +177,14 @@ def test_the_tier_fallback_is_recorded_with_its_reason_and_asks_the_gate_once() 
 
 
 def test_a_retry_after_the_fallback_is_the_third_attempt_and_is_gated_too() -> None:
-    asked: list[bool] = []
+    asked: list[str] = []
     client = scripted_client([status_error(429), status_error(502), chat_completion()])
     transport = _transport(client, service_tier="flex", service_tier_fallback="default")
-    transport.retry_gate = lambda: asked.append(True) or True
+    transport.attempt_gate = lambda reason: asked.append(reason) or True
 
     transport.complete(prompt_packet())
 
-    assert asked == [True, True]
+    assert asked == [FIRST_ATTEMPT, SERVICE_TIER_FALLBACK_REASON, TRANSPORT_RETRY]
     assert [retry["attempt"] for retry in transport.last_retries] == [2, 3]
 
 
@@ -220,7 +225,7 @@ def test_sdk_retries_stay_off_and_the_controls_say_so() -> None:
 def test_a_refusing_gate_stops_the_retry_and_surfaces_the_first_error() -> None:
     client = scripted_client([connection_error(), chat_completion()])
     transport = _transport(client)
-    transport.retry_gate = lambda: False
+    transport.attempt_gate = lambda reason: reason == FIRST_ATTEMPT
 
     with pytest.raises(openai.APIConnectionError):
         transport.complete(prompt_packet())
@@ -229,15 +234,15 @@ def test_a_refusing_gate_stops_the_retry_and_surfaces_the_first_error() -> None:
     assert transport.last_retries == []
 
 
-def test_an_allowing_gate_is_asked_once_per_retry() -> None:
-    asked: list[bool] = []
+def test_an_allowing_gate_is_asked_once_per_physical_request() -> None:
+    asked: list[str] = []
     client = scripted_client([connection_error(), chat_completion()])
     transport = _transport(client)
-    transport.retry_gate = lambda: asked.append(True) or True
+    transport.attempt_gate = lambda reason: asked.append(reason) or True
 
     transport.complete(prompt_packet())
 
-    assert asked == [True]
+    assert asked == [FIRST_ATTEMPT, TRANSPORT_RETRY]
 
 
 # --- orchestrator: budget, ledger, evidence, package --------------------------------

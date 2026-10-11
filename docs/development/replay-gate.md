@@ -116,22 +116,24 @@ in `*.failure-evidence.json` (see Limits).
   the same failure. The gate compares the measured `failure.elapsed_ms` of
   each failed dispatch by presence and type only, because a replayed failure
   returns at once.
-- The gate replays a dispatch recorded with a transport retry. The dispatch
-  holds `transport_retries`, a list with `{"attempt": 2, "retry_of":
-  {"type": <error class>, "status_code": <HTTP status or null>}}`. For each
-  entry the replay client first raises that error (an `openai`
-  `APIConnectionError` or `InternalServerError`) for the recorded request,
-  then serves the recorded response, so the transport retries for real. The
-  retry waits the transport's fixed delay (at most 2 seconds). A dispatch
-  whose retry also failed ends in an unavailable response and still does not
-  replay. Recordings without a retry replay exactly as before. A service-tier
-  fallback is recorded in the same list with `"reason": "service_tier_fallback"`
-  and a `RateLimitError` 429 as `retry_of`; the gate does not yet replay it,
-  because `scripts/replay_gate.py` rejects a recorded `RateLimitError` (no
-  current recording has one).
+- The gate replays a dispatch recorded with a transport retry, a service-tier
+  fallback, or both. The dispatch holds `transport_retries`, one entry per
+  physical request after the first: `{"attempt": <n>, "retry_of": {"type":
+  <error class>, "status_code": <HTTP status or null>}}`, plus `"reason":
+  "service_tier_fallback"` for the fallback. For each entry the replay client
+  first raises that error for the recorded request (an `openai`
+  `APIConnectionError` or `InternalServerError` before a retry, a
+  `RateLimitError` 429 before the fallback), then serves the recorded
+  response, so the transport retries and falls back for real. A retry waits
+  the transport's fixed delay (at most 2 seconds). The gate rejects a 429
+  without the fallback reason, the fallback reason on any other failure, and
+  any other reason, because the transport records none of them. A dispatch
+  whose last request also failed ends in an unavailable response and still
+  does not replay. Recordings without a retry or fallback replay exactly as
+  before.
 - The replay starts at the SDK client. It does not cover the `openai` SDK
-  itself or the service-tier fallback after a rate limit. It replays the
-  transport retry from the recording (see above), not from a live error.
+  itself. It replays the transport retry and the service-tier fallback from
+  the recording (see above), not from a live error.
 - Recordings made before artifact-package-v3 no longer replay. Their Call 2
   prompts asked for detector Python, their packages carry `detector.py` and a
   `detector_interface`, and their items read scenario-handoff-v1 or v2 input,

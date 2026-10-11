@@ -507,52 +507,65 @@ class AuthoringOrchestrator:
         context_preflight = getattr(self.transport, "preflight_context_budget", None)
         if callable(context_preflight):
             context_preflight(packet)
-        # Reserve before creating any ledger or evidence record: a budget stop
-        # happens before dispatch, so it leaves no dispatch event behind.
         role = "reviewer" if packet.stage in _REVIEW_STAGES else "author"
-        self.budget.reserve(self.task_id, role=role)
-        dispatch_index = len(self._journal.dispatches()) + 1
-        self._journal.append(
-            BudgetRecorded(self.budget.snapshot(self.task_id)),
-            self._dispatch_opened(packet, dispatch_index, role),
-        )
-        self._journal.flush()
+        opened: list[int] = []
         try:
-            response = self._complete_with_retry_accounting(packet, role)
+            response = self._complete_through_boundary(packet, role, opened)
         except Exception:
-            self._record_transport_failure_controls()
+            if opened:
+                self._record_transport_failure_controls()
             raise
-        self._record_dispatch_response(dispatch_index, response)
+        self._record_dispatch_response(opened[0], response)
         self._journal.flush()
         return response
 
-    def _complete_with_retry_accounting(
-        self, packet: PromptPacket, role: str
+    def _complete_through_boundary(
+        self, packet: PromptPacket, role: str, opened: list[int]
     ) -> TransportResponse | str | bytes:
-        """Complete a request; a transport retry reserves budget and lands on the dispatch.
+        """Complete one logical request; every physical request reserves budget first.
 
-        A transport that makes the one retry after a transport error exposes
-        ``retry_gate`` and ``last_retries``.  The retry is another request:
-        it reserves the budget the first request reserved, and without budget
-        it does not happen.  A transport without those attributes never retries.
+        A transport with ``attempt_gate`` asks it before each physical request
+        (first attempt, transport retry, service-tier fallback) and lists the
+        requests after the first in ``last_retries``.  A transport without the
+        gate sends one request per call, reserved here.  The first reservation
+        opens the dispatch record and appends its index to *opened*.
         """
 
-        has_gate = hasattr(self.transport, "retry_gate")
-        if has_gate:
-            self.transport.retry_gate = lambda: self._reserve_transport_retry(role)
+        if not hasattr(self.transport, "attempt_gate"):
+            self._reserve_physical_request(packet, role, opened)
+            return self.transport.complete(packet)
+        self.transport.attempt_gate = lambda _reason: self._reserve_physical_request(
+            packet, role, opened
+        )
         try:
             return self.transport.complete(packet)
         finally:
-            if has_gate:
-                self.transport.retry_gate = None
-            for retry in getattr(self.transport, "last_retries", None) or []:
+            self.transport.attempt_gate = None
+            for retry in self.transport.last_retries:
                 self._journal.append(
                     TransportRetried(retry["attempt"], retry["retry_of"], retry.get("reason"))
                 )
 
-    def _reserve_transport_retry(self, role: str) -> bool:
-        """Reserve one request for a transport retry; report whether the budget allowed it."""
+    def _reserve_physical_request(
+        self, packet: PromptPacket, role: str, opened: list[int]
+    ) -> bool:
+        """Reserve one physical request; report whether a request after the first may go.
 
+        The first request reserves before any ledger or evidence record
+        exists, so a budget stop raises and leaves no dispatch event behind;
+        its reservation then opens the dispatch.  A later request that the
+        budget refuses returns False.
+        """
+
+        if not opened:
+            self.budget.reserve(self.task_id, role=role)
+            opened.append(len(self._journal.dispatches()) + 1)
+            self._journal.append(
+                BudgetRecorded(self.budget.snapshot(self.task_id)),
+                self._dispatch_opened(packet, opened[0], role),
+            )
+            self._journal.flush()
+            return True
         try:
             self.budget.reserve(self.task_id, role=role)
         except BudgetExceeded:
