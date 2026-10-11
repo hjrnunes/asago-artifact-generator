@@ -1,0 +1,293 @@
+{
+ "allowances": {
+  "artifact": 1,
+  "plan": 0
+ },
+ "attempts": [
+  {
+   "attempt_index": 1,
+   "candidate_sha256": "99f2c68f9e5542890d6e1b56d72ccabae9deb046cab3a7f7b7b599844036f981",
+   "correction_index": 0,
+   "dispatch_index": 1,
+   "failure": {
+    "code": "established_trigger_not_observation",
+    "detail": "selected_evidence[0] has role 'established_trigger' but its ref 'state:authenticated_customer_id' is not a supplied result observation. An established trigger cites the observation that already shows the triggering result before the run; supplied observations: observation:retrieve_policy:0, observation:retrieve_policy:1, observation:retrieve_policy:2, observation:retrieve_policy:3, observation:get_account_details:4, observation:lookup_order:5, observation:lookup_order:6, observation:lookup_order:7, observation:lookup_order:8",
+    "phase": "post_response"
+   },
+   "findings": [
+    {
+     "code": "established_trigger_not_observation",
+     "detail": "selected_evidence[0] has role 'established_trigger' but its ref 'state:authenticated_customer_id' is not a supplied result observation. An established trigger cites the observation that already shows the triggering result before the run; supplied observations: observation:retrieve_policy:0, observation:retrieve_policy:1, observation:retrieve_policy:2, observation:retrieve_policy:3, observation:get_account_details:4, observation:lookup_order:5, observation:lookup_order:6, observation:lookup_order:7, observation:lookup_order:8",
+     "path": "selected_evidence[0].role",
+     "stage": "plan"
+    }
+   ],
+   "model_identity": {
+    "profile_alias": "gemma4-oc-65k",
+    "requested_model": "gemma-4-26b-a4b-it",
+    "returned_model": {
+     "availability": "available",
+     "value": "gemma-4-26b-a4b-it"
+    }
+   },
+   "role": "author",
+   "stage": "call1",
+   "stage_attempt_index": 1,
+   "stage_status": "review_unavailable",
+   "task_id": "SCN-030",
+   "terminal_status": "review_unavailable",
+   "transformation": "outer_fence_removed",
+   "transformations": [
+    {
+     "binding": "target_order_id",
+     "canonical_selector": "value.ORD-201.record_key",
+     "canonical_source_ref": "facts:state:orders:records",
+     "original_selector": "value",
+     "original_source_ref": "facts:state:orders:records:ORD-201:record_key",
+     "transformation": "binding_canonicalized"
+    },
+    {
+     "binding": "target_order_id",
+     "canonical_consumers": [
+      "stimulus.user_text",
+      "prerequisites.target_order_id"
+     ],
+     "consumer": "prerequisites.target_order_id",
+     "original_consumers": [
+      "stimulus.user_text"
+     ],
+     "prerequisite_index": 0,
+     "prerequisite_name": "target_order_is_ord201",
+     "transformation": "binding_consumer_added"
+    }
+   ],
+   "usage": {
+    "availability": "available",
+    "value": {
+     "completion_tokens": 817,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     },
+     "prompt_tokens": 20636,
+     "total_tokens": 21453
+    }
+   }
+  },
+  {
+   "allowance": "correction",
+   "attempt_index": 1,
+   "candidate_sha256": "dd6f5f223979c0d64acb0e1a9cea749ad56f31fcdb3ce9149083ab091b021518",
+   "correction_index": 1,
+   "dispatch_index": 2,
+   "failed_stage": "call1",
+   "findings": [],
+   "model_identity": {
+    "profile_alias": "gemma4-oc-65k",
+    "requested_model": "gemma-4-26b-a4b-it",
+    "returned_model": {
+     "availability": "available",
+     "value": "gemma-4-26b-a4b-it"
+    }
+   },
+   "role": "author",
+   "stage": "correction",
+   "stage_attempt_index": 1,
+   "stage_status": "review_unavailable",
+   "task_id": "SCN-030",
+   "terminal_status": "review_unavailable",
+   "transformation": "outer_fence_removed",
+   "transformations": [
+    {
+     "binding": "target_order_id",
+     "canonical_selector": "value.ORD-201.record_key",
+     "canonical_source_ref": "facts:state:orders:records",
+     "original_selector": "value",
+     "original_source_ref": "facts:state:orders:records:ORD-201:record_key",
+     "transformation": "binding_canonicalized"
+    },
+    {
+     "binding": "target_order_id",
+     "canonical_consumers": [
+      "stimulus.user_text",
+      "prerequisites.target_order_id"
+     ],
+     "consumer": "prerequisites.target_order_id",
+     "original_consumers": [
+      "stimulus.user_text"
+     ],
+     "prerequisite_index": 0,
+     "prerequisite_name": "target_order_is_ord201",
+     "transformation": "binding_consumer_added"
+    }
+   ],
+   "usage": {
+    "availability": "available",
+    "value": {
+     "completion_tokens": 777,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     },
+     "prompt_tokens": 19847,
+     "total_tokens": 20624
+    }
+   }
+  },
+  {
+   "attempt_index": 1,
+   "correction_index": 0,
+   "dispatch_index": 3,
+   "failure": {
+    "code": "review_unavailable",
+    "detail": "review response contains content outside its JSON fence",
+    "phase": "post_response"
+   },
+   "findings": [
+    {
+     "code": "trailing_content",
+     "detail": "review response contains content outside its JSON fence",
+     "path": "review",
+     "stage": "plan"
+    }
+   ],
+   "model_identity": {
+    "profile_alias": "gemma4-oc-65k",
+    "requested_model": "gemma-4-26b-a4b-it",
+    "returned_model": {
+     "availability": "available",
+     "value": "gemma-4-26b-a4b-it"
+    }
+   },
+   "review": {
+    "candidate_bytes_sha256": "e46cf1ada866c0769da77daed2708ac9be254da0d906af7fc21f45cc076829c2",
+    "configuration_sha256": "b719838f59601034e2211ed5d24cf18a7f30b835b73b48f3bab70d2531ba104b",
+    "contract_sha256": "5775652f8b137fad5e230a2c18e230516f30d4c12a5f0adbe84fae9865912f5d",
+    "prompt_sha256": "4e714473f5ff554519fb0cc94ea17011bb32660aa4f53136f4ac0c8379e74709",
+    "prompt_version": "authoring-plan-review-v20",
+    "raw_response_bytes": 10899,
+    "raw_response_key": "dispatch:3",
+    "raw_response_sha256": "37273eb8b10b6fa6c1f39a8d1b0d0ee8f17eec823a1a22f0fa1a7bf365585e90",
+    "reviewed_candidate_sha256": "e46cf1ada866c0769da77daed2708ac9be254da0d906af7fc21f45cc076829c2",
+    "reviewed_input_sha256": "edafddcda413a5ccae5a3c5a463db0c11d0deaac28abed654d9896261c84fb20",
+    "status": "unavailable"
+   },
+   "reviewed_candidate_sha256": "e46cf1ada866c0769da77daed2708ac9be254da0d906af7fc21f45cc076829c2",
+   "reviewed_input_sha256": "edafddcda413a5ccae5a3c5a463db0c11d0deaac28abed654d9896261c84fb20",
+   "role": "reviewer",
+   "stage": "plan_review",
+   "stage_attempt_index": 1,
+   "stage_status": "review_unavailable",
+   "task_id": "SCN-030",
+   "terminal_status": "review_unavailable",
+   "usage": {
+    "availability": "available",
+    "value": {
+     "completion_tokens": 2700,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     },
+     "prompt_tokens": 21044,
+     "total_tokens": 23744
+    }
+   }
+  }
+ ],
+ "budget": {
+  "aggregate_limit": 32,
+  "aggregate_remaining": 29,
+  "aggregate_spent": 3,
+  "author_correction_limit": 6,
+  "author_correction_remaining": 4,
+  "author_correction_spent": 2,
+  "review_limit": 6,
+  "review_remaining": 5,
+  "review_spent": 1,
+  "task_id": "SCN-030",
+  "task_limit": 12,
+  "task_remaining": 9,
+  "task_spent": 3
+ },
+ "findings": [
+  {
+   "code": "trailing_content",
+   "detail": "review response contains content outside its JSON fence",
+   "path": "review",
+   "stage": "plan"
+  }
+ ],
+ "package_path": "SCN-030",
+ "policy": {
+  "artifact_max_corrections": 1,
+  "artifact_max_review_revisions": 1,
+  "max_retries": 0,
+  "plan_max_corrections": 1,
+  "plan_max_review_revisions": 1,
+  "review_artifact": true,
+  "review_model_profile": "gemma4-oc-65k",
+  "review_plan": true,
+  "review_temperature": 0
+ },
+ "review_revision_allowances": {
+  "artifact": 1,
+  "plan": 1
+ },
+ "review_status": {
+  "artifact": "not_requested",
+  "plan": "unavailable"
+ },
+ "schema_version": "authoring-failure-evidence-v2",
+ "status": "review_unavailable",
+ "task_id": "SCN-030",
+ "terminal": {
+  "attempt_index": 2,
+  "reason": "trailing_content",
+  "stage": "plan"
+ },
+ "transformations": [
+  "outer_fence_removed",
+  {
+   "binding": "target_order_id",
+   "canonical_selector": "value.ORD-201.record_key",
+   "canonical_source_ref": "facts:state:orders:records",
+   "original_selector": "value",
+   "original_source_ref": "facts:state:orders:records:ORD-201:record_key",
+   "transformation": "binding_canonicalized"
+  },
+  {
+   "binding": "target_order_id",
+   "canonical_consumers": [
+    "stimulus.user_text",
+    "prerequisites.target_order_id"
+   ],
+   "consumer": "prerequisites.target_order_id",
+   "original_consumers": [
+    "stimulus.user_text"
+   ],
+   "prerequisite_index": 0,
+   "prerequisite_name": "target_order_is_ord201",
+   "transformation": "binding_consumer_added"
+  },
+  "outer_fence_removed",
+  {
+   "binding": "target_order_id",
+   "canonical_selector": "value.ORD-201.record_key",
+   "canonical_source_ref": "facts:state:orders:records",
+   "original_selector": "value",
+   "original_source_ref": "facts:state:orders:records:ORD-201:record_key",
+   "transformation": "binding_canonicalized"
+  },
+  {
+   "binding": "target_order_id",
+   "canonical_consumers": [
+    "stimulus.user_text",
+    "prerequisites.target_order_id"
+   ],
+   "consumer": "prerequisites.target_order_id",
+   "original_consumers": [
+    "stimulus.user_text"
+   ],
+   "prerequisite_index": 0,
+   "prerequisite_name": "target_order_is_ord201",
+   "transformation": "binding_consumer_added"
+  }
+ ]
+}

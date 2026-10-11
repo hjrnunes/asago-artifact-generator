@@ -619,6 +619,35 @@ is the exception type and the redacted message cut at 200 characters, and its
 A sidecar that still reads `in_progress` after the process exited means the
 run stopped without an `Exception` (a kill or an interrupt) or the failed
 sidecar write itself raised.
+Every reviewer attempt's `review` record also keeps `reviewed_candidate`: the
+plan or artifact candidate the reviewer read, whose canonical JSON hashes to
+`reviewed_candidate_sha256`. The ledger, `authoring/reviews.json`, and the
+package manifest keep no copy.
+A scenario that ends without a package after at least one request also keeps
+its exact requests beside its evidence, in `<package>.authoring/`, as
+`NN-<stage>.prompt` and `NN-<stage>.raw` files; a package keeps the same files
+in its own `authoring/` directory.
+
+### Author report
+
+`report` renders one offline HTML page about an author output directory. The
+page answers how many scenarios became runnable tests and why the rest failed:
+
+```bash
+uv run asago-artifact-generator report <author-output> \
+  --scenarios <generate-output>/scenarios --out <author-output>/report
+```
+
+It writes `index.html` and `stage-summary.json` (`stage-summary-v1`, checked
+against its schema and the page's numbers). `--out` defaults to
+`<author-output>/report`. The page reads only saved files: failure evidence,
+packages, request files, and the scenario inputs; it sends no requests. Each
+failed scenario shows its terminal reason with a one-line meaning from
+`report/reasons.py`, its cause, the signals that repeat across requests, and
+every request in order. A before-and-after panel appears only when both
+reviewed candidates hash to their recorded digests. The page links to the
+generate report when `<scenarios>/../report/index.html` exists. The HTML kit
+under `report_kit/` mirrors orch's `report-kit` contract byte for byte.
 
 ### Runtime bindings
 

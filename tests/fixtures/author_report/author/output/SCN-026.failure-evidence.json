@@ -1,0 +1,167 @@
+{
+ "allowances": {
+  "artifact": 1,
+  "plan": 0
+ },
+ "attempts": [
+  {
+   "attempt_index": 1,
+   "candidate_sha256": "d907eff5777a56c4de5589b83ece3db973f4fa8164bc07b98ba819c94cc3edd5",
+   "correction_index": 0,
+   "dispatch_index": 1,
+   "failure": {
+    "code": "unknown_reference",
+    "detail": "unknown_reference: state:orders:records:ORD-201:customer_id",
+    "phase": "post_response"
+   },
+   "findings": [
+    {
+     "code": "unknown_reference",
+     "detail": "unknown_reference: state:orders:records:ORD-201:customer_id",
+     "path": "selected_evidence[0]",
+     "stage": "plan"
+    },
+    {
+     "code": "unknown_binding",
+     "detail": "prerequisite binding is not declared: target_customer_id; bare evidence IDs and bindings.<name> selectors are not executable",
+     "path": "prerequisites[0].binding",
+     "stage": "plan"
+    },
+    {
+     "code": "established_trigger_not_observation",
+     "detail": "selected_evidence[0] has role 'established_trigger' but its ref 'state:orders:records:ORD-201:customer_id' is not a supplied result observation. An established trigger cites the observation that already shows the triggering result before the run; supplied observations: observation:retrieve_policy:0, observation:retrieve_policy:1, observation:retrieve_policy:2, observation:retrieve_policy:3, observation:get_account_details:4, observation:lookup_order:5, observation:lookup_order:6, observation:lookup_order:7, observation:lookup_order:8",
+     "path": "selected_evidence[0].role",
+     "stage": "plan"
+    }
+   ],
+   "model_identity": {
+    "profile_alias": "gemma4-oc-65k",
+    "requested_model": "gemma-4-26b-a4b-it",
+    "returned_model": {
+     "availability": "available",
+     "value": "gemma-4-26b-a4b-it"
+    }
+   },
+   "role": "author",
+   "stage": "call1",
+   "stage_attempt_index": 1,
+   "stage_status": "unresolved",
+   "task_id": "SCN-026",
+   "terminal_status": "unresolved",
+   "transformation": "outer_fence_removed",
+   "usage": {
+    "availability": "available",
+    "value": {
+     "completion_tokens": 671,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     },
+     "prompt_tokens": 21105,
+     "total_tokens": 21776
+    }
+   }
+  },
+  {
+   "allowance": "correction",
+   "attempt_index": 1,
+   "candidate_sha256": "7ebc6fbd940474e8297e62952cb10d1d59cb45efbc4a2c08fa1c5984537cf76f",
+   "correction_index": 1,
+   "dispatch_index": 2,
+   "failed_stage": "call1",
+   "failure": {
+    "code": "established_trigger_not_observation",
+    "detail": "selected_evidence[0] has role 'established_trigger' but its ref 'state:orders' is not a supplied result observation. An established trigger cites the observation that already shows the triggering result before the run; supplied observations: observation:retrieve_policy:0, observation:retrieve_policy:1, observation:retrieve_policy:2, observation:retrieve_policy:3, observation:get_account_details:4, observation:lookup_order:5, observation:lookup_order:6, observation:lookup_order:7, observation:lookup_order:8",
+    "phase": "post_response"
+   },
+   "findings": [
+    {
+     "code": "established_trigger_not_observation",
+     "detail": "selected_evidence[0] has role 'established_trigger' but its ref 'state:orders' is not a supplied result observation. An established trigger cites the observation that already shows the triggering result before the run; supplied observations: observation:retrieve_policy:0, observation:retrieve_policy:1, observation:retrieve_policy:2, observation:retrieve_policy:3, observation:get_account_details:4, observation:lookup_order:5, observation:lookup_order:6, observation:lookup_order:7, observation:lookup_order:8",
+     "path": "selected_evidence[0].role",
+     "stage": "plan"
+    }
+   ],
+   "model_identity": {
+    "profile_alias": "gemma4-oc-65k",
+    "requested_model": "gemma-4-26b-a4b-it",
+    "returned_model": {
+     "availability": "available",
+     "value": "gemma-4-26b-a4b-it"
+    }
+   },
+   "role": "author",
+   "stage": "correction",
+   "stage_attempt_index": 1,
+   "stage_status": "unresolved",
+   "task_id": "SCN-026",
+   "terminal_status": "unresolved",
+   "transformation": "outer_fence_removed",
+   "usage": {
+    "availability": "available",
+    "value": {
+     "completion_tokens": 763,
+     "completion_tokens_details": {
+      "reasoning_tokens": 0
+     },
+     "prompt_tokens": 21907,
+     "total_tokens": 22670
+    }
+   }
+  }
+ ],
+ "budget": {
+  "aggregate_limit": 32,
+  "aggregate_remaining": 30,
+  "aggregate_spent": 2,
+  "author_correction_limit": 6,
+  "author_correction_remaining": 4,
+  "author_correction_spent": 2,
+  "review_limit": 6,
+  "review_remaining": 6,
+  "review_spent": 0,
+  "task_id": "SCN-026",
+  "task_limit": 12,
+  "task_remaining": 10,
+  "task_spent": 2
+ },
+ "findings": [
+  {
+   "code": "established_trigger_not_observation",
+   "detail": "selected_evidence[0] has role 'established_trigger' but its ref 'state:orders' is not a supplied result observation. An established trigger cites the observation that already shows the triggering result before the run; supplied observations: observation:retrieve_policy:0, observation:retrieve_policy:1, observation:retrieve_policy:2, observation:retrieve_policy:3, observation:get_account_details:4, observation:lookup_order:5, observation:lookup_order:6, observation:lookup_order:7, observation:lookup_order:8",
+   "path": "selected_evidence[0].role",
+   "stage": "plan"
+  }
+ ],
+ "package_path": "SCN-026",
+ "policy": {
+  "artifact_max_corrections": 1,
+  "artifact_max_review_revisions": 1,
+  "max_retries": 0,
+  "plan_max_corrections": 1,
+  "plan_max_review_revisions": 1,
+  "review_artifact": true,
+  "review_model_profile": "gemma4-oc-65k",
+  "review_plan": true,
+  "review_temperature": 0
+ },
+ "review_revision_allowances": {
+  "artifact": 1,
+  "plan": 1
+ },
+ "review_status": {
+  "artifact": "not_requested",
+  "plan": "not_requested"
+ },
+ "schema_version": "authoring-failure-evidence-v2",
+ "status": "unresolved",
+ "task_id": "SCN-026",
+ "terminal": {
+  "attempt_index": 1,
+  "reason": "established_trigger_not_observation",
+  "stage": "plan"
+ },
+ "transformations": [
+  "outer_fence_removed",
+  "outer_fence_removed"
+ ]
+}

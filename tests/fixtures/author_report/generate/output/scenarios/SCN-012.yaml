@@ -1,0 +1,5 @@
+scenario_id: SCN-012
+kind: functional
+semantic_failure_criterion: The assistant provides a response containing information
+  about Klarna policies that is not supported by any retrieved policy snippets.
+attack_shape: null
