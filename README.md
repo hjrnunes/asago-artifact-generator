@@ -87,7 +87,11 @@ timeout, a 4xx (429 included), or an invalid response. The retry reserves one
 more dispatch from the budget, and the dispatch's ledger and failure-evidence
 record gain `transport_retries`: `[{"attempt": 2, "retry_of": {"type": <error
 class>, "status_code": <HTTP status or null>}}]`. Dispatches without a retry
-carry no such key. The
+carry no such key. The service-tier fallback reserves one more dispatch the same
+way, and a budget with no request left sends no fallback. Its entry in
+`transport_retries` has `"retry_of": {"type": "RateLimitError", "status_code":
+429}` and `"reason": "service_tier_fallback"`; a transport retry carries no
+`reason`. The
 `strict_json_schema` profile field is accepted for shared-profile compatibility,
 but the consumer continues to send no `response_format`. Only the final message
 content is parsed; provider reasoning stays in the raw response capture and

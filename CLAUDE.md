@@ -78,7 +78,10 @@ Deterministic tests must not contact a model endpoint or target.
   one recorded retry after a transport error (HTTP 5xx or a non-timeout
   connection error) and nothing else retries: not timeouts, 4xx, or invalid
   responses. The retry counts against the budget and appears in the ledger as
-  `transport_retries`; SDK `max_retries` stays 0.
+  `transport_retries`; SDK `max_retries` stays 0. The one exception is the
+  service-tier fallback after a 429: it reserves budget like a retry and appears
+  in `transport_retries` with `"reason": "service_tier_fallback"` (a transport
+  retry carries no reason).
 - Reuse intact accepted plans or artifacts when authorized. Verify their exact
   hashes and provenance; do not regenerate them merely because a later stage
   failed. A new task name does not reset historical spend.
