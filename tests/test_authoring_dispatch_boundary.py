@@ -358,18 +358,25 @@ def test_the_orchestrator_reserves_every_physical_request_at_the_boundary(
 def test_a_first_attempt_over_the_cap_opens_no_record_and_leaves_the_last_one_alone(
     tmp_path: Path,
 ) -> None:
-    budget = _budget(1)
-    client = scripted_client([chat_completion(json.dumps(_plan_v2())), chat_completion()])
-    transport = private_transport(client=client, service_tier="flex")
+    # The plan arrives on the fallback tier, so its controls differ from those
+    # of the artifact request the budget refuses before it is sent.
+    budget = _budget(2)
+    client = scripted_client(
+        [status_error(429), chat_completion(json.dumps(_plan_v2())), chat_completion()]
+    )
+    transport = _tiered(client)
 
     result = _orchestrate(tmp_path, transport, budget)
 
     assert result.status == "budget_exhausted"
-    assert len(client.requests) == 1
-    assert [record["stage"] for record in result.ledger] == ["call1"]
+    assert len(client.requests) == 2
+    [record] = result.ledger
+    assert record["stage"] == "call1"
+    assert record["controls"]["service_tier"] == "default"
+    assert record["controls"]["service_tier_fallback_used"] is True
     evidence = load_failure_evidence(tmp_path / "package.failure-evidence.json")
     [attempt] = evidence["attempts"]
-    assert attempt["stage"] == "call1"
     assert attempt["raw_response"]["availability"] == "available"
+    assert attempt["controls"]["value"]["service_tier_fallback_used"] is True
     assert "failure" not in attempt
     assert [finding["code"] for finding in evidence["findings"]] == ["budget_exhausted"]
