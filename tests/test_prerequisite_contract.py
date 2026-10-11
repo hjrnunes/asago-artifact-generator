@@ -145,8 +145,14 @@ def test_v2_prerequisites_reject_closed_forms() -> None:
         for finding in unknown_findings
     )
 
-    mismatched_binding = {**binding, "consumers": ["stimulus.user_text"]}
-    mismatch_plan = _v2_plan(runtime_bindings=[mismatched_binding], prerequisites=[base])
+    mismatched_binding = {
+        **binding,
+        "expected_type": "string",
+        "selector": "value.status",
+        "consumers": ["stimulus.user_text"],
+    }
+    scalar_base = {**base, "equals": "awaiting_review"}
+    mismatch_plan = _v2_plan(runtime_bindings=[mismatched_binding], prerequisites=[scalar_base])
     mismatch_plan["stimulus_approach"]["request"] = "Review booking {{booking_state}}."
     mismatch_findings = collect_plan_findings_v2(mismatch_plan, inventory, _contract())
     assert mismatch_findings == []
