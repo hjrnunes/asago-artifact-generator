@@ -97,11 +97,14 @@ class TransportRetried:
 
     ``retry_of`` holds the error class and HTTP status (``None`` for a
     connection error) of the attempt that failed.  The retry's budget
-    reservation is a separate ``BudgetRecorded`` event.
+    reservation is a separate ``BudgetRecorded`` event.  ``reason`` names why
+    a request that is not a transport retry was sent (the service-tier
+    fallback); a transport retry leaves it unset.
     """
 
     attempt: int
     retry_of: dict[str, Any]
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -234,7 +237,10 @@ def _evidence_finding(finding: Finding) -> dict[str, Any]:
 def _retry_record(event: TransportRetried) -> dict[str, Any]:
     """Return the record of one transport retry: its attempt number and the failure it retries."""
 
-    return {"attempt": event.attempt, "retry_of": dict(event.retry_of)}
+    record: dict[str, Any] = {"attempt": event.attempt, "retry_of": dict(event.retry_of)}
+    if event.reason is not None:
+        record["reason"] = event.reason
+    return record
 
 
 def _record_controls(event: Any) -> dict[str, Any] | None:

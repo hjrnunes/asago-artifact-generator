@@ -22,6 +22,7 @@ from .prompt_safety import _endpoint_identity, _endpoint_prompt_paths
 from .response_decode import _provider_field, _provider_response_capture
 
 RETRY_DELAY_SECONDS = 1.0
+SERVICE_TIER_FALLBACK_REASON = "service_tier_fallback"
 _sleep = time.sleep
 
 
@@ -215,9 +216,15 @@ class PrivateModelAuthoringTransport:
         )
         try:
             return self._send(request)
-        except self._rate_limit_error_type():
+        except self._rate_limit_error_type() as rate_limit:
             if self.service_tier is None or self.service_tier_fallback is None:
                 raise
+            if not self._retry_allowed():
+                raise
+            self._record_extra_request(
+                {"type": type(rate_limit).__name__, "status_code": 429},
+                reason=SERVICE_TIER_FALLBACK_REASON,
+            )
             fallback_request = deepcopy(request)
             fallback_request["service_tier"] = self.service_tier_fallback
             self.last_controls = self._request_controls(
@@ -242,12 +249,22 @@ class PrivateModelAuthoringTransport:
             failure = retryable_failure(error)
             if failure is None or not self._retry_allowed():
                 raise
-        self.last_retries.append({"attempt": 2, "retry_of": failure})
+        self._record_extra_request(failure)
         _sleep(RETRY_DELAY_SECONDS)
         return self._client.chat.completions.create(**request)
 
     def _retry_allowed(self) -> bool:
+        """Reserve one more physical request; every request after the first asks here."""
+
         return self.retry_gate is None or self.retry_gate()
+
+    def _record_extra_request(self, failure: dict[str, Any], *, reason: str | None = None) -> None:
+        """Record a request beyond the first; only a non-retry carries its ``reason``."""
+
+        record: dict[str, Any] = {"attempt": len(self.last_retries) + 2, "retry_of": failure}
+        if reason is not None:
+            record["reason"] = reason
+        self.last_retries.append(record)
 
     def _request_controls(
         self,
