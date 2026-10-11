@@ -124,7 +124,11 @@ in `*.failure-evidence.json` (see Limits).
   then serves the recorded response, so the transport retries for real. The
   retry waits the transport's fixed delay (at most 2 seconds). A dispatch
   whose retry also failed ends in an unavailable response and still does not
-  replay. Recordings without a retry replay exactly as before.
+  replay. Recordings without a retry replay exactly as before. A service-tier
+  fallback is recorded in the same list with `"reason": "service_tier_fallback"`
+  and a `RateLimitError` 429 as `retry_of`; the gate does not yet replay it,
+  because `scripts/replay_gate.py` rejects a recorded `RateLimitError` (no
+  current recording has one).
 - The replay starts at the SDK client. It does not cover the `openai` SDK
   itself or the service-tier fallback after a rate limit. It replays the
   transport retry from the recording (see above), not from a live error.

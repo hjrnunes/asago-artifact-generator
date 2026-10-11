@@ -132,8 +132,55 @@ def test_the_service_tier_fallback_keeps_its_own_rule_and_a_5xx_on_it_retries() 
     ]
     assert response.controls["service_tier_fallback_used"] is True
     assert transport.last_retries == [
-        {"attempt": 2, "retry_of": {"type": "InternalServerError", "status_code": 502}}
+        {
+            "attempt": 2,
+            "retry_of": {"type": "RateLimitError", "status_code": 429},
+            "reason": "service_tier_fallback",
+        },
+        {"attempt": 3, "retry_of": {"type": "InternalServerError", "status_code": 502}},
     ]
+
+
+def test_a_refusing_gate_stops_the_tier_fallback_and_surfaces_the_rate_limit() -> None:
+    client = scripted_client([status_error(429), chat_completion()])
+    transport = _transport(client, service_tier="flex", service_tier_fallback="default")
+    transport.retry_gate = lambda: False
+
+    with pytest.raises(openai.RateLimitError):
+        transport.complete(prompt_packet())
+
+    assert len(client.requests) == 1
+    assert transport.last_retries == []
+
+
+def test_the_tier_fallback_is_recorded_with_its_reason_and_asks_the_gate_once() -> None:
+    asked: list[bool] = []
+    client = scripted_client([status_error(429), chat_completion()])
+    transport = _transport(client, service_tier="flex", service_tier_fallback="default")
+    transport.retry_gate = lambda: asked.append(True) or True
+
+    transport.complete(prompt_packet())
+
+    assert asked == [True]
+    assert transport.last_retries == [
+        {
+            "attempt": 2,
+            "retry_of": {"type": "RateLimitError", "status_code": 429},
+            "reason": "service_tier_fallback",
+        }
+    ]
+
+
+def test_a_retry_after_the_fallback_is_the_third_attempt_and_is_gated_too() -> None:
+    asked: list[bool] = []
+    client = scripted_client([status_error(429), status_error(502), chat_completion()])
+    transport = _transport(client, service_tier="flex", service_tier_fallback="default")
+    transport.retry_gate = lambda: asked.append(True) or True
+
+    transport.complete(prompt_packet())
+
+    assert asked == [True, True]
+    assert [retry["attempt"] for retry in transport.last_retries] == [2, 3]
 
 
 def test_a_validation_failure_is_not_a_transport_error() -> None:
@@ -304,3 +351,61 @@ def test_a_non_retryable_failure_costs_one_request(tmp_path: Path) -> None:
     assert result.status == "transport_failure"
     assert len(client.requests) == 1
     assert budget.total_dispatched == 1
+
+
+# --- orchestrator: the tier fallback is one more reserved request ---------------------
+
+
+def _tiered_run(tmp_path: Path, client: FakeOpenAI, budget: AuthoringBudget) -> Any:
+    return stage_local_orchestrator(
+        transport=_transport(client, service_tier="flex", service_tier_fallback="default"),
+        package_dir=tmp_path / "package",
+        task_id="retry-task",
+        budget=budget,
+    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+
+
+def test_a_rate_limit_with_one_request_left_sends_no_fallback(tmp_path: Path) -> None:
+    budget = AuthoringBudget(aggregate_limit=1, task_limit=1, author_limit=1, review_limit=1)
+    client = scripted_client([status_error(429), chat_completion(json.dumps(_plan_v2()))])
+
+    result = _tiered_run(tmp_path, client, budget)
+
+    assert result.status == "transport_failure"
+    assert len(client.requests) == 1
+    assert budget.total_dispatched == 1
+    assert "transport_retries" not in result.ledger[0]
+
+
+def test_a_rate_limit_with_two_requests_left_counts_both(tmp_path: Path) -> None:
+    budget = AuthoringBudget(aggregate_limit=10, task_limit=10, author_limit=10, review_limit=10)
+    client = _plan_then_artifact(status_error(429))
+
+    result = _tiered_run(tmp_path, client, budget)
+
+    assert result.status == "accepted"
+    assert len(client.requests) == 3
+    assert budget.total_dispatched == 3
+    assert budget.dispatched_by_task["retry-task"] == 3
+    assert result.ledger[0]["transport_retries"] == [
+        {
+            "attempt": 2,
+            "retry_of": {"type": "RateLimitError", "status_code": 429},
+            "reason": "service_tier_fallback",
+        }
+    ]
+    assert "transport_retries" not in result.ledger[1]
+
+
+def test_a_fallback_then_a_transport_error_cannot_pass_the_cap(tmp_path: Path) -> None:
+    budget = AuthoringBudget(aggregate_limit=2, task_limit=2, author_limit=2, review_limit=2)
+    client = scripted_client(
+        [status_error(429), status_error(502), chat_completion(json.dumps(_plan_v2()))]
+    )
+
+    result = _tiered_run(tmp_path, client, budget)
+
+    assert result.status == "transport_failure"
+    assert len(client.requests) == 2
+    assert budget.total_dispatched == 2
+    assert [retry["attempt"] for retry in result.ledger[0]["transport_retries"]] == [2]

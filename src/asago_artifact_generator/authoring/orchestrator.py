@@ -546,7 +546,9 @@ class AuthoringOrchestrator:
             if has_gate:
                 self.transport.retry_gate = None
             for retry in getattr(self.transport, "last_retries", None) or []:
-                self._journal.append(TransportRetried(retry["attempt"], retry["retry_of"]))
+                self._journal.append(
+                    TransportRetried(retry["attempt"], retry["retry_of"], retry.get("reason"))
+                )
 
     def _reserve_transport_retry(self, role: str) -> bool:
         """Reserve one request for a transport retry; report whether the budget allowed it."""
