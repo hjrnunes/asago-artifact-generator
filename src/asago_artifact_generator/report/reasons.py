@@ -85,6 +85,9 @@ _CHECKS = {
         "An example captures a call to an operation the inventory does not list."
     ),
     "example_shape": "An example is not shaped as the contract requires.",
+    "invalid_slot_name": (
+        "A stimulus slot's name is not an identifier, so execution cannot fill it."
+    ),
     "metadata_type_error": "The artifact response is not a JSON object.",
     "missing_field": "A required field is missing.",
     "non_scalar_slot": "A stimulus slot uses a binding whose value is not one scalar.",
