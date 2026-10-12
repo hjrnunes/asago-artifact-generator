@@ -24,6 +24,23 @@ def failure_evidence_path(destination: str | Path) -> Path:
     return destination.with_name(f"{destination.name}.failure-evidence.json")
 
 
+def request_files_path(destination: str | Path) -> Path:
+    """Return the sibling directory holding a failed package's prompts and raw responses."""
+
+    destination = Path(destination)
+    return destination.with_name(f"{destination.name}.authoring")
+
+
+def write_request_files(directory: str | Path, files: dict[str, bytes]) -> Path:
+    """Write each named request file (``NN-<stage>.prompt`` or ``.raw``) into ``directory``."""
+
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, payload in sorted(files.items()):
+        (directory / name).write_bytes(payload)
+    return directory
+
+
 def new_failure_evidence(task_id: str, destination: str | Path) -> dict[str, Any]:
     """Create the durable document written before the first provider call."""
 
@@ -121,5 +138,7 @@ __all__ = [
     "new_failure_evidence",
     "raw_response_record",
     "redact_metadata",
+    "request_files_path",
     "write_failure_evidence",
+    "write_request_files",
 ]

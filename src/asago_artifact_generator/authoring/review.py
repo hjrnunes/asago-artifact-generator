@@ -733,6 +733,13 @@ def _review_finding_to_finding(record: dict[str, Any], stage: str) -> Finding:
     )
 
 
+def review_packet_candidate(packet: PromptPacket) -> Any:
+    """Return a copy of the candidate a review packet judges, as its digest hashes it."""
+
+    key = "candidate_plan" if packet.stage == "plan_review" else "candidate_artifact"
+    return deepcopy(packet.payload.get(key, {}))
+
+
 def _review_packet_digests(packet: PromptPacket) -> tuple[str, str]:
     """Pin the source projection and exact candidate bytes judged by a review."""
 

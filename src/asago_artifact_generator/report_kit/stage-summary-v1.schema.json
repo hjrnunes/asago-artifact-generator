@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stage-summary-v1.schema.json",
+  "title": "Asago stage summary v1",
+  "description": "What a stage owner writes to report/stage-summary.json beside its report. Orch builds the stage cards and the per-scenario stage cells from it, so the owner chooses each label.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "stage", "owner", "status", "report", "headline", "alerts", "items"],
+  "properties": {
+    "schema_version": {"const": "stage-summary-v1"},
+    "stage": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "owner": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "status": {"$ref": "#/$defs/status"},
+    "report": {"$ref": "#/$defs/relative_href"},
+    "headline": {
+      "description": "Each value equals the data-metric value under the same key in the stage's HTML.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/headline_value"}
+    },
+    "alerts": {"type": "array", "items": {"$ref": "#/$defs/alert"}},
+    "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+    "usage": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    }
+  },
+  "$defs": {
+    "status": {"enum": ["pass", "warn", "fail", "unknown", "skip", "info"]},
+    "text": {"type": "string", "minLength": 1},
+    "relative_href": {
+      "description": "A link relative to the report directory: no scheme, no leading slash.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![a-zA-Z][a-zA-Z0-9+.-]*:)(?!/)"
+    },
+    "count": {"type": "integer", "minimum": 0},
+    "headline_value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "value", "unit"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+        "label": {"$ref": "#/$defs/text"},
+        "value": {"oneOf": [{"$ref": "#/$defs/count"}, {"$ref": "#/$defs/text"}]},
+        "of": {"$ref": "#/$defs/count"},
+        "unit": {"$ref": "#/$defs/text"}
+      }
+    },
+    "alert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "text"],
+      "properties": {
+        "status": {"$ref": "#/$defs/status"},
+        "text": {"$ref": "#/$defs/text"},
+        "href": {"$ref": "#/$defs/relative_href"}
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario_id", "status", "label"],
+      "properties": {
+        "scenario_id": {"$ref": "#/$defs/text"},
+        "status": {"$ref": "#/$defs/status"},
+        "label": {"$ref": "#/$defs/text"},
+        "code": {"$ref": "#/$defs/text"},
+        "href": {"$ref": "#/$defs/relative_href"}
+      }
+    }
+  }
+}

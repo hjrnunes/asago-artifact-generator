@@ -35,6 +35,7 @@ Run from this checkout; read `generate --help` for configuration and limits.
 ```bash
 uv sync --locked
 uv run asago-artifact-generator generate --help
+uv run asago-artifact-generator report --help
 uv run pytest tests/path_to_changed_test.py -q
 ./scripts/quality.sh
 uv run pytest tests/ -q

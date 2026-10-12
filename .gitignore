@@ -17,6 +17,8 @@ build/
 runs/
 reports/
 *html
+# The report kit mirror ships its catalog page; orch doctor checks its bytes.
+!src/asago_artifact_generator/report_kit/catalog.html
 redhat-logo.png
 
 # Secrets and local configuration

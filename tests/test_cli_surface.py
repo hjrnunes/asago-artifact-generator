@@ -9,10 +9,10 @@ from asago_artifact_generator import cli
 _HANDOFF = Path(__file__).resolve().parent / "fixtures" / "handoffs" / "refund-bound.json"
 
 
-def test_cli_exposes_generate_as_its_only_command():
+def test_cli_exposes_generate_and_report():
     group = typer.main.get_command(cli.app)
 
-    assert set(group.commands) == {"generate"}
+    assert set(group.commands) == {"generate", "report"}
 
 
 def test_run_hands_the_transport_factory_to_the_cli(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..contract_kit import ClaimLevel
-from ..failure_evidence import metadata_record
+from ..failure_evidence import metadata_record, request_files_path, write_request_files
 from ..input_adapter import InputView
 from ..package_io import write_package
 from .binding_repair import correction_repair_inputs
@@ -83,7 +83,7 @@ from .journal import (
     ValidationTransformed,
 )
 from .oracle_self_test import DEFECT_CODE, oracle_defect_findings
-from .package_assembly import _package_from_responses, _persist_blocked_plan
+from .package_assembly import _attempt_records, _package_from_responses, _persist_blocked_plan
 from .policy import (
     AuthoringBudget,
     AuthoringPolicy,
@@ -114,6 +114,7 @@ from .review import (
     build_artifact_review_packet,
     build_plan_review_packet,
     parse_review_response,
+    review_packet_candidate,
 )
 from .sequential_turns import (
     multi_turn_payload,
@@ -612,6 +613,7 @@ class AuthoringOrchestrator:
         """Return the event that opens the ledger record and attempt of a dispatch."""
 
         stage_attempt_index, correction_index = self._dispatch_attempt_indices(packet)
+        reviewed = packet.stage in _REVIEW_STAGES
         return DispatchOpened(
             dispatch_index=dispatch_index,
             attempt_index=stage_attempt_index,
@@ -622,9 +624,8 @@ class AuthoringOrchestrator:
             policy=self._effective_policy_record(),
             raw_response_path=f"authoring/{dispatch_index:02d}-{packet.stage}.raw",
             model_identity=self._dispatch_model_identity(),
-            review=(
-                self._review_dispatch_fields(packet) if packet.stage in _REVIEW_STAGES else None
-            ),
+            review=self._review_dispatch_fields(packet) if reviewed else None,
+            reviewed_candidate=review_packet_candidate(packet) if reviewed else None,
         )
 
     def _review_dispatch_fields(self, packet: PromptPacket) -> dict[str, Any]:
@@ -1537,7 +1538,22 @@ class AuthoringOrchestrator:
                 },
             )
         )
+        if status != "accepted" and attempts:
+            self._write_request_files()
         return self._journal.flush()
+
+    def _write_request_files(self) -> None:
+        """Write a failed run's prompts and raw responses under the package's names."""
+
+        records = _attempt_records(
+            list(self._journal.ledger), self._raw_responses, self._prompt_packets, None
+        )
+        files = {
+            name.removeprefix("authoring/"): payload
+            for name, payload in records.items()
+            if name.endswith((".prompt", ".raw"))
+        }
+        write_request_files(request_files_path(self.package_dir), files)
 
     def _terminal_findings(self, status: str, findings: list[Finding]) -> list[Finding]:
         """Return the findings the terminal record carries for ``status``."""

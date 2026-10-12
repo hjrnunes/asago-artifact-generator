@@ -1,0 +1,17 @@
+{
+  "comparisons": [
+    {
+      "kind": "value",
+      "left": {
+        "argument": "plan_id",
+        "operation": "schedule_payment",
+        "source": "argument"
+      },
+      "op": "eq",
+      "right": {
+        "source": "literal",
+        "value": "PLAN-21"
+      }
+    }
+  ]
+}

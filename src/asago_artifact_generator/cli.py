@@ -1,4 +1,4 @@
-"""CLI: target-free artifact authoring (`generate`)."""
+"""CLI: target-free artifact authoring (`generate`) and its stage report (`report`)."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from .authoring.transport import PrivateModelAuthoringTransport
 from .contract_kit import parse_document
 from .input_adapter import InputSourceError, load_input
 from .profiles import AuthoringProfile, ProfileLoadError, load_authoring_profile
+from .report.author_report import write_report
 from .target_inputs import TargetInputError, load_target_inputs
 
 app = typer.Typer(
@@ -183,6 +184,30 @@ def generate(
         discovery_provenance=discovery_provenance,
     ).run(view, inventory_data, runtime_data)
     _report_result(result)
+
+
+@app.command()
+def report(
+    author_output: Annotated[
+        Path,
+        typer.Argument(help="Author stage output: the packages and failure evidence."),
+    ],
+    scenarios: Annotated[
+        Path,
+        typer.Option("--scenarios", help="Directory of the scenario YAML files handed over."),
+    ],
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Report directory (default: <author-output>/report)."),
+    ] = None,
+) -> None:
+    """Write the author report and its stage summary; sends no model request."""
+
+    for path, hint in ((author_output, "AUTHOR_OUTPUT"), (scenarios, "--scenarios")):
+        if not path.is_dir():
+            raise typer.BadParameter(f"not a directory: {path}", param_hint=hint)
+    written = write_report(author_output, scenarios, out or author_output / "report")
+    typer.echo(json.dumps({"index": str(written.index), "summary": str(written.summary)}))
 
 
 def _authoring_policy(**options: Any) -> AuthoringPolicy:
