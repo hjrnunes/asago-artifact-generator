@@ -66,7 +66,10 @@ The consumer loads `base_url`, `api_key`, and `model` in process and passes
 them directly to the private transport. It does not extract profile values
 through a shell or print them. Credentials and endpoint values stay out of
 prompts, ledgers, packages, and failure evidence. A missing profile or required
-field stops before dispatch.
+field stops before dispatch. `contracts/model-profile/` (the producer's
+`model-profile` contract) lists every profile field with its validity rule;
+the loader rejects an unknown or invalid field, naming it, and a test runs the
+contract's cases against the loader and the transport.
 Thinking is a per-role control sent through the transport's additive
 With the default `sampling_controls=true`, author, correction, and review
 requests preserve the existing temperature and per-role
@@ -92,8 +95,9 @@ way, and a budget with no request left sends no fallback. Its entry in
 `transport_retries` has `"retry_of": {"type": "RateLimitError", "status_code":
 429}` and `"reason": "service_tier_fallback"`; a transport retry carries no
 `reason`. The
-`strict_json_schema` profile field is accepted for shared-profile compatibility,
-but the consumer continues to send no `response_format`. Only the final message
+`strict_json_schema` profile field is accepted for shared-profile compatibility
+(only `false` loads; the producer rejects `true` too), but the consumer continues
+to send no `response_format`. Only the final message
 content is parsed; provider reasoning stays in the raw response capture and
 never substitutes for a missing answer.
 Optional `context_window`, `max_completion_tokens`, and `timeout` fields drive

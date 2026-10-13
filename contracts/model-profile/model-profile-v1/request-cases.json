@@ -1,0 +1,853 @@
+{
+  "version": "model-profile-v1",
+  "call_defaults": {
+    "system": "S",
+    "user": "U",
+    "role": "author",
+    "structured": false,
+    "tolerant": false,
+    "max_completion_tokens": null,
+    "temperature": null,
+    "first_error": null
+  },
+  "cases": [
+    {
+      "id": "gemma-call-cap",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "context_window": 32768,
+        "max_completion_tokens": 8192,
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 64
+      },
+      "call": {
+        "max_completion_tokens": 2048
+      },
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 1.0,
+              "top_p": 0.95,
+              "max_completion_tokens": 2048,
+              "extra_body": {
+                "top_k": 64
+              }
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 8192,
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                }
+              }
+            }
+          ]
+        }
+      },
+      "note": "A call-site cap wins without reasoning_effort. The consumer sends the transport's temperature, its own cap and the role's thinking body (I3, I4, I5)."
+    },
+    {
+      "id": "gemma-profile-cap",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "context_window": 32768,
+        "max_completion_tokens": 8192,
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 64
+      },
+      "call": {},
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 1.0,
+              "top_p": 0.95,
+              "max_completion_tokens": 8192,
+              "extra_body": {
+                "top_k": 64
+              }
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 8192,
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "call-temperature",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "context_window": 32768,
+        "max_completion_tokens": 8192,
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 64
+      },
+      "call": {
+        "temperature": 0.2
+      },
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.2,
+              "top_p": 0.95,
+              "max_completion_tokens": 8192,
+              "extra_body": {
+                "top_k": 64
+              }
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 8192,
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "bare-profile",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1"
+      },
+      "call": {},
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 8192,
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                }
+              }
+            }
+          ]
+        }
+      },
+      "note": "No optional field: the default temperature, no cap, no body. The consumer falls back to its 8192 cap."
+    },
+    {
+      "id": "every-sampling-field",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "context_window": 32768,
+        "max_completion_tokens": 8192,
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 64,
+        "seed": 7,
+        "enable_thinking": true,
+        "repetition_penalty": 1.05
+      },
+      "call": {
+        "max_completion_tokens": 2048,
+        "structured": true
+      },
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 1.0,
+              "top_p": 0.95,
+              "seed": 7,
+              "max_completion_tokens": 2048,
+              "response_format": {
+                "type": "json_schema",
+                "name": "Reply",
+                "strict": true
+              },
+              "extra_body": {
+                "top_k": 64,
+                "chat_template_kwargs": {
+                  "enable_thinking": true
+                },
+                "repetition_penalty": 1.05
+              }
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 8192,
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                },
+                "repetition_penalty": 1.05
+              }
+            }
+          ]
+        }
+      },
+      "note": "The consumer ignores the profile's enable_thinking (I4) and merges the penalty into its role body. Orch and the producer send the strict schema."
+    },
+    {
+      "id": "penalty-alone",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "repetition_penalty": 2
+      },
+      "call": {},
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4,
+              "extra_body": {
+                "repetition_penalty": 2
+              }
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 8192,
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                },
+                "repetition_penalty": 2
+              }
+            }
+          ]
+        }
+      },
+      "note": "The penalty alone forms the body; an integer stays an integer."
+    },
+    {
+      "id": "glm-low-penalty",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "context_window": 65536,
+        "max_completion_tokens": 16384,
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "reasoning_effort": "low",
+        "repetition_penalty": 1.05,
+        "timeout": 900
+      },
+      "call": {
+        "max_completion_tokens": 2048
+      },
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 1.0,
+              "top_p": 0.95,
+              "max_completion_tokens": 16384,
+              "reasoning_effort": "low",
+              "extra_body": {
+                "repetition_penalty": 1.05
+              }
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 16384,
+              "reasoning_effort": "low",
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                },
+                "repetition_penalty": 1.05
+              }
+            }
+          ]
+        }
+      },
+      "note": "reasoning_effort raises a smaller call-site cap to the profile cap."
+    },
+    {
+      "id": "reasoning-call-cap-larger",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "reasoning_effort": "low",
+        "max_completion_tokens": 4096
+      },
+      "call": {
+        "max_completion_tokens": 8192
+      },
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4,
+              "max_completion_tokens": 8192,
+              "reasoning_effort": "low"
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 4096,
+              "reasoning_effort": "low",
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                }
+              }
+            }
+          ]
+        }
+      },
+      "note": "A call-site cap above the profile cap stays; the consumer has no call-site cap."
+    },
+    {
+      "id": "reasoning-without-profile-cap",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "reasoning_effort": "low"
+      },
+      "call": {
+        "max_completion_tokens": 2048
+      },
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4,
+              "max_completion_tokens": 2048,
+              "reasoning_effort": "low"
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 8192,
+              "reasoning_effort": "low",
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "sampling-controls-off",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "context_window": 1050000,
+        "max_completion_tokens": 32000,
+        "reasoning_effort": "medium",
+        "service_tier": "flex",
+        "service_tier_fallback": "default",
+        "sampling_controls": false,
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 64,
+        "seed": 7,
+        "enable_thinking": true,
+        "repetition_penalty": 1.05,
+        "strict_json_schema": false,
+        "json_schema_strict": false,
+        "timeout": 900
+      },
+      "call": {
+        "max_completion_tokens": 2048,
+        "temperature": 0.0
+      },
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "max_completion_tokens": 32000,
+              "reasoning_effort": "medium",
+              "service_tier": "flex"
+            }
+          ]
+        }
+      },
+      "note": "Off drops temperature, top_p, top_k, seed, thinking and the penalty; the cap, reasoning_effort and service_tier stay."
+    },
+    {
+      "id": "service-tier-fallback",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "context_window": 1050000,
+        "max_completion_tokens": 32000,
+        "reasoning_effort": "medium",
+        "service_tier": "flex",
+        "service_tier_fallback": "default",
+        "sampling_controls": false,
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 64,
+        "seed": 7,
+        "enable_thinking": true,
+        "repetition_penalty": 1.05,
+        "strict_json_schema": false,
+        "json_schema_strict": false,
+        "timeout": 900
+      },
+      "call": {
+        "max_completion_tokens": 2048,
+        "first_error": 429
+      },
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "max_completion_tokens": 32000,
+              "reasoning_effort": "medium",
+              "service_tier": "flex"
+            },
+            {
+              "model": "m-1",
+              "max_completion_tokens": 32000,
+              "reasoning_effort": "medium",
+              "service_tier": "default"
+            }
+          ]
+        }
+      },
+      "note": "A 429 on the first request sends a second one with the fallback tier."
+    },
+    {
+      "id": "rate-limit-without-fallback",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "context_window": 1050000,
+        "max_completion_tokens": 32000,
+        "reasoning_effort": "medium",
+        "service_tier": "flex",
+        "service_tier_fallback": null,
+        "sampling_controls": false,
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 64,
+        "seed": 7,
+        "enable_thinking": true,
+        "repetition_penalty": 1.05,
+        "strict_json_schema": false,
+        "json_schema_strict": false,
+        "timeout": 900
+      },
+      "call": {
+        "max_completion_tokens": 2048,
+        "first_error": 429
+      },
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "max_completion_tokens": 32000,
+              "reasoning_effort": "medium",
+              "service_tier": "flex"
+            }
+          ],
+          "error": "RateLimitError"
+        }
+      },
+      "note": "Without a fallback tier the 429 propagates after one request."
+    },
+    {
+      "id": "rate-limit-without-tier",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "context_window": 1050000,
+        "max_completion_tokens": 32000,
+        "reasoning_effort": "medium",
+        "service_tier": null,
+        "service_tier_fallback": "default",
+        "sampling_controls": false,
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 64,
+        "seed": 7,
+        "enable_thinking": true,
+        "repetition_penalty": 1.05,
+        "strict_json_schema": false,
+        "json_schema_strict": false,
+        "timeout": 900
+      },
+      "call": {
+        "max_completion_tokens": 2048,
+        "first_error": 429
+      },
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "max_completion_tokens": 32000,
+              "reasoning_effort": "medium"
+            }
+          ],
+          "error": "RateLimitError"
+        }
+      },
+      "note": "A fallback tier without a first tier never triggers a second request."
+    },
+    {
+      "id": "structured-call",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1"
+      },
+      "call": {
+        "structured": true
+      },
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4,
+              "response_format": {
+                "type": "json_schema",
+                "name": "Reply",
+                "strict": true
+              }
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 8192,
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                }
+              }
+            }
+          ]
+        }
+      },
+      "note": "The consumer sends no response_format (README: strict_json_schema is accepted for compatibility only)."
+    },
+    {
+      "id": "structured-call-not-strict",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "json_schema_strict": false
+      },
+      "call": {
+        "structured": true
+      },
+      "expect": {
+        "*": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4,
+              "response_format": {
+                "type": "json_schema",
+                "name": "Reply",
+                "strict": false
+              }
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 8192,
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "tolerant-call-guided",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "use_guided_decoding": true
+      },
+      "call": {
+        "structured": true,
+        "tolerant": true
+      },
+      "expect": {
+        "producer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4,
+              "response_format": {
+                "type": "json_schema",
+                "name": "Reply",
+                "strict": true
+              }
+            }
+          ]
+        },
+        "orch-client": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 8192,
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                }
+              }
+            }
+          ]
+        }
+      },
+      "note": "A tolerant call (allow_unvalidated) with guided decoding keeps a strict schema in the producer; orch and the consumer send no response_format (I10)."
+    },
+    {
+      "id": "tolerant-call-plain",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1"
+      },
+      "call": {
+        "structured": true,
+        "tolerant": true
+      },
+      "expect": {
+        "producer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4,
+              "response_format": {
+                "type": "json_object"
+              }
+            }
+          ]
+        },
+        "orch-client": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 8192,
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "review-fills-context",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1"
+      },
+      "call": {
+        "role": "review"
+      },
+      "expect": {
+        "producer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4
+            }
+          ]
+        },
+        "orch-client": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 32475,
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                }
+              }
+            }
+          ]
+        }
+      },
+      "note": "A review fills the remaining context when the cap is at most 8192 (I5). The number holds for the system 'S' and user 'U' texts of the call."
+    },
+    {
+      "id": "review-capped-by-profile",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "context_window": 1050000,
+        "max_completion_tokens": 32000
+      },
+      "call": {
+        "role": "review"
+      },
+      "expect": {
+        "producer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4,
+              "max_completion_tokens": 32000
+            }
+          ]
+        },
+        "orch-client": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.4,
+              "max_completion_tokens": 32000
+            }
+          ]
+        },
+        "consumer": {
+          "requests": [
+            {
+              "model": "m-1",
+              "temperature": 0.0,
+              "max_completion_tokens": 32000,
+              "extra_body": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                }
+              }
+            }
+          ]
+        }
+      },
+      "note": "A profile cap above 8192 caps the review request."
+    }
+  ]
+}

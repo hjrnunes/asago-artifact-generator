@@ -1,0 +1,211 @@
+{
+  "version": "model-profile-v1",
+  "cases": [
+    {
+      "id": "minimal",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1"
+      },
+      "expect": {
+        "*": {
+          "loaded": true
+        }
+      },
+      "note": "Only the required fields: every other field loads its table default."
+    },
+    {
+      "id": "every-field",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "context_window": 65536,
+        "safety_margin": 512,
+        "max_completion_tokens": 16384,
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 64,
+        "repetition_penalty": 1.05,
+        "seed": 7,
+        "headers": {
+          "X-Team": "asago"
+        },
+        "enable_thinking": false,
+        "use_guided_decoding": false,
+        "timeout": 900,
+        "reasoning_effort": "low",
+        "service_tier": "flex",
+        "service_tier_fallback": "default",
+        "sampling_controls": true,
+        "strict_json_schema": false,
+        "json_schema_strict": true
+      },
+      "expect": {
+        "*": {
+          "loaded": true
+        }
+      },
+      "note": "Every field set: each reader loads the value of each field it uses."
+    },
+    {
+      "id": "null-is-absent",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "top_k": null,
+        "repetition_penalty": null,
+        "timeout": null,
+        "sampling_controls": null
+      },
+      "expect": {
+        "*": {
+          "loaded": true
+        }
+      },
+      "note": "A null value counts as absent."
+    },
+    {
+      "id": "unknown-field",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "top_pp": 0.9
+      },
+      "expect": {
+        "*": {
+          "rejected": "top_pp"
+        }
+      },
+      "note": "A field outside the table is rejected, named, never its value."
+    },
+    {
+      "id": "unknown-field-null",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "top_pp": null
+      },
+      "expect": {
+        "*": {
+          "rejected": "top_pp"
+        }
+      },
+      "note": "A null does not excuse an unknown field."
+    },
+    {
+      "id": "missing-base-url",
+      "profile": {
+        "model": "m-1",
+        "api_key": "key-1"
+      },
+      "expect": {
+        "*": {
+          "rejected": "base_url"
+        }
+      }
+    },
+    {
+      "id": "missing-model",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "api_key": "key-1"
+      },
+      "expect": {
+        "*": {
+          "rejected": "model"
+        }
+      }
+    },
+    {
+      "id": "missing-api-key",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1"
+      },
+      "expect": {
+        "*": {
+          "rejected": "api_key"
+        },
+        "orch-gateway": {
+          "loaded": true
+        },
+        "orch-client": {
+          "loaded": true
+        }
+      },
+      "note": "Orch defaults an absent key to 'unused' (I1)."
+    },
+    {
+      "id": "null-api-key",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": null
+      },
+      "expect": {
+        "*": {
+          "rejected": "api_key"
+        },
+        "orch-gateway": {
+          "loaded": true
+        },
+        "orch-client": {
+          "loaded": true
+        }
+      }
+    },
+    {
+      "id": "secret-value-not-echoed",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1",
+        "context_window": "secret-looking-token-value"
+      },
+      "expect": {
+        "*": {
+          "rejected": "context_window"
+        }
+      },
+      "note": "The rejection names the field; the message never holds the value."
+    },
+    {
+      "id": "nested-profiles-mapping",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1"
+      },
+      "expect": {
+        "*": {
+          "loaded": true
+        },
+        "producer": {
+          "not_found": true
+        }
+      },
+      "note": "A file with a top-level 'profiles' mapping: consumer and orch read it, the producer reads only the flat file (I7). The test writes BASE under profiles.p.",
+      "file_shape": "nested"
+    },
+    {
+      "id": "unknown-profile-name",
+      "profile": {
+        "base_url": "https://models.example.test/v1",
+        "model": "m-1",
+        "api_key": "key-1"
+      },
+      "expect": {
+        "*": {
+          "not_found": true
+        }
+      },
+      "note": "The test asks for the name 'absent'.",
+      "lookup_name": "absent"
+    }
+  ]
+}
