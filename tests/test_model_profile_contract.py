@@ -174,6 +174,22 @@ def test_repr_redacts_the_connection_values(tmp_path: Path) -> None:
     assert not any(value in shown for value in BASE.values())
 
 
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("timeout", float("inf")),
+        ("temperature", float("nan")),
+        ("repetition_penalty", float("inf")),
+    ],
+    ids=lambda item: str(item),
+)
+def test_non_finite_number_is_rejected_by_name(name: str, value: float, tmp_path: Path) -> None:
+    """JSON cannot carry infinity or NaN, so the contract's value lists omit them."""
+    outcome, result = load(tmp_path, {**BASE, name: value})
+    assert outcome == "rejected"
+    assert result.field == name
+
+
 def normalized(kwargs: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in kwargs.items() if key != "messages"}
 
