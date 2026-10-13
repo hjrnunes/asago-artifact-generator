@@ -1,0 +1,565 @@
+{
+  "version": "model-profile-v1",
+  "readers": {
+    "producer": "producer: model_profiles.load_profile, resolve_llm_client_from_profile, LLMClient",
+    "consumer": "consumer: profiles.load_authoring_profile, cli._transport_options, PrivateModelAuthoringTransport",
+    "orch-gateway": "orch: qualification/model_profiles.read_profile_settings (gateway and judge)",
+    "orch-client": "orch: qualification/model_runtime.LLMClient built by resolve_llm_client_from_profile"
+  },
+  "fields": [
+    {
+      "name": "base_url",
+      "type": "string",
+      "rule": "nonblank string",
+      "required_by": [
+        "producer",
+        "consumer",
+        "orch-gateway",
+        "orch-client"
+      ],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "consumer",
+        "orch-gateway",
+        "orch-client"
+      ],
+      "valid": [
+        "https://models.example.test/v1"
+      ],
+      "invalid": [
+        "",
+        "  ",
+        5,
+        true,
+        [
+          "x"
+        ]
+      ]
+    },
+    {
+      "name": "model",
+      "type": "string",
+      "rule": "nonblank string",
+      "required_by": [
+        "producer",
+        "consumer",
+        "orch-gateway",
+        "orch-client"
+      ],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "consumer",
+        "orch-gateway",
+        "orch-client"
+      ],
+      "valid": [
+        "m-1"
+      ],
+      "invalid": [
+        "",
+        "  ",
+        5,
+        true,
+        [
+          "x"
+        ]
+      ]
+    },
+    {
+      "name": "api_key",
+      "type": "string",
+      "rule": "nonblank string",
+      "required_by": [
+        "producer",
+        "consumer"
+      ],
+      "default": {
+        "*": null,
+        "orch-gateway": "unused",
+        "orch-client": "unused"
+      },
+      "used_by": [
+        "producer",
+        "consumer",
+        "orch-gateway",
+        "orch-client"
+      ],
+      "valid": [
+        "key-1",
+        "unused"
+      ],
+      "invalid": [
+        "",
+        "  ",
+        5,
+        true,
+        [
+          "x"
+        ]
+      ],
+      "note": "Orch defaults an absent key to 'unused' (intended difference I1)."
+    },
+    {
+      "name": "context_window",
+      "type": "integer",
+      "rule": "integer, at least 1 (no bool, float or string)",
+      "required_by": [],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "consumer",
+        "orch-client"
+      ],
+      "valid": [
+        32768,
+        1
+      ],
+      "invalid": [
+        0,
+        -1,
+        1.5,
+        "32768",
+        true
+      ]
+    },
+    {
+      "name": "safety_margin",
+      "type": "integer",
+      "rule": "integer, at least 0",
+      "required_by": [],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "orch-client"
+      ],
+      "valid": [
+        0,
+        512
+      ],
+      "invalid": [
+        -1,
+        0.5,
+        "512",
+        true
+      ]
+    },
+    {
+      "name": "max_completion_tokens",
+      "type": "integer",
+      "rule": "integer, at least 1",
+      "required_by": [],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "consumer",
+        "orch-client"
+      ],
+      "valid": [
+        1,
+        16384
+      ],
+      "invalid": [
+        0,
+        -1,
+        2.5,
+        "16384",
+        true
+      ]
+    },
+    {
+      "name": "temperature",
+      "type": "number",
+      "rule": "finite number, at least 0",
+      "required_by": [],
+      "default": {
+        "*": 0.4
+      },
+      "used_by": [
+        "producer",
+        "orch-client"
+      ],
+      "valid": [
+        0,
+        0.4,
+        1,
+        1.0
+      ],
+      "invalid": [
+        -0.1,
+        "0.4",
+        true,
+        [
+          1
+        ]
+      ]
+    },
+    {
+      "name": "top_p",
+      "type": "number",
+      "rule": "finite number, 0 to 1",
+      "required_by": [],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "orch-client"
+      ],
+      "valid": [
+        0,
+        0.95,
+        1
+      ],
+      "invalid": [
+        -0.1,
+        1.1,
+        "0.9",
+        true
+      ]
+    },
+    {
+      "name": "top_k",
+      "type": "integer",
+      "rule": "integer, at least 1",
+      "required_by": [],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "orch-client"
+      ],
+      "valid": [
+        1,
+        64
+      ],
+      "invalid": [
+        0,
+        -1,
+        1.5,
+        "20",
+        true
+      ]
+    },
+    {
+      "name": "repetition_penalty",
+      "type": "number",
+      "rule": "finite number, greater than 0",
+      "required_by": [],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "consumer",
+        "orch-client"
+      ],
+      "valid": [
+        1.05,
+        2,
+        0.5
+      ],
+      "invalid": [
+        0,
+        0.0,
+        -1,
+        -0.5,
+        "1.05",
+        true,
+        [
+          1.05
+        ]
+      ]
+    },
+    {
+      "name": "seed",
+      "type": "integer",
+      "rule": "integer, at least 0",
+      "required_by": [],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "orch-client"
+      ],
+      "valid": [
+        0,
+        42
+      ],
+      "invalid": [
+        -1,
+        1.5,
+        "7",
+        true
+      ]
+    },
+    {
+      "name": "headers",
+      "type": "mapping",
+      "rule": "mapping of nonblank string names to string values",
+      "required_by": [],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "orch-client"
+      ],
+      "valid": [
+        {
+          "X-Team": "asago"
+        }
+      ],
+      "invalid": [
+        [
+          "a"
+        ],
+        "x",
+        {
+          "": "v"
+        },
+        {
+          "X": 1
+        },
+        {
+          "X": null
+        }
+      ]
+    },
+    {
+      "name": "enable_thinking",
+      "type": "boolean",
+      "rule": "boolean",
+      "required_by": [],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "orch-client"
+      ],
+      "valid": [
+        true,
+        false
+      ],
+      "invalid": [
+        "false",
+        0,
+        1,
+        "yes"
+      ]
+    },
+    {
+      "name": "use_guided_decoding",
+      "type": "boolean",
+      "rule": "boolean",
+      "required_by": [],
+      "default": {
+        "*": false
+      },
+      "used_by": [
+        "producer",
+        "orch-client"
+      ],
+      "valid": [
+        true,
+        false
+      ],
+      "invalid": [
+        "false",
+        0,
+        1,
+        "yes"
+      ]
+    },
+    {
+      "name": "timeout",
+      "type": "number",
+      "rule": "finite number, greater than 0",
+      "required_by": [],
+      "default": {
+        "*": null,
+        "producer": 300.0
+      },
+      "used_by": [
+        "producer",
+        "consumer",
+        "orch-client"
+      ],
+      "valid": [
+        1,
+        900,
+        0.5
+      ],
+      "invalid": [
+        0,
+        -1,
+        "900",
+        true
+      ],
+      "note": "An absent timeout is 300 seconds for the producer and the SDK default for the consumer and orch (deferred drift D9)."
+    },
+    {
+      "name": "reasoning_effort",
+      "type": "string",
+      "rule": "nonblank string",
+      "required_by": [],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "consumer",
+        "orch-client"
+      ],
+      "valid": [
+        "low",
+        "medium"
+      ],
+      "invalid": [
+        "",
+        "  ",
+        5,
+        true,
+        [
+          "x"
+        ]
+      ]
+    },
+    {
+      "name": "service_tier",
+      "type": "string",
+      "rule": "nonblank string",
+      "required_by": [],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "consumer",
+        "orch-client"
+      ],
+      "valid": [
+        "flex"
+      ],
+      "invalid": [
+        "",
+        "  ",
+        5,
+        true,
+        [
+          "x"
+        ]
+      ]
+    },
+    {
+      "name": "service_tier_fallback",
+      "type": "string",
+      "rule": "nonblank string",
+      "required_by": [],
+      "default": {
+        "*": null
+      },
+      "used_by": [
+        "producer",
+        "consumer",
+        "orch-client"
+      ],
+      "valid": [
+        "default"
+      ],
+      "invalid": [
+        "",
+        "  ",
+        5,
+        true,
+        [
+          "x"
+        ]
+      ]
+    },
+    {
+      "name": "sampling_controls",
+      "type": "boolean",
+      "rule": "boolean",
+      "required_by": [],
+      "default": {
+        "*": true
+      },
+      "used_by": [
+        "producer",
+        "consumer",
+        "orch-client"
+      ],
+      "valid": [
+        true,
+        false
+      ],
+      "invalid": [
+        "false",
+        0,
+        1,
+        "yes"
+      ]
+    },
+    {
+      "name": "strict_json_schema",
+      "type": "boolean",
+      "rule": "boolean, and only false: true is not supported",
+      "required_by": [],
+      "default": {
+        "*": null,
+        "orch-client": false
+      },
+      "used_by": [
+        "consumer",
+        "orch-client"
+      ],
+      "valid": [
+        false
+      ],
+      "invalid": [
+        true,
+        "false",
+        0
+      ],
+      "note": "The consumer records an absent value as null and orch as false (deferred drift D10)."
+    },
+    {
+      "name": "json_schema_strict",
+      "type": "boolean",
+      "rule": "boolean",
+      "required_by": [],
+      "default": {
+        "*": true
+      },
+      "used_by": [
+        "producer",
+        "orch-client"
+      ],
+      "valid": [
+        true,
+        false
+      ],
+      "invalid": [
+        "false",
+        0,
+        1,
+        "yes"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "authority": "asago-scenario-generator",
+  "contract": "model-profile",
+  "files": {
+    "model-profile-v1/README.md": "9798fb848153d096842c4f7a21ec233d8d8eaf55e6dcbd3a5724ec16df253342",
+    "model-profile-v1/fields.json": "624dca3815f18be68d41aac282f7b2b3eadc5136c9741600c553b4ed1229181e",
+    "model-profile-v1/load-cases.json": "8f8f698592c4cfe43f87354f64096ed9250ace903c0dfc0768f85dc6e064f0fd",
+    "model-profile-v1/request-cases.json": "be77e434a7a378a349e5f3d41a612f6ae0f9548d8f193dfe72bd71035acc4e3d"
+  },
+  "version": "model-profile-v1"
+}
