@@ -78,6 +78,8 @@
     "binding-cases/reject-expected-type-mismatch.json": "ac53ddebe507dc2918e318b5077dc7b39d74ee6bddde6b2c54117147663eec21",
     "binding-cases/reject-integer-as-string.json": "d498c973ae253cf4715c6a86204148ad55b5d0b1c29fef5c30617bdaf07bd848",
     "binding-cases/reject-setup-array-items.json": "080d816bf55aae7a4578517d185ca9af5e916b7a3e33ee4ca9e83d8f13acdd00",
+    "binding-cases/reject-setup-value-root.json": "27dbfc2dc48feb580b81e86cbc47f30ea574f647bf77be1b0449ee929b08dbbd",
+    "binding-cases/reject-supplied-result-root.json": "9e5a73f2da3b13d96cbfc2ef729d0619ba0a7ca891b33194f49bffb3f92ac319",
     "binding-cases/reject-undocumented-property.json": "56b7bd7b15e48553756964550f6b47523b8d57806f4055b31cd44e4e206ebe1c",
     "binding-cases/reject-unknown-root.json": "13accb9af8a0e1a060a512282a8b72a8bcb06fc9380357e699f313b63ce14bcc",
     "binding-cases/reject-unpermitted-setup.json": "5ac8f10d32400d80f80f95a1ba77753c46faae954a4bd16e5e0bb8302f817b52",

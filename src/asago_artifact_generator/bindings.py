@@ -160,6 +160,9 @@ def validate_bindings(
     bindings: list[RuntimeBinding] = []
     for binding in parsed_bindings:
         _require_closed_fields(binding)
+        root_mismatch = selector_root_mismatch(binding.name, binding.source_kind, binding.selector)
+        if root_mismatch is not None:
+            raise BindingValidationError(root_mismatch)
         schema = _source_schema(binding, inventory, runtime_contract)
         actual_type = _schema_at_selector(schema, binding.selector)
         if actual_type is None:
@@ -865,6 +868,27 @@ def _selector_root(selector: str) -> str | None:
 
     root = selector.split(".", 1)[0]
     return root if root in {"result", "value"} else None
+
+
+_SOURCE_ROOTS = {"supplied_input": "value", "setup_output": "result"}
+
+
+def selector_root_mismatch(name: Any, source_kind: Any, selector: str) -> str | None:
+    """Describe a selector rooted for the other source kind, or return None.
+
+    Execute reads a supplied fact under ``value`` and a setup output under
+    ``result``, so the other root resolves to nothing even when the schema
+    below it documents the path.
+    """
+
+    root = _selector_root(selector)
+    expected = _SOURCE_ROOTS.get(source_kind) if isinstance(source_kind, str) else None
+    if root is None or expected is None or root == expected:
+        return None
+    return (
+        f"selector for binding {name} must be rooted at {expected} for {source_kind}, "
+        f"not {root}: {selector}"
+    )
 
 
 def _binding_selector_type(schema: Any, selector: str) -> str | None:

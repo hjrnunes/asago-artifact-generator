@@ -27,6 +27,7 @@ from ..bindings import (
     find_stimulus_user_text_consumer_mismatches,
     normalize_binding_declarations,
     selector_array_step,
+    selector_root_mismatch,
     supplied_binding_values,
     validate_bindings,
 )
@@ -1580,6 +1581,7 @@ def _collect_binding_nested_findings(
                 name,
                 expected_type,
                 source_schema,
+                source_kind=source_kind,
                 path=path,
                 finding_code=finding_code,
             )
@@ -1790,6 +1792,7 @@ def _binding_selector_findings(
     expected_type: Any,
     source_schema: dict[str, Any] | None,
     *,
+    source_kind: Any,
     path: str,
     finding_code: str,
 ) -> list[Finding]:
@@ -1801,17 +1804,9 @@ def _binding_selector_findings(
                 f"{path}.selector",
             )
         ]
-    if _selector_root(selector) is None:
-        return [
-            Finding(
-                finding_code,
-                (
-                    "selector must be an exact documented dot path rooted at value "
-                    "for supplied_input or result for setup_output"
-                ),
-                f"{path}.selector",
-            )
-        ]
+    root_problem = _selector_root_problem(selector, name, source_kind)
+    if root_problem is not None:
+        return [Finding(finding_code, root_problem, f"{path}.selector")]
     if source_schema is None:
         return []
     array_path = selector_array_step(source_schema, selector)
@@ -1853,6 +1848,17 @@ def _binding_selector_findings(
             )
         ]
     return []
+
+
+def _selector_root_problem(selector: str, name: Any, source_kind: Any) -> str | None:
+    """Describe a selector whose root is unknown or belongs to the other source kind."""
+
+    if _selector_root(selector) is None:
+        return (
+            "selector must be an exact documented dot path rooted at value "
+            "for supplied_input or result for setup_output"
+        )
+    return selector_root_mismatch(name, source_kind, selector)
 
 
 def _binding_source_schema(
