@@ -48,6 +48,10 @@ _REASONS = {
         r"exact documented dot path)"
     ),
     "selector_through_array": r"^selector_through_array: selector for binding ",
+    "selector_root_mismatch": (
+        r"^plan_binding_validation: selector for binding \S+ must be rooted at "
+        r"(value for supplied_input|result for setup_output), not "
+    ),
     "type_mismatch": r"^plan_binding_validation: binding type mismatch for ",
     "setup_not_permitted": r"^plan_binding_validation: setup operation is not permitted: ",
     "value_missing": r"^value_missing: ",

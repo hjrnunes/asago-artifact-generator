@@ -124,6 +124,7 @@ from .sequential_turns import (
 from .shape_gate import shape_refusal_findings
 
 CRASH_FINDING_CODE = "authoring_crashed"
+REQUEST_FILES_FINDING_CODE = "request_files_unwritten"
 _CRASH_MESSAGE_LIMIT = 200
 
 
@@ -1538,9 +1539,24 @@ class AuthoringOrchestrator:
                 },
             )
         )
+        evidence_path = self._journal.flush()
         if status != "accepted" and attempts:
+            self._keep_request_files()
+        return evidence_path
+
+    def _keep_request_files(self) -> None:
+        """Write the request files, recording a failed write as a run finding.
+
+        The terminal record is already flushed, so a failed write must not raise:
+        the crash handler would replace that record's reason with
+        ``authoring_crashed``.
+        """
+
+        try:
             self._write_request_files()
-        return self._journal.flush()
+        except Exception as exc:  # noqa: BLE001 - the files are evidence, not the outcome
+            detail = f"{type(exc).__name__}: {_safe_error(exc)[:_CRASH_MESSAGE_LIMIT]}"
+            self._record_run_finding(Finding(REQUEST_FILES_FINDING_CODE, detail, "run"))
 
     def _write_request_files(self) -> None:
         """Write a failed run's prompts and raw responses under the package's names."""

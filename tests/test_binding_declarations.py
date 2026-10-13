@@ -730,6 +730,82 @@ def test_plan_still_reports_an_undocumented_selector_below_an_array_as_undocumen
     assert "undocumented selector" in findings[0][1]
 
 
+_SETUP_INVENTORY = {
+    "facts": _FACT_INVENTORY["facts"],
+    "operations": [
+        {
+            "name": "make",
+            "result_schema": {"type": "object", "properties": {"s": {"type": "string"}}},
+        }
+    ],
+}
+_SETUP_DECLARATION = {"source_kind": "setup_output", "source_ref": "setup:make"}
+# Each source schema documents ``s``, so only the root names the wrong source.
+_WRONG_ROOTS = [
+    pytest.param({"selector": "result.s"}, "value", "supplied_input", id="supplied-result"),
+    pytest.param(
+        {**_SETUP_DECLARATION, "selector": "value.s"}, "result", "setup_output", id="setup-value"
+    ),
+]
+
+
+def _root_message(root: str, source_kind: str, selector: str) -> str:
+    wrong = "result" if root == "value" else "value"
+    return (
+        f"selector for binding n must be rooted at {root} for {source_kind}, "
+        f"not {wrong}: {selector}"
+    )
+
+
+@pytest.mark.parametrize(("changes", "root", "source_kind"), _WRONG_ROOTS)
+def test_validate_bindings_rejects_a_selector_rooted_for_the_other_source_kind(
+    changes: dict, root: str, source_kind: str
+) -> None:
+    message = _root_message(root, source_kind, changes["selector"])
+
+    with pytest.raises(BindingValidationError, match=re.escape(message)):
+        validate_bindings(
+            [_declaration(**changes)],
+            inventory=_SETUP_INVENTORY,
+            runtime_contract={"setup_permissions": ["make"]},
+        )
+
+
+@pytest.mark.parametrize(("changes", "root", "source_kind"), _WRONG_ROOTS)
+def test_plan_reports_a_selector_rooted_for_the_other_source_kind_once(
+    changes: dict, root: str, source_kind: str
+) -> None:
+    findings = _collect_binding_findings(
+        [_declaration(**changes)],
+        _SETUP_INVENTORY,
+        {"setup_permissions": ["make"]},
+        finding_code="plan_binding_validation",
+    )
+
+    assert _coded_findings(findings) == [
+        (
+            "plan_binding_validation",
+            _root_message(root, source_kind, changes["selector"]),
+            "runtime_bindings[0].selector",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "changes", [{"selector": "value.s"}, {**_SETUP_DECLARATION, "selector": "result.s"}]
+)
+def test_a_selector_rooted_for_its_source_kind_is_accepted(changes: dict) -> None:
+    declarations = [_declaration(**changes)]
+
+    assert validate_bindings(
+        declarations, inventory=_SETUP_INVENTORY, runtime_contract={"setup_permissions": ["make"]}
+    )
+    assert (
+        _collect_binding_findings(declarations, _SETUP_INVENTORY, {"setup_permissions": ["make"]})
+        == []
+    )
+
+
 def test_supplied_binding_values_skip_unresolvable_sources() -> None:
     declarations = [
         _declaration(name="a", selector="value.a"),
