@@ -417,6 +417,22 @@ contract lists no matching `delivery`, such as `planted_item` for `indirect`),
 `attack_shape` breaks the vendored schema or its cross-field rules is refused
 at load with `shape_version_malformed`.
 
+When an `indirect` shape names no record (`record_ref` is null) and the runtime
+contract's seed slot lists records, the plan names the record that holds the
+planted text in `stimulus_approach.planted_record_ref`, a string. The plan
+author sees the slot's records, and code checks that the slot lists the one it
+names. A plan that omits the field, names a record the slot does not list, or
+gives a non-string value gets `missing_field`, `planted_record_not_in_slot`, or
+`type_error` at `stimulus_approach.planted_record_ref`; a plan that carries the
+field where the shape names the record or is not indirect gets
+`unexpected_field`. The plan correction
+repairs each finding. After the plan is accepted, the record is fixed: the
+artifact stages (Call 2, its correction, and the artifact review) state it as a
+fact together with its source (the accepted plan, the producer's shape, or the
+slot's first record), and the artifact review judges whether the benign turns
+lead the agent to read the record instead of asking to move the planted text. A
+reused plan without the field still plants the slot's first record.
+
 A handoff carries two optional condition fields and two tool-call fields, all
 validated against the vendored v4 schema:
 
