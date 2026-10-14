@@ -21,16 +21,16 @@ from ..failure_evidence import redact_metadata
 AUTHORING_INTERFACE_VERSION_V2 = "artifact-authoring-v2"
 # The response wire remains v2, while its model-facing templates advance
 # independently; each constant names the template version dispatched now.
-CALL1_PROMPT_VERSION_V22 = "authoring-call1-v22"
+CALL1_PROMPT_VERSION_V23 = "authoring-call1-v23"
 CALL2_PROMPT_VERSION_V25 = "authoring-call2-v25"
 CORRECTION_PROMPT_VERSION_V33 = "authoring-correction-v33"
-CORRECTION_PROMPT_VERSION_V35 = "authoring-correction-v35"
+CORRECTION_PROMPT_VERSION_V36 = "authoring-correction-v36"
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
-PLAN_REVIEW_PROMPT_VERSION_V21 = "authoring-plan-review-v21"
+PLAN_REVIEW_PROMPT_VERSION_V22 = "authoring-plan-review-v22"
 ARTIFACT_REVIEW_PROMPT_VERSION_V21 = "authoring-artifact-review-v21"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V21
+PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V22
 ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V21
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 

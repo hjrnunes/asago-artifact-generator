@@ -131,4 +131,6 @@ def test_the_plan_reviewer_is_told_that_a_valid_binding_can_still_mean_the_wrong
 def test_each_reviewer_prompt_carries_its_bumped_version(stage: str) -> None:
     plan, artifact = _ehr_packets()
 
-    assert {"plan_review": plan, "artifact_review": artifact}[stage].version.endswith("-v21")
+    packet = {"plan_review": plan, "artifact_review": artifact}[stage]
+
+    assert packet.version.endswith({"plan_review": "-v22", "artifact_review": "-v21"}[stage])

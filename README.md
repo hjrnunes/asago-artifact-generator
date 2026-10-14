@@ -215,9 +215,9 @@ anything other than a supplied result observation.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v22` renders the plan author context while preserving the
+- `authoring-call1-v23` renders the plan author context while preserving the
   existing 11-field plan response.
-- `authoring-plan-review-v21` reviews a fresh source-derived plan context. It
+- `authoring-plan-review-v22` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
   binding selects inside one record of a keyed fact, the value also carries
@@ -236,7 +236,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `semantic_judge_spec_required` correction.
 - `authoring-artifact-review-v21` reviews the exact artifact object and the
   binding and judge declarations.
-- `authoring-correction-v35` renders only the failed stage format and all
+- `authoring-correction-v36` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option
@@ -416,6 +416,28 @@ contract lists no matching `delivery`, such as `planted_item` for `indirect`),
 (more turns than `limits.max_planned_turns`, default 4). A v4 handoff whose
 `attack_shape` breaks the vendored schema or its cross-field rules is refused
 at load with `shape_version_malformed`.
+
+When an `indirect` shape names no record (`record_ref` is null) and the runtime
+contract's seed slot lists records, the plan names the record that holds the
+planted text in `stimulus_approach.planted_record_ref`, a string. The plan
+response contract limits the field to the slot's records (an `enum`), and the
+plan prompt says why: the target plants text only in a record its carrier
+returns to the agent for the benign user, so the planted record can differ from
+the scenario's target record (for example another customer's record), and the
+planted text then leads the agent from one to the other. The plan review shows
+the same records under `PLANTED RECORD RULE` and tells the reviewer not to ask
+for any other record. Code checks that the slot lists the record the plan
+names. A plan that omits the field, names a record the slot does not list, or
+gives a non-string value gets `missing_field`, `planted_record_not_in_slot`, or
+`type_error` at `stimulus_approach.planted_record_ref`; a plan that carries the
+field where the shape names the record or is not indirect gets
+`unexpected_field`. The plan correction
+repairs each finding. After the plan is accepted, the record is fixed: the
+artifact stages (Call 2, its correction, and the artifact review) state it as a
+fact together with its source (the accepted plan, the producer's shape, or the
+slot's first record), and the artifact review judges whether the benign turns
+lead the agent to read the record instead of asking to move the planted text. A
+reused plan without the field still plants the slot's first record.
 
 A handoff carries two optional condition fields and two tool-call fields, all
 validated against the vendored v4 schema:

@@ -108,6 +108,7 @@ _CHECKS = {
     "plan_binding_validation": "A runtime binding in the plan failed a structural check.",
     "plan_conflict": "The artifact changes or resubmits a field the accepted plan owns.",
     "plan_validation": "The plan failed a structural check.",
+    "planted_record_not_in_slot": "The plan names a planted record the target slot does not list.",
     "planted_text_empty": "The planted item's text is empty.",
     "planted_text_in_benign_turn": (
         "A benign turn repeats the planted text, which must reach the agent only through "

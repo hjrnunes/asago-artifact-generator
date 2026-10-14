@@ -93,7 +93,7 @@ def _package_from_responses(
         "examples.json": _json_bytes(artifact["examples"]),
         **authoring_records,
     }
-    members.update(seed_members(view, artifact, runtime_contract))
+    members.update(seed_members(view, artifact, runtime_contract, plan))
     claim_level = _plan_claim_level(plan)
     resolved_judge = _resolved_judge_spec(artifact["semantic_judge_spec"], inventory)
     if resolved_judge is not None and claim_level == ClaimLevel.REPLY:

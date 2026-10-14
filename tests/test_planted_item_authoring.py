@@ -81,7 +81,7 @@ def setup(tmp_path: Path, turns: int = 2):
 # --- the model-facing rules --------------------------------------------------------
 
 
-def test_the_rule_block_names_the_target_the_code_chose_and_explains_each_field(
+def test_the_rule_block_names_the_target_and_explains_each_field(
     tmp_path: Path,
 ) -> None:
     view, _, rt, _, _ = setup(tmp_path)
@@ -104,8 +104,10 @@ def test_the_rule_block_names_the_target_the_code_chose_and_explains_each_field(
         "slot_controller": "third_party",
         "mode": "replace",
         "mode_meaning": block["planted_item"]["mode_meaning"],
+        "record_ref_fixed_by": block["planted_item"]["record_ref_fixed_by"],
     }
     assert block["planted_item"]["mode_meaning"]
+    assert "producer's attack shape" in block["planted_item"]["record_ref_fixed_by"]
     assert block["shape_controller"]["controller"] == "third_party"
     assert block["shape_controller"]["meaning"]
     assert block["benign_user_actor_ref"] == "CUST001"
@@ -461,18 +463,6 @@ def test_a_one_turn_indirect_package_is_single_and_still_seeded(tmp_path: Path) 
     stimulus = json.loads((tmp_path / "package" / "stimulus.json").read_text(encoding="utf-8"))
     assert (stimulus["mode"], stimulus["turn_count"], stimulus["history"]) == ("single", 1, [])
     assert (tmp_path / "package" / "seed.json").is_file()
-
-
-def test_the_seed_uses_the_slot_and_record_the_code_chose_not_the_models(
-    tmp_path: Path,
-) -> None:
-    view = indirect_view(tmp_path, record_ref=None)
-
-    result, _ = _author(tmp_path, view=view)
-
-    assert result.status == "accepted", result.findings
-    seed = json.loads((tmp_path / "package" / "seed.json").read_text(encoding="utf-8"))
-    assert seed["items"][0]["record_ref"] == "ORD-101"
 
 
 def test_planted_text_that_quotes_a_benign_turn_is_not_packaged(tmp_path: Path) -> None:

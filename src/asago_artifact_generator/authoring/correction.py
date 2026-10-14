@@ -15,7 +15,7 @@ from .binding_repair import (
 from .contracts import _call2_contract_v2
 from .core import (
     CORRECTION_PROMPT_VERSION_V33,
-    CORRECTION_PROMPT_VERSION_V35,
+    CORRECTION_PROMPT_VERSION_V36,
     Call2FramingError,
     Finding,
     FindingTarget,
@@ -29,7 +29,12 @@ from .prompt_context import (
 )
 from .prompt_packets import _artifact_response_contract_for_prompt
 from .response_decode import _decode_stage_response, _readable_response
-from .sequential_turns import delivery_in_context, plan_response_contract, turns_in_context
+from .sequential_turns import (
+    delivery_in_context,
+    plan_response_contract,
+    records_in_context,
+    turns_in_context,
+)
 from .templates import prose
 
 
@@ -275,7 +280,7 @@ def _render_correction_packet(
     packet = PromptPacket(
         stage="correction",
         version=(
-            CORRECTION_PROMPT_VERSION_V33 if view.artifact else CORRECTION_PROMPT_VERSION_V35
+            CORRECTION_PROMPT_VERSION_V33 if view.artifact else CORRECTION_PROMPT_VERSION_V36
         ),
         system=_CORRECTION_SYSTEM,
         user=_render_sections(
@@ -402,7 +407,9 @@ def build_correction_context(
                 "accepted_plan_fixed": False,
                 "format": prose("correction/plan_format"),
                 "response_contract": plan_response_contract(
-                    turns_in_context(original_context), delivery_in_context(original_context)
+                    turns_in_context(original_context),
+                    delivery_in_context(original_context),
+                    records_in_context(original_context),
                 ),
             }
         )
