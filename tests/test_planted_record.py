@@ -36,7 +36,7 @@ from asago_artifact_generator.authoring.review import (
 from asago_artifact_generator.authoring.sequential_turns import (
     multi_turn_block,
     multi_turn_payload,
-    record_named_in_context,
+    records_in_context,
     sequential_plan_findings,
 )
 
@@ -273,6 +273,7 @@ def test_the_plan_contract_asks_for_the_record_only_when_the_plan_names_it(
 
     assert RECORD_FIELD in unnamed["properties"]
     assert unnamed["properties"][RECORD_FIELD]["type"] == "string"
+    assert unnamed["properties"][RECORD_FIELD]["enum"] == RECORDS
     assert unnamed["properties"][RECORD_FIELD]["description"]
     assert RECORD_FIELD in unnamed["required"]
     assert RECORD_FIELD not in named["properties"]
@@ -304,7 +305,7 @@ def test_a_shape_that_names_the_record_shows_it_and_asks_for_no_choice(tmp_path:
     assert "records" not in block["planted_item"]
     assert "record_choice" not in block["planted_item"]
     assert RECORD_PATH not in block["fields"]
-    assert not record_named_in_context({"multi_turn_shape": block})
+    assert records_in_context({"multi_turn_shape": block}) is None
 
 
 def test_every_plan_stage_request_carries_the_slots_records(tmp_path: Path) -> None:
@@ -352,7 +353,16 @@ def test_a_plan_correction_keeps_the_record_field_in_its_contract(tmp_path: Path
 
     approach = payload["response_contract"]["schema"]["properties"]["stimulus_approach"]
     assert RECORD_FIELD in approach["properties"]
+    assert approach["properties"][RECORD_FIELD]["enum"] == RECORDS
     assert RECORD_FIELD in approach["required"]
+
+
+def test_the_records_a_recorded_plan_context_offers_are_the_slots_records(tmp_path: Path) -> None:
+    view = indirect_view(tmp_path, record_ref=None)
+
+    assert records_in_context(multi_turn_payload(view, runtime())) == RECORDS
+    assert records_in_context({}) is None
+    assert records_in_context({"multi_turn_shape": {"planted_item": None}}) is None
 
 
 def test_the_artifact_stages_show_the_record_the_plan_fixed(tmp_path: Path) -> None:

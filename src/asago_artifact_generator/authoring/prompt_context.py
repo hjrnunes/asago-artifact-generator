@@ -29,7 +29,7 @@ from .contracts import (
 )
 from .core import _sha256
 from .inventory import _inventory_fact_map, _inventory_references
-from .planted_item import plan_names_record
+from .planted_item import plan_record_choices
 from .sequential_turns import plan_response_contract, shape_delivery, turn_count
 from .templates import prose
 
@@ -590,7 +590,7 @@ def build_plan_author_context(
     """Build the source-derived context for the plan author role."""
 
     response_contract = plan_response_contract(
-        turn_count(view), shape_delivery(view), plan_names_record(view, runtime_contract)
+        turn_count(view), shape_delivery(view), plan_record_choices(view, runtime_contract)
     )
     context = {
         "task": {

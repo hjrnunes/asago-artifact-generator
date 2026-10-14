@@ -8,6 +8,7 @@ path, so nothing here changes their prompts or checks.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any
 
@@ -17,7 +18,6 @@ from .core import Finding
 from .planted_item import (
     PLANTED_ITEM_DELIVERY,
     RECORD_FIELD,
-    RECORD_PATH,
     indirect_block,
     is_indirect,
     plan_record_findings,
@@ -65,13 +65,13 @@ def turn_count(view: InputView) -> int:
 
 
 def plan_response_contract(
-    turns: int = 1, delivery: str | None = None, names_record: bool = False
+    turns: int = 1, delivery: str | None = None, records: Sequence[str] | None = None
 ) -> dict[str, Any]:
     """Return the plan response contract.
 
     A multi-turn plan names only the sequential delivery, and a plan whose shape
     fixes a ``delivery`` names only that one. A plan that chooses the planted record
-    (``names_record``) also carries the record field.
+    among the slot's ``records`` also carries the record field, limited to them.
     """
 
     contract = _call1_contract_v2()
@@ -79,9 +79,10 @@ def plan_response_contract(
     only = delivery or (SEQUENTIAL_DELIVERY if turns > 1 else None)
     if only is not None:
         approach["properties"]["delivery"]["enum"] = [only]
-    if names_record:
+    if records is not None:
         approach["properties"][RECORD_FIELD] = {
             "type": "string",
+            "enum": list(records),
             "description": prose("planted_item/record_field_meaning"),
         }
         approach["required"] = [*approach["required"], RECORD_FIELD]
@@ -101,12 +102,13 @@ def delivery_in_context(context: Any) -> str | None:
     return block.get("delivery") if isinstance(block, dict) else None
 
 
-def record_named_in_context(context: Any) -> bool:
-    """Return whether a recorded context's rule block asks the plan to name the record."""
+def records_in_context(context: Any) -> list[str] | None:
+    """Return the records a recorded context's rule block offers the plan, or None."""
 
     block = context.get(BLOCK_KEY) if isinstance(context, dict) else None
-    fields = block.get("fields") if isinstance(block, dict) else None
-    return isinstance(fields, dict) and RECORD_PATH in fields
+    item = block.get("planted_item") if isinstance(block, dict) else None
+    records = item.get("records") if isinstance(item, dict) else None
+    return list(records) if isinstance(records, list) else None
 
 
 def turns_in_context(context: Any) -> int:

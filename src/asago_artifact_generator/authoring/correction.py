@@ -32,7 +32,7 @@ from .response_decode import _decode_stage_response, _readable_response
 from .sequential_turns import (
     delivery_in_context,
     plan_response_contract,
-    record_named_in_context,
+    records_in_context,
     turns_in_context,
 )
 from .templates import prose
@@ -409,7 +409,7 @@ def build_correction_context(
                 "response_contract": plan_response_contract(
                     turns_in_context(original_context),
                     delivery_in_context(original_context),
-                    record_named_in_context(original_context),
+                    records_in_context(original_context),
                 ),
             }
         )

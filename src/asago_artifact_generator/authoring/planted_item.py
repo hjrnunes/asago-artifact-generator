@@ -213,12 +213,17 @@ def _choice_target(shape: Any, runtime_contract: dict[str, Any]) -> PlantedTarge
     return choose_planted_target(shape, runtime_contract)
 
 
-def plan_names_record(view: Any, runtime_contract: dict[str, Any] | None) -> bool:
-    """Return whether the plan names the planted record: the shape names none, a slot lists one."""
+def plan_record_choices(view: Any, runtime_contract: dict[str, Any] | None) -> list[str] | None:
+    """Return the records the plan chooses among, or None when the plan names no record.
+
+    The plan names the planted record when the shape names none and a slot lists one.
+    """
 
     if not is_indirect(view):
-        return False
-    return _choice_target(view.attack_shape, runtime_contract or {}) is not None
+        return None
+    contract = runtime_contract or {}
+    target = _choice_target(view.attack_shape, contract)
+    return None if target is None else _slot_records(contract, target.slot)
 
 
 def _slot_records(runtime_contract: dict[str, Any], slot_id: str) -> list[str]:
