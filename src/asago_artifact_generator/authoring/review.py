@@ -27,6 +27,7 @@ from .core import (
     _sha256,
 )
 from .inventory import _selected_refs
+from .planted_item import PLAN_REVIEW_RECORD_KEY, plan_review_record_sections
 from .prompt_context import (
     _authoritative_context,
     _discriminating_condition_rule,
@@ -608,11 +609,13 @@ def build_plan_review_packet(
         runtime_contract,
         prior_round=prior_round,
     )
+    record_sections = plan_review_record_sections(view, runtime_contract)
     payload = {
         "interface": AUTHORING_INTERFACE_VERSION_V2,
         "stage": "plan_review",
         **context,
         **multi_turn_payload(view, runtime_contract),
+        **({PLAN_REVIEW_RECORD_KEY: record_sections[0][1]} if record_sections else {}),
     }
     assert_no_prompt_secrets(payload)
     packet = PromptPacket(
@@ -625,6 +628,7 @@ def build_plan_review_packet(
                 ("AUTHORITATIVE CONTEXT", context["authoritative_context"]),
             )
             + multi_turn_sections(view, runtime_contract)
+            + record_sections
             + (
                 ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
                 ("BINDING AND SETUP RULES", context["binding_and_setup_rules"]),

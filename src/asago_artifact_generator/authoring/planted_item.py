@@ -25,6 +25,8 @@ PLANTED_TEXT_FIELD = "planted_text"
 # The plan field that names the record when the producer's shape names none.
 RECORD_FIELD = "planted_record_ref"
 RECORD_PATH = f"stimulus_approach.{RECORD_FIELD}"
+PLAN_REVIEW_RECORD_TITLE = "PLANTED RECORD RULE"
+PLAN_REVIEW_RECORD_KEY = "planted_record_rule"
 # The target refuses a longer seed item.
 MAX_PLANTED_CHARS = 2000
 # Characters of the planted text that, repeated in one benign turn, count as quoting
@@ -395,6 +397,26 @@ def planted_review_sections(
             },
         ),
     )
+
+
+def plan_review_record_sections(
+    view: Any, runtime_contract: dict[str, Any] | None
+) -> tuple[tuple[str, Any], ...]:
+    """Return the plan reviewer's rule for the record the plan names, or nothing.
+
+    The reviewer sees the same records the plan author chooses among, and why no other
+    record can hold the text.
+    """
+
+    records = plan_record_choices(view, runtime_contract)
+    if records is None:
+        return ()
+    rule = {
+        "field": RECORD_PATH,
+        "records": records,
+        "rule": prose("planted_item/plan_review_record_rule"),
+    }
+    return ((PLAN_REVIEW_RECORD_TITLE, rule),)
 
 
 def with_planted_text_field(

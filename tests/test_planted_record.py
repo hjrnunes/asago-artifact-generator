@@ -19,6 +19,7 @@ from asago_artifact_generator.authoring.planted_item import (
     RECORD_PATH,
     choose_planted_target,
     plan_record_findings,
+    plan_review_record_sections,
     seed_members,
 )
 from asago_artifact_generator.authoring.prompt_context import (
@@ -350,6 +351,47 @@ def test_every_plan_stage_request_carries_the_slots_records(tmp_path: Path) -> N
         assert RECORD_PATH in text, stage
         if shape is not None:
             assert shape["planted_item"]["records"] == RECORDS, stage
+
+
+# --- what the plan reviewer is told about the record -------------------------------------
+
+
+def _plan_review(view: Any) -> Any:
+    refund = world("refund")
+    inventory = indirect_inventory(refund["inventory"])
+    return build_plan_review_packet(view, plan_naming("ORD-102"), inventory, runtime())
+
+
+def test_the_plan_reviewer_sees_the_records_and_the_rule(tmp_path: Path) -> None:
+    packet = _plan_review(indirect_view(tmp_path, record_ref=None))
+
+    section = json_section(packet.user, "PLANTED RECORD RULE")
+    assert section["records"] == RECORDS
+    assert section["field"] == RECORD_PATH
+    rule = section["rule"]
+    assert "do not ask for a record outside records" in rule
+    assert "target record" in rule
+    assert "code rejects" in rule
+    assert "benign turns" in rule
+    assert packet.payload["planted_record_rule"] == section
+
+
+def test_the_plan_reviewer_gets_no_record_rule_when_the_plan_names_no_record(
+    tmp_path: Path,
+) -> None:
+    named = indirect_view(tmp_path, record_ref="ORD-101")
+
+    assert plan_review_record_sections(named, runtime()) == ()
+    packet = _plan_review(named)
+    assert "PLANTED RECORD RULE" not in packet.user
+    assert "planted_record_rule" not in packet.payload
+
+
+def test_the_artifact_reviewer_gets_no_plan_record_rule(tmp_path: Path) -> None:
+    packets = _artifact_packets(indirect_view(tmp_path, record_ref=None), plan_naming("ORD-102"))
+
+    for stage, packet in packets.items():
+        assert "PLANTED RECORD RULE" not in packet.user, stage
 
 
 def test_a_plan_correction_keeps_the_record_field_in_its_contract(tmp_path: Path) -> None:

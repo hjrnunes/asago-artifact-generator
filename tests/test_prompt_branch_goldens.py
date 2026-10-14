@@ -30,6 +30,7 @@ from asago_artifact_generator.authoring.binding_repair import (
 )
 from asago_artifact_generator.authoring.planted_item import (
     indirect_block,
+    plan_review_record_sections,
     planted_review_sections,
 )
 from asago_artifact_generator.authoring.prompt_context import (
@@ -93,6 +94,13 @@ def _record_fixed_by_plan(directory: Path) -> str:
     view = _indirect_view(directory, "counterparty", record_ref=None)
     plan = {"stimulus_approach": {"planted_record_ref": "ORD-102"}}
     return _section(indirect_block(view, runtime, plan))
+
+
+def _plan_review_record_rule(directory: Path) -> str:
+    runtime = indirect_runtime(world("refund")["runtime_contract"])
+    view = _indirect_view(directory, "counterparty", record_ref=None)
+    ((_, section),) = plan_review_record_sections(view, runtime)
+    return _section(section)
 
 
 def _planted_review_record_fixed_by_plan(directory: Path) -> str:
@@ -177,6 +185,7 @@ CASES: dict[str, Callable[[Path], str]] = {
     "indirect_plan_chooses_record": _plan_chooses_record,
     "indirect_record_fixed_by_plan": _record_fixed_by_plan,
     "indirect_unknown_controller": _indirect_case("unknown"),
+    "plan_review_record_rule": _plan_review_record_rule,
     "planted_review_counterparty": _planted_review,
     "planted_review_record_fixed_by_plan": _planted_review_record_fixed_by_plan,
     "reference_repair_kinds": _reference_repairs,
