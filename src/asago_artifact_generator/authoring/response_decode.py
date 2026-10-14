@@ -20,6 +20,10 @@ from .core import (
 
 _MISSING = object()
 
+# The recorded transformation of a reply that held several fences; the count of
+# fences follows the colon, as in ``last_fence_taken:3``.
+LAST_FENCE_TAKEN = "last_fence_taken"
+
 
 def _provider_field(value: Any, name: str) -> Any:
     """Read a returned provider field without adding fields to the request."""
@@ -128,7 +132,14 @@ def _decode_strict_single_json_response(
     error: type[AuthoringError],
     path: str,
 ) -> tuple[dict[str, Any], str | None]:
-    """Accept one bare JSON object or exactly one lowercase ```json fence."""
+    """Accept one bare JSON object, one lowercase ```json fence, or several such fences.
+
+    Several fences are accepted only as a reply that ends on the last fence's
+    closing marker, with text between every two fences, where every fence holds
+    one JSON object; the last object is the reply (the earlier ones are drafts
+    the model abandoned).  Text after the last fence, adjacent fences, and a
+    fence that is not lowercase ``json`` stay rejected.
+    """
 
     text = raw.decode("utf-8").strip()
     if text.startswith("```"):
@@ -157,14 +168,12 @@ def _decode_strict_single_json_response(
             detail = f"{subject} lowercase ```json fence is not closed"
             raise error([Finding(code, detail, path)])
         tail = closed.group("tail").lstrip()
-        if tail:
-            code = "multiple_json_blocks" if tail.startswith("```") else "trailing_content"
-            detail = (
-                f"{subject} contains more than one fenced JSON block"
-                if code == "multiple_json_blocks"
-                else f"{subject} contains content outside its JSON fence"
+        if tail and not tail.startswith("```"):
+            return _decode_last_fenced_object(
+                closed.group("body"), tail, subject=subject, error=error, path=path
             )
-            raise error([Finding(code, detail, path)])
+        if tail:
+            raise error(_fence_finding("multiple_json_blocks", subject, path))
         return (
             _decode_strict_json_object(
                 closed.group("body").strip(),
@@ -175,6 +184,64 @@ def _decode_strict_single_json_response(
             "outer_fence_removed",
         )
     return _decode_strict_json_object(text, subject=subject, error=error, path=path), None
+
+
+_FENCE_OPENER = re.compile(r"^```json\r?$", re.MULTILINE)
+_FENCED_BODY = re.compile(r"```json\r?\n(?P<body>.*?)\r?\n```", re.DOTALL)
+
+
+def _fence_finding(code: str, subject: str, path: str) -> list[Finding]:
+    details = {
+        "multiple_json_blocks": f"{subject} contains more than one fenced JSON block",
+        "trailing_content": f"{subject} contains content outside its JSON fence",
+        "truncated_fence": f"{subject} lowercase ```json fence is not closed",
+    }
+    return [Finding(code, details[code], path)]
+
+
+def _later_fenced_bodies(
+    tail: str, *, subject: str, error: type[AuthoringError], path: str
+) -> list[str]:
+    """Return the bodies of the fences that follow the first one.
+
+    ``tail`` is the text after the first fence's closing marker and starts with
+    text.  The reply must end on the last fence's closing marker.
+    """
+
+    bodies: list[str] = []
+    rest = tail
+    while rest.strip():
+        opener = _FENCE_OPENER.search(rest)
+        if opener is None:
+            adjacent = rest.lstrip().startswith("```")
+            code = "multiple_json_blocks" if adjacent else "trailing_content"
+            raise error(_fence_finding(code, subject, path))
+        if not rest[: opener.start()].strip():
+            raise error(_fence_finding("multiple_json_blocks", subject, path))
+        closed = _FENCED_BODY.match(rest, opener.start())
+        if closed is None:
+            raise error(_fence_finding("truncated_fence", subject, path))
+        bodies.append(closed.group("body"))
+        rest = rest[closed.end() :]
+    return bodies
+
+
+def _decode_last_fenced_object(
+    first_body: str,
+    tail: str,
+    *,
+    subject: str,
+    error: type[AuthoringError],
+    path: str,
+) -> tuple[dict[str, Any], str]:
+    """Decode every fenced body alone and return the last object with its count."""
+
+    bodies = [first_body, *_later_fenced_bodies(tail, subject=subject, error=error, path=path)]
+    objects = [
+        _decode_strict_json_object(body.strip(), subject=subject, error=error, path=path)
+        for body in bodies
+    ]
+    return objects[-1], f"{LAST_FENCE_TAKEN}:{len(bodies)}"
 
 
 def _decode_strict_json_object(

@@ -25,9 +25,16 @@ uv run asago-artifact-generator generate <scenario-handoff.json> \
 `generate` uses the versioned v2 authoring wire. Call 1 returns one closed plan
 root as either one bare JSON object or exactly one lowercase `json` fenced
 object, with optional surrounding whitespace. Untagged, uppercase, or other
-fences, multiple objects or blocks, prose, trailing content, and malformed JSON
-are rejected. The raw Call 1 bytes remain preserved, and a removed outer fence
-is recorded before plan validation. Call 2 uses the same framing rules: one
+fences, multiple objects in one block, prose around a single block, and
+malformed JSON are rejected. A reply of two or more lowercase `json` blocks
+with text between every two of them (the model drafts a block, writes "Wait,",
+and drafts another) decodes to its last block when the reply ends on that
+block's closing fence and every block decodes as one JSON object alone; text
+after the last fence, adjacent blocks, and a block that does not decode are
+rejected. The raw Call 1 bytes remain preserved, and a removed outer fence is
+recorded before plan validation as `outer_fence_removed`, or as
+`last_fence_taken:<block count>` when the last of several blocks was taken. The
+reviewer response and the corrections use the same rules. Call 2 uses the same framing rules: one
 JSON object with exactly `stimulus`, `semantic_judge_spec`, `examples`, and
 `explanation`. It returns no detector code.
 For a `command_attempt` claim, the `unsafe` and `safe` examples each carry a
