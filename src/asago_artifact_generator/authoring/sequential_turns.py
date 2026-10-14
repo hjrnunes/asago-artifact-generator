@@ -16,8 +16,11 @@ from .contracts import _call1_contract_v2
 from .core import Finding
 from .planted_item import (
     PLANTED_ITEM_DELIVERY,
+    RECORD_FIELD,
+    RECORD_PATH,
     indirect_block,
     is_indirect,
+    plan_record_findings,
     planted_review_sections,
 )
 from .shape_gate import SEQUENTIAL_DELIVERY
@@ -61,18 +64,27 @@ def turn_count(view: InputView) -> int:
     return shape["turn_count"] if shape is not None else 1
 
 
-def plan_response_contract(turns: int = 1, delivery: str | None = None) -> dict[str, Any]:
+def plan_response_contract(
+    turns: int = 1, delivery: str | None = None, names_record: bool = False
+) -> dict[str, Any]:
     """Return the plan response contract.
 
     A multi-turn plan names only the sequential delivery, and a plan whose shape
-    fixes a ``delivery`` names only that one.
+    fixes a ``delivery`` names only that one. A plan that chooses the planted record
+    (``names_record``) also carries the record field.
     """
 
     contract = _call1_contract_v2()
+    approach = contract["schema"]["properties"]["stimulus_approach"]
     only = delivery or (SEQUENTIAL_DELIVERY if turns > 1 else None)
     if only is not None:
-        properties = contract["schema"]["properties"]["stimulus_approach"]["properties"]
-        properties["delivery"]["enum"] = [only]
+        approach["properties"]["delivery"]["enum"] = [only]
+    if names_record:
+        approach["properties"][RECORD_FIELD] = {
+            "type": "string",
+            "description": prose("planted_item/record_field_meaning"),
+        }
+        approach["required"] = [*approach["required"], RECORD_FIELD]
     return contract
 
 
@@ -89,6 +101,14 @@ def delivery_in_context(context: Any) -> str | None:
     return block.get("delivery") if isinstance(block, dict) else None
 
 
+def record_named_in_context(context: Any) -> bool:
+    """Return whether a recorded context's rule block asks the plan to name the record."""
+
+    block = context.get(BLOCK_KEY) if isinstance(context, dict) else None
+    fields = block.get("fields") if isinstance(block, dict) else None
+    return isinstance(fields, dict) and RECORD_PATH in fields
+
+
 def turns_in_context(context: Any) -> int:
     """Return the turn count a recorded authoring context carries; one when it has no block."""
 
@@ -97,12 +117,16 @@ def turns_in_context(context: Any) -> int:
 
 
 def multi_turn_block(
-    view: InputView, runtime_contract: dict[str, Any] | None = None
+    view: InputView, runtime_contract: dict[str, Any] | None = None, plan: Any = None
 ) -> dict[str, Any] | None:
-    """Return the model-facing rules for a multi-turn or indirect shape, else None."""
+    """Return the model-facing rules for a multi-turn or indirect shape, else None.
+
+    The plan stages pass no ``plan``; the artifact stages pass the accepted plan, which
+    fixes the planted record of an indirect shape.
+    """
 
     if is_indirect(view):
-        return indirect_block(view, runtime_contract)
+        return indirect_block(view, runtime_contract, plan)
     turns = turn_count(view)
     if turns <= 1:
         return None
@@ -153,31 +177,31 @@ def multi_turn_block(
 
 
 def multi_turn_sections(
-    view: InputView, runtime_contract: dict[str, Any] | None = None
+    view: InputView, runtime_contract: dict[str, Any] | None = None, plan: Any = None
 ) -> tuple[tuple[str, Any], ...]:
     """Return the prompt section for the rule block, or nothing for a single message."""
 
-    block = multi_turn_block(view, runtime_contract)
+    block = multi_turn_block(view, runtime_contract, plan)
     title = INDIRECT_BLOCK_TITLE if is_indirect(view) else BLOCK_TITLE
     return () if block is None else ((title, block),)
 
 
 def review_sections(
-    view: InputView, candidate: Any, runtime_contract: dict[str, Any] | None = None
+    view: InputView, candidate: Any, runtime_contract: dict[str, Any] | None, plan: Any
 ) -> tuple[tuple[str, Any], ...]:
     """Return the rule block and, for an indirect shape, the candidate's planted text."""
 
-    return multi_turn_sections(view, runtime_contract) + planted_review_sections(
-        view, candidate, runtime_contract
+    return multi_turn_sections(view, runtime_contract, plan) + planted_review_sections(
+        view, candidate, runtime_contract, plan
     )
 
 
 def multi_turn_payload(
-    view: InputView, runtime_contract: dict[str, Any] | None = None
+    view: InputView, runtime_contract: dict[str, Any] | None = None, plan: Any = None
 ) -> dict[str, Any]:
     """Return the packet payload entry for the rule block, or nothing."""
 
-    block = multi_turn_block(view, runtime_contract)
+    block = multi_turn_block(view, runtime_contract, plan)
     return {} if block is None else {BLOCK_KEY: deepcopy(block)}
 
 
@@ -234,17 +258,29 @@ def _findings(
     return [finding for finding in found if finding is not None]
 
 
-def sequential_plan_findings(view: InputView, plan: Any) -> list[Finding]:
-    """Return the plan findings that the shape's turn count produces for a v4 handoff."""
+def sequential_plan_findings(
+    view: InputView, plan: Any, runtime_contract: dict[str, Any] | None = None
+) -> list[Finding]:
+    """Return the plan findings that the shape produces for a v4 handoff.
 
-    if not _is_sequential_input(view) or not isinstance(plan, dict):
+    These are the turn count, the delivery and, for an indirect shape that names no
+    record, the record the plan names.
+    """
+
+    if not isinstance(plan, dict):
         return []
-    return _findings(
-        turn_count(view),
-        plan.get("stimulus_approach"),
-        "stimulus_approach.history",
-        "stimulus_approach.delivery",
-        shape_delivery(view),
+    record = plan_record_findings(view.attack_shape, plan, runtime_contract or {})
+    if not _is_sequential_input(view):
+        return record
+    return (
+        _findings(
+            turn_count(view),
+            plan.get("stimulus_approach"),
+            "stimulus_approach.history",
+            "stimulus_approach.delivery",
+            shape_delivery(view),
+        )
+        + record
     )
 
 

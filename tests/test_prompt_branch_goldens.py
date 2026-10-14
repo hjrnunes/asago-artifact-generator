@@ -52,13 +52,15 @@ def _section(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
-def _indirect_view(directory: Path, controller: str) -> InputView:
+def _indirect_view(
+    directory: Path, controller: str, record_ref: str | None = "ORD-101"
+) -> InputView:
     """Return a four-turn indirect handoff whose benign turns use every purpose but one."""
 
     payload = json.loads(HANDOFF.read_text(encoding="utf-8"))
     payload.pop("content_digest")
     payload["schema_version"] = "scenario-handoff-v4"
-    shape = indirect_shape(4)
+    shape = indirect_shape(4, record_ref)
     purposes = ("establish_context", "assert_authority", "ask_to_read_item", "apply_pressure")
     shape["turn_plan"] = [
         {"position": position, "speaker": "benign_user", "purpose": purpose}
@@ -67,7 +69,7 @@ def _indirect_view(directory: Path, controller: str) -> InputView:
     shape["indirect"]["party_relation"]["controller"] = controller
     payload["attack_shape"] = shape
     payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload)
-    path = directory / f"indirect-{controller}.json"
+    path = directory / f"indirect-{controller}-{record_ref}.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return load_input(path)
 
@@ -80,10 +82,16 @@ def _indirect_case(controller: str) -> Callable[[Path], str]:
     return render
 
 
+def _plan_chooses_record(directory: Path) -> str:
+    runtime = indirect_runtime(world("refund")["runtime_contract"])
+    view = _indirect_view(directory, "counterparty", record_ref=None)
+    return _section(indirect_block(view, runtime))
+
+
 def _planted_review(directory: Path) -> str:
     view = _indirect_view(directory, "counterparty")
     runtime = indirect_runtime(world("refund")["runtime_contract"])
-    ((_, section),) = planted_review_sections(view, {"planted_text": "planted"}, runtime)
+    ((_, section),) = planted_review_sections(view, {"planted_text": "planted"}, runtime, {})
     return _section(section)
 
 
@@ -151,6 +159,7 @@ CASES: dict[str, Callable[[Path], str]] = {
     "generic_binding_example": _generic_binding_example,
     "indirect_counterparty": _indirect_case("counterparty"),
     "indirect_operator_insider": _indirect_case("operator_insider"),
+    "indirect_plan_chooses_record": _plan_chooses_record,
     "indirect_unknown_controller": _indirect_case("unknown"),
     "planted_review_counterparty": _planted_review,
     "reference_repair_kinds": _reference_repairs,

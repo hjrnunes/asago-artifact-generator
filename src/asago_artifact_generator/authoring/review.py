@@ -664,7 +664,7 @@ def build_artifact_review_packet(
         "interface": AUTHORING_INTERFACE_VERSION_V2,
         "stage": "artifact_review",
         **context,
-        **multi_turn_payload(view, runtime_contract),
+        **multi_turn_payload(view, runtime_contract, plan),
     }
     assert_no_prompt_secrets(payload)
     sections: list[tuple[str, Any]] = [
@@ -675,7 +675,7 @@ def build_artifact_review_packet(
                 "authoritative_context": context["authoritative_context"],
             },
         ),
-        *review_sections(view, metadata, runtime_contract),
+        *review_sections(view, metadata, runtime_contract, plan),
         ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
         ("ACCEPTED PLAN", context["accepted_plan"]),
         ("REVIEW QUESTIONS", context["review_questions"]),

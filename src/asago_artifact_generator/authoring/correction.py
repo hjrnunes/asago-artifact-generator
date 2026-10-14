@@ -29,7 +29,12 @@ from .prompt_context import (
 )
 from .prompt_packets import _artifact_response_contract_for_prompt
 from .response_decode import _decode_stage_response, _readable_response
-from .sequential_turns import delivery_in_context, plan_response_contract, turns_in_context
+from .sequential_turns import (
+    delivery_in_context,
+    plan_response_contract,
+    record_named_in_context,
+    turns_in_context,
+)
 from .templates import prose
 
 
@@ -402,7 +407,9 @@ def build_correction_context(
                 "accepted_plan_fixed": False,
                 "format": prose("correction/plan_format"),
                 "response_contract": plan_response_contract(
-                    turns_in_context(original_context), delivery_in_context(original_context)
+                    turns_in_context(original_context),
+                    delivery_in_context(original_context),
+                    record_named_in_context(original_context),
                 ),
             }
         )

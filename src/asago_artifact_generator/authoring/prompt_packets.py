@@ -142,7 +142,7 @@ def build_call2_packet_v2(
             ("PLAN FIELD MEANINGS", context["plan_field_meanings"]),
             ("ACCEPTED PLAN — immutable", context["accepted_plan"]),
         )
-        + multi_turn_sections(view, runtime_contract)
+        + multi_turn_sections(view, runtime_contract, plan)
         + (("RUNTIME CAPABILITIES", context["runtime_contract"]),)
     )
     if _plan_semantic_judge_needed(plan):

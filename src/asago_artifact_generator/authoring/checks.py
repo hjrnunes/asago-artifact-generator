@@ -55,7 +55,7 @@ from .inventory import _inventory_fact_map, _inventory_references
 from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
-from .planted_item import PLANTED_TEXT_FIELD, planted_item_findings
+from .planted_item import PLANTED_TEXT_FIELD, RECORD_FIELD, planted_item_findings
 
 SELECTOR_THROUGH_ARRAY_CODE = "selector_through_array"
 # Execution fills a slot with one scalar and rejects a binding of these types.
@@ -1296,7 +1296,7 @@ def _stimulus_approach_findings(
     findings.extend(
         unexpected_field_findings(
             approach,
-            ("request", "delivery", "history"),
+            ("request", "delivery", "history", RECORD_FIELD),
             "unexpected stimulus_approach field",
             "stimulus_approach.",
         )

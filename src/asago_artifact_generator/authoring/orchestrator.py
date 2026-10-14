@@ -755,19 +755,18 @@ class AuthoringOrchestrator:
     ) -> PromptPacket | None:
         """Render the correction prompt; record a preflight failure and return None."""
 
+        accepted_plan = self._decoded_responses["call1"] if failed_stage != "call1" else None
         stage_context = (
             build_plan_author_context(view, inventory, runtime_contract)
-            if failed_stage == "call1"
-            else build_artifact_author_context(
-                view,
-                self._decoded_responses["call1"],
-                inventory,
-                runtime_contract,
-            )
+            if accepted_plan is None
+            else build_artifact_author_context(view, accepted_plan, inventory, runtime_contract)
         )
-        # The plan correction reads the turn count and delivery from this block; the artifact
-        # correction shows it to the model, as the first Call 2 request does.
-        original_context = {**stage_context, **multi_turn_payload(view, runtime_contract)}
+        # The plan correction reads the turn count, delivery and record field from this block;
+        # the artifact correction shows it to the model, as the first Call 2 request does.
+        original_context = {
+            **stage_context,
+            **multi_turn_payload(view, runtime_contract, accepted_plan),
+        }
         correction_payload = build_correction_context(
             failed_stage=failed_stage,
             original_context=original_context,
@@ -955,7 +954,7 @@ class AuthoringOrchestrator:
                 provenance_ids=scenario_provenance_ids(view),
                 condition=view.payload.get("discriminating_condition"),
                 transformations=self._transformations,
-            ) + sequential_plan_findings(view, decoded)
+            ) + sequential_plan_findings(view, decoded, runtime_contract)
 
         return _Stage(
             key="plan",

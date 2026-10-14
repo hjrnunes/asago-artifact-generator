@@ -463,18 +463,6 @@ def test_a_one_turn_indirect_package_is_single_and_still_seeded(tmp_path: Path) 
     assert (tmp_path / "package" / "seed.json").is_file()
 
 
-def test_the_seed_uses_the_slot_and_record_the_code_chose_not_the_models(
-    tmp_path: Path,
-) -> None:
-    view = indirect_view(tmp_path, record_ref=None)
-
-    result, _ = _author(tmp_path, view=view)
-
-    assert result.status == "accepted", result.findings
-    seed = json.loads((tmp_path / "package" / "seed.json").read_text(encoding="utf-8"))
-    assert seed["items"][0]["record_ref"] == "ORD-101"
-
-
 def test_planted_text_that_quotes_a_benign_turn_is_not_packaged(tmp_path: Path) -> None:
     result, transport = _author(tmp_path, planted=ASKS[0])
 
