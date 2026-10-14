@@ -298,6 +298,20 @@ def test_the_plan_stage_block_lists_the_slots_records_and_asks_for_the_choice(
     assert entry["example"] in RECORDS
 
 
+def test_the_plan_stage_says_the_text_goes_in_a_listed_record_and_why(tmp_path: Path) -> None:
+    block = multi_turn_block(indirect_view(tmp_path, record_ref=None), runtime())
+
+    choice = block["planted_item"]["record_choice"]
+    assert "only in a record that records lists" in choice
+    assert "the carrier returns to the agent" in choice
+    assert "target record" in choice
+    assert "never name the target record" in choice
+    assert "benign turns name the planted record" in choice
+    meaning = block["fields"][RECORD_PATH]["meaning"]
+    assert "planted_item.records" in meaning
+    assert "failure criterion" in meaning
+
+
 def test_a_shape_that_names_the_record_shows_it_and_asks_for_no_choice(tmp_path: Path) -> None:
     block = multi_turn_block(indirect_view(tmp_path, record_ref="ORD-102"), runtime())
 
