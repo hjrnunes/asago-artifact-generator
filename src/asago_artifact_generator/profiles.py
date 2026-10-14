@@ -33,6 +33,9 @@ OPTIONAL_PROFILE_FIELDS: tuple[str, ...] = (
     "strict_json_schema",
     "json_schema_strict",
 )
+# The loaded value of an absent field, as the model-profile contract's field table gives it.
+DEFAULT_TIMEOUT_SECONDS = 600
+DEFAULT_STRICT_JSON_SCHEMA = False
 
 
 class ProfileLoadError(ValueError):
@@ -84,10 +87,10 @@ class AuthoringProfile:
     service_tier: str | None = None
     service_tier_fallback: str | None = None
     sampling_controls: bool = True
-    strict_json_schema: bool | None = None
+    strict_json_schema: bool = DEFAULT_STRICT_JSON_SCHEMA
     context_window: int | None = None
     max_completion_tokens: int | None = None
-    timeout: float | int | None = None
+    timeout: float | int = DEFAULT_TIMEOUT_SECONDS
     repetition_penalty: float | int | None = None
 
     def __repr__(self) -> str:
@@ -263,16 +266,18 @@ _CARRIED_DEFAULTS: dict[str, Any] = {
     "service_tier": None,
     "service_tier_fallback": None,
     "sampling_controls": True,
-    "strict_json_schema": None,
+    "strict_json_schema": DEFAULT_STRICT_JSON_SCHEMA,
     "context_window": None,
     "max_completion_tokens": None,
-    "timeout": None,
+    "timeout": DEFAULT_TIMEOUT_SECONDS,
     "repetition_penalty": None,
 }
 
 
 __all__ = [
     "AuthoringProfile",
+    "DEFAULT_STRICT_JSON_SCHEMA",
+    "DEFAULT_TIMEOUT_SECONDS",
     "ProfileFieldError",
     "ProfileFileError",
     "ProfileLoadError",

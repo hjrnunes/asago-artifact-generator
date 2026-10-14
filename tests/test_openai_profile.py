@@ -55,6 +55,7 @@ def test_gemma_like_profile_preserves_current_request_kwargs(
         "base_url": "https://private.invalid/v1",
         "api_key": "secret-value",
         "max_retries": 0,
+        "timeout": 600,
     }
     assert completions.requests == [
         {
@@ -111,7 +112,23 @@ def test_sampling_controls_false_omits_all_sampling_and_thinking_controls(
     assert response.controls == {
         "max_retries": 0,
         "sampling_controls": False,
+        "strict_json_schema": False,
+        "timeout": 600,
     }
+
+
+def test_a_transport_without_the_two_options_applies_the_contract_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completions = fake_openai(monkeypatch, [chat_completion()])
+    transport = private_transport()
+
+    response = transport.complete(prompt_packet())
+
+    assert (transport.timeout, transport.strict_json_schema) == (600, False)
+    assert completions.clients[0].init_kwargs["timeout"] == 600
+    assert response.controls["timeout"] == 600
+    assert response.controls["strict_json_schema"] is False
 
 
 def test_strict_json_schema_is_recorded_without_sending_response_format(
@@ -313,6 +330,8 @@ def test_controls_record_extra_body_that_survives_disabled_sampling_controls(
         "max_retries": 0,
         "extra_body": {"custom": 1},
         "sampling_controls": False,
+        "strict_json_schema": False,
+        "timeout": 600,
     }
 
 
@@ -348,6 +367,8 @@ def test_private_model_transport_sends_thinking_off_extra_body_for_every_request
             "temperature": 0.0,
             "max_retries": 0,
             "extra_body": thinking_off,
+            "strict_json_schema": False,
+            "timeout": 600,
         }
         for response in responses
     )
@@ -437,6 +458,8 @@ def test_private_model_transport_preserves_default_request_shape_and_captures_co
         "temperature": 0.0,
         "max_retries": 0,
         "extra_body": None,
+        "strict_json_schema": False,
+        "timeout": 600,
     }
     assert response.response_capture == {
         "schema_version": "authoring-response-capture-v1",

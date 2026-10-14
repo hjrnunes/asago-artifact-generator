@@ -7,6 +7,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
+from ..profiles import DEFAULT_STRICT_JSON_SCHEMA, DEFAULT_TIMEOUT_SECONDS
 from ..value_checks import is_nonblank_str
 from .context_budget import _context_budget_estimate, _enforce_context_budget
 from .core import (
@@ -131,8 +132,8 @@ class PrivateModelAuthoringTransport:
         service_tier: str | None = None,
         service_tier_fallback: str | None = None,
         sampling_controls: bool = True,
-        strict_json_schema: bool | None = None,
-        timeout: float | int | None = None,
+        strict_json_schema: bool = DEFAULT_STRICT_JSON_SCHEMA,
+        timeout: float | int = DEFAULT_TIMEOUT_SECONDS,
         client: Any | None = None,
     ) -> None:
         """Create the client.
@@ -180,9 +181,8 @@ class PrivateModelAuthoringTransport:
             "base_url": base_url,
             "api_key": api_key,
             "max_retries": 0,
+            "timeout": timeout,
         }
-        if timeout is not None:
-            client_options["timeout"] = timeout
         self._client = client if client is not None else OpenAI(**client_options)
         self._boundary = self._new_boundary()
 
@@ -365,9 +365,8 @@ class PrivateModelAuthoringTransport:
             controls["service_tier_fallback_used"] = fallback_used
         if not self.sampling_controls:
             controls["sampling_controls"] = False
-        controls.update(
-            _present_controls(strict_json_schema=self.strict_json_schema, timeout=self.timeout)
-        )
+        controls["strict_json_schema"] = self.strict_json_schema
+        controls["timeout"] = self.timeout
         return controls
 
     @staticmethod
