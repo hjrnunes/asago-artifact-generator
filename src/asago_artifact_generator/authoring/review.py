@@ -83,8 +83,10 @@ def parse_review_response(raw: bytes) -> ReviewResponse:
 
     The accepted framing is one bare JSON object or exactly one lowercase
     ```json fenced JSON object, the same strict normalization as a v2 Call 1
-    response.  Prose wrappers, multiple objects or fences, and malformed JSON
-    fail mechanically. ``accept`` requires an empty findings array while
+    response; a reply of several fences with text between them and no text
+    after the last decodes to its last object.  Prose wrappers, multiple
+    objects in one fence, adjacent fences, and malformed JSON fail
+    mechanically. ``accept`` requires an empty findings array while
     ``revise`` and ``blocked`` require at least one complete finding; a
     contradictory decision raises instead of being silently coerced. An
     ``accept`` that omits the ``findings`` key carries the same information as
