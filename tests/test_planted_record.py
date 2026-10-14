@@ -21,7 +21,10 @@ from asago_artifact_generator.authoring.planted_item import (
     plan_record_findings,
     seed_members,
 )
-from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
+from asago_artifact_generator.authoring.prompt_context import (
+    build_artifact_author_context,
+    build_plan_author_context,
+)
 from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
@@ -45,6 +48,7 @@ from .support import (
     world,
 )
 from .turn_support import (
+    ASKS,
     CARRIER_SLOT,
     indirect_inventory,
     indirect_metadata,
@@ -371,3 +375,112 @@ def test_the_artifact_stages_show_the_record_the_plan_fixed(tmp_path: Path) -> N
         assert RECORD_PATH not in json_section(packet.user, "INDIRECT SHAPE")["fields"], stage
     review = packets["artifact_review"].user.split("PLANTED TEXT", 1)[1]
     assert '"record_ref": "ORD-102"' in review
+
+
+# --- the reason the artifact stages are given -----------------------------------------------
+
+
+def _artifact_packets(view: Any, plan: dict[str, Any]) -> dict[str, Any]:
+    refund = world("refund")
+    inventory = indirect_inventory(refund["inventory"])
+    metadata = indirect_metadata(refund["metadata"])
+    return {
+        "call2": build_call2_packet_v2(view, plan, inventory, runtime()),
+        "artifact_review": build_artifact_review_packet(
+            view, plan, metadata, inventory, runtime()
+        ),
+    }
+
+
+def _fixed_by(packet: Any) -> str:
+    return json_section(packet.user, "INDIRECT SHAPE")["planted_item"]["record_ref_fixed_by"]
+
+
+@pytest.mark.parametrize(
+    ("record_ref", "plan", "reason"),
+    [
+        (None, plan_naming("ORD-102"), ["accepted plan", RECORD_PATH, "cannot change"]),
+        (None, indirect_plan(world("refund")["plan"]), ["first record", "cannot revise the plan"]),
+        ("ORD-102", indirect_plan(world("refund")["plan"]), ["producer's attack shape"]),
+    ],
+)
+def test_the_artifact_stages_say_why_the_record_is_fixed(
+    tmp_path: Path, record_ref: str | None, plan: dict[str, Any], reason: list[str]
+) -> None:
+    packets = _artifact_packets(indirect_view(tmp_path, record_ref=record_ref), plan)
+
+    for stage, packet in packets.items():
+        for phrase in reason:
+            assert phrase in _fixed_by(packet), (stage, phrase)
+        assert "artifact has no field that names a record" in _fixed_by(packet), stage
+
+
+def test_the_planted_text_section_carries_the_same_reason_and_the_check(tmp_path: Path) -> None:
+    packets = _artifact_packets(indirect_view(tmp_path, record_ref=None), plan_naming("ORD-102"))
+    review = packets["artifact_review"].user.split("PLANTED TEXT", 1)[1]
+    section = json_section("\n" + "PLANTED TEXT" + review, "PLANTED TEXT")
+
+    planted_in = section["planted_in"]
+    assert planted_in["record_ref"] == "ORD-102"
+    assert planted_in["record_ref_fixed_by"] == _fixed_by(packets["artifact_review"])
+    assert "record_ref_fixed_by" in section["check"]
+    assert "another record" in section["check"]
+    assert "benign turns" in section["check"]
+
+
+def test_the_plan_stage_gives_no_fixed_reason_while_the_plan_author_chooses(
+    tmp_path: Path,
+) -> None:
+    block = multi_turn_block(indirect_view(tmp_path, record_ref=None), runtime())
+
+    assert "record_ref_fixed_by" not in block["planted_item"]
+
+
+def test_the_artifact_correction_keeps_the_fixed_record_and_its_reason(tmp_path: Path) -> None:
+    refund = world("refund")
+    view = indirect_view(tmp_path, record_ref=None)
+    inventory = indirect_inventory(refund["inventory"])
+    plan = plan_naming("ORD-102")
+    context = {
+        **build_artifact_author_context(view, plan, inventory, runtime()),
+        **multi_turn_payload(view, runtime(), plan),
+    }
+
+    packet = _render_correction_packet(
+        build_correction_context(
+            failed_stage="call2", original_context=context, current_output=b"{}", findings=[]
+        ),
+        correction_repair_inputs(view, inventory, runtime()),
+    )
+
+    assert '"record_ref":"ORD-102"' in packet.user
+    assert "record_ref_fixed_by" in packet.user
+    assert "records" not in json.dumps(context["multi_turn_shape"]["planted_item"])
+
+
+def test_an_artifact_correction_after_a_failed_call2_shows_the_plans_record(
+    tmp_path: Path,
+) -> None:
+    refund = world("refund")
+    quoting = indirect_metadata(refund["metadata"], planted=ASKS[0])
+    transport = ScriptedAuthoringTransport(
+        [
+            json.dumps(plan_naming("ORD-102")),
+            json.dumps(quoting),
+            json.dumps(indirect_metadata(refund["metadata"])),
+        ]
+    )
+
+    result = stage_local_orchestrator(
+        transport=transport, package_dir=tmp_path / "package", task_id="task"
+    ).run(
+        indirect_view(tmp_path, record_ref=None),
+        indirect_inventory(refund["inventory"]),
+        runtime(),
+    )
+
+    assert result.status == "accepted", result.findings
+    assert [r["stage"] for r in transport.requests] == ["call1", "call2", "correction"]
+    correction = transport.requests[2]["user"]
+    assert '"record_ref":"ORD-102"' in correction
+    assert "record_ref_fixed_by" in correction

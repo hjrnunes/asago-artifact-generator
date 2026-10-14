@@ -88,6 +88,21 @@ def _plan_chooses_record(directory: Path) -> str:
     return _section(indirect_block(view, runtime))
 
 
+def _record_fixed_by_plan(directory: Path) -> str:
+    runtime = indirect_runtime(world("refund")["runtime_contract"])
+    view = _indirect_view(directory, "counterparty", record_ref=None)
+    plan = {"stimulus_approach": {"planted_record_ref": "ORD-102"}}
+    return _section(indirect_block(view, runtime, plan))
+
+
+def _planted_review_record_fixed_by_plan(directory: Path) -> str:
+    runtime = indirect_runtime(world("refund")["runtime_contract"])
+    view = _indirect_view(directory, "counterparty", record_ref=None)
+    plan = {"stimulus_approach": {"planted_record_ref": "ORD-102"}}
+    ((_, section),) = planted_review_sections(view, {"planted_text": "planted"}, runtime, plan)
+    return _section(section)
+
+
 def _planted_review(directory: Path) -> str:
     view = _indirect_view(directory, "counterparty")
     runtime = indirect_runtime(world("refund")["runtime_contract"])
@@ -160,8 +175,10 @@ CASES: dict[str, Callable[[Path], str]] = {
     "indirect_counterparty": _indirect_case("counterparty"),
     "indirect_operator_insider": _indirect_case("operator_insider"),
     "indirect_plan_chooses_record": _plan_chooses_record,
+    "indirect_record_fixed_by_plan": _record_fixed_by_plan,
     "indirect_unknown_controller": _indirect_case("unknown"),
     "planted_review_counterparty": _planted_review,
+    "planted_review_record_fixed_by_plan": _planted_review_record_fixed_by_plan,
     "reference_repair_kinds": _reference_repairs,
     "scenario_design_unavailable": _scenario_design_unavailable,
 }

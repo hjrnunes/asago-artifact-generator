@@ -1,10 +1,11 @@
 """An indirect shape: the benign turns, the planted text, and the seed that carries it.
 
-The model writes the planted text and the benign turns. Code alone picks the slot
-and the record, from the runtime contract's ``seed_slots`` and the shape's carrier,
-content kind and record, so the package cannot name a slot the target lacks. The
-attack text travels only through the carrier's result, so no benign turn may
-repeat it.
+The model writes the planted text and the benign turns. Code alone picks the slot,
+from the runtime contract's ``seed_slots`` and the shape's carrier and content kind,
+so the package cannot name a slot the target lacks. The record is the shape's when the
+producer names one; otherwise the plan author names one of the slot's records, code
+checks that the slot lists it, and the accepted plan fixes it. The attack text travels
+only through the carrier's result, so no benign turn may repeat it.
 """
 
 from __future__ import annotations
@@ -264,7 +265,7 @@ def indirect_block(
             }
             for turn in shape["turn_plan"]
         ],
-        "planted_item": None if target is None else _target_entry(target, records),
+        "planted_item": None if target is None else _block_entry(target, shape, plan, records),
         "fields": _field_entries(turns, records),
         "check": prose(
             "planted_item/check",
@@ -275,8 +276,8 @@ def indirect_block(
     }
 
 
-def _target_entry(target: PlantedTarget, choices: list[str] | None = None) -> dict[str, Any]:
-    entry = {
+def _base_entry(target: PlantedTarget) -> dict[str, Any]:
+    return {
         "carrier_operation": target.carrier_operation,
         "slot": target.slot,
         "field": target.field,
@@ -286,10 +287,33 @@ def _target_entry(target: PlantedTarget, choices: list[str] | None = None) -> di
         "mode": target.mode,
         "mode_meaning": _MODE_MEANINGS[target.mode],
     }
-    if choices is None:
-        return entry
+
+
+def _record_source(shape: dict[str, Any], plan: Any) -> str:
+    """Name who fixed the record: the producer's ``shape``, the ``plan``, or code's default."""
+
+    if shape["indirect"]["data_item"]["record_ref"] is not None:
+        return "shape"
+    return "first_listed" if _plan_record(plan) is None else "plan"
+
+
+def _fixed_entry(target: PlantedTarget, shape: dict[str, Any], plan: Any) -> dict[str, Any]:
+    reason = prose(f"planted_item/record_fixed_by/{_record_source(shape, plan)}")
+    return {**_base_entry(target), "record_ref_fixed_by": reason}
+
+
+def _choice_entry(target: PlantedTarget, choices: list[str]) -> dict[str, Any]:
+    entry = _base_entry(target)
     del entry["record_ref"]
     return {**entry, "records": choices, "record_choice": prose("planted_item/record_choice")}
+
+
+def _block_entry(
+    target: PlantedTarget, shape: dict[str, Any], plan: Any, choices: list[str] | None
+) -> dict[str, Any]:
+    if choices is None:
+        return _fixed_entry(target, shape, plan)
+    return _choice_entry(target, choices)
 
 
 def _field_entries(turns: int, choices: list[str] | None = None) -> dict[str, Any]:
@@ -355,7 +379,9 @@ def planted_review_sections(
             {
                 "label": prose("planted_item/review_label"),
                 "planted_text": text,
-                "planted_in": None if target is None else _target_entry(target),
+                "planted_in": None
+                if target is None
+                else _fixed_entry(target, view.attack_shape, plan),
                 "shape_controller": {
                     "controller": controller,
                     "meaning": _CONTROLLER_MEANINGS[controller],

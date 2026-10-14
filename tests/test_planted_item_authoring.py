@@ -81,7 +81,7 @@ def setup(tmp_path: Path, turns: int = 2):
 # --- the model-facing rules --------------------------------------------------------
 
 
-def test_the_rule_block_names_the_target_the_code_chose_and_explains_each_field(
+def test_the_rule_block_names_the_target_and_explains_each_field(
     tmp_path: Path,
 ) -> None:
     view, _, rt, _, _ = setup(tmp_path)
@@ -104,8 +104,10 @@ def test_the_rule_block_names_the_target_the_code_chose_and_explains_each_field(
         "slot_controller": "third_party",
         "mode": "replace",
         "mode_meaning": block["planted_item"]["mode_meaning"],
+        "record_ref_fixed_by": block["planted_item"]["record_ref_fixed_by"],
     }
     assert block["planted_item"]["mode_meaning"]
+    assert "producer's attack shape" in block["planted_item"]["record_ref_fixed_by"]
     assert block["shape_controller"]["controller"] == "third_party"
     assert block["shape_controller"]["meaning"]
     assert block["benign_user_actor_ref"] == "CUST001"
