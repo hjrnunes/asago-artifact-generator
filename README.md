@@ -420,7 +420,13 @@ at load with `shape_version_malformed`.
 When an `indirect` shape names no record (`record_ref` is null) and the runtime
 contract's seed slot lists records, the plan names the record that holds the
 planted text in `stimulus_approach.planted_record_ref`, a string. The plan
-author sees the slot's records, and code checks that the slot lists the one it
+response contract limits the field to the slot's records (an `enum`), and the
+plan prompt says why: the target plants text only in a record its carrier
+returns to the agent for the benign user, so the planted record can differ from
+the scenario's target record (for example another customer's record), and the
+planted text then leads the agent from one to the other. The plan review shows
+the same records under `PLANTED RECORD RULE` and tells the reviewer not to ask
+for any other record. Code checks that the slot lists the record the plan
 names. A plan that omits the field, names a record the slot does not list, or
 gives a non-string value gets `missing_field`, `planted_record_not_in_slot`, or
 `type_error` at `stimulus_approach.planted_record_ref`; a plan that carries the
