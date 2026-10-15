@@ -391,8 +391,7 @@
       "rule": "finite number, greater than 0",
       "required_by": [],
       "default": {
-        "*": null,
-        "producer": 300.0
+        "*": 600.0
       },
       "used_by": [
         "producer",
@@ -410,7 +409,7 @@
         "900",
         true
       ],
-      "note": "An absent timeout is 300 seconds for the producer and the SDK default for the consumer and orch (deferred drift D9)."
+      "note": "An absent timeout is 600 seconds in every reader, the OpenAI SDK's own default."
     },
     {
       "name": "reasoning_effort",
@@ -521,8 +520,7 @@
       "rule": "boolean, and only false: true is not supported",
       "required_by": [],
       "default": {
-        "*": null,
-        "orch-client": false
+        "*": false
       },
       "used_by": [
         "consumer",
@@ -536,7 +534,7 @@
         "false",
         0
       ],
-      "note": "The consumer records an absent value as null and orch as false (deferred drift D10)."
+      "note": "An absent strict_json_schema is false in every reader that uses it; true is not supported."
     },
     {
       "name": "json_schema_strict",

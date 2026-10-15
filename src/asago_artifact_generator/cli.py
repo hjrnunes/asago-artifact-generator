@@ -251,6 +251,8 @@ def _transport_options(connection: AuthoringProfile) -> dict[str, object]:
             else AUTHORING_MAX_COMPLETION_TOKENS
         ),
         "profile_name": connection.name,
+        "strict_json_schema": connection.strict_json_schema,
+        "timeout": connection.timeout,
     }
     if connection.reasoning_effort is not None:
         transport_options["reasoning_effort"] = connection.reasoning_effort
@@ -260,10 +262,6 @@ def _transport_options(connection: AuthoringProfile) -> dict[str, object]:
         transport_options["service_tier_fallback"] = connection.service_tier_fallback
     if connection.sampling_controls is False:
         transport_options["sampling_controls"] = False
-    if connection.strict_json_schema is not None:
-        transport_options["strict_json_schema"] = connection.strict_json_schema
-    if connection.timeout is not None:
-        transport_options["timeout"] = connection.timeout
     return transport_options
 
 

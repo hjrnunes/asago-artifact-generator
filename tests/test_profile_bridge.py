@@ -142,6 +142,21 @@ def test_author_cli_passes_optional_profile_controls_to_transport(
     assert captured.transport["review_extra_body"] is None
 
 
+def test_profile_without_a_timeout_or_strict_json_schema_sends_the_contract_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profiles_file, _ = profile_file(tmp_path)
+    captured = fake_cli_authoring(monkeypatch)
+
+    _invoke_generate(
+        tmp_path,
+        extra_args=["--profile", "gemma4-oc", "--profiles-file", str(profiles_file)],
+    )
+
+    assert captured.transport["timeout"] == 600
+    assert captured.transport["strict_json_schema"] is False
+
+
 def test_profile_without_the_field_loads_beside_a_profile_that_sets_it(tmp_path: Path) -> None:
     base = {"base_url": "https://profile.example.invalid/v1", "api_key": "k", "model": "m"}
     profiles_file = tmp_path / "two.yaml"

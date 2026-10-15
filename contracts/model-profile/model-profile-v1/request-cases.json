@@ -5,7 +5,6 @@
     "user": "U",
     "role": "author",
     "structured": false,
-    "tolerant": false,
     "max_completion_tokens": null,
     "temperature": null,
     "first_error": null
@@ -640,104 +639,6 @@
                 "name": "Reply",
                 "strict": false
               }
-            }
-          ]
-        },
-        "consumer": {
-          "requests": [
-            {
-              "model": "m-1",
-              "temperature": 0.0,
-              "max_completion_tokens": 8192,
-              "extra_body": {
-                "chat_template_kwargs": {
-                  "enable_thinking": false
-                }
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
-      "id": "tolerant-call-guided",
-      "profile": {
-        "base_url": "https://models.example.test/v1",
-        "model": "m-1",
-        "api_key": "key-1",
-        "use_guided_decoding": true
-      },
-      "call": {
-        "structured": true,
-        "tolerant": true
-      },
-      "expect": {
-        "producer": {
-          "requests": [
-            {
-              "model": "m-1",
-              "temperature": 0.4,
-              "response_format": {
-                "type": "json_schema",
-                "name": "Reply",
-                "strict": true
-              }
-            }
-          ]
-        },
-        "orch-client": {
-          "requests": [
-            {
-              "model": "m-1",
-              "temperature": 0.4
-            }
-          ]
-        },
-        "consumer": {
-          "requests": [
-            {
-              "model": "m-1",
-              "temperature": 0.0,
-              "max_completion_tokens": 8192,
-              "extra_body": {
-                "chat_template_kwargs": {
-                  "enable_thinking": false
-                }
-              }
-            }
-          ]
-        }
-      },
-      "note": "A tolerant call (allow_unvalidated) with guided decoding keeps a strict schema in the producer; orch and the consumer send no response_format (I10)."
-    },
-    {
-      "id": "tolerant-call-plain",
-      "profile": {
-        "base_url": "https://models.example.test/v1",
-        "model": "m-1",
-        "api_key": "key-1"
-      },
-      "call": {
-        "structured": true,
-        "tolerant": true
-      },
-      "expect": {
-        "producer": {
-          "requests": [
-            {
-              "model": "m-1",
-              "temperature": 0.4,
-              "response_format": {
-                "type": "json_object"
-              }
-            }
-          ]
-        },
-        "orch-client": {
-          "requests": [
-            {
-              "model": "m-1",
-              "temperature": 0.4
             }
           ]
         },

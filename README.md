@@ -103,12 +103,13 @@ way, and a budget with no request left sends no fallback. Its entry in
 429}` and `"reason": "service_tier_fallback"`; a transport retry carries no
 `reason`. The
 `strict_json_schema` profile field is accepted for shared-profile compatibility
-(only `false` loads; the producer rejects `true` too), but the consumer continues
-to send no `response_format`. Only the final message
+(only `false` loads; the producer rejects `true` too; an absent field loads as
+`false`), but the consumer continues to send no `response_format`. Only the final message
 content is parsed; provider reasoning stays in the raw response capture and
 never substitutes for a missing answer.
 Optional `context_window`, `max_completion_tokens`, and `timeout` fields drive
-the request. Omitted limits retain the 32,768-token context window and 8,192-token
+the request. An absent `timeout` is 600 seconds, which every request records in
+its controls beside `strict_json_schema`. Omitted limits retain the 32,768-token context window and 8,192-token
 completion limit, plus the existing 256-token framing reserve. Author and
 correction requests use the profile completion limit. Reviews preserve the
 existing remaining-context fill for the default completion limit; when a profile
