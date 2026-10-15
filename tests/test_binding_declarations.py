@@ -1111,6 +1111,33 @@ def test_collector_reports_a_non_string_field_beside_the_other_checks() -> None:
     ]
 
 
+@pytest.mark.parametrize("source_kind", [[], {}, ["supplied_input"], {"kind": "supplied_input"}])
+def test_collector_reports_an_unhashable_source_kind_as_a_finding(source_kind: object) -> None:
+    findings = _collect_binding_findings(
+        [_declaration(source_kind=source_kind)], _FACT_INVENTORY, {}
+    )
+
+    assert _coded_findings(findings) == [
+        (
+            "artifact_validation",
+            "binding source_kind must be a string",
+            "runtime_bindings[0].source_kind",
+        )
+    ]
+
+
+@pytest.mark.parametrize("source_kind", [[], {}])
+def test_plan_reports_an_unhashable_source_kind_as_a_finding(source_kind: object) -> None:
+    plan = _plan_with_consumer("judge.status", "reply")
+    plan["runtime_bindings"][0]["source_kind"] = source_kind
+
+    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+
+    assert [
+        (f.code, f.detail) for f in findings if f.path == "runtime_bindings[0].source_kind"
+    ] == [("plan_binding_validation", "binding source_kind must be a string")]
+
+
 @pytest.mark.parametrize(
     ("consumers", "detail", "path"),
     [

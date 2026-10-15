@@ -1694,7 +1694,7 @@ def _binding_source_ref_findings(
                 f"{path}.source_ref",
             )
         ]
-    if source_kind not in SOURCE_KINDS:
+    if not isinstance(source_kind, str) or source_kind not in SOURCE_KINDS:
         return None, []
     source_schema, source_error = _binding_source_schema(
         source_kind,
