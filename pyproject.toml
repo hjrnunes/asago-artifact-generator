@@ -8,7 +8,6 @@ version = "0.1.0"
 description = "Policy-driven agentic red-teaming artifact generator for LLM evaluation platforms"
 requires-python = ">=3.11"
 dependencies = [
-    "pydantic>=2.0",
     "pyyaml>=6.0",
     "jsonschema>=4.0",
     "openai>=1.0",
