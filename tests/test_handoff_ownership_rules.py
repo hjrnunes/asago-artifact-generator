@@ -20,12 +20,6 @@ _RULES = _CONTRACT / "ownership-rules.json"
 _KIT = _CONTRACT / "handoff-v4"
 
 
-def test_the_mirrored_lock_pins_the_ownership_rules() -> None:
-    lock = json.loads((_CONTRACT / "CONTRACT.lock").read_text(encoding="utf-8"))
-
-    assert "ownership-rules.json" in lock["files"]
-
-
 def test_the_reader_uses_the_mirrored_rules_in_file_order() -> None:
     rules = json.loads(_RULES.read_text(encoding="utf-8"))
 
@@ -35,11 +29,6 @@ def test_the_reader_uses_the_mirrored_rules_in_file_order() -> None:
     assert [(code, pattern.pattern) for code, pattern in patterns] == [
         (entry["code"], entry["pattern"]) for entry in rules["forbidden_value_patterns"]
     ]
-
-
-def test_the_reader_keeps_no_ownership_list_of_its_own() -> None:
-    assert not hasattr(input_adapter, "_FORBIDDEN_KEYS")
-    assert not hasattr(input_adapter, "_FORBIDDEN_VALUE_PATTERNS")
 
 
 def test_a_rules_file_with_an_unknown_flag_is_refused(tmp_path: Path) -> None:

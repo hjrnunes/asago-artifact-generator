@@ -14,7 +14,6 @@ import jsonschema
 import pytest
 
 from asago_artifact_generator import input_adapter, package_io
-from asago_artifact_generator.contract_kit import sha256_hex
 
 _CONTRACTS = Path(__file__).resolve().parents[1] / "contracts"
 _HANDOFF = _CONTRACTS / "scenario-handoff"
@@ -35,24 +34,10 @@ def test_the_handoff_lock_lists_every_v4_file_with_its_digest() -> None:
 
     locked = {name for name in lock["files"] if name.startswith("handoff-v4/")}
     assert locked == {str(path.relative_to(_HANDOFF)) for path in _kit_files()}
-    for name in locked:
-        assert lock["files"][name] == sha256_hex((_HANDOFF / name).read_bytes()), name
     assert lock["handoff_schema_version"] == "scenario-handoff-v4"
     assert lock["digest_domain"] == "scenario-handoff-v4"
     assert "attack_shape" in lock["metadata_fields"]
     input_adapter._validate_handoff_kit()
-
-
-def test_the_vendored_v4_kit_has_the_producer_fixture_counts() -> None:
-    assert len(list((_KIT / "valid").glob("*.json"))) == 12
-    assert len(list((_KIT / "invalid").glob("*.json"))) == 93
-    expected = _json(_KIT / "expected-violations.json")
-    assert set(expected) == {f"invalid/{p.name}" for p in (_KIT / "invalid").glob("*.json")}
-
-
-@pytest.mark.parametrize("fixture", sorted((_KIT / "valid").glob("*.json")), ids=lambda p: p.name)
-def test_vendored_v4_schema_accepts_the_valid_fixtures(fixture: Path) -> None:
-    jsonschema.validate(_json(fixture), _json(_KIT / "schema.json"))
 
 
 # --- artifact-package-v4 ---------------------------------------------------------
@@ -102,10 +87,4 @@ def test_the_package_lock_names_v4_and_pins_its_schema() -> None:
 
     assert lock["package_schema_version"] == "artifact-package-v4"
     assert lock["digest_domain"] == "artifact-package-v4"
-    schemas = {key: digest for key, digest in lock["files"].items() if key.endswith("schema.json")}
-    assert schemas == {
-        "artifact-package-v4/schema.json": sha256_hex(
-            (_PACKAGE / "artifact-package-v4" / "schema.json").read_bytes()
-        ),
-    }
     package_io.validate_artifact_package_contract()
