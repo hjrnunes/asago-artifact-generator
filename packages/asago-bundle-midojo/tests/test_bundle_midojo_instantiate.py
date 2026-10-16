@@ -88,6 +88,8 @@ def test_the_bundle_code_matches_the_template(template: Path, bundle: Path) -> N
         "asago_suite/__init__.py",
         "asago_suite/suite.py",
         "asago_suite/asago_verifiers.py",
+        "asago_suite/condition_eval.py",
+        "asago_suite/verifier_names.py",
         "run_midojo.py",
     ):
         assert (bundle / name).read_bytes() == (template / name).read_bytes()

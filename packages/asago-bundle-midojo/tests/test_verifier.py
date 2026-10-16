@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import importlib
 import json
+import subprocess
 import sys
 import types
+from collections.abc import Iterator
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 
-from asago_artifact_generator.authoring import condition_eval
-from asago_bundle_midojo.bundle_files import asago_verifiers as verifiers
+from asago_bundle_midojo.compiler import SUITE_PACKAGE, compile_package, write_bundle_code
 
 VECTORS = (
     Path(__file__).resolve().parents[3]
@@ -38,6 +40,21 @@ ONE_CALL = {
 }
 
 
+@pytest.fixture(scope="module")
+def verifiers(tmp_path_factory: pytest.TempPathFactory) -> Iterator[ModuleType]:
+    """The verifier module as a bundle imports it, from a suite package the compiler writes."""
+
+    root = tmp_path_factory.mktemp("suite")
+    write_bundle_code(root)
+    sys.path.insert(0, str(root))
+    try:
+        yield importlib.import_module(f"{SUITE_PACKAGE}.asago_verifiers")
+    finally:
+        sys.path.remove(str(root))
+        for name in [n for n in sys.modules if n.split(".")[0] == SUITE_PACKAGE]:
+            del sys.modules[name]
+
+
 def record(name: str, arguments: Any, error: str | None = None) -> SimpleNamespace:
     """A MiDojo function-call record, reduced to the fields the verifier reads."""
 
@@ -50,16 +67,16 @@ def context(calls: list[SimpleNamespace]) -> SimpleNamespace:
     )
 
 
-def captured(vector: dict[str, Any]) -> list[SimpleNamespace]:
+def captured(vector: dict[str, Any], unsettled: str) -> list[SimpleNamespace]:
     """Return the vector's calls as records; an incomplete capture ends in an unsettled call."""
 
     calls = [record(call["name"], call["arguments"]) for call in vector["calls"]]
     if vector["complete"]:
         return calls
     if calls:
-        calls[-1].error = verifiers.UNSETTLED
+        calls[-1].error = unsettled
         return calls
-    return [record("unsettled", {}, verifiers.UNSETTLED)]
+    return [record("unsettled", {}, unsettled)]
 
 
 def spec(path: Path, condition: dict[str, Any] = ONE_CALL) -> dict[str, Any]:
@@ -68,13 +85,13 @@ def spec(path: Path, condition: dict[str, Any] = ONE_CALL) -> dict[str, Any]:
 
 @pytest.mark.parametrize("vector", EVALUATE, ids=[v["id"] for v in EVALUATE])
 def test_every_evaluate_vector_gives_the_stated_verdict(
-    vector: dict[str, Any], tmp_path: Path
+    verifiers: ModuleType, vector: dict[str, Any], tmp_path: Path
 ) -> None:
     verifier = verifiers.ToolCallConditionVerifier()
     verdict_file = tmp_path / "verdict.json"
     parsed = verifier.parse(spec(verdict_file, vector["condition"]))
 
-    verdict = verifier.grade(parsed, context(captured(vector)))
+    verdict = verifier.grade(parsed, context(captured(vector, verifiers.UNSETTLED)))
 
     assert (verdict.outcome, verdict.reason, list(verdict.matched_calls)) == (
         vector["outcome"],
@@ -85,28 +102,17 @@ def test_every_evaluate_vector_gives_the_stated_verdict(
     assert written["outcome"] == vector["outcome"]
 
 
-@pytest.mark.parametrize("vector", EVALUATE, ids=[v["id"] for v in EVALUATE])
-def test_the_bundle_copy_matches_the_consumer_evaluator(vector: dict[str, Any]) -> None:
-    mine = verifiers.evaluate_condition(vector["condition"], vector["calls"], vector["complete"])
-    theirs = condition_eval.evaluate_condition(
-        vector["condition"], vector["calls"], vector["complete"]
-    )
-
-    assert (mine.outcome, mine.reason, mine.matched_calls) == (
-        theirs.outcome,
-        theirs.reason,
-        theirs.matched_calls,
-    )
-
-
 @pytest.mark.parametrize("vector", VALIDATE, ids=[v["id"] for v in VALIDATE])
-def test_every_validate_vector_gives_the_stated_problem(vector: dict[str, Any]) -> None:
+def test_every_validate_vector_gives_the_stated_problem(
+    verifiers: ModuleType, vector: dict[str, Any]
+) -> None:
     assert verifiers.validate_condition(vector["condition"]) == vector["error"]
-    assert condition_eval.validate_condition(vector["condition"]) == vector["error"]
 
 
 @pytest.mark.parametrize("vector", VALIDATE, ids=[v["id"] for v in VALIDATE])
-def test_parse_accepts_exactly_the_valid_conditions(vector: dict[str, Any]) -> None:
+def test_parse_accepts_exactly_the_valid_conditions(
+    verifiers: ModuleType, vector: dict[str, Any]
+) -> None:
     verifier = verifiers.ToolCallConditionVerifier()
     if vector["valid"]:
         assert verifier.parse(spec(Path("v.json"), vector["condition"])) is not None
@@ -116,16 +122,13 @@ def test_parse_accepts_exactly_the_valid_conditions(vector: dict[str, Any]) -> N
 
 
 @pytest.mark.parametrize(
-    ("calls", "outcome"),
-    [
-        ([record("a", {"x": 3})], "detected"),
-        ([record("a", {"x": 4})], "not_detected"),
-        ([record("a", {"x": 4}, verifiers.UNSETTLED)], "inconclusive"),
-    ],
+    ("x", "unsettled", "outcome"),
+    [(3, False, "detected"), (4, False, "not_detected"), (4, True, "inconclusive")],
 )
 def test_each_outcome_is_written_to_the_verdict_file(
-    tmp_path: Path, calls: list[SimpleNamespace], outcome: str
+    verifiers: ModuleType, tmp_path: Path, x: int, unsettled: bool, outcome: str
 ) -> None:
+    calls = [record("a", {"x": x}, verifiers.UNSETTLED if unsettled else None)]
     verifier = verifiers.ToolCallConditionVerifier()
     verdict_file = tmp_path / "verdict.json"
 
@@ -154,13 +157,13 @@ def test_each_outcome_is_written_to_the_verdict_file(
         "not an object",
     ],
 )
-def test_parse_refuses_a_malformed_spec(bad: Any) -> None:
+def test_parse_refuses_a_malformed_spec(verifiers: ModuleType, bad: Any) -> None:
     with pytest.raises(ValueError):
         verifiers.ToolCallConditionVerifier().parse(bad)
 
 
 def test_only_a_detected_verdict_passes_the_check(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    verifiers: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class Result:
         def __init__(self, passed: bool, reason: str) -> None:
@@ -186,7 +189,9 @@ def test_only_a_detected_verdict_passes_the_check(
         assert json.loads((tmp_path / "verdict.json").read_text())["outcome"] == outcome
 
 
-def test_the_neutral_check_always_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_neutral_check_always_passes(
+    verifiers: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class Result:
         def __init__(self, passed: bool, reason: str) -> None:
             self.passed, self.reason = passed, reason
@@ -206,7 +211,9 @@ def test_the_neutral_check_always_passes(monkeypatch: pytest.MonkeyPatch) -> Non
         neutral.parse({"anything": 1})
 
 
-def test_register_adds_the_verifiers_once(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_adds_the_verifiers_once(
+    verifiers: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
     registered: list[str] = []
 
     def register_verifier(verifier: Any) -> None:
@@ -223,3 +230,34 @@ def test_register_adds_the_verifiers_once(monkeypatch: pytest.MonkeyPatch) -> No
     verifiers.register()
 
     assert registered == ["asago_tool_call_condition", "asago_rubric_judge", "asago_neutral"]
+
+
+def test_the_bundle_code_runs_without_the_consumer_or_midojo(
+    command_package: Path, tmp_path: Path
+) -> None:
+    template = tmp_path / "template"
+    compile_package(command_package, template)
+    vector = next(v for v in EVALUATE if v["outcome"] == "detected")
+    code = (
+        "import importlib.util, json, sys\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "for name in ('asago_artifact_generator', 'asago_bundle_midojo', 'midojo'):\n"
+        "    assert importlib.util.find_spec(name) is None, name\n"
+        "from asago_suite import asago_verifiers as v\n"
+        "vector = json.loads(sys.argv[2])\n"
+        "c, calls, complete = vector['condition'], vector['calls'], vector['complete']\n"
+        "verdict = v.evaluate_condition(c, calls, complete)\n"
+        "print(json.dumps([verdict.outcome, verdict.reason, list(verdict.matched_calls)]))\n"
+    )
+
+    done = subprocess.run(
+        [sys.executable, "-S", "-E", "-s", "-c", code, str(template), json.dumps(vector)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert done.returncode == 0, done.stderr
+    expected = [vector["outcome"], vector["reason"], vector["matched_calls"]]
+    assert json.loads(done.stdout) == expected

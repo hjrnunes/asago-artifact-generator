@@ -4,7 +4,9 @@
 semantics; the producer owns it and Garak executes it. This module follows the
 README and passes every vector, so the consumer can check an authored example
 capture against the condition before the package ships. Packages carry no
-detector code: the evaluator runs only while authoring.
+detector code. The MiDojo adapter copies this file byte for byte into each
+bundle, where it runs in MiDojo's interpreter; it therefore imports the standard
+library only.
 
 Every comparison is true, false, or unknown (``None``). The vectors pin Garak's
 behavior where it is surprising, and this module keeps that behavior. It differs

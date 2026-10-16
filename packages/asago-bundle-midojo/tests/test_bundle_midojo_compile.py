@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from asago_artifact_generator.authoring import condition_eval
 from asago_bundle_core.schema import manifest_errors, validate_manifest
 from asago_bundle_core.slots import VALUE
 from asago_bundle_core.testing import CONDITION, JUDGE, write_test_package
@@ -145,9 +146,16 @@ def test_the_bundle_code_is_copied_byte_for_byte(template: Path) -> None:
         "asago_suite/__init__.py": "suite_package.py",
         "asago_suite/suite.py": "suite_module.py",
         "asago_suite/asago_verifiers.py": "asago_verifiers.py",
+        "asago_suite/verifier_names.py": "verifier_names.py",
         "run_midojo.py": "run_midojo.py",
     }.items():
         assert (template / name).read_bytes() == source.joinpath(original).read_bytes()
+
+
+def test_the_bundle_carries_the_consumer_condition_evaluator(template: Path) -> None:
+    authority = Path(condition_eval.__file__).read_bytes()
+
+    assert (template / "asago_suite/condition_eval.py").read_bytes() == authority
 
 
 def test_compile_twice_gives_the_same_bytes(command_package: Path, tmp_path: Path) -> None:
@@ -158,7 +166,7 @@ def test_compile_twice_gives_the_same_bytes(command_package: Path, tmp_path: Pat
         return {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
 
     assert tree(tmp_path / "one") == tree(tmp_path / "two")
-    assert len(tree(tmp_path / "one")) == 7
+    assert len(tree(tmp_path / "one")) == 9
 
 
 def test_compile_returns_the_manifest_it_wrote(command_package: Path, tmp_path: Path) -> None:
