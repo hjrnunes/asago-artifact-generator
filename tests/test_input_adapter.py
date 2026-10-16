@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -527,10 +528,104 @@ def test_handoff_that_is_not_an_object_is_rejected(tmp_path: Path) -> None:
     )
 
 
-def test_gherkin_companion_file_replaces_the_rendered_text(tmp_path: Path) -> None:
+def _producer_companion(gherkin: dict[str, list[str] | str]) -> str:
+    """Lay the block out as the producer writes a feature file, with a Background."""
+    lines = [f"Feature: {gherkin['feature']}", ""]
+    lines += ["  Background:", *(f"    {step}" for step in gherkin["given"]), ""]
+    lines.append(f"  Scenario: {gherkin['scenario']}")
+    lines += [f"    {step}" for step in [*gherkin["when"], *gherkin["then_expected"]]]
+    lines += [f"    # {line}" for line in gherkin["then_unsafe_alternative"]]
+    return "\n".join(lines) + "\n"
+
+
+def _load_with_companion(tmp_path: Path, companion: str | bytes) -> object:
     source_path = tmp_path / "handoff.json"
     source_path.write_bytes(CONTRACT_HANDOFF.read_bytes())
-    companion = b"Feature: written by the producer\n  Scenario: exact bytes\n"
+    data = companion.encode("utf-8") if isinstance(companion, str) else companion
+    source_path.with_suffix(".feature").write_bytes(data)
+    return load_input(source_path)
+
+
+def test_producer_layout_companion_matches_and_keeps_its_bytes(tmp_path: Path) -> None:
+    gherkin = yaml.safe_load(CONTRACT_HANDOFF.read_bytes())["gherkin"]
+    companion = _producer_companion(gherkin)
+
+    view = _load_with_companion(tmp_path, companion)
+
+    assert view.gherkin_text == companion
+    assert view.gherkin_bytes == companion.encode("utf-8")
+    assert view.source_digests["gherkin"] == hashlib.sha256(companion.encode("utf-8")).hexdigest()
+
+
+def test_companion_in_the_consumer_rendering_matches(tmp_path: Path) -> None:
+    from asago_artifact_generator.input_adapter import _render_handoff_gherkin
+
+    gherkin = yaml.safe_load(CONTRACT_HANDOFF.read_bytes())["gherkin"]
+    companion = _render_handoff_gherkin(gherkin)
+
+    view = _load_with_companion(tmp_path, companion)
+
+    assert view.gherkin_text == companion
+
+
+def _changed_step(gherkin: dict[str, list[str] | str]) -> str:
+    return _producer_companion(gherkin).replace(
+        "Then the assistant refuses", "Then the assistant issues"
+    )
+
+
+def _reordered_step(gherkin: dict[str, list[str] | str]) -> str:
+    swapped = {**gherkin, "given": list(reversed(gherkin["given"]))}
+    return _producer_companion(swapped)
+
+
+def _other_feature(gherkin: dict[str, list[str] | str]) -> str:
+    return _producer_companion({**gherkin, "feature": "Another feature"})
+
+
+def _no_scenario_line(gherkin: dict[str, list[str] | str]) -> str:
+    return _producer_companion(gherkin).replace("Scenario:", "Example:")
+
+
+def _extra_comment(gherkin: dict[str, list[str] | str]) -> str:
+    return _producer_companion(gherkin) + "    # one comment too many\n"
+
+
+def _missing_comment(gherkin: dict[str, list[str] | str]) -> str:
+    return _producer_companion({**gherkin, "then_unsafe_alternative": []})
+
+
+@pytest.mark.parametrize(
+    ("build", "rule"),
+    [
+        (_changed_step, "steps"),
+        (_reordered_step, "steps"),
+        (_other_feature, "Feature line"),
+        (_no_scenario_line, "Scenario line"),
+        (_extra_comment, "comment count"),
+        (_missing_comment, "comment count"),
+        (lambda gherkin: "", "Feature line"),
+    ],
+)
+def test_companion_that_disagrees_with_the_yaml_block_is_rejected(
+    tmp_path: Path, build: Callable[[dict[str, list[str] | str]], str], rule: str
+) -> None:
+    gherkin = yaml.safe_load(CONTRACT_HANDOFF.read_bytes())["gherkin"]
+    companion = build(gherkin)
+
+    with pytest.raises(InputSourceError) as raised:
+        _load_with_companion(tmp_path, companion)
+
+    message = str(raised.value)
+    assert str(tmp_path / "handoff.feature") in message
+    assert rule in message
+
+
+def test_gherkin_companion_file_replaces_the_rendered_text(tmp_path: Path) -> None:
+    gherkin = yaml.safe_load(CONTRACT_HANDOFF.read_bytes())["gherkin"]
+    source_path = tmp_path / "handoff.json"
+    source_path.write_bytes(CONTRACT_HANDOFF.read_bytes())
+    companion = _producer_companion(gherkin).replace("\n\n", "\n\n\n").encode("utf-8")
     source_path.with_suffix(".feature").write_bytes(companion)
 
     view = load_input(source_path)
