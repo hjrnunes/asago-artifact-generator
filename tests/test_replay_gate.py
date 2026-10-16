@@ -644,7 +644,6 @@ def test_gate_replays_a_recorded_stage_offline_and_passes(
 def test_gate_replays_a_stage_recorded_with_a_transport_retry_identically(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("asago_artifact_generator.authoring.transport._sleep", lambda _: None)
     request = httpx2.Request("POST", "https://profile.example.invalid/v1")
     failure = openai.APIConnectionError(message="connection reset", request=request)
     stage = _record_author_stage(
@@ -689,7 +688,6 @@ def test_gate_replays_a_stage_recorded_with_a_service_tier_fallback_identically(
 def test_gate_replays_a_fallback_followed_by_a_transport_retry_identically(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("asago_artifact_generator.authoring.transport._sleep", lambda _: None)
     request = httpx2.Request("POST", "https://profile.example.invalid/v1")
     bad_gateway = openai.InternalServerError(
         "upstream failed", response=httpx2.Response(502, request=request), body=None
