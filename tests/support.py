@@ -320,17 +320,6 @@ def review_finding(question: str = "scenario_fidelity") -> dict[str, str]:
     }
 
 
-def tool_call_runtime_contract() -> dict:
-    """Return a runtime contract that captures tool calls and permits no setup."""
-
-    return {
-        "delivery": ["direct_user_message"],
-        "setup_permissions": [],
-        "observation": {"tool_calls": {"availability": "captured_or_unavailable"}},
-        "limits": {"max_turns": 2},
-    }
-
-
 class FakeCompletions:
     """Stand in for ``client.chat.completions``: replay ``responses``, keep every request.
 

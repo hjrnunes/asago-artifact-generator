@@ -342,7 +342,6 @@ def test_manifest_carries_no_detector_interface_and_rejects_a_detector_member(
     manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
 
     assert manifest["schema_version"] == "artifact-package-v4"
-    assert "detector_interface" not in manifest
     assert set(manifest) == {
         "schema_version",
         "package_id",

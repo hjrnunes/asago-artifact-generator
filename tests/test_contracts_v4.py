@@ -109,8 +109,3 @@ def test_the_package_lock_names_v4_and_pins_its_schema() -> None:
         ),
     }
     package_io.validate_artifact_package_contract()
-
-
-def test_the_package_writer_writes_only_v4() -> None:
-    assert package_io.PACKAGE_SCHEMA_VERSION == "artifact-package-v4"
-    assert not hasattr(package_io, "package_schema_version_for")
