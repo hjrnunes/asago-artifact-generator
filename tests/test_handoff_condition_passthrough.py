@@ -28,6 +28,7 @@ from asago_artifact_generator.input_adapter import (
 )
 from tests.support import (
     HANDOFFS,
+    KIT_VALID,
     NO_CONDITION_HANDOFF,
     NOT_CALLED_HANDOFF,
     OBSERVED_HANDOFF,
@@ -49,7 +50,11 @@ def _write_signed(tmp_path: Path, payload: dict) -> Path:
     return path
 
 
-@pytest.mark.parametrize("path", sorted(HANDOFFS.glob("*.json")), ids=lambda path: path.stem)
+@pytest.mark.parametrize(
+    "path",
+    sorted([*HANDOFFS.glob("*.json"), *KIT_VALID.glob("*.json")]),
+    ids=lambda path: path.stem,
+)
 def test_the_handoff_view_carries_each_supplied_condition_field(path: Path) -> None:
     view = load_input(path)
 
@@ -86,7 +91,7 @@ def test_condition_statement_reaches_plan_artifact_and_review_prompts() -> None:
 
 
 def test_condition_guidance_is_omitted_for_an_analytical_only_scenario() -> None:
-    view = load_input(HANDOFFS / "analytical-only.json")
+    view = load_input(KIT_VALID / "analytical-only.json")
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = (
         build_call1_packet_v2(view, inventory, runtime),

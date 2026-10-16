@@ -102,17 +102,15 @@ class ScriptedAuthoringTransport:
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _ROOT = Path(__file__).resolve().parents[1]
-# The v4 test handoffs: earlier kit payloads with an explicit attack_shape, re-signed as v4.
 HANDOFFS = FIXTURES / "handoffs"
 HANDOFF = HANDOFFS / "refund-bound.json"
-NO_CONDITION_HANDOFF = HANDOFFS / "adversarial-condition-omitted.json"
-OBSERVED_HANDOFF = HANDOFFS / "adversarial-observed-record.json"
-NOT_CALLED_HANDOFF = HANDOFFS / "functional-not-called.json"
+KIT_VALID = _ROOT / "contracts/scenario-handoff/handoff-v4/valid"
+NO_CONDITION_HANDOFF = KIT_VALID / "adversarial-condition-omitted.json"
+OBSERVED_HANDOFF = KIT_VALID / "adversarial-observed-record.json"
+NOT_CALLED_HANDOFF = KIT_VALID / "functional-not-called.json"
 # One attacker message sent directly: the shape every adversarial test handoff above carries.
 DIRECT_SINGLE_SHAPE: dict[str, Any] = json.loads(
-    (
-        _ROOT / "contracts/scenario-handoff/handoff-v4/valid/adversarial-direct-single.json"
-    ).read_text(encoding="utf-8")
+    (KIT_VALID / "adversarial-direct-single.json").read_text(encoding="utf-8")
 )["attack_shape"]
 
 _WORLD_PARTS = ("view", "inventory", "runtime_contract", "plan", "metadata", "framed")

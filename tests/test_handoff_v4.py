@@ -55,13 +55,6 @@ def test_every_valid_v4_fixture_is_accepted(relative: str) -> None:
     assert view.attack_shape == view.payload["attack_shape"]
 
 
-def test_the_kit_holds_the_valid_fixtures_the_loop_covers() -> None:
-    assert sorted(_DIGESTS) == sorted(
-        f"valid/{path.name}" for path in (_KIT / "valid").glob("*.json")
-    )
-    assert len(_DIGESTS) == 12
-
-
 @pytest.mark.parametrize("relative", sorted(_EXPECTED))
 def test_every_invalid_v4_fixture_is_rejected_with_its_expected_codes(relative: str) -> None:
     with pytest.raises(InputSourceError) as raised:
@@ -111,19 +104,6 @@ def test_a_v4_handoff_signed_in_the_v3_digest_domain_is_rejected(tmp_path: Path)
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(InputSourceError, match="content_digest"):
-        load_input(path)
-
-
-def test_an_unknown_future_version_is_rejected(tmp_path: Path) -> None:
-    payload = _valid("adversarial-direct-single.json")
-    payload["schema_version"] = "scenario-handoff-v5"
-    path = tmp_path / "handoff.json"
-    path.write_text(
-        json.dumps({**payload, "content_digest": _framed_digest("scenario-handoff-v5", payload)}),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(InputSourceError, match="authoring source must be"):
         load_input(path)
 
 

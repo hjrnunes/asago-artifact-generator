@@ -12,14 +12,13 @@ from asago_artifact_generator.authoring.condition_types import operand_type_find
 from asago_artifact_generator.input_adapter import _framed_digest, load_input
 
 from .support import (
+    KIT_VALID,
     ScriptedAuthoringTransport,
     load_failure_evidence,
     stage_local_orchestrator,
 )
 
-_NOT_CALLED = (
-    Path(__file__).resolve().parent / "fixtures" / "handoffs" / "functional-not-called.json"
-)
+_NOT_CALLED = KIT_VALID / "functional-not-called.json"
 _RUNTIME = {
     "delivery": ["direct_user_message"],
     "setup_permissions": [],

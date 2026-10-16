@@ -26,6 +26,7 @@ from .example_capture_support import (
     neutral_metadata,
 )
 from .support import (
+    KIT_VALID,
     NEUTRAL_TOOL_CALL_CONDITION,
     ScriptedAuthoringTransport,
     load_failure_evidence,
@@ -259,7 +260,7 @@ def test_defect_finding_is_never_a_per_example_oracle_code() -> None:
     assert DEFECT_CODE not in ORACLE_CODES
 
 
-_HANDOFF = Path(__file__).resolve().parent / "fixtures" / "handoffs" / "functional-not-called.json"
+_HANDOFF = KIT_VALID / "functional-not-called.json"
 _TRANSFER_INVENTORY = {
     "facts": [],
     "operations": [

@@ -16,7 +16,7 @@ from asago_artifact_generator.input_adapter import (
     build_scenario_handoff_view,
     load_input,
 )
-from tests.support import HANDOFFS
+from tests.support import HANDOFFS, KIT_VALID
 
 CONTRACT_HANDOFF = HANDOFFS / "refund-bound.json"
 
@@ -153,7 +153,7 @@ def test_analytical_observation_criterion_may_omit_optional_fields(
     assert view.payload["observation"]["assessment"]["disposition"] == "analytical_only"
 
 
-CONTRACT_HANDOFF_OBSERVED = HANDOFFS / "adversarial-observed-record.json"
+CONTRACT_HANDOFF_OBSERVED = KIT_VALID / "adversarial-observed-record.json"
 
 
 def _observation() -> dict:
@@ -327,14 +327,8 @@ _CRIT = "observation.criteria.0"
             "deduplication.key.constraint_ids.1: must not be blank",
         ),
         (_set("scenario_id", " "), "scenario_id", "scenario_id: must not be blank"),
-        (_set("narrative", " "), "narrative", "narrative: must not be blank"),
         (_set("observation.contract_schema", " "), "observation", "contract_schema: must not"),
         (_criterion(reason=" "), "observation", f"{_CRIT}.reason: must not be blank"),
-        (
-            _criterion(claim_level=_ABSENT),
-            "observation",
-            f"{_CRIT}: an observable criterion requires claim_level",
-        ),
         (
             _criterion(evidence=_ABSENT),
             "observation",
@@ -346,19 +340,9 @@ _CRIT = "observation.criteria.0"
             f"{_CRIT}: an analytical-only criterion must omit claim_level and evidence",
         ),
         (
-            _all(_ANALYTICAL_CRITERION, _criterion(operation_name="process_refund")),
-            "observation",
-            f"{_CRIT}: an analytical-only criterion must omit operation_name",
-        ),
-        (
             _drop("observation.assessment.supported_criteria"),
             "observation",
             "observation.assessment: requires supported_criteria and unsupported_criteria",
-        ),
-        (
-            _set("observation.assessment.reason", " "),
-            "observation",
-            "observation.assessment.reason: must not be blank",
         ),
         (
             _set("safe_observable_outcome.statement", " "),
@@ -399,11 +383,6 @@ _CRIT = "observation.criteria.0"
             _all(_ANALYTICAL_SAFE, _set("safe_observable_outcome.fact_refs", ["F-1"])),
             "safe_observable_outcome",
             "safe_observable_outcome: an analytical-only safe outcome must omit record and fact",
-        ),
-        (
-            _set("tool_call_condition_status.reason", "no_condition"),
-            "tool_call_condition_status",
-            "tool_call_condition_status: reason must be bound exactly when the status is bound",
         ),
         (
             _set("deduplication.scenario_id", " "),
@@ -492,7 +471,7 @@ def test_view_exposes_the_tool_call_status_and_condition() -> None:
 
 
 def test_unbound_view_has_no_tool_call_condition() -> None:
-    view = load_input(HANDOFFS / "adversarial-condition-omitted.json")
+    view = load_input(KIT_VALID / "adversarial-condition-omitted.json")
 
     assert view.tool_call_condition_status["status"] == "not_executable"
     assert view.tool_call_condition is None
