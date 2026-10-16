@@ -9,10 +9,10 @@ naming its turn in ``notes.sequence``. The receipt lists every planned turn
 with the calls that turn made; the final turn's detections grade the
 conversation. A turn the probe marked failed, or a report that ends before the
 last turn, yields a ``failed`` receipt with ``incomplete_reason``
-``turn_failed:<position>`` (counted from 1), as orch names it.
+``turn_failed:<position>`` (counted from 1), as the orchestrator names it.
 
-When orch's boundary services recorded the package, their records replace
-the report's evidence: ``mcp_capture/calls.jsonl`` the tool calls,
+When the orchestrator's boundary services recorded the package, their records
+replace the report's evidence: ``mcp_capture/calls.jsonl`` the tool calls,
 ``boundary/gateway-accounting.json`` the generation request count, and
 ``boundary/judge-exchanges.jsonl`` the judge request count. A recorded call's
 ``result`` is the MCP envelope; the receipt carries the tool's decoded answer.
@@ -425,7 +425,10 @@ def _detection(attempt: dict[str, Any], plugin: str, scores: Any) -> dict[str, A
 
 
 def result_of(detections: list[dict[str, Any]], claim_level: str) -> dict[str, Any]:
-    """Return the driver detection's outcome, as orch's ``rich_result`` does."""
+    """Return the outcome of the detection that grades *claim_level*.
+
+    A report without that detection yields a ``detection_missing`` result.
+    """
 
     driver = DRIVERS.get(claim_level)
     found = next((item for item in detections if item["detector"] == driver), None)

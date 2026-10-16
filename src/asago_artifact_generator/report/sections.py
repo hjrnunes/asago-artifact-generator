@@ -489,7 +489,7 @@ def missing_section(run: AuthorRun) -> Markup:
     intro = Markup(
         f"<p>{counted('scenarios.no_record', len(missing))} of {len(run.scenarios)} scenarios "
         "have no failure evidence in this output: the author stage did not run authoring for "
-        "them, for example because orch skipped a duplicate.</p>"
+        "them, for example because the orchestrator skipped a duplicate.</p>"
     )
     body = intro + (
         table([Column("Scenario"), Column("Kind")], rows, "missing-table") if rows else ""

@@ -1,9 +1,9 @@
-"""instantiate: fill a MiDojo bundle template with orch's values.
+"""instantiate: fill a MiDojo bundle template with the orchestrator's values.
 
-orch knows the values (the gateway and MCP URLs, the model, the rendered
-messages, the control plane's port); this module knows MiDojo's format. The
-package's one rendered user message becomes the suite's prompt, and the verdict
-file's path becomes the absolute path inside the concrete bundle.
+The orchestrator knows the values (the gateway and MCP URLs, the model, the
+rendered messages, the control plane's port); this module knows MiDojo's format.
+The package's one rendered user message becomes the suite's prompt, and the
+verdict file's path becomes the absolute path inside the concrete bundle.
 """
 
 from __future__ import annotations

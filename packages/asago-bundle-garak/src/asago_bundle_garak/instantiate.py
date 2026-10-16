@@ -1,9 +1,9 @@
-"""instantiate: fill a bundle template with orch's values.
+"""instantiate: fill a bundle template with the orchestrator's values.
 
-orch knows the values (URLs, model, allowed tools, rendered messages or, for
-a sequential package, each rendered user turn, resolved judge facts, the
-turns the judge grades); this module knows Garak's format. It substitutes no package
-bindings: the messages and facts arrive already resolved.
+The orchestrator knows the values (URLs, model, allowed tools, rendered messages
+or, for a sequential package, each rendered user turn, resolved judge facts, the
+turns the judge grades); this module knows Garak's format. It substitutes no
+package bindings: the messages and facts arrive already resolved.
 """
 
 from __future__ import annotations

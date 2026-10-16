@@ -1,4 +1,4 @@
-"""instantiate: fill a MiDojo bundle template with orch's values."""
+"""instantiate: fill a MiDojo bundle template with the orchestrator's values."""
 
 from __future__ import annotations
 
