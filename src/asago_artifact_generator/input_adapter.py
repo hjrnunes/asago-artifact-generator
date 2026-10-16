@@ -209,6 +209,12 @@ def _handoff_view(
             gherkin_text = gherkin_bytes.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise InputSourceError(f"Gherkin companion is not UTF-8: {companion}") from exc
+        failed_rule = _companion_mismatch(gherkin, gherkin_text)
+        if failed_rule:
+            raise InputSourceError(
+                f"Gherkin companion does not match the handoff gherkin block: {companion}: "
+                f"{failed_rule}"
+            )
     else:
         gherkin_text = _render_handoff_gherkin(gherkin)
     return InputView(
@@ -597,6 +603,50 @@ def _keys_and_strings(value: Any, path: str = "") -> list[tuple[str, str]]:
 
 def _framed_digest(domain: str, value: Any) -> str:
     return framed_digest(domain, value, nfc=True)
+
+
+def _companion_mismatch(gherkin: dict[str, Any], text: str) -> str | None:
+    """Name the first rule a feature file breaks, or None when it holds the block.
+
+    The rules are the producer's `feature_matches`
+    (`asago_scenario_generator/report/scenario_panels.py`); keep both in step.
+    """
+    lines = [stripped for line in text.splitlines() if (stripped := line.strip())]
+    for rule in (_feature_rule, _scenario_rule, _steps_rule, _comments_rule):
+        if failed := rule(gherkin, lines):
+            return failed
+    return None
+
+
+def _feature_rule(gherkin: dict[str, Any], lines: list[str]) -> str | None:
+    if lines[:1] == [f"Feature: {gherkin['feature']}"]:
+        return None
+    return f"Feature line: the first line is not 'Feature: {gherkin['feature']}'"
+
+
+def _scenario_rule(gherkin: dict[str, Any], lines: list[str]) -> str | None:
+    if f"Scenario: {gherkin['scenario']}" in lines:
+        return None
+    return f"Scenario line: no line reads 'Scenario: {gherkin['scenario']}'"
+
+
+def _steps_rule(gherkin: dict[str, Any], lines: list[str]) -> str | None:
+    skipped = ("Feature:", "Background:", "Scenario:", "#")
+    steps = [line for line in lines if not line.startswith(skipped)]
+    expected = [
+        step for key in ("given", "when", "then_expected") for step in gherkin.get(key, [])
+    ]
+    if steps == expected:
+        return None
+    return "steps: they differ from given, when and then_expected in order"
+
+
+def _comments_rule(gherkin: dict[str, Any], lines: list[str]) -> str | None:
+    comments = sum(line.startswith("#") for line in lines)
+    expected = len(gherkin.get("then_unsafe_alternative", []))
+    if comments == expected:
+        return None
+    return f"comment count: {comments} comments, then_unsafe_alternative holds {expected}"
 
 
 def _render_handoff_gherkin(gherkin: dict[str, Any]) -> str:
