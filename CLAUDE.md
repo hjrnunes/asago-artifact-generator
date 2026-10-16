@@ -105,7 +105,8 @@ Deterministic tests must not contact a model endpoint or target.
 - `src/asago_artifact_generator/package_io.py`: the artifact-package-v4 writer and loader.
 - `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
   `tool-bundle-v1` schema, slot markers, the capability-gap record, `BundleError`, the
-  `testing` package builders, and the `conformance` helper that round-trips `compile`,
+  `testing` package builders, the `mcp_records` readers of orch's boundary records, and
+  the `conformance` helper that round-trips `compile`,
   `instantiate` and `parse` of an adapter and returns failure messages). A new adapter
   runs `check_round_trip` in its tests. The optional schema fields `repeats` and `serve`
   stay out of a bundle that does not need them: Garak omits both, because `bundle.json`

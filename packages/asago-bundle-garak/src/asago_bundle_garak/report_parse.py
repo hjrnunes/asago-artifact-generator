@@ -27,6 +27,15 @@ from pathlib import Path
 from typing import Any
 
 from asago_bundle_core.errors import BundleError
+from asago_bundle_core.mcp_records import (
+    count_value,
+    decoded,
+    decoded_result,
+    error_text,
+    lines,
+    read_json,
+    text,
+)
 from asago_bundle_core.text import canonical_text
 
 from .compiler import (
@@ -147,14 +156,14 @@ def read_bundle(root: Path) -> Bundle:
 
 def read_records(directory: Path) -> Records:
     calls_file = directory / PROXY_CALLS
-    accounting = _read_json(directory / GATEWAY_ACCOUNTING)
+    accounting = read_json(directory / GATEWAY_ACCOUNTING)
     exchanges = directory / JUDGE_EXCHANGES
     return Records(
-        calls=[_proxy_call(line) for line in _lines(calls_file)] if calls_file.is_file() else None,
-        request_count=_count(
+        calls=[_proxy_call(line) for line in lines(calls_file)] if calls_file.is_file() else None,
+        request_count=count_value(
             accounting.get("responses_request_count") if isinstance(accounting, dict) else None
         ),
-        judge_count=len(_lines(exchanges)) if exchanges.is_file() else None,
+        judge_count=len(lines(exchanges)) if exchanges.is_file() else None,
     )
 
 
@@ -162,7 +171,7 @@ def read_entries(path: Path) -> tuple[list[Any] | None, str | None]:
     if not path.is_file():
         return None, "report_missing"
     entries = []
-    for line in _lines(path):
+    for line in lines(path):
         try:
             entries.append(json.loads(line))
         except json.JSONDecodeError:
@@ -224,8 +233,8 @@ def build_attempt(attempt: dict[str, Any], bundle: Bundle, records: Records) -> 
         "index": 0,
         "generation": {
             "request_count": records.request_count,
-            "response_status": _text(notes.get("response_status")),
-            "error_type": _text(error.get("type")) if isinstance(error, dict) else None,
+            "response_status": text(notes.get("response_status")),
+            "error_type": text(error.get("type")) if isinstance(error, dict) else None,
         },
         "turns": [
             {
@@ -262,7 +271,7 @@ def sequential_attempt(
     detections = detections_of(turns[-1]) if graded else []
     source, calls = sequential_calls(turns, records, len(bundle.messages))
     replies = turn_replies(turns)
-    status = _text(output_notes(turns[-1]).get("response_status"))
+    status = text(output_notes(turns[-1]).get("response_status"))
     attempt = {
         "index": 0,
         "generation": {
@@ -335,7 +344,7 @@ def turn_failure(turns: list[dict[str, Any]], planned: int) -> tuple[str | None,
     """Return ``(incomplete_reason, error_type)`` for the first turn that failed."""
 
     for turn in turns:
-        failure = _text(_sequence(turn).get("failure"))
+        failure = text(_sequence(turn).get("failure"))
         if failure is not None:
             position = _sequence(turn)["turn_index"] + 1
             return f"turn_failed:{position}", f"generation_failed:{failure}"
@@ -368,7 +377,7 @@ def turn_calls(turn: dict[str, Any]) -> list[dict[str, Any]]:
     sequence = _sequence(turn)
     native = output_notes(turn).get("tool_calls")
     native = native if isinstance(native, list) else []
-    offset = _count(sequence.get("call_offset")) or 0
+    offset = count_value(sequence.get("call_offset")) or 0
     return [
         {**_native_call(call), "turn_index": sequence["turn_index"]}
         for call in native[offset:]
@@ -410,7 +419,7 @@ def _detection(attempt: dict[str, Any], plugin: str, scores: Any) -> dict[str, A
     return {
         "detector": name,
         "outcome": OUTCOMES.get(score, INCONCLUSIVE),
-        "reason": _text(record.get("reason")),
+        "reason": text(record.get("reason")),
         "matched_calls": matched if isinstance(matched, list) else None,
     }
 
@@ -436,8 +445,8 @@ def judge_of(attempt: dict[str, Any], records: Records) -> dict[str, Any] | None
     first = judged[0]
     dispatched = sum(1 for record in judged if record.get("request") is not None)
     return {
-        "verdict": _text(first.get("verdict")),
-        "reason": _text(first.get("reason")),
+        "verdict": text(first.get("verdict")),
+        "reason": text(first.get("reason")),
         "request_count": records.judge_count if records.judge_count is not None else dispatched,
     }
 
@@ -483,11 +492,11 @@ def _first_record(attempt: dict[str, Any], detector: str) -> dict[str, Any]:
 
 def _native_call(call: dict[str, Any]) -> dict[str, Any]:
     return {
-        "name": _text(call.get("name")),
-        "arguments": _decoded(call.get("arguments")),
-        "result": _decoded(call.get("output")),
-        "error": _text(call.get("error")),
-        "status": _text(call.get("status")),
+        "name": text(call.get("name")),
+        "arguments": decoded(call.get("arguments")),
+        "result": decoded(call.get("output")),
+        "error": text(call.get("error")),
+        "status": text(call.get("status")),
         "turn_index": 0,
     }
 
@@ -499,92 +508,10 @@ def _proxy_call(line: str) -> dict[str, Any]:
         call = {}
     call = call if isinstance(call, dict) else {}
     fields = {key: call.get(key) for key in CALL_FIELDS}
-    fields["result"], decoded_error = _decoded_result(fields["result"])
-    fields["error"] = _error_text(fields["error"]) or decoded_error
+    fields["result"], decoded_error = decoded_result(fields["result"])
+    fields["error"] = error_text(fields["error"]) or decoded_error
     for key in ("name", "status"):
-        fields[key] = _text(fields[key])
+        fields[key] = text(fields[key])
     # Single-turn receipts put every call in turn 0; sequential ones keep a
     # recorded turn (see ``sequential_calls``).
-    return {**fields, "turn_index": _count(call.get("turn_index"))}
-
-
-def _envelope_texts(result: Any) -> list[str] | None:
-    """Return the text blocks of an MCP tool result, or None for any other value."""
-
-    content = result.get("content") if isinstance(result, dict) else None
-    if not isinstance(content, list):
-        return None
-    return [
-        block["text"]
-        for block in content
-        if isinstance(block, dict)
-        and block.get("type") == "text"
-        and isinstance(block.get("text"), str)
-    ]
-
-
-def _decoded_result(result: Any) -> tuple[Any, str | None]:
-    """Return the ``(result, error)`` the proxy's recorded tool result stands for.
-
-    The proxy stores the MCP envelope the tool answered with; the receipt
-    carries what the tool returned: the text blocks joined by a newline and
-    parsed as JSON when they parse, else kept as text. A result flagged
-    ``isError`` is a failed call: no result, and the text as the error. Any
-    other value, or a successful envelope with no text block, stays as
-    recorded; ``structuredContent`` is never read.
-    """
-
-    texts = _envelope_texts(result)
-    if texts is None:
-        return result, None
-    if result.get("isError") is True:
-        return None, "\n".join(texts) or "isError"
-    if not texts:
-        return result, None
-    joined = "\n".join(texts)
-    try:
-        return json.loads(joined), None
-    except json.JSONDecodeError:
-        return joined, None
-
-
-def _error_text(error: Any) -> str | None:
-    """Return a JSON-RPC error's message, or the error object as compact JSON.
-
-    A call that failed at the protocol level did not run, so the receipt says
-    so even when the error carries no message.
-    """
-
-    if not isinstance(error, dict):
-        return _text(error)
-    return _text(error.get("message")) or json.dumps(
-        error, separators=(",", ":"), ensure_ascii=False
-    )
-
-
-def _decoded(value: Any) -> Any:
-    if not isinstance(value, str):
-        return value
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return value
-
-
-def _lines(path: Path) -> list[str]:
-    return [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-
-
-def _read_json(path: Path) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def _text(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
-def _count(value: Any) -> int | None:
-    return value if type(value) is int and value >= 0 else None
+    return {**fields, "turn_index": count_value(call.get("turn_index"))}

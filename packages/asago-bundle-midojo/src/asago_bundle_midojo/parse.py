@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from asago_bundle_core.errors import BundleError
+from asago_bundle_core.mcp_records import read_json, text
 from asago_bundle_core.text import canonical_text
 
 from .compiler import (
@@ -37,7 +38,7 @@ from .compiler import (
     TOOL,
     VERDICT_FILE,
 )
-from .records import Records, native_call, read_json, read_records, text
+from .records import Records, native_call, read_records
 
 SCHEMA_VERSION = "execution-receipt-v1"
 DETECTORS = {COMMAND_ATTEMPT: "ToolCallCondition", REPLY: "RubricJudge"}
