@@ -16,7 +16,7 @@ from ..package_io import (
     tool_call_condition_bytes,
 )
 from .checks import _plan_claim_level
-from .core import AUTHORING_INTERFACE_VERSION_V2, PromptPacket, _canonical_json, _json_bytes
+from .core import AUTHORING_INTERFACE_VERSION_V2, _canonical_json, _json_bytes
 from .inventory import (
     _expected_authoring_input_pins,
     _input_view_payload,
@@ -36,7 +36,6 @@ def _package_from_responses(
     task_id: str,
     ledger: list[dict[str, Any]],
     raw_responses: dict[str, bytes],
-    prompt_packets: dict[str, PromptPacket],
     transformations: list[Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
@@ -47,7 +46,7 @@ def _package_from_responses(
     preserved_reviews: dict[str, dict[str, Any]] | None = None,
     terminal_status: str | None = None,
 ) -> ArtifactPackage:
-    authoring_records = _attempt_records(ledger, raw_responses, prompt_packets, terminal_status)
+    authoring_records = _attempt_records(ledger, raw_responses, terminal_status)
     authoring_records["authoring/transformations.json"] = (
         _canonical_json(transformations).encode("utf-8") + b"\n"
     )
@@ -137,7 +136,6 @@ def _terminal_fields(terminal_status: str | None) -> dict[str, str]:
 def _attempt_records(
     ledger: list[dict[str, Any]],
     raw_responses: dict[str, bytes],
-    prompt_packets: dict[str, PromptPacket],
     terminal_status: str | None,
 ) -> dict[str, bytes]:
     """Return each ledger attempt's record, raw response, and user prompt files."""
@@ -153,8 +151,8 @@ def _attempt_records(
         raw = _attempt_raw_response(record, raw_responses)
         if raw is not None:
             authoring_records[f"{prefix}.raw"] = raw
-        prompt = _attempt_user_prompt(record, prompt_packets)
-        if prompt is not None:
+        prompt = record.get("prompt_user")
+        if isinstance(prompt, str):
             authoring_records[f"{prefix}.prompt"] = prompt.encode("utf-8")
     return authoring_records
 
@@ -164,18 +162,6 @@ def _attempt_raw_response(record: dict[str, Any], raw_responses: dict[str, bytes
     if raw is None:
         raw = raw_responses.get(record["stage"])
     return raw
-
-
-def _attempt_user_prompt(
-    record: dict[str, Any], prompt_packets: dict[str, PromptPacket]
-) -> str | None:
-    """Return the recorded user prompt, or the stage packet's prompt when none was recorded."""
-
-    prompt_user = record.get("prompt_user")
-    if isinstance(prompt_user, str):
-        return prompt_user
-    packet = prompt_packets.get(record["stage"])
-    return packet.user if packet is not None else None
 
 
 def _safe_ledger(

@@ -329,7 +329,6 @@ class AuthoringOrchestrator:
         self._review_status: dict[str, str] | None = None
         self._raw_responses: dict[str, bytes] = {}
         self._decoded_responses: dict[str, Any] = {}
-        self._prompt_packets: dict[str, PromptPacket] = {}
         self._transformations: list[Any] = []
         # The stage a crash is charged to; None until the first stage starts.
         self._active_stage: str | None = None
@@ -390,7 +389,6 @@ class AuthoringOrchestrator:
         """
 
         stage = packet.stage
-        self._prompt_packets[stage] = packet
         started = time.monotonic()
         try:
             response = self._dispatch(packet)
@@ -715,7 +713,6 @@ class AuthoringOrchestrator:
         )
         if packet is None:
             return None
-        self._prompt_packets["correction"] = packet
         started = time.monotonic()
         try:
             response = self._dispatch(packet)
@@ -917,7 +914,6 @@ class AuthoringOrchestrator:
                 task_id=self.task_id,
                 ledger=self._journal.ledger,
                 raw_responses=self._raw_responses,
-                prompt_packets=self._prompt_packets,
                 transformations=self._transformations,
                 inventory=inventory,
                 runtime_contract=runtime_contract,
@@ -1560,9 +1556,7 @@ class AuthoringOrchestrator:
     def _write_request_files(self) -> None:
         """Write a failed run's prompts and raw responses under the package's names."""
 
-        records = _attempt_records(
-            list(self._journal.ledger), self._raw_responses, self._prompt_packets, None
-        )
+        records = _attempt_records(list(self._journal.ledger), self._raw_responses, None)
         files = {
             name.removeprefix("authoring/"): payload
             for name, payload in records.items()
