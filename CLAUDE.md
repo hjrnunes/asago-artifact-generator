@@ -69,8 +69,9 @@ Deterministic tests must not contact a model endpoint or target.
 ## Live requests and saved work
 
 - Before dispatch, apply the current task's provider/data approval and explicit
-  request allowance. The paired producer records standing private-model approval
-  in `docs/development/private-live-model-approval.md`.
+  request allowance. Send an endpoint only the project data the owner approved
+  for it, never real customer data, and do not publish the material or use
+  another provider without approval.
 - Read profile credentials in process; keep them out of prompts, packages,
   logs, shell output, and Git. Use the task's explicit profile path.
 - Record actual model, thinking, token limits, finish state, and spend. Thinking

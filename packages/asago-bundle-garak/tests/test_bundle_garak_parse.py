@@ -1,7 +1,12 @@
 """parse: a concrete bundle plus Garak's report becomes an execution receipt.
 
 The two reports under ``fixtures/`` are real Garak output at 1c2918ae, one per
-claim level; ``fixtures/README.md`` says how they were made.
+claim level, unedited except for two path prefixes (the run directory became
+``/fixture`` and the Garak checkout ``/garak-checkout``).  Packages from
+``conftest.write_test_package`` went through ``compile`` and ``instantiate``,
+and the bundle's entrypoint ran under the pinned Garak interpreter against a
+loopback stand-in for the gateway and the judge, so no run sent a request to a
+model.
 """
 
 from __future__ import annotations
