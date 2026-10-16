@@ -102,7 +102,7 @@ Deterministic tests must not contact a model endpoint or target.
   `correction.py` build prompts; `contracts.py` and `checks.py` hold response
   contracts and structural checks; `transport.py` is the provider client.
 - `src/asago_artifact_generator/bindings.py`: binding sources and destinations.
-- `src/asago_artifact_generator/package_io.py`: the artifact-package-v4 writer and the v3 and v4 loader.
+- `src/asago_artifact_generator/package_io.py`: the artifact-package-v4 writer and loader.
 - `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
   `tool-bundle-v1` schema, slot markers, the capability-gap record, `BundleError`, the
   `testing` package builders, and the `conformance` helper that round-trips `compile`,

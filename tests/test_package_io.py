@@ -393,10 +393,9 @@ def test_written_manifest_matches_the_locked_v4_schema(tmp_path: Path) -> None:
     destination = write_package(tmp_path / "package", _package())
     manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
 
-    assert lock["package_schema_version"] == "artifact-package-v3"
-    assert lock["digest_domain"] == "artifact-package-v3"
+    assert lock["package_schema_version"] == "artifact-package-v4"
+    assert lock["digest_domain"] == "artifact-package-v4"
     assert "artifact-package-v4/schema.json" in lock["files"]
-    assert "artifact-package-v2/schema.json" not in lock["files"]
     jsonschema.validate(manifest, schema)
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({**manifest, "detector_interface": "x"}, schema)

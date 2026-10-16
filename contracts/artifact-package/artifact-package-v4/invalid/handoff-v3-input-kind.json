@@ -1,12 +1,13 @@
 {
-  "description": "A v3 package with a tool-call condition.",
+  "description": "input_kind names a retired handoff.",
   "files": {
     "bindings.json": "[]\n",
     "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",
     "plan.json": "{\"runtime_contract\":{\"setup_permissions\":[]}}\n",
     "prerequisites.json": "[]\n",
+    "seed.json": "{\"schema_version\":\"mini-agents-seed-v1\",\"items\":[]}\n",
     "setup.json": "[]\n",
-    "stimulus.json": "{\"user_text\":\"hello\"}\n",
+    "stimulus.json": "{\"user_text\":\"hello\",\"history\":[],\"mode\":\"single\",\"turn_count\":1}\n",
     "tool_call_condition.json": "{\n  \"comparisons\": []\n}\n"
   },
   "manifest": {
@@ -18,7 +19,7 @@
       "model": "configured-private-authoring"
     },
     "input_kind": "scenario-handoff-v3",
-    "manifest_digest": "992c513e03bc59eb8ca326e5eababa23d68409c8de4c39152b9b3763d9b15925",
+    "manifest_digest": "4cf5782019067ef59fd18b8367457d68237e2af31ea134835e4fea56ee1b7da4",
     "members": [
       {
         "length": 3,
@@ -45,16 +46,22 @@
         "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
       },
       {
+        "length": 52,
+        "media_type": "application/json",
+        "path": "seed.json",
+        "sha256": "fbbff6c31283e5aede5fa9237ac4c063e591e75a396c60e2c52120ebaae15af0"
+      },
+      {
         "length": 3,
         "media_type": "application/json",
         "path": "setup.json",
         "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
       },
       {
-        "length": 22,
+        "length": 66,
         "media_type": "application/json",
         "path": "stimulus.json",
-        "sha256": "30a88c537670e9fdaf3176952284e3f2962092f3ac0d21038c15d0632ec75a9b"
+        "sha256": "b6d8aa8188054fa4a839d06b1c6d512dd8236797d7e2a80702bc7738b46595d3"
       },
       {
         "length": 24,
@@ -66,7 +73,7 @@
     "package_id": "pkg-1",
     "runtime_capabilities": {},
     "scenario_id": "SCN-1",
-    "schema_version": "artifact-package-v3",
+    "schema_version": "artifact-package-v4",
     "source_digests": {
       "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }

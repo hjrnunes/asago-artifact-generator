@@ -29,24 +29,18 @@ from pathlib import Path
 from typing import Any
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[1] / "contracts" / "artifact-package"
-V3 = "artifact-package-v3"
 V4 = "artifact-package-v4"
 BINDING_CASES = "binding-cases"
-_HANDOFF_V3 = "scenario-handoff-v3"
 _HANDOFF_V4 = "scenario-handoff-v4"
 _CONDITION = '{\n  "comparisons": []\n}\n'
-_V3_FILES = {
+_V4_FILES = {
     "plan.json": '{"runtime_contract":{"setup_permissions":[]}}\n',
-    "stimulus.json": '{"user_text":"hello"}\n',
+    "stimulus.json": '{"user_text":"hello","history":[],"mode":"single","turn_count":1}\n',
     "setup.json": "[]\n",
     "bindings.json": "[]\n",
     "prerequisites.json": "[]\n",
     "inputs.json": '{"runtime_contract":{},"inventory":{}}\n',
     "tool_call_condition.json": _CONDITION,
-}
-_V4_FILES = {
-    **_V3_FILES,
-    "stimulus.json": '{"user_text":"hello","history":[],"mode":"single","turn_count":1}\n',
     "seed.json": '{"schema_version":"mini-agents-seed-v1","items":[]}\n',
 }
 _AUTHORING = {"interface": "artifact-authoring-v1", "max_retries": 0}
@@ -82,19 +76,13 @@ def _sign(manifest: dict[str, Any]) -> dict[str, Any]:
     return {**unsigned, "manifest_digest": _sha256(_canonical(unsigned))}
 
 
-def _package(
-    version: str,
-    files: dict[str, str],
-    *,
-    input_kind: str = _HANDOFF_V3,
-    description: str,
-) -> dict[str, Any]:
+def _package(files: dict[str, str], *, description: str) -> dict[str, Any]:
     manifest = _sign(
         {
-            "schema_version": version,
+            "schema_version": V4,
             "package_id": "pkg-1",
             "scenario_id": "SCN-1",
-            "input_kind": input_kind,
+            "input_kind": _HANDOFF_V4,
             "source_digests": {"input": "a" * 64},
             "members": [_record(path, files[path]) for path in sorted(files)],
             "authoring": dict(_AUTHORING),
@@ -126,8 +114,8 @@ def _with_files(base: dict[str, Any], description: str, files: dict[str, str]):
     return {"description": description, "manifest": base["manifest"], "files": files}
 
 
-def _shared_invalid(base: dict[str, Any]) -> dict[str, tuple[str, dict[str, Any]]]:
-    """Return the rejections every package version shares, by case name."""
+def _invalid_cases(base: dict[str, Any]) -> dict[str, tuple[str, dict[str, Any]]]:
+    """Return the invalid cases derived from ``base``, each with its code, by case name."""
 
     first = base["manifest"]["members"][0]["path"]
     tampered = {**base["files"], first: "changed"}
@@ -187,10 +175,10 @@ def _shared_invalid(base: dict[str, Any]) -> dict[str, tuple[str, dict[str, Any]
                 runtime_capabilities={"api_key": "x"},
             ),
         ),
-        "handoff-v1-input-kind": (
+        "handoff-v3-input-kind": (
             "input_kind_unsupported",
             _changed(
-                base, "input_kind names a retired handoff.", input_kind="scenario-handoff-v1"
+                base, "input_kind names a retired handoff.", input_kind="scenario-handoff-v3"
             ),
         ),
         "reference-task-input-kind": (
@@ -285,37 +273,12 @@ def _shared_invalid(base: dict[str, Any]) -> dict[str, tuple[str, dict[str, Any]
 
 
 def _with_files_listed(base: dict[str, Any], description: str, extra: dict[str, str]):
-    files = {**base["files"], **extra}
-    version = base["manifest"]["schema_version"]
-    kind = base["manifest"]["input_kind"]
-    return _package(version, files, input_kind=kind, description=description)
-
-
-def _v3_cases() -> tuple[dict[str, dict[str, Any]], dict[str, tuple[str, dict[str, Any]]]]:
-    base = _package(V3, _V3_FILES, description="A v3 package with a tool-call condition.")
-    invalid = _shared_invalid(base)
-    invalid["v4-input-kind"] = (
-        "input_kind_unsupported",
-        _changed(base, "A v3 package names a v4 handoff.", input_kind=_HANDOFF_V4),
-    )
-    return {"minimal": base}, invalid
+    return _package({**base["files"], **extra}, description=description)
 
 
 def _v4_cases() -> tuple[dict[str, dict[str, Any]], dict[str, tuple[str, dict[str, Any]]]]:
-    base = _package(
-        V4, _V4_FILES, description="A v4 package with a seed member, from a v3 handoff."
-    )
-    valid = {
-        "minimal": base,
-        "from-handoff-v4": _package(
-            V4,
-            _V4_FILES,
-            input_kind=_HANDOFF_V4,
-            description="A v4 package with a seed member, from a v4 handoff.",
-        ),
-    }
-    invalid = _shared_invalid(base)
-    return valid, invalid
+    base = _package(_V4_FILES, description="A v4 package with a seed member, from a v4 handoff.")
+    return {"minimal": base}, _invalid_cases(base)
 
 
 _USAGE_TRIPLE = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
@@ -510,13 +473,13 @@ def expected_files() -> dict[str, str]:
 
     files: dict[str, str] = {"metadata-policy.json": _json_text(_metadata_policy())}
     files.update(_binding_cases())
-    for version, (valid, invalid) in ((V3, _v3_cases()), (V4, _v4_cases())):
-        for name, case in valid.items():
-            files[f"{version}/valid/{name}.json"] = _json_text(case)
-        for name, (_, case) in invalid.items():
-            files[f"{version}/invalid/{name}.json"] = _json_text(case)
-        expected = {f"invalid/{name}.json": code for name, (code, _) in sorted(invalid.items())}
-        files[f"{version}/expected-violations.json"] = _json_text(expected)
+    valid, invalid = _v4_cases()
+    for name, case in valid.items():
+        files[f"{V4}/valid/{name}.json"] = _json_text(case)
+    for name, (_, case) in invalid.items():
+        files[f"{V4}/invalid/{name}.json"] = _json_text(case)
+    expected = {f"invalid/{name}.json": code for name, (code, _) in sorted(invalid.items())}
+    files[f"{V4}/expected-violations.json"] = _json_text(expected)
     return dict(sorted(files.items()))
 
 
