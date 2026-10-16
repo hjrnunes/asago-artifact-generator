@@ -11,6 +11,7 @@ coverage test instead of slipping past it.
 from __future__ import annotations
 
 import ast
+import functools
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -278,8 +279,12 @@ def _status_assignments(module: _Module) -> Iterator[tuple[ast.expr, int]]:
             yield node.value, node.lineno
 
 
+@functools.cache
 def collect_reasons(root: Path = PACKAGE) -> Collected:
-    """Return every reason literal the package emits and each site left unresolved."""
+    """Return every reason literal the package emits and each site left unresolved.
+
+    Callers share one result per root, so they must not modify it.
+    """
 
     paths = [
         path
