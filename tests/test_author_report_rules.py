@@ -225,6 +225,29 @@ def test_a_correction_takes_the_stage_it_corrects() -> None:
     )
 
 
+def test_a_dispatch_counts_its_first_attempt_and_each_transport_retry() -> None:
+    retry = {"attempt": 2, "retry_of": {"status": 503}}
+    author = {"dispatch_index": 1, "stage": "call1", "role": "author", "findings": []}
+    review = {
+        "dispatch_index": 2,
+        "stage": "plan_review",
+        "role": "reviewer",
+        "review": {"decision": "accept"},
+    }
+    unusable = {**review, "review": {"status": "unavailable"}}
+
+    assert to_step(author).requests == 1
+    assert to_step({**author, "transport_retries": [retry]}).requests == 2
+    assert to_step({**review, "transport_retries": [retry, retry]}).requests == 3
+    assert to_step({**unusable, "transport_retries": [retry]}).requests == 2
+
+
+def test_an_authoring_counts_the_requests_of_every_step() -> None:
+    steps = [_step(1, "draft", retries=2), _step(2, "review"), _step(3, "correct", retries=1)]
+
+    assert _item("unresolved", steps).requests == 6
+
+
 def test_a_directory_without_a_manifest_is_no_package(tmp_path: Path) -> None:
     assert load_package(tmp_path) is None
 
