@@ -170,6 +170,18 @@ def test_the_summary_counts_transport_retries_as_requests(run_dir: Path) -> None
     assert summary["usage"]["prompt_tokens"] == 786299
 
 
+def test_each_scenario_text_counts_transport_retries_as_requests(run_dir: Path) -> None:
+    _retry(run_dir, "SCN-001", 2)
+    _retry(run_dir, "SCN-004", 1)
+
+    html, _ = _render(run_dir)
+
+    scn001 = html.split('id="SCN-001"', 1)[1].split("</details>", 1)[0]
+    scn004 = html.split('id="SCN-004"', 1)[1].split("</details>", 1)[0]
+    assert "after 9 model requests" in scn001
+    assert "5 requests," in scn004
+
+
 # Rule: every input item appears.
 def test_every_scenario_has_a_row(run_dir: Path) -> None:
     html, _ = _render(run_dir)

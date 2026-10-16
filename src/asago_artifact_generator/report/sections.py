@@ -387,7 +387,7 @@ def failure_row(item: Authoring, places: Places) -> Markup:
             ("Attack shape", shape_sentence(item.scenario)),
             (
                 "Where it stopped",
-                f"{stage} stage, after {len(item.steps)} model requests.",
+                f"{stage} stage, after {item.requests} model requests.",
             ),
             (
                 "Reason",
@@ -439,7 +439,7 @@ def package_row(item: Authoring, places: Places) -> Markup:
     summary = Markup(
         f"<b>{esc(item.id)}</b> {kind_chip(item.scenario.kind)} {esc(claim_of(package))} · "
         f"{esc(oracle_of(package))} · {esc(delivery_of(package))} · {turns_of(package)} turn(s) · "
-        f"{len(item.steps)} requests, {fixes} fixes · {item.tokens:,} tokens"
+        f"{item.requests} requests, {fixes} fixes · {item.tokens:,} tokens"
     )
     links = places.links
     files = join(
