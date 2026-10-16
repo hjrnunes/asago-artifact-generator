@@ -19,8 +19,8 @@
       "model": "configured-private-authoring"
     },
     "detector_interface": "evaluate(evidence: dict) -> dict",
-    "input_kind": "scenario-handoff-v3",
-    "manifest_digest": "f02ebe973d026f078ac6b69011528ba3cffb1e542019774cf8c459fbfc1bd8d4",
+    "input_kind": "scenario-handoff-v4",
+    "manifest_digest": "315911c290179a0270d052e0eccb60efe042398a9492480d83cc4ca22d80bde7",
     "members": [
       {
         "length": 3,

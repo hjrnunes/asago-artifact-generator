@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "artifact-package-v4 directory manifest",
-  "description": "The consumer-owned immutable artifact package. Each listed member is a relative code-owned path whose bytes are digest-bound. The package contains no detector code. A command_attempt package carries tool_call_condition.json, the handoff tool-call condition, exactly when the handoff binds it; a reply package carries judge.json, the semantic judge specification. v4 packages come from a scenario-handoff-v3 or scenario-handoff-v4 input. A package whose handoff plans a planted item may carry seed.json, and stimulus.json gains mode and turn_count; this manifest schema lists members only and does not constrain their contents.",
+  "description": "The consumer-owned immutable artifact package. Each listed member is a relative code-owned path whose bytes are digest-bound. The package contains no detector code. A command_attempt package carries tool_call_condition.json, the handoff tool-call condition, exactly when the handoff binds it; a reply package carries judge.json, the semantic judge specification. A package comes from a scenario-handoff-v4 input. A package whose handoff plans a planted item may carry seed.json, and stimulus.json carries mode and turn_count; this manifest schema lists members only and does not constrain their contents.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -17,10 +17,7 @@
       "minLength": 1
     },
     "input_kind": {
-      "enum": [
-        "scenario-handoff-v3",
-        "scenario-handoff-v4"
-      ]
+      "const": "scenario-handoff-v4"
     },
     "source_digests": {
       "type": "object",

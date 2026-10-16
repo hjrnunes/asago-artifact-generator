@@ -19,7 +19,6 @@ from asago_artifact_generator.input_adapter import (
 from tests.support import HANDOFFS
 
 CONTRACT_HANDOFF = HANDOFFS / "refund-bound.json"
-CONTRACT_KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
 
 
 def test_handoff_view_preserves_source_hash_and_authoritative_content() -> None:
@@ -500,16 +499,15 @@ def test_unbound_view_has_no_tool_call_condition() -> None:
 
 
 @pytest.mark.parametrize(
-    ("relative", "version"),
-    [
-        ("handoff-v1/valid/adversarial-refund.json", "scenario-handoff-v1"),
-        ("handoff-v2/valid/adversarial-observed-record.json", "scenario-handoff-v2"),
-        ("handoff-v3/valid/refund-bound.json", "scenario-handoff-v3"),
-    ],
+    "version", ["scenario-handoff-v1", "scenario-handoff-v2", "scenario-handoff-v3"]
 )
-def test_retired_handoff_versions_are_rejected_for_authoring(relative: str, version: str) -> None:
+def test_retired_handoff_versions_are_rejected_for_authoring(tmp_path: Path, version: str) -> None:
+    payload = json.loads(CONTRACT_HANDOFF.read_text(encoding="utf-8"))
+    source_path = tmp_path / "handoff.json"
+    source_path.write_text(json.dumps({**payload, "schema_version": version}), encoding="utf-8")
+
     with pytest.raises(InputSourceError) as raised:
-        load_input(CONTRACT_KIT / relative)
+        load_input(source_path)
 
     assert str(raised.value) == (
         f"authoring source must be a producer scenario-handoff-v4 document; found {version}"

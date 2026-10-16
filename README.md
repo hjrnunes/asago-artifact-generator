@@ -396,8 +396,7 @@ record SHA-256 source pins. The adapter verifies `content_digest` in the
 `scenario-handoff-v4` digest domain, and packages record `input_kind`
 `scenario-handoff-v4`. Authoring rejects every other document, including
 `scenario-handoff-v1` to `v3`, with "authoring source must be a producer
-scenario-handoff-v4 document; found <version>"; their kits stay vendored and
-frozen.
+scenario-handoff-v4 document; found <version>".
 
 Before the digest check, the adapter applies the mirrored v4 `schema.json`, the
 producer's ownership rules in the mirrored `ownership-rules.json`, and the
@@ -560,9 +559,7 @@ lists the unknown keys (sorted, at most 10, each cut to 64 characters). Three ch
 answers, or hand-built inventories.
 
 The consumer-owned artifact-package contract lives in
-`contracts/artifact-package/`: `artifact-package-v4/` for the packages the
-writer writes and `artifact-package-v3/` for earlier packages. The v2 schema
-file stays for reference but is no longer in `CONTRACT.lock`. `package_io.write_package`
+`contracts/artifact-package/artifact-package-v4/`. `package_io.write_package`
 writes a complete directory atomically, and `load_package` verifies its
 manifest, member paths, lengths, and digests before returning content. A
 manifest has no `detector_interface`, and a package has no `detector.py`.
@@ -575,10 +572,9 @@ Each package carries the scoring input for its plan's claim level:
 - `judge.json` holds the semantic judge specification and its resolved facts.
   Only a `reply` package carries it, and that package requires it.
 
-The writer writes only `artifact-package-v4`; the loader reads both v4 and
-the `artifact-package-v3` packages written before.
+The writer writes and the loader reads only `artifact-package-v4`.
 
-Each version directory also holds the contract's cases: `valid/` packages every
+The version directory also holds the contract's cases: `valid/` packages every
 reader must load, `invalid/` packages every reader must reject, and
 `expected-violations.json`, which names each invalid case's stable code.
 `metadata-policy.json` lists the manifest metadata the closed secret policy

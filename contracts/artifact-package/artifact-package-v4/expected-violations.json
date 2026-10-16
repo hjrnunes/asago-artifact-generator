@@ -6,7 +6,7 @@
   "invalid/duplicate-member.json": "member_duplicate",
   "invalid/empty-members.json": "members_empty",
   "invalid/empty-source-digests.json": "source_digests_invalid",
-  "invalid/handoff-v1-input-kind.json": "input_kind_unsupported",
+  "invalid/handoff-v3-input-kind.json": "input_kind_unsupported",
   "invalid/manifest-not-object.json": "manifest_not_object",
   "invalid/member-length-mismatch.json": "member_length_mismatch",
   "invalid/member-media-type-mismatch.json": "member_media_type_mismatch",

@@ -23,8 +23,6 @@ from .metadata_policy import secret_metadata_paths
 from .value_checks import is_sha256_hex
 
 PACKAGE_SCHEMA_VERSION = "artifact-package-v4"
-# Read only: packages written before the writer moved to v4 still load.
-_PACKAGE_SCHEMA_VERSION_V3 = "artifact-package-v3"
 TOOL_CALL_CONDITION_MEMBER = "tool_call_condition.json"
 SEED_MEMBER = "seed.json"
 _ALLOWED_MEMBER_NAMES = {
@@ -49,11 +47,7 @@ _CLAIM_LEVEL_MEMBERS = {
     ClaimLevel.REPLY.value: "judge.json",
 }
 _CONTRACT_ROOT = contract_dir("artifact-package")
-# The input kinds each package version accepts, as its schema enumerates them.
-_INPUT_KINDS_BY_VERSION = {
-    _PACKAGE_SCHEMA_VERSION_V3: {"scenario-handoff-v3"},
-    PACKAGE_SCHEMA_VERSION: {"scenario-handoff-v3", "scenario-handoff-v4"},
-}
+_INPUT_KIND = "scenario-handoff-v4"
 
 
 class PackagePathError(ValueError):
@@ -360,22 +354,22 @@ def _manifest_from_dict(value: Any) -> PackageManifest:
         schema_version=value["schema_version"],
     )
     _validate_manifest_fields(manifest)
-    schema_error = first_schema_error(_manifest_schema(manifest.schema_version), value)
+    schema_error = first_schema_error(_manifest_schema(), value)
     if schema_error is not None:
         raise PackageIntegrityError(f"package manifest schema invalid {schema_error}")
     return manifest
 
 
-def _manifest_schema(version: str = PACKAGE_SCHEMA_VERSION) -> dict[str, Any]:
+def _manifest_schema() -> dict[str, Any]:
     return load_json_file(
-        _CONTRACT_ROOT / version / "schema.json",
+        _CONTRACT_ROOT / PACKAGE_SCHEMA_VERSION / "schema.json",
         PackageIntegrityError,
         "cannot read artifact package schema",
     )
 
 
 def _validate_manifest_fields(manifest: PackageManifest) -> None:
-    if manifest.schema_version not in _INPUT_KINDS_BY_VERSION:
+    if manifest.schema_version != PACKAGE_SCHEMA_VERSION:
         raise PackageIntegrityError("unknown artifact package schema version")
     if not manifest.manifest_digest:
         raise PackageIntegrityError("manifest digest is missing")
@@ -398,7 +392,7 @@ def _validate_manifest_names(manifest: PackageManifest) -> None:
     for name in ("package_id", "scenario_id", "input_kind"):
         if not isinstance(getattr(manifest, name), str) or not getattr(manifest, name):
             raise PackageIntegrityError(f"manifest field is blank: {name}")
-    if manifest.input_kind not in _INPUT_KINDS_BY_VERSION[manifest.schema_version]:
+    if manifest.input_kind != _INPUT_KIND:
         raise PackageIntegrityError(f"unsupported package input kind: {manifest.input_kind}")
 
 

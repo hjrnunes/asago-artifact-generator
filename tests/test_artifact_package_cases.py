@@ -28,7 +28,7 @@ from asago_artifact_generator.package_io import (
 
 _REPO = Path(__file__).resolve().parents[1]
 _ROOT = _REPO / "contracts" / "artifact-package"
-_VERSIONS = ("artifact-package-v3", "artifact-package-v4")
+_VERSIONS = ("artifact-package-v4",)
 _MESSAGES = {
     "manifest_not_object": r"^package manifest must be an object$",
     "manifest_fields_invalid": r"^package manifest fields invalid ",
