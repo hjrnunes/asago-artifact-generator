@@ -25,3 +25,17 @@ jobs:
       - run: uv sync --locked
       - run: ./scripts/quality.sh
       - run: uv run pytest tests/ -q
+      # The package tests import `from conftest import ...`, which names one module
+      # per session, so each package runs in its own pytest session.
+      - name: Package tests
+        run: |
+          status=0
+          for dir in packages/*/; do
+            if [ ! -d "${dir}tests" ]; then
+              echo "::error::${dir} has no tests directory"
+              status=1
+              continue
+            fi
+            uv run pytest "${dir}tests" -q || status=1
+          done
+          exit "$status"
