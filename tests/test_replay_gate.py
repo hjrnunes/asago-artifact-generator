@@ -153,7 +153,7 @@ def _record_author_stage(
 @pytest.fixture
 def unresolved_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # Two unparseable plans exhaust the default plan correction allowance
-    # before any detector control or review runs, so no Docker is needed.
+    # before any review runs.
     return _record_author_stage(
         tmp_path, monkeypatch, ["not a json plan", "still not a json plan"]
     )

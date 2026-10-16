@@ -4,9 +4,8 @@
 #
 #   ./scripts/replay-check.sh [--jobs N] [--item ID] STAGE_DIR [STAGE_DIR ...]
 #
-# STAGE_DIR is an orch run's stages/author directory. Detector controls run in
-# Docker. The module docstring of scripts/replay_gate.py describes the
-# comparison and its options.
+# STAGE_DIR is an orch run's stages/author directory. The module docstring of
+# scripts/replay_gate.py describes the comparison and its options.
 set -uo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
