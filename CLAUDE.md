@@ -118,7 +118,7 @@ Deterministic tests must not contact a model endpoint or target.
   against vectors Garak computes (`tests/fixtures/rubric/`). Its suite code under
   `bundle_files/`, and `authoring/condition_eval.py`, which the compiler copies into each
   bundle, run in MiDojo's interpreter, so they import the standard library
-  and, lazily, `midojo`. Tests marked `midojo` need `ASAGO_MIDOJO_PYTHON` and skip without it.
+  and, lazily, `midojo`.
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-bundle-garak/tests -q`.

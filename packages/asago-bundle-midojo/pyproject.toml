@@ -24,6 +24,3 @@ packages = ["src/asago_bundle_midojo"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = [
-    "midojo: runs MiDojo's own interpreter (ASAGO_MIDOJO_PYTHON); skipped without it",
-]
