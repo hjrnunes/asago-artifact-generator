@@ -435,6 +435,8 @@ def test_the_bundle_digest_covers_the_suite_the_code_and_the_manifest(bundle: Pa
     for name in (
         "asago_suite/suite.yaml",
         "asago_suite/asago_verifiers.py",
+        "asago_suite/condition_eval.py",
+        "asago_suite/verifier_names.py",
         "asago_suite/suite.py",
         "asago_suite/__init__.py",
         "run_midojo.py",
@@ -446,7 +448,7 @@ def test_the_bundle_digest_covers_the_suite_the_code_and_the_manifest(bundle: Pa
         (bundle / name).write_bytes(original)
 
     assert unchanged == before
-    assert len({before, *changed.values()}) == 7
+    assert len({before, *changed.values()}) == 9
 
 
 def test_a_bundle_that_cannot_be_read_raises(tmp_path: Path) -> None:

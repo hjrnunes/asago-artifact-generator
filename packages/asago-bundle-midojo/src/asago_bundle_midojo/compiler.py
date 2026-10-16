@@ -16,6 +16,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+from asago_artifact_generator.authoring.condition_eval import validate_condition
 from asago_artifact_generator.package_io import ArtifactPackage, load_package
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.gap import CapabilityGap, capability_gap_record
@@ -23,11 +24,7 @@ from asago_bundle_core.slots import bundle_slot, contains_marker, template_slots
 from asago_bundle_core.text import canonical_text
 
 from .bundle_files.asago_rubric import RUBRIC_NAME
-from .bundle_files.asago_verifiers import (
-    CONDITION_NAME,
-    NEUTRAL_NAME,
-    validate_condition,
-)
+from .bundle_files.verifier_names import CONDITION_NAME, NEUTRAL_NAME
 
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "midojo"
@@ -55,13 +52,17 @@ CONTROL_URL = "http://127.0.0.1:{service_port}"
 JUDGE_KEY = "OPENAICOMPATIBLE_API_KEY"
 # Values the commands name as ``{key}``; the suite template holds the others.
 ENTRYPOINT_VALUES = ("gateway_url", "mcp_url", "model", "service_port")
-# Bundle path -> file of ``bundle_files`` it copies.
+BUNDLE_FILES = "asago_bundle_midojo.bundle_files"
+AUTHORING = "asago_artifact_generator.authoring"
+# Bundle path -> (package, file of that package it copies).
 BUNDLE_CODE = {
-    f"{SUITE_PACKAGE}/__init__.py": "suite_package.py",
-    f"{SUITE_PACKAGE}/suite.py": "suite_module.py",
-    f"{SUITE_PACKAGE}/asago_verifiers.py": "asago_verifiers.py",
-    f"{SUITE_PACKAGE}/asago_rubric.py": "asago_rubric.py",
-    RUN_SCRIPT: "run_midojo.py",
+    f"{SUITE_PACKAGE}/__init__.py": (BUNDLE_FILES, "suite_package.py"),
+    f"{SUITE_PACKAGE}/suite.py": (BUNDLE_FILES, "suite_module.py"),
+    f"{SUITE_PACKAGE}/asago_verifiers.py": (BUNDLE_FILES, "asago_verifiers.py"),
+    f"{SUITE_PACKAGE}/asago_rubric.py": (BUNDLE_FILES, "asago_rubric.py"),
+    RUN_SCRIPT: (BUNDLE_FILES, "run_midojo.py"),
+    f"{SUITE_PACKAGE}/verifier_names.py": (BUNDLE_FILES, "verifier_names.py"),
+    f"{SUITE_PACKAGE}/condition_eval.py": (AUTHORING, "condition_eval.py"),
 }
 RUN_DUMP = "control-plane/run.json"
 EVALUATION_DUMP = "control-plane/evaluation.json"
@@ -279,10 +280,17 @@ def _json_member(package: ArtifactPackage, name: str) -> Any:
 def _write(out: Path, documents: dict[str, Any]) -> None:
     if out.exists() and any(out.iterdir()):
         raise CompileError(f"output directory is not empty: {out}")
-    source = files("asago_bundle_midojo").joinpath("bundle_files")
     out.mkdir(parents=True, exist_ok=True)
     (out / SUITE_PACKAGE).mkdir()
     for name, document in documents.items():
         (out / name).write_text(canonical_text(document), encoding="utf-8")
-    for name, original in BUNDLE_CODE.items():
-        (out / name).write_bytes(source.joinpath(original).read_bytes())
+    write_bundle_code(out)
+
+
+def write_bundle_code(out: Path) -> None:
+    """Copy each file of ``BUNDLE_CODE`` byte for byte to its bundle path under ``out``."""
+
+    for name, (package, original) in BUNDLE_CODE.items():
+        target = out / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(files(package).joinpath(original).read_bytes())
