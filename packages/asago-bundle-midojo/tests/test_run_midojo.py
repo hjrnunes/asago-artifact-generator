@@ -64,7 +64,10 @@ def control_plane(routes: dict[str, Any]) -> Iterator[str]:
             return None
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    # shutdown() waits up to one poll interval; the default 0.5 s dominates each test.
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_address[1]}"

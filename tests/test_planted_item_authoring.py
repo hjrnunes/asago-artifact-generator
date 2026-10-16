@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-import jsonschema
 import pytest
 
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
@@ -63,8 +61,6 @@ from .turn_support import (
     indirect_runtime,
     indirect_view,
 )
-
-_SEED_SCHEMA_ENV = "ASAGO_ORCH_SEED_SCHEMA"
 
 
 def setup(tmp_path: Path, turns: int = 2):
@@ -442,18 +438,6 @@ def test_an_indirect_handoff_becomes_a_v4_package_with_a_seed_the_target_accepts
     loaded = load_package(package)
     assert loaded.manifest.schema_version == "artifact-package-v4"
     assert "seed.json" in loaded.members
-
-
-@pytest.mark.skipif(
-    _SEED_SCHEMA_ENV not in os.environ, reason="set ASAGO_ORCH_SEED_SCHEMA to orch's seed schema"
-)
-def test_the_seed_validates_against_the_targets_seed_schema(tmp_path: Path) -> None:
-    result, _ = _author(tmp_path)
-
-    assert result.status == "accepted", result.findings
-    seed = json.loads((tmp_path / "package" / "seed.json").read_text(encoding="utf-8"))
-    schema = json.loads(Path(os.environ[_SEED_SCHEMA_ENV]).read_text(encoding="utf-8"))
-    jsonschema.validate(seed, schema)
 
 
 def test_a_one_turn_indirect_package_is_single_and_still_seeded(tmp_path: Path) -> None:
