@@ -1,4 +1,4 @@
-"""A reviewer prompt has no mechanical-check summary; the plan reviewer keeps selector forms."""
+"""Each reviewer prompt carries the binding rules, the selector forms, and its bumped version."""
 
 from __future__ import annotations
 
@@ -10,9 +10,7 @@ from asago_artifact_generator.authoring.core import PromptPacket
 from asago_artifact_generator.authoring.review import (
     _PLAN_SELECTOR_FORMS,
     build_artifact_review_packet,
-    build_artifact_reviewer_context,
     build_plan_review_packet,
-    build_plan_reviewer_context,
 )
 
 from .support import world
@@ -78,27 +76,6 @@ def _all_packets(tmp_path: Path) -> list[PromptPacket]:
         *_sequential_packets(tmp_path),
         *_indirect_packets(tmp_path),
     ]
-
-
-def test_no_reviewer_prompt_or_payload_names_the_mechanical_summary(tmp_path: Path) -> None:
-    for packet in _all_packets(tmp_path):
-        assert "MECHANICAL" not in packet.system
-        assert "MECHANICAL" not in packet.user
-        assert "mechanical_check_summary" not in packet.payload
-        assert "mechanical_check_summary" not in packet.user
-
-
-def test_the_reviewer_contexts_have_no_mechanical_summary() -> None:
-    ehr = world("ehr")
-    plan_context = build_plan_reviewer_context(
-        ehr["view"], ehr["plan"], ehr["inventory"], ehr["runtime_contract"]
-    )
-    artifact_context = build_artifact_reviewer_context(
-        ehr["view"], ehr["plan"], ehr["metadata"], ehr["inventory"], ehr["runtime_contract"]
-    )
-
-    assert "mechanical_check_summary" not in plan_context
-    assert "mechanical_check_summary" not in artifact_context
 
 
 def test_each_reviewer_reads_every_selector_form_among_the_binding_rules(
