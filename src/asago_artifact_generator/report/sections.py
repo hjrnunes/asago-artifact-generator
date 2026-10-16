@@ -99,11 +99,11 @@ def _failed_tokens(items: Sequence[Authoring]) -> int:
 
 
 def _usage(items: Sequence[Authoring]) -> tuple[int, int, int]:
-    """Return the requests, prompt tokens, and completion tokens of every step."""
+    """Return the physical requests, prompt tokens, and completion tokens of every step."""
 
     steps = [step for item in items for step in item.steps]
     prompt = sum(step.prompt_tokens for step in steps)
-    return len(steps), prompt, sum(step.completion_tokens for step in steps)
+    return sum(item.requests for item in items), prompt, sum(s.completion_tokens for s in steps)
 
 
 def counts(items: Sequence[Authoring]) -> Counts:

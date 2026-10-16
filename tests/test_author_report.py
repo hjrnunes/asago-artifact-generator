@@ -148,6 +148,28 @@ def test_the_stage_summary_labels_every_scenario(run_dir: Path) -> None:
     assert summary["status"] == "fail"
 
 
+def _retry(run_dir: Path, scenario: str, retries: int) -> None:
+    """Record *retries* transport retries on the first dispatch of *scenario*."""
+
+    path = _output(run_dir) / f"{scenario}.failure-evidence.json"
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    evidence["attempts"][0]["transport_retries"] = [
+        {"attempt": n + 2, "retry_of": {"status": 503}} for n in range(retries)
+    ]
+    path.write_text(json.dumps(evidence), encoding="utf-8")
+
+
+# Rule: the report counts physical requests: each dispatch plus its transport retries.
+def test_the_summary_counts_transport_retries_as_requests(run_dir: Path) -> None:
+    _retry(run_dir, "SCN-001", 2)
+    _retry(run_dir, "SCN-004", 1)
+
+    _, summary = _render(run_dir)
+
+    assert summary["usage"]["model_requests"] == 46
+    assert summary["usage"]["prompt_tokens"] == 786299
+
+
 # Rule: every input item appears.
 def test_every_scenario_has_a_row(run_dir: Path) -> None:
     html, _ = _render(run_dir)
