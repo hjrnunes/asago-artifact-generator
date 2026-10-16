@@ -32,9 +32,16 @@ def test_handoff_view_preserves_source_hash_and_authoritative_content() -> None:
     assert view.gherkin["scenario"] == "Refund command exceeds the remaining balance of the order"
 
 
-def test_non_handoff_source_is_rejected(tmp_path: Path) -> None:
-    source_path = tmp_path / "native.yaml"
-    source_path.write_text("scenario_id: native\n", encoding="utf-8")
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        pytest.param("native.yaml", "scenario_id: native\n", id="yaml-without-a-schema-version"),
+        pytest.param("handoff.json", "[1, 2]", id="json-that-is-not-an-object"),
+    ],
+)
+def test_non_handoff_source_is_rejected(tmp_path: Path, name: str, text: str) -> None:
+    source_path = tmp_path / name
+    source_path.write_text(text, encoding="utf-8")
 
     with pytest.raises(InputSourceError) as raised:
         load_input(source_path)
@@ -490,18 +497,6 @@ def test_retired_handoff_versions_are_rejected_for_authoring(tmp_path: Path, ver
 
     assert str(raised.value) == (
         f"authoring source must be a producer scenario-handoff-v4 document; found {version}"
-    )
-
-
-def test_handoff_that_is_not_an_object_is_rejected(tmp_path: Path) -> None:
-    source_path = tmp_path / "handoff.json"
-    source_path.write_text("[1, 2]", encoding="utf-8")
-
-    with pytest.raises(InputSourceError) as raised:
-        load_input(source_path)
-
-    assert str(raised.value) == (
-        "authoring source must be a producer scenario-handoff-v4 document; found no schema_version"
     )
 
 
