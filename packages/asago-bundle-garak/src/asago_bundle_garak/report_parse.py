@@ -36,7 +36,7 @@ from asago_bundle_core.mcp_records import (
     read_json,
     text,
 )
-from asago_bundle_core.text import canonical_text
+from asago_bundle_core.text import canonical_text, jsonl_lines
 
 from .compiler import (
     BUNDLE_FILE,
@@ -142,7 +142,7 @@ def parse_report(
 def read_bundle(root: Path) -> Bundle:
     try:
         manifest = json.loads((root / BUNDLE_FILE).read_text(encoding="utf-8"))
-        entry = json.loads((root / CONVERSATIONS).read_text(encoding="utf-8").splitlines()[0])
+        entry = json.loads(jsonl_lines((root / CONVERSATIONS).read_text(encoding="utf-8"))[0])
         messages = [
             {"role": item["role"], "content": item["content"]} for item in entry["messages"]
         ]

@@ -16,7 +16,7 @@ from asago_bundle_core.gap import (
     CapabilityGap,
     capability_gap_record,
 )
-from asago_bundle_core.text import canonical_text
+from asago_bundle_core.text import canonical_text, jsonl_lines
 from asago_bundle_core.values import check_values, render_entrypoint
 
 
@@ -37,6 +37,26 @@ def check_for(key: str) -> Any:
 
 def test_canonical_text_sorts_keys_indents_and_keeps_unicode() -> None:
     assert canonical_text({"b": 1, "a": "é"}) == '{\n  "a": "é",\n  "b": 1\n}\n'
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("", [], id="empty"),
+        pytest.param("\n\n", [], id="only-newlines"),
+        pytest.param('{"a": 1}\n{"b": 2}\n', ['{"a": 1}', '{"b": 2}'], id="two-records"),
+        pytest.param('{"a": 1}\n\n  \n{"b": 2}', ['{"a": 1}', '{"b": 2}'], id="blank-lines"),
+        pytest.param('{"a": 1}\r\n', ['{"a": 1}\r'], id="carriage-return-stays"),
+        pytest.param(
+            '{"a": "x\u0085y\u2028z\u2029w"}\n',
+            ['{"a": "x\u0085y\u2028z\u2029w"}'],
+            id="unicode-line-separators",
+        ),
+        pytest.param("a\x0bb\x0cc\x1cd\n", ["a\x0bb\x0cc\x1cd"], id="other-splitlines-characters"),
+    ],
+)
+def test_jsonl_lines_splits_on_newline_only(text: str, expected: list[str]) -> None:
+    assert jsonl_lines(text) == expected
 
 
 def test_the_error_base_is_a_value_error() -> None:

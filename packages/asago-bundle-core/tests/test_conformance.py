@@ -16,6 +16,7 @@ import pytest
 from asago_artifact_generator.package_io import load_package
 from asago_bundle_core.conformance import (
     AdapterUnderTest,
+    _marker_failures,
     check_compile,
     check_gap,
     check_instantiate,
@@ -358,6 +359,18 @@ def test_a_defect_gives_exactly_one_failure(
     tmp_path: Path, package: Path, flaw: str, expected: list[str]
 ) -> None:
     assert round_trip(tmp_path, package, flaw) == expected
+
+
+def test_a_marker_in_a_json_lines_file_is_found_past_unicode_line_separators(
+    tmp_path: Path,
+) -> None:
+    records = [
+        json.dumps({"text": "a\u0085b\u2028c\u2029d"}, ensure_ascii=False),
+        json.dumps({"slot": value_slot("model")}, ensure_ascii=False),
+    ]
+    (tmp_path / "extra.jsonl").write_text("".join(f"{r}\n" for r in records), encoding="utf-8")
+
+    assert _marker_failures(tmp_path) == ["extra.jsonl still holds a slot marker"]
 
 
 def test_a_file_that_is_not_json_is_not_scanned_for_markers(tmp_path: Path, package: Path) -> None:

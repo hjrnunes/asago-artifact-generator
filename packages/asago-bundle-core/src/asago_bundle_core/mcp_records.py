@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .text import jsonl_lines
+
 
 def envelope_texts(result: Any) -> list[str] | None:
     """Return the text blocks of an MCP tool result, or None for any other value."""
@@ -80,7 +82,7 @@ def text(value: Any) -> str | None:
 
 
 def lines(path: Path) -> list[str]:
-    return [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return jsonl_lines(path.read_text(encoding="utf-8"))
 
 
 def count_value(value: Any) -> int | None:

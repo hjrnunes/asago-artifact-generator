@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +87,17 @@ def test_lines_skip_blank_lines(tmp_path: Path) -> None:
     path.write_text('{"a": 1}\n\n  \n{"b": 2}\n', encoding="utf-8")
 
     assert lines(path) == ['{"a": 1}', '{"b": 2}']
+
+
+def test_lines_keep_a_record_whose_text_holds_unicode_line_separators(tmp_path: Path) -> None:
+    records = [
+        json.dumps({"result": "a\u0085b\u2028c\u2029d"}, ensure_ascii=False),
+        json.dumps({"result": "plain"}, ensure_ascii=False),
+    ]
+    path = tmp_path / "calls.jsonl"
+    path.write_text("".join(f"{record}\n" for record in records), encoding="utf-8")
+
+    assert lines(path) == records
 
 
 def test_read_json_returns_none_for_a_missing_or_malformed_file(tmp_path: Path) -> None:

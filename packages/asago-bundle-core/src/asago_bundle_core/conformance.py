@@ -28,7 +28,7 @@ from .errors import BundleError
 from .gap import CapabilityGap
 from .schema import manifest_errors
 from .slots import contains_marker, template_slots
-from .text import canonical_text
+from .text import canonical_text, jsonl_lines
 
 BUNDLE_FILE = "bundle.json"
 TEMPLATE = "template"
@@ -270,7 +270,7 @@ def _documents(path: Path) -> list[Any]:
     except ValueError:
         pass
     try:
-        return [json.loads(line) for line in text.splitlines() if line.strip()]
+        return [json.loads(line) for line in jsonl_lines(text)]
     except ValueError:
         return []
 
