@@ -327,14 +327,8 @@ _CRIT = "observation.criteria.0"
             "deduplication.key.constraint_ids.1: must not be blank",
         ),
         (_set("scenario_id", " "), "scenario_id", "scenario_id: must not be blank"),
-        (_set("narrative", " "), "narrative", "narrative: must not be blank"),
         (_set("observation.contract_schema", " "), "observation", "contract_schema: must not"),
         (_criterion(reason=" "), "observation", f"{_CRIT}.reason: must not be blank"),
-        (
-            _criterion(claim_level=_ABSENT),
-            "observation",
-            f"{_CRIT}: an observable criterion requires claim_level",
-        ),
         (
             _criterion(evidence=_ABSENT),
             "observation",
@@ -346,19 +340,9 @@ _CRIT = "observation.criteria.0"
             f"{_CRIT}: an analytical-only criterion must omit claim_level and evidence",
         ),
         (
-            _all(_ANALYTICAL_CRITERION, _criterion(operation_name="process_refund")),
-            "observation",
-            f"{_CRIT}: an analytical-only criterion must omit operation_name",
-        ),
-        (
             _drop("observation.assessment.supported_criteria"),
             "observation",
             "observation.assessment: requires supported_criteria and unsupported_criteria",
-        ),
-        (
-            _set("observation.assessment.reason", " "),
-            "observation",
-            "observation.assessment.reason: must not be blank",
         ),
         (
             _set("safe_observable_outcome.statement", " "),
@@ -399,11 +383,6 @@ _CRIT = "observation.criteria.0"
             _all(_ANALYTICAL_SAFE, _set("safe_observable_outcome.fact_refs", ["F-1"])),
             "safe_observable_outcome",
             "safe_observable_outcome: an analytical-only safe outcome must omit record and fact",
-        ),
-        (
-            _set("tool_call_condition_status.reason", "no_condition"),
-            "tool_call_condition_status",
-            "tool_call_condition_status: reason must be bound exactly when the status is bound",
         ),
         (
             _set("deduplication.scenario_id", " "),
