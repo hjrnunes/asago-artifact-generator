@@ -1,4 +1,4 @@
-"""The values orch supplies at instantiate time: checks and entrypoint rendering."""
+"""The values the orchestrator supplies at instantiate time: checks and entrypoint rendering."""
 
 from __future__ import annotations
 
@@ -32,7 +32,10 @@ def check_values(
 def render_entrypoint(
     entrypoint: list[str], out: Path, values: dict[str, Any], keys: Iterable[str]
 ) -> list[str]:
-    """Render ``{bundle}`` and ``{<key>}`` for each key; ``{tool_python}`` stays for orch."""
+    """Render ``{bundle}`` and ``{<key>}`` for each key.
+
+    ``{tool_python}`` stays for the orchestrator.
+    """
 
     rendered = []
     for arg in entrypoint:

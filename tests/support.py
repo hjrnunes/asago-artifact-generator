@@ -197,7 +197,7 @@ def profile_file(tmp_path: Path, **changes: object) -> tuple[Path, dict[str, obj
     }
     values.update(changes)
     path = tmp_path / "profiles.yaml"
-    path.write_text(yaml.safe_dump({"gemma4-oc": values}), encoding="utf-8")
+    path.write_text(yaml.safe_dump({"profile-a": values}), encoding="utf-8")
     return path, values
 
 

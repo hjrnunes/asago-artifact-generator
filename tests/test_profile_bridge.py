@@ -54,9 +54,9 @@ def test_loader_returns_named_connection_fields_without_logging_or_redaction(
 ) -> None:
     profiles_file, values = profile_file(tmp_path)
 
-    profile = load_authoring_profile(profiles_file, "gemma4-oc")
+    profile = load_authoring_profile(profiles_file, "profile-a")
 
-    assert profile.name == "gemma4-oc"
+    assert profile.name == "profile-a"
     assert profile.base_url == values["base_url"]
     assert profile.api_key == values["api_key"]
     assert profile.model == values["model"]
@@ -74,7 +74,7 @@ def test_author_cli_passes_profile_values_directly_to_transport(
         tmp_path,
         extra_args=[
             "--profile",
-            "gemma4-oc",
+            "profile-a",
             "--profiles-file",
             str(profiles_file),
         ],
@@ -84,7 +84,7 @@ def test_author_cli_passes_profile_values_directly_to_transport(
     assert captured.transport["base_url"] == values["base_url"]
     assert captured.transport["api_key"] == values["api_key"]
     assert captured.transport["model"] == values["model"]
-    assert captured.transport["profile_name"] == "gemma4-oc"
+    assert captured.transport["profile_name"] == "profile-a"
     thinking_off = {"chat_template_kwargs": {"enable_thinking": False}}
     assert captured.transport["extra_body"] == thinking_off
     assert captured.transport["review_extra_body"] == thinking_off
@@ -123,7 +123,7 @@ def test_author_cli_passes_optional_profile_controls_to_transport(
         tmp_path,
         extra_args=[
             "--profile",
-            "gemma4-oc",
+            "profile-a",
             "--profiles-file",
             str(profiles_file),
         ],
@@ -150,7 +150,7 @@ def test_profile_without_a_timeout_or_strict_json_schema_sends_the_contract_defa
 
     _invoke_generate(
         tmp_path,
-        extra_args=["--profile", "gemma4-oc", "--profiles-file", str(profiles_file)],
+        extra_args=["--profile", "profile-a", "--profiles-file", str(profiles_file)],
     )
 
     assert captured.transport["timeout"] == 600
@@ -182,7 +182,7 @@ def test_author_cli_merges_the_penalty_into_both_thinking_bodies(
 
     result = _invoke_generate(
         tmp_path,
-        extra_args=["--profile", "gemma4-oc", "--profiles-file", str(profiles_file)],
+        extra_args=["--profile", "profile-a", "--profiles-file", str(profiles_file)],
     )
 
     assert result.exit_code == 1
@@ -205,7 +205,7 @@ def test_penalty_profile_reaches_author_and_review_requests(
     captured = fake_cli_authoring(monkeypatch)
     _invoke_generate(
         tmp_path,
-        extra_args=["--profile", "gemma4-oc", "--profiles-file", str(profiles_file)],
+        extra_args=["--profile", "profile-a", "--profiles-file", str(profiles_file)],
     )
     completions = fake_openai(monkeypatch, [chat_completion(), chat_completion()])
     transport = PrivateModelAuthoringTransport(**captured.transport)
@@ -273,7 +273,7 @@ def test_profile_secret_is_redacted_from_failure_evidence(
         tmp_path,
         extra_args=[
             "--profile",
-            "gemma4-oc",
+            "profile-a",
             "--profiles-file",
             str(profiles_file),
         ],
@@ -290,14 +290,14 @@ def test_profile_secret_is_redacted_from_failure_evidence(
 @pytest.mark.parametrize(
     ("content", "name", "error", "message"),
     [
-        ("gemma4-oc: {}\n", "  ", ProfileNotFoundError, "profile name must be a nonblank string"),
-        ("gemma4-oc: {}\n", None, ProfileNotFoundError, "profile name must be a nonblank string"),
-        (None, "gemma4-oc", ProfileFileError, "could not read model profiles file"),
-        ("key: [unclosed\n", "gemma4-oc", ProfileFileError, "could not read model profiles file"),
-        ("- gemma4-oc\n", "gemma4-oc", ProfileFileError, "model profiles file is not a mapping"),
-        ("profiles: []\n", "gemma4-oc", ProfileFileError, "profiles entry is not a mapping"),
-        ("profiles: {}\n", "gemma4-oc", ProfileNotFoundError, "profile 'gemma4-oc' not found"),
-        ("gemma4-oc: model\n", "gemma4-oc", ProfileFieldError, "'gemma4-oc' is not a mapping"),
+        ("profile-a: {}\n", "  ", ProfileNotFoundError, "profile name must be a nonblank string"),
+        ("profile-a: {}\n", None, ProfileNotFoundError, "profile name must be a nonblank string"),
+        (None, "profile-a", ProfileFileError, "could not read model profiles file"),
+        ("key: [unclosed\n", "profile-a", ProfileFileError, "could not read model profiles file"),
+        ("- profile-a\n", "profile-a", ProfileFileError, "model profiles file is not a mapping"),
+        ("profiles: []\n", "profile-a", ProfileFileError, "profiles entry is not a mapping"),
+        ("profiles: {}\n", "profile-a", ProfileNotFoundError, "profile 'profile-a' not found"),
+        ("profile-a: model\n", "profile-a", ProfileFieldError, "'profile-a' is not a mapping"),
     ],
 )
 def test_loader_rejects_unreadable_files_and_malformed_profile_entries(

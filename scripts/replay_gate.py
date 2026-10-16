@@ -1,6 +1,6 @@
 """Replay gate: prove a code change leaves recorded ``generate`` items unchanged.
 
-An orch author stage directory (``runs/<id>/stages/author``) holds the exact
+An author stage directory recorded by the orchestrator holds the exact
 command line of every item in ``stage.json``, each item's console log under
 ``items/``, and the item's outputs under ``output/``.  Every item writes
 ``<ID>.failure-evidence.json``, which records each dispatched prompt and the
@@ -11,7 +11,7 @@ provider's response.  The gate re-runs every item with the current code::
 The gate is development tooling: it lives outside the shipped package,
 imports the package, and is never imported by it.
 
-Each item runs in its own process, as under orch, with the recorded
+Each item runs in its own process, as under the orchestrator, with the recorded
 arguments, inputs copied into a scratch directory, provider settings removed
 from the environment, and outbound sockets refused.  Only the OpenAI client
 inside ``PrivateModelAuthoringTransport`` is replaced, through the CLI's
@@ -999,8 +999,8 @@ def _parser() -> argparse.ArgumentParser:
         description="Replay recorded author items offline and compare every output.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    check = sub.add_parser("check", help="replay recorded orch author stage directories")
-    check.add_argument("stage_dirs", nargs="+", type=Path, help="runs/<id>/stages/author")
+    check = sub.add_parser("check", help="replay recorded author stage directories")
+    check.add_argument("stage_dirs", nargs="+", type=Path, help="recorded author stage directory")
     check.add_argument("--jobs", type=int, default=1, help="items replayed in parallel")
     check.add_argument("--item", action="append", help="replay only this item id (repeatable)")
     check.add_argument("--work-dir", type=Path, help="scratch directory (default: a temp dir)")

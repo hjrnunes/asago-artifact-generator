@@ -47,8 +47,9 @@ asago-bundle-midojo = { workspace = true }
 [tool.hatch.build.targets.wheel]
 packages = ["src/asago_artifact_generator"]
 
-# contracts/ stays at the repository root, where orch doctor checks its mirrors byte for
-# byte; the wheel carries a copy that contract_kit.contract_dir finds after installation.
+# contracts/ stays at the repository root, where the orchestrator checks its mirrors byte
+# for byte; the wheel carries a copy that contract_kit.contract_dir finds after
+# installation.
 [tool.hatch.build.targets.wheel.force-include]
 "contracts" = "asago_artifact_generator/contracts"
 

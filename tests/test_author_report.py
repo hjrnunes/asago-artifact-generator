@@ -1,4 +1,4 @@
-"""The author report, checked against a fixture trimmed from the klarna-r1 run.
+"""The author report, checked against a fixture trimmed from a recorded run.
 
 The fixture (``tests/fixtures/author_report``) holds 10 scenarios: 6 failed,
 3 packaged, and 1 that authoring never ran. Its failure evidence carries the

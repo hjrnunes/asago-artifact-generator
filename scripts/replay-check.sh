@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Replay recorded orch author stages through this checkout, offline, and
+# Replay recorded author stages through this checkout, offline, and
 # compare every output file. Exits non-zero if any item differs.
 #
 #   ./scripts/replay-check.sh [--jobs N] [--item ID] STAGE_DIR [STAGE_DIR ...]
 #
-# STAGE_DIR is an orch run's stages/author directory. The module docstring of
-# scripts/replay_gate.py describes the comparison and its options.
+# STAGE_DIR is the author stage directory of an orchestrator run. The module
+# docstring of scripts/replay_gate.py describes the comparison and its options.
 set -uo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"

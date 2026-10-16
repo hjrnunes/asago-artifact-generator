@@ -1,12 +1,12 @@
 """compile: turn an artifact package into a Garak bundle template.
 
 The template is one conversation entry and one Garak run configuration, both
-with slots for the values orch resolves at execute time, plus ``bundle.json``
-(``tool-bundle-v1``), which names those values and the command that runs Garak
-on the concrete bundle. ``injection.IndirectInjection`` sends a single-turn
-package's messages in one request; ``injection.SequentialInjection`` sends a
-sequential package's user turns one per request, each after the target's real
-reply to the one before.
+with slots for the values the orchestrator resolves at execute time, plus
+``bundle.json`` (``tool-bundle-v1``), which names those values and the command
+that runs Garak on the concrete bundle. ``injection.IndirectInjection`` sends a
+single-turn package's messages in one request; ``injection.SequentialInjection``
+sends a sequential package's user turns one per request, each after the target's
+real reply to the one before.
 """
 
 from __future__ import annotations
@@ -168,7 +168,10 @@ def user_turn_messages(turns: int) -> list[dict[str, Any]]:
 
 
 def judge_rubric(judge: Any) -> dict[str, Any]:
-    """Return the rubric orch builds today, with the runtime facts as a slot."""
+    """Return the judge member's question, criteria and facts.
+
+    The result also carries a ``judge_runtime_facts`` slot.
+    """
 
     if not isinstance(judge, dict):
         raise CompileError(f"{JUDGE_MEMBER} is not an object")
@@ -268,7 +271,7 @@ def bundle_manifest(
 
 
 def _environment(level: str) -> list[str]:
-    """Name the variables the entrypoint reads; orch sets placeholder keys."""
+    """Name the variables the entrypoint reads; the orchestrator sets placeholder keys."""
 
     names = ["OPENAI_API_KEY"]
     if level == "reply":

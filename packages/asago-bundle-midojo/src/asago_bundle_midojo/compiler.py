@@ -2,11 +2,11 @@
 
 The template is a suite directory, ``asago_suite``, that MiDojo loads by its
 dotted name ``asago_suite.suite``; the suite file has slots for the prompt and
-the verdict path, and ``bundle.json`` (``tool-bundle-v1``) names the values orch
-resolves and the two commands: ``serve`` starts the control plane on loopback,
-and the entrypoint runs ``midojo-run`` against it and reads the control plane's
-records into the bundle. The agent runtime is ``unmanaged``: orch hosts the
-target and MiDojo reaches it through the model gateway.
+the verdict path, and ``bundle.json`` (``tool-bundle-v1``) names the values the
+orchestrator resolves and the two commands: ``serve`` starts the control plane
+on loopback, and the entrypoint runs ``midojo-run`` against it and reads the
+control plane's records into the bundle. The agent runtime is ``unmanaged``: the
+orchestrator hosts the target and MiDojo reaches it through the model gateway.
 """
 
 from __future__ import annotations
@@ -48,7 +48,8 @@ MCP_SERVER_LABEL = "qualification_target"
 USER_TASK_ID = "asago_user_task"
 INJECTION_TASK_ID = "asago_injection_task"
 CONTROL_URL = "http://127.0.0.1:{service_port}"
-# The judge's key is read from the environment; orch's boundary judge adds the real one.
+# The judge's key is read from the environment; the orchestrator's boundary judge adds the
+# real one.
 JUDGE_KEY = "OPENAICOMPATIBLE_API_KEY"
 # Values the commands name as ``{key}``; the suite template holds the others.
 ENTRYPOINT_VALUES = ("gateway_url", "mcp_url", "model", "service_port")
@@ -245,7 +246,7 @@ def _condition(package: ArtifactPackage) -> dict[str, Any]:
 
 
 def _rubric(package: ArtifactPackage) -> dict[str, Any]:
-    """Return the judge's rubric; the runtime facts are a slot orch fills."""
+    """Return the judge's rubric; the runtime facts are a slot the orchestrator fills."""
 
     judge = _json_member(package, JUDGE_MEMBER)
     if not isinstance(judge, dict) or not isinstance(judge.get("question"), str):

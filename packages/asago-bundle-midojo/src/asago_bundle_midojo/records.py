@@ -1,4 +1,4 @@
-"""What orch's boundary services recorded for the package, read for ``parse``.
+"""What the orchestrator's boundary services recorded for the package, read for ``parse``.
 
 ``mcp_capture/calls.jsonl`` holds the tool calls the MCP recording proxy saw and
 ``boundary/gateway-accounting.json`` the generation request count;

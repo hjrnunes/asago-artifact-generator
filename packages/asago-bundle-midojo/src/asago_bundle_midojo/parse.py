@@ -8,9 +8,9 @@ is still written.
 
 The control plane's flag has two values and the contract three: ``security`` is
 true exactly when the verdict is ``detected``, and the verdict file tells
-``not_detected`` from ``inconclusive``. When orch's boundary services recorded
-the package, their calls replace the control plane's, and the two counts must
-agree.
+``not_detected`` from ``inconclusive``. When the orchestrator's boundary services
+recorded the package, their calls replace the control plane's, and the two
+counts must agree.
 """
 
 from __future__ import annotations

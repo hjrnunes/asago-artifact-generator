@@ -1,12 +1,13 @@
 """Authoring runs every binding conformance case of the artifact-package contract.
 
-The cases live in ``contracts/artifact-package/binding-cases/`` and orch runs the
-same files from its mirror through its execute functions. Each case gives binding
-declarations, the inventory they select from (a supplied fact's ``value`` is the
-source value), the runtime contract, and optionally a stimulus. ``expected`` names
-the outcome of each check it covers as a category: ``accepted``, or ``rejected``
-with a reason. A reason is case vocabulary; ``_REASONS`` maps it to this
-repository's finding code and wording, so each repository keeps its own messages.
+The cases live in ``contracts/artifact-package/binding-cases/`` and the orchestrator
+runs the same files from its mirror through its execute functions. Each case gives
+binding declarations, the inventory they select from (a supplied fact's ``value`` is
+the source value), the runtime contract, and optionally a stimulus. ``expected``
+names the outcome of each check it covers as a category: ``accepted``, or
+``rejected`` with a reason. A reason is case vocabulary; ``_REASONS`` maps it to
+this repository's finding code and wording, so each repository keeps its own
+messages.
 
 * ``declaration``: the plan's binding checks accept or reject the declarations.
 * ``values``: the supplied values each declaration selects (``values`` lists them);

@@ -105,12 +105,12 @@ Deterministic tests must not contact a model endpoint or target.
 - `src/asago_artifact_generator/package_io.py`: the artifact-package-v4 writer and loader.
 - `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
   `tool-bundle-v1` schema, slot markers, the capability-gap record, `BundleError`, the
-  `testing` package builders, the `mcp_records` readers of orch's boundary records, and
-  the `conformance` helper that round-trips `compile`,
-  `instantiate` and `parse` of an adapter and returns failure messages). A new adapter
-  runs `check_round_trip` in its tests. The optional schema fields `repeats` and `serve`
-  stay out of a bundle that does not need them: Garak omits both, because `bundle.json`
-  feeds the receipt's `bundle_digest`.
+  `testing` package builders, the `mcp_records` readers of the orchestrator's boundary
+  records, and the `conformance` helper that round-trips `compile`, `instantiate` and
+  `parse` of an adapter and returns failure messages). A new adapter runs `check_round_trip`
+  in its tests. The optional schema fields `repeats` and `serve` stay out of a bundle that
+  does not need them: Garak omits both, because `bundle.json` feeds the receipt's
+  `bundle_digest`.
 - `packages/asago-bundle-garak/`: the Garak adapter workspace member.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It serves command-attempt
   and single reply packages with one user prompt; sequential and state_effect packages exit 3.
@@ -123,8 +123,6 @@ Deterministic tests must not contact a model endpoint or target.
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-bundle-garak/tests -q`.
 - `tests/`: executable examples and regression coverage for the changed behavior.
-- Orch qualification runbook `asago-orch/docs/qualification.md`; its modules
-  live under `asago-orch/src/asago_orch/qualification/`.
 
 Finish the requested slice once its behavior and required checks pass. Report
 case outcomes, blockers, actual spend, and evidence paths. A passing suite is

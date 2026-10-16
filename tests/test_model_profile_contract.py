@@ -1,9 +1,9 @@
 """The consumer's profile readers run the producer's ``model-profile`` contract.
 
 ``contracts/model-profile/model-profile-v1`` is a byte-for-byte copy of the
-producer's field table, load cases and request cases. The producer and orch run
-the same files against their own readers, so a field handled differently in one
-reader fails there.
+producer's field table, load cases and request cases. The producer and the
+orchestrator run the same files against their own readers, so a field handled
+differently in one reader fails there.
 """
 
 from __future__ import annotations

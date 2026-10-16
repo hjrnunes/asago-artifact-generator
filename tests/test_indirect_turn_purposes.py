@@ -73,8 +73,8 @@ def _allowed_on_attacker_user() -> list[str]:
     ]
 
 
-# The plan of a C6 handoff that crashed authoring (klarna-r2 SCN-025), then each
-# non-reading purpose after the turn that reads the item.
+# The plan of a recorded handoff that crashed authoring, then each non-reading
+# purpose after the turn that reads the item.
 @pytest.mark.parametrize(
     "purposes",
     [

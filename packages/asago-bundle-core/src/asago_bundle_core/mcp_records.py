@@ -1,4 +1,4 @@
-"""Reading orch's boundary records: MCP result envelopes, JSON values and record lines.
+"""Reading the orchestrator's boundary records: MCP result envelopes, JSON values and record lines.
 
 A recorded call's ``result`` is the MCP envelope the tool answered with; the
 receipt carries the tool's decoded answer.

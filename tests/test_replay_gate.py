@@ -2,7 +2,7 @@
 
 The end-to-end cases record one ``author`` item through the real CLI with a
 scripted chat client standing in for the provider, lay the output out like an
-orch author stage, and replay it through the gate in a guarded subprocess.
+orchestrator author stage, and replay it through the gate in a guarded subprocess.
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ def _record_author_stage(
     contents: list[str | BaseException],
     **profile_options: str,
 ) -> Path:
-    """Record one author item as an orch run would and return the stage directory.
+    """Record one author item as an orchestrator run would and return the stage directory.
 
     *profile_options* add fields to the recorded model profile, for example a
     service tier and its fallback.
@@ -91,7 +91,7 @@ def _record_author_stage(
     profiles_file.write_text(
         yaml.safe_dump(
             {
-                "gemma4-oc": {
+                "profile-a": {
                     "base_url": "https://profile.example.invalid/v1",
                     "api_key": "profile-secret-value",
                     "model": "profile-model",
@@ -116,7 +116,7 @@ def _record_author_stage(
         "--runtime-contract",
         str(runtime_contract),
         "--profile",
-        "gemma4-oc",
+        "profile-a",
         "--profiles-file",
         str(profiles_file),
     ]
@@ -451,7 +451,7 @@ def test_replay_environment_strips_provider_settings() -> None:
             "REDTEAM_MODEL": "x",
             "GEMINI_API_KEY": "x",
             "GOOGLE_API_KEY": "x",
-            "ASAGO_ORCH_CONSUMER": "x",
+            "ASAGO_SETTING": "x",
             "FORCE_COLOR": "1",
         }
     )

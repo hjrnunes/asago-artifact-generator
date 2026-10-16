@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "tool-bundle-v1",
   "title": "Tool bundle manifest",
-  "description": "bundle.json: what a tool adapter's compile wrote, which values orch must supply, and how to run the tool on the concrete bundle.",
+  "description": "bundle.json: what a tool adapter's compile wrote, which values the orchestrator must supply, and how to run the tool on the concrete bundle.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -45,7 +45,7 @@
       "uniqueItems": true
     },
     "environment": {
-      "description": "Environment variable names the entrypoint reads; orch sets placeholder keys, never real credentials.",
+      "description": "Environment variable names the entrypoint reads; the orchestrator sets placeholder keys, never real credentials.",
       "type": "array",
       "items": {"type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$"},
       "uniqueItems": true
@@ -56,7 +56,7 @@
       "additionalProperties": {"type": "string", "minLength": 1}
     },
     "entrypoint": {
-      "description": "Argument vector. {tool_python} is the tool interpreter orch runs; in a template, {bundle} and value keys such as {model} are placeholders that instantiate renders.",
+      "description": "Argument vector. {tool_python} is the tool interpreter the orchestrator runs; in a template, {bundle} and value keys such as {model} are placeholders that instantiate renders.",
       "type": "array",
       "minItems": 1,
       "items": {"type": "string"}
@@ -72,7 +72,7 @@
       "items": {"type": "string", "minLength": 1}
     },
     "repeats": {
-      "description": "Optional; a bundle that omits it is read as {\"native\": false}. native true means the tool repeats the run by itself, with the count arriving as a requires value; false means orch runs the bundle again for each repeat.",
+      "description": "Optional; a bundle that omits it is read as {\"native\": false}. native true means the tool repeats the run by itself, with the count arriving as a requires value; false means the orchestrator runs the bundle again for each repeat.",
       "type": "object",
       "additionalProperties": false,
       "required": ["native"],

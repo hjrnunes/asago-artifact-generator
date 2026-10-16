@@ -1,8 +1,8 @@
 """The consumer reader runs every artifact-package contract case.
 
-The cases live in ``contracts/artifact-package/`` and orch runs the same files
-from its mirror. Each invalid case names a stable code; ``_MESSAGES`` maps the
-code to this reader's error wording.
+The cases live in ``contracts/artifact-package/`` and the orchestrator runs the
+same files from its mirror. Each invalid case names a stable code;
+``_MESSAGES`` maps the code to this reader's error wording.
 """
 
 from __future__ import annotations

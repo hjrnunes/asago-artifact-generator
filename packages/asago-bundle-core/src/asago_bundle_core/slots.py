@@ -1,7 +1,7 @@
 """Slot markers in bundle templates.
 
 A template is plain JSON in which a one-key object marks a hole:
-``{"$value": "<key>"}`` takes ``values.json[<key>]`` (orch knows the value),
+``{"$value": "<key>"}`` takes ``values.json[<key>]`` (the orchestrator knows the value),
 and ``{"$bundle": "<relative path>"}`` takes that path inside the concrete
 bundle (only ``instantiate`` knows where the bundle lands).
 """

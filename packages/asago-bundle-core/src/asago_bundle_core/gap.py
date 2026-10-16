@@ -1,4 +1,4 @@
-"""Capability gaps: a tool cannot deliver a package, and orch reads the record.
+"""Capability gaps: a tool cannot deliver a package, and the orchestrator reads the record.
 
 Exit codes: 0 done, 1 the input cannot be used, 2 usage error, 3 capability gap
 (``compile`` only).

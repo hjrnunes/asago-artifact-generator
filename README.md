@@ -339,18 +339,9 @@ uv run asago-scenario-generator run \
   --sp3-profile <profile-name>
 ```
 
-The consumer remains target-free. The `asago-orch` repository owns downstream
+The consumer remains target-free. The orchestrator owns downstream
 qualification, including package execution, live setup, runtime judging,
-Garak detection, evidence, and cleanup. Read
-`asago-orch/docs/qualification.md`; its implementation lives under
-`asago-orch/src/asago_orch/qualification/`.
-
-Run the configured pipeline from the orch repository:
-
-```bash
-cd <orch-repo-root>
-uv run asago-orch run --target <target> --to execute
-```
+Garak detection, evidence, and cleanup.
 
 Run the final broad gate once, after the last required execution:
 
@@ -387,7 +378,7 @@ handoff:
 
 - `scenario-handoff-v4` JSON or YAML for scenario meaning.
 - `execution-target-profile-v1` JSON for the observed target inventory.
-- Optional `runtime-context.json` (`runtime-context-v1`, written by orch's discover stage) for state and read observations.
+- Optional `runtime-context.json` (`runtime-context-v1`, written by the orchestrator's discover stage) for state and read observations.
 - A target-free runtime contract.
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
@@ -580,8 +571,8 @@ reader must load, `invalid/` packages every reader must reject, and
 `metadata-policy.json` lists the manifest metadata the closed secret policy
 accepts and rejects. Each case is one JSON file holding the manifest and the
 package files as text. `scripts/gen_artifact_package_cases.py` writes the cases
-and their lock entries; orch mirrors them and runs the same cases against its
-own loader, mapping each code to its own error wording.
+and their lock entries; the orchestrator mirrors them and runs the same cases
+against its own loader, mapping each code to its own error wording.
 
 Runtime receipts remain outside the immutable package.
 
