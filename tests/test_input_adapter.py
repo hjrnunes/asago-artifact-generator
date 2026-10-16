@@ -16,7 +16,7 @@ from asago_artifact_generator.input_adapter import (
     build_scenario_handoff_view,
     load_input,
 )
-from tests.support import HANDOFFS
+from tests.support import HANDOFFS, KIT_VALID
 
 CONTRACT_HANDOFF = HANDOFFS / "refund-bound.json"
 
@@ -153,7 +153,7 @@ def test_analytical_observation_criterion_may_omit_optional_fields(
     assert view.payload["observation"]["assessment"]["disposition"] == "analytical_only"
 
 
-CONTRACT_HANDOFF_OBSERVED = HANDOFFS / "adversarial-observed-record.json"
+CONTRACT_HANDOFF_OBSERVED = KIT_VALID / "adversarial-observed-record.json"
 
 
 def _observation() -> dict:
@@ -492,7 +492,7 @@ def test_view_exposes_the_tool_call_status_and_condition() -> None:
 
 
 def test_unbound_view_has_no_tool_call_condition() -> None:
-    view = load_input(HANDOFFS / "adversarial-condition-omitted.json")
+    view = load_input(KIT_VALID / "adversarial-condition-omitted.json")
 
     assert view.tool_call_condition_status["status"] == "not_executable"
     assert view.tool_call_condition is None
