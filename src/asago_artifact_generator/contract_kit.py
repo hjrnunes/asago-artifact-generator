@@ -25,6 +25,20 @@ class ClaimLevel(StrEnum):
 
 CLAIM_LEVELS: tuple[str, ...] = tuple(level.value for level in ClaimLevel)
 
+_PACKAGE_DIR = Path(__file__).resolve().parent
+
+
+def contract_dir(name: str) -> Path:
+    """Return the vendored contract ``name``: the wheel's packaged copy, else the checkout's.
+
+    The wheel force-includes the repository's ``contracts/`` inside the package; a source
+    checkout, editable install included, reads ``contracts/`` at the repository root.
+    """
+
+    packaged = _PACKAGE_DIR / "contracts"
+    root = packaged if packaged.is_dir() else _PACKAGE_DIR.parents[1] / "contracts"
+    return root / name
+
 
 def sha256_hex(value: bytes) -> str:
     """Return the lowercase hex SHA-256 digest of ``value``."""

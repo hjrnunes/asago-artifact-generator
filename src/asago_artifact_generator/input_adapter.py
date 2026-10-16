@@ -18,6 +18,7 @@ from .attack_shape import attack_shape_violation
 from .contract_kit import (
     ClaimLevel,
     canonical_json,
+    contract_dir,
     framed_digest,
     load_json_file,
     parse_document,
@@ -33,7 +34,7 @@ _HANDOFF_CONDITION_FIELDS = (
     "condition_check",
     "condition_omitted_reason",
 )
-_HANDOFF_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "scenario-handoff"
+_HANDOFF_ROOT = contract_dir("scenario-handoff")
 _REGEX_FLAGS = {"IGNORECASE": re.IGNORECASE}
 _OwnershipRules = tuple[frozenset[str], tuple[tuple[str, re.Pattern[str]], ...]]
 

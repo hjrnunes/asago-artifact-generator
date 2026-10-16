@@ -13,6 +13,7 @@ from typing import Any
 from .contract_kit import (
     ClaimLevel,
     canonical_json,
+    contract_dir,
     first_schema_error,
     load_json_file,
     sha256_hex,
@@ -47,7 +48,7 @@ _CLAIM_LEVEL_MEMBERS = {
     ClaimLevel.COMMAND_ATTEMPT.value: TOOL_CALL_CONDITION_MEMBER,
     ClaimLevel.REPLY.value: "judge.json",
 }
-_CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "artifact-package"
+_CONTRACT_ROOT = contract_dir("artifact-package")
 # The input kinds each package version accepts, as its schema enumerates them.
 _INPUT_KINDS_BY_VERSION = {
     _PACKAGE_SCHEMA_VERSION_V3: {"scenario-handoff-v3"},

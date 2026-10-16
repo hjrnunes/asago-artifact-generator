@@ -18,6 +18,7 @@ from jsonschema.exceptions import ValidationError
 
 from .contract_kit import (
     canonical_json,
+    contract_dir,
     first_schema_error,
     framed_digest,
     load_json_file,
@@ -27,8 +28,8 @@ from .contract_kit import (
 )
 from .value_checks import SHA256_HEX_LENGTH
 
-_CONTRACT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "target-profile"
-_RUNTIME_CONTEXT_ROOT = Path(__file__).resolve().parents[2] / "contracts" / "runtime-context"
+_CONTRACT_ROOT = contract_dir("target-profile")
+_RUNTIME_CONTEXT_ROOT = contract_dir("runtime-context")
 _RUNTIME_CONTEXT_VERSION = "runtime-context-v1"
 _MAX_FAULT_KEYS = 10
 _MAX_FAULT_KEY_CHARS = 64
