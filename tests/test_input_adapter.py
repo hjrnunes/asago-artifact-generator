@@ -282,7 +282,7 @@ _CRIT = "observation.criteria.0"
 
 # The mirrored schema cannot state these rules (blank text, formats, presence
 # where the schema has a default, and cross-field pairings), so this reader
-# keeps them. The first nine are this reader's alone: the producer accepts those
+# keeps them. The first ten are this reader's alone: the producer accepts those
 # documents and no kit case carries them.
 @pytest.mark.parametrize(
     ("mutate", "field", "detail"),
