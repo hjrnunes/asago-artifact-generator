@@ -508,7 +508,7 @@ def _effort_cells(items: Sequence[Authoring]) -> dict[tuple[str, str], list[int]
         column = 0 if item.accepted else 2
         for step in item.steps:
             row = cells[(step.group, step.kind)]
-            row[column] += 1
+            row[column] += step.requests
             row[column + 1] += step.tokens
     return cells
 

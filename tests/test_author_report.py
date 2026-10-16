@@ -182,6 +182,25 @@ def test_each_scenario_text_counts_transport_retries_as_requests(run_dir: Path) 
     assert "5 requests," in scn004
 
 
+def _total_row(html: str, table: str) -> list[int]:
+    section = html.split(f'<table id="{table}"', 1)[1].split("</table>", 1)[0]
+    row = section.rsplit("<tr", 1)[1]
+    cells = re.findall(r"<td[^>]*>\s*([\d,]+)\s*</td>", row)
+    return [int(cell.replace(",", "")) for cell in cells]
+
+
+def test_the_effort_table_counts_transport_retries_as_requests(run_dir: Path) -> None:
+    _retry(run_dir, "SCN-001", 2)
+    _retry(run_dir, "SCN-004", 1)
+
+    html, _ = _render(run_dir)
+
+    metrics = read_metrics(html)
+    assert metrics["effort.requests"]["value"] == "46"
+    assert metrics["effort.failed_requests"]["value"] == "27"
+    assert _total_row(html, "effort-table") == [19, 810340 - 491684, 27, 491684]
+
+
 # Rule: every input item appears.
 def test_every_scenario_has_a_row(run_dir: Path) -> None:
     html, _ = _render(run_dir)
