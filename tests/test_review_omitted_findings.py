@@ -32,8 +32,8 @@ _framed, _inventory, _plan, _runtime_contract, _view = world_builders(
     "refund", "framed", "inventory", "plan", "runtime_contract", "view"
 )
 
-# run-20261007T1826Z-w3c6-klarna-r1-auth SCN-003
-KLARNA_R1_SCN003_PLAN_REVIEW = (
+# A recorded plan-review reply that accepts after a branch-logic correction.
+BRANCH_LOGIC_PLAN_REVIEW_A = (
     "```json\n"
     "{\n"
     '  "decision": "accept",\n'
@@ -47,8 +47,8 @@ KLARNA_R1_SCN003_PLAN_REVIEW = (
     "```"
 )
 
-# run-20261007T1826Z-w3c6-klarna-r1-auth SCN-018
-KLARNA_R1_SCN018_PLAN_REVIEW = (
+# A recorded plan-review reply that accepts after a branch-logic correction.
+BRANCH_LOGIC_PLAN_REVIEW_B = (
     "```json\n"
     "{\n"
     '  "decision": "accept",\n'
@@ -61,8 +61,8 @@ KLARNA_R1_SCN018_PLAN_REVIEW = (
     "```"
 )
 
-# run-20261007T1826Z-w3c6-occiai-r2-auth SCN-008
-OCCIAI_R2_SCN008_PLAN_REVIEW = (
+# A recorded plan-review reply that accepts after a selected_evidence correction.
+SELECTED_EVIDENCE_PLAN_REVIEW = (
     "```json\n"
     "{\n"
     '  "decision": "accept",\n'
@@ -76,8 +76,8 @@ OCCIAI_R2_SCN008_PLAN_REVIEW = (
     "```"
 )
 
-# run-20261007T0352Z-w2auth-occiai-r2-auth SCN-058
-W2AUTH_OCCIAI_R2_SCN058_ARTIFACT_REVIEW = (
+# A recorded artifact-review reply that accepts the artifact.
+ARTIFACT_REVIEW_ACCEPT = (
     "```json\n"
     "{\n"
     '  "decision": "accept",\n'
@@ -91,10 +91,10 @@ W2AUTH_OCCIAI_R2_SCN058_ARTIFACT_REVIEW = (
 )
 
 RECORDED_REPLIES = {
-    "klarna-r1-SCN-003-plan-review": KLARNA_R1_SCN003_PLAN_REVIEW,
-    "klarna-r1-SCN-018-plan-review": KLARNA_R1_SCN018_PLAN_REVIEW,
-    "occiai-r2-SCN-008-plan-review": OCCIAI_R2_SCN008_PLAN_REVIEW,
-    "w2auth-occiai-r2-SCN-058-artifact-review": W2AUTH_OCCIAI_R2_SCN058_ARTIFACT_REVIEW,
+    "branch-logic-plan-review-a": BRANCH_LOGIC_PLAN_REVIEW_A,
+    "branch-logic-plan-review-b": BRANCH_LOGIC_PLAN_REVIEW_B,
+    "selected-evidence-plan-review": SELECTED_EVIDENCE_PLAN_REVIEW,
+    "artifact-review-accept": ARTIFACT_REVIEW_ACCEPT,
 }
 
 
@@ -191,7 +191,7 @@ def test_plan_review_accept_without_findings_is_recorded_and_authoring_continues
         tmp_path,
         [
             json.dumps(_plan()),
-            KLARNA_R1_SCN003_PLAN_REVIEW,
+            BRANCH_LOGIC_PLAN_REVIEW_A,
             _framed(),
             review_response("accept"),
         ],
@@ -217,7 +217,7 @@ def test_artifact_review_accept_without_findings_is_recorded_and_authoring_conti
             json.dumps(_plan()),
             review_response("accept"),
             _framed(),
-            W2AUTH_OCCIAI_R2_SCN058_ARTIFACT_REVIEW,
+            ARTIFACT_REVIEW_ACCEPT,
         ],
     )
 

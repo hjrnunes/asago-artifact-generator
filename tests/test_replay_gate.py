@@ -91,7 +91,7 @@ def _record_author_stage(
     profiles_file.write_text(
         yaml.safe_dump(
             {
-                "gemma4-oc": {
+                "profile-a": {
                     "base_url": "https://profile.example.invalid/v1",
                     "api_key": "profile-secret-value",
                     "model": "profile-model",
@@ -116,7 +116,7 @@ def _record_author_stage(
         "--runtime-contract",
         str(runtime_contract),
         "--profile",
-        "gemma4-oc",
+        "profile-a",
         "--profiles-file",
         str(profiles_file),
     ]
