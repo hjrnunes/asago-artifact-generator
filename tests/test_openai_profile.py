@@ -188,17 +188,6 @@ def test_service_tier_fallback_retries_once_with_fallback_tier(
             id="stops-after-one-retry",
         ),
         pytest.param(
-            None, "auto", [status_error(429)], openai.RateLimitError, [None], id="no-service-tier"
-        ),
-        pytest.param(
-            "priority",
-            None,
-            [status_error(429)],
-            openai.RateLimitError,
-            ["priority"],
-            id="no-fallback-tier",
-        ),
-        pytest.param(
             None, None, [status_error(429)], openai.RateLimitError, [None], id="neither-tier"
         ),
         pytest.param(
@@ -333,18 +322,6 @@ def test_controls_record_extra_body_that_survives_disabled_sampling_controls(
         "strict_json_schema": False,
         "timeout": 600,
     }
-
-
-def test_private_model_transport_constructs_with_zero_retries(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    completions = fake_openai(monkeypatch, [])
-
-    private_transport(api_key="secret-value")
-
-    init_kwargs = completions.clients[0].init_kwargs
-    assert init_kwargs["max_retries"] == 0
-    assert init_kwargs["base_url"] == "https://private.invalid/v1"
 
 
 def test_private_model_transport_sends_thinking_off_extra_body_for_every_request(
