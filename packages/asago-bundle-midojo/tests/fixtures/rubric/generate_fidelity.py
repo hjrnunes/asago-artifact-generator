@@ -31,6 +31,8 @@ from typing import Any
 
 from garak.detectors.toolcall import normalise_tool_call
 
+from asago_bundle_core.text import jsonl_lines
+
 
 def sink_call_body(sink: Path) -> Any:
     tree = ast.parse(sink.read_text(encoding="utf-8"))
@@ -55,7 +57,7 @@ def text_block(text: str) -> dict[str, Any]:
 
 def captured_calls(report: Path) -> list[dict[str, Any]]:
     found = []
-    for line in report.read_text(encoding="utf-8").splitlines():
+    for line in jsonl_lines(report.read_text(encoding="utf-8")):
         entry = json.loads(line)
         if entry.get("entry_type") != "attempt" or entry.get("status") != 2:
             continue
@@ -74,7 +76,7 @@ def real_cases(runs: Path) -> tuple[list[dict[str, Any]], int]:
     ):
         scenario = calls_file.parents[1]
         reports = sorted(scenario.glob("generation_capture/bundle/reports/*.report.jsonl"))
-        records = [json.loads(x) for x in calls_file.read_text().splitlines() if x.strip()]
+        records = [json.loads(x) for x in jsonl_lines(calls_file.read_text(encoding="utf-8"))]
         captured = [call for report in reports for call in captured_calls(report)]
         if not records or len(records) != len(captured):
             skipped += 1

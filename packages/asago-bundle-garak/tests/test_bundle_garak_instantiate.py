@@ -10,9 +10,11 @@ import pytest
 
 from asago_bundle_core.schema import validate_manifest
 from asago_bundle_core.testing import CONDITION, JUDGE
+from asago_bundle_core.text import jsonl_lines
 from asago_bundle_garak.cli import main
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import InstantiateError, instantiate_bundle
+from asago_bundle_garak.report_parse import read_bundle
 
 MESSAGES = [
     {"role": "user", "content": "Earlier turn."},
@@ -45,8 +47,8 @@ def read(path: Path) -> Any:
 
 
 def conversation_entries(bundle: Path) -> list[dict[str, Any]]:
-    lines = (bundle / "conversations.jsonl").read_text(encoding="utf-8").splitlines()
-    return [json.loads(line) for line in lines]
+    text = (bundle / "conversations.jsonl").read_text(encoding="utf-8")
+    return [json.loads(line) for line in jsonl_lines(text)]
 
 
 @pytest.fixture
@@ -59,6 +61,17 @@ def command_template(command_package: Path, tmp_path: Path) -> Path:
 def reply_template(reply_package: Path, tmp_path: Path) -> Path:
     compile_package(reply_package, tmp_path / "template")
     return tmp_path / "template"
+
+
+def test_a_turn_with_unicode_line_separators_reads_back_whole(
+    command_template: Path, tmp_path: Path
+) -> None:
+    messages = [{"role": "user", "content": "Show\u0085the\u2028referral\u2029now."}]
+    out = tmp_path / "bundle"
+
+    instantiate_bundle(command_template, values(messages=messages), out)
+
+    assert read_bundle(out).messages == messages
 
 
 def test_command_attempt_conversation_entry(command_template: Path, tmp_path: Path) -> None:
