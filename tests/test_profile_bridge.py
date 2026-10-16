@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-from typer.testing import CliRunner
 
 from asago_artifact_generator import cli
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
@@ -17,6 +16,7 @@ from asago_artifact_generator.profiles import (
     load_authoring_profile,
 )
 
+from .cli_helpers import PlainCliRunner
 from .support import (
     HANDOFF,
     chat_completion,
@@ -46,7 +46,7 @@ def _invoke_generate(
         str(tmp_path / "output"),
         *(extra_args or []),
     ]
-    return CliRunner().invoke(cli.app, arguments)
+    return PlainCliRunner().invoke(cli.app, arguments)
 
 
 def test_loader_returns_named_connection_fields_without_logging_or_redaction(
