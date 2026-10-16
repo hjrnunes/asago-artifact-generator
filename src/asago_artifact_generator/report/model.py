@@ -83,10 +83,17 @@ class Step:
     findings: list[Finding] = field(default_factory=list)
     unchanged: bool = False
     reviewed: Any = None  # the stored reviewed candidate, only when its digest matches
+    retries: int = 0  # physical attempts after the first, from the dispatch's transport_retries
 
     @property
     def tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
+
+    @property
+    def requests(self) -> int:
+        """Physical model requests of this dispatch: the first attempt and each retry."""
+
+        return 1 + self.retries
 
 
 @dataclass
@@ -125,6 +132,10 @@ class Authoring:
     @property
     def tokens(self) -> int:
         return sum(step.tokens for step in self.steps)
+
+    @property
+    def requests(self) -> int:
+        return sum(step.requests for step in self.steps)
 
     @property
     def last_findings(self) -> list[Finding]:
@@ -220,6 +231,10 @@ def _group(attempt: dict[str, Any]) -> str:
     )
 
 
+def _retries(attempt: dict[str, Any]) -> int:
+    return len(attempt.get("transport_retries") or [])
+
+
 def _review_step(attempt: dict[str, Any], group: str) -> Step:
     review = attempt.get("review") or {}
     prompt, completion = _tokens(attempt)
@@ -237,6 +252,7 @@ def _review_step(attempt: dict[str, Any], group: str) -> Step:
             completion,
             digest,
             findings,
+            retries=_retries(attempt),
         )
     outcome, title = _DECISIONS[decision]
     return Step(
@@ -250,6 +266,7 @@ def _review_step(attempt: dict[str, Any], group: str) -> Step:
         digest,
         _review_findings(review),
         reviewed=stored_candidate(review),
+        retries=_retries(attempt),
     )
 
 
@@ -280,6 +297,7 @@ def to_step(attempt: dict[str, Any]) -> Step:
         completion,
         str(attempt.get("candidate_sha256") or ""),
         findings,
+        retries=_retries(attempt),
     )
 
 

@@ -148,6 +148,59 @@ def test_the_stage_summary_labels_every_scenario(run_dir: Path) -> None:
     assert summary["status"] == "fail"
 
 
+def _retry(run_dir: Path, scenario: str, retries: int) -> None:
+    """Record *retries* transport retries on the first dispatch of *scenario*."""
+
+    path = _output(run_dir) / f"{scenario}.failure-evidence.json"
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    evidence["attempts"][0]["transport_retries"] = [
+        {"attempt": n + 2, "retry_of": {"status": 503}} for n in range(retries)
+    ]
+    path.write_text(json.dumps(evidence), encoding="utf-8")
+
+
+# Rule: the report counts physical requests: each dispatch plus its transport retries.
+def test_the_summary_counts_transport_retries_as_requests(run_dir: Path) -> None:
+    _retry(run_dir, "SCN-001", 2)
+    _retry(run_dir, "SCN-004", 1)
+
+    _, summary = _render(run_dir)
+
+    assert summary["usage"]["model_requests"] == 46
+    assert summary["usage"]["prompt_tokens"] == 786299
+
+
+def test_each_scenario_text_counts_transport_retries_as_requests(run_dir: Path) -> None:
+    _retry(run_dir, "SCN-001", 2)
+    _retry(run_dir, "SCN-004", 1)
+
+    html, _ = _render(run_dir)
+
+    scn001 = html.split('id="SCN-001"', 1)[1].split("</details>", 1)[0]
+    scn004 = html.split('id="SCN-004"', 1)[1].split("</details>", 1)[0]
+    assert "after 9 model requests" in scn001
+    assert "5 requests," in scn004
+
+
+def _total_row(html: str, table: str) -> list[int]:
+    section = html.split(f'<table id="{table}"', 1)[1].split("</table>", 1)[0]
+    row = section.rsplit("<tr", 1)[1]
+    cells = re.findall(r"<td[^>]*>\s*([\d,]+)\s*</td>", row)
+    return [int(cell.replace(",", "")) for cell in cells]
+
+
+def test_the_effort_table_counts_transport_retries_as_requests(run_dir: Path) -> None:
+    _retry(run_dir, "SCN-001", 2)
+    _retry(run_dir, "SCN-004", 1)
+
+    html, _ = _render(run_dir)
+
+    metrics = read_metrics(html)
+    assert metrics["effort.requests"]["value"] == "46"
+    assert metrics["effort.failed_requests"]["value"] == "27"
+    assert _total_row(html, "effort-table") == [19, 810340 - 491684, 27, 491684]
+
+
 # Rule: every input item appears.
 def test_every_scenario_has_a_row(run_dir: Path) -> None:
     html, _ = _render(run_dir)

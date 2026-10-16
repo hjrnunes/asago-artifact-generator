@@ -99,11 +99,11 @@ def _failed_tokens(items: Sequence[Authoring]) -> int:
 
 
 def _usage(items: Sequence[Authoring]) -> tuple[int, int, int]:
-    """Return the requests, prompt tokens, and completion tokens of every step."""
+    """Return the physical requests, prompt tokens, and completion tokens of every step."""
 
     steps = [step for item in items for step in item.steps]
     prompt = sum(step.prompt_tokens for step in steps)
-    return len(steps), prompt, sum(step.completion_tokens for step in steps)
+    return sum(item.requests for item in items), prompt, sum(s.completion_tokens for s in steps)
 
 
 def counts(items: Sequence[Authoring]) -> Counts:
@@ -387,7 +387,7 @@ def failure_row(item: Authoring, places: Places) -> Markup:
             ("Attack shape", shape_sentence(item.scenario)),
             (
                 "Where it stopped",
-                f"{stage} stage, after {len(item.steps)} model requests.",
+                f"{stage} stage, after {item.requests} model requests.",
             ),
             (
                 "Reason",
@@ -439,7 +439,7 @@ def package_row(item: Authoring, places: Places) -> Markup:
     summary = Markup(
         f"<b>{esc(item.id)}</b> {kind_chip(item.scenario.kind)} {esc(claim_of(package))} · "
         f"{esc(oracle_of(package))} · {esc(delivery_of(package))} · {turns_of(package)} turn(s) · "
-        f"{len(item.steps)} requests, {fixes} fixes · {item.tokens:,} tokens"
+        f"{item.requests} requests, {fixes} fixes · {item.tokens:,} tokens"
     )
     links = places.links
     files = join(
@@ -508,7 +508,7 @@ def _effort_cells(items: Sequence[Authoring]) -> dict[tuple[str, str], list[int]
         column = 0 if item.accepted else 2
         for step in item.steps:
             row = cells[(step.group, step.kind)]
-            row[column] += 1
+            row[column] += step.requests
             row[column + 1] += step.tokens
     return cells
 
