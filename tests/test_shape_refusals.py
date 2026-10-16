@@ -88,24 +88,34 @@ def test_a_shape_with_more_turns_than_the_runtime_plans_is_refused(tmp_path: Pat
     assert finding["details"] == {"turn_count": 3, "max_planned_turns": 2}
 
 
-def test_a_runtime_without_a_planned_turn_limit_allows_four_turns(tmp_path: Path) -> None:
-    runtime = {**_RUNTIME, "limits": {"max_turns": 8}}
-    view = load_input(_KIT / "valid" / "adversarial-direct-multi-turn.json")
-    transport = ScriptedAuthoringTransport([])
-    orchestrator = stage_local_orchestrator(
-        transport=transport, package_dir=tmp_path / "package", task_id="task"
-    )
-
-    orchestrator.run(view, _INVENTORY, runtime)
-
-    assert [request["stage"] for request in transport.requests] == ["call1"]
-
-
 @pytest.mark.parametrize(
-    "name", ["adversarial-direct-single.json", "adversarial-observed-record.json"]
+    ("name", "runtime"),
+    [
+        pytest.param(
+            "adversarial-direct-multi-turn.json",
+            {**_RUNTIME, "limits": {"max_turns": 8}},
+            id="four-turns-without-a-planned-turn-limit",
+        ),
+        pytest.param(
+            "adversarial-direct-single.json",
+            {**_RUNTIME, "delivery": ["direct_user_message"]},
+            id="single-turn-direct",
+        ),
+        pytest.param(
+            "adversarial-observed-record.json",
+            {**_RUNTIME, "delivery": ["direct_user_message"]},
+            id="single-turn-observed-record",
+        ),
+        pytest.param(
+            "functional-null-shape.json",
+            {**_RUNTIME, "delivery": ["direct_user_message"]},
+            id="functional-without-a-shape",
+        ),
+    ],
 )
-def test_a_single_turn_direct_shape_is_not_refused(tmp_path: Path, name: str) -> None:
-    runtime = {**_RUNTIME, "delivery": ["direct_user_message"]}
+def test_a_shape_the_runtime_can_deliver_is_not_refused(
+    tmp_path: Path, name: str, runtime: dict[str, Any]
+) -> None:
     view = load_input(_KIT / "valid" / name)
     transport = ScriptedAuthoringTransport([])
     orchestrator = stage_local_orchestrator(
@@ -123,20 +133,6 @@ def test_a_refusal_names_the_scenario_as_not_executable(tmp_path: Path) -> None:
     [finding] = result.findings
     assert "not executable" in finding.detail
     assert "forges a transcript" in finding.detail
-
-
-def test_a_functional_v4_handoff_has_no_shape_to_refuse(tmp_path: Path) -> None:
-    runtime = {**_RUNTIME, "delivery": ["direct_user_message"]}
-    transport = ScriptedAuthoringTransport([])
-    orchestrator = stage_local_orchestrator(
-        transport=transport, package_dir=tmp_path / "package", task_id="task"
-    )
-
-    orchestrator.run(
-        load_input(_KIT / "valid" / "functional-null-shape.json"), _INVENTORY, runtime
-    )
-
-    assert [request["stage"] for request in transport.requests] == ["call1"]
 
 
 def test_the_malformed_shape_refusal_carries_its_code_and_path() -> None:

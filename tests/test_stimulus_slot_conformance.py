@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -61,43 +62,45 @@ def _summary(findings: list[Any]) -> list[tuple[str, str]]:
     return [(finding.code, finding.path) for finding in findings]
 
 
-def test_an_undeclared_slot_in_an_earlier_plan_turn_is_flagged() -> None:
-    findings = _plan_slot_findings(
+@pytest.mark.parametrize(
+    ("find", "path"),
+    [
+        pytest.param(
+            _plan_slot_findings, "stimulus_approach.history[0]:undeclared_account", id="plan"
+        ),
+        pytest.param(
+            _artifact_slot_findings,
+            "stimulus.history[0].content:undeclared_account",
+            id="artifact",
+        ),
+    ],
+)
+def test_an_undeclared_slot_in_an_earlier_turn_is_flagged(
+    find: Callable[..., list[Any]], path: str
+) -> None:
+    findings = find(
         "Refund it.", ["My account is {{undeclared_account}}."], _binding("order_id", "string")
     )
 
-    assert _summary(findings) == [
-        ("undeclared_slot", "stimulus_approach.history[0]:undeclared_account")
-    ]
-    assert "undeclared_account" in findings[0].detail
-    assert "order_id" in findings[0].detail
-
-
-def test_an_undeclared_slot_in_an_earlier_artifact_turn_is_flagged() -> None:
-    findings = _artifact_slot_findings(
-        "Refund it.", ["My account is {{undeclared_account}}."], _binding("order_id", "string")
-    )
-
-    assert _summary(findings) == [
-        ("undeclared_slot", "stimulus.history[0].content:undeclared_account")
-    ]
+    assert _summary(findings) == [("undeclared_slot", path)]
     assert "undeclared_account" in findings[0].detail
     assert "order_id" in findings[0].detail
 
 
 @pytest.mark.parametrize("expected_type", ["object", "array"])
-def test_a_non_scalar_binding_in_the_final_plan_request_is_flagged(expected_type: str) -> None:
-    findings = _plan_slot_findings("Refund {{order}}.", [], _binding("order", expected_type))
+@pytest.mark.parametrize(
+    ("find", "path"),
+    [
+        pytest.param(_plan_slot_findings, "stimulus_approach.request:order", id="plan-request"),
+        pytest.param(_artifact_slot_findings, "stimulus.user_text:order", id="artifact-text"),
+    ],
+)
+def test_a_non_scalar_binding_in_the_final_request_is_flagged(
+    find: Callable[..., list[Any]], path: str, expected_type: str
+) -> None:
+    findings = find("Refund {{order}}.", [], _binding("order", expected_type))
 
-    assert _summary(findings) == [("non_scalar_slot", "stimulus_approach.request:order")]
-    assert expected_type in findings[0].detail
-
-
-@pytest.mark.parametrize("expected_type", ["object", "array"])
-def test_a_non_scalar_binding_in_the_final_artifact_text_is_flagged(expected_type: str) -> None:
-    findings = _artifact_slot_findings("Refund {{order}}.", [], _binding("order", expected_type))
-
-    assert _summary(findings) == [("non_scalar_slot", "stimulus.user_text:order")]
+    assert _summary(findings) == [("non_scalar_slot", path)]
     assert expected_type in findings[0].detail
 
 

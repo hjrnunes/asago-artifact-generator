@@ -85,21 +85,20 @@ def three_turns() -> dict[str, Any]:
     }
 
 
-def test_a_command_attempt_package_conforms(tmp_path: Path) -> None:
-    package = write_test_package(tmp_path / "packages", scenario_id="SCN-001")
-
-    failures = check_round_trip(
-        garak(fixture("SCN-001")), package, VALUES, tmp_path / "work", RECEIPT_SCHEMA
+@pytest.mark.parametrize(
+    ("scenario_id", "claim_level"),
+    [
+        pytest.param("SCN-001", "command_attempt", id="command-attempt"),
+        pytest.param("SCN-013", "reply", id="reply"),
+    ],
+)
+def test_a_recorded_package_conforms(tmp_path: Path, scenario_id: str, claim_level: str) -> None:
+    package = write_test_package(
+        tmp_path / "packages", scenario_id=scenario_id, claim_level=claim_level
     )
 
-    assert failures == []
-
-
-def test_a_reply_package_conforms(tmp_path: Path) -> None:
-    package = write_test_package(tmp_path / "packages", scenario_id="SCN-013", claim_level="reply")
-
     failures = check_round_trip(
-        garak(fixture("SCN-013")), package, VALUES, tmp_path / "work", RECEIPT_SCHEMA
+        garak(fixture(scenario_id)), package, VALUES, tmp_path / "work", RECEIPT_SCHEMA
     )
 
     assert failures == []

@@ -280,71 +280,88 @@ def test_each_check_runs_on_its_own(tmp_path: Path, package: Path) -> None:
 @pytest.mark.parametrize(
     ("flaw", "expected"),
     [
-        ("unknown-key", "manifest does not validate"),
-        ("wrong-digest", "package_digest"),
-        ("wrong-scenario", "scenario_id"),
-        ("wrong-package-id", "package_id"),
-        ("nondeterministic", "two compiles of one package differ in bytes"),
-        ("missing-template", "template file absent.template.json"),
-        ("requires-lacks", "requires lacks ['mcp_url']"),
+        pytest.param("unknown-key", "manifest does not validate", id="compile-unknown-key"),
+        pytest.param("wrong-digest", "package_digest", id="compile-wrong-digest"),
+        pytest.param("wrong-scenario", "scenario_id", id="compile-wrong-scenario"),
+        pytest.param("wrong-package-id", "package_id", id="compile-wrong-package-id"),
+        pytest.param(
+            "nondeterministic",
+            "two compiles of one package differ in bytes",
+            id="compile-nondeterministic",
+        ),
+        pytest.param(
+            "missing-template",
+            "template file absent.template.json",
+            id="compile-missing-template",
+        ),
+        pytest.param("requires-lacks", "requires lacks ['mcp_url']", id="compile-requires-lacks"),
+        pytest.param(
+            "accepts-missing",
+            "instantiate accepted values without gateway_url",
+            id="instantiate-accepts-missing",
+        ),
+        pytest.param(
+            "no-values-digest", "values_digest is missing", id="instantiate-no-values-digest"
+        ),
+        pytest.param("wrong-values-digest", "values_digest", id="instantiate-wrong-values-digest"),
+        pytest.param(
+            "slot-left", "run.json still holds a slot marker", id="instantiate-slot-left"
+        ),
+        pytest.param("bad-receipt", "receipt does not validate", id="parse-bad-receipt"),
+        pytest.param(
+            "other-package",
+            f"receipt names package digest {OTHER_DIGEST}",
+            id="parse-other-package",
+        ),
+        pytest.param(
+            "native-missing-ok",
+            "without its native output did not give execution_status failed",
+            id="parse-native-missing-ok",
+        ),
+        pytest.param(
+            "no-reason",
+            "without its native output gave no incomplete_reason",
+            id="parse-no-reason",
+        ),
+        pytest.param("gap-bad-digest", "gap record package_digest", id="gap-bad-digest"),
+        pytest.param("gap-missing-field", "gap record fields", id="gap-missing-field"),
+        pytest.param("gap-empty-reason", "gap record reason", id="gap-empty-reason"),
     ],
 )
-def test_a_compile_defect_is_named(
-    tmp_path: Path, package: Path, flaw: str, expected: str
-) -> None:
+def test_a_defect_is_named(tmp_path: Path, package: Path, flaw: str, expected: str) -> None:
     failures = round_trip(tmp_path, package, flaw)
 
     assert any(expected in failure for failure in failures), failures
-
-
-def test_a_compile_that_refuses_the_package_is_reported(tmp_path: Path, package: Path) -> None:
-    failures = round_trip(tmp_path, package, "refuses")
-
-    assert failures == ["compile refused the package: the package cannot be compiled"]
 
 
 @pytest.mark.parametrize(
     ("flaw", "expected"),
     [
-        ("accepts-missing", "instantiate accepted values without gateway_url"),
-        ("no-values-digest", "values_digest is missing"),
-        ("wrong-values-digest", "values_digest"),
-        ("slot-left", "run.json still holds a slot marker"),
+        pytest.param(
+            "refuses",
+            ["compile refused the package: the package cannot be compiled"],
+            id="compile-refuses",
+        ),
+        pytest.param(
+            "marker-in-lines",
+            ["extra.jsonl still holds a slot marker"],
+            id="instantiate-marker-in-a-json-lines-file",
+        ),
+        pytest.param(
+            "repeats-native",
+            ["instantiate refused the values: values lack repeats"],
+            id="instantiate-repeats-key-missing-from-values",
+        ),
     ],
 )
-def test_an_instantiate_defect_is_named(
-    tmp_path: Path, package: Path, flaw: str, expected: str
+def test_a_defect_gives_exactly_one_failure(
+    tmp_path: Path, package: Path, flaw: str, expected: list[str]
 ) -> None:
-    failures = round_trip(tmp_path, package, flaw)
-
-    assert any(expected in failure for failure in failures), failures
-
-
-def test_a_slot_marker_on_a_line_of_a_json_lines_file_is_named(
-    tmp_path: Path, package: Path
-) -> None:
-    failures = round_trip(tmp_path, package, "marker-in-lines")
-
-    assert failures == ["extra.jsonl still holds a slot marker"]
+    assert round_trip(tmp_path, package, flaw) == expected
 
 
 def test_a_file_that_is_not_json_is_not_scanned_for_markers(tmp_path: Path, package: Path) -> None:
     assert round_trip(tmp_path, package, "plain-text-file") == []
-
-
-@pytest.mark.parametrize(
-    ("flaw", "expected"),
-    [
-        ("bad-receipt", "receipt does not validate"),
-        ("other-package", f"receipt names package digest {OTHER_DIGEST}"),
-        ("native-missing-ok", "without its native output did not give execution_status failed"),
-        ("no-reason", "without its native output gave no incomplete_reason"),
-    ],
-)
-def test_a_parse_defect_is_named(tmp_path: Path, package: Path, flaw: str, expected: str) -> None:
-    failures = round_trip(tmp_path, package, flaw)
-
-    assert any(expected in failure for failure in failures), failures
 
 
 def test_a_receipt_with_two_attempts_is_named_when_the_tool_does_not_repeat(
@@ -382,30 +399,8 @@ def test_a_native_repeat_needs_a_count_in_the_values(
     ]
 
 
-def test_a_repeats_key_the_values_lack_stops_at_instantiate(tmp_path: Path, package: Path) -> None:
-    failures = round_trip(tmp_path, package, "repeats-native")
-
-    assert failures == ["instantiate refused the values: values lack repeats"]
-
-
 def test_a_faithful_capability_gap_has_no_failures(tmp_path: Path, package: Path) -> None:
     assert round_trip(tmp_path, package, "gap") == []
-
-
-@pytest.mark.parametrize(
-    ("flaw", "expected"),
-    [
-        ("gap-bad-digest", "gap record package_digest"),
-        ("gap-missing-field", "gap record fields"),
-        ("gap-empty-reason", "gap record reason"),
-    ],
-)
-def test_a_gap_record_defect_is_named(
-    tmp_path: Path, package: Path, flaw: str, expected: str
-) -> None:
-    failures = round_trip(tmp_path, package, flaw)
-
-    assert any(expected in failure for failure in failures), failures
 
 
 def test_check_gap_refuses_a_record_that_is_not_an_object(package: Path) -> None:

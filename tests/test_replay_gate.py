@@ -12,8 +12,10 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import httpx2
 import openai
@@ -641,42 +643,51 @@ def test_gate_replays_a_recorded_stage_offline_and_passes(
     assert after == before, "the recorded stage is never written"
 
 
-def test_gate_replays_a_stage_recorded_with_a_transport_retry_identically(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("asago_artifact_generator.authoring.transport._sleep", lambda _: None)
-    request = httpx2.Request("POST", "https://profile.example.invalid/v1")
-    failure = openai.APIConnectionError(message="connection reset", request=request)
-    stage = _record_author_stage(
-        tmp_path, monkeypatch, [failure, "not a json plan", "still not a json plan"]
-    )
-    recorded = json.loads(_evidence_path(stage).read_text(encoding="utf-8"))
-    assert recorded["attempts"][0]["transport_retries"] == [
-        {"attempt": 2, "retry_of": _CONNECTION_RETRY}
-    ]
-
-    result = run_gate(stage, work=tmp_path / "work")
-
-    assert result.passed, result.report()
-    [item] = result.items
-    assert item.served == 2 and item.unused == 0
-    assert item.mismatches == [] and item.network_attempts == []
-
-
-def test_gate_replays_a_stage_recorded_with_a_service_tier_fallback_identically(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("failures", "profile_options", "expected_retries", "fallback_used"),
+    [
+        pytest.param(
+            lambda: [_connection_reset()],
+            {},
+            [{"attempt": 2, "retry_of": _CONNECTION_RETRY}],
+            None,
+            id="transport-retry",
+        ),
+        pytest.param(
+            lambda: [_rate_limit()],
+            {"service_tier": "flex", "service_tier_fallback": "default"},
+            [_FALLBACK],
+            True,
+            id="service-tier-fallback",
+        ),
+        pytest.param(
+            lambda: [_rate_limit(), _bad_gateway()],
+            {"service_tier": "flex", "service_tier_fallback": "default"},
+            [_FALLBACK, {"attempt": 3, "retry_of": _STATUS_RETRY}],
+            True,
+            id="fallback-then-transport-retry",
+        ),
+    ],
+)
+def test_gate_replays_a_stage_recorded_with_a_retry_identically(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failures: Callable[[], list[BaseException]],
+    profile_options: dict[str, str],
+    expected_retries: list[dict[str, Any]],
+    fallback_used: bool | None,
 ) -> None:
     stage = _record_author_stage(
         tmp_path,
         monkeypatch,
-        [_rate_limit(), "not a json plan", "still not a json plan"],
-        service_tier="flex",
-        service_tier_fallback="default",
+        [*failures(), "not a json plan", "still not a json plan"],
+        **profile_options,
     )
     recorded = json.loads(_evidence_path(stage).read_text(encoding="utf-8"))
     first = recorded["attempts"][0]
-    assert first["transport_retries"] == [_FALLBACK]
-    assert first["controls"]["value"]["service_tier_fallback_used"] is True
+    assert first["transport_retries"] == expected_retries
+    if fallback_used is not None:
+        assert first["controls"]["value"]["service_tier_fallback_used"] is fallback_used
 
     result = run_gate(stage, work=tmp_path / "work")
 
@@ -686,33 +697,16 @@ def test_gate_replays_a_stage_recorded_with_a_service_tier_fallback_identically(
     assert item.mismatches == [] and item.network_attempts == []
 
 
-def test_gate_replays_a_fallback_followed_by_a_transport_retry_identically(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("asago_artifact_generator.authoring.transport._sleep", lambda _: None)
+def _connection_reset() -> openai.APIConnectionError:
     request = httpx2.Request("POST", "https://profile.example.invalid/v1")
-    bad_gateway = openai.InternalServerError(
+    return openai.APIConnectionError(message="connection reset", request=request)
+
+
+def _bad_gateway() -> openai.InternalServerError:
+    request = httpx2.Request("POST", "https://profile.example.invalid/v1")
+    return openai.InternalServerError(
         "upstream failed", response=httpx2.Response(502, request=request), body=None
     )
-    stage = _record_author_stage(
-        tmp_path,
-        monkeypatch,
-        [_rate_limit(), bad_gateway, "not a json plan", "still not a json plan"],
-        service_tier="flex",
-        service_tier_fallback="default",
-    )
-    recorded = json.loads(_evidence_path(stage).read_text(encoding="utf-8"))
-    assert recorded["attempts"][0]["transport_retries"] == [
-        _FALLBACK,
-        {"attempt": 3, "retry_of": _STATUS_RETRY},
-    ]
-
-    result = run_gate(stage, work=tmp_path / "work")
-
-    assert result.passed, result.report()
-    [item] = result.items
-    assert item.served == 2 and item.unused == 0
-    assert item.mismatches == [] and item.network_attempts == []
 
 
 def _rate_limit() -> openai.RateLimitError:

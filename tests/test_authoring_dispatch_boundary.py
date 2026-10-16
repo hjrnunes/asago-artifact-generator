@@ -42,11 +42,6 @@ _BAD_GATEWAY = {"type": "InternalServerError", "status_code": 502}
 _REASONS = (FIRST_ATTEMPT, SERVICE_TIER_FALLBACK_REASON, TRANSPORT_RETRY)
 
 
-@pytest.fixture(autouse=True)
-def _no_delay(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(transport_module, "_sleep", lambda _: None)
-
-
 class _Sender:
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
