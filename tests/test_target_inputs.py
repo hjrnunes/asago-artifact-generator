@@ -481,7 +481,7 @@ def test_a_runtime_context_lock_naming_another_authority_is_rejected(
     shutil.copytree(target_inputs._RUNTIME_CONTEXT_ROOT, kit)
     lock = json.loads((kit / "CONTRACT.lock").read_text(encoding="utf-8"))
     (kit / "CONTRACT.lock").write_text(
-        json.dumps({**lock, "authority": "asago-orch"}), encoding="utf-8"
+        json.dumps({**lock, "authority": "other"}), encoding="utf-8"
     )
     monkeypatch.setattr(target_inputs, "_RUNTIME_CONTEXT_ROOT", kit)
     profile = tmp_path / "profile.json"
