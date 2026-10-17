@@ -24,7 +24,6 @@ from asago_bundle_core.text import canonical_text
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "garak"
 TOOL_REVISION_RANGE = ">=968cc224"
-TARGET_MODE = "orch_hosted"
 PROBES = {
     "single": "injection.IndirectInjection",
     "sequential": "injection.SequentialInjection",
@@ -246,7 +245,6 @@ def bundle_manifest(
         "package_digest": package.manifest.manifest_digest,
         "claim_level": level,
         "delivery": delivery,
-        "target_mode": TARGET_MODE,
         "plugins": [probe, detector],
         "requires": requires,
         "environment": _environment(level),

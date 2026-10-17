@@ -68,9 +68,7 @@ RUNTIME_LISTS = (
     "security_findings",
 )
 CALL_FIELDS = ("name", "arguments", "result", "error", "status")
-MANIFEST_KEYS = frozenset(
-    {"scenario_id", "package_digest", "target_mode", "claim_level", "native_outputs"}
-)
+MANIFEST_KEYS = frozenset({"scenario_id", "package_digest", "claim_level", "native_outputs"})
 
 
 class ParseError(BundleError):

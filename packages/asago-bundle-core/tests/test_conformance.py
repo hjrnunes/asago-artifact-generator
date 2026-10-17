@@ -141,7 +141,6 @@ class FakeAdapter:
             "package_digest": package.manifest.manifest_digest,
             "claim_level": "command_attempt",
             "delivery": "single",
-            "target_mode": "orch_hosted",
             "plugins": ["fake.probe"],
             "requires": [*requires, "repeats"] if "repeats-native" in self.flaws else requires,
             "environment": ["FAKE_API_KEY"],

@@ -14,7 +14,6 @@
     "package_digest",
     "claim_level",
     "delivery",
-    "target_mode",
     "plugins",
     "requires",
     "environment",
@@ -31,7 +30,6 @@
     "package_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "claim_level": {"enum": ["command_attempt", "reply", "state_effect"]},
     "delivery": {"enum": ["single", "sequential"]},
-    "target_mode": {"enum": ["orch_hosted", "tool_hosted"]},
     "plugins": {
       "description": "Tool plugins the bundle loads, in the tool's own naming.",
       "type": "array",

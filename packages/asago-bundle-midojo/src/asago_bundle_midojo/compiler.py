@@ -29,7 +29,6 @@ from .bundle_files.verifier_names import CONDITION_NAME, NEUTRAL_NAME
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "midojo"
 TOOL_REVISION_RANGE = ">=9ceb22e3"
-TARGET_MODE = "orch_hosted"
 COMMAND_ATTEMPT = "command_attempt"
 REPLY = "reply"
 CLAIM_LEVELS = ("command_attempt", "reply", "state_effect")
@@ -189,7 +188,6 @@ def bundle_manifest(package: ArtifactPackage, level: str, requires: list[str]) -
         "package_digest": package.manifest.manifest_digest,
         "claim_level": level,
         "delivery": SINGLE,
-        "target_mode": TARGET_MODE,
         "plugins": [RUBRIC_NAME if reply else CONDITION_NAME, NEUTRAL_NAME],
         "requires": requires,
         "environment": ["OPENAI_API_KEY", JUDGE_KEY] if reply else ["OPENAI_API_KEY"],

@@ -188,6 +188,18 @@ def test_rubric_judge_report(reply_output: Path) -> None:
     assert attempt["observation"]["tool_calls"] == [CALL]
 
 
+def test_a_manifest_that_still_names_the_hosting_mode_parses(command_output: Path) -> None:
+    manifest_file = command_output / "bundle" / "bundle.json"
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    manifest["target_mode"] = "orch_hosted"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+
+    receipt = parse(command_output)
+
+    assert receipt["execution_status"] == "completed"
+    assert "target" not in receipt
+
+
 def test_report_truncated_before_the_finished_attempt(command_output: Path) -> None:
     lines = report_lines(command_output)
     rewrite_report(command_output, lines[: finished_index(lines)])

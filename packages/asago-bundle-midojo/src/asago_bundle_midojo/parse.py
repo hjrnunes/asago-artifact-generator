@@ -50,7 +50,7 @@ JUDGE_OUTCOMES = {
     "unresolved": "inconclusive",
 }
 DIGESTED = (BUNDLE_FILE, SUITE_FILE, *BUNDLE_CODE)
-MANIFEST_KEYS = frozenset({"scenario_id", "package_digest", "target_mode", "claim_level"})
+MANIFEST_KEYS = frozenset({"scenario_id", "package_digest", "claim_level"})
 RUNTIME_LISTS = (
     "processes",
     "network_calls_allowed",
