@@ -179,10 +179,10 @@ def main(runs: Path, sink: Path, out: Path) -> None:
         "sink": {
             "function": "call_body",
             "rule": (
-                "For a failed call, call_body returns the error text (the error's message, "
+                "For a failed call, call_body's result is the error text (the error's message, "
                 "else the error as a string, else the text of an isError result); otherwise it "
-                "returns the MCP result's text blocks joined by newlines, with any non-text "
-                "block written as JSON with sorted keys."
+                "is the MCP result's text blocks joined by newlines, with any non-text block "
+                "written as JSON with sorted keys."
             ),
         },
         "real_source": (

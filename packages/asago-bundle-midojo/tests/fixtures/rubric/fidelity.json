@@ -4026,7 +4026,7 @@
  "real_source": "saved dry-run executes (runs/run-dryrun-*), proxy records paired with Garak captures",
  "sink": {
   "function": "call_body",
-  "rule": "For a failed call, call_body returns the error text (the error's message, else the error as a string, else the text of an isError result); otherwise it returns the MCP result's text blocks joined by newlines, with any non-text block written as JSON with sorted keys."
+  "rule": "For a failed call, call_body's result is the error text (the error's message, else the error as a string, else the text of an isError result); otherwise it is the MCP result's text blocks joined by newlines, with any non-text block written as JSON with sorted keys."
  },
  "synthetic": [
   {
