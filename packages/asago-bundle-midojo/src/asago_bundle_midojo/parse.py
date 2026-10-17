@@ -104,12 +104,6 @@ def parse_bundle(
             "digest": bundle.manifest["package_digest"],
         },
         "bundle_digest": bundle_digest(bundle.root),
-        "target": {
-            "mode": bundle.manifest["target_mode"],
-            "image_digest": None,
-            "policy_digest": None,
-            "sandbox_id": None,
-        },
         "execution_status": "failed" if reason else "completed",
         "runtime_status": None if reason else "completed",
         "incomplete_reason": reason,

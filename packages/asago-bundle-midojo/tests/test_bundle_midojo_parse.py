@@ -71,7 +71,7 @@ def test_a_graded_evaluation_gives_a_completed_receipt(
     assert attempt["judge"] is None
 
 
-def test_the_receipt_names_the_tool_the_package_and_the_target(bundle: Path) -> None:
+def test_the_receipt_names_the_tool_and_the_package(bundle: Path) -> None:
     write_native(bundle)
     manifest = json.loads((bundle / "bundle.json").read_text(encoding="utf-8"))
 
@@ -85,12 +85,6 @@ def test_the_receipt_names_the_tool_the_package_and_the_target(bundle: Path) -> 
     assert receipt["package"] == {
         "id": manifest["scenario_id"],
         "digest": manifest["package_digest"],
-    }
-    assert receipt["target"] == {
-        "mode": "orch_hosted",
-        "image_digest": None,
-        "policy_digest": None,
-        "sandbox_id": None,
     }
 
 

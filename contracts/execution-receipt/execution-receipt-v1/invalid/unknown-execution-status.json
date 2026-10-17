@@ -10,12 +10,6 @@
     "digest": "1111111111111111111111111111111111111111111111111111111111111111"
   },
   "bundle_digest": null,
-  "target": {
-    "mode": "orch_hosted",
-    "image_digest": null,
-    "policy_digest": null,
-    "sandbox_id": null
-  },
   "execution_status": "executed",
   "runtime_status": "completed",
   "incomplete_reason": null,

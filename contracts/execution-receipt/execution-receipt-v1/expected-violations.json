@@ -51,10 +51,6 @@
     "path": "/attempts/0/result/outcome",
     "keyword": "enum"
   },
-  "invalid/unknown-target-mode.json": {
-    "path": "/target/mode",
-    "keyword": "enum"
-  },
   "invalid/uppercase-package-digest.json": {
     "path": "/package/digest",
     "keyword": "pattern"

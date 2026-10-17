@@ -118,7 +118,7 @@ def test_tool_call_condition_report(command_output: Path, tmp_path: Path) -> Non
     digest = load_package(tmp_path / "packages" / "SCN-001").manifest.manifest_digest
     assert receipt["package"] == {"id": "SCN-001", "digest": digest}
     assert len(receipt["bundle_digest"]) == 64
-    assert receipt["target"]["mode"] == "orch_hosted"
+    assert "target" not in receipt
     assert receipt["execution_status"] == "completed"
     assert receipt["runtime_status"] == "completed"
     assert receipt["incomplete_reason"] is None

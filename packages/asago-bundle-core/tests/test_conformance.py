@@ -223,12 +223,6 @@ class FakeAdapter:
                 else manifest["package_digest"],
             },
             "bundle_digest": hashlib.sha256((bundle / "bundle.json").read_bytes()).hexdigest(),
-            "target": {
-                "mode": manifest["target_mode"],
-                "image_digest": None,
-                "policy_digest": None,
-                "sandbox_id": None,
-            },
             "execution_status": "failed" if failed else "completed",
             "runtime_status": None if failed else "completed",
             "incomplete_reason": reason if failed else None,
