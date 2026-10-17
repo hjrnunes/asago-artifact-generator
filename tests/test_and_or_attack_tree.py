@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+from pathlib import Path
 
 from asago_artifact_generator.authoring.attack_tree_outline import and_or_outline
 from asago_artifact_generator.authoring.prompt_context import (
@@ -202,3 +203,67 @@ def test_the_outline_reaches_call1_and_the_plan_correction_but_no_review() -> No
     assert marker in packets["plan_correction"].user
     for stage in ("plan_review", "call2", "artifact_review", "artifact_correction"):
         assert marker not in packets[stage].user, stage
+
+
+_PROMPTS = Path(__file__).resolve().parents[1] / (
+    "src/asago_artifact_generator/authoring/prompts/prompt_context"
+)
+
+
+def _prose(name: str) -> str:
+    return (_PROMPTS / f"{name}.j2").read_text(encoding="utf-8").removesuffix("\n")
+
+
+_FLAT_ADVERSARIAL = _prose("scenario_kind_stimulus_rules/adversarial")
+_AND_OR_ADVERSARIAL = _prose("scenario_kind_stimulus_rules/adversarial_and_or")
+_FUNCTIONAL = _prose("scenario_kind_stimulus_rules/functional")
+_FLAT_PURPOSE = _prose("scenario_design/prompt_view_purpose")
+_AND_OR_PURPOSE = _prose("scenario_design/and_or_prompt_view_purpose")
+
+
+def _with_kind(view, kind: str):
+    payload = copy.deepcopy(view.payload)
+    payload["kind"] = kind
+    return dataclasses.replace(view, payload=payload)
+
+
+def _design_texts(view) -> tuple[str, str, str]:
+    """Return call1's design purpose and stimulus rule, and the plan correction's user text."""
+
+    packets = render_stage_packets("ehr", view=view)
+    call1 = json_section(packets["call1"].user, "SCENARIO DESIGN")
+    return call1["purpose"], call1["stimulus_rule"], packets["plan_correction"].user
+
+
+def test_an_and_or_adversarial_design_speaks_the_outline_terms() -> None:
+    purpose, rule, correction = _design_texts(_and_or_view())
+
+    assert purpose == _AND_OR_PURPOSE
+    assert rule == _AND_OR_ADVERSARIAL
+    assert "attacker plan toward the unsafe action" in rule
+    assert _AND_OR_PURPOSE in correction
+    assert _AND_OR_ADVERSARIAL in correction
+    assert _FLAT_ADVERSARIAL not in correction
+    assert _FLAT_PURPOSE not in correction
+
+
+def test_an_and_or_functional_design_keeps_the_functional_rule() -> None:
+    purpose, rule, correction = _design_texts(_with_kind(_and_or_view(), "functional"))
+
+    assert purpose == _AND_OR_PURPOSE
+    assert rule == _FUNCTIONAL
+    assert _FUNCTIONAL in correction
+    assert _AND_OR_PURPOSE in correction
+
+
+def test_a_flat_tree_keeps_the_actor_node_texts() -> None:
+    flat = world_builders("ehr", "view")[0]()
+    assert flat.payload["kind"] == "adversarial"
+    purpose, rule, correction = _design_texts(flat)
+
+    assert purpose == _FLAT_PURPOSE
+    assert rule == _FLAT_ADVERSARIAL
+    assert _FLAT_ADVERSARIAL in correction
+    assert _FLAT_PURPOSE in correction
+    assert _AND_OR_ADVERSARIAL not in correction
+    assert _AND_OR_PURPOSE not in correction

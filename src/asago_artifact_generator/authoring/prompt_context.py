@@ -498,6 +498,12 @@ _SCENARIO_KIND_STIMULUS_RULES = {
     "adversarial": prose("prompt_context/scenario_kind_stimulus_rules/adversarial"),
     "functional": prose("prompt_context/scenario_kind_stimulus_rules/functional"),
 }
+# An and-or outline names the attacker by attacker lines and attacker_assumption
+# conditions instead of the flat tree's actor_* nodes.
+_AND_OR_SCENARIO_KIND_STIMULUS_RULES = {
+    **_SCENARIO_KIND_STIMULUS_RULES,
+    "adversarial": prose("prompt_context/scenario_kind_stimulus_rules/adversarial_and_or"),
+}
 _SCENARIO_KIND_UNAVAILABLE_RULE = prose("prompt_context/scenario_kind_unavailable_rule")
 
 
@@ -574,13 +580,16 @@ def _scenario_design(view: InputView) -> dict[str, Any]:
     kind = view.payload.get("kind")
     kind_value = kind if isinstance(kind, str) and kind in _SCENARIO_KIND_STIMULUS_RULES else None
     classification = view.payload.get("classification")
+    rules = (
+        _AND_OR_SCENARIO_KIND_STIMULUS_RULES
+        if is_and_or_tree(view.payload.get("attack_tree"))
+        else _SCENARIO_KIND_STIMULUS_RULES
+    )
     return {
         "purpose": prose("prompt_context/scenario_design/purpose"),
         "kind": kind_value if kind_value is not None else "unavailable",
         "stimulus_rule": (
-            _SCENARIO_KIND_STIMULUS_RULES[kind_value]
-            if kind_value is not None
-            else _SCENARIO_KIND_UNAVAILABLE_RULE
+            rules[kind_value] if kind_value is not None else _SCENARIO_KIND_UNAVAILABLE_RULE
         ),
         "classification": (
             deepcopy(classification)
@@ -604,6 +613,7 @@ def _scenario_design_prompt_view(design: Any) -> Any:
     result.pop("classification", None)
     tree = result.get("attack_tree")
     if isinstance(tree, dict) and tree.get("format") == AND_OR_TREE_FORMAT:
+        result["purpose"] = prose("prompt_context/scenario_design/and_or_prompt_view_purpose")
         result["attack_tree"] = {
             "note": prose("prompt_context/scenario_design/and_or_tree_note"),
             "outline": deepcopy(tree.get("outline", [])),

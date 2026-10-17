@@ -228,6 +228,8 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   appears in SCENARIO DESIGN as an indented outline that keeps its AND and OR
   operators, child order, node IDs, and source IDs, with a note on how to read
   it; other scenarios that reach the same hazard collapse into one line. The
+  section's purpose and adversarial stimulus rule then name the outline's
+  attacker lines instead of the flat tree's actor nodes. The
   plan correction (`authoring-correction-v37`) shows the same outline. A flat
   attack tree renders as it did in v23.
 - `authoring-plan-review-v22` reviews a fresh source-derived plan context. It
