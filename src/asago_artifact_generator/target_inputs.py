@@ -382,7 +382,7 @@ def _runtime_context_schema() -> dict[str, Any]:
         lock_label="runtime-context contract lock",
         member_label="runtime-context contract",
         metadata={
-            "authority": "asago-orch",
+            "authority": "asago-artifact-generator",
             "contract": "runtime-context",
             "schema_version": _RUNTIME_CONTEXT_VERSION,
         },

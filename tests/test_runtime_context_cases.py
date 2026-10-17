@@ -1,7 +1,8 @@
 """The mirrored runtime-context-v1 kit: cases, lock, and the loader's error text.
 
-Orch owns ``contracts/runtime-context/``; this repository holds a byte-identical
-mirror that ``load_target_inputs`` validates a runtime-context file against.
+This repository owns ``contracts/runtime-context/``, and ``load_target_inputs``
+validates a runtime-context file against it; the orchestrator keeps a
+byte-identical copy.
 """
 
 from __future__ import annotations
@@ -109,7 +110,7 @@ def test_the_lock_names_the_authority_and_every_file_digest() -> None:
         if path.is_file() and path.name != "CONTRACT.lock"
     }
 
-    assert lock["authority"] == "asago-orch"
+    assert lock["authority"] == "asago-artifact-generator"
     assert lock["contract"] == "runtime-context"
     assert lock["schema_version"] == _VERSION
     assert lock["files"] == files
