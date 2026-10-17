@@ -17,6 +17,12 @@ from ..bindings import (
     validate_bindings,
 )
 from ..input_adapter import InputView, build_scenario_handoff_view
+from .attack_tree_outline import (
+    AND_OR_TREE_FORMAT,
+    and_or_outline,
+    and_or_provenance,
+    is_and_or_tree,
+)
 from .checks import _binding_selector_type, _collect_canonical_prerequisite_findings
 from .contracts import (
     NEUTRAL_ESTABLISHED_OMISSION_OUTCOME_EXAMPLE,
@@ -416,7 +422,15 @@ def _scenario_provenance_index(view: InputView) -> list[dict[str, Any]]:
             }
         add_lineage(tree_lineage, "attack_tree.lineage")
         branches = tree.get("branches")
-        if isinstance(branches, list):
+        if is_and_or_tree(tree):
+            for identifier, node_id in and_or_provenance(tree.get("root")):
+                add(
+                    identifier,
+                    f"named by attack-tree node {node_id}"
+                    if node_id is not None
+                    else "named by an attack-tree node",
+                )
+        elif isinstance(branches, list):
             for branch in branches:
                 walk(branch)
     return [
@@ -496,6 +510,8 @@ def _attack_tree_design(tree: Any) -> dict[str, Any] | str:
 
     if not isinstance(tree, dict):
         return "unavailable: the scenario handoff supplies no attack tree"
+    if is_and_or_tree(tree):
+        return _and_or_tree_design(tree)
     nodes_by_category: dict[str, list[str]] = {}
 
     def describe(node: dict[str, Any]) -> str:
@@ -539,6 +555,19 @@ def _attack_tree_design(tree: Any) -> dict[str, Any] | str:
     return design
 
 
+def _and_or_tree_design(tree: dict[str, Any]) -> dict[str, Any] | str:
+    """Project an ``and-or-tree-v1`` tree as an outline that keeps its operators and order."""
+
+    if not isinstance(tree.get("root"), dict):
+        return "unavailable: the and-or attack tree supplies no root node"
+    design: dict[str, Any] = {"format": AND_OR_TREE_FORMAT}
+    for key in ("framing", "criterion", "loss_scenario", "leaves"):
+        if tree.get(key) is not None:
+            design[key] = deepcopy(tree[key])
+    design["outline"] = and_or_outline(tree["root"])
+    return design
+
+
 def _scenario_design(view: InputView) -> dict[str, Any]:
     """Project the producer's scenario kind and attack tree for plan design."""
 
@@ -574,7 +603,12 @@ def _scenario_design_prompt_view(design: Any) -> Any:
     result["purpose"] = prose("prompt_context/scenario_design/prompt_view_purpose")
     result.pop("classification", None)
     tree = result.get("attack_tree")
-    if isinstance(tree, dict):
+    if isinstance(tree, dict) and tree.get("format") == AND_OR_TREE_FORMAT:
+        result["attack_tree"] = {
+            "note": prose("prompt_context/scenario_design/and_or_tree_note"),
+            "outline": deepcopy(tree.get("outline", [])),
+        }
+    elif isinstance(tree, dict):
         result["attack_tree"] = {
             "note": prose("prompt_context/scenario_design/attack_tree_note"),
             "nodes_by_category": deepcopy(tree.get("nodes_by_category", {})),

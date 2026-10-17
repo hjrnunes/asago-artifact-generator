@@ -25,16 +25,18 @@ from asago_artifact_generator.authoring.core import PromptPacket
 from asago_artifact_generator.input_adapter import load_input
 
 from .prompt_support import STAGES, render_stage_packets
-from .support import OBSERVED_HANDOFF
+from .support import AND_OR_HANDOFF, OBSERVED_HANDOFF
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden" / "prompts"
 MANIFEST_PATH = GOLDEN_DIR / "manifest.json"
 
 # The ehr case renders every stage. The second case renders the plan review for a handoff that
-# carries a tool-call condition, so a first-round review keeps its condition wording.
+# carries a tool-call condition, so a first-round review keeps its condition wording. The third
+# renders the plan author prompt for a handoff whose attack tree is an and-or-tree-v1 outline.
 CASE_STAGES: dict[str, tuple[str, ...]] = {
     "ehr": STAGES,
     "ehr-observed-condition": ("plan_review",),
+    "ehr-and-or-tree": ("call1",),
 }
 
 
@@ -46,6 +48,8 @@ def rendered_packets(case: str) -> dict[str, PromptPacket]:
         packets = render_stage_packets("ehr")
     elif case == "ehr-observed-condition":
         packets = render_stage_packets("ehr", view=load_input(OBSERVED_HANDOFF))
+    elif case == "ehr-and-or-tree":
+        packets = render_stage_packets("ehr", view=load_input(AND_OR_HANDOFF))
     else:
         raise KeyError(case)
     return {stage: packets[stage] for stage in CASE_STAGES[case]}
