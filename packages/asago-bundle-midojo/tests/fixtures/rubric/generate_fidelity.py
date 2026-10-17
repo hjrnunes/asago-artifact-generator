@@ -2,9 +2,9 @@
 
 usage: <garak venv python> generate_fidelity.py RUNS_DIR SINK_MODULE OUT.json
 
-``RUNS_DIR`` is orch's ``runs/`` directory and ``SINK_MODULE`` the path of
-``midojo_sink.py`` in an orch checkout. Run it with the Garak interpreter (orch's
-``.runtime/garak/venv``), read-only. It writes two groups of cases, each holding the
+``RUNS_DIR`` is the orchestrator's ``runs/`` directory and ``SINK_MODULE`` the path of the
+orchestrator's MiDojo sink module, the one that defines ``call_body``. Run it with the
+orchestrator's Garak interpreter, read-only. It writes two groups of cases, each holding the
 MCP result the recording proxy saw, the body the sink's ``call_body`` makes of it
 (executed from that source), and the value Garak's judge evidence holds for the same call:
 
@@ -177,10 +177,13 @@ def main(runs: Path, sink: Path, out: Path) -> None:
         "version": 1,
         "garak_function": "garak.detectors.toolcall.normalise_tool_call",
         "sink": {
-            "repository": "asago-orch",
-            "branch": "w5/d5-o-sink",
-            "module": "asago_orch/qualification/boundary/midojo_sink.py",
             "function": "call_body",
+            "rule": (
+                "For a failed call, call_body returns the error text (the error's message, "
+                "else the error as a string, else the text of an isError result); otherwise it "
+                "returns the MCP result's text blocks joined by newlines, with any non-text "
+                "block written as JSON with sorted keys."
+            ),
         },
         "real_source": (
             "saved dry-run executes (runs/run-dryrun-*), proxy records paired with Garak captures"

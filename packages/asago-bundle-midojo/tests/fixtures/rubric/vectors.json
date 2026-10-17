@@ -431,10 +431,8 @@
   "revision": "968cc22418160415f1d712f5c7cb54fbb9592098"
  },
  "sink": {
-  "branch": "w5/d5-o-sink",
   "function": "call_body",
-  "module": "asago_orch/qualification/boundary/midojo_sink.py",
-  "repository": "asago-orch"
+  "rule": "For a failed call, call_body returns the error text (the error's message, else the error as a string, else the text of an isError result); otherwise it returns the MCP result's text blocks joined by newlines, with any non-text block written as JSON with sorted keys."
  },
  "vectors": {
   "assess": [
