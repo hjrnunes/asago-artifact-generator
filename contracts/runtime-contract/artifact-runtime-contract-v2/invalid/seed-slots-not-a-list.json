@@ -1,0 +1,36 @@
+{
+  "schema_version": "artifact-runtime-contract-v2",
+  "authoring_transports": {
+    "discovery": "unavailable",
+    "judge": "unavailable",
+    "setup": "unavailable",
+    "target": "unavailable"
+  },
+  "delivery": [
+    "direct_user_message"
+  ],
+  "limits": {
+    "detector_timeout_seconds": 10,
+    "generation_timeout_seconds": 180,
+    "max_planned_turns": 4,
+    "max_turns": 8
+  },
+  "observation": {},
+  "setup_permissions": [],
+  "target_access": "downstream_only",
+  "seed_slots": {
+    "orders.order.item": {
+      "id": "orders.order.item",
+      "carrier_operation": "lookup_order",
+      "field": "item",
+      "controller": "third_party",
+      "content_kind": "order_content",
+      "records": [
+        "order-1",
+        "order-2"
+      ],
+      "max_chars": 2000,
+      "mode": "replace"
+    }
+  }
+}

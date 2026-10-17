@@ -1,0 +1,90 @@
+{
+  "invalid/claim-level-unknown.json": {
+    "path": "/observation/claim_levels/1",
+    "keyword": "enum"
+  },
+  "invalid/delivery-repeated.json": {
+    "path": "/delivery",
+    "keyword": "uniqueItems"
+  },
+  "invalid/delivery-unknown.json": {
+    "path": "/delivery/1",
+    "keyword": "enum"
+  },
+  "invalid/delivery-without-direct-message.json": {
+    "path": "/delivery",
+    "keyword": "contains"
+  },
+  "invalid/limits-boolean-timeout.json": {
+    "path": "/limits/detector_timeout_seconds",
+    "keyword": "type"
+  },
+  "invalid/limits-missing-max-planned-turns.json": {
+    "path": "/limits",
+    "keyword": "required"
+  },
+  "invalid/limits-zero-turns.json": {
+    "path": "/limits/max_turns",
+    "keyword": "minimum"
+  },
+  "invalid/missing-schema-version.json": {
+    "path": "/",
+    "keyword": "required"
+  },
+  "invalid/old-schema-version.json": {
+    "path": "/schema_version",
+    "keyword": "const"
+  },
+  "invalid/seed-slots-not-a-list.json": {
+    "path": "/seed_slots",
+    "keyword": "type"
+  },
+  "invalid/setup-permission-blank.json": {
+    "path": "/setup_permissions/0",
+    "keyword": "minLength"
+  },
+  "invalid/slot-blank-id.json": {
+    "path": "/seed_slots/0/id",
+    "keyword": "minLength"
+  },
+  "invalid/slot-max-chars-text.json": {
+    "path": "/seed_slots/0/max_chars",
+    "keyword": "type"
+  },
+  "invalid/slot-max-chars-zero.json": {
+    "path": "/seed_slots/0/max_chars",
+    "keyword": "minimum"
+  },
+  "invalid/slot-missing-max-chars.json": {
+    "path": "/seed_slots/0",
+    "keyword": "required"
+  },
+  "invalid/slot-missing-mode.json": {
+    "path": "/seed_slots/0",
+    "keyword": "required"
+  },
+  "invalid/slot-mode-unknown.json": {
+    "path": "/seed_slots/0/mode",
+    "keyword": "enum"
+  },
+  "invalid/slot-record-not-text.json": {
+    "path": "/seed_slots/0/records/0",
+    "keyword": "type"
+  },
+  "invalid/slot-unknown-key.json": {
+    "path": "/seed_slots/0",
+    "keyword": "additionalProperties"
+  },
+  "invalid/target-access-direct.json": {
+    "path": "/target_access",
+    "keyword": "const"
+  },
+  "invalid/transport-available.json": {
+    "path": "/authoring_transports/target",
+    "keyword": "const"
+  },
+  "invalid/unknown-top-level-key.json": {
+    "path": "/",
+    "keyword": "additionalProperties"
+  }
+}

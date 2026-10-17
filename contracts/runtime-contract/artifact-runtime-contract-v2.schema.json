@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asago.local/contracts/runtime-contract/artifact-runtime-contract-v2.schema.json",
+  "title": "artifact-runtime-contract-v2",
+  "description": "What downstream execution offers a package: the deliveries it can send, its turn and time limits, the setup operations it may run, what it observes during a run, and the target's seed slots. Authoring is target-free, so this contract is all it knows about execution. The orchestrator writes one contract per target, and generate --runtime-contract validates the file against this schema before any model request.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "authoring_transports",
+    "delivery",
+    "limits",
+    "observation",
+    "setup_permissions",
+    "target_access"
+  ],
+  "properties": {
+    "schema_version": {"const": "artifact-runtime-contract-v2"},
+    "authoring_transports": {
+      "description": "The connections authoring has. Each is unavailable: authoring never reaches discovery, a judge, setup, or the target.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discovery", "judge", "setup", "target"],
+      "properties": {
+        "discovery": {"const": "unavailable"},
+        "judge": {"const": "unavailable"},
+        "setup": {"const": "unavailable"},
+        "target": {"const": "unavailable"}
+      }
+    },
+    "delivery": {
+      "description": "How execution can send the stimulus: one direct user message, sequential user turns, or a planted item that the target returns from a tool call. Every contract offers the direct user message.",
+      "type": "array",
+      "uniqueItems": true,
+      "contains": {"const": "direct_user_message"},
+      "items": {"enum": ["direct_user_message", "sequential_user_turns", "planted_item"]}
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "detector_timeout_seconds",
+        "generation_timeout_seconds",
+        "max_planned_turns",
+        "max_turns"
+      ],
+      "properties": {
+        "detector_timeout_seconds": {"$ref": "#/$defs/positive_integer"},
+        "generation_timeout_seconds": {"$ref": "#/$defs/positive_integer"},
+        "max_planned_turns": {
+          "description": "The most user turns a package may plan.",
+          "$ref": "#/$defs/positive_integer"
+        },
+        "max_turns": {"$ref": "#/$defs/positive_integer"}
+      }
+    },
+    "observation": {
+      "description": "What execution captures during a run. Without claim_levels, a package may claim only command_attempt or reply.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "assistant_messages": {"type": "object"},
+        "tool_calls": {"type": "object"},
+        "transport": {"type": "object"},
+        "claim_levels": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["command_attempt", "reply", "returned_result", "state_effect"]}
+        }
+      }
+    },
+    "setup_permissions": {
+      "description": "The target operations a package may run as setup before the stimulus.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "target_access": {"const": "downstream_only"},
+    "seed_slots": {
+      "description": "The fields of the target's records that can hold the text of a planted_item delivery.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/seed_slot"}
+    }
+  },
+  "$defs": {
+    "positive_integer": {"type": "integer", "minimum": 1},
+    "seed_slot": {
+      "description": "One field of the target's records that can hold planted text, and how the target writes the text there.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "carrier_operation",
+        "field",
+        "controller",
+        "content_kind",
+        "records",
+        "max_chars",
+        "mode"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "carrier_operation": {
+          "description": "The operation whose result returns the field to the agent.",
+          "type": "string",
+          "minLength": 1
+        },
+        "field": {
+          "description": "Where the planted text sits in the carrier's result.",
+          "type": "string",
+          "minLength": 1
+        },
+        "controller": {
+          "description": "Who could have written the field, in the scenario-handoff's terms.",
+          "type": "string",
+          "minLength": 1
+        },
+        "content_kind": {
+          "description": "What the field holds, in the scenario-handoff's terms.",
+          "type": "string",
+          "minLength": 1
+        },
+        "records": {
+          "description": "The records whose field can hold the planted text.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "max_chars": {
+          "description": "The most characters of planted text the target accepts in this field.",
+          "$ref": "#/$defs/positive_integer"
+        },
+        "mode": {
+          "description": "How the target writes the planted text: replace swaps the field's text for it; append adds it after the field's text, which keeps a record that is found by words in its text findable.",
+          "enum": ["replace", "append"]
+        }
+      }
+    }
+  }
+}
