@@ -10,12 +10,6 @@
     "digest": null
   },
   "bundle_digest": null,
-  "target": {
-    "mode": "orch_hosted",
-    "image_digest": null,
-    "policy_digest": null,
-    "sandbox_id": null
-  },
   "execution_status": "incomplete",
   "runtime_status": null,
   "incomplete_reason": "prerequisite_value_mismatch",

@@ -118,7 +118,7 @@ def test_tool_call_condition_report(command_output: Path, tmp_path: Path) -> Non
     digest = load_package(tmp_path / "packages" / "SCN-001").manifest.manifest_digest
     assert receipt["package"] == {"id": "SCN-001", "digest": digest}
     assert len(receipt["bundle_digest"]) == 64
-    assert receipt["target"]["mode"] == "orch_hosted"
+    assert "target" not in receipt
     assert receipt["execution_status"] == "completed"
     assert receipt["runtime_status"] == "completed"
     assert receipt["incomplete_reason"] is None
@@ -186,6 +186,18 @@ def test_rubric_judge_report(reply_output: Path) -> None:
         "reason": "judge_completed",
     }
     assert attempt["observation"]["tool_calls"] == [CALL]
+
+
+def test_a_manifest_that_still_names_the_hosting_mode_parses(command_output: Path) -> None:
+    manifest_file = command_output / "bundle" / "bundle.json"
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    manifest["target_mode"] = "orch_hosted"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+
+    receipt = parse(command_output)
+
+    assert receipt["execution_status"] == "completed"
+    assert "target" not in receipt
 
 
 def test_report_truncated_before_the_finished_attempt(command_output: Path) -> None:

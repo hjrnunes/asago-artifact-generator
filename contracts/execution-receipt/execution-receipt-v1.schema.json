@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://asago.local/contracts/execution-receipt/execution-receipt-v1.schema.json",
   "title": "execution-receipt-v1",
-  "description": "What one tool observed when it executed one authored package against one target. Orch writes it beside the tool's native receipt and score reads it. One attempt per repeat; each attempt records its turns (requests and responses), its observation and where that evidence came from, its runtime observations, its detections, and its judge.",
+  "description": "What one tool observed when it executed one authored package against one target. The orchestrator writes it beside the tool's native receipt and score reads it. One attempt per repeat; each attempt records its turns (requests and responses), its observation and where that evidence came from, its runtime observations, its detections, and its judge.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,7 +10,6 @@
     "tool",
     "package",
     "bundle_digest",
-    "target",
     "execution_status",
     "runtime_status",
     "incomplete_reason",
@@ -39,17 +38,6 @@
       }
     },
     "bundle_digest": {"$ref": "#/$defs/optional_sha256"},
-    "target": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["mode", "image_digest", "policy_digest", "sandbox_id"],
-      "properties": {
-        "mode": {"enum": ["orch_hosted", "tool_hosted"]},
-        "image_digest": {"$ref": "#/$defs/optional_sha256"},
-        "policy_digest": {"$ref": "#/$defs/optional_sha256"},
-        "sandbox_id": {"$ref": "#/$defs/optional_text"}
-      }
-    },
     "execution_status": {"enum": ["completed", "failed", "incomplete"]},
     "runtime_status": {
       "description": "Whether the target runtime started and finished: not_started means the tool never reached the target.",

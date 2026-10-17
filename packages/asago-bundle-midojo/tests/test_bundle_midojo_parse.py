@@ -71,7 +71,7 @@ def test_a_graded_evaluation_gives_a_completed_receipt(
     assert attempt["judge"] is None
 
 
-def test_the_receipt_names_the_tool_the_package_and_the_target(bundle: Path) -> None:
+def test_the_receipt_names_the_tool_and_the_package(bundle: Path) -> None:
     write_native(bundle)
     manifest = json.loads((bundle / "bundle.json").read_text(encoding="utf-8"))
 
@@ -85,12 +85,6 @@ def test_the_receipt_names_the_tool_the_package_and_the_target(bundle: Path) -> 
     assert receipt["package"] == {
         "id": manifest["scenario_id"],
         "digest": manifest["package_digest"],
-    }
-    assert receipt["target"] == {
-        "mode": "orch_hosted",
-        "image_digest": None,
-        "policy_digest": None,
-        "sandbox_id": None,
     }
 
 
@@ -461,6 +455,18 @@ def test_a_bundle_manifest_missing_keys_raises(bundle: Path) -> None:
 
     with pytest.raises(ParseError, match="lacks"):
         parse_bundle(bundle, bundle / "receipt.json")
+
+
+def test_a_manifest_that_still_names_the_hosting_mode_parses(bundle: Path) -> None:
+    write_native(bundle)
+    manifest = json.loads((bundle / "bundle.json").read_text(encoding="utf-8"))
+    manifest["target_mode"] = "orch_hosted"
+    (bundle / "bundle.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    receipt = receipt_of(bundle)
+
+    assert receipt["execution_status"] == "completed"
+    assert "target" not in receipt
 
 
 def test_a_native_file_outside_the_receipt_directory_raises(bundle: Path, tmp_path: Path) -> None:

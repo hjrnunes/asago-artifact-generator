@@ -35,7 +35,6 @@ def test_command_attempt_bundle_manifest(command_package: Path, tmp_path: Path) 
     assert manifest["package_id"] == "SCN-001-SCN-001"
     assert manifest["scenario_id"] == "SCN-001"
     assert manifest["package_digest"] == load_package(command_package).manifest.manifest_digest
-    assert manifest["target_mode"] == "orch_hosted"
     assert manifest["claim_level"] == "command_attempt"
     assert manifest["delivery"] == "single"
     assert manifest["plugins"] == ["injection.IndirectInjection", "toolcall.ToolCallCondition"]

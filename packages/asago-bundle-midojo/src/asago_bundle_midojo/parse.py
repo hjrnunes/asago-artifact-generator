@@ -50,7 +50,7 @@ JUDGE_OUTCOMES = {
     "unresolved": "inconclusive",
 }
 DIGESTED = (BUNDLE_FILE, SUITE_FILE, *BUNDLE_CODE)
-MANIFEST_KEYS = frozenset({"scenario_id", "package_digest", "target_mode", "claim_level"})
+MANIFEST_KEYS = frozenset({"scenario_id", "package_digest", "claim_level"})
 RUNTIME_LISTS = (
     "processes",
     "network_calls_allowed",
@@ -104,12 +104,6 @@ def parse_bundle(
             "digest": bundle.manifest["package_digest"],
         },
         "bundle_digest": bundle_digest(bundle.root),
-        "target": {
-            "mode": bundle.manifest["target_mode"],
-            "image_digest": None,
-            "policy_digest": None,
-            "sandbox_id": None,
-        },
         "execution_status": "failed" if reason else "completed",
         "runtime_status": None if reason else "completed",
         "incomplete_reason": reason,

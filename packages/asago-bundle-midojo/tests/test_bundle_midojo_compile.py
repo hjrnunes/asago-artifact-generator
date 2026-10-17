@@ -35,13 +35,14 @@ def test_the_manifest_names_the_tool_and_the_claim(template: Path) -> None:
     assert manifest["tool_revision_range"] == ">=9ceb22e3"
     assert manifest["claim_level"] == "command_attempt"
     assert manifest["delivery"] == "single"
-    assert manifest["target_mode"] == "orch_hosted"
     assert manifest["plugins"] == ["asago_tool_call_condition", "asago_neutral"]
     assert manifest["environment"] == ["OPENAI_API_KEY"]
     assert manifest["templates"] == {"suite": "suite.template.json"}
 
 
-def test_the_manifest_leaves_repeats_to_orch_and_has_no_phases_object(template: Path) -> None:
+def test_the_manifest_leaves_repeats_to_the_orchestrator_and_has_no_phases_object(
+    template: Path,
+) -> None:
     manifest = manifest_of(template)
 
     assert "repeats" not in manifest
