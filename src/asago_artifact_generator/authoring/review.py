@@ -27,7 +27,11 @@ from .core import (
     _sha256,
 )
 from .inventory import _selected_refs
-from .planted_item import PLAN_REVIEW_RECORD_KEY, plan_review_record_sections
+from .planted_item import (
+    PLAN_REVIEW_RECORD_KEY,
+    plan_review_record_sections,
+    runtime_contract_for_prompt,
+)
 from .prompt_context import (
     _authoritative_context,
     _discriminating_condition_rule,
@@ -479,7 +483,7 @@ def build_artifact_reviewer_context(
         "authoritative_context": authoritative_context,
         "plan_field_meanings": PLAN_FIELD_MEANINGS,
         "accepted_plan": deepcopy(plan),
-        "runtime_contract": deepcopy(runtime_contract),
+        "runtime_contract": runtime_contract_for_prompt(runtime_contract),
         "candidate_artifact": deepcopy(metadata),
         "resolved_runtime_context": {
             "binding_declarations": deepcopy(plan.get("runtime_bindings", [])),

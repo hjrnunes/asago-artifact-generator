@@ -70,6 +70,9 @@ _EXAMPLE_PLANTED_TEXT = (
 # the lookup working; replacing the body can make the carrier stop returning it.
 APPEND_CONTENT_KINDS = frozenset({"policy_document"})
 _SLOT_TEXT_FIELDS = ("id", "carrier_operation", "field", "controller", "content_kind")
+# The rule block states the length limit and write mode of the slot a package uses,
+# so the model's copies of the runtime contract leave both out of every slot.
+_SLOT_WRITE_FIELDS = frozenset({"max_chars", "mode"})
 
 
 @dataclass(frozen=True)
@@ -90,6 +93,21 @@ def seed_slots(runtime_contract: dict[str, Any]) -> list[dict[str, Any]]:
 
     listed = runtime_contract.get("seed_slots")
     return [slot for slot in listed if _well_formed(slot)] if isinstance(listed, list) else []
+
+
+def runtime_contract_for_prompt(runtime_contract: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of the runtime contract for a prompt: its slots without max_chars and mode."""
+
+    contract = deepcopy(runtime_contract)
+    listed = contract.get("seed_slots")
+    if isinstance(listed, list):
+        contract["seed_slots"] = [
+            {key: value for key, value in slot.items() if key not in _SLOT_WRITE_FIELDS}
+            if isinstance(slot, dict)
+            else slot
+            for slot in listed
+        ]
+    return contract
 
 
 def _well_formed(slot: Any) -> bool:

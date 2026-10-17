@@ -24,8 +24,12 @@ from asago_artifact_generator.authoring.planted_item import (
     MAX_PLANTED_CHARS,
     VERBATIM_RUN,
     planted_item_findings,
+    runtime_contract_for_prompt,
 )
-from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
+from asago_artifact_generator.authoring.prompt_context import (
+    build_artifact_author_context,
+    build_plan_author_context,
+)
 from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
@@ -53,6 +57,7 @@ from .support import (
 )
 from .turn_support import (
     ASKS,
+    CARRIER_SLOT,
     PLANTED,
     PLANTED_ITEM,
     indirect_inventory,
@@ -135,6 +140,67 @@ def test_every_packet_of_an_indirect_handoff_carries_the_block(tmp_path: Path) -
         assert "INDIRECT SHAPE" in packet.user, stage
         assert json_section(packet.user, "INDIRECT SHAPE")["delivery"] == PLANTED_ITEM, stage
         assert "MULTI-TURN SHAPE" not in packet.user, stage
+
+
+def _seed_slot_lists(user: str) -> list[Any]:
+    """Return every ``seed_slots`` array a rendered prompt holds, wherever it sits."""
+
+    decoder = json.JSONDecoder()
+    found = []
+    start = user.find('"seed_slots":')
+    while start >= 0:
+        value, end = decoder.raw_decode(user, user.index("[", start))
+        found.append(value)
+        start = user.find('"seed_slots":', end)
+    return found
+
+
+def test_every_request_shows_the_seed_slots_without_their_limit_and_mode(
+    tmp_path: Path,
+) -> None:
+    view, inventory, rt, plan, metadata = setup(tmp_path)
+    assert all({"max_chars", "mode"} <= set(slot) for slot in rt["seed_slots"])
+
+    def correction(failed_stage: str, accepted_plan: Any) -> PromptPacket:
+        context = (
+            build_plan_author_context(view, inventory, rt)
+            if accepted_plan is None
+            else build_artifact_author_context(view, accepted_plan, inventory, rt)
+        )
+        payload = build_correction_context(
+            failed_stage=failed_stage,
+            original_context={**context, **multi_turn_payload(view, rt, accepted_plan)},
+            current_output=b"{}",
+            findings=[],
+        )
+        return _render_correction_packet(payload, correction_repair_inputs(view, inventory, rt))
+
+    packets = {
+        "call1": build_call1_packet_v2(view, inventory, rt),
+        "call2": build_call2_packet_v2(view, plan, inventory, rt),
+        "plan_review": build_plan_review_packet(view, plan, inventory, rt),
+        "artifact_review": build_artifact_review_packet(view, plan, metadata, inventory, rt),
+        "plan_correction": correction("call1", None),
+        "artifact_correction": correction("call2", plan),
+    }
+
+    shown = {"id", "carrier_operation", "field", "controller", "content_kind", "records"}
+    for stage, packet in packets.items():
+        lists = _seed_slot_lists(packet.user)
+        assert lists, stage
+        assert all(set(slot) == shown for slots in lists for slot in slots), stage
+        assert "max_chars" not in packet.user, stage
+
+
+def test_the_prompt_copy_leaves_the_supplied_contract_and_unreadable_slots_as_they_are() -> None:
+    runtime = {"delivery": [PLANTED_ITEM], "seed_slots": [CARRIER_SLOT, "slot", None]}
+
+    shown = runtime_contract_for_prompt(runtime)
+
+    assert shown["seed_slots"][1:] == ["slot", None]
+    assert "mode" not in shown["seed_slots"][0]
+    assert runtime["seed_slots"][0] is CARRIER_SLOT and "mode" in CARRIER_SLOT
+    assert runtime_contract_for_prompt({"delivery": []}) == {"delivery": []}
 
 
 def test_the_block_and_the_plan_contract_name_the_planted_item_delivery(
