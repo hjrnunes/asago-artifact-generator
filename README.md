@@ -668,7 +668,8 @@ failed scenario shows its terminal reason with a one-line meaning from
 every request in order. A before-and-after panel appears only when both
 reviewed candidates hash to their recorded digests. The page links to the
 generate report when `<scenarios>/../report/index.html` exists. The HTML kit
-under `report_kit/` mirrors orch's `report-kit` contract byte for byte.
+under `report_kit/` mirrors the scenario generator's `report-kit` contract byte
+for byte; the orchestrator keeps the same copy.
 
 ### Runtime bindings
 
