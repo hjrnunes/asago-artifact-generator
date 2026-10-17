@@ -3,8 +3,8 @@
   "readers": {
     "producer": "producer: model_profiles.load_profile, resolve_llm_client_from_profile, LLMClient",
     "consumer": "consumer: profiles.load_authoring_profile, cli._transport_options, PrivateModelAuthoringTransport",
-    "orch-gateway": "orch: qualification/model_profiles.read_profile_settings (gateway and judge)",
-    "orch-client": "orch: qualification/model_runtime.LLMClient built by resolve_llm_client_from_profile"
+    "orch-gateway": "orchestrator: the profile reader of the OGX gateway and the semantic judge",
+    "orch-client": "orchestrator: the model client of the capture workflow's query planner"
   },
   "fields": [
     {
@@ -103,7 +103,7 @@
           "x"
         ]
       ],
-      "note": "Orch defaults an absent key to 'unused' (intended difference I1)."
+      "note": "The orchestrator defaults an absent key to 'unused' (intended difference I1)."
     },
     {
       "name": "context_window",

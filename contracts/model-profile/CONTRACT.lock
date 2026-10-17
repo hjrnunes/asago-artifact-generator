@@ -2,10 +2,10 @@
   "authority": "asago-scenario-generator",
   "contract": "model-profile",
   "files": {
-    "model-profile-v1/fields.json": "2a932b34fc278cc23e14690c801df4ebf5ee6a197e0438d770c9c96a6e69f1b3",
-    "model-profile-v1/request-cases.json": "41c5fdd4041c02e15ea72b4040d0b6347357bc0d0a23890d0c9d4ca82b37daee",
-    "model-profile-v1/README.md": "e8533ceb82b6e956fb36f86f41b80bfb9b0ff283a7a16f06f966f0bdbe3563cb",
-    "model-profile-v1/load-cases.json": "8f8f698592c4cfe43f87354f64096ed9250ace903c0dfc0768f85dc6e064f0fd"
+    "model-profile-v1/fields.json": "69d3456c4f0eb4a10bbc6f876dd8a9554b0ec0bf792299b6237c751dfeb5b1eb",
+    "model-profile-v1/request-cases.json": "ebf15cc68902cd9798076bff80b8076940af052800dfc4f51ab003f580644cd0",
+    "model-profile-v1/README.md": "21bb0fa2588b17940a52de527c35e200b309ef44a47550f0c7e73e57a18c09f9",
+    "model-profile-v1/load-cases.json": "fabfd615d363314b5ff5ce1afa2741fc8cc3ace81e43200f7594c9c11e2c4eaf"
   },
   "version": "model-profile-v1"
 }
