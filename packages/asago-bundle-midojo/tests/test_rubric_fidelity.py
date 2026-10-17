@@ -1,8 +1,8 @@
 """The judge's evidence holds the tool results Garak's evidence would hold.
 
-MiDojo's control plane stores the string orch's sink makes of each MCP tool result
-(``call_body``: the text blocks joined by a newline, the error text for a failed call).
-Garak's evidence holds ``normalise_tool_call(call)["result"]``, the JSON the model's
+MiDojo's control plane stores the string the orchestrator's sink makes of each MCP tool
+result (``call_body``: the text blocks joined by a newline, the error text for a failed
+call). Garak's evidence holds ``normalise_tool_call(call)["result"]``, the JSON the model's
 captured ``output`` decodes to. ``fixtures/rubric/fidelity.json`` pairs the two, with the
 sink and Garak functions run on each case by ``generate_fidelity.py``.
 

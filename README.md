@@ -539,8 +539,8 @@ Use
 `asago_artifact_generator.target_inputs.load_target_inputs` to validate the
 producer profile, verify its semantic digest, map observed tools to
 operations, infer fact schemas, and record discovery provenance. When you
-supply a `runtime-context.json`, the loader checks it against the mirrored
-orch-owned `contracts/runtime-context/` schema (`runtime-context-v1`) and
+supply a `runtime-context.json`, the loader checks it against this
+repository's own `contracts/runtime-context/` schema (`runtime-context-v1`) and
 reports the first fault as `at <location>: <keyword>` without repeating the
 value. A missing-key fault lists the missing keys, and an unknown-key fault
 lists the unknown keys (sorted, at most 10, each cut to 64 characters). Three checks stay in code because they compare documents: each read's
@@ -668,7 +668,8 @@ failed scenario shows its terminal reason with a one-line meaning from
 every request in order. A before-and-after panel appears only when both
 reviewed candidates hash to their recorded digests. The page links to the
 generate report when `<scenarios>/../report/index.html` exists. The HTML kit
-under `report_kit/` mirrors orch's `report-kit` contract byte for byte.
+under `report_kit/` mirrors the scenario generator's `report-kit` contract byte
+for byte; the orchestrator keeps the same copy.
 
 ### Runtime bindings
 

@@ -4025,10 +4025,8 @@
  "real_skipped_outputs": 16,
  "real_source": "saved dry-run executes (runs/run-dryrun-*), proxy records paired with Garak captures",
  "sink": {
-  "branch": "w5/d5-o-sink",
   "function": "call_body",
-  "module": "asago_orch/qualification/boundary/midojo_sink.py",
-  "repository": "asago-orch"
+  "rule": "For a failed call, call_body's result is the error text (the error's message, else the error as a string, else the text of an isError result); otherwise it is the MCP result's text blocks joined by newlines, with any non-text block written as JSON with sorted keys."
  },
  "synthetic": [
   {

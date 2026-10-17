@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "stage-summary-v1.schema.json",
   "title": "Asago stage summary v1",
-  "description": "What a stage owner writes to report/stage-summary.json beside its report. Orch builds the stage cards and the per-scenario stage cells from it, so the owner chooses each label.",
+  "description": "What a stage owner writes to report/stage-summary.json beside its report. The orchestrator builds the stage cards and the per-scenario stage cells from it, so the owner chooses each label.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "stage", "owner", "status", "report", "headline", "alerts", "items"],

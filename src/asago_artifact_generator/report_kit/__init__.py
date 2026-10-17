@@ -1,11 +1,11 @@
 """Asago report kit v1: helpers that render static, offline HTML reports.
 
-Orch is the authority for this directory (``src/asago_orch/report_kit/``); the
-producer and the consumer mirror it byte for byte, so this module imports only
-the standard library (Python 3.11 or later). Every helper returns ``Markup``:
-plain text it receives is escaped, and ``Markup`` it receives is trusted.
-Rendering reads no clock, environment, or random source, so the same inputs
-give the same bytes.
+The scenario generator is the authority for this directory; the artifact
+generator and the orchestrator mirror it byte for byte, so this module imports
+only the standard library (Python 3.11 or later). Every helper returns
+``Markup``: plain text it receives is escaped, and ``Markup`` it receives is
+trusted. Rendering reads no clock, environment, or random source, so the same
+inputs give the same bytes.
 """
 
 from __future__ import annotations

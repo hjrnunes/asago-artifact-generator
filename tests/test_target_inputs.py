@@ -474,6 +474,27 @@ def test_a_tampered_runtime_context_kit_is_rejected(tmp_path: Path, monkeypatch)
         load_target_inputs(profile, observations)
 
 
+def test_a_runtime_context_lock_naming_another_authority_is_rejected(
+    tmp_path: Path, monkeypatch
+) -> None:
+    kit = tmp_path / "runtime-context"
+    shutil.copytree(target_inputs._RUNTIME_CONTEXT_ROOT, kit)
+    lock = json.loads((kit / "CONTRACT.lock").read_text(encoding="utf-8"))
+    (kit / "CONTRACT.lock").write_text(
+        json.dumps({**lock, "authority": "other"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(target_inputs, "_RUNTIME_CONTEXT_ROOT", kit)
+    profile = tmp_path / "profile.json"
+    _write_profile(profile)
+    observations = tmp_path / "runtime-context.json"
+    _write_observations(observations, _profile_digest(profile))
+
+    with pytest.raises(
+        TargetInputError, match="^runtime-context contract lock metadata is invalid$"
+    ):
+        load_target_inputs(profile, observations)
+
+
 def test_target_observations_must_be_an_object(tmp_path: Path) -> None:
     profile = tmp_path / "profile.json"
     _write_profile(profile)

@@ -138,7 +138,7 @@
           "loaded": true
         }
       },
-      "note": "Orch defaults an absent key to 'unused' (I1)."
+      "note": "The orchestrator defaults an absent key to 'unused' (I1)."
     },
     {
       "id": "null-api-key",
@@ -189,7 +189,7 @@
           "not_found": true
         }
       },
-      "note": "A file with a top-level 'profiles' mapping: consumer and orch read it, the producer reads only the flat file (I7). The test writes BASE under profiles.p.",
+      "note": "A file with a top-level 'profiles' mapping: the consumer and the orchestrator read it, the producer reads only the flat file (I7). The test writes BASE under profiles.p.",
       "file_shape": "nested"
     },
     {

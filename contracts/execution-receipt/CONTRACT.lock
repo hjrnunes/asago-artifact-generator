@@ -1,5 +1,5 @@
 {
-  "authority": "asago-orch",
+  "authority": "asago-artifact-generator",
   "contract": "execution-receipt",
   "schema_version": "execution-receipt-v1",
   "files": {

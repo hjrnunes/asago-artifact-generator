@@ -237,7 +237,7 @@
           ]
         }
       },
-      "note": "The consumer ignores the profile's enable_thinking (I4) and merges the penalty into its role body. Orch and the producer send the strict schema."
+      "note": "The consumer ignores the profile's enable_thinking (I4) and merges the penalty into its role body. The orchestrator and the producer send the strict schema."
     },
     {
       "id": "penalty-alone",

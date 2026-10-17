@@ -2,13 +2,12 @@
 
 usage: <garak venv python> generate_vectors.py GARAK_CHECKOUT_REVISION SINK_MODULE OUT.json
 
-``SINK_MODULE`` is the path of ``midojo_sink.py`` in an orch checkout. Run it with the
-Garak interpreter (orch's ``.runtime/garak/venv``), read-only: it imports
+``SINK_MODULE`` is the path of the orchestrator's MiDojo sink module, the one that defines
+``call_body``. Run it with the orchestrator's Garak interpreter, read-only: it imports
 ``garak.detectors.rubric_judge`` and ``garak.detectors.toolcall`` and writes nothing into
 the environment. No request leaves the process: the judge generator's ``create`` is
 replaced by a recorder, and the sink rule that turns an MCP tool result into the string
-MiDojo's control plane stores is executed from the source of
-``asago_orch/qualification/boundary/midojo_sink.py`` (orch branch ``w5/d5-o-sink``).
+MiDojo's control plane stores is executed from that module's source.
 
 Four vector groups, each case holding inputs and Garak's output:
 
@@ -490,10 +489,13 @@ def main(revision: str, sink: Path, out: Path) -> None:
             "detector": "RubricJudge._judge_output",
         },
         "sink": {
-            "repository": "asago-orch",
-            "branch": "w5/d5-o-sink",
-            "module": "asago_orch/qualification/boundary/midojo_sink.py",
             "function": "call_body",
+            "rule": (
+                "For a failed call, call_body's result is the error text (the error's message, "
+                "else the error as a string, else the text of an isError result); otherwise it "
+                "is the MCP result's text blocks joined by newlines, with any non-text block "
+                "written as JSON with sorted keys."
+            ),
         },
         "evidences": evidence_cases(),
         "vectors": {

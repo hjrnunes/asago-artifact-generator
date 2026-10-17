@@ -59,7 +59,8 @@ line-length = 99
 src = ["src", "tests", "scripts", "packages/asago-bundle-core/src", "packages/asago-bundle-garak/src", "packages/asago-bundle-midojo/src"]
 
 [tool.ruff.format]
-# The report kit is a byte-for-byte mirror of orch's copy, formatted by orch's settings.
+# The report kit is a byte-for-byte mirror of the scenario generator's copy, formatted by the
+# scenario generator's settings.
 exclude = ["src/asago_artifact_generator/report_kit/*"]
 
 [tool.ruff.lint]

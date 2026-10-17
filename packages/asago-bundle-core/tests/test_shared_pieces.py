@@ -64,11 +64,11 @@ def test_the_error_base_is_a_value_error() -> None:
     assert isinstance(AdapterError("x"), BundleError)
 
 
-def test_exit_codes_keep_orchs_numbers() -> None:
+def test_exit_codes_keep_the_orchestrators_numbers() -> None:
     assert (EXIT_OK, EXIT_INPUT, EXIT_CAPABILITY_GAP) == (0, 1, 3)
 
 
-def test_the_gap_record_has_the_seven_fields_orch_reads() -> None:
+def test_the_gap_record_has_the_seven_fields_the_orchestrator_reads() -> None:
     package = SimpleNamespace(
         manifest=SimpleNamespace(
             package_id="SCN-001-SCN-001", scenario_id="SCN-001", manifest_digest="ab" * 32

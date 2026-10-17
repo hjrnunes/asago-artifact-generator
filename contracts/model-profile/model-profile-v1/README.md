@@ -26,8 +26,8 @@ table and its cases), then each reader.
 | --- | --- |
 | `producer` | `model_profiles.load_profile`, `resolve_llm_client_from_profile`, `LLMClient` |
 | `consumer` | `profiles.load_authoring_profile`, `cli._transport_options` and `_request_body`, `PrivateModelAuthoringTransport` |
-| `orch-gateway` | `qualification/model_profiles.read_profile_settings` (the OGX gateway and the judge) |
-| `orch-client` | `qualification/model_runtime.LLMClient`, built by `resolve_llm_client_from_profile` (capture's planner) |
+| `orch-gateway` | The orchestrator's profile reader of the OGX gateway and the semantic judge |
+| `orch-client` | The orchestrator's model client of the capture workflow's query planner |
 
 A reader accepts every field in the table and uses only the fields in its
 `used_by` list. Each repository's test runs the cases for its own readers.
@@ -49,11 +49,11 @@ A reader accepts every field in the table and uses only the fields in its
 - **Numbers** are finite. Booleans, strings and floats never stand in for an
   integer.
 - **File shape.** The producer reads a flat mapping of profile names. The
-  consumer and orch also read a mapping nested under `profiles`.
+  consumer and the orchestrator also read a mapping nested under `profiles`.
 - **Loaded value.** The loaded value of a used field is the profile value, or
   the default when the entry omits it. `headers` loads as the producer's
-  `extra_headers` and orch's `headers`; the producer adds the OpenRouter headers
-  only for an `openrouter.ai` URL, which no case uses.
+  `extra_headers` and the orchestrator's `headers`; the producer adds the
+  OpenRouter headers only for an `openrouter.ai` URL, which no case uses.
 
 ## Request rules
 
@@ -77,13 +77,13 @@ and replaces `response_format` with its `type`, `name` and `strict` entries.
 
 | Id | Difference |
 | --- | --- |
-| I1 | Orch defaults an absent `api_key` to `unused`. |
+| I1 | The orchestrator defaults an absent `api_key` to `unused`. |
 | I2 | The consumer redacts connection values in `repr`. |
 | I3 | Consumer authoring sends the transport's temperature (0.0), not the profile's. |
 | I4 | The consumer sets thinking per role (author and review bodies send `enable_thinking: false`) and ignores `enable_thinking`, `top_p`, `top_k`, `seed`, `headers`, `use_guided_decoding`, `json_schema_strict` and `safety_margin` in a request. |
 | I5 | The consumer has no call-site cap. A review fills the remaining context when the profile cap is at most 8192, and is capped at the profile cap when it is larger. The case number depends on the consumer's prompt estimate for the texts `S` and `U`. |
 | I6 | `orch-gateway` uses only `base_url`, `model` and `api_key`. |
-| I7 | The consumer and orch read a nested `profiles` mapping; the producer does not. |
+| I7 | The consumer and the orchestrator read a nested `profiles` mapping; the producer does not. |
 | I8 | The producer fills an absent field from its `ASAGO_SCENARIO_GENERATOR_*` variables. The cases run with them unset. |
 
 ## Call parameters

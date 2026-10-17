@@ -1,5 +1,5 @@
 {
-  "authority": "asago-orch",
+  "authority": "asago-artifact-generator",
   "contract": "runtime-context",
   "schema_version": "runtime-context-v1",
   "files": {
@@ -32,6 +32,6 @@
     "runtime-context-v1/valid/null-reads.json": "52a134c6955e03a19bec06b571c504a2f02047685567d8e8a118eefaad510c24",
     "runtime-context-v1/valid/reads-without-bookkeeping.json": "a303ccc5142cfd57df4db30e5f983a7e3d9113f9098ffb5465aee00b3f328968",
     "runtime-context-v1/valid/writer-complete.json": "fccaf97e152d9f65a482fe49868fcef591151dde03c4e84f1cc0de025ae8c981",
-    "runtime-context-v1.schema.json": "f772a0c152985e97a75617b27bfe7918500b419390f2ae54fd07218a1f401c23"
+    "runtime-context-v1.schema.json": "b5102d2546bdb099e478a25895bf0ced65eeb44a5e3bf5f3f43ec90fc378f5a8"
   }
 }

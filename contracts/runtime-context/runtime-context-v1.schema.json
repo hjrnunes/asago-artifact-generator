@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://asago.local/contracts/runtime-context/runtime-context-v1.schema.json",
   "title": "runtime-context-v1",
-  "description": "What orch's discover stage captures from a live target: the target's state, the reads taken through the profile's tools, and the digest of the target profile they pair with. The document carries no version field, because the producer rejects unknown top-level keys; the version lives in this file's name and the lock. Two checks compare documents and stay in code: each read's profile_digest equals the top-level target_profile_digest, and the top-level digest equals the target profile's semantic_digest with every read's tool_name a profile tool.",
+  "description": "What the orchestrator's discover stage captures from a live target: the target's state, the reads taken through the profile's tools, and the digest of the target profile they pair with. The document carries no version field, because the producer rejects unknown top-level keys; the version lives in this file's name and the lock. Two checks compare documents and stay in code: each read's profile_digest equals the top-level target_profile_digest, and the top-level digest equals the target profile's semantic_digest with every read's tool_name a profile tool.",
   "type": "object",
   "additionalProperties": false,
   "required": ["state", "target_profile_digest"],
