@@ -231,7 +231,14 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   section's purpose and adversarial stimulus rule then name the outline's
   attacker lines instead of the flat tree's actor nodes. The
   plan correction (`authoring-correction-v37`) shows the same outline. A flat
-  attack tree renders as it did in v23.
+  attack tree renders as it did in v23. A v5 handoff that carries an
+  `attack-path-v1` `attack_path` instead of a tree appears in SCENARIO DESIGN as
+  an outline of the attacker lines and then numbered parts (conditions, attack
+  steps in order, unsafe action, observable failure, hazard with its losses),
+  with its own note. Every text that names the tree (the purpose, the stimulus
+  rules, the EVIDENCE REFERENCES rules, the response contract descriptions, and
+  the correction texts) names the attack path instead, and the path's node and
+  source IDs are citable provenance.
 - `authoring-plan-review-v22` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
