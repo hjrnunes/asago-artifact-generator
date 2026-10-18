@@ -201,3 +201,34 @@ def test_a_package_records_a_v5_input_kind_and_rejects_an_unknown_one(tmp_path: 
 
     with pytest.raises(PackageIntegrityError):
         write_package(tmp_path / "v9", package("scenario-handoff-v9"))
+
+
+@pytest.mark.parametrize(
+    "name", ["adversarial-stated-beliefs.json", "functional-stated-belief.json"]
+)
+def test_a_stated_belief_and_its_variable_reach_the_structured_analysis(
+    name: str,
+) -> None:
+    view = load_input(_KIT / "valid" / name)
+
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V5
+    factors = _case_meaning(view)["structured_analysis"]["causal_factors"]
+    assert factors == view.payload["causal_factors"]
+    assert all(
+        factor["process_model_belief"] and factor["process_model_variable"]["description"]
+        for factor in factors
+    )
+    packets = render_stage_packets("ehr", view=view)
+    rendered = json_section(packets["call1"].user, "TASK")["scenario"]["structured_analysis"]
+    assert rendered["causal_factors"] == factors
+
+
+def test_a_variable_gap_reaches_the_structured_analysis_with_a_null_id() -> None:
+    view = load_input(_KIT / "valid" / "adversarial-stated-beliefs.json")
+
+    [gap] = [
+        factor["process_model_variable"]
+        for factor in _case_meaning(view)["structured_analysis"]["causal_factors"]
+        if factor["process_model_variable"]["id"] is None
+    ]
+    assert gap["description"] == "Whether the user confirmed the change"

@@ -305,6 +305,21 @@
   "invalid/v5-causal-factor-blank-flaw.json": [
     "schema_violation:causal_factors"
   ],
+  "invalid/v5-causal-factor-variable-blank-description.json": [
+    "schema_violation:causal_factors"
+  ],
+  "invalid/v5-causal-factor-variable-id-missing.json": [
+    "schema_violation:causal_factors"
+  ],
+  "invalid/v5-causal-factor-variable-id-not-pm.json": [
+    "schema_violation:causal_factors"
+  ],
+  "invalid/v5-causal-factor-variable-not-object.json": [
+    "schema_violation:causal_factors"
+  ],
+  "invalid/v5-causal-factor-variable-unknown-field.json": [
+    "schema_violation:causal_factors"
+  ],
   "invalid/v5-causal-factors-empty.json": [
     "schema_violation:causal_factors"
   ],

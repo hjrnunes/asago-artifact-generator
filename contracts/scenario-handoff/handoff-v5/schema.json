@@ -510,6 +510,18 @@
           "pattern": "\\S",
           "title": "Flaw",
           "type": "string"
+        },
+        "process_model_variable": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HandoffProcessModelVariable"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Present when process_model_belief states the controller's flawed belief: the variable that holds it, or a gap (id null) whose description names the variable the controller would need."
         }
       },
       "required": [
@@ -811,6 +823,36 @@
         "channel"
       ],
       "title": "HandoffProcedureStep",
+      "type": "object"
+    },
+    "HandoffProcessModelVariable": {
+      "additionalProperties": false,
+      "description": "The process-model variable that holds a stated flawed belief.\n\n``id`` is ``null`` for a gap: no variable of the selected path holds the\nbelief, and ``description`` describes the variable the controller would\nneed.",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^PM-\\d+-\\d+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Id"
+        },
+        "description": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "description"
+      ],
+      "title": "HandoffProcessModelVariable",
       "type": "object"
     },
     "HandoffRule": {

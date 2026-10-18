@@ -1,6 +1,6 @@
 {
   "content_sha256": {
-    "expected-violations.json": "dcf61bec0490b87c02b1e1e9f3743d782a03e31f1432b8b4193a5bfe77883d28",
+    "expected-violations.json": "f112c2b4012e3a29690345892d4aff25e3114fed9aa6d8f8e3daa861708ff99e",
     "invalid/narrative-role-serialization.json": "e2c91f566a85975a963e97983ac7b2bcec457c15d89e69e28f774296028a4fa9",
     "invalid/narrative-turn-array.json": "bad9a4154b03c76c2312e9041186f151f4c470393c0b16af0b39b34bb67cf1ee",
     "invalid/ownership-deliver-this-message.json": "843df5902f0a17bcf3de9211d2992c213af29eaea4557a90c44672423cfb691b",
@@ -100,6 +100,11 @@
     "invalid/v5-actor-on-functional.json": "099d3c8d05b9d73ee42289b95d88c8a6beb05b7edd656cc40416ee79d69bda68",
     "invalid/v5-causal-factor-belief-missing.json": "0c3187b7b8f4859fcbeae5548a8898b9b7e0b27eb27ffb09c306fd0ca9905e61",
     "invalid/v5-causal-factor-blank-flaw.json": "d9d20f2d5189aa73950b854ae06c250f6c2facce3628253c54c23e7f2da3be2d",
+    "invalid/v5-causal-factor-variable-blank-description.json": "baf3bc6384e87dc94559dbd24953c862a3a57717891640034d90c81cc558d697",
+    "invalid/v5-causal-factor-variable-id-missing.json": "63b8e41d46fcbea82e15d9802600248367b95fdfd98370ede93540ae671cf5da",
+    "invalid/v5-causal-factor-variable-id-not-pm.json": "7c8cb6cdef732bb15b63e33a33c0a23f925ab429d55d55a8736a9192f12c6b27",
+    "invalid/v5-causal-factor-variable-not-object.json": "ac502814f3a7ed1476a01ec829e7d566613ba6016f035db05caf42f64fde4212",
+    "invalid/v5-causal-factor-variable-unknown-field.json": "981cdf90f1d45070337992abc893ab4e991e9f0f2736b42dd7d2708567306de9",
     "invalid/v5-causal-factors-empty.json": "33e16df65560951b88f915d832bd4aa5a0260d71927875071c93ea38250b4cc7",
     "invalid/v5-fields-under-v4-version.json": "f28ca24e7f85d9b2130be4246ca6b1d0619c98ea76dd9d19182280c995b89e0b",
     "invalid/v5-preconditions-not-text.json": "fe5b83bde6fa527054a86946413037f57d84b4e57ce9011d62475b0c929d51f7",
@@ -120,7 +125,7 @@
     "invalid/v5-uca-unknown-field.json": "84d8790178543a95ae6018d62ee254a9991e0a31a2fc128135958f55e11a594f",
     "invalid/v5-worst-case-threat-blank.json": "a927af995123d60e1863041a63ad6df1d71459a2250324adde7d580e92cd627f",
     "invalid/v5-worst-case-threat-missing.json": "02d5599f7eb9f59322cbf3b798b2bcd208d51fb155329bc5b9102f88bc40b569",
-    "schema.json": "a487eb2d177579b20eb67db7d6859429b76deb6526bc9beacb1e6f802eb1a768",
+    "schema.json": "8c39bf542fabc549c3f17ff4662b8254800dab72880af6d8387e8becfc42da5d",
     "valid/adversarial-condition-omitted.json": "ea28fb7f8793d79b2acb5e152e574517aff68cc30db9eacab101ec901034c34d",
     "valid/adversarial-direct-multi-turn.json": "27725eb16f5dcd11555a019535cba53d098f6c3a6980e44e6bd3a6e668db35af",
     "valid/adversarial-direct-single.json": "505eb7eb85b192b1d6781c3e1c224ecf3dc6d1309d8fd24a539505113ae67957",
@@ -129,10 +134,12 @@
     "valid/adversarial-indirect-listing.json": "c59e782a4ca6483c87687d9affeeb95ea2db82a7aede4e7d8c08eea1a80329da",
     "valid/adversarial-indirect-policy-operator.json": "09fc9b84c211722f4c33c8be7d86818c387560507f8ad824b096a08e6505cd33",
     "valid/adversarial-observed-record.json": "271bc1a485f67e737375f248d447fba4fe8524a7f8825eb5bfc3b21d73b8138a",
+    "valid/adversarial-stated-beliefs.json": "bf304253b5f09448f67ceb5f0ca117cde4d9ec84d46fd128a84b0eac669c7e82",
     "valid/analytical-only.json": "5466b460d820f0857049d31affec84407b7f841babaae83eda53276959720306",
     "valid/functional-not-called.json": "83e8f75dbcd916ea11c62c0b3ff659c7938ba58a565480ae141fdadce6f97c98",
     "valid/functional-null-shape.json": "9c90111db0e17c6b7e374ed16c1a7168c382f2fced13ffc17b5a7e9babc204ec",
-    "valid/functional-record-unavailable.json": "acdd56955ac11814617ba1da1f25895ec2ac6362d571be6126fc77344d5ac295"
+    "valid/functional-record-unavailable.json": "acdd56955ac11814617ba1da1f25895ec2ac6362d571be6126fc77344d5ac295",
+    "valid/functional-stated-belief.json": "d2cfa8903b2e88aace4da74d4124f310e7e7a6704334ec9c98d7c42800d0ecb5"
   },
   "handoff_digests": {
     "valid/adversarial-condition-omitted.json": "e27ef63995803933cb389d979de9cafd0c35dc848e20b250d2810435de9626f0",
@@ -143,9 +150,11 @@
     "valid/adversarial-indirect-listing.json": "50a740cd8c46bd58c0b327a674c72b961af8e1c1bec982ab4087ea9caf6a2b47",
     "valid/adversarial-indirect-policy-operator.json": "437bc3ad17c1a137571a05a6864fb19003e4454e043aa1dcb720019fe1655f0f",
     "valid/adversarial-observed-record.json": "492f01718f4bb8987a4ebec7861f6aa41e710e92570a62ffd9e6244d5caed45e",
+    "valid/adversarial-stated-beliefs.json": "150c8539c0ccf23d7a51fcf5b41fa09adcf41eaee70e8fcc88cb058c6ae1bd97",
     "valid/analytical-only.json": "ae8338ea90a2783150ee8e93ce5193ed58b47adbe3ce5adbec9119924ecb8b5b",
     "valid/functional-not-called.json": "83231322af1a77228b40fa4343eaf1347e8456576f88d4db31883f353fcbd098",
     "valid/functional-null-shape.json": "98707fe5095549217581d241ef29236cf4eab3a732e615eb20a12327a1c8be41",
-    "valid/functional-record-unavailable.json": "b1cf5b26aa57bd648b636ec12f0faa57f09020ba1d5ecafc480309f03fe8b050"
+    "valid/functional-record-unavailable.json": "b1cf5b26aa57bd648b636ec12f0faa57f09020ba1d5ecafc480309f03fe8b050",
+    "valid/functional-stated-belief.json": "00bb774103be73b8af6ce788522911afc3243fe0c2f377cec56859406d7b2851"
   }
 }
