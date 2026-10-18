@@ -90,6 +90,8 @@ CARRIER_SLOT = {
     "controller": "third_party",
     "content_kind": "order_content",
     "records": ["ORD-101", "ORD-102"],
+    "max_chars": 2000,
+    "mode": "replace",
 }
 LISTING_SLOT = {
     "id": "airbnb.listing.title",
@@ -98,6 +100,8 @@ LISTING_SLOT = {
     "controller": "counterparty",
     "content_kind": "listing_content",
     "records": ["LST-101", "LST-104"],
+    "max_chars": 2000,
+    "mode": "replace",
 }
 PLANTED_ITEM = "planted_item"
 

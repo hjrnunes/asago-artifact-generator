@@ -5,7 +5,7 @@
     "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",
     "plan.json": "{\"runtime_contract\":{\"setup_permissions\":[]}}\n",
     "prerequisites.json": "[]\n",
-    "seed.json": "{\"schema_version\":\"mini-agents-seed-v1\",\"items\":[]}\n",
+    "seed.json": "{\"schema_version\":\"artifact-seed-v1\",\"carrier_operation\":\"read_record\",\"items\":[{\"slot\":\"records.note\",\"record_ref\":\"REC-1\",\"mode\":\"replace\",\"content\":\"Planted text.\"}]}\n",
     "setup.json": "[]\n",
     "stimulus.json": "{\"user_text\":\"hello\",\"history\":[],\"mode\":\"single\",\"turn_count\":1}\n",
     "tool_call_condition.json": "{\n  \"comparisons\": []\n}\n"
@@ -19,7 +19,7 @@
       "model": "configured-private-authoring"
     },
     "input_kind": "scenario-handoff-v4",
-    "manifest_digest": "bdf83d102233bee9b246acdd3b399f31762892ffd859f1af275e183d09f429e4",
+    "manifest_digest": "ab5eb5263111c9c372c6706136819a9010e3193e93daa97a0a5a4cf00aed83ac",
     "members": [
       {
         "length": 3,
@@ -46,10 +46,10 @@
         "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
       },
       {
-        "length": 52,
+        "length": 170,
         "media_type": "application/json",
         "path": "seed.json",
-        "sha256": "fbbff6c31283e5aede5fa9237ac4c063e591e75a396c60e2c52120ebaae15af0"
+        "sha256": "9986ad5570a238439803a1481b919527d76ac93d11b938336e6c91aa6f8ba52c"
       },
       {
         "length": 3,

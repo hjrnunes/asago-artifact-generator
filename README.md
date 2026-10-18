@@ -379,7 +379,10 @@ handoff:
 - `scenario-handoff-v4` JSON or YAML for scenario meaning.
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional `runtime-context.json` (`runtime-context-v1`, written by the orchestrator's discover stage) for state and read observations.
-- A target-free runtime contract.
+- A target-free runtime contract (`artifact-runtime-contract-v2`). `generate`
+  checks it against this repository's `contracts/runtime-contract/` schema and
+  lock before any model request and stops at the first fault in path order:
+  `runtime contract schema invalid at <path>: <reason>`.
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
 vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and
@@ -400,8 +403,9 @@ break confined to `attack_shape` raises the subclass `ShapeVersionMalformed`.
 
 A v4 handoff carries `attack_shape`: the channel, the number of user turns (1
 to 4) and each turn's purpose, never attack text, or null for a functional
-scenario. `InputView.attack_shape` returns it. The consumer authors only
-`direct` shapes. A `direct`
+scenario. `InputView.attack_shape` returns it. The consumer authors `direct`
+shapes, and `indirect` shapes when the runtime contract lists the
+`planted_item` delivery. A `direct`
 shape with more than one turn is authored as sequential user turns: the plan
 states one intent per turn, Call 2 writes the earlier turns as `history` and the
 last as `user_text`, and code checks `1 + len(history) == turn_count`. The
@@ -414,6 +418,22 @@ contract lists no matching `delivery`, such as `planted_item` for `indirect`),
 (more turns than `limits.max_planned_turns`, default 4). A v4 handoff whose
 `attack_shape` breaks the vendored schema or its cross-field rules is refused
 at load with `shape_version_malformed`.
+
+An `indirect` shape puts the attack text in a record that a carrier operation
+returns to the agent, and every user turn stays benign. Code picks the seed slot
+from the runtime contract's `seed_slots`: a slot of the shape's carrier, of the
+shape's content kind when one matches. Each slot states `max_chars`, the most
+characters of planted text the target accepts, and `mode`, how the target
+writes the text into the field: `replace` swaps the field's text for it, and
+`append` adds it after the field's text. A slot without a positive `max_chars`
+and a known `mode` carries nothing. Before any model request, the shape gate
+refuses an indirect shape with `shape_carrier_not_exposed` when the inventory
+lacks the carrier, and with `shape_seed_slot_unavailable` when no usable slot
+carries it. Call 2 returns the text as `planted_text`. The rule block, the
+Call 2 schema, and the artifact correction state the chosen slot's limit, and
+the planted-text check applies it; the model's copies of the runtime contract
+omit `max_chars` and `mode`. The package's `seed.json` carries the text and the
+slot's `mode`.
 
 When an `indirect` shape names no record (`record_ref` is null) and the runtime
 contract's seed slot lists records, the plan names the record that holds the
@@ -563,11 +583,20 @@ Each package carries the scoring input for its plan's claim level:
 - `judge.json` holds the semantic judge specification and its resolved facts.
   Only a `reply` package carries it, and that package requires it.
 
+An `indirect` package also carries `seed.json` (`artifact-seed-v1`): the
+carrier operation and one item that names the seed slot, the record, the
+slot's `mode`, and the planted text as `content`.
+`contracts/artifact-package/artifact-seed-v1/schema.json` defines the format.
+The schema states no length limit, because the slot's `max_chars` bounds the
+text.
+
 The writer writes and the loader reads only `artifact-package-v4`.
 
 The version directory also holds the contract's cases: `valid/` packages every
 reader must load, `invalid/` packages every reader must reject, and
 `expected-violations.json`, which names each invalid case's stable code.
+`artifact-seed-v1/` holds the seed schema's cases the same way, except that
+each invalid seed's entry names the path and keyword where it fails first.
 `metadata-policy.json` lists the manifest metadata the closed secret policy
 accepts and rejects. Each case is one JSON file holding the manifest and the
 package files as text. `scripts/gen_artifact_package_cases.py` writes the cases

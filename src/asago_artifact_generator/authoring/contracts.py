@@ -265,8 +265,14 @@ def _semantic_judge_spec_schema(plan: dict[str, Any] | None = None) -> dict[str,
     }
 
 
-def _call2_contract_v2(plan: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Return the strict contract for the single-object Call 2 wire."""
+def _call2_contract_v2(
+    plan: dict[str, Any] | None = None, *, planted_max_chars: int | None = None
+) -> dict[str, Any]:
+    """Return the strict contract for the single-object Call 2 wire.
+
+    ``planted_max_chars`` is the limit of the seed slot that carries the planted text,
+    or None when the artifact plants no text.
+    """
 
     contract = {
         "interface_version": AUTHORING_INTERFACE_VERSION_V2,
@@ -330,7 +336,7 @@ def _call2_contract_v2(plan: dict[str, Any] | None = None) -> dict[str, Any]:
         contract["semantic_judge_spec_rules"] = deepcopy(_SEMANTIC_JUDGE_SPEC_RULES)
     if _plan_example_capture_mode(plan) != "none":
         contract["example_capture_meaning"] = CAPTURE_MEANING
-    return with_planted_text_field(contract, plan)
+    return with_planted_text_field(contract, plan, planted_max_chars)
 
 
 def _plan_example_capture_mode(plan: dict[str, Any] | None) -> str:

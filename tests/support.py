@@ -167,23 +167,21 @@ def _framed(name: str, metadata: dict | None) -> bytes:
 MINIMAL_TARGET_PROFILE = (
     _ROOT / "contracts" / "target-profile" / "target-profile-v1" / "valid" / "minimal.json"
 )
+MINIMAL_RUNTIME_CONTRACT = (
+    _ROOT
+    / "contracts"
+    / "runtime-contract"
+    / "artifact-runtime-contract-v2"
+    / "valid"
+    / "minimal.json"
+)
 
 
 def target_inputs(tmp_path: Path) -> tuple[Path, Path]:
     profile = tmp_path / "execution-target-profile.json"
     shutil.copyfile(MINIMAL_TARGET_PROFILE, profile)
     runtime_contract = tmp_path / "runtime-contract.json"
-    runtime_contract.write_text(
-        json.dumps(
-            {
-                "delivery": ["direct_user_message"],
-                "observation": {},
-                "setup_permissions": [],
-                "limits": {"max_turns": 1},
-            }
-        ),
-        encoding="utf-8",
-    )
+    shutil.copyfile(MINIMAL_RUNTIME_CONTRACT, runtime_contract)
     return profile, runtime_contract
 
 

@@ -1,0 +1,12 @@
+{
+  "carrier_operation": "read_record",
+  "items": [
+    {
+      "content": "Planted text.",
+      "mode": "prepend",
+      "record_ref": "REC-1",
+      "slot": "records.note"
+    }
+  ],
+  "schema_version": "artifact-seed-v1"
+}

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -5,6 +6,9 @@ import typer
 from typer.testing import CliRunner, Result
 
 from asago_artifact_generator import cli
+
+from .cli_helpers import PlainCliRunner
+from .support import target_inputs
 
 _HANDOFF = Path(__file__).resolve().parent / "fixtures" / "handoffs" / "refund-bound.json"
 
@@ -64,3 +68,36 @@ def test_generate_rejects_a_target_profile_it_cannot_load(
 
     assert result.exit_code == 2
     assert "Invalid value for p.json: target profile must be an object" in result.output
+
+
+def test_generate_rejects_a_runtime_contract_that_breaks_its_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    profile, runtime = target_inputs(tmp_path)
+    contract = json.loads(runtime.read_text(encoding="utf-8"))
+    runtime.write_text(json.dumps({**contract, "target_access": "direct"}), encoding="utf-8")
+    calls: list[object] = []
+
+    result = PlainCliRunner().invoke(
+        cli.app,
+        [
+            "generate",
+            str(_HANDOFF),
+            "--target-profile",
+            profile.name,
+            "--runtime-contract",
+            runtime.name,
+            "--profile",
+            "unused",
+        ],
+        obj=lambda **options: calls.append(options),
+    )
+
+    assert result.exit_code == 2
+    assert (
+        f"Invalid value for {runtime.name}: runtime contract schema invalid at target_access: "
+        "'downstream_only' was expected"
+    ) in result.output
+    assert calls == []
+    assert not Path("runs").exists()

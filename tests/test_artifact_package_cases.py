@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError
 
 from asago_artifact_generator.authoring.core import AuthoringError
 from asago_artifact_generator.authoring.prompt_safety import assert_no_secrets
@@ -29,6 +31,7 @@ from asago_artifact_generator.package_io import (
 _REPO = Path(__file__).resolve().parents[1]
 _ROOT = _REPO / "contracts" / "artifact-package"
 _VERSIONS = ("artifact-package-v4",)
+_SEED = "artifact-seed-v1"
 _MESSAGES = {
     "manifest_not_object": r"^package manifest must be an object$",
     "manifest_fields_invalid": r"^package manifest fields invalid ",
@@ -139,6 +142,52 @@ def test_the_reader_rejects_every_invalid_case_with_its_code(tmp_path: Path, cas
         load_package(_materialize(case, tmp_path / "package"))
 
     assert re.search(_MESSAGES[code], str(raised.value)), (code, str(raised.value))
+
+
+def _first_seed_error(document: Any) -> ValidationError | None:
+    schema = _json(_ROOT / _SEED / "schema.json")
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(document),
+        key=lambda error: tuple(str(part) for part in error.path),
+    )
+    return errors[0] if errors else None
+
+
+def test_the_seed_schema_is_a_valid_draft_2020_12_schema() -> None:
+    Draft202012Validator.check_schema(_json(_ROOT / _SEED / "schema.json"))
+
+
+@pytest.mark.parametrize("case", _cases(_SEED, "valid"), ids=lambda case: case.stem)
+def test_every_valid_seed_case_passes_the_seed_schema(case: Path) -> None:
+    assert _first_seed_error(_json(case)) is None
+
+
+def test_every_invalid_seed_case_names_its_violation() -> None:
+    expected = _json(_ROOT / _SEED / "expected-violations.json")
+
+    assert set(expected) == {f"invalid/{case.name}" for case in _cases(_SEED, "invalid")}
+
+
+@pytest.mark.parametrize("case", _cases(_SEED, "invalid"), ids=lambda case: case.stem)
+def test_each_invalid_seed_case_fails_first_at_the_expected_location(case: Path) -> None:
+    expected = _json(_ROOT / _SEED / "expected-violations.json")[f"invalid/{case.name}"]
+
+    error = _first_seed_error(_json(case))
+
+    assert error is not None
+    assert "/" + "/".join(str(part) for part in error.path) == expected["path"]
+    assert error.validator == expected["keyword"]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [case for version in _VERSIONS for case in _cases(version, "valid")],
+    ids=lambda case: f"{case.parent.parent.name}/{case.stem}",
+)
+def test_the_seed_member_of_every_valid_package_follows_the_seed_schema(case: Path) -> None:
+    seed = json.loads(_json(case)["files"]["seed.json"])
+
+    assert _first_seed_error(seed) is None
 
 
 _POLICY = _json(_ROOT / "metadata-policy.json")

@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-import yaml
 
 from .authoring.core import (
     AUTHORING_CONTEXT_WINDOW_TOKENS,
@@ -21,10 +20,10 @@ from .authoring.core import (
 from .authoring.orchestrator import AuthoringOrchestrator
 from .authoring.policy import AuthoringPolicy, AuthoringResult
 from .authoring.transport import PrivateModelAuthoringTransport
-from .contract_kit import parse_document
 from .input_adapter import InputSourceError, load_input
 from .profiles import AuthoringProfile, ProfileLoadError, load_authoring_profile
 from .report.author_report import write_report
+from .runtime_contract import RuntimeContractError, load_runtime_contract
 from .target_inputs import TargetInputError, load_target_inputs
 
 app = typer.Typer(
@@ -162,7 +161,10 @@ def generate(
         )
     except TargetInputError as exc:
         raise typer.BadParameter(str(exc), param_hint=str(target_profile)) from None
-    runtime_data = _load_mapping(runtime_contract, "runtime contract")
+    try:
+        runtime_data = load_runtime_contract(runtime_contract)
+    except RuntimeContractError as exc:
+        raise typer.BadParameter(str(exc), param_hint=str(runtime_contract)) from None
     stable_task_id = task_id or view.scenario_id
     try:
         connection = load_authoring_profile(profiles_file, profile)
@@ -279,16 +281,6 @@ def _report_result(result: AuthoringResult) -> None:
         for finding in result.findings:
             typer.echo(f"{finding.code}: {finding.detail}", err=True)
         raise typer.Exit(1)
-
-
-def _load_mapping(path: Path, label: str) -> dict:
-    try:
-        document = parse_document(path, path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, yaml.YAMLError) as exc:
-        raise typer.BadParameter(f"cannot read {label}: {exc}", param_hint=str(path)) from exc
-    if not isinstance(document, dict):
-        raise typer.BadParameter(f"{label} must be an object", param_hint=str(path))
-    return document
 
 
 if __name__ == "__main__":

@@ -9,6 +9,11 @@ reader runs the same cases: ``valid/`` cases must load, and each
 metadata the closed policy accepts, and rejected metadata with the exact
 violation paths.
 
+``artifact-seed-v1/`` holds the cases of the seed member's schema, each one
+seed document: ``valid/`` cases pass its ``schema.json``, and each
+``invalid/`` case fails first at the path and keyword that its
+``expected-violations.json`` names. Every package case carries a valid seed.
+
 ``binding-cases/`` holds hand-written binding conformance cases: binding
 declarations, the inventory and stimulus they apply to, and the expected outcome
 of each binding check. Authoring and execute run them through their own
@@ -32,6 +37,18 @@ CONTRACT_ROOT = Path(__file__).resolve().parents[1] / "contracts" / "artifact-pa
 V4 = "artifact-package-v4"
 BINDING_CASES = "binding-cases"
 _HANDOFF_V4 = "scenario-handoff-v4"
+SEED = "artifact-seed-v1"
+_SEED_ITEM = {
+    "slot": "records.note",
+    "record_ref": "REC-1",
+    "mode": "replace",
+    "content": "Planted text.",
+}
+_SEED_DOCUMENT = {
+    "schema_version": SEED,
+    "carrier_operation": "read_record",
+    "items": [_SEED_ITEM],
+}
 _CONDITION = '{\n  "comparisons": []\n}\n'
 _V4_FILES = {
     "plan.json": '{"runtime_contract":{"setup_permissions":[]}}\n',
@@ -41,7 +58,7 @@ _V4_FILES = {
     "prerequisites.json": "[]\n",
     "inputs.json": '{"runtime_contract":{},"inventory":{}}\n',
     "tool_call_condition.json": _CONDITION,
-    "seed.json": '{"schema_version":"mini-agents-seed-v1","items":[]}\n',
+    "seed.json": json.dumps(_SEED_DOCUMENT, separators=(",", ":")) + "\n",
 }
 _AUTHORING = {"interface": "artifact-authoring-v1", "max_retries": 0}
 _CREATION_MODEL = {"model": "configured-private-authoring"}
@@ -459,6 +476,55 @@ def _json_text(value: Any) -> str:
     return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
+def _seed(**changes: Any) -> dict[str, Any]:
+    return {**copy.deepcopy(_SEED_DOCUMENT), **changes}
+
+
+def _seed_with_item(**changes: Any) -> dict[str, Any]:
+    return _seed(items=[{**_SEED_ITEM, **changes}])
+
+
+def _seed_cases() -> tuple[dict[str, Any], dict[str, tuple[tuple[str, str], Any]]]:
+    """Return the valid seeds, and each invalid seed with the path and keyword it fails at."""
+
+    no_record = {key: value for key, value in _SEED_ITEM.items() if key != "record_ref"}
+    no_carrier = {key: value for key, value in _seed().items() if key != "carrier_operation"}
+    valid = {"minimal": _seed(), "append": _seed_with_item(mode="append")}
+    invalid = {
+        "unknown-schema-version": (
+            ("/schema_version", "const"),
+            _seed(schema_version="artifact-seed-v2"),
+        ),
+        "missing-carrier-operation": (("/", "required"), no_carrier),
+        "unknown-top-level-key": (("/", "additionalProperties"), _seed(note="x")),
+        "no-items": (("/items", "minItems"), _seed(items=[])),
+        "item-missing-record": (("/items/0", "required"), _seed(items=[no_record])),
+        "item-unknown-key": (
+            ("/items/0", "additionalProperties"),
+            _seed_with_item(max_chars=2000),
+        ),
+        "item-mode-unknown": (("/items/0/mode", "enum"), _seed_with_item(mode="prepend")),
+        "item-blank-content": (("/items/0/content", "minLength"), _seed_with_item(content="")),
+    }
+    return valid, invalid
+
+
+def _seed_files() -> dict[str, str]:
+    """Return each seed case file's text by path relative to the contract root."""
+
+    valid, invalid = _seed_cases()
+    files = {f"{SEED}/valid/{name}.json": _json_text(seed) for name, seed in valid.items()}
+    files.update(
+        {f"{SEED}/invalid/{name}.json": _json_text(seed) for name, (_, seed) in invalid.items()}
+    )
+    expected = {
+        f"invalid/{name}.json": {"path": path, "keyword": keyword}
+        for name, ((path, keyword), _) in sorted(invalid.items())
+    }
+    files[f"{SEED}/expected-violations.json"] = _json_text(expected)
+    return files
+
+
 def _binding_cases() -> dict[str, str]:
     """Return each hand-written binding case's text by path relative to the contract root."""
 
@@ -473,6 +539,7 @@ def expected_files() -> dict[str, str]:
 
     files: dict[str, str] = {"metadata-policy.json": _json_text(_metadata_policy())}
     files.update(_binding_cases())
+    files.update(_seed_files())
     valid, invalid = _v4_cases()
     for name, case in valid.items():
         files[f"{V4}/valid/{name}.json"] = _json_text(case)

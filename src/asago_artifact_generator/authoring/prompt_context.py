@@ -29,7 +29,7 @@ from .contracts import (
 )
 from .core import _sha256
 from .inventory import _inventory_fact_map, _inventory_references
-from .planted_item import plan_record_choices
+from .planted_item import plan_record_choices, planted_text_limit, runtime_contract_for_prompt
 from .sequential_turns import plan_response_contract, shape_delivery, turn_count
 from .templates import prose
 
@@ -52,7 +52,7 @@ def _authoritative_context(
         "facts": facts,
         "operations": operations,
         "source_handles": source_handles,
-        "runtime_capabilities": deepcopy(runtime_contract),
+        "runtime_capabilities": runtime_contract_for_prompt(runtime_contract),
     }
 
 
@@ -766,7 +766,11 @@ def build_artifact_author_context(
 ) -> dict[str, Any]:
     """Build the immutable-plan context for the artifact author."""
 
-    response_contract = deepcopy(_call2_contract_v2(plan))
+    response_contract = deepcopy(
+        _call2_contract_v2(
+            plan, planted_max_chars=planted_text_limit(view, runtime_contract, plan)
+        )
+    )
     # The neutral example is rendered in its own section so the request has
     # one readable copy of it.
     response_contract.pop("neutral_example", None)
@@ -776,7 +780,7 @@ def build_artifact_author_context(
         "plan_field_meanings": PLAN_FIELD_MEANINGS,
         "accepted_plan": deepcopy(plan),
         "accepted_plan_read_only": True,
-        "runtime_contract": deepcopy(runtime_contract),
+        "runtime_contract": runtime_contract_for_prompt(runtime_contract),
         "response_contract": response_contract,
         "neutral_example": {
             "artifact": neutral_artifact_response_without_source(),
