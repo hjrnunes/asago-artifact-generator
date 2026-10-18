@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import yaml
@@ -20,13 +23,64 @@ from .cli_helpers import PlainCliRunner
 from .support import (
     HANDOFF,
     chat_completion,
-    fake_cli_authoring,
     fake_openai,
-    forbid_cli_transport,
     profile_file,
     prompt_packet,
     target_inputs,
 )
+
+
+@dataclass
+class _CliCapture:
+    """What the `generate` command handed to the transport and the orchestrator."""
+
+    transport: dict[str, Any] = field(default_factory=dict)
+    orchestrator: dict[str, Any] = field(default_factory=dict)
+    run_inputs: tuple[Any, ...] = ()
+    constructed: bool = False
+
+
+def _fake_cli_authoring(monkeypatch: pytest.MonkeyPatch) -> _CliCapture:
+    """Replace the CLI's transport and orchestrator with recorders that fail the run.
+
+    The returned capture holds the keyword arguments each constructor received and the
+    inputs of `run`, so a test asserts what the command wired without any model request.
+    """
+
+    capture = _CliCapture()
+
+    class FakeTransport:
+        max_retries = 0
+
+        def __init__(self, **kwargs: Any) -> None:
+            capture.transport.update(kwargs)
+
+    class FakeOrchestrator:
+        def __init__(self, **kwargs: Any) -> None:
+            capture.orchestrator.update(kwargs)
+
+        def run(self, *inputs: Any) -> SimpleNamespace:
+            capture.run_inputs = inputs
+            return SimpleNamespace(
+                status="failed", package_path=None, review_status={}, findings=[]
+            )
+
+    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FakeTransport)
+    monkeypatch.setattr(cli, "AuthoringOrchestrator", FakeOrchestrator)
+    return capture
+
+
+def _forbid_cli_transport(monkeypatch: pytest.MonkeyPatch) -> _CliCapture:
+    """Make constructing the CLI's transport raise and record that it happened."""
+
+    capture = _CliCapture()
+
+    def fail_if_constructed(**_: Any) -> object:
+        capture.constructed = True
+        raise AssertionError("transport must not be constructed")
+
+    monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", fail_if_constructed)
+    return capture
 
 
 def _invoke_generate(
@@ -68,7 +122,7 @@ def test_author_cli_passes_profile_values_directly_to_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     profiles_file, values = profile_file(tmp_path)
-    captured = fake_cli_authoring(monkeypatch)
+    captured = _fake_cli_authoring(monkeypatch)
 
     result = _invoke_generate(
         tmp_path,
@@ -117,7 +171,7 @@ def test_author_cli_passes_optional_profile_controls_to_transport(
         max_completion_tokens=32_000,
         timeout=900,
     )
-    captured = fake_cli_authoring(monkeypatch)
+    captured = _fake_cli_authoring(monkeypatch)
 
     result = _invoke_generate(
         tmp_path,
@@ -146,7 +200,7 @@ def test_profile_without_a_timeout_or_strict_json_schema_sends_the_contract_defa
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     profiles_file, _ = profile_file(tmp_path)
-    captured = fake_cli_authoring(monkeypatch)
+    captured = _fake_cli_authoring(monkeypatch)
 
     _invoke_generate(
         tmp_path,
@@ -178,7 +232,7 @@ def test_author_cli_merges_the_penalty_into_both_thinking_bodies(
     profiles_file, _ = profile_file(tmp_path, repetition_penalty=1.05)
     review_body = {"chat_template_kwargs": {"enable_thinking": True}}
     monkeypatch.setattr(cli, "REVIEW_THINKING_EXTRA_BODY", review_body)
-    captured = fake_cli_authoring(monkeypatch)
+    captured = _fake_cli_authoring(monkeypatch)
 
     result = _invoke_generate(
         tmp_path,
@@ -202,7 +256,7 @@ def test_penalty_profile_reaches_author_and_review_requests(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     profiles_file, _ = profile_file(tmp_path, repetition_penalty=1.05)
-    captured = fake_cli_authoring(monkeypatch)
+    captured = _fake_cli_authoring(monkeypatch)
     _invoke_generate(
         tmp_path,
         extra_args=["--profile", "profile-a", "--profiles-file", str(profiles_file)],
@@ -222,7 +276,7 @@ def test_author_cli_rejects_missing_named_profile_before_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     profiles_file, _ = profile_file(tmp_path)
-    transport = forbid_cli_transport(monkeypatch)
+    transport = _forbid_cli_transport(monkeypatch)
 
     result = _invoke_generate(
         tmp_path,
@@ -242,7 +296,7 @@ def test_author_cli_rejects_missing_named_profile_before_transport(
 def test_author_cli_requires_a_named_profile_before_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    transport = forbid_cli_transport(monkeypatch)
+    transport = _forbid_cli_transport(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "environment-secret-value")
 
     result = _invoke_generate(tmp_path)

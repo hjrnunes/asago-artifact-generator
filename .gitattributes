@@ -1,0 +1,15 @@
+# Files a tool writes rather than a person. GitHub collapses their diffs in pull requests.
+uv.lock linguist-generated=true
+# Each contract directory's digest manifest.
+CONTRACT.lock linguist-generated=true
+# scripts/gen_artifact_package_cases.py; each schema.json and binding-cases/ are hand-written.
+contracts/artifact-package/metadata-policy.json linguist-generated=true
+contracts/artifact-package/*/expected-violations.json linguist-generated=true
+contracts/artifact-package/*/valid/** linguist-generated=true
+contracts/artifact-package/*/invalid/** linguist-generated=true
+# Copies of files the scenario generator's scripts write.
+contracts/scenario-handoff/handoff-v4/** linguist-generated=true
+contracts/tool-call-condition/tool-call-condition-v1/vectors/** linguist-generated=true
+src/asago_artifact_generator/report_kit/catalog.html linguist-generated=true
+# The generate_*.py scripts beside them.
+packages/asago-bundle-midojo/tests/fixtures/rubric/*.json linguist-generated=true
