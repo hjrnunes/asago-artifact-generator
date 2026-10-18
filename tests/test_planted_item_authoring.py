@@ -21,7 +21,6 @@ from asago_artifact_generator.authoring.correction import (
     build_correction_context,
 )
 from asago_artifact_generator.authoring.planted_item import (
-    MAX_PLANTED_CHARS,
     VERBATIM_RUN,
     planted_item_findings,
     runtime_contract_for_prompt,
@@ -77,6 +76,16 @@ def setup(tmp_path: Path, turns: int = 2):
         indirect_plan(refund["plan"], turns),
         indirect_metadata(refund["metadata"], turns),
     )
+
+
+LIMIT = CARRIER_SLOT["max_chars"]
+
+
+def runtime_with(**slot: Any) -> dict[str, Any]:
+    """Return the indirect runtime whose only slot is the carrier slot with ``slot`` changes."""
+
+    runtime = indirect_runtime(world("refund")["runtime_contract"])
+    return {**runtime, "seed_slots": [{**CARRIER_SLOT, **slot}]}
 
 
 # --- the model-facing rules --------------------------------------------------------
@@ -220,17 +229,50 @@ def test_the_artifact_contract_asks_for_planted_text_only_under_the_planted_item
     _, _, _, plan, _ = setup(tmp_path)
     plain = world("refund")["plan"]
 
-    contract = _call2_contract_v2(plan)
+    contract = _call2_contract_v2(plan, planted_max_chars=120)
     assert "planted_text" in contract["fields"]
     assert "planted_text" in contract["schema"]["required"]
     text = contract["schema"]["properties"]["planted_text"]
     assert text["type"] == "string"
-    assert text["maxLength"] == MAX_PLANTED_CHARS
-    assert text["description"]
-    unchanged = _call2_contract_v2(plain)
+    assert text["maxLength"] == 120
+    assert "at most 120 characters" in text["description"]
+    unchanged = _call2_contract_v2(plain, planted_max_chars=120)
     assert "planted_text" not in unchanged["fields"]
     assert "planted_text" not in unchanged["schema"]["properties"]
     assert "planted_text" not in _call2_contract_v2(None)["fields"]
+
+
+def test_the_slot_limit_reaches_the_artifact_request_and_its_correction(tmp_path: Path) -> None:
+    view, inventory, _, plan, _ = setup(tmp_path)
+    rt = runtime_with(max_chars=50)
+
+    packet = build_call2_packet_v2(view, plan, inventory, rt)
+    correction = build_correction_context(
+        failed_stage="call2",
+        original_context={
+            **build_artifact_author_context(view, plan, inventory, rt),
+            **multi_turn_payload(view, rt, plan),
+        },
+        current_output=b"{}",
+        findings=[],
+    )
+
+    for contract in (rendered_response_contract(packet), correction["response_contract"]):
+        text = contract["schema"]["properties"]["planted_text"]
+        assert text["maxLength"] == 50
+        assert "at most 50 characters" in text["description"]
+    block = json_section(packet.user, "INDIRECT SHAPE")
+    assert "at most 50 characters" in block["check"]
+    assert "at most 50 characters" in block["fields"]["planted_text"]["meaning"]
+
+
+def test_a_planted_item_plan_without_a_slot_limit_plants_no_text(tmp_path: Path) -> None:
+    _, _, _, plan, metadata = setup(tmp_path)
+
+    assert "planted_text" not in _call2_contract_v2(plan)["fields"]
+    assert [f.code for f in planted_item_findings(metadata, plan, None)] == ["unexpected_field"]
+    del metadata["planted_text"]
+    assert planted_item_findings(metadata, plan, None) == []
 
 
 def test_the_artifact_review_receives_the_planted_text_as_a_labelled_section(
@@ -300,7 +342,9 @@ def test_the_existing_checks_accept_the_indirect_plan_and_artifact(tmp_path: Pat
     assert sequential_plan_findings(view, plan) == []
     assert sequential_artifact_findings(view, metadata) == []
     assert collect_plan_findings_v2(plan, inventory, rt) == []
-    assert collect_artifact_findings_v2(metadata, plan, inventory, rt) == []
+    assert (
+        collect_artifact_findings_v2(metadata, plan, inventory, rt, planted_max_chars=LIMIT) == []
+    )
 
 
 def test_an_indirect_plan_must_use_the_planted_item_delivery(tmp_path: Path) -> None:
@@ -349,7 +393,7 @@ def test_an_indirect_artifact_without_planted_text_is_found(tmp_path: Path) -> N
     _, inventory, rt, plan, metadata = setup(tmp_path)
     del metadata["planted_text"]
 
-    findings = collect_artifact_findings_v2(metadata, plan, inventory, rt)
+    findings = collect_artifact_findings_v2(metadata, plan, inventory, rt, planted_max_chars=LIMIT)
 
     assert [(f.code, f.path) for f in findings] == [("missing_field", "planted_text")]
 
@@ -359,25 +403,26 @@ def test_planted_text_must_be_a_non_empty_string(tmp_path: Path, value: Any) -> 
     _, _, _, plan, metadata = setup(tmp_path)
     metadata["planted_text"] = value
 
-    [finding] = planted_item_findings(metadata, plan)
+    [finding] = planted_item_findings(metadata, plan, LIMIT)
 
     assert finding.path == "planted_text"
     assert finding.code in {"type_error", "planted_text_empty"}
 
 
-def test_planted_text_of_exactly_the_limit_passes_and_one_more_is_found(
+def test_planted_text_of_exactly_the_slot_limit_passes_and_one_more_is_found(
     tmp_path: Path,
 ) -> None:
     _, _, _, plan, metadata = setup(tmp_path)
-    metadata["planted_text"] = "x" * MAX_PLANTED_CHARS
-    assert planted_item_findings(metadata, plan) == []
+    metadata["planted_text"] = "x" * 120
+    assert planted_item_findings(metadata, plan, 120) == []
 
-    metadata["planted_text"] = "x" * (MAX_PLANTED_CHARS + 1)
-    [finding] = planted_item_findings(metadata, plan)
+    metadata["planted_text"] = "x" * 121
+    [finding] = planted_item_findings(metadata, plan, 120)
 
     assert finding.code == "planted_text_too_long"
     assert finding.path == "planted_text"
-    assert str(MAX_PLANTED_CHARS) in finding.detail
+    assert "has 121 characters" in finding.detail
+    assert "at most 120" in finding.detail
 
 
 def _with_turn(metadata: dict[str, Any], where: str, text: str) -> dict[str, Any]:
@@ -395,7 +440,7 @@ def test_a_benign_turn_with_a_run_of_the_planted_text_is_found(tmp_path: Path, w
     quoted = PLANTED[20 : 20 + VERBATIM_RUN]
     metadata = _with_turn(metadata, where, f"Please do this: |{quoted}| thanks")
 
-    [finding] = planted_item_findings(metadata, plan)
+    [finding] = planted_item_findings(metadata, plan, LIMIT)
 
     assert finding.code == "planted_text_in_benign_turn"
     assert finding.path == (
@@ -409,7 +454,7 @@ def test_a_run_one_character_shorter_than_the_limit_is_not_found(tmp_path: Path)
     shared = PLANTED[20 : 20 + VERBATIM_RUN - 1]
     metadata = _with_turn(metadata, "history", f"Please do this: |{shared}| thanks")
 
-    assert planted_item_findings(metadata, plan) == []
+    assert planted_item_findings(metadata, plan, LIMIT) == []
 
 
 def test_the_run_is_compared_without_case_or_spacing(tmp_path: Path) -> None:
@@ -417,7 +462,7 @@ def test_the_run_is_compared_without_case_or_spacing(tmp_path: Path) -> None:
     quoted = PLANTED[20 : 20 + VERBATIM_RUN + 5].upper().replace(" ", "   ")
     metadata = _with_turn(metadata, "user_text", f"\n{quoted}\n")
 
-    [finding] = planted_item_findings(metadata, plan)
+    [finding] = planted_item_findings(metadata, plan, LIMIT)
 
     assert finding.code == "planted_text_in_benign_turn"
 
@@ -429,28 +474,28 @@ def test_planted_text_shorter_than_the_run_is_found_only_when_a_turn_holds_all_o
     metadata["planted_text"] = "Refund it all"
     assert VERBATIM_RUN > len(metadata["planted_text"])
 
-    assert planted_item_findings(metadata, plan) == []
+    assert planted_item_findings(metadata, plan, LIMIT) == []
     with_all = _with_turn(metadata, "user_text", "please REFUND it   all now")
-    assert [f.code for f in planted_item_findings(with_all, plan)] == [
+    assert [f.code for f in planted_item_findings(with_all, plan, LIMIT)] == [
         "planted_text_in_benign_turn"
     ]
     with_part = _with_turn(metadata, "user_text", "please refund it")
-    assert planted_item_findings(with_part, plan) == []
+    assert planted_item_findings(with_part, plan, LIMIT) == []
 
 
 def test_a_plan_without_the_planted_item_delivery_has_no_planted_findings() -> None:
     refund = world("refund")
 
-    assert planted_item_findings(refund["metadata"], refund["plan"]) == []
-    assert planted_item_findings("metadata", refund["plan"]) == []
-    assert planted_item_findings(refund["metadata"], "plan") == []
+    assert planted_item_findings(refund["metadata"], refund["plan"], LIMIT) == []
+    assert planted_item_findings("metadata", refund["plan"], LIMIT) == []
+    assert planted_item_findings(refund["metadata"], "plan", LIMIT) == []
 
 
 def test_benign_turns_are_user_messages_only(tmp_path: Path) -> None:
     view, inventory, rt, plan, metadata = setup(tmp_path)
     metadata["stimulus"]["history"][0]["role"] = "assistant"
 
-    findings = collect_artifact_findings_v2(metadata, plan, inventory, rt)
+    findings = collect_artifact_findings_v2(metadata, plan, inventory, rt, planted_max_chars=LIMIT)
 
     assert "non_user_history" in {finding.code for finding in findings}
 
@@ -458,7 +503,13 @@ def test_benign_turns_are_user_messages_only(tmp_path: Path) -> None:
 # --- the package --------------------------------------------------------------------
 
 
-def _author(tmp_path: Path, turns: int = 2, view: InputView | None = None, planted: Any = PLANTED):
+def _author(
+    tmp_path: Path,
+    turns: int = 2,
+    view: InputView | None = None,
+    planted: Any = PLANTED,
+    runtime: dict[str, Any] | None = None,
+):
     refund = world("refund")
     plan = indirect_plan(refund["plan"], turns)
     metadata = indirect_metadata(refund["metadata"], turns, planted)
@@ -468,7 +519,7 @@ def _author(tmp_path: Path, turns: int = 2, view: InputView | None = None, plant
     ).run(
         view or indirect_view(tmp_path, turns),
         indirect_inventory(refund["inventory"]),
-        indirect_runtime(refund["runtime_contract"]),
+        runtime or indirect_runtime(refund["runtime_contract"]),
     )
     return result, transport
 
@@ -523,6 +574,27 @@ def test_planted_text_that_quotes_a_benign_turn_is_not_packaged(tmp_path: Path) 
     evidence = load_failure_evidence(result.failure_evidence_path)
     call2 = next(attempt for attempt in evidence["attempts"] if attempt["stage"] == "call2")
     assert [finding["code"] for finding in call2["findings"]] == ["planted_text_in_benign_turn"]
+
+
+def test_the_package_holds_planted_text_up_to_its_slot_limit(tmp_path: Path) -> None:
+    (tmp_path / "fits").mkdir()
+    fits, _ = _author(tmp_path / "fits", runtime=runtime_with(max_chars=len(PLANTED)))
+    longer, _ = _author(tmp_path, runtime=runtime_with(max_chars=len(PLANTED) - 1))
+
+    assert fits.status == "accepted", fits.findings
+    assert longer.status != "accepted"
+    assert not (tmp_path / "package" / "seed.json").exists()
+    evidence = load_failure_evidence(longer.failure_evidence_path)
+    call2 = next(attempt for attempt in evidence["attempts"] if attempt["stage"] == "call2")
+    assert [finding["code"] for finding in call2["findings"]] == ["planted_text_too_long"]
+
+
+def test_the_seed_writes_the_text_with_the_mode_its_slot_states(tmp_path: Path) -> None:
+    result, _ = _author(tmp_path, runtime=runtime_with(mode="append"))
+
+    assert result.status == "accepted", result.findings
+    seed = json.loads((tmp_path / "package" / "seed.json").read_text(encoding="utf-8"))
+    assert seed["items"][0]["mode"] == "append"
 
 
 def test_a_direct_package_has_no_seed_and_costs_the_same_requests(tmp_path: Path) -> None:

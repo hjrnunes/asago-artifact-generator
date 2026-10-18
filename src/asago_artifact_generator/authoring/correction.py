@@ -22,6 +22,7 @@ from .core import (
     PromptPacket,
     _canonical_json,
 )
+from .planted_item import planted_text_limit_in_context
 from .prompt_context import (
     _render_sections,
     _scenario_design_prompt_view,
@@ -421,7 +422,10 @@ def build_correction_context(
             {
                 "accepted_plan_fixed": True,
                 "format": prose("correction/artifact_format"),
-                "response_contract": _call2_contract_v2(original_context.get("accepted_plan")),
+                "response_contract": _call2_contract_v2(
+                    original_context.get("accepted_plan"),
+                    planted_max_chars=planted_text_limit_in_context(original_context),
+                ),
             }
         )
         context["instruction"] = (

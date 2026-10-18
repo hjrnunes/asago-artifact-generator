@@ -478,19 +478,26 @@ def collect_artifact_findings_v2(
     *,
     transformations: list[dict[str, Any]] | None = None,
     condition: Mapping[str, Any] | None = None,
+    planted_max_chars: int | None = None,
 ) -> list[Finding]:
     """Normalize the plan-owned context and the stimulus slots, then validate v2 metadata.
 
     ``condition`` is the handoff's bound tool-call condition. A command-attempt
     artifact whose example captures pass the structural checks is also scored
     by it: its unsafe capture must be detected and its safe capture must not be.
+    ``planted_max_chars`` is the limit of the seed slot that carries the planted
+    text, or None when the artifact plants no text.
     """
 
     findings = _reply_led_shape_findings(metadata, plan)
     if findings or not isinstance(metadata, dict):
         return staged_findings(findings, "artifact")
     _normalize_artifact_context(metadata, plan, inventory, transformations=transformations)
-    findings.extend(_artifact_findings(metadata, plan, inventory, runtime_contract, condition))
+    findings.extend(
+        _artifact_findings(
+            metadata, plan, inventory, runtime_contract, condition, planted_max_chars
+        )
+    )
     return staged_findings(findings, "artifact")
 
 
@@ -550,6 +557,7 @@ def _artifact_findings(
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
     condition: Mapping[str, Any] | None,
+    planted_max_chars: int | None,
 ) -> list[Finding]:
     findings = _semantic_judge_question_findings(metadata.get("semantic_judge_spec"))
     runtime_bindings = plan.get("runtime_bindings")
@@ -565,7 +573,7 @@ def _artifact_findings(
             )
         )
     findings.extend(_artifact_example_findings(metadata, plan, inventory, condition))
-    findings.extend(planted_item_findings(metadata, plan))
+    findings.extend(planted_item_findings(metadata, plan, planted_max_chars))
     judge_spec = metadata.get("semantic_judge_spec")
     findings.extend(_semantic_judge_decision_findings(plan, judge_spec))
     if isinstance(judge_spec, dict):

@@ -84,6 +84,7 @@ from .journal import (
 )
 from .oracle_self_test import DEFECT_CODE, oracle_defect_findings
 from .package_assembly import _attempt_records, _package_from_responses, _persist_blocked_plan
+from .planted_item import planted_text_limit
 from .policy import (
     AuthoringBudget,
     AuthoringPolicy,
@@ -978,6 +979,8 @@ class AuthoringOrchestrator:
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
     ) -> _Stage:
+        planted_max_chars = planted_text_limit(view, runtime_contract, plan)
+
         def checks(decoded: Any) -> list[Finding]:
             findings = collect_artifact_findings_v2(
                 decoded,
@@ -986,6 +989,7 @@ class AuthoringOrchestrator:
                 runtime_contract,
                 transformations=self._transformations,
                 condition=view.tool_call_condition,
+                planted_max_chars=planted_max_chars,
             ) + sequential_artifact_findings(view, decoded)
             return findings + oracle_defect_findings(findings, decoded, view.tool_call_condition)
 

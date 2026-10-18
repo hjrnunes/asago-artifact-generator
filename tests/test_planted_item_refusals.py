@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from asago_artifact_generator.authoring.planted_item import PlantedTarget, choose_planted_target
+from asago_artifact_generator.authoring.sequential_turns import multi_turn_block
 from asago_artifact_generator.authoring.shape_gate import shape_refusal_findings
 from asago_artifact_generator.input_adapter import load_input
 
@@ -26,6 +27,8 @@ POLICY_SLOT = {
     "controller": "operator_insider",
     "content_kind": "policy_document",
     "records": ["POL-MOD", "POL-OTHER"],
+    "max_chars": 2000,
+    "mode": "append",
 }
 RUNTIME: dict[str, Any] = {
     "delivery": ["direct_user_message", "sequential_user_turns", "planted_item"],
@@ -157,6 +160,24 @@ def test_a_malformed_slot_list_is_read_as_no_slots(tmp_path: Path) -> None:
     _assert_refused(result, transport, "shape_seed_slot_unavailable")
 
 
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"max_chars": None},
+        {"max_chars": 0},
+        {"max_chars": True},
+        {"max_chars": "2000"},
+        {"mode": None},
+        {"mode": "prepend"},
+    ],
+    ids=repr,
+)
+def test_a_slot_without_a_usable_limit_and_mode_carries_nothing(change: dict[str, Any]) -> None:
+    slot = {key: value for key, value in {**LISTING_SLOT, **change}.items() if value is not None}
+
+    assert choose_planted_target(shape_of(LISTING), with_slots(slot)) is None
+
+
 # --- precedence and the shapes that pass ----------------------------------------
 
 
@@ -201,6 +222,7 @@ def test_the_shapes_record_is_used_when_the_slot_lists_it() -> None:
         controller="counterparty",
         record_ref="LST-104",
         mode="replace",
+        max_chars=2000,
     )
 
 
@@ -211,7 +233,12 @@ def test_the_first_listed_record_is_used_when_the_shape_names_none() -> None:
     assert target.slot == "airbnb.policy_doc.body"
 
 
-def test_a_policy_document_is_appended_so_the_original_text_stays_retrievable() -> None:
+def test_the_target_writes_the_text_with_the_mode_and_limit_its_slot_states() -> None:
+    appending = {**LISTING_SLOT, "mode": "append", "max_chars": 120}
+
+    target = choose_planted_target(shape_of(LISTING), with_slots(appending))
+
+    assert (target.mode, target.max_chars) == ("append", 120)
     assert choose_planted_target(shape_of(POLICY), RUNTIME).mode == "append"
     assert choose_planted_target(shape_of(LISTING), RUNTIME).mode == "replace"
 
@@ -230,6 +257,13 @@ def test_a_shape_with_no_carrier_slot_has_no_target() -> None:
     assert choose_planted_target(shape_of("adversarial-direct-single.json"), RUNTIME) is None
 
 
+def test_the_rule_block_needs_the_slot_the_shape_gate_requires() -> None:
+    view = load_input(_KIT / "valid" / LISTING)
+
+    with pytest.raises(ValueError, match="no seed slot"):
+        multi_turn_block(view, with_slots(POLICY_SLOT))
+
+
 def test_a_slot_of_the_shapes_content_kind_wins_over_an_earlier_slot_of_another_kind() -> None:
     other_kind = {**LISTING_SLOT, "id": "airbnb.listing.other", "content_kind": "review_content"}
     runtime = with_slots(other_kind, LISTING_SLOT)
@@ -246,11 +280,6 @@ def test_without_a_matching_content_kind_the_first_carrier_slot_with_the_record_
 
     target = choose_planted_target(shape_of(LISTING), with_slots(first, second, third))
 
-    assert target.slot == "airbnb.listing.a"
-    assert (target.content_kind, target.mode) == ("review_content", "replace")
-    appended = choose_planted_target(shape_of(LISTING), with_slots(second, third))
-    assert (appended.slot, appended.content_kind, appended.mode) == (
-        "airbnb.listing.c",
-        "policy_document",
-        "append",
-    )
+    assert (target.slot, target.content_kind) == ("airbnb.listing.a", "review_content")
+    fallback = choose_planted_target(shape_of(LISTING), with_slots(second, third))
+    assert (fallback.slot, fallback.content_kind) == ("airbnb.listing.c", "policy_document")
