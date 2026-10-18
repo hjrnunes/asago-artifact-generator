@@ -30,7 +30,7 @@
     "artifact-package-v4/invalid/unknown-manifest-field.json": "4ec99755b4b28dad5c8dbcb3e229d037adc41bf3b583fcab2ea1fb16cab4adc5",
     "artifact-package-v4/invalid/unlisted-file.json": "6493be7279d030ae7e910546a01ea26bfebef9f9922c8c118274b5ca741b277f",
     "artifact-package-v4/invalid/uppercase-source-digest.json": "3dc511eb7c372d75a60e998cf25415ff9c6e844f8b9bf972fd49522acd2ed344",
-    "artifact-package-v4/schema.json": "f89577225dd0edbb6f562d4bdfcd77fffb7ad7b644fa00b03210b1ed53202266",
+    "artifact-package-v4/schema.json": "30e9894791f7e49fd880aaa1f63e32c1d66ee30892b704c266c91294272e125b",
     "artifact-package-v4/valid/minimal.json": "01f0bf10b2838f5e4f345e4fec0b7db73b81b7fe48adef309f0e0f5f944fcf50",
     "binding-cases/missing-documented-value.json": "93ca4d365cfb2a4b5719b03e6a72c476201a582662e84f67244ee8e4d010aedc",
     "binding-cases/reject-array-bracket-index.json": "d0f45f4fea8d01c129845c775533558216722ac95922f5e3eb2953ab3a2fa12d",

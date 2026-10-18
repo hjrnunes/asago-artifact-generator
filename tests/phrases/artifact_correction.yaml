@@ -16,3 +16,8 @@ cases:
       forbidden:
         - 'def evaluate'
         - needs_plan_revision
+  v5:
+    user:
+      once:
+        - 'The producer''s analysis of this scenario as structured fields.'
+        - 'forged_history is an invented earlier turn of the conversation.'

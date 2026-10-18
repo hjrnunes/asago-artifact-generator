@@ -47,7 +47,8 @@ def test_non_handoff_source_is_rejected(tmp_path: Path, name: str, text: str) ->
         load_input(source_path)
 
     assert str(raised.value) == (
-        "authoring source must be a producer scenario-handoff-v4 document; found no schema_version"
+        "authoring source must be a producer scenario-handoff-v4 or scenario-handoff-v5 "
+        "document; found no schema_version"
     )
 
 
@@ -496,7 +497,8 @@ def test_retired_handoff_versions_are_rejected_for_authoring(tmp_path: Path, ver
         load_input(source_path)
 
     assert str(raised.value) == (
-        f"authoring source must be a producer scenario-handoff-v4 document; found {version}"
+        "authoring source must be a producer scenario-handoff-v4 or scenario-handoff-v5 "
+        f"document; found {version}"
     )
 
 

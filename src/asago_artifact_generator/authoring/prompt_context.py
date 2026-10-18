@@ -16,7 +16,7 @@ from ..bindings import (
     supplied_binding_values,
     validate_bindings,
 )
-from ..input_adapter import InputView, build_scenario_handoff_view
+from ..input_adapter import V5_FIELDS, InputKind, InputView, build_scenario_handoff_view
 from .attack_tree_outline import (
     AND_OR_TREE_FORMAT,
     and_or_outline,
@@ -915,7 +915,23 @@ def _case_meaning(view: InputView) -> dict[str, Any]:
         )
     if "condition_check" in handoff:
         result["condition_check"] = _condition_check_prompt_view(handoff["condition_check"])
+    if view.kind is InputKind.SCENARIO_HANDOFF_V5:
+        result["structured_analysis"] = _structured_analysis(view)
     return result
+
+
+_STRUCTURED_ANALYSIS_NOTE = prose("prompt_context/structured_analysis_note")
+
+
+def _structured_analysis(view: InputView) -> dict[str, Any]:
+    """Return the fields a v5 handoff adds, leaving out a null or empty one, with their note."""
+
+    analysis: dict[str, Any] = {"note": _STRUCTURED_ANALYSIS_NOTE}
+    for key in V5_FIELDS:
+        value = view.payload.get(key)
+        if value is not None and value not in ("", [], {}):
+            analysis[key] = deepcopy(value)
+    return analysis
 
 
 _CONDITION_STATEMENT_LOCATION = prose("prompt_context/condition_statement_location")

@@ -110,6 +110,7 @@ KIT_VALID = _ROOT / "contracts/scenario-handoff/handoff-v4/valid"
 NO_CONDITION_HANDOFF = KIT_VALID / "adversarial-condition-omitted.json"
 OBSERVED_HANDOFF = KIT_VALID / "adversarial-observed-record.json"
 NOT_CALLED_HANDOFF = KIT_VALID / "functional-not-called.json"
+V5_HANDOFF = _ROOT / "contracts/scenario-handoff/handoff-v5/valid/adversarial-direct-single.json"
 # One attacker message sent directly: the shape every adversarial test handoff above carries.
 DIRECT_SINGLE_SHAPE: dict[str, Any] = json.loads(
     (KIT_VALID / "adversarial-direct-single.json").read_text(encoding="utf-8")

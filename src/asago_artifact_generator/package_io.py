@@ -47,7 +47,8 @@ _CLAIM_LEVEL_MEMBERS = {
     ClaimLevel.REPLY.value: "judge.json",
 }
 _CONTRACT_ROOT = contract_dir("artifact-package")
-_INPUT_KIND = "scenario-handoff-v4"
+# The handoff versions a package may come from; the artifact-package-v4 schema lists the same.
+_INPUT_KINDS = frozenset({"scenario-handoff-v4", "scenario-handoff-v5"})
 
 
 class PackagePathError(ValueError):
@@ -392,7 +393,7 @@ def _validate_manifest_names(manifest: PackageManifest) -> None:
     for name in ("package_id", "scenario_id", "input_kind"):
         if not isinstance(getattr(manifest, name), str) or not getattr(manifest, name):
             raise PackageIntegrityError(f"manifest field is blank: {name}")
-    if manifest.input_kind != _INPUT_KIND:
+    if manifest.input_kind not in _INPUT_KINDS:
         raise PackageIntegrityError(f"unsupported package input kind: {manifest.input_kind}")
 
 

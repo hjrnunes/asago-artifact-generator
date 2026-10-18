@@ -27,8 +27,6 @@ from .contract_kit import (
 )
 from .value_checks import is_nonblank_str, is_sha256_hex
 
-# The v1 to v3 kits stay mirrored as frozen contract files; authoring reads only v4.
-_HANDOFF_SCHEMA_VERSION = "scenario-handoff-v4"
 _HANDOFF_CONDITION_FIELDS = (
     "discriminating_condition",
     "condition_check",
@@ -40,9 +38,23 @@ _OwnershipRules = tuple[frozenset[str], tuple[tuple[str, re.Pattern[str]], ...]]
 
 
 class InputKind(StrEnum):
-    """The supported design-time input representation, recorded in package manifests."""
+    """The supported design-time input representations, recorded in package manifests."""
 
     SCENARIO_HANDOFF_V4 = "scenario-handoff-v4"
+    SCENARIO_HANDOFF_V5 = "scenario-handoff-v5"
+
+
+# The fields scenario-handoff-v5 adds to v4, in the producer's order.
+V5_FIELDS = ("uca", "actor", "causal_factors", "preconditions", "procedure", "worst_case_threat")
+
+
+@dataclass(frozen=True)
+class _HandoffVersion:
+    """One handoff version the mirrored lock declares: its kit directory and digest domain."""
+
+    kind: InputKind
+    kit: str
+    digest_domain: str
 
 
 class InputSourceError(ValueError):
@@ -50,7 +62,7 @@ class InputSourceError(ValueError):
 
 
 class HandoffSchemaInvalid(InputSourceError):
-    """Raised when a handoff breaks the producer's v4 contract.
+    """Raised when a handoff breaks the producer's contract for its version.
 
     ``codes`` holds the producer's violation codes in the order of the kit's
     ``expected-violations.json``: ownership codes, then ``schema_violation:<field>``.
@@ -66,7 +78,7 @@ class HandoffSchemaInvalid(InputSourceError):
 
 
 class ShapeVersionMalformed(HandoffSchemaInvalid):
-    """Raised when only a v4 handoff's ``attack_shape`` breaks the vendored contract.
+    """Raised when only a handoff's ``attack_shape`` breaks the vendored contract.
 
     The pre-model refusal code is ``shape_version_malformed``; ``schema_path``
     locates the break.
@@ -138,8 +150,8 @@ def load_input(source_path: str | Path) -> InputView:
     source_bytes = _read_source(path)
     source = SourceSnapshot(str(path), sha256_hex(source_bytes), len(source_bytes))
     payload = _parse_document(path, source_bytes)
-    _validate_handoff_schema_version(payload)
-    return _handoff_view(path, payload, source_bytes, source)
+    kind = _validate_handoff_schema_version(payload)
+    return _handoff_view(path, payload, source_bytes, source, kind)
 
 
 def build_scenario_handoff_view(view: InputView) -> dict[str, Any]:
@@ -192,13 +204,13 @@ def _handoff_view(
     payload: dict[str, Any],
     source_bytes: bytes,
     source: SourceSnapshot,
+    kind: InputKind,
 ) -> InputView:
-    kind = InputKind.SCENARIO_HANDOFF_V4
-    _validate_handoff_kit()
-    _validate_handoff_payload(payload)
+    version = _validate_handoff_kit(kind)
+    _validate_handoff_payload(payload, version.kit)
     expected_digest = payload.get("content_digest", "")
     digest_payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    if expected_digest != _framed_digest(kind.value, digest_payload):
+    if expected_digest != _framed_digest(version.digest_domain, digest_payload):
         raise InputSourceError("scenario handoff content_digest does not match source")
     gherkin = payload["gherkin"]
     gherkin_bytes = canonical_json(gherkin, nfc=True).encode("utf-8")
@@ -235,17 +247,23 @@ def _handoff_view(
     )
 
 
-def _validate_handoff_schema_version(document: Any) -> None:
+def _validate_handoff_schema_version(document: Any) -> InputKind:
     version = document.get("schema_version") if isinstance(document, dict) else None
-    if version != _HANDOFF_SCHEMA_VERSION:
+    if version not in set(InputKind):
         found = version if isinstance(version, str) else "no schema_version"
         raise InputSourceError(
-            f"authoring source must be a producer {_HANDOFF_SCHEMA_VERSION} document; "
-            f"found {found}"
+            "authoring source must be a producer "
+            f"{' or '.join(kind.value for kind in InputKind)} document; found {found}"
         )
+    return InputKind(version)
 
 
-def _validate_handoff_kit() -> None:
+def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V4) -> _HandoffVersion:
+    """Verify the mirrored lock and return the version entry it declares for ``kind``.
+
+    The lock's top level declares v4; ``additional_versions`` declares the others.
+    """
+
     verify_contract_lock(
         _HANDOFF_ROOT,
         InputSourceError,
@@ -254,10 +272,26 @@ def _validate_handoff_kit() -> None:
         metadata={"authority": "asago-scenario-generator"},
         metadata_message="vendored handoff kit authority mismatch",
     )
+    lock = load_json_file(
+        _HANDOFF_ROOT / "CONTRACT.lock", InputSourceError, "cannot read vendored handoff lock"
+    )
+    top = {
+        "handoff_schema_version": lock.get("handoff_schema_version"),
+        "digest_domain": lock.get("digest_domain"),
+        "kit": str(lock.get("handoff_schema_version", "")).removeprefix("scenario-"),
+    }
+    for entry in (top, *lock.get("additional_versions", [])):
+        if isinstance(entry, dict) and entry.get("handoff_schema_version") == kind.value:
+            kit, domain = entry.get("kit"), entry.get("digest_domain")
+            if not is_nonblank_str(kit) or not is_nonblank_str(domain):
+                raise InputSourceError(
+                    f"vendored handoff lock entry for {kind.value} is incomplete"
+                )
+            return _HandoffVersion(kind, kit, domain)
+    raise InputSourceError(f"vendored handoff lock does not declare {kind.value}")
 
 
-def _handoff_schema() -> dict[str, Any]:
-    kit = _HANDOFF_SCHEMA_VERSION.removeprefix("scenario-")
+def _handoff_schema(kit: str = "handoff-v4") -> dict[str, Any]:
     return load_json_file(
         _HANDOFF_ROOT / kit / "schema.json", InputSourceError, f"cannot read vendored {kit} schema"
     )
@@ -267,28 +301,29 @@ def _handoff_schema() -> dict[str, Any]:
 _Violation = tuple[str, str, str]
 
 
-def _validate_handoff_payload(payload: dict[str, Any]) -> None:
+def _validate_handoff_payload(payload: dict[str, Any], kit: str) -> None:
     """Report the producer's codes for every rule the handoff breaks, ownership first.
 
-    The mirrored schema runs whole. Only a schema-valid handoff reaches the hand
-    rules, which the schema cannot state; the first one that fails reports its
-    top-level field. A break confined to the attack shape keeps its typed refusal.
+    The mirrored schema of the handoff's version runs whole. Only a schema-valid
+    handoff reaches the hand rules, which the schema cannot state; the first one
+    that fails reports its top-level field. A break confined to the attack shape
+    keeps its typed refusal.
     """
 
     ownership = _ownership_violations(payload)
-    breaks = _schema_violations(payload) or _hand_rule_violations(payload)
+    breaks = _schema_violations(payload, kit) or _hand_rule_violations(payload, kit)
     if not ownership:
-        _raise_shape_refusal(payload, breaks)
+        _raise_shape_refusal(payload, breaks, kit)
     violations = [*ownership, *breaks]
     if violations:
         raise HandoffSchemaInvalid(violations)
 
 
-def _raise_shape_refusal(payload: dict[str, Any], breaks: list[_Violation]) -> None:
+def _raise_shape_refusal(payload: dict[str, Any], breaks: list[_Violation], kit: str) -> None:
     """Raise the typed attack-shape refusal when every break concerns the shape."""
 
     if breaks and {code for code, _, _ in breaks} <= _SHAPE_CODES:
-        refusal = _attack_shape_refusal(payload)
+        refusal = _attack_shape_refusal(payload, kit)
         if refusal is not None:
             raise refusal
 
@@ -296,7 +331,7 @@ def _raise_shape_refusal(payload: dict[str, Any], breaks: list[_Violation]) -> N
 _SHAPE_CODES = frozenset({"schema_violation:attack_shape", "schema_violation:<root>"})
 
 
-def _schema_violations(payload: dict[str, Any]) -> list[_Violation]:
+def _schema_violations(payload: dict[str, Any], kit: str) -> list[_Violation]:
     """Map the schema's errors to the producer's codes: one per top-level field.
 
     A ``required`` error names the missing field; an ``additionalProperties``
@@ -306,7 +341,7 @@ def _schema_violations(payload: dict[str, Any]) -> list[_Violation]:
 
     found: dict[str, _Violation] = {}
     rooted: _Violation | None = None
-    for error in Draft202012Validator(_handoff_schema()).iter_errors(payload):
+    for error in Draft202012Validator(_handoff_schema(kit)).iter_errors(payload):
         where, reason = _error_detail(error)
         if _is_root_pairing(error):
             rooted = rooted or ("schema_violation:<root>", where, reason)
@@ -339,7 +374,7 @@ def _error_fields(error: Any) -> list[str]:
     return ["<root>"]
 
 
-def _attack_shape_refusal(payload: dict[str, Any]) -> ShapeVersionMalformed | None:
+def _attack_shape_refusal(payload: dict[str, Any], kit: str) -> ShapeVersionMalformed | None:
     if "attack_shape" not in payload:
         return ShapeVersionMalformed("attack_shape", "the required property is missing")
     shape = payload["attack_shape"]
@@ -353,21 +388,22 @@ def _attack_shape_refusal(payload: dict[str, Any]) -> ShapeVersionMalformed | No
         )
     if shape is None:
         return None
-    violation = attack_shape_violation(shape, _handoff_schema())
+    violation = attack_shape_violation(shape, _handoff_schema(kit))
     return ShapeVersionMalformed(*violation) if violation is not None else None
 
 
-def _hand_rule_violations(payload: dict[str, Any]) -> list[_Violation]:
-    found = _hand_rule_violation(payload)
+def _hand_rule_violations(payload: dict[str, Any], kit: str) -> list[_Violation]:
+    found = _hand_rule_violation(payload, kit)
     return [found] if found is not None else []
 
 
-def _hand_rule_violation(payload: dict[str, Any]) -> _Violation | None:
+def _hand_rule_violation(payload: dict[str, Any], kit: str) -> _Violation | None:
     """Return the first rule the schema cannot state that a schema-valid handoff breaks.
 
     The rules are blank text, the observation-contract format, presence where
     the schema has a default, and cross-field pairings. The reported code names
-    the top-level field the rule reads.
+    the top-level field the rule reads; the v5 procedure chain, a rule across
+    the steps that the producer checks on the whole handoff, reports ``<root>``.
     """
 
     for key, rules in _HAND_RULES:
@@ -378,9 +414,13 @@ def _hand_rule_violation(payload: dict[str, Any]) -> _Violation | None:
             if found is not None:
                 return (f"schema_violation:{key}", *found)
     if payload.get("attack_shape") is not None:
-        refusal = _attack_shape_refusal(payload)
+        refusal = _attack_shape_refusal(payload, kit)
         if refusal is not None:
             return ("schema_violation:attack_shape", refusal.schema_path, refusal.reason)
+    if "procedure" in payload:
+        found = _procedure_chain(payload["procedure"], "procedure")
+        if found is not None:
+            return ("schema_violation:<root>", *found)
     return None
 
 
@@ -497,6 +537,24 @@ def _safe_outcome_refs(value: dict[str, Any], path: str) -> _Break:
             return f"{path}.{key}", "must be unique"
     if not value["observable"] and (value["record_refs"] or value["fact_refs"]):
         return path, "an analytical-only safe outcome must omit record and fact references"
+    return None
+
+
+def _procedure_chain(steps: list[dict[str, Any]], path: str) -> _Break:
+    """Number the steps S00, S01, ... in order and link each to the next.
+
+    A step names a tactic exactly when it names a technique. The rules are the
+    producer's ``ScenarioHandoffV5.validate_procedure_chain``; keep both in step.
+    """
+
+    ids = [f"S{index:02d}" for index in range(len(steps))]
+    for index, step in enumerate(steps):
+        if step["step_id"] != ids[index]:
+            return f"{path}.{index}.step_id", f"must be {ids[index]}"
+        if step["leads_to"] != ids[index + 1 : index + 2]:
+            return f"{path}.{index}.leads_to", f"must be {ids[index + 1 : index + 2]}"
+        if (step["tactic"] is None) != (step["technique"] is None):
+            return f"{path}.{index}", "names a tactic exactly when it names a technique"
     return None
 
 
@@ -668,5 +726,6 @@ __all__ = [
     "InputView",
     "ShapeVersionMalformed",
     "SourceSnapshot",
+    "V5_FIELDS",
     "load_input",
 ]
