@@ -22,7 +22,7 @@ from .templates import prose
 
 PLANTED_ITEM_DELIVERY = "planted_item"
 SEED_MEMBER = "seed.json"
-SEED_SCHEMA_VERSION = "mini-agents-seed-v1"
+SEED_SCHEMA_VERSION = "artifact-seed-v1"
 PLANTED_TEXT_FIELD = "planted_text"
 # The plan field that names the record when the producer's shape names none.
 RECORD_FIELD = "planted_record_ref"

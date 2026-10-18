@@ -1,0 +1,34 @@
+{
+  "invalid/item-blank-content.json": {
+    "keyword": "minLength",
+    "path": "/items/0/content"
+  },
+  "invalid/item-missing-record.json": {
+    "keyword": "required",
+    "path": "/items/0"
+  },
+  "invalid/item-mode-unknown.json": {
+    "keyword": "enum",
+    "path": "/items/0/mode"
+  },
+  "invalid/item-unknown-key.json": {
+    "keyword": "additionalProperties",
+    "path": "/items/0"
+  },
+  "invalid/missing-carrier-operation.json": {
+    "keyword": "required",
+    "path": "/"
+  },
+  "invalid/no-items.json": {
+    "keyword": "minItems",
+    "path": "/items"
+  },
+  "invalid/unknown-schema-version.json": {
+    "keyword": "const",
+    "path": "/schema_version"
+  },
+  "invalid/unknown-top-level-key.json": {
+    "keyword": "additionalProperties",
+    "path": "/"
+  }
+}

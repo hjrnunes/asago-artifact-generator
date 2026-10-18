@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.checks import (
@@ -79,6 +80,13 @@ def setup(tmp_path: Path, turns: int = 2):
 
 
 LIMIT = CARRIER_SLOT["max_chars"]
+SEED_SCHEMA = (
+    Path(__file__).resolve().parents[1]
+    / "contracts"
+    / "artifact-package"
+    / "artifact-seed-v1"
+    / "schema.json"
+)
 
 
 def runtime_with(**slot: Any) -> dict[str, Any]:
@@ -524,7 +532,7 @@ def _author(
     return result, transport
 
 
-def test_an_indirect_handoff_becomes_a_v4_package_with_a_seed_the_target_accepts(
+def test_an_indirect_handoff_becomes_a_v4_package_with_a_seed_that_follows_the_seed_schema(
     tmp_path: Path,
 ) -> None:
     result, transport = _author(tmp_path)
@@ -533,8 +541,9 @@ def test_an_indirect_handoff_becomes_a_v4_package_with_a_seed_the_target_accepts
     assert [request["stage"] for request in transport.requests] == ["call1", "call2"]
     package = tmp_path / "package"
     seed = json.loads((package / "seed.json").read_text(encoding="utf-8"))
+    Draft202012Validator(json.loads(SEED_SCHEMA.read_text(encoding="utf-8"))).validate(seed)
     assert seed == {
-        "schema_version": "mini-agents-seed-v1",
+        "schema_version": "artifact-seed-v1",
         "carrier_operation": "get_order",
         "items": [
             {

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "artifact-seed-v1",
+  "description": "The seed.json member of an artifact package whose handoff plans a planted item: the text to plant in the target's records before the run, and where. Each item names a seed slot of the runtime contract the package was authored against, one of that slot's records, and that slot's mode. The slot's max_chars bounds content; this schema cannot see the slot, so it states no length limit.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "carrier_operation", "items"],
+  "properties": {
+    "schema_version": { "const": "artifact-seed-v1" },
+    "carrier_operation": {
+      "description": "The operation whose result returns the planted text to the agent: the slot's carrier_operation.",
+      "type": "string",
+      "minLength": 1
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slot", "record_ref", "mode", "content"],
+        "properties": {
+          "slot": {
+            "description": "The id of the runtime contract's seed slot.",
+            "type": "string",
+            "minLength": 1
+          },
+          "record_ref": {
+            "description": "The record whose field holds the text: one of the slot's records.",
+            "type": "string",
+            "minLength": 1
+          },
+          "mode": {
+            "description": "How the target writes the text into the field: the slot's mode.",
+            "enum": ["replace", "append"]
+          },
+          "content": {
+            "description": "The planted text, at most the slot's max_chars characters.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}
