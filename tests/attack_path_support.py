@@ -1,4 +1,9 @@
-"""An ``attack-path-v1`` path for SCN-027 and the views that carry it."""
+"""Attack paths the producer wrote for klarna, and the views that carry them.
+
+``SCN_027_PATH`` restates SCN-027's path from the handoff
+``fixtures/handoffs/klarna-attack-path-SCN-027.yaml`` (a copy of the G-AP1 output) so that a
+test fails when either side drifts.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +13,7 @@ from typing import Any
 
 from asago_artifact_generator.input_adapter import InputView, load_input
 
-from .support import AND_OR_HANDOFF
+from .support import HANDOFFS
 
 _UCA_LABEL = (
     "Conversational engagement and response generation provides 'Schedule or modify a "
@@ -134,33 +139,27 @@ SCN_027_PATH: dict[str, Any] = {
     },
 }
 
-SCN_027_LINEAGE = {
-    "loss_ids": ["L-9"],
-    "hazard_ids": ["H-9"],
-    "constraint_ids": ["SC-8"],
-    "ica_slot_id": "RESP-1:CA-1-5:INCORRECT",
-    "ica_id": "RESP-1:CA-1-5:INCORRECT:1",
-    "controller_id": "RESP-1",
-    "control_action_id": "CA-1-5",
-}
-
 FUNCTIONAL_PATH_KEYS = ("conditions", "unsafe_action", "observable_failure", "hazard")
 
 
-def path_view(path: dict[str, Any] | None = None, *, kind: str = "adversarial") -> InputView:
-    """Return a view whose payload carries ``path`` where a v4 payload carries its tree.
+def real_view(number: str) -> InputView:
+    """Load a klarna handoff the attack-path producer wrote (SCN-027, SCN-036, or SCN-041)."""
 
-    The view starts from the and-or fixture, which is a v4 handoff, because the vendored v5
-    schema still requires ``attack_tree``; a path handoff is built directly from the payload.
+    return load_input(HANDOFFS / f"klarna-attack-path-SCN-{number}.yaml")
+
+
+def path_view(path: dict[str, Any] | None = None, *, kind: str = "adversarial") -> InputView:
+    """Return SCN-027's view with ``path`` and ``kind`` swapped into its payload.
+
+    The path and kind are not validated again, so a test can render a path the producer
+    would not write, such as a minimal one.
     """
 
-    view = load_input(AND_OR_HANDOFF)
+    view = real_view("027")
     payload = copy.deepcopy(view.payload)
-    del payload["attack_tree"]
-    payload["scenario_id"] = "SCN-027"
-    payload["lineage"] = copy.deepcopy(SCN_027_LINEAGE)
     payload["kind"] = kind
-    payload["attack_path"] = copy.deepcopy(SCN_027_PATH if path is None else path)
+    if path is not None:
+        payload["attack_path"] = copy.deepcopy(path)
     return dataclasses.replace(view, payload=payload)
 
 
