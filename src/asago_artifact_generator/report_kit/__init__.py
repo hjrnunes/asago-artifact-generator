@@ -1177,15 +1177,10 @@ _DG_STEP_Y = 56
 _DG_WIDTH = 200
 _DG_HEIGHT = 48
 _DG_LINE = 14
-_MERMAID_CODES = {
-    '"': "#quot;",
-    "#": "#35;",
-    "&": "#38;",
-    "<": "#lt;",
-    ">": "#gt;",
-    "`": "#96;",
-}
-_MERMAID_SPECIAL = re.compile('["#&<>`]')
+# Mermaid reads directives (%%{init}%%), statements (style, classDef) and
+# entities anywhere in its text, quoted labels included, so a label keeps only
+# these characters; every other one becomes the entity code "#<code point>;".
+_MERMAID_ENCODE = re.compile(r"[^A-Za-z0-9 ]")
 _MERMAID_SHAPES = {"or": ("{{", "}}"), "and": ("{{", "}}"), "unsafe": ("[/", "/]")}
 
 
@@ -1268,15 +1263,18 @@ def _diagram_edge(parent: _Placed, child: _Placed) -> str:
     )
 
 
-def _mermaid_label(text: str) -> str:
-    return _MERMAID_SPECIAL.sub(lambda m: _MERMAID_CODES[m.group()], _flat(text))
+def _mermaid_label(node: DiagramNode) -> str:
+    """Return the node's label and its tags, as the SVG draws them, encoded."""
+
+    text = " · ".join([_flat(node.label), *(_flat(tag) for tag in node.tags)])
+    return _MERMAID_ENCODE.sub(lambda m: f"#{ord(m.group())};", text)
 
 
 def _mermaid(placed: Sequence[_Placed]) -> str:
     lines = ["flowchart LR"]
     for index, item in enumerate(placed):
         opening, closing = _MERMAID_SHAPES.get(item.node.kind, ("[", "]"))
-        label = _mermaid_label(item.node.label)
+        label = _mermaid_label(item.node)
         lines.append(f'    n{index}{opening}"{label}"{closing}')
     lines.extend(
         f"    n{item.parent} --> n{index}"
@@ -1290,8 +1288,10 @@ def mermaid_text(root: DiagramNode) -> str:
     """Return the Mermaid flowchart of the tree under *root*.
 
     Node ``n<i>`` is the i-th node in pre-order, shaped by its kind; each
-    parent and child pair is one edge. Labels use Mermaid entity codes for
-    the characters Mermaid would read as syntax.
+    parent and child pair is one edge. A node's text is its label followed by
+    " · <tag>" for each tag. Every character other than an ASCII letter,
+    digit or space is written as a Mermaid entity code, so no label can hold
+    Mermaid syntax.
     """
 
     return _mermaid(_place(root))

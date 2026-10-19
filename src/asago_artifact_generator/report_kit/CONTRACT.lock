@@ -3,8 +3,8 @@
   "contract": "report-kit",
   "schema_version": "report-kit-v1",
   "files": {
-    "__init__.py": "ca3743bae5aba8d6990d255fc12d26b738e78840e2784fd9cf49dabbed89f09a",
-    "catalog.html": "8e737b52090d25b5de5edb273a388b0924226c7008f5e799b9346b9c78609fa8",
+    "__init__.py": "f8bfd357d4d82ab0e4d44f1a3794d2b7379e2f9e92c2258d9aeb473b7dded238",
+    "catalog.html": "212c60295b2a637b660cf90cfd372d1420d38d733ae617f658520be0317bad9a",
     "kit.css": "9d1199f4aa92f068ff6defbcd8144777f401ef0d1d0a290b44c6428562b379b6",
     "kit.js": "2cc7077c1c36983e6f17bc9d66df866325f4ad33baba210e20c614a52e88cead",
     "stage-summary-v1.schema.json": "d667507e6786b1da1e8385268c32e26e1b27040a1a64865a57ab28e8ec7f7691"
