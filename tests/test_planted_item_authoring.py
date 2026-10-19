@@ -22,6 +22,7 @@ from asago_artifact_generator.authoring.correction import (
     build_correction_context,
 )
 from asago_artifact_generator.authoring.planted_item import (
+    STIMULUS_SLOTS_MEANING,
     VERBATIM_RUN,
     planted_item_findings,
     runtime_contract_for_prompt,
@@ -272,6 +273,77 @@ def test_the_slot_limit_reaches_the_artifact_request_and_its_correction(tmp_path
     block = json_section(packet.user, "INDIRECT SHAPE")
     assert "at most 50 characters" in block["check"]
     assert "at most 50 characters" in block["fields"]["planted_text"]["meaning"]
+
+
+def test_only_a_plan_that_plants_a_text_explains_the_stimulus_slots(tmp_path: Path) -> None:
+    _, _, _, plan, _ = setup(tmp_path)
+    plain = world("refund")["plan"]
+    untyped = {"type": "array", "items": {"type": "string"}}
+
+    def slots(contract: dict[str, Any]) -> dict[str, Any]:
+        return contract["schema"]["properties"]["stimulus"]["properties"]["slots"]
+
+    assert slots(_call2_contract_v2(plan, planted_max_chars=120)) == {
+        **untyped,
+        "description": STIMULUS_SLOTS_MEANING,
+    }
+    assert "{{binding_name}}" in STIMULUS_SLOTS_MEANING
+    assert slots(_call2_contract_v2(plan)) == untyped
+    assert slots(_call2_contract_v2(plain, planted_max_chars=120)) == untyped
+    assert slots(_call2_contract_v2(None)) == untyped
+
+
+def test_the_slots_meaning_reaches_the_artifact_request_and_its_correction_once(
+    tmp_path: Path,
+) -> None:
+    view, inventory, rt, plan, _ = setup(tmp_path)
+    original = {
+        **build_artifact_author_context(view, plan, inventory, rt),
+        **multi_turn_payload(view, rt, plan),
+    }
+    correction = build_correction_context(
+        failed_stage="call2", original_context=original, current_output=b"{}", findings=[]
+    )
+    call2 = build_call2_packet_v2(view, plan, inventory, rt)
+    artifact_correction = _render_correction_packet(
+        correction, correction_repair_inputs(view, inventory, rt)
+    )
+
+    for contract in (rendered_response_contract(call2), correction["response_contract"]):
+        slots = contract["schema"]["properties"]["stimulus"]["properties"]["slots"]
+        assert slots["description"] == STIMULUS_SLOTS_MEANING
+    for packet in (call2, artifact_correction):
+        assert packet.user.count(STIMULUS_SLOTS_MEANING) == 1
+        assert STIMULUS_SLOTS_MEANING not in packet.system
+
+
+def test_no_other_prompt_carries_the_slots_meaning(tmp_path: Path) -> None:
+    view, inventory, rt, plan, metadata = setup(tmp_path)
+    refund = world("refund")
+    plan_correction = _render_correction_packet(
+        build_correction_context(
+            failed_stage="call1",
+            original_context={
+                **build_plan_author_context(view, inventory, rt),
+                **multi_turn_payload(view, rt),
+            },
+            current_output=b"{}",
+            findings=[],
+        ),
+        correction_repair_inputs(view, inventory, rt),
+    )
+    packets = [
+        build_call1_packet_v2(view, inventory, rt),
+        build_plan_review_packet(view, plan, inventory, rt),
+        build_artifact_review_packet(view, plan, metadata, inventory, rt),
+        plan_correction,
+        build_call2_packet_v2(
+            refund["view"], refund["plan"], refund["inventory"], refund["runtime_contract"]
+        ),
+    ]
+
+    for packet in packets:
+        assert "placeholders in" not in packet.system + packet.user
 
 
 def test_a_planted_item_plan_without_a_slot_limit_plants_no_text(tmp_path: Path) -> None:

@@ -14,8 +14,8 @@ from .binding_repair import (
 )
 from .contracts import _call2_contract_v2
 from .core import (
-    CORRECTION_PROMPT_VERSION_V33,
     CORRECTION_PROMPT_VERSION_V38,
+    CORRECTION_PROMPT_VERSION_V39,
     Call2FramingError,
     Finding,
     FindingTarget,
@@ -282,7 +282,7 @@ def _render_correction_packet(
     packet = PromptPacket(
         stage="correction",
         version=(
-            CORRECTION_PROMPT_VERSION_V33 if view.artifact else CORRECTION_PROMPT_VERSION_V38
+            CORRECTION_PROMPT_VERSION_V39 if view.artifact else CORRECTION_PROMPT_VERSION_V38
         ),
         system=_CORRECTION_SYSTEM,
         user=_render_sections(
