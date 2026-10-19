@@ -9,12 +9,17 @@ from typing import Any
 
 import pytest
 
-from asago_artifact_generator.authoring import condition_eval
 from asago_bundle_core.schema import manifest_errors, validate_manifest
 from asago_bundle_core.slots import VALUE
 from asago_bundle_core.testing import CONDITION, JUDGE, write_test_package
 from asago_bundle_midojo import compiler
-from asago_bundle_midojo.compiler import CompileError, compile_package
+from asago_bundle_midojo.compiler import CompileError
+from asago_bundle_midojo.compiler import compile_package as _compile
+from conftest import compile_options
+
+
+def compile_package(package: Path, out: Path) -> dict[str, Any]:
+    return _compile(package, out, **compile_options())
 
 
 def manifest_of(template: Path) -> dict[str, Any]:
@@ -32,10 +37,10 @@ def test_the_manifest_names_the_tool_and_the_claim(template: Path) -> None:
     manifest = manifest_of(template)
 
     assert manifest["tool"] == "midojo"
-    assert manifest["tool_revision_range"] == ">=9ceb22e3"
+    assert manifest["tool_revision_range"] == ">=5efb3de8"
     assert manifest["claim_level"] == "command_attempt"
     assert manifest["delivery"] == "single"
-    assert manifest["plugins"] == ["asago_tool_call_condition", "asago_neutral"]
+    assert manifest["plugins"] == ["asago_neutral"]
     assert manifest["environment"] == ["OPENAI_API_KEY"]
     assert manifest["templates"] == {"suite": "suite.template.json"}
 
@@ -132,12 +137,7 @@ def test_the_suite_template_holds_the_condition_and_two_slots(template: Path) ->
     (injection_task,) = suite["injection_tasks"]
     assert user_task["prompt"] == {VALUE: "messages"}
     assert user_task["utility"] == {"asago_neutral": {}}
-    assert injection_task["security"] == {
-        "asago_tool_call_condition": {
-            "condition": CONDITION,
-            "verdict_file": {"$bundle": "verdict.json"},
-        }
-    }
+    assert injection_task["security"] == {"tool_call_condition": CONDITION}
     assert "probes" not in injection_task
 
 
@@ -153,12 +153,6 @@ def test_the_bundle_code_is_copied_byte_for_byte(template: Path) -> None:
         assert (template / name).read_bytes() == source.joinpath(original).read_bytes()
 
 
-def test_the_bundle_carries_the_consumer_condition_evaluator(template: Path) -> None:
-    authority = Path(condition_eval.__file__).read_bytes()
-
-    assert (template / "asago_suite/condition_eval.py").read_bytes() == authority
-
-
 def test_compile_twice_gives_the_same_bytes(command_package: Path, tmp_path: Path) -> None:
     compile_package(command_package, tmp_path / "one")
     compile_package(command_package, tmp_path / "two")
@@ -167,7 +161,7 @@ def test_compile_twice_gives_the_same_bytes(command_package: Path, tmp_path: Pat
         return {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
 
     assert tree(tmp_path / "one") == tree(tmp_path / "two")
-    assert len(tree(tmp_path / "one")) == 9
+    assert len(tree(tmp_path / "one")) == 8
 
 
 def test_compile_returns_the_manifest_it_wrote(command_package: Path, tmp_path: Path) -> None:
@@ -209,7 +203,7 @@ def test_compile_refuses_an_invalid_condition(tmp_path: Path) -> None:
 
 def test_the_suite_module_and_the_tool_revision_are_fixed_by_compile() -> None:
     assert compiler.SUITE_MODULE == "asago_suite.suite"
-    assert compiler.TOOL_REVISION_RANGE == ">=9ceb22e3"
+    assert compiler.TOOL_REVISION_RANGE == ">=5efb3de8"
 
 
 # --- the reply claim ---------------------------------------------------------------------

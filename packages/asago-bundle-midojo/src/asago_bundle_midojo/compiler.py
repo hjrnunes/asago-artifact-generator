@@ -24,11 +24,14 @@ from asago_bundle_core.slots import bundle_slot, contains_marker, template_slots
 from asago_bundle_core.text import canonical_text
 
 from .bundle_files.asago_rubric import RUBRIC_NAME
-from .bundle_files.verifier_names import CONDITION_NAME, NEUTRAL_NAME
+from .bundle_files.verifier_names import NEUTRAL_NAME
+from .environment import EnvironmentFault, base_target, suite_environment
 
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "midojo"
-TOOL_REVISION_RANGE = ">=9ceb22e3"
+TOOL_REVISION_RANGE = ">=5efb3de8"
+# MiDojo's builtin predicate; its value is the condition object itself.
+TOOL_CALL_CONDITION = "tool_call_condition"
 COMMAND_ATTEMPT = "command_attempt"
 REPLY = "reply"
 CLAIM_LEVELS = ("command_attempt", "reply", "state_effect")
@@ -38,6 +41,7 @@ CONDITION_MEMBER = "tool_call_condition.json"
 JUDGE_MEMBER = "judge.json"
 BUNDLE_FILE = "bundle.json"
 SUITE_TEMPLATE = "suite.template.json"
+SEED_MEMBER = "seed.json"
 SUITE_PACKAGE = "asago_suite"
 SUITE_MODULE = f"{SUITE_PACKAGE}.suite"
 SUITE_FILE = f"{SUITE_PACKAGE}/suite.yaml"
@@ -53,7 +57,6 @@ JUDGE_KEY = "OPENAICOMPATIBLE_API_KEY"
 # Values the commands name as ``{key}``; the suite template holds the others.
 ENTRYPOINT_VALUES = ("gateway_url", "mcp_url", "model", "service_port")
 BUNDLE_FILES = "asago_bundle_midojo.bundle_files"
-AUTHORING = "asago_artifact_generator.authoring"
 # Bundle path -> (package, file of that package it copies).
 BUNDLE_CODE = {
     f"{SUITE_PACKAGE}/__init__.py": (BUNDLE_FILES, "suite_package.py"),
@@ -62,7 +65,6 @@ BUNDLE_CODE = {
     f"{SUITE_PACKAGE}/asago_rubric.py": (BUNDLE_FILES, "asago_rubric.py"),
     RUN_SCRIPT: (BUNDLE_FILES, "run_midojo.py"),
     f"{SUITE_PACKAGE}/verifier_names.py": (BUNDLE_FILES, "verifier_names.py"),
-    f"{SUITE_PACKAGE}/condition_eval.py": (AUTHORING, "condition_eval.py"),
 }
 RUN_DUMP = "control-plane/run.json"
 EVALUATION_DUMP = "control-plane/evaluation.json"
@@ -74,8 +76,14 @@ class CompileError(BundleError):
     """The package cannot become a MiDojo bundle."""
 
 
-def compile_package(package_dir: str | Path, out_dir: str | Path) -> dict[str, Any]:
-    """Write the bundle template for one package and return its manifest."""
+def compile_package(
+    package_dir: str | Path, out_dir: str | Path, *, midojo_base: str | Path, domain: str
+) -> dict[str, Any]:
+    """Write the bundle template for one package and return its manifest.
+
+    ``midojo_base`` is mini-agents' ``mini-agents-midojo-base-v1`` file; ``domain`` picks the
+    ledger the suite serves and the slots the package's seed may target.
+    """
 
     out = Path(out_dir)
     package = _load(Path(package_dir))
@@ -85,7 +93,13 @@ def compile_package(package_dir: str | Path, out_dir: str | Path) -> dict[str, A
     if reasons:
         delivery = SEQUENTIAL if delivery_mode(stimulus) == SEQUENTIAL else SINGLE
         raise CapabilityGap(capability_gap_record(TOOL, package, delivery, "; ".join(reasons)))
-    suite = suite_template(package, level)
+    target = _base_target(Path(midojo_base), domain)
+    seed = _json_member(package, SEED_MEMBER) if SEED_MEMBER in package.members else None
+    try:
+        environment, probes = suite_environment(target, seed)
+    except EnvironmentFault as exc:
+        raise CompileError(str(exc)) from exc
+    suite = suite_template(package, level, environment, probes)
     requires = sorted(template_slots([suite]) | set(ENTRYPOINT_VALUES))
     manifest = bundle_manifest(package, level, requires)
     _write(out, {SUITE_TEMPLATE: suite, BUNDLE_FILE: manifest})
@@ -132,13 +146,26 @@ def _claim_reason(level: str) -> str | None:
     return None
 
 
-def suite_template(package: ArtifactPackage, level: str) -> dict[str, Any]:
+def suite_template(
+    package: ArtifactPackage,
+    level: str,
+    environment: dict[str, Any],
+    probes: dict[str, dict[str, str]],
+) -> dict[str, Any]:
     """Return the suite file with its slots: one user task and one injection task."""
 
     scenario_id = package.manifest.scenario_id
     name, check = _security_check(package, level)
+    injection_task: dict[str, Any] = {
+        "id": INJECTION_TASK_ID,
+        "description": f"{scenario_id}: {_DESCRIPTIONS[level]}",
+        "security": {name: check},
+    }
+    if probes:
+        injection_task["probes"] = probes
     return {
         "agent_runtime": {"type": "unmanaged"},
+        "environment": environment,
         "user_tasks": [
             {
                 "id": USER_TASK_ID,
@@ -146,13 +173,7 @@ def suite_template(package: ArtifactPackage, level: str) -> dict[str, Any]:
                 "utility": {NEUTRAL_NAME: {}},
             }
         ],
-        "injection_tasks": [
-            {
-                "id": INJECTION_TASK_ID,
-                "description": f"{scenario_id}: {_DESCRIPTIONS[level]}",
-                "security": {name: check},
-            }
-        ],
+        "injection_tasks": [injection_task],
     }
 
 
@@ -163,18 +184,17 @@ _DESCRIPTIONS = {
 
 
 def _security_check(package: ArtifactPackage, level: str) -> tuple[str, dict[str, Any]]:
-    """Return the verifier name and spec that grade the claim; the verdict path is a slot."""
+    """Return the predicate name and spec that grade the claim."""
 
-    verdict_file = bundle_slot(VERDICT_FILE)
     if level == REPLY:
         return RUBRIC_NAME, {
             "rubric": _rubric(package),
             "user_text": value_slot("messages"),
             "judge_url": value_slot("judge_url"),
             "judge_model": value_slot("judge_model"),
-            "verdict_file": verdict_file,
+            "verdict_file": bundle_slot(VERDICT_FILE),
         }
-    return CONDITION_NAME, {"condition": _condition(package), "verdict_file": verdict_file}
+    return TOOL_CALL_CONDITION, _condition(package)
 
 
 def bundle_manifest(package: ArtifactPackage, level: str, requires: list[str]) -> dict[str, Any]:
@@ -188,7 +208,7 @@ def bundle_manifest(package: ArtifactPackage, level: str, requires: list[str]) -
         "package_digest": package.manifest.manifest_digest,
         "claim_level": level,
         "delivery": SINGLE,
-        "plugins": [RUBRIC_NAME if reply else CONDITION_NAME, NEUTRAL_NAME],
+        "plugins": [RUBRIC_NAME, NEUTRAL_NAME] if reply else [NEUTRAL_NAME],
         "requires": requires,
         "environment": ["OPENAI_API_KEY", JUDGE_KEY] if reply else ["OPENAI_API_KEY"],
         "templates": {"suite": SUITE_TEMPLATE},
@@ -231,6 +251,17 @@ def bundle_manifest(package: ArtifactPackage, level: str, requires: list[str]) -
         ],
         "native_outputs": list(NATIVE_OUTPUTS),
     }
+
+
+def _base_target(path: Path, domain: str) -> dict[str, Any]:
+    try:
+        base = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CompileError(f"the MiDojo base cannot be read: {exc}") from exc
+    try:
+        return dict(base_target(base, domain))
+    except EnvironmentFault as exc:
+        raise CompileError(str(exc)) from exc
 
 
 def _condition(package: ArtifactPackage) -> dict[str, Any]:
