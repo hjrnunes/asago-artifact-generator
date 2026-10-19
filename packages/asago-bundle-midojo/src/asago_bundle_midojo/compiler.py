@@ -69,7 +69,10 @@ BUNDLE_CODE = {
 RUN_DUMP = "control-plane/run.json"
 EVALUATION_DUMP = "control-plane/evaluation.json"
 RESULTS_FILE = "midojo-logs/results.json"
-NATIVE_OUTPUTS = (RUN_DUMP, EVALUATION_DUMP, RESULTS_FILE, VERDICT_FILE)
+COMMAND_OUTPUTS = (RUN_DUMP, EVALUATION_DUMP, RESULTS_FILE)
+# Only the rubric verifier of a reply package writes a verdict file; a command attempt is graded
+# by ``parse`` from MiDojo's recorded calls.
+NATIVE_OUTPUTS = {COMMAND_ATTEMPT: COMMAND_OUTPUTS, REPLY: (*COMMAND_OUTPUTS, VERDICT_FILE)}
 
 
 class CompileError(BundleError):
@@ -249,7 +252,7 @@ def bundle_manifest(package: ArtifactPackage, level: str, requires: list[str]) -
             "--logdir",
             "{bundle}/midojo-logs",
         ],
-        "native_outputs": list(NATIVE_OUTPUTS),
+        "native_outputs": list(NATIVE_OUTPUTS[level]),
     }
 
 

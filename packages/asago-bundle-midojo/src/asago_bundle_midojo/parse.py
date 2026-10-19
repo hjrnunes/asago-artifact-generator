@@ -1,16 +1,17 @@
 """parse: turn MiDojo's control-plane records for one bundle into ``execution-receipt-v1``.
 
 The run script left the control plane's run and evaluation records in the
-bundle, and the verifier left its verdict. A usable run holds exactly one graded
+bundle. A reply's rubric verifier left its verdict; a command attempt's verdict is computed
+here from the calls MiDojo recorded. A usable run holds exactly one graded
 evaluation whose verdict and ``security`` flag agree. Anything else yields a
 ``failed`` receipt whose ``incomplete_reason`` names what was wrong; the receipt
 is still written.
 
 The control plane's flag has two values and the contract three: ``security`` is
-true exactly when the verdict is ``detected``, and the verdict file tells
-``not_detected`` from ``inconclusive``. When the orchestrator's boundary services
-recorded the package, their calls replace the control plane's, and the two
-counts must agree.
+true exactly when the verdict is ``detected``, and the verdict tells ``not_detected`` from
+``inconclusive`` (an inconclusive command grade agrees with either flag). When the
+orchestrator's boundary services recorded the package, their calls replace the control
+plane's, and the two counts must agree; so must the mini-agents server's own report log.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from asago_artifact_generator.authoring.condition_eval import evaluate_condition
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.mcp_records import read_json, text
 from asago_bundle_core.text import canonical_text
@@ -38,6 +40,7 @@ from .compiler import (
     TOOL,
     VERDICT_FILE,
 )
+from .environment import placeholder
 from .records import Records, native_call, read_records
 
 SCHEMA_VERSION = "execution-receipt-v1"
@@ -71,11 +74,16 @@ class Bundle:
     root: Path
     manifest: dict[str, Any]
     prompt: str
+    suite: dict[str, Any]
 
 
 @dataclass(frozen=True)
 class Evidence:
-    """The three native documents of one run."""
+    """The run, the evaluation and the verdict of one run.
+
+    A command attempt's verdict is computed from the recorded calls; a reply's is the rubric
+    verifier's file.
+    """
 
     run: dict[str, Any]
     evaluation: dict[str, Any]
@@ -108,7 +116,7 @@ def parse_bundle(
         "runtime_status": None if reason else "completed",
         "incomplete_reason": reason,
         "attempts": [attempt] if attempt else [],
-        "native": native_files(bundle.root, out.parent),
+        "native": native_files(bundle.root, out.parent, bundle.manifest["claim_level"]),
     }
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(canonical_text(receipt), encoding="utf-8")
@@ -120,18 +128,20 @@ def read_bundle(root: Path) -> Bundle:
         manifest = json.loads((root / BUNDLE_FILE).read_text(encoding="utf-8"))
         suite = json.loads((root / SUITE_FILE).read_text(encoding="utf-8"))
         prompt = suite["user_tasks"][0]["prompt"]
+        if manifest.get("claim_level") == COMMAND_ATTEMPT:
+            suite["injection_tasks"][0]["security"]["tool_call_condition"]["comparisons"]
         missing = MANIFEST_KEYS - manifest.keys()
     except (OSError, IndexError, KeyError, TypeError, AttributeError, ValueError) as exc:
         raise ParseError(f"bundle is unreadable: {exc}") from exc
     if missing:
         raise ParseError(f"bundle manifest lacks {sorted(missing)}")
-    return Bundle(root, manifest, prompt)
+    return Bundle(root, manifest, prompt, suite)
 
 
 def build_attempt(bundle: Bundle, records: Records) -> tuple[dict[str, Any] | None, str | None]:
     """Return the run's one attempt, or why the run cannot be graded."""
 
-    evidence, reason = read_evidence(bundle.root)
+    evidence, reason = read_evidence(bundle)
     if evidence is None:
         return None, reason
     reason = evidence_failure(evidence, bundle, records)
@@ -140,18 +150,41 @@ def build_attempt(bundle: Bundle, records: Records) -> tuple[dict[str, Any] | No
     return attempt_of(evidence, bundle, records), None
 
 
-def read_evidence(root: Path) -> tuple[Evidence | None, str | None]:
+def read_evidence(bundle: Bundle) -> tuple[Evidence | None, str | None]:
     documents = []
-    for name, prefix in ((RUN_DUMP, "control_plane"), (EVALUATION_DUMP, "control_plane")):
-        document, reason = read_document(root / name, prefix)
+    for name in (RUN_DUMP, EVALUATION_DUMP):
+        document, reason = read_document(bundle.root / name, "control_plane")
         if document is None:
             return None, reason
         documents.append(document)
-    verdict, reason = read_document(root / VERDICT_FILE, "verdict")
+    run, evaluation = documents
+    if bundle.manifest["claim_level"] == COMMAND_ATTEMPT:
+        return Evidence(run, evaluation, command_verdict(bundle, evaluation)), None
+    verdict, reason = read_document(bundle.root / VERDICT_FILE, "verdict")
     if verdict is None:
         # A grade that raised leaves no verdict; the ungraded evaluation is the cause.
-        return None, reason if is_graded(documents[1]) else "evaluation_ungraded"
-    return Evidence(documents[0], documents[1], verdict), None
+        return None, reason if is_graded(evaluation) else "evaluation_ungraded"
+    return Evidence(run, evaluation, verdict), None
+
+
+def command_verdict(bundle: Bundle, evaluation: dict[str, Any]) -> dict[str, Any]:
+    """Return the verdict of the suite's condition on the calls MiDojo recorded.
+
+    Malformed calls are reported by their own check, so they count as no calls here.
+    """
+
+    condition = bundle.suite["injection_tasks"][0]["security"]["tool_call_condition"]
+    recorded = evaluation.get("function_calls")
+    if not (isinstance(recorded, list) and all(isinstance(call, dict) for call in recorded)):
+        recorded = []
+    calls = [{"name": call.get("function"), "arguments": call.get("args")} for call in recorded]
+    result = evaluate_condition(condition, calls, True)
+    return {
+        "outcome": result.outcome,
+        "reason": result.reason,
+        "claim_level": COMMAND_ATTEMPT,
+        "matched_calls": list(result.matched_calls),
+    }
 
 
 def read_document(path: Path, prefix: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -238,8 +271,14 @@ LEVEL_SHAPES: dict[str, Callable[[dict[str, Any]], bool]] = {
 
 
 def _verdict_agrees(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
-    detected = evidence.verdict["outcome"] == "detected"
-    return None if evidence.evaluation["security"] is detected else "verdict_disagrees"
+    outcome, security = evidence.verdict["outcome"], evidence.evaluation["security"]
+    if bundle.manifest["claim_level"] == COMMAND_ATTEMPT:
+        # The condition is MiDojo's own; an inconclusive grade agrees with either flag.
+        disagrees = (security and outcome == "not_detected") or (
+            not security and outcome == "detected"
+        )
+        return "verdict_disagrees" if disagrees else None
+    return None if security is (outcome == "detected") else "verdict_disagrees"
 
 
 def _prompt_matches(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
@@ -253,12 +292,59 @@ def _calls_shape(evidence: Evidence, bundle: Bundle, records: Records) -> str | 
     return None if ok else "function_calls_malformed"
 
 
+def _seed_provisioned(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
+    """Every probe's payload must sit where the suite put its placeholder."""
+
+    task = bundle.suite["injection_tasks"][0]
+    probes = task.get("probes") or {}
+    provisioned = evidence.evaluation.get("pre_environment")
+    for name, probe in probes.items():
+        index = int(name.removeprefix("seed_"))
+        path = _find(bundle.suite.get("environment"), placeholder(index))
+        value = _at(provisioned, path) if path is not None else None
+        if not (isinstance(value, str) and probe["payload"] in value):
+            return "seed_not_provisioned"
+    return None
+
+
+def _find(node: Any, needle: str) -> list[Any] | None:
+    """Return the path of the first string in *node* that holds *needle*."""
+
+    if isinstance(node, str):
+        return [] if needle in node else None
+    children = (
+        node.items()
+        if isinstance(node, dict)
+        else enumerate(node)
+        if isinstance(node, list)
+        else ()
+    )
+    for key, child in children:
+        found = _find(child, needle)
+        if found is not None:
+            return [key, *found]
+    return None
+
+
+def _at(node: Any, path: list[Any]) -> Any:
+    for key in path:
+        try:
+            node = node[key]
+        except (KeyError, IndexError, TypeError):
+            return None
+    return node
+
+
 def _records_agree(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
     if records.malformed:
         return "records_malformed"
     if records.undelivered:
         return "sink_failed"
     if records.calls is not None and len(records.calls) != len(
+        evidence.evaluation["function_calls"]
+    ):
+        return "tool_call_count_mismatch"
+    if records.server is not None and len(records.server) != len(
         evidence.evaluation["function_calls"]
     ):
         return "tool_call_count_mismatch"
@@ -269,10 +355,11 @@ CHECKS: tuple[Check, ...] = (
     _evaluation_count,
     _evaluation_identity,
     _graded,
+    _calls_shape,
     _verdict_shape,
     _verdict_agrees,
     _prompt_matches,
-    _calls_shape,
+    _seed_provisioned,
     _records_agree,
 )
 
@@ -348,11 +435,11 @@ def bundle_digest(root: Path) -> str:
     return hashlib.sha256(canonical_text(files).encode("utf-8")).hexdigest()
 
 
-def native_files(root: Path, receipt_dir: Path) -> list[dict[str, str]]:
+def native_files(root: Path, receipt_dir: Path, claim_level: str) -> list[dict[str, str]]:
     """List the native outputs that exist, relative to the receipt's directory."""
 
     found = []
-    for name in NATIVE_OUTPUTS:
+    for name in NATIVE_OUTPUTS[claim_level]:
         path = root / name
         if not path.is_file():
             continue

@@ -169,6 +169,8 @@ def evaluation_dump(
     prompt: str = PROMPT,
     calls: tuple[dict[str, Any], ...] = (CALL,),
     output: str | None = "Done.",
+    pre_environment: dict[str, Any] | None = None,
+    environment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The control plane's ``GET /runs/{run}/evaluations/{eval}`` answer."""
 
@@ -183,6 +185,22 @@ def evaluation_dump(
         "agent_input": prompt,
         "agent_output": output,
         "function_calls": list(calls),
+        "pre_environment": {} if pre_environment is None else pre_environment,
+        "environment": {} if environment is None else environment,
+    }
+
+
+def server_line(sequence: int = 0, **changes: Any) -> dict[str, Any]:
+    """One line of the mini-agents server's ``midojo_capture/calls.jsonl``."""
+
+    return {
+        "sequence": sequence,
+        "function": "get_referral",
+        "load": None,
+        "push": "ok",
+        "report": "ok",
+        "failure": None,
+        **changes,
     }
 
 
@@ -227,14 +245,18 @@ def write_native(
     verdict: Any = None,
     results: Any = None,
 ) -> None:
-    """Write a run's native outputs into ``bundle``; a ``None`` argument writes the default."""
+    """Write a run's native outputs into ``bundle``; a ``None`` argument writes the default.
+
+    A command attempt has no ``verdict.json``: parse grades it from the recorded calls.
+    """
 
     documents = {
         "control-plane/run.json": run_dump() if run is None else run,
         "control-plane/evaluation.json": evaluation_dump() if evaluation is None else evaluation,
-        "verdict.json": verdict_dump() if verdict is None else verdict,
         "midojo-logs/results.json": {"run_id": "run-1"} if results is None else results,
     }
+    if verdict is not None:  # only a reply bundle's rubric verifier writes one
+        documents["verdict.json"] = verdict
     for name, document in documents.items():
         path = bundle / name
         path.parent.mkdir(parents=True, exist_ok=True)

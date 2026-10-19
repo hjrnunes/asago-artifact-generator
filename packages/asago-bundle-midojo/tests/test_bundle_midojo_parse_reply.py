@@ -193,12 +193,6 @@ def test_a_command_verdict_in_a_reply_bundle_is_malformed(reply_bundle: Path) ->
     assert receipt_of(reply_bundle)["incomplete_reason"] == "verdict_malformed"
 
 
-def test_a_reply_verdict_in_a_command_bundle_is_malformed(bundle: Path) -> None:
-    write_native(bundle, verdict=reply_verdict_dump())
-
-    assert receipt_of(bundle)["incomplete_reason"] == "verdict_malformed"
-
-
 def test_a_supported_verdict_with_a_false_security_flag_disagrees(reply_bundle: Path) -> None:
     write_native(
         reply_bundle, evaluation=evaluation_dump(security=False), verdict=reply_verdict_dump()
@@ -208,7 +202,9 @@ def test_a_supported_verdict_with_a_false_security_flag_disagrees(reply_bundle: 
 
 
 def test_an_ungraded_reply_evaluation_stays_ungraded(reply_bundle: Path) -> None:
-    write_native(reply_bundle, evaluation=evaluation_dump(security=None))
+    write_native(
+        reply_bundle, evaluation=evaluation_dump(security=None), verdict=reply_verdict_dump()
+    )
     (reply_bundle / "verdict.json").unlink()
 
     assert receipt_of(reply_bundle)["incomplete_reason"] == "evaluation_ungraded"

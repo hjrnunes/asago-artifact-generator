@@ -116,7 +116,6 @@ def test_native_outputs_are_the_files_the_run_script_and_the_verifier_write(
         "control-plane/run.json",
         "control-plane/evaluation.json",
         "midojo-logs/results.json",
-        "verdict.json",
     ]
 
 
