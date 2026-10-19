@@ -214,3 +214,26 @@ def test_a_reply_run_still_needs_exactly_one_evaluation(reply_bundle: Path) -> N
     write_native(reply_bundle, run=run_dump(("eval-1", "eval-2")), verdict=reply_verdict_dump())
 
     assert receipt_of(reply_bundle)["incomplete_reason"] == "evaluation_count_mismatch"
+
+
+def test_a_graded_reply_run_without_a_verdict_file_names_it(reply_bundle: Path) -> None:
+    write_native(reply_bundle, verdict=reply_verdict_dump())
+    (reply_bundle / "verdict.json").unlink()
+
+    receipt = receipt_of(reply_bundle)
+
+    assert receipt["incomplete_reason"] == "verdict_missing"
+    assert receipt["attempts"] == []
+
+
+@pytest.mark.parametrize("content", ["{not json", "[]", '"text"'])
+def test_a_reply_verdict_file_that_is_not_an_object_is_malformed(
+    reply_bundle: Path, content: str
+) -> None:
+    write_native(reply_bundle, verdict=reply_verdict_dump())
+    (reply_bundle / "verdict.json").write_text(content, encoding="utf-8")
+
+    receipt = receipt_of(reply_bundle)
+
+    assert receipt["incomplete_reason"] == "verdict_malformed"
+    assert receipt["attempts"] == []

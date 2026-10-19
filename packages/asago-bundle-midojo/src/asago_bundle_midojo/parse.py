@@ -23,7 +23,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from asago_artifact_generator.authoring.condition_eval import evaluate_condition
+from asago_artifact_generator.authoring.condition_eval import (
+    evaluate_condition,
+    validate_condition,
+)
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.mcp_records import read_json, text
 from asago_bundle_core.text import canonical_text
@@ -129,7 +132,10 @@ def read_bundle(root: Path) -> Bundle:
         suite = json.loads((root / SUITE_FILE).read_text(encoding="utf-8"))
         prompt = suite["user_tasks"][0]["prompt"]
         if manifest.get("claim_level") == COMMAND_ATTEMPT:
-            suite["injection_tasks"][0]["security"]["tool_call_condition"]["comparisons"]
+            condition = suite["injection_tasks"][0]["security"]["tool_call_condition"]
+            problem = validate_condition(condition)
+            if problem:
+                raise ParseError(f"the suite's condition is invalid: {problem}")
         missing = MANIFEST_KEYS - manifest.keys()
     except (OSError, IndexError, KeyError, TypeError, AttributeError, ValueError) as exc:
         raise ParseError(f"bundle is unreadable: {exc}") from exc

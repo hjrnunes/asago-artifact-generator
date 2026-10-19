@@ -584,3 +584,18 @@ def test_a_run_without_a_server_log_parses_as_before(bundle: Path, tmp_path: Pat
 
     assert not (records / "midojo_capture").exists()
     assert receipt_of(bundle, records_dir=records)["execution_status"] == "completed"
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [{"comparisons": [{}]}, {"comparisons": "x"}, {"comparisons": []}, {}],
+)
+def test_a_malformed_suite_condition_raises_a_parse_error(bundle: Path, condition: Any) -> None:
+    write_native(bundle)
+    suite_path = bundle / "asago_suite/suite.yaml"
+    suite = json.loads(suite_path.read_text(encoding="utf-8"))
+    suite["injection_tasks"][0]["security"]["tool_call_condition"] = condition
+    suite_path.write_text(json.dumps(suite), encoding="utf-8")
+
+    with pytest.raises(ParseError, match="condition is invalid"):
+        parse_bundle(bundle, bundle / "receipt.json")
