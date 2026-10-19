@@ -44,6 +44,8 @@ from asago_artifact_generator.bindings import (
 _ROOT = Path(__file__).resolve().parents[1] / "contracts" / "artifact-package" / "binding-cases"
 _CHECKS = ("declaration", "values", "slots")
 _REASONS = {
+    "consumers_empty": (r"^plan_binding_validation: binding consumers must be non-empty strings"),
+    "consumer_not_closed": r"^plan_binding_validation: binding consumer is not a closed path",
     "selector_undocumented": (
         r"^plan_binding_validation: (undocumented selector for binding |selector must be an "
         r"exact documented dot path)"
