@@ -44,7 +44,7 @@ _CONDITION_FIELDS = ("discriminating_condition", "condition_check")
 
 def _write_signed(tmp_path: Path, payload: dict) -> Path:
     payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / "handoff.yaml"
     path.write_text(yaml.safe_dump(payload), encoding="utf-8")
     return path

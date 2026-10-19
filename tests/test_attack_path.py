@@ -37,7 +37,7 @@ from asago_artifact_generator.authoring.sequential_turns import plan_response_co
 
 from .attack_path_support import SCN_027_PATH, functional_path, path_view, real_view
 from .prompt_support import render_stage_packets
-from .support import AND_OR_HANDOFF, KLARNA_INDIRECT_RUNTIME, json_section, world_builders
+from .support import KLARNA_INDIRECT_RUNTIME, json_section, world_builders
 
 _inventory, _ehr_runtime_contract = world_builders("ehr", "inventory", "runtime_contract")
 
@@ -333,23 +333,6 @@ def test_reference_repair_options_name_the_attack_path(failed_stage: str) -> Non
     assert "attack-path node ID" in options["options"][0]["repair"]
     assert "AP-HAZ" in options["valid_provenance_ids"]
     assert not _TREE_WORDING.search(packet.user)
-
-
-def test_a_v4_handoff_keeps_the_attack_tree_wording_everywhere() -> None:
-    from asago_artifact_generator.input_adapter import load_input
-
-    view = load_input(AND_OR_HANDOFF)
-    packets = render_stage_packets("ehr", view=view, runtime_changes=KLARNA_INDIRECT_RUNTIME)
-
-    for stage, packet in packets.items():
-        for text in (packet.system, packet.user):
-            assert not re.search(r"attack[ -]path|attack_path|\bAP-", text, re.IGNORECASE), stage
-    call1 = packets["call1"].user
-    references = json_section(call1, "EVIDENCE REFERENCES")
-    assert "attack-tree node IDs" in references["provenance_ids"]["rule"]
-    assert references["provenance_ids"]["ids"]["AT-UCA"] == "named by attack-tree node AT-UCA"
-    assert references["provenance_ids"]["ids"]["SCN-004"] == "attack-tree lineage (scenario ID)"
-    assert "attack tree outline" in json_section(call1, "SCENARIO DESIGN")["purpose"]
 
 
 def test_a_v5_path_handoff_loads_without_a_tree() -> None:

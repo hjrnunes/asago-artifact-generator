@@ -1,6 +1,6 @@
 """Sequential user turns: the rules the model reads and the checks code runs.
 
-A scenario-handoff-v4 ``direct`` shape with ``turn_count`` N asks for N user
+A scenario-handoff ``direct`` shape with ``turn_count`` N asks for N user
 messages sent in order. The plan states one intent per turn; Call 2 writes the
 messages. A one-turn shape and a functional handoff stay on the single-message
 path, so nothing here changes their prompts or checks.

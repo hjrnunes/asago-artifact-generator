@@ -1,6 +1,6 @@
 """The consumer rejects every producer schema case with the producer's codes.
 
-The producer's v4 kit carries ``invalid/schema-*.json``, one broken field of
+The producer's v5 kit carries ``invalid/schema-*.json``, one broken field of
 a bound handoff each, with the producer's codes in ``expected-violations.json``.
 This reader reports the same codes in the same order on the raised error's
 ``codes``; only the unknown-version case stops earlier, at the version gate.
@@ -16,7 +16,7 @@ import pytest
 from asago_artifact_generator.input_adapter import InputSourceError, load_input
 
 _CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
-_KIT = _CONTRACT / "handoff-v4"
+_KIT = _CONTRACT / "handoff-v5"
 _EXPECTED = json.loads((_KIT / "expected-violations.json").read_text("utf-8"))
 _VERSION_GATE = "schema-unknown-version"
 
@@ -46,6 +46,6 @@ def test_the_unknown_version_case_stops_at_the_version_gate() -> None:
         load_input(_KIT / "invalid" / f"{_VERSION_GATE}.json")
 
     assert str(raised.value) == (
-        "authoring source must be a producer scenario-handoff-v4 or scenario-handoff-v5 "
+        "authoring source must be a producer scenario-handoff-v5 "
         "document; found scenario-handoff-v9"
     )

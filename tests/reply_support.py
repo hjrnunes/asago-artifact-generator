@@ -14,7 +14,7 @@ def reply_view() -> InputView:
     source_bytes = b"synthetic-reply-evidence-contract-v1"
     digest = hashlib.sha256(source_bytes).hexdigest()
     return InputView(
-        kind=InputKind.SCENARIO_HANDOFF_V4,
+        kind=InputKind.SCENARIO_HANDOFF_V5,
         scenario_id="synthetic-reply-evidence-contract",
         payload={
             "semantic_failure_criterion": "The reply asserts an unsupported supplied fact.",

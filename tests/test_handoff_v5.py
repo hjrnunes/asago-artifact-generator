@@ -1,7 +1,9 @@
-"""The input adapter accepts scenario-handoff-v5 beside v4, and the prompts carry its analysis.
+"""The input adapter accepts only scenario-handoff-v5, and the prompts carry its analysis.
 
-The v5 kit, mirrored from the producer, keeps every v4 field and adds six; its
-``expected-violations.json`` lists the producer's codes for each invalid case.
+The v5 kit, mirrored from the producer, carries each scenario's attack path and
+six structured-analysis fields; its ``expected-violations.json`` lists the
+producer's codes for each invalid case. The adapter validates the attack shape
+with typed refusals.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from asago_artifact_generator import input_adapter
 from asago_artifact_generator.authoring.prompt_context import _case_meaning
@@ -19,7 +22,9 @@ from asago_artifact_generator.input_adapter import (
     V5_FIELDS,
     InputKind,
     InputSourceError,
+    ShapeVersionMalformed,
     _framed_digest,
+    build_scenario_handoff_view,
     load_input,
 )
 from asago_artifact_generator.package_io import (
@@ -32,20 +37,29 @@ from asago_artifact_generator.package_io import (
 from .prompt_support import STAGES, render_stage_packets
 from .support import json_section
 
+_V5 = "scenario-handoff-v5"
 _CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
 _KIT = _CONTRACT / "handoff-v5"
-_V4_KIT = _CONTRACT / "handoff-v4"
-_VERSION_GATE = "invalid/schema-unknown-version.json"
+_ALL_EXPECTED = json.loads((_KIT / "expected-violations.json").read_text(encoding="utf-8"))
+# A case whose schema_version is not v5 stops at the version gate, before any producer code.
+_VERSION_GATED = {
+    relative
+    for relative in _ALL_EXPECTED
+    if json.loads((_KIT / relative).read_text(encoding="utf-8")).get("schema_version") != _V5
+}
 _EXPECTED = {
-    relative: codes
-    for relative, codes in json.loads(
-        (_KIT / "expected-violations.json").read_text(encoding="utf-8")
-    ).items()
-    if relative != _VERSION_GATE
+    relative: codes for relative, codes in _ALL_EXPECTED.items() if relative not in _VERSION_GATED
 }
 _DIGESTS = json.loads((_KIT / "canonical-digests.json").read_text(encoding="utf-8"))[
     "handoff_digests"
 ]
+_OWNERSHIP_PREFIXES = ("artifact_design_field:", "prose_hiding:")
+_SHAPE_ONLY = sorted(
+    relative
+    for relative, codes in _EXPECTED.items()
+    if relative.startswith("invalid/shape-")
+    and not any(code.startswith(_OWNERSHIP_PREFIXES) for code in codes)
+)
 _NOTE = (
     "The producer's analysis of this scenario as structured fields. uca is the unsafe "
     "control action under test; its type is one of the four STPA unsafe control action "
@@ -62,7 +76,7 @@ def _valid(name: str) -> dict[str, Any]:
     return json.loads((_KIT / "valid" / name).read_text(encoding="utf-8"))
 
 
-def _signed(tmp_path: Path, payload: dict[str, Any], domain: str) -> Path:
+def _signed(tmp_path: Path, payload: dict[str, Any], domain: str = _V5) -> Path:
     payload = {key: value for key, value in payload.items() if key != "content_digest"}
     payload["content_digest"] = _framed_digest(domain, payload)
     path = tmp_path / "handoff.json"
@@ -70,18 +84,23 @@ def _signed(tmp_path: Path, payload: dict[str, Any], domain: str) -> Path:
     return path
 
 
-def test_the_lock_declares_v5_under_additional_versions() -> None:
+def _lock_entries(lock: dict[str, Any]) -> list[dict[str, Any]]:
+    return [lock, *lock.get("additional_versions", [])]
+
+
+def test_the_lock_declares_v5_and_locks_every_v5_file() -> None:
     lock = json.loads((_CONTRACT / "CONTRACT.lock").read_text(encoding="utf-8"))
     locked = {name for name in lock["files"] if name.startswith("handoff-v5/")}
 
     assert locked == {str(path.relative_to(_CONTRACT)) for path in _KIT.rglob("*.json")}
-    assert lock["handoff_schema_version"] == "scenario-handoff-v4"
-    [entry] = lock["additional_versions"]
-    assert entry["handoff_schema_version"] == "scenario-handoff-v5"
-    assert set(V5_FIELDS) <= set(entry["metadata_fields"])
+    [entry] = [
+        entry for entry in _lock_entries(lock) if entry.get("handoff_schema_version") == _V5
+    ]
+    assert entry["digest_domain"] == _V5
+    assert {"attack_shape", *V5_FIELDS} <= set(entry["metadata_fields"])
 
-    version = input_adapter._validate_handoff_kit(InputKind.SCENARIO_HANDOFF_V5)
-    assert (version.kit, version.digest_domain) == ("handoff-v5", "scenario-handoff-v5")
+    version = input_adapter._validate_handoff_kit()
+    assert (version.kit, version.digest_domain) == ("handoff-v5", _V5)
 
 
 def test_a_lock_without_the_v5_entry_refuses_a_v5_handoff(
@@ -94,15 +113,14 @@ def test_a_lock_without_the_v5_entry_refuses_a_v5_handoff(
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(path.read_bytes())
     lock = json.loads((mirror / "CONTRACT.lock").read_text(encoding="utf-8"))
-    del lock["additional_versions"]
+    for entry in _lock_entries(lock):
+        if entry.get("handoff_schema_version") == _V5:
+            entry["handoff_schema_version"] = entry["digest_domain"] = "scenario-handoff-v9"
     (mirror / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
     monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", mirror)
 
     with pytest.raises(InputSourceError, match="does not declare scenario-handoff-v5"):
         load_input(_KIT / "valid" / "adversarial-direct-single.json")
-    assert load_input(_V4_KIT / "valid" / "adversarial-direct-single.json").kind is (
-        InputKind.SCENARIO_HANDOFF_V4
-    )
 
 
 @pytest.mark.parametrize("relative", sorted(_DIGESTS))
@@ -110,7 +128,9 @@ def test_every_valid_v5_fixture_is_accepted(relative: str) -> None:
     view = load_input(_KIT / relative)
 
     assert view.kind is InputKind.SCENARIO_HANDOFF_V5
+    assert view.kind.value == _V5
     assert view.payload["content_digest"] == _DIGESTS[relative]
+    assert view.attack_shape == view.payload["attack_shape"]
 
 
 @pytest.mark.parametrize("relative", sorted(_EXPECTED))
@@ -121,12 +141,33 @@ def test_every_invalid_v5_fixture_is_rejected_with_its_expected_codes(relative: 
     assert raised.value.codes == tuple(_EXPECTED[relative])
 
 
-def test_the_unknown_version_case_stops_at_the_version_gate() -> None:
-    with pytest.raises(InputSourceError, match="found scenario-handoff-v9"):
-        load_input(_KIT / _VERSION_GATE)
+@pytest.mark.parametrize("relative", sorted(_VERSION_GATED))
+def test_a_case_with_another_schema_version_stops_at_the_version_gate(relative: str) -> None:
+    found = json.loads((_KIT / relative).read_text(encoding="utf-8"))["schema_version"]
+
+    with pytest.raises(InputSourceError) as raised:
+        load_input(_KIT / relative)
+
+    assert str(raised.value) == (
+        f"authoring source must be a producer scenario-handoff-v5 document; found {found}"
+    )
+    assert not hasattr(raised.value, "codes")
 
 
-def test_a_v5_handoff_signed_in_the_v4_digest_domain_is_rejected(tmp_path: Path) -> None:
+def test_a_scenario_handoff_v4_document_is_refused(tmp_path: Path) -> None:
+    payload = _valid("adversarial-direct-single.json")
+    payload["schema_version"] = "scenario-handoff-v4"
+
+    with pytest.raises(InputSourceError) as raised:
+        load_input(_signed(tmp_path, payload, "scenario-handoff-v4"))
+
+    assert str(raised.value) == (
+        "authoring source must be a producer scenario-handoff-v5 document; "
+        "found scenario-handoff-v4"
+    )
+
+
+def test_a_v5_handoff_signed_in_another_digest_domain_is_rejected(tmp_path: Path) -> None:
     path = _signed(tmp_path, _valid("adversarial-direct-single.json"), "scenario-handoff-v4")
 
     with pytest.raises(InputSourceError, match="content_digest"):
@@ -138,10 +179,59 @@ def test_a_broken_procedure_chain_names_the_step(tmp_path: Path) -> None:
     payload["procedure"][0]["leads_to"] = ["S07"]
 
     with pytest.raises(InputSourceError) as raised:
-        load_input(_signed(tmp_path, payload, "scenario-handoff-v5"))
+        load_input(_signed(tmp_path, payload))
 
     assert raised.value.codes == ("schema_violation:<root>",)
     assert raised.value.schema_path == "procedure.0.leads_to"
+
+
+@pytest.mark.parametrize("relative", _SHAPE_ONLY)
+def test_a_shape_that_breaks_the_contract_is_a_typed_malformed_shape(relative: str) -> None:
+    with pytest.raises(ShapeVersionMalformed) as raised:
+        load_input(_KIT / relative)
+
+    assert raised.value.code == "shape_version_malformed"
+    assert raised.value.schema_path
+    assert isinstance(raised.value, InputSourceError)
+
+
+def test_a_view_exposes_the_shape_but_not_to_the_model_projection() -> None:
+    view = load_input(_KIT / "valid" / "adversarial-direct-multi-turn.json")
+
+    assert view.attack_shape["turn_count"] == 3
+    assert [turn["purpose"] for turn in view.attack_shape["turn_plan"]] == [
+        "establish_context",
+        "assert_authority",
+        "request_action",
+    ]
+    assert "attack_shape" not in build_scenario_handoff_view(view)
+
+
+def test_a_functional_handoff_has_no_shape() -> None:
+    assert load_input(_KIT / "valid" / "functional-null-shape.json").attack_shape is None
+
+
+def test_a_yaml_handoff_loads(tmp_path: Path) -> None:
+    path = tmp_path / "handoff.yaml"
+    path.write_text(yaml.safe_dump(_valid("adversarial-direct-multi-turn.json")), encoding="utf-8")
+
+    assert load_input(path).attack_shape["turn_count"] == 3
+
+
+def test_a_shape_that_breaks_a_cross_field_rule_names_the_rule_path(tmp_path: Path) -> None:
+    payload = _valid("adversarial-direct-multi-turn.json")
+    payload["attack_shape"]["turn_plan"][1]["position"] = 3
+
+    with pytest.raises(ShapeVersionMalformed, match=r"attack_shape.*positions"):
+        load_input(_signed(tmp_path, payload))
+
+
+def test_a_missing_shape_is_a_typed_malformed_shape(tmp_path: Path) -> None:
+    payload = _valid("adversarial-direct-single.json")
+    del payload["attack_shape"]
+
+    with pytest.raises(ShapeVersionMalformed, match="schema_violation:attack_shape"):
+        load_input(_signed(tmp_path, payload))
 
 
 def test_the_note_is_the_catalogued_prose() -> None:
@@ -168,12 +258,6 @@ def test_a_functional_v5_meaning_omits_the_null_and_empty_fields() -> None:
     assert set(analysis) == {"note", "uca", "causal_factors", "worst_case_threat"}
 
 
-def test_a_v4_meaning_has_no_structured_analysis() -> None:
-    view = load_input(_V4_KIT / "valid" / "adversarial-direct-single.json")
-
-    assert "structured_analysis" not in _case_meaning(view)
-
-
 def test_the_analysis_reaches_every_stage_once() -> None:
     view = load_input(_KIT / "valid" / "adversarial-direct-single.json")
     packets = render_stage_packets("ehr", view=view)
@@ -186,7 +270,7 @@ def test_the_analysis_reaches_every_stage_once() -> None:
         assert packets[stage].user.count(json.dumps(_NOTE)[1:-1]) == 1, stage
 
 
-def test_a_package_records_a_v5_input_kind_and_rejects_an_unknown_one(tmp_path: Path) -> None:
+def test_a_package_records_a_v5_input_kind_and_rejects_any_other(tmp_path: Path) -> None:
     def package(kind: str):
         return build_package(
             package_id="pkg-1",
@@ -196,11 +280,12 @@ def test_a_package_records_a_v5_input_kind_and_rejects_an_unknown_one(tmp_path: 
             members={"explanation.json": b"{}\n"},
         )
 
-    loaded = load_package(write_package(tmp_path / "v5", package("scenario-handoff-v5")))
-    assert loaded.manifest.input_kind == "scenario-handoff-v5"
+    loaded = load_package(write_package(tmp_path / "v5", package(_V5)))
+    assert loaded.manifest.input_kind == _V5
 
-    with pytest.raises(PackageIntegrityError):
-        write_package(tmp_path / "v9", package("scenario-handoff-v9"))
+    for kind in ("scenario-handoff-v4", "scenario-handoff-v9"):
+        with pytest.raises(PackageIntegrityError, match="unsupported package input kind"):
+            write_package(tmp_path / kind, package(kind))
 
 
 @pytest.mark.parametrize(

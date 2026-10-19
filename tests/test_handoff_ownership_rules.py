@@ -17,7 +17,7 @@ from asago_artifact_generator.input_adapter import InputSourceError, load_input
 
 _CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
 _RULES = _CONTRACT / "ownership-rules.json"
-_KIT = _CONTRACT / "handoff-v4"
+_KIT = _CONTRACT / "handoff-v5"
 
 
 def test_the_reader_uses_the_mirrored_rules_in_file_order() -> None:

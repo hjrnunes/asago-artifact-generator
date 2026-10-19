@@ -13,7 +13,7 @@ from asago_artifact_generator.input_adapter import InputView, ShapeVersionMalfor
 
 from .support import ScriptedAuthoringTransport, load_failure_evidence, stage_local_orchestrator
 
-_KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v4"
+_KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v5"
 _RUNTIME: dict[str, Any] = {
     "delivery": ["direct_user_message", "sequential_user_turns"],
     "setup_permissions": [],

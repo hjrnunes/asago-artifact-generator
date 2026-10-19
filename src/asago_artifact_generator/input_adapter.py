@@ -40,11 +40,10 @@ _OwnershipRules = tuple[frozenset[str], tuple[tuple[str, re.Pattern[str]], ...]]
 class InputKind(StrEnum):
     """The supported design-time input representations, recorded in package manifests."""
 
-    SCENARIO_HANDOFF_V4 = "scenario-handoff-v4"
     SCENARIO_HANDOFF_V5 = "scenario-handoff-v5"
 
 
-# The fields scenario-handoff-v5 adds to v4, in the producer's order.
+# The structured-analysis fields of scenario-handoff-v5, in the producer's order.
 V5_FIELDS = ("uca", "actor", "causal_factors", "preconditions", "procedure", "worst_case_threat")
 
 
@@ -258,10 +257,11 @@ def _validate_handoff_schema_version(document: Any) -> InputKind:
     return InputKind(version)
 
 
-def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V4) -> _HandoffVersion:
+def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V5) -> _HandoffVersion:
     """Verify the mirrored lock and return the version entry it declares for ``kind``.
 
-    The lock's top level declares v4; ``additional_versions`` declares the others.
+    The lock's top level declares one version and ``additional_versions``, when present,
+    declares the others.
     """
 
     verify_contract_lock(
@@ -291,7 +291,7 @@ def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V4) -> _H
     raise InputSourceError(f"vendored handoff lock does not declare {kind.value}")
 
 
-def _handoff_schema(kit: str = "handoff-v4") -> dict[str, Any]:
+def _handoff_schema(kit: str = "handoff-v5") -> dict[str, Any]:
     return load_json_file(
         _HANDOFF_ROOT / kit / "schema.json", InputSourceError, f"cannot read vendored {kit} schema"
     )

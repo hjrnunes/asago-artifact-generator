@@ -16,7 +16,7 @@ from ..bindings import (
     supplied_binding_values,
     validate_bindings,
 )
-from ..input_adapter import V5_FIELDS, InputKind, InputView, build_scenario_handoff_view
+from ..input_adapter import V5_FIELDS, InputView, build_scenario_handoff_view
 from .attack_tree_outline import (
     AND_OR_TREE_FORMAT,
     ATTACK_PATH_FORMAT,
@@ -983,8 +983,7 @@ def _case_meaning(view: InputView) -> dict[str, Any]:
         )
     if "condition_check" in handoff:
         result["condition_check"] = _condition_check_prompt_view(handoff["condition_check"])
-    if view.kind is InputKind.SCENARIO_HANDOFF_V5:
-        result["structured_analysis"] = _structured_analysis(view)
+    result["structured_analysis"] = _structured_analysis(view)
     return result
 
 

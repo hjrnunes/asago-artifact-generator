@@ -15,6 +15,7 @@ from asago_artifact_generator.authoring.review import (
 
 from .support import world
 from .turn_support import (
+    direct_view,
     indirect_inventory,
     indirect_metadata,
     indirect_plan,
@@ -23,7 +24,6 @@ from .turn_support import (
     sequential_metadata,
     sequential_plan,
     sequential_runtime,
-    v4_view,
 )
 
 _SECTION = "BINDING AND SETUP RULES"
@@ -45,7 +45,7 @@ def _ehr_packets() -> tuple[PromptPacket, PromptPacket]:
 
 def _sequential_packets(tmp_path: Path) -> tuple[PromptPacket, PromptPacket]:
     refund = world("refund")
-    view = v4_view(tmp_path, 3)
+    view = direct_view(tmp_path, 3)
     runtime = sequential_runtime(refund["runtime_contract"])
     plan = sequential_plan(refund["plan"], 3)
     return (

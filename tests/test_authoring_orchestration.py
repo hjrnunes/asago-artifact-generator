@@ -69,7 +69,7 @@ def test_stage_correction_contains_complete_contract_and_all_findings(
     assert payload["current_output"] == response
     assert payload["current_output_encoding"] == "utf-8-exact"
     assert payload["response_contract"] == plan_response_contract(
-        turn_count(_view()), shape_delivery(_view())
+        turn_count(_view()), shape_delivery(_view()), attack_path=True
     )
     assert not {"original_request", "failed_response", "failed_response_encoding"} & set(payload)
     assert "failed_response_bytes_hex" not in payload
@@ -203,7 +203,7 @@ def test_stage_correction_contains_exact_failure_and_never_fourth_request(
     failed_index = 0 if failed_stage == "call1" else 1
     assert correction["payload"]["current_output"] == responses[failed_index].decode()
     assert correction["payload"]["response_contract"] == (
-        plan_response_contract(turn_count(_view()), shape_delivery(_view()))
+        plan_response_contract(turn_count(_view()), shape_delivery(_view()), attack_path=True)
         if failed_stage == "call1"
         else _call2_contract_v2(_plan_v2())
     )

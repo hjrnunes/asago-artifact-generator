@@ -36,28 +36,24 @@ def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
         "operations": ["operation:summarize_for_ehr"],
     }
     ids = section["provenance_ids"]["ids"]
-    assert ids["SC-1"] == "scenario lineage (constraint IDs)"
-    assert ids["CA-1-1"] == "scenario lineage (control action ID)"
+    assert ids["SC-1"] == "scenario lineage (constraint IDs), named by attack-path node AP-UCA"
+    assert (
+        ids["CA-1-1"] == "scenario lineage (control action ID), named by attack-path node AP-UCA"
+    )
     assert "interpretation.source_refs" in section["provenance_ids"]["rule"]
     assert "provenance_ids" in section["field_rules"]["assumptions[].ref"]
     assert any("assistant_messages" in item for item in section["not_references"])
 
 
-def test_attack_tree_node_ids_are_citable_provenance_with_plain_locations() -> None:
-    view = copy.deepcopy(_view())
-    view.payload["attack_tree"]["branches"][0]["node_id"] = "AT-REFUND-1"
-
-    provenance = scenario_provenance_ids(view)
+def test_attack_path_node_ids_are_citable_provenance_with_plain_locations() -> None:
+    provenance = scenario_provenance_ids(_view())
     section = json_section(
-        build_call1_packet_v2(view, _inventory(), _runtime_contract()).user,
+        build_call1_packet_v2(_view(), _inventory(), _runtime_contract()).user,
         "EVIDENCE REFERENCES",
     )
 
-    assert "AT-REFUND-1" in provenance
-    assert section["provenance_ids"]["ids"]["AT-REFUND-1"] == (
-        "named by attack-tree node AT-REFUND-1"
-    )
-    assert isinstance(section["provenance_ids"]["ids"]["AT-REFUND-1"], str)
+    assert "AP-WP-1" in provenance
+    assert section["provenance_ids"]["ids"]["AP-WP-1"] == "named by attack-path node AP-WP-1"
 
 
 def test_provenance_locations_are_plain_language_not_reference_tokens() -> None:
@@ -66,9 +62,13 @@ def test_provenance_locations_are_plain_language_not_reference_tokens() -> None:
     ]
     locations = section["provenance_ids"]["ids"]
 
-    assert locations["SC-1"] == "scenario lineage (constraint IDs)"
-    assert locations["CA-1-1"] == "scenario lineage (control action ID)"
-    assert "attack_tree:" not in json.dumps(locations)
+    assert (
+        locations["SC-1"] == "scenario lineage (constraint IDs), named by attack-path node AP-UCA"
+    )
+    assert locations["CA-1-1"] == (
+        "scenario lineage (control action ID), named by attack-path node AP-UCA"
+    )
+    assert "attack_path:" not in json.dumps(locations)
     assert "lineage." not in json.dumps(locations)
 
 
@@ -176,8 +176,7 @@ def test_plan_correction_explains_each_unknown_reference() -> None:
 
 
 def test_artifact_correction_explains_provenance_ids_outside_source_refs() -> None:
-    view = copy.deepcopy(_view())
-    view.payload["attack_tree"]["branches"][0]["node_id"] = "AT-REFUND-1"
+    view = _view()
     context = build_artifact_author_context(view, _plan(), _inventory(), _runtime_contract())
     correction = _render_correction_packet(
         build_correction_context(
@@ -185,9 +184,7 @@ def test_artifact_correction_explains_provenance_ids_outside_source_refs() -> No
             original_context=context,
             current_output=b"candidate",
             findings=[
-                Finding(
-                    "unknown_reference", "unknown_reference: AT-REFUND-1", "assumptions[0].ref"
-                )
+                Finding("unknown_reference", "unknown_reference: AP-WP-1", "assumptions[0].ref")
             ],
         ),
         correction_repair_inputs(view, _inventory(), _runtime_contract()),
@@ -195,7 +192,7 @@ def test_artifact_correction_explains_provenance_ids_outside_source_refs() -> No
 
     option = correction.payload["reference_repair_options"]["options"][0]
     assert option["rejected_value_kind"] == "provenance_id"
-    assert "attack-tree node ID" in option["repair"]
+    assert "attack-path node ID" in option["repair"]
     assert "interpretation.source_refs" in option["repair"]
 
 
