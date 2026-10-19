@@ -37,12 +37,8 @@ NEUTRAL_ESTABLISHED_OMISSION_OUTCOME_EXAMPLE = prose(
 )
 
 
-def _call1_contract_v2(*, attack_path: bool = False) -> dict[str, Any]:
-    """Return the closed root for the current model-facing plan wire.
-
-    ``attack_path`` words the reference field descriptions for a handoff that carries an
-    attack path instead of an attack tree.
-    """
+def _call1_contract_v2() -> dict[str, Any]:
+    """Return the closed root for the current model-facing plan wire."""
 
     binding_contract = _binding_contract()
     fields = [
@@ -144,7 +140,7 @@ def _call1_contract_v2(*, attack_path: bool = False) -> dict[str, Any]:
             "description": _PLAN_FIELD_MEANING_TEXT["required_observations"],
         },
     }
-    _describe_plan_reference_fields(properties, attack_path=attack_path)
+    _describe_plan_reference_fields(properties)
     return {
         "binding_declaration": binding_contract,
         "consumer_rule": binding_contract["consumer_rule"],
@@ -213,23 +209,10 @@ _PLAN_REFERENCE_FIELD_DESCRIPTIONS = {
 }
 
 
-_ATTACK_PATH_PLAN_REFERENCE_FIELD_DESCRIPTIONS = {
-    **_PLAN_REFERENCE_FIELD_DESCRIPTIONS,
-    "source_refs": prose("contracts/plan_reference_fields/source_refs_attack_path"),
-    "selected_evidence_ref": prose(
-        "contracts/plan_reference_fields/selected_evidence_ref_attack_path"
-    ),
-}
-
-
-def _describe_plan_reference_fields(properties: dict[str, Any], *, attack_path: bool) -> None:
+def _describe_plan_reference_fields(properties: dict[str, Any]) -> None:
     """Attach the allowed reference forms to each plan reference field schema."""
 
-    descriptions = (
-        _ATTACK_PATH_PLAN_REFERENCE_FIELD_DESCRIPTIONS
-        if attack_path
-        else _PLAN_REFERENCE_FIELD_DESCRIPTIONS
-    )
+    descriptions = _PLAN_REFERENCE_FIELD_DESCRIPTIONS
     properties["interpretation"]["properties"]["source_refs"]["description"] = descriptions[
         "source_refs"
     ]

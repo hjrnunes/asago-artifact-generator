@@ -22,6 +22,7 @@ def reply_view() -> InputView:
             "sourced_facts": [],
             "documented_operations": [],
             "attack_shape": deepcopy(DIRECT_SINGLE_SHAPE),
+            "attack_path": {"format": "attack-path-v1"},
         },
         source=SourceSnapshot("synthetic.json", digest, len(source_bytes)),
         source_bytes=source_bytes,

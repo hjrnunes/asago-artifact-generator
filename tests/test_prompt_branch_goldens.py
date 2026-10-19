@@ -16,7 +16,6 @@ import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -35,7 +34,6 @@ from asago_artifact_generator.authoring.planted_item import (
 )
 from asago_artifact_generator.authoring.prompt_context import (
     _neutral_status_binding_example,
-    _scenario_design,
 )
 from asago_artifact_generator.authoring.sequential_turns import multi_turn_block
 from asago_artifact_generator.input_adapter import InputView, _framed_digest, load_input
@@ -118,10 +116,6 @@ def _planted_review(directory: Path) -> str:
     return _section(section)
 
 
-def _scenario_design_unavailable(_: Path) -> str:
-    return _section(_scenario_design(SimpleNamespace(payload={})))
-
-
 def _generic_binding_example(_: Path) -> str:
     refund = world("refund")
     inventory = {**refund["inventory"], "facts": []}
@@ -189,7 +183,6 @@ CASES: dict[str, Callable[[Path], str]] = {
     "planted_review_counterparty": _planted_review,
     "planted_review_record_fixed_by_plan": _planted_review_record_fixed_by_plan,
     "reference_repair_kinds": _reference_repairs,
-    "scenario_design_unavailable": _scenario_design_unavailable,
 }
 
 

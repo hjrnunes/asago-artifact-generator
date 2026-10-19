@@ -17,15 +17,7 @@ from ..bindings import (
     validate_bindings,
 )
 from ..input_adapter import V5_FIELDS, InputView, build_scenario_handoff_view
-from .attack_tree_outline import (
-    AND_OR_TREE_FORMAT,
-    ATTACK_PATH_FORMAT,
-    and_or_outline,
-    and_or_provenance,
-    attack_path_outline,
-    attack_path_provenance,
-    is_and_or_tree,
-)
+from .attack_path_outline import ATTACK_PATH_FORMAT, attack_path_outline, attack_path_provenance
 from .checks import _binding_selector_type, _collect_canonical_prerequisite_findings
 from .contracts import (
     NEUTRAL_ESTABLISHED_OMISSION_OUTCOME_EXAMPLE,
@@ -367,21 +359,8 @@ def _keyed_map_binding_forms(inventory: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def uses_attack_path(view: InputView) -> bool:
-    """Return whether the handoff carries an attack path where a v4 handoff carries a tree."""
-
-    return isinstance(view.payload.get("attack_path"), dict)
-
-
-def context_uses_attack_path(context: Any) -> bool:
-    """Return whether a recorded plan author context renders an attack path."""
-
-    design = context.get("scenario_design") if isinstance(context, dict) else None
-    return isinstance(design, dict) and "attack_path" in design
-
-
 def _scenario_provenance_index(view: InputView) -> list[dict[str, Any]]:
-    """Return lineage and attack-tree or attack-path node IDs with plain-text locations."""
+    """Return lineage and attack-path node IDs with plain-text locations."""
 
     appearances: dict[str, list[str]] = {}
 
@@ -391,74 +370,25 @@ def _scenario_provenance_index(view: InputView) -> list[dict[str, Any]]:
             if location not in places:
                 places.append(location)
 
-    def lineage_location(prefix: str, key: str) -> str:
-        scope = "scenario lineage" if prefix == "lineage" else "attack-tree lineage"
-        words = key.split("_")
-        label = " ".join(
-            "IDs" if word == "ids" else "ID" if word == "id" else word for word in words
-        )
-        return f"{scope} ({label})"
-
-    def add_lineage(lineage: Any, prefix: str) -> None:
-        if not isinstance(lineage, dict):
-            return
+    lineage = view.payload.get("lineage")
+    if isinstance(lineage, dict):
         for key in sorted(lineage):
+            label = " ".join(
+                "IDs" if word == "ids" else "ID" if word == "id" else word
+                for word in key.split("_")
+            )
             value = lineage[key]
             for item in value if isinstance(value, list) else [value]:
-                add(item, lineage_location(prefix, key))
-
-    def walk(node: Any) -> None:
-        if not isinstance(node, dict):
-            return
-        node_id = node.get("node_id")
-        location = (
-            f"named by attack-tree node {node_id}"
-            if isinstance(node_id, str)
-            else "named by an attack-tree node"
+                add(item, f"scenario lineage ({label})")
+    # The path carries no lineage of its own, so the handoff names its scenario ID.
+    add(view.payload.get("scenario_id"), "scenario handoff (scenario ID)")
+    for identifier, node_id in attack_path_provenance(view.payload["attack_path"]):
+        add(
+            identifier,
+            f"named by attack-path node {node_id}"
+            if node_id is not None
+            else "named by an attack-path node",
         )
-        add(node_id, location)
-        add(node.get("source_id"), location)
-        source_ids = node.get("source_ids")
-        if isinstance(source_ids, list):
-            for item in source_ids:
-                add(item, location)
-        children = node.get("children")
-        if isinstance(children, list):
-            for child in children:
-                walk(child)
-
-    lineage = view.payload.get("lineage")
-    add_lineage(lineage, "lineage")
-    tree = view.payload.get("attack_tree")
-    if uses_attack_path(view):
-        # The path carries no lineage of its own, so the handoff names its scenario ID.
-        add(view.payload.get("scenario_id"), "scenario handoff (scenario ID)")
-        for identifier, node_id in attack_path_provenance(view.payload["attack_path"]):
-            add(
-                identifier,
-                f"named by attack-path node {node_id}"
-                if node_id is not None
-                else "named by an attack-path node",
-            )
-    elif isinstance(tree, dict):
-        tree_lineage = tree.get("lineage")
-        if isinstance(tree_lineage, dict) and isinstance(lineage, dict):
-            tree_lineage = {
-                key: value for key, value in tree_lineage.items() if lineage.get(key) != value
-            }
-        add_lineage(tree_lineage, "attack_tree.lineage")
-        branches = tree.get("branches")
-        if is_and_or_tree(tree):
-            for identifier, node_id in and_or_provenance(tree.get("root")):
-                add(
-                    identifier,
-                    f"named by attack-tree node {node_id}"
-                    if node_id is not None
-                    else "named by an attack-tree node",
-                )
-        elif isinstance(branches, list):
-            for branch in branches:
-                walk(branch)
     return [
         {"id": identifier, "appears_in": places}
         for identifier, places in sorted(appearances.items())
@@ -486,27 +416,23 @@ def _plan_evidence_references(view: InputView, inventory: dict[str, Any]) -> dic
         f"operation:{name}"
         for name in _string_field_values(inventory.get("operations", []), "name")
     )
-    # The attack-path variants of the four texts that name the tree sit beside the originals.
-    suffix = "_attack_path" if uses_attack_path(view) else ""
     return {
         "purpose": prose("prompt_context/evidence_references/purpose"),
         "field_rules": {
             "interpretation.source_refs": prose(
-                f"prompt_context/evidence_references/interpretation_source_refs{suffix}"
+                "prompt_context/evidence_references/interpretation_source_refs"
             ),
             "selected_evidence[].ref": prose(
                 "prompt_context/evidence_references/selected_evidence_ref"
             ),
-            "assumptions[].ref": prose(
-                f"prompt_context/evidence_references/assumptions_ref{suffix}"
-            ),
+            "assumptions[].ref": prose("prompt_context/evidence_references/assumptions_ref"),
             "prerequisites[].evidence_refs": prose(
                 "prompt_context/evidence_references/prerequisites_evidence_refs"
             ),
         },
         "not_references": [
             prose("prompt_context/evidence_references/not_observation_scopes"),
-            prose(f"prompt_context/evidence_references/not_scenario_text{suffix}"),
+            prose("prompt_context/evidence_references/not_scenario_text"),
             prose("prompt_context/evidence_references/not_binding_forms"),
         ],
         "citable_references": {
@@ -515,7 +441,7 @@ def _plan_evidence_references(view: InputView, inventory: dict[str, Any]) -> dic
             "operations": operations,
         },
         "provenance_ids": {
-            "rule": prose(f"prompt_context/evidence_references/provenance_ids_rule{suffix}"),
+            "rule": prose("prompt_context/evidence_references/provenance_ids_rule"),
             "ids": {
                 item["id"]: ", ".join(item["appears_in"])
                 for item in _scenario_provenance_index(view)
@@ -528,87 +454,7 @@ _SCENARIO_KIND_STIMULUS_RULES = {
     "adversarial": prose("prompt_context/scenario_kind_stimulus_rules/adversarial"),
     "functional": prose("prompt_context/scenario_kind_stimulus_rules/functional"),
 }
-# An and-or outline names the attacker by attacker lines and attacker_assumption
-# conditions instead of the flat tree's actor_* nodes.
-_AND_OR_SCENARIO_KIND_STIMULUS_RULES = {
-    **_SCENARIO_KIND_STIMULUS_RULES,
-    "adversarial": prose("prompt_context/scenario_kind_stimulus_rules/adversarial_and_or"),
-}
-_ATTACK_PATH_SCENARIO_KIND_STIMULUS_RULES = {
-    "adversarial": prose("prompt_context/scenario_kind_stimulus_rules/adversarial_attack_path"),
-    "functional": prose("prompt_context/scenario_kind_stimulus_rules/functional_attack_path"),
-}
 _SCENARIO_KIND_UNAVAILABLE_RULE = prose("prompt_context/scenario_kind_unavailable_rule")
-_ATTACK_PATH_SCENARIO_KIND_UNAVAILABLE_RULE = prose(
-    "prompt_context/scenario_kind_unavailable_rule_attack_path"
-)
-
-
-def _attack_tree_design(tree: Any) -> dict[str, Any] | str:
-    """Project attack-tree nodes by category without interpreting their labels.
-
-    Each node renders as one string, ``<node_id> [<source ids>]: <label>``, so
-    the projection stays small next to the narrative that already cites it.
-    """
-
-    if not isinstance(tree, dict):
-        return "unavailable: the scenario handoff supplies no attack tree"
-    if is_and_or_tree(tree):
-        return _and_or_tree_design(tree)
-    nodes_by_category: dict[str, list[str]] = {}
-
-    def describe(node: dict[str, Any]) -> str:
-        ids: list[str] = []
-        for value in [node.get("source_id"), *(node.get("source_ids") or [])]:
-            if isinstance(value, str) and value.strip() and value not in ids:
-                ids.append(value)
-        head = node["node_id"] if isinstance(node.get("node_id"), str) else "node"
-        if ids:
-            head += f" [{', '.join(ids)}]"
-        label = node.get("label") if isinstance(node.get("label"), str) else ""
-        leaves = node.get("leaves")
-        if isinstance(leaves, list) and leaves:
-            label += " Leaves: " + "; ".join(leaf for leaf in leaves if isinstance(leaf, str))
-        return f"{head}: {label.strip()}"
-
-    def walk(node: Any) -> None:
-        if not isinstance(node, dict):
-            return
-        category = node.get("category")
-        category = category if isinstance(category, str) and category.strip() else "uncategorized"
-        children = node.get("children")
-        has_children = isinstance(children, list) and bool(children)
-        if has_children:
-            for child in children:
-                walk(child)
-        grouping_only = has_children and not (
-            node.get("source_id") or node.get("source_ids") or node.get("leaves")
-        )
-        if not grouping_only:
-            nodes_by_category.setdefault(category, []).append(describe(node))
-
-    branches = tree.get("branches")
-    for branch in branches if isinstance(branches, list) else []:
-        walk(branch)
-    design: dict[str, Any] = {}
-    for key in ("framing", "root", "criterion", "loss_scenario", "leaves"):
-        if tree.get(key) is not None:
-            design[key] = deepcopy(tree[key])
-    design["nodes_by_category"] = nodes_by_category
-    return design
-
-
-def _and_or_tree_design(tree: dict[str, Any]) -> dict[str, Any] | str:
-    """Project an ``and-or-tree-v1`` tree as an outline that keeps its operators and order."""
-
-    if not isinstance(tree.get("root"), dict):
-        return "unavailable: the and-or attack tree supplies no root node"
-    design: dict[str, Any] = {"format": AND_OR_TREE_FORMAT}
-    for key in ("framing", "criterion", "loss_scenario", "leaves"):
-        if tree.get(key) is not None:
-            design[key] = deepcopy(tree[key])
-    design["outline"] = and_or_outline(tree["root"])
-    return design
 
 
 def _attack_path_design(path: dict[str, Any]) -> dict[str, Any]:
@@ -618,32 +464,19 @@ def _attack_path_design(path: dict[str, Any]) -> dict[str, Any]:
 
 
 def _scenario_design(view: InputView) -> dict[str, Any]:
-    """Project the producer's scenario kind and attack tree or attack path for plan design."""
+    """Project the producer's scenario kind and attack path for plan design."""
 
     kind = view.payload.get("kind")
     kind_value = kind if isinstance(kind, str) and kind in _SCENARIO_KIND_STIMULUS_RULES else None
     classification = view.payload.get("classification")
-    path = uses_attack_path(view)
-    if path:
-        rules = _ATTACK_PATH_SCENARIO_KIND_STIMULUS_RULES
-        unavailable_rule = _ATTACK_PATH_SCENARIO_KIND_UNAVAILABLE_RULE
-    else:
-        rules = (
-            _AND_OR_SCENARIO_KIND_STIMULUS_RULES
-            if is_and_or_tree(view.payload.get("attack_tree"))
-            else _SCENARIO_KIND_STIMULUS_RULES
-        )
-        unavailable_rule = _SCENARIO_KIND_UNAVAILABLE_RULE
-    design_key = "attack_path" if path else "attack_tree"
-    design = (
-        _attack_path_design(view.payload["attack_path"])
-        if path
-        else _attack_tree_design(view.payload.get("attack_tree"))
-    )
     return {
         "purpose": prose("prompt_context/scenario_design/purpose"),
         "kind": kind_value if kind_value is not None else "unavailable",
-        "stimulus_rule": rules[kind_value] if kind_value is not None else unavailable_rule,
+        "stimulus_rule": (
+            _SCENARIO_KIND_STIMULUS_RULES[kind_value]
+            if kind_value is not None
+            else _SCENARIO_KIND_UNAVAILABLE_RULE
+        ),
         "classification": (
             deepcopy(classification)
             if isinstance(classification, dict) and classification
@@ -652,7 +485,7 @@ def _scenario_design(view: InputView) -> dict[str, Any]:
                 "reason": prose("prompt_context/scenario_design/classification_unavailable"),
             }
         ),
-        design_key: design,
+        "attack_path": _attack_path_design(view.payload["attack_path"]),
     }
 
 
@@ -662,27 +495,13 @@ def _scenario_design_prompt_view(design: Any) -> Any:
     if not isinstance(design, dict):
         return design
     result = deepcopy(design)
-    result["purpose"] = prose("prompt_context/scenario_design/prompt_view_purpose")
+    result["purpose"] = prose("prompt_context/scenario_design/attack_path_prompt_view_purpose")
     result.pop("classification", None)
     path = result.get("attack_path")
     if isinstance(path, dict):
-        result["purpose"] = prose("prompt_context/scenario_design/attack_path_prompt_view_purpose")
         result["attack_path"] = {
             "note": prose("prompt_context/scenario_design/attack_path_note"),
             "outline": deepcopy(path.get("outline", [])),
-        }
-        return result
-    tree = result.get("attack_tree")
-    if isinstance(tree, dict) and tree.get("format") == AND_OR_TREE_FORMAT:
-        result["purpose"] = prose("prompt_context/scenario_design/and_or_prompt_view_purpose")
-        result["attack_tree"] = {
-            "note": prose("prompt_context/scenario_design/and_or_tree_note"),
-            "outline": deepcopy(tree.get("outline", [])),
-        }
-    elif isinstance(tree, dict):
-        result["attack_tree"] = {
-            "note": prose("prompt_context/scenario_design/attack_tree_note"),
-            "nodes_by_category": deepcopy(tree.get("nodes_by_category", {})),
         }
     return result
 
@@ -698,7 +517,6 @@ def build_plan_author_context(
         turn_count(view),
         shape_delivery(view),
         plan_record_choices(view, runtime_contract),
-        attack_path=uses_attack_path(view),
     )
     context = {
         "task": {

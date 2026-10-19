@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from asago_artifact_generator.authoring.attack_tree_outline import (
+from asago_artifact_generator.authoring.attack_path_outline import (
     attack_path_outline,
     attack_path_provenance,
 )
@@ -244,7 +244,7 @@ def test_the_path_replaces_the_tree_wording_in_every_plan_text() -> None:
         "prompt_context/scenario_design/attack_path_prompt_view_purpose"
     )
     assert design["stimulus_rule"] == _prose(
-        "prompt_context/scenario_kind_stimulus_rules/adversarial_attack_path"
+        "prompt_context/scenario_kind_stimulus_rules/adversarial"
     )
     assert "attack path" in design["stimulus_rule"]
     assert "attack-path node IDs" in references["provenance_ids"]["rule"]
@@ -261,7 +261,7 @@ def test_a_functional_path_uses_the_functional_attack_path_rule() -> None:
     )
 
     assert design["stimulus_rule"] == _prose(
-        "prompt_context/scenario_kind_stimulus_rules/functional_attack_path"
+        "prompt_context/scenario_kind_stimulus_rules/functional"
     )
     assert "exercise the control path in the attack path" in design["stimulus_rule"]
     assert "Attack steps" not in "\n".join(design["attack_path"]["outline"])
@@ -273,9 +273,7 @@ def test_an_unavailable_kind_derives_the_stimulus_from_the_attack_path() -> None
     payload["kind"] = "unknown"
     design = _scenario_design(dataclasses.replace(view, payload=payload))
 
-    assert design["stimulus_rule"] == _prose(
-        "prompt_context/scenario_kind_unavailable_rule_attack_path"
-    )
+    assert design["stimulus_rule"] == _prose("prompt_context/scenario_kind_unavailable_rule")
     assert "narrative and attack path" in design["stimulus_rule"]
 
 
@@ -293,11 +291,6 @@ def test_the_response_contract_descriptions_name_the_attack_path() -> None:
     assert "attack-path node IDs are invalid" in selected
     assert not _TREE_WORDING.search(json.dumps(context["response_contract"]))
 
-    default_source_refs, default_selected = descriptions(plan_response_contract())
-    assert "attack-tree node ID" in default_source_refs
-    assert "attack-tree node IDs" in default_selected
-    assert plan_response_contract(attack_path=False) == plan_response_contract()
-
 
 def test_the_plan_correction_keeps_the_path_wording_in_its_response_contract() -> None:
     view = path_view()
@@ -306,7 +299,7 @@ def test_the_plan_correction_keeps_the_path_wording_in_its_response_contract() -
         failed_stage="call1", original_context=context, current_output=b"{}", findings=[]
     )
 
-    assert correction["response_contract"] == plan_response_contract(attack_path=True)
+    assert correction["response_contract"] == plan_response_contract()
     assert not _TREE_WORDING.search(json.dumps(correction["response_contract"]))
 
 
@@ -327,9 +320,7 @@ def test_reference_repair_options_name_the_attack_path(failed_stage: str) -> Non
     )
 
     options = packet.payload["reference_repair_options"]
-    assert options["description"] == _prose(
-        "binding_repair/reference_repair_description_attack_path"
-    )
+    assert options["description"] == _prose("binding_repair/reference_repair_description")
     assert "attack-path node ID" in options["options"][0]["repair"]
     assert "AP-HAZ" in options["valid_provenance_ids"]
     assert not _TREE_WORDING.search(packet.user)
@@ -375,7 +366,7 @@ def test_a_real_functional_path_has_no_attacker_key_and_an_empty_steps_list() ->
         build_call1_packet_v2(view, _inventory(), _runtime_contract()).user, "SCENARIO DESIGN"
     )
     assert design["stimulus_rule"] == _prose(
-        "prompt_context/scenario_kind_stimulus_rules/functional_attack_path"
+        "prompt_context/scenario_kind_stimulus_rules/functional"
     )
 
 

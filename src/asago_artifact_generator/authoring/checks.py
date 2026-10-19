@@ -259,7 +259,7 @@ def collect_plan_findings_v2(
     followed by the omission-trigger, stimulus-slot, and established-trigger
     cross-checks.
 
-    ``provenance_ids`` are scenario lineage or attack-tree or attack-path node IDs from the
+    ``provenance_ids`` are scenario lineage or attack-path node IDs from the
     supplied handoff. They are valid in ``interpretation.source_refs`` and
     ``assumptions[].ref``; every other reference field stays limited to
     supplied inventory references. ``condition`` is the handoff's
