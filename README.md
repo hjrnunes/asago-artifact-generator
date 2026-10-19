@@ -247,7 +247,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `value.<record_key>.record_key` selector that bind the record key itself. A
   required change that replaces a binding path names the complete source and
   selector pair.
-- `authoring-call2-v25` renders the immutable accepted plan and the runtime
+- `authoring-call2-v26` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
   question whose yes answer is the violation, that the criteria are a
@@ -265,7 +265,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   lists the binding's documented selectors, the selected record's sources, and
   `review_selector_checks`: each selector path the required change names,
   checked against the sources that document it. Artifact corrections use
-  `authoring-correction-v33`.
+  `authoring-correction-v39`.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
 operations, schemas, provenance, and runtime capabilities. Reviewers do not

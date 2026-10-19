@@ -24,6 +24,8 @@ PLANTED_ITEM_DELIVERY = "planted_item"
 SEED_MEMBER = "seed.json"
 SEED_SCHEMA_VERSION = "artifact-seed-v1"
 PLANTED_TEXT_FIELD = "planted_text"
+# The Call 2 contract's description of stimulus.slots under a plan that plants a text.
+STIMULUS_SLOTS_MEANING = prose("planted_item/stimulus_slots_meaning")
 # The plan field that names the record when the producer's shape names none.
 RECORD_FIELD = "planted_record_ref"
 RECORD_PATH = f"stimulus_approach.{RECORD_FIELD}"
@@ -482,7 +484,7 @@ def planted_text_limit_in_context(context: Any) -> int | None:
 def with_planted_text_field(
     contract: dict[str, Any], plan: dict[str, Any] | None, max_chars: int | None
 ) -> dict[str, Any]:
-    """Add the planted text to a Call 2 contract when the accepted plan plants one.
+    """Add the planted text, and the meaning of stimulus.slots, when the accepted plan plants one.
 
     A plan plants a text when it delivers a planted item and a seed slot carries the text;
     ``max_chars`` is that slot's limit, or None when no slot carries one.
@@ -499,6 +501,8 @@ def with_planted_text_field(
         "maxLength": max_chars,
         "description": _planted_text_meaning(max_chars),
     }
+    slots = contract["schema"]["properties"]["stimulus"]["properties"]["slots"]
+    slots["description"] = STIMULUS_SLOTS_MEANING
     return contract
 
 
