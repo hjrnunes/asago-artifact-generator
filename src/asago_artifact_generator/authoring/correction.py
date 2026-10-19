@@ -15,7 +15,7 @@ from .binding_repair import (
 from .contracts import _call2_contract_v2
 from .core import (
     CORRECTION_PROMPT_VERSION_V33,
-    CORRECTION_PROMPT_VERSION_V36,
+    CORRECTION_PROMPT_VERSION_V38,
     Call2FramingError,
     Finding,
     FindingTarget,
@@ -27,6 +27,7 @@ from .prompt_context import (
     _render_sections,
     _scenario_design_prompt_view,
     _semantic_judge_fact_ref_guidance,
+    context_uses_attack_path,
 )
 from .prompt_packets import _artifact_response_contract_for_prompt
 from .response_decode import _decode_stage_response, _readable_response
@@ -281,7 +282,7 @@ def _render_correction_packet(
     packet = PromptPacket(
         stage="correction",
         version=(
-            CORRECTION_PROMPT_VERSION_V33 if view.artifact else CORRECTION_PROMPT_VERSION_V36
+            CORRECTION_PROMPT_VERSION_V33 if view.artifact else CORRECTION_PROMPT_VERSION_V38
         ),
         system=_CORRECTION_SYSTEM,
         user=_render_sections(
@@ -411,6 +412,7 @@ def build_correction_context(
                     turns_in_context(original_context),
                     delivery_in_context(original_context),
                     records_in_context(original_context),
+                    attack_path=context_uses_attack_path(original_context),
                 ),
             }
         )

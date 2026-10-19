@@ -46,6 +46,6 @@ def test_the_unknown_version_case_stops_at_the_version_gate() -> None:
         load_input(_KIT / "invalid" / f"{_VERSION_GATE}.json")
 
     assert str(raised.value) == (
-        "authoring source must be a producer scenario-handoff-v4 document; "
-        "found scenario-handoff-v9"
+        "authoring source must be a producer scenario-handoff-v4 or scenario-handoff-v5 "
+        "document; found scenario-handoff-v9"
     )

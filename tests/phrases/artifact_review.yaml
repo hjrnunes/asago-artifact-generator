@@ -64,3 +64,8 @@ cases:
       required:
         - 'the producer''s tool-call condition for a command_attempt claim reads none'
         - 'the producer resolves it to its supplied value'
+  v5:
+    user:
+      once:
+        - 'The producer''s analysis of this scenario as structured fields.'
+        - 'forged_history is an invented earlier turn of the conversation.'

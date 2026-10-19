@@ -223,8 +223,22 @@ anything other than a supplied result observation.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v23` renders the plan author context while preserving the
-  existing 11-field plan response.
+- `authoring-call1-v25` renders the plan author context while preserving the
+  existing 11-field plan response. A producer `and-or-tree-v1` attack tree
+  appears in SCENARIO DESIGN as an indented outline that keeps its AND and OR
+  operators, child order, node IDs, and source IDs, with a note on how to read
+  it; other scenarios that reach the same hazard collapse into one line. The
+  section's purpose and adversarial stimulus rule then name the outline's
+  attacker lines instead of the flat tree's actor nodes. The
+  plan correction (`authoring-correction-v38`) shows the same outline. A flat
+  attack tree renders as it did in v23. A v5 handoff that carries an
+  `attack-path-v1` `attack_path` instead of a tree appears in SCENARIO DESIGN as
+  an outline of the attacker lines and then numbered parts (conditions, attack
+  steps in order, unsafe action, observable failure, hazard with its losses),
+  with its own note. Every text that names the tree (the purpose, the stimulus
+  rules, the EVIDENCE REFERENCES rules, the response contract descriptions, and
+  the correction texts) names the attack path instead, and the path's node and
+  source IDs are citable provenance.
 - `authoring-plan-review-v22` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
@@ -244,7 +258,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `semantic_judge_spec_required` correction.
 - `authoring-artifact-review-v21` reviews the exact artifact object and the
   binding and judge declarations.
-- `authoring-correction-v36` renders only the failed stage format and all
+- `authoring-correction-v38` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option
@@ -324,7 +338,8 @@ remain distinct, and reasoning is never parsed as the final answer.
 
 The producer owns scenario meaning. From the producer repository root, run the
 normal producer command and then hand the resulting `scenario-handoff-v4`
-input to `generate`:
+input, or the `scenario-handoff-v5` input that the producer's
+`--handoff-format v5` writes, to `generate`:
 
 ```bash
 cd <producer-repo-root>
@@ -376,7 +391,7 @@ credential from the named profile passed to `generate --profile`.
 The authoring path accepts producer-owned discovery outputs and one scenario
 handoff:
 
-- `scenario-handoff-v4` JSON or YAML for scenario meaning.
+- `scenario-handoff-v4` or `scenario-handoff-v5` JSON or YAML for scenario meaning.
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional `runtime-context.json` (`runtime-context-v1`, written by the orchestrator's discover stage) for state and read observations.
 - A target-free runtime contract (`artifact-runtime-contract-v2`). `generate`
@@ -386,22 +401,39 @@ handoff:
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
 vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and
-record SHA-256 source pins. The adapter verifies `content_digest` in the
-`scenario-handoff-v4` digest domain, and packages record `input_kind`
-`scenario-handoff-v4`. Authoring rejects every other document, including
-`scenario-handoff-v1` to `v3`, with "authoring source must be a producer
-scenario-handoff-v4 document; found <version>".
+record SHA-256 source pins. The mirrored `CONTRACT.lock` declares v4 at its top
+level and v5 under `additional_versions`; each entry names the version's kit
+directory and digest domain. The adapter verifies `content_digest` in the
+domain of the handoff's version (`scenario-handoff-v4` or
+`scenario-handoff-v5`), and packages record that version as `input_kind`.
+Authoring rejects every other document, including `scenario-handoff-v1` to
+`v3`, with "authoring source must be a producer scenario-handoff-v4 or
+scenario-handoff-v5 document; found <version>".
 
-Before the digest check, the adapter applies the mirrored v4 `schema.json`, the
-producer's ownership rules in the mirrored `ownership-rules.json`, and the
-rules the schema cannot state: non-blank text, the observation-contract format,
-and cross-field pairings. A rejection raises `HandoffSchemaInvalid`. Its `codes`
+Before the digest check, the adapter applies the mirrored `schema.json` of the
+handoff's version, the producer's ownership rules in the mirrored
+`ownership-rules.json`, and the rules the schema cannot state: non-blank text,
+the observation-contract format, and cross-field pairings. A rejection raises
+`HandoffSchemaInvalid`. Its `codes`
 are the producer's codes as the kit's `expected-violations.json` records them:
 ownership codes first, then `schema_violation:<top-level field>`. Its message is
 `handoff schema invalid: <codes> (<path>: <reason>)` for the first break. A
 break confined to `attack_shape` raises the subclass `ShapeVersionMalformed`.
 
-A v4 handoff carries `attack_shape`: the channel, the number of user turns (1
+A v5 handoff keeps every v4 field and adds six: `uca` (the unsafe control
+action, its STPA type, and its hazards), `actor` (the adversary and its goal;
+null for a functional scenario), `causal_factors`, `preconditions`,
+`procedure` (the attack steps with their MITRE ATLAS tactic, technique, and
+channel), and `worst_case_threat`. The adapter also checks the procedure chain
+the schema cannot state: steps are numbered `S00`, `S01`, ... in order, each
+leads to the next, and a step names a tactic exactly when it names a technique;
+a break reports `schema_violation:<root>`. Every prompt that carries the
+scenario meaning (Call 1, the plan review, Call 2, the artifact review, and both
+corrections) shows a v5 handoff's new fields under `structured_analysis`, with a
+fixed `note` that explains them; a null or empty field is left out. A v4
+handoff's prompts are unchanged.
+
+A v4 or v5 handoff carries `attack_shape`: the channel, the number of user turns (1
 to 4) and each turn's purpose, never attack text, or null for a functional
 scenario. `InputView.attack_shape` returns it. The consumer authors `direct`
 shapes, and `indirect` shapes when the runtime contract lists the
@@ -415,7 +447,7 @@ stays as authored. Before any model request, a shape the consumer cannot
 author stops with a typed finding: `shape_channel_unsupported` (the runtime
 contract lists no matching `delivery`, such as `planted_item` for `indirect`),
 `shape_forged_transcript_unsupported`, or `shape_turn_count_unsupported`
-(more turns than `limits.max_planned_turns`, default 4). A v4 handoff whose
+(more turns than `limits.max_planned_turns`, default 4). A handoff whose
 `attack_shape` breaks the vendored schema or its cross-field rules is refused
 at load with `shape_version_malformed`.
 
@@ -458,7 +490,7 @@ lead the agent to read the record instead of asking to move the planted text. A
 reused plan without the field still plants the slot's first record.
 
 A handoff carries two optional condition fields and two tool-call fields, all
-validated against the vendored v4 schema:
+validated against the vendored schema of its version:
 
 - `discriminating_condition` states what makes the behavior unsafe: a
   `statement`, a list of `comparisons`, and a `record_selection`. A value

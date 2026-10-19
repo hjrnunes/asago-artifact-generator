@@ -1,7 +1,8 @@
 """The vendored scenario-handoff-v4 kit and the consumer-owned artifact-package-v4 contract.
 
-The input adapter reads the v4 kit (tests/test_handoff_v4.py), and the package
-writer and loader handle only artifact-package-v4.
+The input adapter reads the v4 kit (tests/test_handoff_v4.py) and the v5 kit
+(tests/test_handoff_v5.py), and the package writer and loader handle only
+artifact-package-v4.
 """
 
 from __future__ import annotations
@@ -71,12 +72,15 @@ def _manifest(**overrides: Any) -> dict[str, Any]:
     return manifest
 
 
-def test_v4_schema_accepts_only_a_v4_input() -> None:
+def test_v4_schema_accepts_only_a_v4_or_v5_input() -> None:
     schema = _schema()
 
     assert schema["properties"]["schema_version"] == {"const": "artifact-package-v4"}
-    assert schema["properties"]["input_kind"] == {"const": "scenario-handoff-v4"}
+    assert schema["properties"]["input_kind"] == {
+        "enum": ["scenario-handoff-v4", "scenario-handoff-v5"]
+    }
     jsonschema.validate(_manifest(input_kind="scenario-handoff-v4"), schema)
+    jsonschema.validate(_manifest(input_kind="scenario-handoff-v5"), schema)
     for kind in ("scenario-handoff-v1", "scenario-handoff-v2", "scenario-handoff-v3", "other"):
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(_manifest(input_kind=kind), schema)

@@ -102,10 +102,33 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _ROOT = Path(__file__).resolve().parents[1]
 HANDOFFS = FIXTURES / "handoffs"
 HANDOFF = HANDOFFS / "refund-bound.json"
+# A klarna SCN-004 handoff whose attack tree is an and-or-tree-v1 outline.
+AND_OR_HANDOFF = HANDOFFS / "klarna-and-or-SCN-004.yaml"
+# A klarna SCN-027 v5 handoff whose attack_path replaces the attack tree.
+ATTACK_PATH_HANDOFF = HANDOFFS / "klarna-attack-path-SCN-027.yaml"
+# Both klarna handoffs plant an order item through lookup_order, which no slot of the ehr
+# world carries. These runtime contract keys add the planted-item delivery and the order-item
+# slot that the klarna target's runtime contract states.
+KLARNA_INDIRECT_RUNTIME: dict[str, Any] = {
+    "delivery": ["direct_user_message", "planted_item"],
+    "seed_slots": [
+        {
+            "id": "klarna.order.item",
+            "carrier_operation": "lookup_order",
+            "field": "item",
+            "controller": "third_party",
+            "content_kind": "order_content",
+            "records": ["ORD-101", "ORD-102", "ORD-103", "ORD-104"],
+            "max_chars": 2000,
+            "mode": "replace",
+        }
+    ],
+}
 KIT_VALID = _ROOT / "contracts/scenario-handoff/handoff-v4/valid"
 NO_CONDITION_HANDOFF = KIT_VALID / "adversarial-condition-omitted.json"
 OBSERVED_HANDOFF = KIT_VALID / "adversarial-observed-record.json"
 NOT_CALLED_HANDOFF = KIT_VALID / "functional-not-called.json"
+V5_HANDOFF = _ROOT / "contracts/scenario-handoff/handoff-v5/valid/adversarial-direct-single.json"
 # One attacker message sent directly: the shape every adversarial test handoff above carries.
 DIRECT_SINGLE_SHAPE: dict[str, Any] = json.loads(
     (KIT_VALID / "adversarial-direct-single.json").read_text(encoding="utf-8")

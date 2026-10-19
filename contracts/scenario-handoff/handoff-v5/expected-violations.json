@@ -1,0 +1,450 @@
+{
+  "invalid/narrative-role-serialization.json": [
+    "prose_hiding:role_serialization"
+  ],
+  "invalid/narrative-turn-array.json": [
+    "prose_hiding:turn_array"
+  ],
+  "invalid/ownership-deliver-this-message.json": [
+    "prose_hiding:ready_to_send_instruction"
+  ],
+  "invalid/ownership-dotted-key.json": [
+    "artifact_design_field:role",
+    "schema_violation:attack_path"
+  ],
+  "invalid/ownership-judge-prompt.json": [
+    "prose_hiding:judge_prompt"
+  ],
+  "invalid/ownership-key-name-pattern.json": [
+    "prose_hiding:detector_expression",
+    "schema_violation:attack_path"
+  ],
+  "invalid/ownership-oracle-basis-key.json": [
+    "artifact_design_field:oracle_basis",
+    "schema_violation:attack_path"
+  ],
+  "invalid/ownership-oracle-kind-key.json": [
+    "artifact_design_field:oracle_kind",
+    "schema_violation:attack_path"
+  ],
+  "invalid/ownership-oracle-observes-key.json": [
+    "artifact_design_field:oracle_observes",
+    "schema_violation:attack_path"
+  ],
+  "invalid/ownership-system-prompt-is.json": [
+    "prose_hiding:ready_to_send_instruction"
+  ],
+  "invalid/prepared-message-field.json": [
+    "prose_hiding:prepared_message_field"
+  ],
+  "invalid/role-turn-array.json": [
+    "prose_hiding:role_serialization"
+  ],
+  "invalid/schema-assessment-blank-reason.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-assessment-disposition-not-enumerated.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-assessment-missing-reason.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-assessment-not-object.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-assessment-supported-not-list.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-attack-path-not-object.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/schema-blank-narrative.json": [
+    "schema_violation:narrative"
+  ],
+  "invalid/schema-bound-without-tool-call-condition.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/schema-condition-not-object.json": [
+    "schema_violation:discriminating_condition"
+  ],
+  "invalid/schema-criterion-analytical-with-operation.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-criterion-blank-outcome.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-criterion-missing-reason.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-criterion-observable-not-boolean.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-criterion-observable-without-claim.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-criterion-unknown-field.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-deduplication-blank-scenario-id.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-key-blank-operation.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-key-claim-not-enumerated.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-key-constraint-id-blank.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-key-constraint-ids-not-list.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-key-missing-claim.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-key-not-object.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-missing-key.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-not-object.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-status-not-enumerated.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-deduplication-unknown-field.json": [
+    "schema_violation:deduplication"
+  ],
+  "invalid/schema-gherkin-given-not-list.json": [
+    "schema_violation:gherkin"
+  ],
+  "invalid/schema-gherkin-not-object.json": [
+    "schema_violation:gherkin"
+  ],
+  "invalid/schema-gherkin-scenario-null.json": [
+    "schema_violation:gherkin"
+  ],
+  "invalid/schema-gherkin-unknown-field.json": [
+    "schema_violation:gherkin"
+  ],
+  "invalid/schema-kind-not-enumerated.json": [
+    "schema_violation:kind"
+  ],
+  "invalid/schema-lineage-detector-field.json": [
+    "artifact_design_field:detector",
+    "schema_violation:lineage"
+  ],
+  "invalid/schema-lineage-not-object.json": [
+    "schema_violation:lineage"
+  ],
+  "invalid/schema-missing-narrative.json": [
+    "schema_violation:narrative"
+  ],
+  "invalid/schema-missing-tool-call-status.json": [
+    "schema_violation:tool_call_condition_status"
+  ],
+  "invalid/schema-not-executable-with-tool-call-condition.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/schema-observation-criteria-empty.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-observation-criterion-not-object.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-observation-missing-criteria.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-observation-not-object.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-observation-unknown-field.json": [
+    "schema_violation:observation"
+  ],
+  "invalid/schema-safe-alternative-not-text.json": [
+    "schema_violation:safe_alternative"
+  ],
+  "invalid/schema-safe-outcome-analytical-with-refs.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
+  "invalid/schema-safe-outcome-blank-statement.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
+  "invalid/schema-safe-outcome-empty.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
+  "invalid/schema-safe-outcome-not-object.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
+  "invalid/schema-safe-outcome-unknown-field.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
+  "invalid/schema-scenario-version-not-integer.json": [
+    "schema_violation:scenario_version"
+  ],
+  "invalid/schema-stimulus-turn-field-top-level.json": [
+    "artifact_design_field:stimulus_turns",
+    "artifact_design_field:role",
+    "schema_violation:stimulus_turns"
+  ],
+  "invalid/schema-tool-call-condition-empty.json": [
+    "schema_violation:tool_call_condition"
+  ],
+  "invalid/schema-tool-call-reason-not-bound.json": [
+    "schema_violation:tool_call_condition_status"
+  ],
+  "invalid/schema-tool-call-status-not-enumerated.json": [
+    "schema_violation:tool_call_condition_status"
+  ],
+  "invalid/schema-unknown-field.json": [
+    "schema_violation:bogus"
+  ],
+  "invalid/schema-unknown-not-text.json": [
+    "schema_violation:assumptions_and_unknowns"
+  ],
+  "invalid/schema-unknown-version.json": [
+    "schema_violation:schema_version",
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-adversarial-null.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/shape-carrier-with-prose.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-delivery-key.json": [
+    "artifact_design_field:delivery",
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-direct-with-benign-speaker.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-direct-with-indirect-block.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-downgrade-without-default.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-forged-last-not-attacker.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-forged-speaker-on-direct.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-forged-without-label.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-functional-with-shape.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/shape-indirect-attacker-speaker.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-indirect-no-read-turn.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-indirect-without-block.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-missing.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-plan-length-mismatch.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-positions-not-sequential.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-purpose-free-text.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-purpose-speaker-mismatch.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-record-ref-with-prose.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-turn-count-five.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-turn-count-zero.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-turn-role-key.json": [
+    "artifact_design_field:role",
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-turn-text-field.json": [
+    "schema_violation:attack_shape"
+  ],
+  "invalid/shape-turns-array-key.json": [
+    "artifact_design_field:turns",
+    "schema_violation:attack_shape"
+  ],
+  "invalid/smuggled-prose.json": [
+    "prose_hiding:detector_expression",
+    "prose_hiding:ready_to_send_instruction"
+  ],
+  "invalid/stimulus-turn-field.json": [
+    "artifact_design_field:stimulus_turns",
+    "artifact_design_field:role",
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-actor-blank-goal.json": [
+    "schema_violation:actor"
+  ],
+  "invalid/v5-actor-missing.json": [
+    "schema_violation:actor"
+  ],
+  "invalid/v5-actor-null-on-adversarial.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/v5-actor-on-functional.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/v5-attack-path-attacker-plan-not-list.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-category-not-enumerated.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-condition-source-id-not-list.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-condition-unknown-field.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-conditions-not-list.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-evidence-status-not-enumerated.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-failure-not-object.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-format-not-v1.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-hazard-id-wrong.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-hazard-loss-missing-label.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-missing.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-node-id-not-ap.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-step-blank-label.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-step-id-not-step.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-unknown-key.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-unsafe-action-id-wrong.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-unsafe-action-violates-missing.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-tree-present.json": [
+    "schema_violation:attack_tree"
+  ],
+  "invalid/v5-causal-factor-belief-missing.json": [
+    "schema_violation:causal_factors"
+  ],
+  "invalid/v5-causal-factor-blank-flaw.json": [
+    "schema_violation:causal_factors"
+  ],
+  "invalid/v5-causal-factor-variable-blank-description.json": [
+    "schema_violation:causal_factors"
+  ],
+  "invalid/v5-causal-factor-variable-id-missing.json": [
+    "schema_violation:causal_factors"
+  ],
+  "invalid/v5-causal-factor-variable-id-not-pm.json": [
+    "schema_violation:causal_factors"
+  ],
+  "invalid/v5-causal-factor-variable-not-object.json": [
+    "schema_violation:causal_factors"
+  ],
+  "invalid/v5-causal-factor-variable-unknown-field.json": [
+    "schema_violation:causal_factors"
+  ],
+  "invalid/v5-causal-factors-empty.json": [
+    "schema_violation:causal_factors"
+  ],
+  "invalid/v5-fields-under-v4-version.json": [
+    "schema_violation:attack_tree",
+    "schema_violation:actor",
+    "schema_violation:attack_path",
+    "schema_violation:causal_factors",
+    "schema_violation:preconditions",
+    "schema_violation:procedure",
+    "schema_violation:uca",
+    "schema_violation:worst_case_threat"
+  ],
+  "invalid/v5-preconditions-not-text.json": [
+    "schema_violation:preconditions"
+  ],
+  "invalid/v5-preconditions-on-functional.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/v5-procedure-channel-not-enumerated.json": [
+    "schema_violation:procedure"
+  ],
+  "invalid/v5-procedure-empty-on-adversarial.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/v5-procedure-leads-to-wrong.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/v5-procedure-on-functional.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/v5-procedure-step-id-out-of-order.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/v5-procedure-step-missing-tactic-key.json": [
+    "schema_violation:procedure"
+  ],
+  "invalid/v5-procedure-technique-id-free-text.json": [
+    "schema_violation:procedure"
+  ],
+  "invalid/v5-procedure-technique-without-tactic.json": [
+    "schema_violation:<root>"
+  ],
+  "invalid/v5-uca-blank-statement.json": [
+    "schema_violation:uca"
+  ],
+  "invalid/v5-uca-hazards-empty.json": [
+    "schema_violation:uca"
+  ],
+  "invalid/v5-uca-missing.json": [
+    "schema_violation:uca"
+  ],
+  "invalid/v5-uca-not-object.json": [
+    "schema_violation:uca"
+  ],
+  "invalid/v5-uca-type-not-enumerated.json": [
+    "schema_violation:uca"
+  ],
+  "invalid/v5-uca-unknown-field.json": [
+    "schema_violation:uca"
+  ],
+  "invalid/v5-worst-case-threat-blank.json": [
+    "schema_violation:worst_case_threat"
+  ],
+  "invalid/v5-worst-case-threat-missing.json": [
+    "schema_violation:worst_case_threat"
+  ]
+}

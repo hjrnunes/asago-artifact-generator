@@ -6,6 +6,7 @@ describe the same six prompts.
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
@@ -39,10 +40,13 @@ STAGES = (
 )
 
 
-def render_stage_packets(world: str = "ehr", view: Any = None) -> dict[str, PromptPacket]:
+def render_stage_packets(
+    world: str = "ehr", view: Any = None, runtime_changes: dict[str, Any] | None = None
+) -> dict[str, PromptPacket]:
     """Return the six stage prompts rendered from ``world``.
 
-    ``view`` replaces the world's own scenario view when a test needs another handoff.
+    ``view`` replaces the world's own scenario view when a test needs another handoff, and
+    ``runtime_changes`` replaces top-level keys of the world's runtime contract.
     """
 
     world_view, build_inventory, build_runtime, build_plan, build_metadata, build_framed = (
@@ -51,7 +55,8 @@ def render_stage_packets(world: str = "ehr", view: Any = None) -> dict[str, Prom
         )
     )
     view = world_view() if view is None else view
-    inventory, runtime, plan = build_inventory(), build_runtime(), build_plan()
+    inventory, plan = build_inventory(), build_plan()
+    runtime = build_runtime(**copy.deepcopy(runtime_changes or {}))
     return {
         "call1": build_call1_packet_v2(view, inventory, runtime),
         "plan_review": build_plan_review_packet(view, plan, inventory, runtime),

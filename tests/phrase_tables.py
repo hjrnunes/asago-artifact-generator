@@ -30,6 +30,7 @@ from .support import (
     NO_CONDITION_HANDOFF,
     NOT_CALLED_HANDOFF,
     OBSERVED_HANDOFF,
+    V5_HANDOFF,
     signed_omission_view,
 )
 
@@ -49,6 +50,7 @@ CASES: dict[str, Callable[[Path], Any]] = {
     "not-called": _from_handoff(NOT_CALLED_HANDOFF),
     "no-condition": _from_handoff(NO_CONDITION_HANDOFF),
     "omission": signed_omission_view,
+    "v5": _from_handoff(V5_HANDOFF),
 }
 
 

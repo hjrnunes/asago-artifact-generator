@@ -50,7 +50,7 @@ def generate(
     ctx: typer.Context,
     source: Annotated[
         Path,
-        typer.Argument(help="Producer scenario-handoff-v4 JSON/YAML file."),
+        typer.Argument(help="Producer scenario-handoff-v4 or scenario-handoff-v5 JSON/YAML file."),
     ],
     target_profile: Annotated[
         Path,

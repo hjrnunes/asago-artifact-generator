@@ -30,7 +30,7 @@
     "artifact-package-v4/invalid/unknown-manifest-field.json": "9163dea3071fd278cd44e2dee9fb38696ef053d12de921f7a24b756fcfd3e0ca",
     "artifact-package-v4/invalid/unlisted-file.json": "b34efc09a9868e870b0dee37f58b84cf405de31a0fb3a1a28288f2ad15130d75",
     "artifact-package-v4/invalid/uppercase-source-digest.json": "bea1aefa3ef771511a9f40e5eebf70eaf0782848423e91b28665fdc1ee410f91",
-    "artifact-package-v4/schema.json": "b17f7f88c8b4c77b4b907a13b7190ed36ecec92b25d1fa665a531454e101b7f5",
+    "artifact-package-v4/schema.json": "dc49b13bde74c491fe4addeb7ab692fdc59fe8adb7f8225f392476a3b279c2ad",
     "artifact-package-v4/valid/minimal.json": "0063c5269a741ad18858ef6f529591b3c7832c71836c5fb666244d6c0f4eda08",
     "artifact-seed-v1/expected-violations.json": "1138a010743cb570cc55a77ee5b55187f1c9095e9f11bfee6803c3a66d31e073",
     "artifact-seed-v1/invalid/item-blank-content.json": "23ddcc00e9ee8696ef92fca08277360a43f9fdd6e5516c2bf78060e5c296e850",
