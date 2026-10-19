@@ -935,6 +935,444 @@ def tree(root: TreeNode, children: Sequence[TreeNode]) -> Markup:
     )
 
 
+# Box labels in maps and diagrams wrap at this many characters, in at most
+# this many lines; the box's <title> keeps the whole label.
+WRAP_AT = 28
+WRAP_LINES = 3
+_NEUTRAL_TONES = frozenset({"neutral-strong", "neutral", "neutral-soft"})
+
+
+def _flat(text: Any) -> str:
+    return " ".join(str(text).split())
+
+
+def _wrap(text: str, lines: int = WRAP_LINES) -> list[str]:
+    """Break *text* at spaces into at most *lines* lines of ``WRAP_AT`` characters.
+
+    A longer word is cut; text past the last line ends that line with "…".
+    """
+
+    out: list[str] = []
+    for word in text.split():
+        if out and len(out[-1]) + 1 + len(word) <= WRAP_AT:
+            out[-1] += " " + word
+            continue
+        out.extend(word[i : i + WRAP_AT] for i in range(0, len(word), WRAP_AT))
+    if len(out) > lines:
+        out = out[:lines]
+        out[-1] = out[-1][: WRAP_AT - 1].rstrip() + "…"
+    return out
+
+
+def _num(value: float) -> str:
+    """Format a coordinate with at most one decimal."""
+
+    text = f"{value:.1f}"
+    return text[:-2] if text.endswith(".0") else text
+
+
+def _text_lines(rows: Sequence[tuple[str, str]], x: int, top: float, step: int) -> str:
+    """Draw each ``(line, class attribute)`` pair as SVG text, *step* apart."""
+
+    return "".join(
+        f'<text{css} x="{x}" y="{_num(top + step * i)}">{esc(line)}</text>'
+        for i, (line, css) in enumerate(rows)
+    )
+
+
+@dataclass(frozen=True)
+class MapNode:
+    """A box in a flow map: an id for links, a label, and an optional link."""
+
+    id: str
+    label: str
+    href: str | None = None
+    tone: str = "neutral"
+    note: str | None = None
+
+
+@dataclass(frozen=True)
+class MapColumn:
+    """A flow map column; its nodes stack top to bottom in the given order."""
+
+    key: str
+    title: str
+    nodes: Sequence[MapNode]
+
+
+@dataclass(frozen=True)
+class MapLink:
+    """A link from a node to a node in the next column."""
+
+    source: str
+    target: str
+    tone: str = "neutral"
+
+
+_MAP_WIDTH = 200
+_MAP_GAP = 64
+_MAP_TOP = 26
+_MAP_LINE = 15
+_MAP_PAD = 7
+_MAP_SPACE = 10
+
+
+@dataclass(frozen=True)
+class _MapBox:
+    column: int
+    node: MapNode
+    y: int
+    lines: Sequence[str]
+    note: Sequence[str]
+
+    @property
+    def x(self) -> int:
+        return self.column * (_MAP_WIDTH + _MAP_GAP)
+
+    @property
+    def height(self) -> int:
+        return 2 * _MAP_PAD + _MAP_LINE * (len(self.lines) + len(self.note))
+
+    @property
+    def middle(self) -> float:
+        return self.y + self.height / 2
+
+
+def _map_boxes(columns: Sequence[MapColumn]) -> dict[str, _MapBox]:
+    if not columns:
+        raise KitError("a flow map needs at least one column")
+    boxes: dict[str, _MapBox] = {}
+    for index, column in enumerate(columns):
+        _check_key(column.key, "map column key")
+        y = _MAP_TOP
+        for node in column.nodes:
+            if not isinstance(node.id, str) or not node.id:
+                raise KitError(f"map node id must be text, not {node.id!r}")
+            if node.id in boxes:
+                raise KitError(f"map node {node.id!r} appears twice")
+            _check_choice(node.tone, MARK_TONES, f"map node {node.id} tone")
+            note = () if node.note is None else _wrap(_flat(node.note), 1)
+            lines = _wrap(_flat(node.label)) or [""]
+            box = _MapBox(index, node, y, lines, note)
+            boxes[node.id] = box
+            y += box.height + _MAP_SPACE
+    return boxes
+
+
+def _check_links(links: Sequence[MapLink], boxes: Mapping[str, _MapBox]) -> None:
+    for link in links:
+        what = f"map link {link.source!r} -> {link.target!r}"
+        _check_choice(link.tone, MARK_TONES, f"{what} tone")
+        source, target = boxes.get(link.source), boxes.get(link.target)
+        if source is None or target is None:
+            raise KitError(f"{what} names an unknown node")
+        if target.column != source.column + 1:
+            raise KitError(f"{what} must join adjacent columns, left to right")
+
+
+def _map_link(link: MapLink, boxes: Mapping[str, _MapBox]) -> str:
+    source, target = boxes[link.source], boxes[link.target]
+    x1, y1 = source.x + _MAP_WIDTH, _num(source.middle)
+    x2, y2 = target.x, _num(target.middle)
+    bend = _MAP_GAP // 2
+    return (
+        f'<path class="fl mk s-{link.tone}" '
+        f'd="M{x1},{y1}C{x1 + bend},{y1} {x2 - bend},{y2} {x2},{y2}"/>'
+    )
+
+
+def _map_box(box: _MapBox) -> str:
+    node = box.node
+    css = "fm-n on-neutral" if node.tone in _DARK_LABEL_TONES else "fm-n"
+    title = _flat(node.label)
+    if node.note is not None:
+        title += "\n" + _flat(node.note)
+    rows = [(line, "") for line in box.lines]
+    rows += [(line, ' class="fm-o"') for line in box.note]
+    top = box.y + _MAP_PAD + _MAP_LINE / 2
+    texts = _text_lines(rows, box.x + 8, top, _MAP_LINE)
+    drawn = (
+        f'<g class="{css}" data-node="{esc(node.id)}"><title>{esc(title)}</title>'
+        f'<rect class="mk s-{node.tone}" x="{box.x}" y="{box.y}" '
+        f'width="{_MAP_WIDTH}" height="{box.height}" rx="5"/>{texts}</g>'
+    )
+    return drawn if node.href is None else f'<a href="{esc(node.href)}">{drawn}</a>'
+
+
+def _tone_word(tone: str) -> str:
+    return "" if tone in _NEUTRAL_TONES else f" ({tone})"
+
+
+def _map_item(
+    node: MapNode, out: Sequence[MapLink], boxes: Mapping[str, _MapBox]
+) -> str:
+    text = esc(node.label)
+    if node.href is not None:
+        text = Markup(f'<a href="{esc(node.href)}" tabindex="-1">{text}</a>')
+    note = "" if node.note is None else f" — {esc(node.note)}"
+    targets = "".join(
+        f"<li>→ {esc(boxes[link.target].node.label)}{_tone_word(link.tone)}</li>"
+        for link in out
+    )
+    joined = f'<ul class="map-to">{targets}</ul>' if targets else ""
+    return f"<li>{text}{_tone_word(node.tone)}{note}{joined}</li>"
+
+
+def _map_list(
+    columns: Sequence[MapColumn],
+    links: Sequence[MapLink],
+    boxes: Mapping[str, _MapBox],
+) -> str:
+    out: dict[str, list[MapLink]] = {}
+    for link in links:
+        out.setdefault(link.source, []).append(link)
+    items = "".join(
+        f"<li>{esc(column.title)}<ul>"
+        + "".join(_map_item(n, out.get(n.id, ()), boxes) for n in column.nodes)
+        + "</ul></li>"
+        for column in columns
+    )
+    return f'<ul class="map-list">{items}</ul>'
+
+
+def flow_map(
+    columns: Sequence[MapColumn], links: Sequence[MapLink], *, id: str, label: str
+) -> Markup:
+    """Render columns of boxes joined by links, as SVG and as a nested list.
+
+    Links join a node to a node in the next column; an unknown node or a
+    skipped column raises ``KitError``. The list after the drawing carries the
+    same nodes and links for screen readers and print.
+    """
+
+    _check_id(id, "map id")
+    boxes = _map_boxes(columns)
+    _check_links(links, boxes)
+    width = len(columns) * (_MAP_WIDTH + _MAP_GAP) - _MAP_GAP + 2
+    height = max([_MAP_TOP] + [b.y + b.height for b in boxes.values()]) + 2
+    heads = "".join(
+        f'<text class="fm-h" x="{index * (_MAP_WIDTH + _MAP_GAP)}" y="13">'
+        f"{esc(''.join(_wrap(_flat(column.title), 1)))}</text>"
+        for index, column in enumerate(columns)
+    )
+    paths = "".join(_map_link(link, boxes) for link in links)
+    nodes = "".join(_map_box(box) for box in boxes.values())
+    return Markup(
+        f'<div class="fm" id="{id}"><svg class="fm-svg" role="img" '
+        f'aria-label="{esc(label)}" width="{width}" height="{height}" '
+        f'viewBox="-1 -1 {width} {height}">{heads}{paths}{nodes}</svg>'
+        f"{_map_list(columns, links, boxes)}</div>"
+    )
+
+
+DIAGRAM_KINDS = ("root", "or", "and", "action", "condition", "step", "unsafe")
+# The interactive diagram loads this library on a click, never on open.
+DIAGRAM_LIBRARY_URL = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"
+DIAGRAM_LIBRARY_SRI = (
+    "sha384-rbtjAdnIQE/aQJGEgXrVUlMibdfTSa4PQju4HDhN3sR2PmaKFzhEafuePsl9H/9I"
+)
+DIAGRAM_LOAD_LABEL = "Load interactive diagram (contacts cdn.jsdelivr.net)"
+_DG_STEP_X = 220
+_DG_STEP_Y = 56
+_DG_WIDTH = 200
+_DG_HEIGHT = 48
+_DG_LINE = 14
+_MERMAID_CODES = {
+    '"': "#quot;",
+    "#": "#35;",
+    "&": "#38;",
+    "<": "#lt;",
+    ">": "#gt;",
+    "`": "#96;",
+}
+_MERMAID_SPECIAL = re.compile('["#&<>`]')
+_MERMAID_SHAPES = {"or": ("{{", "}}"), "and": ("{{", "}}"), "unsafe": ("[/", "/]")}
+
+
+@dataclass(frozen=True)
+class DiagramNode:
+    """An and-or diagram node; *kind* is one of ``DIAGRAM_KINDS``."""
+
+    id: str
+    label: str
+    kind: str
+    tags: Sequence[str] = ()
+    children: Sequence[DiagramNode] = ()
+
+
+@dataclass
+class _Placed:
+    node: DiagramNode
+    depth: int
+    parent: int | None
+    row: float = 0.0
+
+
+def _place(root: DiagramNode) -> list[_Placed]:
+    """Return the nodes in pre-order with their depth, parent and row.
+
+    Rows come from a post-order walk: each leaf takes the next row, and a
+    parent sits at the mean of its first and last child's rows.
+    """
+
+    placed: list[_Placed] = []
+    leaves = 0
+
+    def visit(node: DiagramNode, depth: int, parent: int | None) -> float:
+        nonlocal leaves
+        _check_choice(node.kind, DIAGRAM_KINDS, "diagram node kind")
+        if not all(isinstance(tag, str) for tag in node.tags):
+            raise KitError(f"diagram node {node.id!r} tags must be text")
+        item = _Placed(node, depth, parent)
+        index = len(placed)
+        placed.append(item)
+        if node.children:
+            rows = [visit(child, depth + 1, index) for child in node.children]
+            item.row = (rows[0] + rows[-1]) / 2
+        else:
+            item.row, leaves = float(leaves), leaves + 1
+        return item.row
+
+    visit(root, 0, None)
+    return placed
+
+
+def _diagram_box(item: _Placed) -> str:
+    node = item.node
+    x, y = item.depth * _DG_STEP_X, item.row * _DG_STEP_Y
+    tags = _wrap(_flat(" · ".join(node.tags)), 1) if node.tags else []
+    rows = [(line, "") for line in _wrap(_flat(node.label), WRAP_LINES - len(tags))]
+    rows += [(tag, ' class="dg-g"') for tag in tags]
+    top = y + _DG_HEIGHT / 2 - (len(rows) - 1) * _DG_LINE / 2
+    texts = _text_lines(rows, x + 8, top, _DG_LINE)
+    desc = f"<desc>{esc(' · '.join(node.tags))}</desc>" if node.tags else ""
+    radius = _DG_HEIGHT // 2 if node.kind in ("or", "and") else 6
+    return (
+        f'<g class="dg-n k-{node.kind}" data-node="{esc(node.id)}">'
+        f"<title>{esc(_flat(node.label))}</title>{desc}"
+        f'<rect class="dg-b" x="{x}" y="{_num(y)}" width="{_DG_WIDTH}" '
+        f'height="{_DG_HEIGHT}" rx="{radius}"/>{texts}</g>'
+    )
+
+
+def _diagram_edge(parent: _Placed, child: _Placed) -> str:
+    """Draw an elbow from the parent's right edge to the child's left edge."""
+
+    x = parent.depth * _DG_STEP_X + _DG_WIDTH
+    start = _num(parent.row * _DG_STEP_Y + _DG_HEIGHT / 2)
+    end = _num(child.row * _DG_STEP_Y + _DG_HEIGHT / 2)
+    elbow = x + (_DG_STEP_X - _DG_WIDTH) // 2
+    return (
+        f'<path class="dg-e" d="M{x},{start}H{elbow}V{end}'
+        f'H{child.depth * _DG_STEP_X}"/>'
+    )
+
+
+def _mermaid_label(text: str) -> str:
+    return _MERMAID_SPECIAL.sub(lambda m: _MERMAID_CODES[m.group()], _flat(text))
+
+
+def _mermaid(placed: Sequence[_Placed]) -> str:
+    lines = ["flowchart LR"]
+    for index, item in enumerate(placed):
+        opening, closing = _MERMAID_SHAPES.get(item.node.kind, ("[", "]"))
+        label = _mermaid_label(item.node.label)
+        lines.append(f'    n{index}{opening}"{label}"{closing}')
+    lines.extend(
+        f"    n{item.parent} --> n{index}"
+        for index, item in enumerate(placed)
+        if item.parent is not None
+    )
+    return "\n".join(lines) + "\n"
+
+
+def mermaid_text(root: DiagramNode) -> str:
+    """Return the Mermaid flowchart of the tree under *root*.
+
+    Node ``n<i>`` is the i-th node in pre-order, shaped by its kind; each
+    parent and child pair is one edge. Labels use Mermaid entity codes for
+    the characters Mermaid would read as syntax.
+    """
+
+    return _mermaid(_place(root))
+
+
+def and_or_diagram(
+    root: DiagramNode,
+    *,
+    id: str,
+    label: str,
+    embedded: Mapping[str, Any] | None = None,
+    embedded_name: str | None = None,
+) -> Markup:
+    """Render an and-or tree as offline SVG, left to right, with a live view.
+
+    The SVG is the complete diagram. Its Mermaid source sits beside it, and a
+    button loads the pinned library from its CDN, with Subresource Integrity,
+    only when the reader clicks it. *embedded* adds a control that saves that
+    data as *embedded_name* (by default ``<id>.json``).
+    """
+
+    _check_id(id, "diagram id")
+    placed = _place(root)
+    edges = "".join(
+        _diagram_edge(placed[item.parent], item)
+        for item in placed
+        if item.parent is not None
+    )
+    boxes = "".join(_diagram_box(item) for item in placed)
+    width = max(item.depth for item in placed) * _DG_STEP_X + _DG_WIDTH + 2
+    height = _num(max(item.row for item in placed) * _DG_STEP_Y + _DG_HEIGHT + 2)
+    save = (
+        ""
+        if embedded is None
+        else save_embedded(
+            embedded_name or f"{id}.json", embedded, label="Save Attack Flow file"
+        )
+    )
+    return Markup(
+        f'<figure class="dg" id="{id}"><div class="dg-view"><svg class="dg-svg" '
+        f'role="img" aria-label="{esc(label)}" width="{width}" height="{height}" '
+        f'viewBox="-1 -1 {width} {height}">{edges}{boxes}</svg></div>'
+        f'<pre class="dg-src" hidden>{esc(_mermaid(placed))}</pre>'
+        f'<button type="button" data-dg-load data-lib="{DIAGRAM_LIBRARY_URL}" '
+        f'data-sri="{DIAGRAM_LIBRARY_SRI}">{DIAGRAM_LOAD_LABEL}</button>'
+        f'<div class="dg-live"></div><p class="dg-msg" role="status"></p>{save}'
+        "</figure>"
+    )
+
+
+def save_embedded(name: str, data: Mapping[str, Any] | str, *, label: str) -> Markup:
+    """Embed *data* in the page with a button that saves it as the file *name*.
+
+    *data* is a mapping or JSON text. It sits in a ``<script
+    type="application/json">`` that no value can close, and the button needs
+    no network.
+    """
+
+    if not isinstance(name, str) or not name.strip() or re.search(r"[/\\]", name):
+        raise KitError(f"save_embedded needs a plain file name, not {name!r}")
+    try:
+        if isinstance(data, str):
+            json.loads(data)
+            text = data
+        else:
+            text = json.dumps(
+                data, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+            )
+    except (TypeError, ValueError) as error:
+        raise KitError(f"embedded data must be JSON: {error}") from None
+    ident = "emb-" + re.sub(r"[^A-Za-z0-9_.:-]+", "-", name)
+    # JSON holds "<" only inside strings, where "\/" and "!" are escapes:
+    # the text stays the same JSON and can neither end nor escape the script.
+    safe = text.replace("</", "<\\/").replace("<!--", "<\\u0021--")
+    return Markup(
+        f'<script type="application/json" id="{ident}">{safe}</script>'
+        f'<button type="button" data-save="{ident}" data-filename="{esc(name)}">'
+        f"{esc(label)}</button>"
+    )
+
+
 def _gherkin_tokens(text: str) -> str:
     out = []
     for index, part in enumerate(_GHERKIN_TOKEN.split(text)):
@@ -1276,6 +1714,99 @@ def _catalog_structures() -> Markup:
     return Markup(f'{lineage}{grid}<div id="catalog-tree">{branches}</div>')
 
 
+def _catalog_map() -> Markup:
+    columns = [
+        MapColumn(
+            "risks",
+            "Policy risks",
+            [
+                MapNode("risk-a", "Refunds without checks"),
+                MapNode("risk-b", "Private data shared"),
+            ],
+        ),
+        MapColumn(
+            "harms",
+            "Harms",
+            [
+                MapNode("harm-a", "Customer loses money", "#catalog-hazard", "fail"),
+                MapNode("harm-b", "Customer data exposed", tone="warn"),
+                MapNode(
+                    "harm-c",
+                    "A harm whose long label wraps onto a second and a third line",
+                    note="no tests",
+                ),
+            ],
+        ),
+        MapColumn(
+            "tests",
+            "Tests",
+            [
+                MapNode("tests-a", "3 written · 2 runnable", tone="pass"),
+                MapNode("tests-b", "1 written · 0 runnable", tone="skip"),
+            ],
+        ),
+    ]
+    links = [
+        MapLink("risk-a", "harm-a", "fail"),
+        MapLink("risk-b", "harm-b"),
+        MapLink("risk-b", "harm-c"),
+        MapLink("harm-a", "tests-a", "pass"),
+        MapLink("harm-b", "tests-b"),
+    ]
+    return flow_map(columns, links, id="catalog-map", label="A three-column map")
+
+
+def _catalog_diagrams() -> Markup:
+    social = DiagramNode(
+        "scn-1",
+        "SCN-001 social pressure",
+        "action",
+        tags=["validated"],
+        children=[
+            DiagramNode("cond-1", "The assistant can issue refunds", "condition"),
+            DiagramNode(
+                "and-1",
+                "AND",
+                "and",
+                children=[
+                    DiagramNode("step-1", 'Ask for an "urgent" refund #1', "step"),
+                    DiagramNode("step-2", "Cite a policy that does not exist", "step"),
+                    DiagramNode("step-3", "Refund issued without proof", "unsafe"),
+                ],
+            ),
+        ],
+    )
+    misuse = DiagramNode(
+        "scn-2",
+        "SCN-002 tool misuse",
+        "action",
+        children=[
+            DiagramNode(
+                "and-2",
+                "AND",
+                "and",
+                children=[
+                    DiagramNode("step-4", "Look up another account", "step"),
+                    DiagramNode("step-5", "Order shown to the wrong person", "unsafe"),
+                ],
+            )
+        ],
+    )
+    hazard = DiagramNode(
+        "hazard",
+        "Refund without checks",
+        "root",
+        children=[DiagramNode("or", "OR", "or", children=[social, misuse])],
+    )
+    tree_svg = and_or_diagram(hazard, id="catalog-hazard", label="An and-or tree")
+    save = save_embedded(
+        "catalog-example.json",
+        {"example": "synthetic", "items": [1, 2, 3]},
+        label="Save the example file",
+    )
+    return Markup(f"{_catalog_map()}{tree_svg}<p>{save}</p>")
+
+
 def _catalog_code() -> Markup:
     feature = (
         "# A synthetic feature\nFeature: Refunds\n  Scenario: SCN-001 refund\n"
@@ -1361,6 +1892,12 @@ def render_catalog() -> Markup:
             "Structures",
             "How do lineage, fields, and trees look?",
             _catalog_structures(),
+        ),
+        (
+            "catalog-diagrams",
+            "Diagrams",
+            "How do maps, and-or trees, and saved files look?",
+            _catalog_diagrams(),
         ),
         ("catalog-code", "Code", "How does a feature file look?", _catalog_code()),
         (
