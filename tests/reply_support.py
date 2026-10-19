@@ -14,7 +14,7 @@ def reply_view() -> InputView:
     source_bytes = b"synthetic-reply-evidence-contract-v1"
     digest = hashlib.sha256(source_bytes).hexdigest()
     return InputView(
-        kind=InputKind.SCENARIO_HANDOFF_V4,
+        kind=InputKind.SCENARIO_HANDOFF_V5,
         scenario_id="synthetic-reply-evidence-contract",
         payload={
             "semantic_failure_criterion": "The reply asserts an unsupported supplied fact.",
@@ -22,6 +22,7 @@ def reply_view() -> InputView:
             "sourced_facts": [],
             "documented_operations": [],
             "attack_shape": deepcopy(DIRECT_SINGLE_SHAPE),
+            "attack_path": {"format": "attack-path-v1"},
         },
         source=SourceSnapshot("synthetic.json", digest, len(source_bytes)),
         source_bytes=source_bytes,

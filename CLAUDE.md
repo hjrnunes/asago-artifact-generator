@@ -14,11 +14,11 @@ contracts and historical experiment details belong in their own documents.
 
 ## Ownership and workflow
 
-- The producer supplies scenario meaning: narrative, attack tree, Gherkin,
+- The producer supplies scenario meaning: narrative, attack path, Gherkin,
   failure criterion, safe alternative, and metadata.
 - This consumer designs concrete stimuli, setup declarations, runtime bindings,
   and semantic judge specifications using supplied facts and documented
-  capabilities. Packages (`artifact-package-v4`, from a `scenario-handoff-v4` or `scenario-handoff-v5`
+  capabilities. Packages (`artifact-package-v4`, from a `scenario-handoff-v5`
   input) contain no detector code.
 - `generate` is target-free. The plan owns the experiment; artifact authoring turns
   the accepted plan into a frozen package. Code checks run before the applicable

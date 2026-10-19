@@ -1,4 +1,4 @@
-"""Validation of a scenario-handoff-v4 ``attack_shape``.
+"""Validation of a scenario-handoff ``attack_shape``.
 
 The vendored schema states the closed vocabularies, the identifier pattern and
 the length pairing. It cannot state the cross-field rules (positions, speakers

@@ -18,7 +18,7 @@ from asago_artifact_generator.package_io import (
 )
 
 from .support import ScriptedAuthoringTransport, stage_local_orchestrator, world
-from .turn_support import sequential_metadata, sequential_plan, sequential_runtime, v4_view
+from .turn_support import direct_view, sequential_metadata, sequential_plan, sequential_runtime
 
 _SCHEMAS = Path(__file__).resolve().parents[1] / "contracts" / "artifact-package"
 
@@ -46,13 +46,13 @@ def _stimulus(tmp_path: Path) -> dict[str, Any]:
 
 
 def test_a_three_turn_v4_handoff_becomes_a_sequential_v4_package(tmp_path: Path) -> None:
-    result, transport = _author(tmp_path, v4_view(tmp_path, 3), 3)
+    result, transport = _author(tmp_path, direct_view(tmp_path, 3), 3)
 
     assert result.status == "accepted", result.findings
     assert [request["stage"] for request in transport.requests] == ["call1", "call2"]
     manifest = _manifest(tmp_path)
     assert manifest["schema_version"] == "artifact-package-v4"
-    assert manifest["input_kind"] == "scenario-handoff-v4"
+    assert manifest["input_kind"] == "scenario-handoff-v5"
     stimulus = _stimulus(tmp_path)
     assert stimulus["mode"] == "sequential"
     assert stimulus["turn_count"] == 3
@@ -70,7 +70,7 @@ def test_a_three_turn_v4_handoff_becomes_a_sequential_v4_package(tmp_path: Path)
 def test_a_one_turn_v4_handoff_costs_the_same_requests_and_states_a_single_turn(
     tmp_path: Path,
 ) -> None:
-    result, transport = _author(tmp_path, v4_view(tmp_path, 1), 1)
+    result, transport = _author(tmp_path, direct_view(tmp_path, 1), 1)
 
     assert result.status == "accepted", result.findings
     assert [request["stage"] for request in transport.requests] == ["call1", "call2"]
@@ -93,7 +93,7 @@ def _build(input_kind: str, **changes: Any):
 
 
 def test_a_v4_input_builds_a_v4_package() -> None:
-    assert _build("scenario-handoff-v4").manifest.schema_version == "artifact-package-v4"
+    assert _build("scenario-handoff-v5").manifest.schema_version == "artifact-package-v4"
 
 
 def test_an_unknown_input_kind_is_refused() -> None:
@@ -102,7 +102,7 @@ def test_an_unknown_input_kind_is_refused() -> None:
 
 
 def test_a_v4_package_round_trips_and_a_version_swap_is_caught(tmp_path: Path) -> None:
-    package = _build("scenario-handoff-v4")
+    package = _build("scenario-handoff-v5")
     destination = write_package(tmp_path / "out", package)
 
     assert load_package(destination).manifest.to_dict() == package.manifest.to_dict()

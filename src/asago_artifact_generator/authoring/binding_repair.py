@@ -21,7 +21,7 @@ from ..bindings import (
 from ..input_adapter import InputView
 from .checks import _binding_selector_type, _binding_source_schema, _binding_types_compatible
 from .core import Call1FramingError, Finding, FindingTarget
-from .prompt_context import _explained_operations, _plan_evidence_references, uses_attack_path
+from .prompt_context import _explained_operations, _plan_evidence_references
 from .response_decode import _decode_stage_response
 from .templates import prose
 
@@ -87,7 +87,6 @@ class CorrectionRepairInputs:
     runtime_contract: dict[str, Any]
     evidence_references: dict[str, Any]
     observation: dict[str, Any]
-    attack_path: bool = False
 
 
 def correction_repair_inputs(
@@ -116,7 +115,6 @@ def correction_repair_inputs(
         runtime_contract=deepcopy(runtime_contract),
         evidence_references=_plan_evidence_references(view, inventory),
         observation=deepcopy(runtime_contract.get("observation", {})),
-        attack_path=uses_attack_path(view),
     )
 
 
@@ -865,13 +863,6 @@ _REFERENCE_VALUE_KIND_REPAIRS = {
     "observation_scope": prose("binding_repair/reference_value_kinds/observation_scope"),
     "unlisted": prose("binding_repair/reference_value_kinds/unlisted"),
 }
-_ATTACK_PATH_REFERENCE_REPAIR_DESCRIPTION = prose(
-    "binding_repair/reference_repair_description_attack_path"
-)
-_ATTACK_PATH_REFERENCE_VALUE_KIND_REPAIRS = {
-    **_REFERENCE_VALUE_KIND_REPAIRS,
-    "provenance_id": prose("binding_repair/reference_value_kinds/provenance_id_attack_path"),
-}
 
 
 def _listed_provenance_ids(references: dict[str, Any]) -> set[str]:
@@ -928,7 +919,6 @@ def _reference_repair_option(
     provenance_ids: set[str],
     scopes: set[str],
     field_rules: Any,
-    repairs: dict[str, str] = _REFERENCE_VALUE_KIND_REPAIRS,
 ) -> dict[str, Any] | None:
     """Explain one unknown_reference finding, or return None for any other finding."""
 
@@ -946,7 +936,7 @@ def _reference_repair_option(
         "rejected_value": value,
         "rejected_value_kind": kind,
         "field_rule": field_rules.get(field),
-        "repair": repairs[kind],
+        "repair": _REFERENCE_VALUE_KIND_REPAIRS[kind],
     }
 
 
@@ -960,24 +950,15 @@ def _reference_repair_options_for_correction(
     provenance_ids = _listed_provenance_ids(references)
     scopes = _observation_scope_names(inputs.observation)
     field_rules = references.get("field_rules", {})
-    repairs = (
-        _ATTACK_PATH_REFERENCE_VALUE_KIND_REPAIRS
-        if inputs.attack_path
-        else _REFERENCE_VALUE_KIND_REPAIRS
-    )
     options: list[dict[str, Any]] = []
     for finding in findings:
-        option = _reference_repair_option(finding, provenance_ids, scopes, field_rules, repairs)
+        option = _reference_repair_option(finding, provenance_ids, scopes, field_rules)
         if option is not None:
             options.append(option)
     if not options:
         return None
     return {
-        "description": (
-            _ATTACK_PATH_REFERENCE_REPAIR_DESCRIPTION
-            if inputs.attack_path
-            else _REFERENCE_REPAIR_DESCRIPTION
-        ),
+        "description": _REFERENCE_REPAIR_DESCRIPTION,
         "valid_provenance_ids": sorted(provenance_ids),
         "options": options,
     }

@@ -16,8 +16,8 @@
       "max_retries": 0
     },
     "creation_model": "model",
-    "input_kind": "scenario-handoff-v4",
-    "manifest_digest": "fc7731765de295c60b3923d6f4769359462bb3403d7fd3d3dc226d6265416931",
+    "input_kind": "scenario-handoff-v5",
+    "manifest_digest": "9f7e84d8bf4f9dcb79658cb89b57034f685bf82ef44cd40b1f1a2e0482f52d59",
     "members": [
       {
         "length": 3,

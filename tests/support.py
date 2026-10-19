@@ -102,11 +102,9 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _ROOT = Path(__file__).resolve().parents[1]
 HANDOFFS = FIXTURES / "handoffs"
 HANDOFF = HANDOFFS / "refund-bound.json"
-# A klarna SCN-004 handoff whose attack tree is an and-or-tree-v1 outline.
-AND_OR_HANDOFF = HANDOFFS / "klarna-and-or-SCN-004.yaml"
 # A klarna SCN-027 v5 handoff whose attack_path replaces the attack tree.
 ATTACK_PATH_HANDOFF = HANDOFFS / "klarna-attack-path-SCN-027.yaml"
-# Both klarna handoffs plant an order item through lookup_order, which no slot of the ehr
+# The klarna handoffs plant an order item through lookup_order, which no slot of the ehr
 # world carries. These runtime contract keys add the planted-item delivery and the order-item
 # slot that the klarna target's runtime contract states.
 KLARNA_INDIRECT_RUNTIME: dict[str, Any] = {
@@ -124,7 +122,7 @@ KLARNA_INDIRECT_RUNTIME: dict[str, Any] = {
         }
     ],
 }
-KIT_VALID = _ROOT / "contracts/scenario-handoff/handoff-v4/valid"
+KIT_VALID = _ROOT / "contracts/scenario-handoff/handoff-v5/valid"
 NO_CONDITION_HANDOFF = KIT_VALID / "adversarial-condition-omitted.json"
 OBSERVED_HANDOFF = KIT_VALID / "adversarial-observed-record.json"
 NOT_CALLED_HANDOFF = KIT_VALID / "functional-not-called.json"
@@ -227,7 +225,7 @@ def signed_omission_view(tmp_path: Path):
     ]
     payload.pop("condition_check", None)
     payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / "handoff.yaml"
     path.write_text(yaml.safe_dump(payload), encoding="utf-8")
     return load_input(path)
@@ -469,7 +467,7 @@ def build_neutral_artifact_package(destination: str | Path) -> Path:
     package = build_package(
         package_id="offline-neutral-example-v2",
         scenario_id="neutral-example",
-        input_kind="scenario-handoff-v4",
+        input_kind="scenario-handoff-v5",
         source_digests={"neutral": _sha256(b"neutral-example-v2")},
         members=members,
         authoring={

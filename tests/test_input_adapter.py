@@ -26,7 +26,7 @@ def test_handoff_view_preserves_source_hash_and_authoritative_content() -> None:
 
     view = load_input(CONTRACT_HANDOFF)
 
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V4
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V5
     assert view.source_sha256 == hashlib.sha256(source).hexdigest()
     assert view.narrative == yaml.safe_load(source)["narrative"]
     assert view.gherkin["scenario"] == "Refund command exceeds the remaining balance of the order"
@@ -47,8 +47,7 @@ def test_non_handoff_source_is_rejected(tmp_path: Path, name: str, text: str) ->
         load_input(source_path)
 
     assert str(raised.value) == (
-        "authoring source must be a producer scenario-handoff-v4 or scenario-handoff-v5 "
-        "document; found no schema_version"
+        "authoring source must be a producer scenario-handoff-v5 document; found no schema_version"
     )
 
 
@@ -108,7 +107,7 @@ def test_observation_metadata_reaches_authoring_view(tmp_path: Path) -> None:
     }
     from asago_artifact_generator.input_adapter import _framed_digest
 
-    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload_without_digest)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload_without_digest)
     source_path = tmp_path / "handoff.yaml"
     source_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
 
@@ -152,7 +151,7 @@ def test_analytical_observation_criterion_may_omit_optional_fields(
     }
     from asago_artifact_generator.input_adapter import _framed_digest
 
-    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload_without_digest)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload_without_digest)
     source_path = tmp_path / "handoff.yaml"
     source_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
 
@@ -427,7 +426,7 @@ def test_the_full_handoff_used_by_the_hand_rule_table_is_valid(tmp_path: Path) -
     payload.pop("content_digest")
     from asago_artifact_generator.input_adapter import _framed_digest
 
-    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     source_path = tmp_path / "handoff.json"
     source_path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -486,7 +485,8 @@ def test_unbound_view_has_no_tool_call_condition() -> None:
 
 
 @pytest.mark.parametrize(
-    "version", ["scenario-handoff-v1", "scenario-handoff-v2", "scenario-handoff-v3"]
+    "version",
+    ["scenario-handoff-v1", "scenario-handoff-v2", "scenario-handoff-v3", "scenario-handoff-v4"],
 )
 def test_retired_handoff_versions_are_rejected_for_authoring(tmp_path: Path, version: str) -> None:
     payload = json.loads(CONTRACT_HANDOFF.read_text(encoding="utf-8"))
@@ -497,8 +497,7 @@ def test_retired_handoff_versions_are_rejected_for_authoring(tmp_path: Path, ver
         load_input(source_path)
 
     assert str(raised.value) == (
-        "authoring source must be a producer scenario-handoff-v4 or scenario-handoff-v5 "
-        f"document; found {version}"
+        f"authoring source must be a producer scenario-handoff-v5 document; found {version}"
     )
 
 
@@ -630,9 +629,9 @@ def test_unreadable_vendored_handoff_schema_is_a_source_error(
 
     monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", tmp_path)
     if schema_text is not None:
-        schema = tmp_path / "handoff-v4" / "schema.json"
+        schema = tmp_path / "handoff-v5" / "schema.json"
         schema.parent.mkdir()
         schema.write_text(schema_text, encoding="utf-8")
 
-    with pytest.raises(InputSourceError, match="^cannot read vendored handoff-v4 schema: "):
+    with pytest.raises(InputSourceError, match="^cannot read vendored handoff-v5 schema: "):
         input_adapter._handoff_schema()

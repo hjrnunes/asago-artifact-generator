@@ -184,7 +184,7 @@ def _signed_handoff(tmp_path: Path, comparison: dict) -> Path:
     payload = json.loads(_NOT_CALLED.read_text(encoding="utf-8"))
     payload["tool_call_condition"]["comparisons"][0] = comparison
     payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / "handoff.yaml"
     path.write_text(yaml.safe_dump(payload), encoding="utf-8")
     return path

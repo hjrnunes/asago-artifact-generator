@@ -201,7 +201,7 @@ def test_strict_package_and_response_policies_still_reject_session_path() -> Non
         build_package(
             package_id="strict-policy",
             scenario_id="neutral",
-            input_kind="scenario-handoff-v4",
+            input_kind="scenario-handoff-v5",
             source_digests={"input": "a" * 64},
             members={"explanation.json": b"{}\n"},
             authoring=value,

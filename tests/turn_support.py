@@ -37,15 +37,15 @@ def sequential_shape(turns: int) -> dict[str, Any]:
     }
 
 
-def v4_view(tmp_path: Path, turns: int) -> InputView:
-    """Return the refund handoff re-issued as scenario-handoff-v4 with a direct shape."""
+def direct_view(tmp_path: Path, turns: int) -> InputView:
+    """Return the refund handoff re-issued as scenario-handoff-v5 with a direct shape."""
 
     payload = json.loads(HANDOFF.read_text(encoding="utf-8"))
     payload.pop("content_digest")
-    payload["schema_version"] = "scenario-handoff-v4"
+    payload["schema_version"] = "scenario-handoff-v5"
     payload["attack_shape"] = sequential_shape(turns)
-    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload)
-    path = tmp_path / f"refund-v4-{turns}.json"
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
+    path = tmp_path / f"refund-direct-{turns}.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return load_input(path)
 
@@ -129,9 +129,9 @@ def indirect_shape(turns: int = 2, record_ref: str | None = "ORD-101") -> dict[s
 def indirect_view(tmp_path: Path, turns: int = 2, record_ref: str | None = "ORD-101") -> InputView:
     payload = json.loads(HANDOFF.read_text(encoding="utf-8"))
     payload.pop("content_digest")
-    payload["schema_version"] = "scenario-handoff-v4"
+    payload["schema_version"] = "scenario-handoff-v5"
     payload["attack_shape"] = indirect_shape(turns, record_ref)
-    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / f"refund-indirect-{turns}.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return load_input(path)

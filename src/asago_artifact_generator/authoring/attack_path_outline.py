@@ -1,13 +1,8 @@
-"""Render a producer attack tree or attack path as an outline.
-
-``and_or_outline`` renders an ``and-or-tree-v1`` tree. The outline keeps the tree's
-structure (operators, child order, node IDs, source IDs, techniques, assets, beliefs,
-violated rules, and safe outcomes) as plain lines, so the plan author reads it as a tree.
-Reference nodes name other scenarios that reach the same hazard; they collapse into one
-line per parent and contribute no provenance IDs.
+"""Render a producer attack path as an outline.
 
 ``attack_path_outline`` renders an ``attack-path-v1`` path as the attacker lines followed
-by numbered parts. Its node lines and detail lines are the tree's.
+by numbered parts. Each node is one line (node ID, source IDs, category and details) with its
+remaining fields as indented detail lines.
 """
 
 from __future__ import annotations
@@ -16,7 +11,6 @@ import json
 from collections.abc import Iterator
 from typing import Any
 
-AND_OR_TREE_FORMAT = "and-or-tree-v1"
 ATTACK_PATH_FORMAT = "attack-path-v1"
 
 _INDENT = "  "
@@ -40,13 +34,9 @@ _HEAD_FIELDS = frozenset(
         "asset",
     }
 )
-# The whole tree is a proposed hypothesis, and the note says so once.
+# The whole path is a proposed hypothesis, and the note says so once.
 _DEFAULT_AUTHORITY = "proposed_hypothesis"
 _SOURCE_LIST_NAMES = {"hazards": "hazard", "losses": "loss", "violates": "violates"}
-
-
-def is_and_or_tree(tree: Any) -> bool:
-    return isinstance(tree, dict) and tree.get("format") == AND_OR_TREE_FORMAT
 
 
 def _text(value: Any) -> str:
@@ -66,10 +56,6 @@ def _source_ids(node: dict[str, Any]) -> list[str]:
         if _nonblank(value) and value not in ids:
             ids.append(value)
     return ids
-
-
-def _is_reference(node: Any) -> bool:
-    return isinstance(node, dict) and node.get("type") == "reference"
 
 
 def _head(node: dict[str, Any]) -> str:
@@ -160,62 +146,6 @@ def _detail_lines(node: dict[str, Any]) -> list[str]:
         else:
             lines.append(f"{key.replace('_', ' ')}: {_text(value)}")
     return lines
-
-
-def _reference_line(references: list[dict[str, Any]]) -> str:
-    scenarios = [
-        ref["scenario_id"] if _nonblank(ref.get("scenario_id")) else "an unnamed scenario"
-        for ref in references
-    ]
-    return "- other scenarios that reach the same hazard, not part of this test: " + ", ".join(
-        scenarios
-    )
-
-
-def and_or_outline(root: Any) -> list[str]:
-    """Return the indented outline of an and-or tree rooted at ``root``."""
-
-    lines: list[str] = []
-
-    def render(node: dict[str, Any], depth: int, marker: str) -> None:
-        lines.append(f"{_INDENT * depth}{marker}{_head(node)}")
-        lines.extend(f"{_INDENT * (depth + 1)}{line}" for line in _detail_lines(node))
-        children = node.get("children")
-        if not isinstance(children, list):
-            return
-        nodes = [child for child in children if isinstance(child, dict)]
-        references = [child for child in nodes if _is_reference(child)]
-        ordered = node.get("ordered") is True
-        position = 0
-        for child in nodes:
-            if _is_reference(child):
-                if child is references[0]:
-                    lines.append(f"{_INDENT * (depth + 1)}{_reference_line(references)}")
-                continue
-            position += 1
-            render(child, depth + 1, f"{position}. " if ordered else "- ")
-
-    if isinstance(root, dict):
-        render(root, 0, "")
-    return lines
-
-
-def and_or_provenance(root: Any) -> Iterator[tuple[str, str | None]]:
-    """Yield ``(identifier, node_id)`` for every citable ID of this scenario's tree.
-
-    Reference nodes describe other scenarios, so neither their IDs nor anything below them
-    is yielded.
-    """
-
-    def walk(node: Any) -> Iterator[tuple[str, str | None]]:
-        if not isinstance(node, dict) or _is_reference(node):
-            return
-        yield from _node_identifiers(node)
-        children = node.get("children")
-        for child in children if isinstance(children, list) else []:
-            yield from walk(child)
-
-    yield from walk(root)
 
 
 def _node_identifiers(node: dict[str, Any]) -> Iterator[tuple[str, str | None]]:

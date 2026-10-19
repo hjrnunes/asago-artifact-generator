@@ -16,7 +16,6 @@ import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -35,13 +34,12 @@ from asago_artifact_generator.authoring.planted_item import (
 )
 from asago_artifact_generator.authoring.prompt_context import (
     _neutral_status_binding_example,
-    _scenario_design,
 )
 from asago_artifact_generator.authoring.sequential_turns import multi_turn_block
 from asago_artifact_generator.input_adapter import InputView, _framed_digest, load_input
 
 from .support import HANDOFF, world
-from .turn_support import indirect_runtime, indirect_shape, v4_view
+from .turn_support import direct_view, indirect_runtime, indirect_shape
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden" / "prompt_branches"
 _REFRESH = "run `uv run python -m tests.test_prompt_branch_goldens` after a deliberate change"
@@ -60,7 +58,7 @@ def _indirect_view(
 
     payload = json.loads(HANDOFF.read_text(encoding="utf-8"))
     payload.pop("content_digest")
-    payload["schema_version"] = "scenario-handoff-v4"
+    payload["schema_version"] = "scenario-handoff-v5"
     shape = indirect_shape(4, record_ref)
     purposes = ("establish_context", "assert_authority", "ask_to_read_item", "apply_pressure")
     shape["turn_plan"] = [
@@ -69,7 +67,7 @@ def _indirect_view(
     ]
     shape["indirect"]["party_relation"]["controller"] = controller
     payload["attack_shape"] = shape
-    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = directory / f"indirect-{controller}-{record_ref}.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return load_input(path)
@@ -118,10 +116,6 @@ def _planted_review(directory: Path) -> str:
     return _section(section)
 
 
-def _scenario_design_unavailable(_: Path) -> str:
-    return _section(_scenario_design(SimpleNamespace(payload={})))
-
-
 def _generic_binding_example(_: Path) -> str:
     refund = world("refund")
     inventory = {**refund["inventory"], "facts": []}
@@ -130,7 +124,7 @@ def _generic_binding_example(_: Path) -> str:
 
 
 def _four_turns(directory: Path) -> str:
-    return _section(multi_turn_block(v4_view(directory, 4)))
+    return _section(multi_turn_block(direct_view(directory, 4)))
 
 
 def _reference_repairs(_: Path) -> str:
@@ -189,7 +183,6 @@ CASES: dict[str, Callable[[Path], str]] = {
     "planted_review_counterparty": _planted_review,
     "planted_review_record_fixed_by_plan": _planted_review_record_fixed_by_plan,
     "reference_repair_kinds": _reference_repairs,
-    "scenario_design_unavailable": _scenario_design_unavailable,
 }
 
 

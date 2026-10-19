@@ -1,5 +1,5 @@
 {
-  "description": "A v4 package with a seed member, from a v4 handoff.",
+  "description": "A v4 package with a seed member, from a v5 handoff.",
   "files": {
     "bindings.json": "[]\n",
     "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",
@@ -18,8 +18,8 @@
     "creation_model": {
       "model": "configured-private-authoring"
     },
-    "input_kind": "scenario-handoff-v4",
-    "manifest_digest": "c13932471b79750d15fbadb7f50ce357b920a7e54e998208d6b1865dd14c63e9",
+    "input_kind": "scenario-handoff-v5",
+    "manifest_digest": "30d0c9f59c1a191abae2049709add5f9496afecdbdc941d76fa08adfe6fc1cd0",
     "members": [
       {
         "length": 3,

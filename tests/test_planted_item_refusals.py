@@ -16,7 +16,7 @@ from asago_artifact_generator.input_adapter import load_input
 from .support import ScriptedAuthoringTransport, load_failure_evidence, stage_local_orchestrator
 from .turn_support import LISTING_SLOT
 
-_KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v4"
+_KIT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff" / "handoff-v5"
 LISTING = "adversarial-indirect-listing.json"
 POLICY = "adversarial-indirect-policy-operator.json"
 

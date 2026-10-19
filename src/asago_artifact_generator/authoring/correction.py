@@ -27,7 +27,6 @@ from .prompt_context import (
     _render_sections,
     _scenario_design_prompt_view,
     _semantic_judge_fact_ref_guidance,
-    context_uses_attack_path,
 )
 from .prompt_packets import _artifact_response_contract_for_prompt
 from .response_decode import _decode_stage_response, _readable_response
@@ -412,7 +411,6 @@ def build_correction_context(
                     turns_in_context(original_context),
                     delivery_in_context(original_context),
                     records_in_context(original_context),
-                    attack_path=context_uses_attack_path(original_context),
                 ),
             }
         )

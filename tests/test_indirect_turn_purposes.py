@@ -49,9 +49,9 @@ def _direct_shape_with(purpose: str) -> dict[str, Any]:
 def _view(tmp_path: Path, purposes: list[str]) -> InputView:
     payload = json.loads(_REFUND_BOUND.read_text(encoding="utf-8"))
     payload.pop("content_digest")
-    payload["schema_version"] = "scenario-handoff-v4"
+    payload["schema_version"] = "scenario-handoff-v5"
     payload["attack_shape"] = _indirect_shape_with(purposes)
-    payload["content_digest"] = _framed_digest("scenario-handoff-v4", payload)
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / "indirect.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return load_input(path)

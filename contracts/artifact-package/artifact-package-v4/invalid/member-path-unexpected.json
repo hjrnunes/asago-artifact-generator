@@ -18,8 +18,8 @@
     "creation_model": {
       "model": "configured-private-authoring"
     },
-    "input_kind": "scenario-handoff-v4",
-    "manifest_digest": "d76bc4873bf8d96f6f8d949e764e7cc317af9a41ac1a654665d1a51c4a346907",
+    "input_kind": "scenario-handoff-v5",
+    "manifest_digest": "a759ff24f03912f6f277386030cbc7351c51b6de28e33d37948c8a5cb6c66511",
     "members": [
       {
         "length": 3,

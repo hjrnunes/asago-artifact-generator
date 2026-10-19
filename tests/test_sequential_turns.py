@@ -52,6 +52,7 @@ from .turn_support import (
     EARLIER,
     PLANTED_ITEM,
     PURPOSES,
+    direct_view,
     indirect_inventory,
     indirect_metadata,
     indirect_plan,
@@ -60,7 +61,6 @@ from .turn_support import (
     sequential_metadata,
     sequential_plan,
     sequential_runtime,
-    v4_view,
 )
 
 # --- one-turn prompts -------------------------------------------------------------
@@ -92,7 +92,7 @@ def test_every_packet_of_a_multi_turn_handoff_carries_the_rule_block(
     tmp_path: Path, turns: int
 ) -> None:
     refund = world("refund")
-    view = v4_view(tmp_path, turns)
+    view = direct_view(tmp_path, turns)
     plan = sequential_plan(refund["plan"], turns)
     packets = _packets(view, refund, plan, sequential_metadata(refund["metadata"], turns))
 
@@ -104,7 +104,7 @@ def test_every_packet_of_a_multi_turn_handoff_carries_the_rule_block(
 def test_the_rule_block_explains_each_new_field_and_gives_one_example_of_it(
     tmp_path: Path,
 ) -> None:
-    block = multi_turn_block(v4_view(tmp_path, 3))
+    block = multi_turn_block(direct_view(tmp_path, 3))
 
     assert block is not None
     assert block["turn_count"] == 3
@@ -130,14 +130,16 @@ def test_the_rule_block_explains_each_new_field_and_gives_one_example_of_it(
 
 
 def test_the_rule_block_is_absent_for_one_turn(tmp_path: Path) -> None:
-    assert multi_turn_block(v4_view(tmp_path, 1)) is None
+    assert multi_turn_block(direct_view(tmp_path, 1)) is None
     assert multi_turn_block(world("refund")["view"]) is None
 
 
 def test_a_multi_turn_plan_contract_names_the_sequential_delivery(tmp_path: Path) -> None:
     refund = world("refund")
     packet = build_call1_packet_v2(
-        v4_view(tmp_path, 3), refund["inventory"], sequential_runtime(refund["runtime_contract"])
+        direct_view(tmp_path, 3),
+        refund["inventory"],
+        sequential_runtime(refund["runtime_contract"]),
     )
 
     stimulus = rendered_response_contract(packet)["schema"]["properties"]["stimulus_approach"]
@@ -151,7 +153,7 @@ def test_a_plan_with_the_right_number_of_turn_intents_passes(tmp_path: Path) -> 
     refund = world("refund")
     plan = sequential_plan(refund["plan"], 3)
 
-    assert sequential_plan_findings(v4_view(tmp_path, 3), plan) == []
+    assert sequential_plan_findings(direct_view(tmp_path, 3), plan) == []
 
 
 @pytest.mark.parametrize("intents", [0, 1, 3])  # 2 is the right number for 3 turns
@@ -162,7 +164,7 @@ def test_a_plan_with_the_wrong_number_of_turn_intents_is_found(
     plan = sequential_plan(refund["plan"], 3)
     plan["stimulus_approach"]["history"] = (EARLIER + ["Ask once more."])[:intents]
 
-    [finding] = sequential_plan_findings(v4_view(tmp_path, 3), plan)
+    [finding] = sequential_plan_findings(direct_view(tmp_path, 3), plan)
 
     assert finding.code == "shape_turn_count_mismatch"
     assert finding.path == "stimulus_approach.history"
@@ -175,7 +177,7 @@ def test_a_multi_turn_plan_must_use_the_sequential_delivery(tmp_path: Path) -> N
     plan = sequential_plan(refund["plan"], 3)
     plan["stimulus_approach"]["delivery"] = "direct_user_message"
 
-    [finding] = sequential_plan_findings(v4_view(tmp_path, 3), plan)
+    [finding] = sequential_plan_findings(direct_view(tmp_path, 3), plan)
 
     assert finding.code == "shape_delivery_mismatch"
     assert finding.path == "stimulus_approach.delivery"
@@ -188,7 +190,7 @@ def test_a_one_turn_plan_with_earlier_turns_or_the_sequential_delivery_is_found(
     refund = world("refund")
     plan = sequential_plan(refund["plan"], 3)
 
-    codes = {finding.code for finding in sequential_plan_findings(v4_view(tmp_path, 1), plan)}
+    codes = {finding.code for finding in sequential_plan_findings(direct_view(tmp_path, 1), plan)}
 
     assert codes == {"shape_turn_count_mismatch", "shape_delivery_mismatch"}
 
@@ -197,7 +199,7 @@ def test_an_artifact_with_the_right_number_of_turns_passes(tmp_path: Path) -> No
     refund = world("refund")
     metadata = sequential_metadata(refund["metadata"], 3)
 
-    assert sequential_artifact_findings(v4_view(tmp_path, 3), metadata) == []
+    assert sequential_artifact_findings(direct_view(tmp_path, 3), metadata) == []
 
 
 def test_an_artifact_whose_history_does_not_fit_the_turn_count_is_found(
@@ -207,7 +209,7 @@ def test_an_artifact_whose_history_does_not_fit_the_turn_count_is_found(
     metadata = sequential_metadata(refund["metadata"], 3)
     metadata["stimulus"]["history"].pop()
 
-    [finding] = sequential_artifact_findings(v4_view(tmp_path, 3), metadata)
+    [finding] = sequential_artifact_findings(direct_view(tmp_path, 3), metadata)
 
     assert finding.code == "shape_turn_count_mismatch"
     assert finding.path == "stimulus.history"
@@ -220,7 +222,7 @@ def test_an_artifact_with_the_wrong_delivery_is_found(tmp_path: Path) -> None:
     metadata = sequential_metadata(refund["metadata"], 3)
     metadata["stimulus"]["delivery"] = "direct_user_message"
 
-    [finding] = sequential_artifact_findings(v4_view(tmp_path, 3), metadata)
+    [finding] = sequential_artifact_findings(direct_view(tmp_path, 3), metadata)
 
     assert finding.code == "shape_delivery_mismatch"
     assert finding.path == "stimulus.delivery"
@@ -229,7 +231,7 @@ def test_an_artifact_with_the_wrong_delivery_is_found(tmp_path: Path) -> None:
 def test_a_malformed_stimulus_leaves_the_type_checks_to_the_existing_findings(
     tmp_path: Path,
 ) -> None:
-    view = v4_view(tmp_path, 3)
+    view = direct_view(tmp_path, 3)
 
     assert sequential_artifact_findings(view, {"stimulus": "text"}) == []
     assert sequential_artifact_findings(view, {"stimulus": {"history": "x"}}) == []
@@ -252,7 +254,7 @@ def test_a_plan_correction_keeps_the_rule_block_and_the_contract_of_its_turn_cou
     tmp_path: Path, turns: int
 ) -> None:
     refund = world("refund")
-    view = v4_view(tmp_path, turns)
+    view = direct_view(tmp_path, turns)
     rt = sequential_runtime(refund["runtime_contract"])
     finding = Finding("shape_turn_count_mismatch", "found 0", "stimulus_approach.history")
     context = build_correction_context(
@@ -287,7 +289,7 @@ def _first_correction_payload(tmp_path: Path, turns: int) -> dict[str, Any]:
         task_id="correction",
         policy=ONE_PLAN_CORRECTION,
     ).run(
-        v4_view(tmp_path, turns),
+        direct_view(tmp_path, turns),
         refund["inventory"],
         sequential_runtime(refund["runtime_contract"]),
     )
@@ -347,7 +349,7 @@ def _sequential_artifact_correction(tmp_path: Path, turns: int) -> dict[str, Any
     refund = world("refund")
     return _artifact_correction(
         tmp_path,
-        v4_view(tmp_path, turns),
+        direct_view(tmp_path, turns),
         refund["inventory"],
         sequential_runtime(refund["runtime_contract"]),
         sequential_plan(refund["plan"], turns),
@@ -377,7 +379,7 @@ def test_the_orchestrator_sends_a_multi_turn_artifact_correction_the_rule_block(
     assert (
         block
         == multi_turn_payload(
-            v4_view(tmp_path, turns), sequential_runtime(world("refund")["runtime_contract"])
+            direct_view(tmp_path, turns), sequential_runtime(world("refund")["runtime_contract"])
         )["multi_turn_shape"]
     )
     assert "multi_turn_shape" in correction["user"]
@@ -398,7 +400,7 @@ def test_the_orchestrator_leaves_a_one_turn_artifact_correction_as_it_was(
     tmp_path: Path,
 ) -> None:
     refund = world("refund")
-    view = v4_view(tmp_path, 1)
+    view = direct_view(tmp_path, 1)
     runtime = sequential_runtime(refund["runtime_contract"])
     plan = sequential_plan(refund["plan"], 1)
 

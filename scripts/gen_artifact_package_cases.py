@@ -36,7 +36,7 @@ from typing import Any
 CONTRACT_ROOT = Path(__file__).resolve().parents[1] / "contracts" / "artifact-package"
 V4 = "artifact-package-v4"
 BINDING_CASES = "binding-cases"
-_HANDOFF_V4 = "scenario-handoff-v4"
+_HANDOFF_V5 = "scenario-handoff-v5"
 SEED = "artifact-seed-v1"
 _SEED_ITEM = {
     "slot": "records.note",
@@ -99,7 +99,7 @@ def _package(files: dict[str, str], *, description: str) -> dict[str, Any]:
             "schema_version": V4,
             "package_id": "pkg-1",
             "scenario_id": "SCN-1",
-            "input_kind": _HANDOFF_V4,
+            "input_kind": _HANDOFF_V5,
             "source_digests": {"input": "a" * 64},
             "members": [_record(path, files[path]) for path in sorted(files)],
             "authoring": dict(_AUTHORING),
@@ -294,7 +294,7 @@ def _with_files_listed(base: dict[str, Any], description: str, extra: dict[str, 
 
 
 def _v4_cases() -> tuple[dict[str, dict[str, Any]], dict[str, tuple[str, dict[str, Any]]]]:
-    base = _package(_V4_FILES, description="A v4 package with a seed member, from a v4 handoff.")
+    base = _package(_V4_FILES, description="A v4 package with a seed member, from a v5 handoff.")
     return {"minimal": base}, _invalid_cases(base)
 
 

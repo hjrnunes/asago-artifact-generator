@@ -383,16 +383,6 @@
   "invalid/v5-causal-factors-empty.json": [
     "schema_violation:causal_factors"
   ],
-  "invalid/v5-fields-under-v4-version.json": [
-    "schema_violation:attack_tree",
-    "schema_violation:actor",
-    "schema_violation:attack_path",
-    "schema_violation:causal_factors",
-    "schema_violation:preconditions",
-    "schema_violation:procedure",
-    "schema_violation:uca",
-    "schema_violation:worst_case_threat"
-  ],
   "invalid/v5-preconditions-not-text.json": [
     "schema_violation:preconditions"
   ],

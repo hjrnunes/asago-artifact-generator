@@ -23,7 +23,7 @@ def _package() -> ArtifactPackage:
     return build_package(
         package_id="pkg-1",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v4",
+        input_kind="scenario-handoff-v5",
         source_digests={"scenario.json": "a" * 64},
         members={
             "plan.json": b'{"plan":"exact"}\n',
@@ -55,7 +55,7 @@ def test_package_rejects_absolute_and_traversal_members(tmp_path: Path, name: st
             build_package(
                 package_id="pkg-1",
                 scenario_id="scenario-1",
-                input_kind="scenario-handoff-v4",
+                input_kind="scenario-handoff-v5",
                 source_digests={"source": "a" * 64},
                 members={name: b"x"},
             ),
@@ -79,7 +79,7 @@ def test_writer_rejects_secret_bearing_manifest_metadata(tmp_path: Path) -> None
             build_package(
                 package_id="pkg-1",
                 scenario_id="scenario-1",
-                input_kind="scenario-handoff-v4",
+                input_kind="scenario-handoff-v5",
                 source_digests={"source": "a" * 64},
                 members={"explanation.json": b"{}\n"},
                 creation_model={"api_key": "not persisted"},
@@ -95,7 +95,7 @@ def test_interrupted_write_leaves_no_partial_package_and_preserves_previous(
     replacement = build_package(
         package_id="pkg-1",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v4",
+        input_kind="scenario-handoff-v5",
         source_digests={"scenario.json": "a" * 64},
         members={
             **_package().members,
@@ -127,7 +127,7 @@ def _replacement_package() -> ArtifactPackage:
     return build_package(
         package_id="pkg-2",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v4",
+        input_kind="scenario-handoff-v5",
         source_digests={"scenario.json": "b" * 64},
         members={**_package().members, "explanation.json": b"replacement\n"},
     )
@@ -268,7 +268,7 @@ def test_writer_rejects_a_package_without_members(tmp_path: Path) -> None:
     empty = build_package(
         package_id="pkg-1",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v4",
+        input_kind="scenario-handoff-v5",
         source_digests={"scenario.json": "a" * 64},
         members={},
     )
@@ -317,7 +317,7 @@ def test_build_package_names_the_rejected_member_path(name: str, message: str) -
         build_package(
             package_id="pkg-1",
             scenario_id="scenario-1",
-            input_kind="scenario-handoff-v4",
+            input_kind="scenario-handoff-v5",
             source_digests={"source": "a" * 64},
             members={name: b"x"},
         )
@@ -329,7 +329,7 @@ def _claim_package(claim_level: str, extra: dict[str, bytes]) -> ArtifactPackage
     return build_package(
         package_id="pkg-claim",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v4",
+        input_kind="scenario-handoff-v5",
         source_digests={"scenario.json": "a" * 64},
         members={"plan.json": json.dumps(plan).encode() + b"\n", **extra},
     )

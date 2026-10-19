@@ -45,6 +45,7 @@ from asago_artifact_generator.authoring.sequential_turns import (
     sequential_artifact_findings,
     sequential_plan_findings,
 )
+from asago_artifact_generator.authoring.templates import prose
 from asago_artifact_generator.input_adapter import InputView
 from asago_artifact_generator.package_io import load_package
 
@@ -383,9 +384,11 @@ def test_a_direct_handoff_gets_no_indirect_block_and_no_planted_field() -> None:
         ),
     ]
 
+    # The structured-analysis note defines every procedure channel, tool_data included.
+    note = json.dumps(prose("prompt_context/structured_analysis_note"))[1:-1]
     for packet in packets:
         assert "INDIRECT SHAPE" not in packet.user
-        assert "planted" not in packet.user.lower()
+        assert "planted" not in packet.user.replace(note, "").lower()
 
 
 @pytest.mark.parametrize("turns", [1, 2])

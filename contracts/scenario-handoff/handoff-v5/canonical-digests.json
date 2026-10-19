@@ -1,6 +1,6 @@
 {
   "content_sha256": {
-    "expected-violations.json": "374bb40ea0d10cf24e9ef9b9725fd5147a5efe38bdff1710f4ccdbb78b305ded",
+    "expected-violations.json": "d995ad514590418c9358bbb1ec429fe8fdcbc26de51e7b4f37b9f1787e23d682",
     "invalid/narrative-role-serialization.json": "a5e7f5bad74121ee72db41df6ed86a0a935e9432f77088cc1e697e8359c01b88",
     "invalid/narrative-turn-array.json": "588d4ac0982c1148c06e4ca60499b2a53c5c44adc046aaa18afe7f347bea2c42",
     "invalid/ownership-deliver-this-message.json": "d7872da7e52e9a22c937e18bda9256825f8740dc6d6feaa74596f053c83e529b",
@@ -124,7 +124,6 @@
     "invalid/v5-causal-factor-variable-not-object.json": "0ab36992ed338a0465e93afd8238358f562970ad277ede1d9d2a01568be434ce",
     "invalid/v5-causal-factor-variable-unknown-field.json": "af64979fba378cbc086ba1394b096b5952b34b0b30ae8a0ef3487bd921004f99",
     "invalid/v5-causal-factors-empty.json": "951f3f0fe25fbccbf79c107959b14d68624ddc5f9786483d4c11c0935a9d5f7a",
-    "invalid/v5-fields-under-v4-version.json": "b78619cb5058da89c666ae59034b638a3dde6a23cdef5a4c92347875ecabf8d9",
     "invalid/v5-preconditions-not-text.json": "664aefb5fddb647dcab680966a138b1f32e224b5655fbd552ffac5ca74f6dd1e",
     "invalid/v5-preconditions-on-functional.json": "3c09b7a0cf4cf00b4fd55f9922f5d3a0a8bf9afac45329416d2814f49a24ef0b",
     "invalid/v5-procedure-channel-not-enumerated.json": "8ce01e6bdf6a7244bf21097155c88ba32774d983f722dedf5f0400c89f071b52",
