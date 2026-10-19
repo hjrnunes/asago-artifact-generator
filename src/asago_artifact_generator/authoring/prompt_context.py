@@ -19,8 +19,11 @@ from ..bindings import (
 from ..input_adapter import V5_FIELDS, InputKind, InputView, build_scenario_handoff_view
 from .attack_tree_outline import (
     AND_OR_TREE_FORMAT,
+    ATTACK_PATH_FORMAT,
     and_or_outline,
     and_or_provenance,
+    attack_path_outline,
+    attack_path_provenance,
     is_and_or_tree,
 )
 from .checks import _binding_selector_type, _collect_canonical_prerequisite_findings
@@ -364,8 +367,21 @@ def _keyed_map_binding_forms(inventory: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def uses_attack_path(view: InputView) -> bool:
+    """Return whether the handoff carries an attack path where a v4 handoff carries a tree."""
+
+    return isinstance(view.payload.get("attack_path"), dict)
+
+
+def context_uses_attack_path(context: Any) -> bool:
+    """Return whether a recorded plan author context renders an attack path."""
+
+    design = context.get("scenario_design") if isinstance(context, dict) else None
+    return isinstance(design, dict) and "attack_path" in design
+
+
 def _scenario_provenance_index(view: InputView) -> list[dict[str, Any]]:
-    """Return lineage and attack-tree node IDs with plain-text locations."""
+    """Return lineage and attack-tree or attack-path node IDs with plain-text locations."""
 
     appearances: dict[str, list[str]] = {}
 
@@ -414,7 +430,17 @@ def _scenario_provenance_index(view: InputView) -> list[dict[str, Any]]:
     lineage = view.payload.get("lineage")
     add_lineage(lineage, "lineage")
     tree = view.payload.get("attack_tree")
-    if isinstance(tree, dict):
+    if uses_attack_path(view):
+        # The path carries no lineage of its own, so the handoff names its scenario ID.
+        add(view.payload.get("scenario_id"), "scenario handoff (scenario ID)")
+        for identifier, node_id in attack_path_provenance(view.payload["attack_path"]):
+            add(
+                identifier,
+                f"named by attack-path node {node_id}"
+                if node_id is not None
+                else "named by an attack-path node",
+            )
+    elif isinstance(tree, dict):
         tree_lineage = tree.get("lineage")
         if isinstance(tree_lineage, dict) and isinstance(lineage, dict):
             tree_lineage = {
@@ -460,23 +486,27 @@ def _plan_evidence_references(view: InputView, inventory: dict[str, Any]) -> dic
         f"operation:{name}"
         for name in _string_field_values(inventory.get("operations", []), "name")
     )
+    # The attack-path variants of the four texts that name the tree sit beside the originals.
+    suffix = "_attack_path" if uses_attack_path(view) else ""
     return {
         "purpose": prose("prompt_context/evidence_references/purpose"),
         "field_rules": {
             "interpretation.source_refs": prose(
-                "prompt_context/evidence_references/interpretation_source_refs"
+                f"prompt_context/evidence_references/interpretation_source_refs{suffix}"
             ),
             "selected_evidence[].ref": prose(
                 "prompt_context/evidence_references/selected_evidence_ref"
             ),
-            "assumptions[].ref": prose("prompt_context/evidence_references/assumptions_ref"),
+            "assumptions[].ref": prose(
+                f"prompt_context/evidence_references/assumptions_ref{suffix}"
+            ),
             "prerequisites[].evidence_refs": prose(
                 "prompt_context/evidence_references/prerequisites_evidence_refs"
             ),
         },
         "not_references": [
             prose("prompt_context/evidence_references/not_observation_scopes"),
-            prose("prompt_context/evidence_references/not_scenario_text"),
+            prose(f"prompt_context/evidence_references/not_scenario_text{suffix}"),
             prose("prompt_context/evidence_references/not_binding_forms"),
         ],
         "citable_references": {
@@ -485,7 +515,7 @@ def _plan_evidence_references(view: InputView, inventory: dict[str, Any]) -> dic
             "operations": operations,
         },
         "provenance_ids": {
-            "rule": prose("prompt_context/evidence_references/provenance_ids_rule"),
+            "rule": prose(f"prompt_context/evidence_references/provenance_ids_rule{suffix}"),
             "ids": {
                 item["id"]: ", ".join(item["appears_in"])
                 for item in _scenario_provenance_index(view)
@@ -504,7 +534,14 @@ _AND_OR_SCENARIO_KIND_STIMULUS_RULES = {
     **_SCENARIO_KIND_STIMULUS_RULES,
     "adversarial": prose("prompt_context/scenario_kind_stimulus_rules/adversarial_and_or"),
 }
+_ATTACK_PATH_SCENARIO_KIND_STIMULUS_RULES = {
+    "adversarial": prose("prompt_context/scenario_kind_stimulus_rules/adversarial_attack_path"),
+    "functional": prose("prompt_context/scenario_kind_stimulus_rules/functional_attack_path"),
+}
 _SCENARIO_KIND_UNAVAILABLE_RULE = prose("prompt_context/scenario_kind_unavailable_rule")
+_ATTACK_PATH_SCENARIO_KIND_UNAVAILABLE_RULE = prose(
+    "prompt_context/scenario_kind_unavailable_rule_attack_path"
+)
 
 
 def _attack_tree_design(tree: Any) -> dict[str, Any] | str:
@@ -574,23 +611,39 @@ def _and_or_tree_design(tree: dict[str, Any]) -> dict[str, Any] | str:
     return design
 
 
+def _attack_path_design(path: dict[str, Any]) -> dict[str, Any]:
+    """Project an ``attack-path-v1`` path as an outline of numbered parts."""
+
+    return {"format": ATTACK_PATH_FORMAT, "outline": attack_path_outline(path)}
+
+
 def _scenario_design(view: InputView) -> dict[str, Any]:
-    """Project the producer's scenario kind and attack tree for plan design."""
+    """Project the producer's scenario kind and attack tree or attack path for plan design."""
 
     kind = view.payload.get("kind")
     kind_value = kind if isinstance(kind, str) and kind in _SCENARIO_KIND_STIMULUS_RULES else None
     classification = view.payload.get("classification")
-    rules = (
-        _AND_OR_SCENARIO_KIND_STIMULUS_RULES
-        if is_and_or_tree(view.payload.get("attack_tree"))
-        else _SCENARIO_KIND_STIMULUS_RULES
+    path = uses_attack_path(view)
+    if path:
+        rules = _ATTACK_PATH_SCENARIO_KIND_STIMULUS_RULES
+        unavailable_rule = _ATTACK_PATH_SCENARIO_KIND_UNAVAILABLE_RULE
+    else:
+        rules = (
+            _AND_OR_SCENARIO_KIND_STIMULUS_RULES
+            if is_and_or_tree(view.payload.get("attack_tree"))
+            else _SCENARIO_KIND_STIMULUS_RULES
+        )
+        unavailable_rule = _SCENARIO_KIND_UNAVAILABLE_RULE
+    design_key = "attack_path" if path else "attack_tree"
+    design = (
+        _attack_path_design(view.payload["attack_path"])
+        if path
+        else _attack_tree_design(view.payload.get("attack_tree"))
     )
     return {
         "purpose": prose("prompt_context/scenario_design/purpose"),
         "kind": kind_value if kind_value is not None else "unavailable",
-        "stimulus_rule": (
-            rules[kind_value] if kind_value is not None else _SCENARIO_KIND_UNAVAILABLE_RULE
-        ),
+        "stimulus_rule": rules[kind_value] if kind_value is not None else unavailable_rule,
         "classification": (
             deepcopy(classification)
             if isinstance(classification, dict) and classification
@@ -599,7 +652,7 @@ def _scenario_design(view: InputView) -> dict[str, Any]:
                 "reason": prose("prompt_context/scenario_design/classification_unavailable"),
             }
         ),
-        "attack_tree": _attack_tree_design(view.payload.get("attack_tree")),
+        design_key: design,
     }
 
 
@@ -611,6 +664,14 @@ def _scenario_design_prompt_view(design: Any) -> Any:
     result = deepcopy(design)
     result["purpose"] = prose("prompt_context/scenario_design/prompt_view_purpose")
     result.pop("classification", None)
+    path = result.get("attack_path")
+    if isinstance(path, dict):
+        result["purpose"] = prose("prompt_context/scenario_design/attack_path_prompt_view_purpose")
+        result["attack_path"] = {
+            "note": prose("prompt_context/scenario_design/attack_path_note"),
+            "outline": deepcopy(path.get("outline", [])),
+        }
+        return result
     tree = result.get("attack_tree")
     if isinstance(tree, dict) and tree.get("format") == AND_OR_TREE_FORMAT:
         result["purpose"] = prose("prompt_context/scenario_design/and_or_prompt_view_purpose")
@@ -634,7 +695,10 @@ def build_plan_author_context(
     """Build the source-derived context for the plan author role."""
 
     response_contract = plan_response_contract(
-        turn_count(view), shape_delivery(view), plan_record_choices(view, runtime_contract)
+        turn_count(view),
+        shape_delivery(view),
+        plan_record_choices(view, runtime_contract),
+        attack_path=uses_attack_path(view),
     )
     context = {
         "task": {

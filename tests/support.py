@@ -106,6 +106,8 @@ HANDOFFS = FIXTURES / "handoffs"
 HANDOFF = HANDOFFS / "refund-bound.json"
 # A klarna SCN-004 handoff whose attack tree is an and-or-tree-v1 outline.
 AND_OR_HANDOFF = HANDOFFS / "klarna-and-or-SCN-004.yaml"
+# A klarna SCN-027 v5 handoff whose attack_path replaces the attack tree.
+ATTACK_PATH_HANDOFF = HANDOFFS / "klarna-attack-path-SCN-027.yaml"
 KIT_VALID = _ROOT / "contracts/scenario-handoff/handoff-v4/valid"
 NO_CONDITION_HANDOFF = KIT_VALID / "adversarial-condition-omitted.json"
 OBSERVED_HANDOFF = KIT_VALID / "adversarial-observed-record.json"

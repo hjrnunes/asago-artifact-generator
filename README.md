@@ -223,15 +223,22 @@ anything other than a supplied result observation.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v24` renders the plan author context while preserving the
+- `authoring-call1-v25` renders the plan author context while preserving the
   existing 11-field plan response. A producer `and-or-tree-v1` attack tree
   appears in SCENARIO DESIGN as an indented outline that keeps its AND and OR
   operators, child order, node IDs, and source IDs, with a note on how to read
   it; other scenarios that reach the same hazard collapse into one line. The
   section's purpose and adversarial stimulus rule then name the outline's
   attacker lines instead of the flat tree's actor nodes. The
-  plan correction (`authoring-correction-v37`) shows the same outline. A flat
-  attack tree renders as it did in v23.
+  plan correction (`authoring-correction-v38`) shows the same outline. A flat
+  attack tree renders as it did in v23. A v5 handoff that carries an
+  `attack-path-v1` `attack_path` instead of a tree appears in SCENARIO DESIGN as
+  an outline of the attacker lines and then numbered parts (conditions, attack
+  steps in order, unsafe action, observable failure, hazard with its losses),
+  with its own note. Every text that names the tree (the purpose, the stimulus
+  rules, the EVIDENCE REFERENCES rules, the response contract descriptions, and
+  the correction texts) names the attack path instead, and the path's node and
+  source IDs are citable provenance.
 - `authoring-plan-review-v22` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
@@ -251,7 +258,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `semantic_judge_spec_required` correction.
 - `authoring-artifact-review-v21` reviews the exact artifact object and the
   binding and judge declarations.
-- `authoring-correction-v37` renders only the failed stage format and all
+- `authoring-correction-v38` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option

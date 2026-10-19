@@ -9,22 +9,27 @@
     "prose_hiding:ready_to_send_instruction"
   ],
   "invalid/ownership-dotted-key.json": [
-    "artifact_design_field:role"
+    "artifact_design_field:role",
+    "schema_violation:attack_path"
   ],
   "invalid/ownership-judge-prompt.json": [
     "prose_hiding:judge_prompt"
   ],
   "invalid/ownership-key-name-pattern.json": [
-    "prose_hiding:detector_expression"
+    "prose_hiding:detector_expression",
+    "schema_violation:attack_path"
   ],
   "invalid/ownership-oracle-basis-key.json": [
-    "artifact_design_field:oracle_basis"
+    "artifact_design_field:oracle_basis",
+    "schema_violation:attack_path"
   ],
   "invalid/ownership-oracle-kind-key.json": [
-    "artifact_design_field:oracle_kind"
+    "artifact_design_field:oracle_kind",
+    "schema_violation:attack_path"
   ],
   "invalid/ownership-oracle-observes-key.json": [
-    "artifact_design_field:oracle_observes"
+    "artifact_design_field:oracle_observes",
+    "schema_violation:attack_path"
   ],
   "invalid/ownership-system-prompt-is.json": [
     "prose_hiding:ready_to_send_instruction"
@@ -50,8 +55,8 @@
   "invalid/schema-assessment-supported-not-list.json": [
     "schema_violation:observation"
   ],
-  "invalid/schema-attack-tree-not-object.json": [
-    "schema_violation:attack_tree"
+  "invalid/schema-attack-path-not-object.json": [
+    "schema_violation:attack_path"
   ],
   "invalid/schema-blank-narrative.json": [
     "schema_violation:narrative"
@@ -285,7 +290,8 @@
   ],
   "invalid/stimulus-turn-field.json": [
     "artifact_design_field:stimulus_turns",
-    "artifact_design_field:role"
+    "artifact_design_field:role",
+    "schema_violation:attack_path"
   ],
   "invalid/v5-actor-blank-goal.json": [
     "schema_violation:actor"
@@ -298,6 +304,60 @@
   ],
   "invalid/v5-actor-on-functional.json": [
     "schema_violation:<root>"
+  ],
+  "invalid/v5-attack-path-attacker-plan-not-list.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-category-not-enumerated.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-condition-source-id-not-list.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-condition-unknown-field.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-conditions-not-list.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-evidence-status-not-enumerated.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-failure-not-object.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-format-not-v1.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-hazard-id-wrong.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-hazard-loss-missing-label.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-missing.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-node-id-not-ap.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-step-blank-label.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-step-id-not-step.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-unknown-key.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-unsafe-action-id-wrong.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-path-unsafe-action-violates-missing.json": [
+    "schema_violation:attack_path"
+  ],
+  "invalid/v5-attack-tree-present.json": [
+    "schema_violation:attack_tree"
   ],
   "invalid/v5-causal-factor-belief-missing.json": [
     "schema_violation:causal_factors"
@@ -324,7 +384,9 @@
     "schema_violation:causal_factors"
   ],
   "invalid/v5-fields-under-v4-version.json": [
+    "schema_violation:attack_tree",
     "schema_violation:actor",
+    "schema_violation:attack_path",
     "schema_violation:causal_factors",
     "schema_violation:preconditions",
     "schema_violation:procedure",

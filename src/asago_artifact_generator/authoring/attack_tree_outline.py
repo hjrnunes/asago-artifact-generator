@@ -1,9 +1,13 @@
-"""Render a producer ``and-or-tree-v1`` attack tree as an indented outline.
+"""Render a producer attack tree or attack path as an outline.
 
-The outline keeps the tree's structure (operators, child order, node IDs, source IDs,
-techniques, assets, beliefs, violated rules, and safe outcomes) as plain lines, so the
-plan author reads it as a tree. Reference nodes name other scenarios that reach the same
-hazard; they collapse into one line per parent and contribute no provenance IDs.
+``and_or_outline`` renders an ``and-or-tree-v1`` tree. The outline keeps the tree's
+structure (operators, child order, node IDs, source IDs, techniques, assets, beliefs,
+violated rules, and safe outcomes) as plain lines, so the plan author reads it as a tree.
+Reference nodes name other scenarios that reach the same hazard; they collapse into one
+line per parent and contribute no provenance IDs.
+
+``attack_path_outline`` renders an ``attack-path-v1`` path as the attacker lines followed
+by numbered parts. Its node lines and detail lines are the tree's.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ from collections.abc import Iterator
 from typing import Any
 
 AND_OR_TREE_FORMAT = "and-or-tree-v1"
+ATTACK_PATH_FORMAT = "attack-path-v1"
 
 _INDENT = "  "
 _KNOWN_TYPES = frozenset({"goal", "operator", "condition", "action", "reference"})
@@ -205,18 +210,92 @@ def and_or_provenance(root: Any) -> Iterator[tuple[str, str | None]]:
     def walk(node: Any) -> Iterator[tuple[str, str | None]]:
         if not isinstance(node, dict) or _is_reference(node):
             return
-        node_id = node.get("node_id") if _nonblank(node.get("node_id")) else None
-        if node_id is not None:
-            yield node_id, node_id
-        for identifier in _source_ids(node):
-            yield identifier, node_id
-        for key in _SOURCE_LIST_NAMES:
-            items = node.get(key)
-            for item in items if isinstance(items, list) else []:
-                if isinstance(item, dict) and _nonblank(item.get("source_id")):
-                    yield item["source_id"], node_id
+        yield from _node_identifiers(node)
         children = node.get("children")
         for child in children if isinstance(children, list) else []:
             yield from walk(child)
 
     yield from walk(root)
+
+
+def _node_identifiers(node: dict[str, Any]) -> Iterator[tuple[str, str | None]]:
+    """Yield ``(identifier, node_id)`` for a node's own ID and every source ID it carries."""
+
+    node_id = node.get("node_id") if _nonblank(node.get("node_id")) else None
+    if node_id is not None:
+        yield node_id, node_id
+    for identifier in _source_ids(node):
+        yield identifier, node_id
+    for key in _SOURCE_LIST_NAMES:
+        items = node.get(key)
+        for item in items if isinstance(items, list) else []:
+            if isinstance(item, dict) and _nonblank(item.get("source_id")):
+                yield item["source_id"], node_id
+
+
+def _path_node(value: Any, category: str) -> dict[str, Any] | None:
+    """Return a path node with the category its part implies; a node's own category wins."""
+
+    return {"category": category, **value} if isinstance(value, dict) else None
+
+
+def _path_parts(path: dict[str, Any]) -> list[tuple[str, list[dict[str, Any]]]]:
+    """Return the path's parts in order as ``(part, nodes)``, leaving out empty parts."""
+
+    def nodes(value: Any, category: str) -> list[dict[str, Any]]:
+        items = value if isinstance(value, list) else [value]
+        return [node for item in items if (node := _path_node(item, category)) is not None]
+
+    parts = [
+        ("conditions", nodes(path.get("conditions"), "condition")),
+        ("steps", nodes(path.get("steps"), "attack_step")),
+        ("unsafe_action", nodes(path.get("unsafe_action"), "unsafe_action")),
+        ("observable_failure", nodes(path.get("observable_failure"), "observable_failure")),
+        ("hazard", nodes(path.get("hazard"), "hazard")),
+    ]
+    return [(part, found) for part, found in parts if found]
+
+
+_PATH_GROUP_TITLES = {
+    "conditions": "Conditions that must all hold",
+    "steps": "Attack steps, in order",
+}
+
+
+def attack_path_outline(path: Any) -> list[str]:
+    """Return the outline of an attack path: attacker lines, then the numbered parts.
+
+    The conditions and the attack steps are groups headed by their title; the unsafe action,
+    the observable failure, and the hazard are single nodes. A part the path lacks is left
+    out and the numbers continue, so a functional scenario has no attacker lines or steps.
+    """
+
+    if not isinstance(path, dict):
+        return []
+    lines: list[str] = []
+    attacker = path.get("attacker")
+    if attacker is not None:
+        lines += _attacker_lines(attacker)
+
+    def render(node: dict[str, Any], depth: int, marker: str) -> None:
+        lines.append(f"{_INDENT * depth}{marker}{_head(node)}")
+        lines.extend(f"{_INDENT * (depth + 1)}{line}" for line in _detail_lines(node))
+
+    for number, (part, nodes) in enumerate(_path_parts(path), 1):
+        if part in _PATH_GROUP_TITLES:
+            lines.append(f"{number}. {_PATH_GROUP_TITLES[part]}")
+            for position, node in enumerate(nodes, 1):
+                render(node, 1, f"{position}. " if part == "steps" else "- ")
+        else:
+            render(nodes[0], 0, f"{number}. ")
+    return lines
+
+
+def attack_path_provenance(path: Any) -> Iterator[tuple[str, str | None]]:
+    """Yield ``(identifier, node_id)`` for every citable ID of this scenario's path."""
+
+    if not isinstance(path, dict):
+        return
+    for _, nodes in _path_parts(path):
+        for node in nodes:
+            yield from _node_identifiers(node)

@@ -341,7 +341,13 @@ def _schema_violations(payload: dict[str, Any], kit: str) -> list[_Violation]:
 
     found: dict[str, _Violation] = {}
     rooted: _Violation | None = None
-    for error in Draft202012Validator(_handoff_schema(kit)).iter_errors(payload):
+    # The producer lists a missing required field before the fields it rejects as extra,
+    # whatever order the schema's keywords come in.
+    errors = sorted(
+        Draft202012Validator(_handoff_schema(kit)).iter_errors(payload),
+        key=lambda error: not (error.validator == "required" and not error.path),
+    )
+    for error in errors:
         where, reason = _error_detail(error)
         if _is_root_pairing(error):
             rooted = rooted or ("schema_violation:<root>", where, reason)

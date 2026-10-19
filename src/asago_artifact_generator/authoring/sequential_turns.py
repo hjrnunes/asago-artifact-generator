@@ -65,16 +65,21 @@ def turn_count(view: InputView) -> int:
 
 
 def plan_response_contract(
-    turns: int = 1, delivery: str | None = None, records: Sequence[str] | None = None
+    turns: int = 1,
+    delivery: str | None = None,
+    records: Sequence[str] | None = None,
+    *,
+    attack_path: bool = False,
 ) -> dict[str, Any]:
     """Return the plan response contract.
 
     A multi-turn plan names only the sequential delivery, and a plan whose shape
     fixes a ``delivery`` names only that one. A plan that chooses the planted record
-    among the slot's ``records`` also carries the record field, limited to them.
+    among the slot's ``records`` also carries the record field, limited to them. A
+    handoff that carries an attack path words its reference fields for the path.
     """
 
-    contract = _call1_contract_v2()
+    contract = _call1_contract_v2(attack_path=attack_path)
     approach = contract["schema"]["properties"]["stimulus_approach"]
     only = delivery or (SEQUENTIAL_DELIVERY if turns > 1 else None)
     if only is not None:

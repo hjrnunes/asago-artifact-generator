@@ -66,6 +66,406 @@
       "title": "AttackChannel",
       "type": "string"
     },
+    "AttackPath": {
+      "additionalProperties": false,
+      "description": "One scenario's route to its hazard, in the order it happens.\n\nAn adversarial scenario names its attacker and steps; a functional one has\nneither. The node ids are what the authoring model cites.",
+      "properties": {
+        "format": {
+          "const": "attack-path-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "attacker": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AttackPathAttacker"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "conditions": {
+          "items": {
+            "$ref": "#/$defs/AttackPathCondition"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/AttackPathStep"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "unsafe_action": {
+          "$ref": "#/$defs/AttackPathUnsafeAction"
+        },
+        "observable_failure": {
+          "$ref": "#/$defs/AttackPathFailure"
+        },
+        "hazard": {
+          "$ref": "#/$defs/AttackPathHazard"
+        },
+        "source_uncertainty": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Uncertainty"
+        }
+      },
+      "required": [
+        "format",
+        "conditions",
+        "steps",
+        "unsafe_action",
+        "observable_failure",
+        "hazard"
+      ],
+      "title": "AttackPath",
+      "type": "object"
+    },
+    "AttackPathAttacker": {
+      "additionalProperties": false,
+      "description": "Who the attacker is, what they want, and their plan.",
+      "properties": {
+        "profile": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Profile",
+          "type": "string"
+        },
+        "goal": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Goal"
+        },
+        "plan": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Plan",
+          "type": "array"
+        }
+      },
+      "required": [
+        "profile",
+        "plan"
+      ],
+      "title": "AttackPathAttacker",
+      "type": "object"
+    },
+    "AttackPathCondition": {
+      "additionalProperties": false,
+      "description": "One condition that must hold: the situation, an assumption, or a weak point.",
+      "properties": {
+        "node_id": {
+          "pattern": "^AP-[A-Z]+(-[1-9]\\d*)?$",
+          "title": "Node Id",
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "situation",
+            "attacker_assumption",
+            "weak_point"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Label",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        },
+        "evidence_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "structural_failure",
+                "reachable_capability",
+                "bounded_assumption"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Status"
+        },
+        "belief": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Belief"
+        }
+      },
+      "required": [
+        "node_id",
+        "category",
+        "label",
+        "source_ids"
+      ],
+      "title": "AttackPathCondition",
+      "type": "object"
+    },
+    "AttackPathFailure": {
+      "additionalProperties": false,
+      "description": "The observable failure and the outcome that would have been safe.",
+      "properties": {
+        "node_id": {
+          "const": "AP-FAIL",
+          "title": "Node Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Label",
+          "type": "string"
+        },
+        "safe_outcome": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safe Outcome"
+        }
+      },
+      "required": [
+        "node_id",
+        "label"
+      ],
+      "title": "AttackPathFailure",
+      "type": "object"
+    },
+    "AttackPathHazard": {
+      "additionalProperties": false,
+      "description": "The hazard the scenario reaches, with the losses it leads to.",
+      "properties": {
+        "node_id": {
+          "const": "AP-HAZ",
+          "title": "Node Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Label",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        },
+        "hazards": {
+          "items": {
+            "$ref": "#/$defs/AttackPathSource"
+          },
+          "title": "Hazards",
+          "type": "array"
+        },
+        "losses": {
+          "items": {
+            "$ref": "#/$defs/AttackPathSource"
+          },
+          "title": "Losses",
+          "type": "array"
+        }
+      },
+      "required": [
+        "node_id",
+        "label",
+        "source_ids",
+        "hazards",
+        "losses"
+      ],
+      "title": "AttackPathHazard",
+      "type": "object"
+    },
+    "AttackPathSource": {
+      "additionalProperties": false,
+      "description": "A source id and its text: a violated constraint, a hazard, or a loss.",
+      "properties": {
+        "source_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "label"
+      ],
+      "title": "AttackPathSource",
+      "type": "object"
+    },
+    "AttackPathStep": {
+      "additionalProperties": false,
+      "description": "One attack step, with its ATLAS technique and the asset it touches.",
+      "properties": {
+        "node_id": {
+          "pattern": "^AP-STEP-[1-9]\\d*$",
+          "title": "Node Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Label",
+          "type": "string"
+        },
+        "technique_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Technique Id"
+        },
+        "technique": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Technique"
+        },
+        "asset": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asset"
+        }
+      },
+      "required": [
+        "node_id",
+        "label"
+      ],
+      "title": "AttackPathStep",
+      "type": "object"
+    },
+    "AttackPathUnsafeAction": {
+      "additionalProperties": false,
+      "description": "The unsafe control action and the constraints it violates.",
+      "properties": {
+        "node_id": {
+          "const": "AP-UCA",
+          "title": "Node Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Label",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        },
+        "violates": {
+          "items": {
+            "$ref": "#/$defs/AttackPathSource"
+          },
+          "title": "Violates",
+          "type": "array"
+        }
+      },
+      "required": [
+        "node_id",
+        "label",
+        "source_ids",
+        "violates"
+      ],
+      "title": "AttackPathUnsafeAction",
+      "type": "object"
+    },
     "AttackShape": {
       "additionalProperties": false,
       "allOf": [
@@ -2018,7 +2418,7 @@
       }
     }
   ],
-  "description": "The versioned scenario handoff envelope (v5).\n\nv5 keeps every v4 field and adds ``uca``, ``actor``, ``causal_factors``,\n``preconditions``, ``procedure`` and ``worst_case_threat``. ``actor`` is\nan object for ``kind: adversarial`` and ``null`` for ``kind: functional``;\na functional scenario has no preconditions and no procedure.",
+  "description": "The versioned scenario handoff envelope (v5).\n\nv5 carries the scenario's ``attack_path`` where v4 carries its\n``attack_tree``, keeps every other v4 field, and adds ``uca``, ``actor``,\n``causal_factors``, ``preconditions``, ``procedure`` and\n``worst_case_threat``. ``actor`` is an object for ``kind: adversarial`` and\n``null`` for ``kind: functional``; a functional scenario has no\npreconditions and no procedure.",
   "properties": {
     "schema_version": {
       "const": "scenario-handoff-v5",
@@ -2051,10 +2451,8 @@
       "title": "Narrative",
       "type": "string"
     },
-    "attack_tree": {
-      "additionalProperties": true,
-      "title": "Attack Tree",
-      "type": "object"
+    "attack_path": {
+      "$ref": "#/$defs/AttackPath"
     },
     "gherkin": {
       "$ref": "#/$defs/HandoffGherkin"
@@ -2245,7 +2643,7 @@
     "kind",
     "hypothesis_framing",
     "narrative",
-    "attack_tree",
+    "attack_path",
     "gherkin",
     "semantic_failure_criterion",
     "safe_alternative",
