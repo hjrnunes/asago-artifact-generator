@@ -27,10 +27,12 @@ from asago_bundle_core.mcp_records import (
 )
 
 PROXY_CALLS = Path("mcp_capture/calls.jsonl")
+SERVER_CALLS = Path("midojo_capture/calls.jsonl")
 GATEWAY_ACCOUNTING = Path("boundary/gateway-accounting.json")
 JUDGE_EXCHANGES = Path("boundary/judge-exchanges.jsonl")
 CALL_FIELDS = ("name", "arguments", "result", "error", "status")
 SINK_DELIVERED = "ok"
+LOAD_FAILURES = ("failed", "no_token")
 
 
 @dataclass(frozen=True)
@@ -42,25 +44,43 @@ class Records:
     judge_count: int | None = None
     malformed: bool = False
     undelivered: bool = False
+    server: list[dict[str, Any]] | None = None
 
 
 def read_records(directory: Path) -> Records:
     accounting = read_json(directory / GATEWAY_ACCOUNTING)
     count = accounting.get("responses_request_count") if isinstance(accounting, dict) else None
     exchanges = directory / JUDGE_EXCHANGES
-    counts = {
+    counts: dict[str, Any] = {
         "request_count": count_value(count),
         "judge_count": len(lines(exchanges)) if exchanges.is_file() else None,
     }
+    server_file = directory / SERVER_CALLS
+    if server_file.is_file():
+        server = [_raw_call(line) for line in lines(server_file)]
+        if not all(isinstance(line, dict) for line in server):
+            return Records(malformed=True, **counts)
+        counts["server"] = server
+        counts["undelivered"] = any(_server_failure(line) for line in server)
     calls_file = directory / PROXY_CALLS
     if not calls_file.is_file():
         return Records(**counts)
     raw = [_raw_call(line) for line in lines(calls_file)]
     if not all(isinstance(call, dict) for call in raw):
-        return Records(calls=[], malformed=True, **counts)
+        return Records(**{**counts, "calls": [], "malformed": True})
     return Records(
-        calls=[proxy_call(call) for call in raw], undelivered=_undelivered(raw), **counts
+        **{
+            **counts,
+            "calls": [proxy_call(call) for call in raw],
+            "undelivered": counts.get("undelivered", False) or _undelivered(raw),
+        }
     )
+
+
+def _server_failure(line: dict[str, Any]) -> bool:
+    """Say whether the mini-agents server could not load, push or report for one call."""
+
+    return line.get("load") in LOAD_FAILURES or "failed" in (line.get("push"), line.get("report"))
 
 
 def _undelivered(raw: list[dict[str, Any]]) -> bool:

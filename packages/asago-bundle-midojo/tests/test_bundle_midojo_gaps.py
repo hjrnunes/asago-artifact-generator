@@ -11,7 +11,13 @@ import pytest
 from asago_bundle_core.conformance import GAP_FIELDS, check_gap
 from asago_bundle_core.gap import CapabilityGap
 from asago_bundle_core.testing import sequential_stimulus, single_stimulus, write_test_package
-from asago_bundle_midojo.compiler import CompileError, compile_package
+from asago_bundle_midojo.compiler import CompileError
+from asago_bundle_midojo.compiler import compile_package as _compile
+from conftest import compile_options
+
+
+def compile_package(package: Path, out: Path) -> dict[str, Any]:
+    return _compile(package, out, **compile_options())
 
 
 def gap_of(package: Path, tmp_path: Path) -> dict[str, Any]:

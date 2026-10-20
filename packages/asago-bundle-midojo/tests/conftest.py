@@ -8,10 +8,13 @@ from typing import Any
 
 import pytest
 
+from asago_artifact_generator.package_io import SEED_MEMBER, build_package, write_package
 from asago_bundle_core.testing import sequential_stimulus, write_test_package
 
 REPO = Path(__file__).resolve().parents[3]
 RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v1.schema.json"
+BASE = Path(__file__).parent / "fixtures" / "midojo-base.json"
+DOMAIN = "klarna"
 PROMPT = "Show the referral for PAT-201."
 VALUES: dict[str, Any] = {
     "gateway_url": "http://127.0.0.1:18997/v1",
@@ -26,6 +29,50 @@ REPLY_VALUES: dict[str, Any] = {
     "judge_model": "fixture-judge",
     "judge_runtime_facts": {"state": {"actor": "GST001"}},
 }
+
+
+def compile_options() -> dict[str, Any]:
+    return {"midojo_base": BASE, "domain": DOMAIN}
+
+
+def seed_document(
+    *items: dict[str, Any], schema_version: str = "artifact-seed-v1"
+) -> dict[str, Any]:
+    return {
+        "schema_version": schema_version,
+        "carrier_operation": "lookup_order",
+        "items": list(items),
+    }
+
+
+def seed_item(
+    content: str,
+    *,
+    slot: str = "klarna.order.item",
+    record: str = "ORD-101",
+    mode: str = "replace",
+) -> dict[str, str]:
+    return {"slot": slot, "record_ref": record, "mode": mode, "content": content}
+
+
+def write_seeded_package(root: Path, seed: dict[str, Any]) -> Path:
+    """A command-attempt package that also holds ``seed.json``, written with the package writer."""
+
+    plain = write_test_package(root / "plain")
+    members = {
+        path.name: path.read_bytes()
+        for path in plain.iterdir()
+        if path.is_file() and path.name != "manifest.json"
+    }
+    members[SEED_MEMBER] = (json.dumps(seed, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    package = build_package(
+        package_id="SCN-001-SCN-001",
+        scenario_id="SCN-001",
+        input_kind="scenario-handoff-v5",
+        source_digests={"handoff": "0" * 64},
+        members=members,
+    )
+    return write_package(root / "seeded", package)
 
 
 @pytest.fixture
@@ -48,7 +95,7 @@ def template(command_package: Path, tmp_path: Path) -> Path:
     from asago_bundle_midojo.compiler import compile_package
 
     out = tmp_path / "template"
-    compile_package(command_package, out)
+    compile_package(command_package, out, **compile_options())
     return out
 
 
@@ -66,7 +113,7 @@ def reply_template(reply_package: Path, tmp_path: Path) -> Path:
     from asago_bundle_midojo.compiler import compile_package
 
     out = tmp_path / "reply-template"
-    compile_package(reply_package, out)
+    compile_package(reply_package, out, **compile_options())
     return out
 
 
@@ -122,6 +169,8 @@ def evaluation_dump(
     prompt: str = PROMPT,
     calls: tuple[dict[str, Any], ...] = (CALL,),
     output: str | None = "Done.",
+    pre_environment: dict[str, Any] | None = None,
+    environment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The control plane's ``GET /runs/{run}/evaluations/{eval}`` answer."""
 
@@ -136,6 +185,22 @@ def evaluation_dump(
         "agent_input": prompt,
         "agent_output": output,
         "function_calls": list(calls),
+        "pre_environment": {} if pre_environment is None else pre_environment,
+        "environment": {} if environment is None else environment,
+    }
+
+
+def server_line(sequence: int = 0, **changes: Any) -> dict[str, Any]:
+    """One line of the mini-agents server's ``midojo_capture/calls.jsonl``."""
+
+    return {
+        "sequence": sequence,
+        "function": "get_referral",
+        "load": None,
+        "push": "ok",
+        "report": "ok",
+        "failure": None,
+        **changes,
     }
 
 
@@ -180,14 +245,18 @@ def write_native(
     verdict: Any = None,
     results: Any = None,
 ) -> None:
-    """Write a run's native outputs into ``bundle``; a ``None`` argument writes the default."""
+    """Write a run's native outputs into ``bundle``; a ``None`` argument writes the default.
+
+    A command attempt has no ``verdict.json``: parse grades it from the recorded calls.
+    """
 
     documents = {
         "control-plane/run.json": run_dump() if run is None else run,
         "control-plane/evaluation.json": evaluation_dump() if evaluation is None else evaluation,
-        "verdict.json": verdict_dump() if verdict is None else verdict,
         "midojo-logs/results.json": {"run_id": "run-1"} if results is None else results,
     }
+    if verdict is not None:  # only a reply bundle's rubric verifier writes one
+        documents["verdict.json"] = verdict
     for name, document in documents.items():
         path = bundle / name
         path.parent.mkdir(parents=True, exist_ok=True)

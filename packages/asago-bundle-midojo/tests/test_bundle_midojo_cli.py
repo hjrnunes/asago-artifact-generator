@@ -8,7 +8,9 @@ from pathlib import Path
 import pytest
 
 from asago_bundle_midojo.cli import main
-from conftest import VALUES, write_native
+from conftest import BASE, DOMAIN, VALUES, write_native
+
+FLAGS = ["--midojo-base", str(BASE), "--domain", DOMAIN]
 
 
 def test_help_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
@@ -19,7 +21,18 @@ def test_help_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
     assert "asago-bundle-midojo" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("argv", [[], ["compile"], ["unknown"], ["compile", "x", "--out"]])
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [],
+        ["compile"],
+        ["unknown"],
+        ["compile", "x", "--out"],
+        ["compile", "x", "--out", "o"],
+        ["compile", "x", "--out", "o", "--midojo-base", "b"],
+        ["compile", "x", "--out", "o", "--domain", "klarna"],
+    ],
+)
 def test_a_usage_error_exits_two(argv: list[str]) -> None:
     with pytest.raises(SystemExit) as raised:
         main(argv)
@@ -28,7 +41,7 @@ def test_a_usage_error_exits_two(argv: list[str]) -> None:
 
 
 def test_compile_writes_the_template_and_exits_zero(command_package: Path, tmp_path: Path) -> None:
-    code = main(["compile", str(command_package), "--out", str(tmp_path / "template")])
+    code = main(["compile", str(command_package), "--out", str(tmp_path / "template"), *FLAGS])
 
     assert code == 0
     assert (tmp_path / "template" / "bundle.json").is_file()
@@ -37,7 +50,7 @@ def test_compile_writes_the_template_and_exits_zero(command_package: Path, tmp_p
 def test_compile_of_a_gap_prints_the_record_and_exits_three(
     sequential_package: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    code = main(["compile", str(sequential_package), "--out", str(tmp_path / "template")])
+    code = main(["compile", str(sequential_package), "--out", str(tmp_path / "template"), *FLAGS])
 
     assert code == 3
     record = json.loads(capsys.readouterr().out)
@@ -46,10 +59,22 @@ def test_compile_of_a_gap_prints_the_record_and_exits_three(
     assert not (tmp_path / "template").exists()
 
 
+def test_compile_of_an_unknown_domain_exits_one(
+    command_package: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    argv = ["compile", str(command_package), "--out", str(tmp_path / "t")]
+    code = main([*argv, "--midojo-base", str(BASE), "--domain", "nowhere"])
+
+    assert code == 1
+    assert "nowhere" in capsys.readouterr().err
+
+
 def test_compile_of_an_unreadable_package_exits_one(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    code = main(["compile", str(tmp_path / "missing"), "--out", str(tmp_path / "template")])
+    code = main(
+        ["compile", str(tmp_path / "missing"), "--out", str(tmp_path / "template"), *FLAGS]
+    )
 
     assert code == 1
     assert capsys.readouterr().err.startswith("compile: ")

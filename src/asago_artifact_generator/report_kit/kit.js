@@ -63,8 +63,25 @@ function initSave(){all('button[data-save]').forEach(function(b){b.addEventListe
  a.href=URL.createObjectURL(new Blob([s.textContent.replace(/<\\\//g,'</')],{type:'application/json'}));
  a.download=b.dataset.filename;document.body.appendChild(a);a.click();a.remove();
  setTimeout(function(){URL.revokeObjectURL(a.href);},1e4);});});}
+function initMaps(){all('.fm').forEach(function(m){var up={},dn={},on=[],pin=null,F='data-from',T='data-to',N='data-node';
+ function at(e,k){return e.getAttribute(k);}
+ function lit(e){e.classList.add('hl');on.push(e);}
+ all('path.fl['+F+']',m).forEach(function(p){(dn[at(p,F)]=dn[at(p,F)]||[]).push(p);(up[at(p,T)]=up[at(p,T)]||[]).push(p);});
+ function walk(id,ed,end,seen){if(!seen[id]){seen[id]=1;(ed[id]||[]).forEach(function(p){lit(p);walk(at(p,end),ed,end,seen);});}}
+ function pick(e){var t=e.target,a=t.closest('a');if(t.classList.contains('fh'))t=t.previousElementSibling;
+  return t.closest('g.fm-n,path.fl['+F+']')||(a&&a.querySelector('g.fm-n'));}
+ function show(t){var u={},d={},f;on.forEach(function(e){e.classList.remove('hl','pin');});on=[];
+  m.classList.toggle('fm-hl',!!t);if(!t)return;
+  f=at(t,F);if(f)lit(t);walk(f||at(t,N),up,F,u);walk(f?at(t,T):at(t,N),dn,T,d);
+  all('g.fm-n',m).forEach(function(g){if(u[at(g,N)]||d[at(g,N)])lit(g);});if(t===pin)t.classList.add('pin');}
+ function hover(e){if(!pin)show(pick(e));}
+ function leave(){show(pin);}
+ m.addEventListener('mouseover',hover);m.addEventListener('focusin',hover);
+ m.addEventListener('mouseleave',leave);m.addEventListener('focusout',leave);
+ m.addEventListener('click',function(e){var t=pick(e);pin=t&&t!==pin?t:null;show(t);});
+ document.addEventListener('keydown',function(e){if(e.key==='Escape'&&pin){pin=null;show(null);}});});}
 document.addEventListener('DOMContentLoaded',function(){
- initTheme();initExpand();initCopy();initDiagrams();initSave();
+ initTheme();initExpand();initCopy();initDiagrams();initSave();initMaps();
  all('table[data-sortable]').forEach(initSort);
  all('.filters[data-for]').forEach(initFilters);
  openTo(parseHash().id);

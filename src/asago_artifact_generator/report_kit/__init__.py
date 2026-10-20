@@ -1075,9 +1075,12 @@ def _map_link(link: MapLink, boxes: Mapping[str, _MapBox]) -> str:
     x1, y1 = source.x + _MAP_WIDTH, _num(source.middle)
     x2, y2 = target.x, _num(target.middle)
     bend = _MAP_GAP // 2
+    shape = f"M{x1},{y1}C{x1 + bend},{y1} {x2 - bend},{y2} {x2},{y2}"
+    # The drawn link is thin; a wide, unpainted copy right after it takes the
+    # pointer, so a link is easy to hover and click.
     return (
-        f'<path class="fl mk s-{link.tone}" '
-        f'd="M{x1},{y1}C{x1 + bend},{y1} {x2 - bend},{y2} {x2},{y2}"/>'
+        f'<path class="fl mk s-{link.tone}" data-from="{esc(link.source)}" '
+        f'data-to="{esc(link.target)}" d="{shape}"/><path class="fh" d="{shape}"/>'
     )
 
 
@@ -1143,6 +1146,14 @@ def flow_map(
     Links join a node to a node in the next column; an unknown node or a
     skipped column raises ``KitError``. The list after the drawing carries the
     same nodes and links for screen readers and print.
+
+    Each link names its two ends (``data-from``, ``data-to``), so the script
+    can light a box's whole path on hover or focus: every link and box upstream
+    of it and every one downstream, with the rest dimmed. A link lights its two
+    ends' paths the same way. A click pins the path until the same box or link
+    is clicked again, the map's empty space is clicked, or Escape is pressed;
+    a box with a link still follows it. Without the script the map is
+    unchanged.
     """
 
     _check_id(id, "map id")
@@ -1182,6 +1193,17 @@ _DG_LINE = 14
 # these characters; every other one becomes the entity code "#<code point>;".
 _MERMAID_ENCODE = re.compile(r"[^A-Za-z0-9 ]")
 _MERMAID_SHAPES = {"or": ("{{", "}}"), "and": ("{{", "}}"), "unsafe": ("[/", "/]")}
+# What the diagram's text list calls each kind of node.
+DIAGRAM_KIND_WORDS = {
+    "root": "hazard",
+    "or": "any one of",
+    "and": "all of",
+    "action": "scenario",
+    "condition": "condition",
+    "step": "step",
+    "unsafe": "unsafe action",
+}
+DIAGRAM_TEXT_LABEL = "Tree as text"
 
 
 @dataclass(frozen=True)
@@ -1263,6 +1285,37 @@ def _diagram_edge(parent: _Placed, child: _Placed) -> str:
     )
 
 
+def _diagram_item(node: DiagramNode) -> str:
+    """Return one node of the text list: its kind, its whole label, its tags."""
+
+    tags = (
+        f' <span class="dg-t">· {esc(" · ".join(_flat(tag) for tag in node.tags))}'
+        "</span>"
+        if node.tags
+        else ""
+    )
+    children = "".join(_diagram_item(child) for child in node.children)
+    nested = f"<ul>{children}</ul>" if children else ""
+    return (
+        f'<li><span class="dg-k">{DIAGRAM_KIND_WORDS[node.kind]}</span> '
+        f"{esc(_flat(node.label))}{tags}{nested}</li>"
+    )
+
+
+def _diagram_list(root: DiagramNode) -> str:
+    """Return the tree as a nested list in pre-order, folded on screen.
+
+    The drawing cuts a long label to its box; the list carries every label
+    whole, so print and screen readers lose none of it. Print opens it.
+    """
+
+    return (
+        f'<details class="mini dg-text"><summary>{DIAGRAM_TEXT_LABEL}</summary>'
+        f'<div class="body"><ul class="dg-list">{_diagram_item(root)}</ul></div>'
+        "</details>"
+    )
+
+
 def _mermaid_label(node: DiagramNode) -> str:
     """Return the node's label and its tags, as the SVG draws them, encoded."""
 
@@ -1307,10 +1360,12 @@ def and_or_diagram(
 ) -> Markup:
     """Render an and-or tree as offline SVG, left to right, with a live view.
 
-    The SVG is the complete diagram. Its Mermaid source sits beside it, and a
-    button loads the pinned library from its CDN, with Subresource Integrity,
-    only when the reader clicks it. *embedded* adds a control that saves that
-    data as *embedded_name* (by default ``<id>.json``).
+    The SVG is the complete diagram. A nested list after it says the same in
+    text, each node's kind, whole label and tags in pre-order; it is folded
+    behind "Tree as text" on screen and shown in print. The Mermaid source sits
+    beside them, and a button loads the pinned library from its CDN, with
+    Subresource Integrity, only when the reader clicks it. *embedded* adds a
+    control that saves that data as *embedded_name* (by default ``<id>.json``).
     """
 
     _check_id(id, "diagram id")
@@ -1334,6 +1389,7 @@ def and_or_diagram(
         f'<figure class="dg" id="{id}"><div class="dg-view"><svg class="dg-svg" '
         f'role="img" aria-label="{esc(label)}" width="{width}" height="{height}" '
         f'viewBox="-1 -1 {width} {height}">{edges}{boxes}</svg></div>'
+        f"{_diagram_list(root)}"
         f'<pre class="dg-src" hidden>{esc(_mermaid(placed))}</pre>'
         f'<button type="button" data-dg-load data-lib="{DIAGRAM_LIBRARY_URL}" '
         f'data-sri="{DIAGRAM_LIBRARY_SRI}">{DIAGRAM_LOAD_LABEL}</button>'

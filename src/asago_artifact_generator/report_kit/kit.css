@@ -137,6 +137,8 @@ dl.glossary{display:grid;grid-template-columns:180px 1fr;gap:6px 14px;font-size:
 .fm-n text,.dg-n text{font-size:12px;dominant-baseline:central}
 .fm-n text{fill:var(--on-status)}.fm-n.on-neutral text{fill:var(--ink)}.fm-n .fm-o{font-size:11px;font-style:italic}
 .mk.fl{fill:none;stroke-width:1.5}.fm a:hover rect,.fm a:focus-visible rect{stroke-width:3}
+.fm-hl .fm-n:not(.hl),.fm-hl .fl:not(.hl){opacity:.2}.fm-hl .fl.hl{stroke-width:3}.fm .fl.pin{stroke-width:4}.fm .fm-n.pin rect{stroke-width:3}
+.fh{fill:none;stroke:transparent;stroke-width:12;pointer-events:stroke}.js .fh,.js .fm-n{cursor:pointer}@media print{.fh{display:none}}
 .map-list{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .dg-b{fill:var(--surface);stroke:var(--muted);stroke-width:1}.dg-e{fill:none;stroke:var(--muted);stroke-width:1.25}
 .dg-n text{fill:var(--ink)}.dg-n .dg-g{font-size:11px;fill:var(--muted)}
@@ -147,5 +149,8 @@ dl.glossary{display:grid;grid-template-columns:180px 1fr;gap:6px 14px;font-size:
 [data-dg-load],[data-save]{display:none;margin:6px 8px 0 0}.js [data-dg-load],.js [data-save]{display:inline-block}
 [data-dg-load]:disabled{cursor:default;color:var(--muted)}
 .dg-live{overflow:auto;margin-top:8px}.dg-live:empty,.dg-msg:empty{display:none}.dg-msg{font-size:13.5px;color:var(--muted);margin:6px 0 0}
+details.dg-text{margin-top:6px}.dg-list{font-size:13.5px;margin:0;padding-left:18px}.dg-list ul{margin:0;padding-left:18px}.dg-list li{margin:2px 0}
+.dg-k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}.dg-t{color:var(--muted)}
 @media print{.theme,.toolbar,.filters,.copy,.js [data-dg-load],.js [data-save],.dg-live,.dg-msg{display:none}details>.body{display:block}details{break-inside:avoid}.dg-view{display:block}.map-list{position:static;width:auto;height:auto;overflow:visible;clip-path:none;white-space:normal}}
+@media print{details.dg-text::details-content{content-visibility:visible}}
 @media (max-width:760px){header.top .in{flex-wrap:wrap}.metrics{grid-template-columns:1fr 1fr}.cmp-cols{grid-template-columns:1fr}.fields{grid-template-columns:1fr}}
