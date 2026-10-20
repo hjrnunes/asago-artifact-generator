@@ -137,6 +137,8 @@ dl.glossary{display:grid;grid-template-columns:180px 1fr;gap:6px 14px;font-size:
 .fm-n text,.dg-n text{font-size:12px;dominant-baseline:central}
 .fm-n text{fill:var(--on-status)}.fm-n.on-neutral text{fill:var(--ink)}.fm-n .fm-o{font-size:11px;font-style:italic}
 .mk.fl{fill:none;stroke-width:1.5}.fm a:hover rect,.fm a:focus-visible rect{stroke-width:3}
+.fm-hl .fm-n:not(.hl),.fm-hl .fl:not(.hl){opacity:.2}.fm-hl .fl.hl{stroke-width:3}.fm .fl.pin{stroke-width:4}.fm .fm-n.pin rect{stroke-width:3}
+.fh{fill:none;stroke:transparent;stroke-width:12;pointer-events:stroke}.js .fh,.js .fm-n{cursor:pointer}@media print{.fh{display:none}}
 .map-list{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .dg-b{fill:var(--surface);stroke:var(--muted);stroke-width:1}.dg-e{fill:none;stroke:var(--muted);stroke-width:1.25}
 .dg-n text{fill:var(--ink)}.dg-n .dg-g{font-size:11px;fill:var(--muted)}

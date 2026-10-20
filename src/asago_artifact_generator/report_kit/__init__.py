@@ -1075,9 +1075,12 @@ def _map_link(link: MapLink, boxes: Mapping[str, _MapBox]) -> str:
     x1, y1 = source.x + _MAP_WIDTH, _num(source.middle)
     x2, y2 = target.x, _num(target.middle)
     bend = _MAP_GAP // 2
+    shape = f"M{x1},{y1}C{x1 + bend},{y1} {x2 - bend},{y2} {x2},{y2}"
+    # The drawn link is thin; a wide, unpainted copy right after it takes the
+    # pointer, so a link is easy to hover and click.
     return (
-        f'<path class="fl mk s-{link.tone}" '
-        f'd="M{x1},{y1}C{x1 + bend},{y1} {x2 - bend},{y2} {x2},{y2}"/>'
+        f'<path class="fl mk s-{link.tone}" data-from="{esc(link.source)}" '
+        f'data-to="{esc(link.target)}" d="{shape}"/><path class="fh" d="{shape}"/>'
     )
 
 
@@ -1143,6 +1146,14 @@ def flow_map(
     Links join a node to a node in the next column; an unknown node or a
     skipped column raises ``KitError``. The list after the drawing carries the
     same nodes and links for screen readers and print.
+
+    Each link names its two ends (``data-from``, ``data-to``), so the script
+    can light a box's whole path on hover or focus: every link and box upstream
+    of it and every one downstream, with the rest dimmed. A link lights its two
+    ends' paths the same way. A click pins the path until the same box or link
+    is clicked again, the map's empty space is clicked, or Escape is pressed;
+    a box with a link still follows it. Without the script the map is
+    unchanged.
     """
 
     _check_id(id, "map id")
