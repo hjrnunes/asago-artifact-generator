@@ -195,6 +195,16 @@ def test_a_shape_that_breaks_the_contract_is_a_typed_malformed_shape(relative: s
     assert isinstance(raised.value, InputSourceError)
 
 
+def test_the_taxonomy_block_is_accepted_but_stays_out_of_the_model_view() -> None:
+    view = load_input(_KIT / "valid" / "taxonomy-block.json")
+
+    assert view.payload["taxonomy"]["atlas_release"] == "2026.05"
+    assert "taxonomy" not in V5_FIELDS
+    projected = json.dumps(build_scenario_handoff_view(view))
+    assert "taxonomy" not in projected
+    assert "Excessive Agency" not in projected
+
+
 def test_a_view_exposes_the_shape_but_not_to_the_model_projection() -> None:
     view = load_input(_KIT / "valid" / "adversarial-direct-multi-turn.json")
 

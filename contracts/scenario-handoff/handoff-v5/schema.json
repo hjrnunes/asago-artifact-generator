@@ -1275,6 +1275,68 @@
       "title": "HandoffRule",
       "type": "object"
     },
+    "HandoffTaxonomy": {
+      "additionalProperties": false,
+      "description": "The ATLAS release the procedure cites and the scenario's OWASP references.\n\nThe references are the OWASP tags of the policy risks the scenario's\nlineage losses came from, sorted by scheme and id, each once.",
+      "properties": {
+        "atlas_release": {
+          "pattern": "^\\d{4}\\.\\d{2}$",
+          "title": "Atlas Release",
+          "type": "string"
+        },
+        "references": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/HandoffTaxonomyRef"
+          },
+          "title": "References",
+          "type": "array"
+        }
+      },
+      "required": [
+        "atlas_release"
+      ],
+      "title": "HandoffTaxonomy",
+      "type": "object"
+    },
+    "HandoffTaxonomyRef": {
+      "additionalProperties": false,
+      "description": "One OWASP Top 10 entry a scenario's losses map to, in its edition.",
+      "properties": {
+        "scheme": {
+          "enum": [
+            "owasp-llm",
+            "owasp-asi"
+          ],
+          "title": "Scheme",
+          "type": "string"
+        },
+        "edition": {
+          "pattern": "^\\d{4}$",
+          "title": "Edition",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^(LLM|ASI)\\d{2}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scheme",
+        "edition",
+        "id",
+        "name"
+      ],
+      "title": "HandoffTaxonomyRef",
+      "type": "object"
+    },
     "HandoffUca": {
       "additionalProperties": false,
       "description": "The unsafe control action in the STPA Handbook's five-part form.",
@@ -2593,6 +2655,18 @@
         }
       ],
       "description": "Object for adversarial scenarios; null for functional scenarios. Required, so a producer must decide."
+    },
+    "taxonomy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HandoffTaxonomy"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The ATLAS release and the OWASP 2026 references of the scenario's lineage losses. Absent when the producer did not supply them."
     },
     "uca": {
       "$ref": "#/$defs/HandoffUca"

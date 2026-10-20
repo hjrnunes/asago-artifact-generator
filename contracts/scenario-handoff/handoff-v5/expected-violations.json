@@ -293,6 +293,18 @@
     "artifact_design_field:role",
     "schema_violation:attack_path"
   ],
+  "invalid/taxonomy-bad-edition.json": [
+    "schema_violation:taxonomy"
+  ],
+  "invalid/taxonomy-extra-key.json": [
+    "schema_violation:taxonomy"
+  ],
+  "invalid/taxonomy-unknown-scheme.json": [
+    "schema_violation:taxonomy"
+  ],
+  "invalid/taxonomy-unsorted-references.json": [
+    "schema_violation:taxonomy"
+  ],
   "invalid/v5-actor-blank-goal.json": [
     "schema_violation:actor"
   ],
