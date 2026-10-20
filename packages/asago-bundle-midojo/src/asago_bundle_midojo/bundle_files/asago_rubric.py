@@ -15,12 +15,9 @@ Three things differ from Garak, each by what MiDojo hands a verifier:
 
 - A MiDojo verifier gets the final reply (``agent_output``) and the recorded calls
   (``function``, ``args``, ``result``, ``error``). It gets no prompt, so the check spec
-  carries ``user_text``. A single package's ``history`` is empty. A sequential package's
-  spec carries the earlier user turns as ``history``, and the judge grades the final
-  turn (``judge_turns`` is ``final``): MiDojo grades once, after the last turn, and
-  hands the verifier none of the earlier replies, which Garak's history interleaves
-  with the user turns. Evidence ``completeness`` is ``complete`` unless a call is
-  unsettled (the sink's ``no_response`` marker), where Garak uses the response status.
+  carries ``user_text``; a MiDojo evaluation holds one user message, so ``history`` is
+  empty. Evidence ``completeness`` is ``complete`` unless a call is unsettled (the sink's
+  ``no_response`` marker), where Garak uses the response status.
 - A recorded call's ``result`` is the string the recording proxy's sink posted (text
   blocks of the MCP result joined by newlines); the port decodes it the way Garak decodes
   a captured ``output``: ``json.loads``, and ``None`` when the text is not JSON or the call
@@ -52,9 +49,6 @@ JUDGE_VERDICTS = frozenset({"supported", "contradicted", "unresolved"})
 MAX_COMPLETION_TOKENS = 512
 TIMEOUT_SECONDS = 180.0
 SPEC_KEYS = frozenset({"rubric", "user_text", "judge_url", "judge_model", "verdict_file"})
-# A sequential package's spec also holds these two.
-TURN_KEYS = frozenset({"history", "judge_turns"})
-FINAL_TURN = "final"
 OUTCOMES = {"supported": "detected", "contradicted": "not_detected"}
 INCONCLUSIVE = "inconclusive"
 
@@ -592,17 +586,13 @@ class RubricCheck:
     judge_url: str
     judge_model: str
     verdict_file: Path
-    history: tuple[Mapping[str, Any], ...] = ()
 
 
 def parse_spec(spec: Any) -> RubricCheck:
     """Return the check of a rubric spec, or raise ``ValueError``."""
 
-    if not isinstance(spec, dict) or set(spec) not in (SPEC_KEYS, SPEC_KEYS | TURN_KEYS):
-        raise ValueError(
-            f"{RUBRIC_NAME} needs exactly the keys {sorted(SPEC_KEYS)}, "
-            f"or those and {sorted(TURN_KEYS)}"
-        )
+    if not isinstance(spec, dict) or set(spec) != SPEC_KEYS:
+        raise ValueError(f"{RUBRIC_NAME} needs exactly the keys {sorted(SPEC_KEYS)}")
     rubric = spec["rubric"]
     if not isinstance(rubric, dict) or not isinstance(rubric.get("question"), str):
         raise ValueError(f"{RUBRIC_NAME} rubric has no question text")
@@ -615,28 +605,7 @@ def parse_spec(spec: Any) -> RubricCheck:
         spec["judge_url"],
         spec["judge_model"],
         Path(spec["verdict_file"]),
-        _history(spec),
     )
-
-
-def _history(spec: dict[str, Any]) -> tuple[dict[str, str], ...]:
-    """Return a sequential spec's earlier user turns; the judge grades the final turn."""
-
-    if "history" not in spec:
-        return ()
-    if spec["judge_turns"] != FINAL_TURN:
-        raise ValueError(f"{RUBRIC_NAME} grades the final turn only, not {spec['judge_turns']!r}")
-    history = spec["history"]
-    if not isinstance(history, list) or not all(
-        isinstance(turn, dict)
-        and set(turn) == {"role", "content"}
-        and turn["role"] == "user"
-        and isinstance(turn["content"], str)
-        and turn["content"]
-        for turn in history
-    ):
-        raise ValueError(f"{RUBRIC_NAME} history is not a list of user turns")
-    return tuple({"role": "user", "content": turn["content"]} for turn in history)
 
 
 def write_verdict(path: Path, record: Mapping[str, Any]) -> None:
@@ -670,11 +639,7 @@ class RubricJudgeVerifier:
 
         calls = list(ctx.function_calls)
         evidence = build_evidence(
-            check.user_text,
-            check.history,
-            ctx.agent_output or "",
-            calls,
-            complete=is_complete(calls),
+            check.user_text, [], ctx.agent_output or "", calls, complete=is_complete(calls)
         )
         call = self._judge(check.judge_url, check.judge_model)
         record = judge_output(check.rubric, evidence, call)

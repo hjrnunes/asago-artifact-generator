@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,14 @@ from asago_bundle_core.slots import BUNDLE, fill
 from asago_bundle_core.text import canonical_text
 from asago_bundle_core.values import check_values, render_entrypoint
 
-from .compiler import BUNDLE_CODE, BUNDLE_FILE, ENTRYPOINT_VALUES, SUITE_FILE, USER_TURN_PREFIX
+from .compiler import (
+    BUNDLE_FILE,
+    ENTRYPOINT_VALUES,
+    SINGLE,
+    SUITE_FILE,
+    USER_TURN_PREFIX,
+    bundle_code,
+)
 
 TEMPLATE_KEYS = frozenset({"requires", "templates", "entrypoint", "serve"})
 # MiDojo replaces ``{task:probe}`` in a prompt with the active payload, or with
@@ -63,7 +70,9 @@ def instantiate_bundle(
         "entrypoint": _render(manifest["entrypoint"], out, values),
         "values_digest": hashlib.sha256(canonical_text(values).encode()).hexdigest(),
     }
-    _write(out, template, {SUITE_FILE: yaml_text(suite), BUNDLE_FILE: canonical_text(concrete)})
+    code = bundle_code(manifest.get("claim_level"), manifest.get("delivery", SINGLE))
+    documents = {SUITE_FILE: yaml_text(suite), BUNDLE_FILE: canonical_text(concrete)}
+    _write(out, template, documents, code)
     return concrete
 
 
@@ -154,10 +163,10 @@ def _read_json(path: Path) -> Any:
         raise InstantiateError(f"template file is unreadable: {path.name}: {exc}") from exc
 
 
-def _write(out: Path, template: Path, documents: dict[str, str]) -> None:
+def _write(out: Path, template: Path, documents: dict[str, str], names: Iterable[str]) -> None:
     if out.exists() and any(out.iterdir()):
         raise InstantiateError(f"output directory is not empty: {out}")
-    code = {name: _template_bytes(template, name) for name in BUNDLE_CODE}
+    code = {name: _template_bytes(template, name) for name in names}
     out.mkdir(parents=True, exist_ok=True)
     (out / Path(SUITE_FILE).parent).mkdir()
     for name, text in documents.items():

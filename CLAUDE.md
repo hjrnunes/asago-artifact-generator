@@ -120,8 +120,9 @@ Deterministic tests must not contact a model endpoint or target.
   packages exit 3.
   A reply package is graded by `asago_rubric.py`, a port of Garak's `RubricJudge` checked
   against vectors Garak computes (`tests/fixtures/rubric/`); MiDojo hands it only the final
-  reply, so a sequential package's judge grades the final turn (`judge_turns` `final`) with the
-  earlier user turns as history. A command attempt is graded by
+  reply, so a sequential package's judge (`asago_rubric_turns.py`, copied only into sequential
+  reply bundles) grades the final turn (`judge_turns` `final`) with the earlier user turns as
+  history. A command attempt is graded by
   MiDojo's builtin `tool_call_condition` predicate. `compile` takes `--midojo-base` (a
   mini-agents `mini-agents-midojo-base-v1` file) and `--domain`: the domain's ledger becomes the
   suite `environment` and the package's `seed.json` becomes probes (`environment.py`). Its suite

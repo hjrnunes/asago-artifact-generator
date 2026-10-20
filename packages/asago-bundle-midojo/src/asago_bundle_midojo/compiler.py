@@ -26,6 +26,7 @@ from asago_bundle_core.slots import bundle_slot, contains_marker, template_slots
 from asago_bundle_core.text import canonical_text
 
 from .bundle_files.asago_rubric import RUBRIC_NAME
+from .bundle_files.asago_rubric_turns import TURNS_RUBRIC_NAME
 from .bundle_files.verifier_names import NEUTRAL_NAME
 from .environment import EnvironmentFault, base_target, suite_environment
 
@@ -71,6 +72,12 @@ BUNDLE_CODE = {
     RUN_SCRIPT: (BUNDLE_FILES, "run_midojo.py"),
     f"{SUITE_PACKAGE}/verifier_names.py": (BUNDLE_FILES, "verifier_names.py"),
 }
+# A sequential reply bundle also gets the rubric judge of the final turn, and a suite
+# module that registers it; every other bundle's code stays ``BUNDLE_CODE``.
+TURNS_CODE = {
+    f"{SUITE_PACKAGE}/suite.py": (BUNDLE_FILES, "suite_module_turns.py"),
+    f"{SUITE_PACKAGE}/asago_rubric_turns.py": (BUNDLE_FILES, "asago_rubric_turns.py"),
+}
 RUN_DUMP = "control-plane/run.json"
 EVALUATION_DUMP = "control-plane/evaluation.json"
 RESULTS_FILE = "midojo-logs/results.json"
@@ -111,8 +118,16 @@ def compile_package(
     suite = suite_template(package, level, environment, probes, turns)
     requires = sorted(template_slots([suite]) | set(ENTRYPOINT_VALUES))
     manifest = bundle_manifest(package, level, requires, delivery)
-    _write(out, {SUITE_TEMPLATE: suite, BUNDLE_FILE: manifest})
+    _write(out, {SUITE_TEMPLATE: suite, BUNDLE_FILE: manifest}, bundle_code(level, delivery))
     return manifest
+
+
+def bundle_code(level: str, delivery: str) -> dict[str, tuple[str, str]]:
+    """Return the code a bundle of ``level`` and ``delivery`` copies (see ``BUNDLE_CODE``)."""
+
+    if level == REPLY and delivery == SEQUENTIAL:
+        return {**BUNDLE_CODE, **TURNS_CODE}
+    return BUNDLE_CODE
 
 
 def claim_level(plan: Any) -> str:
@@ -234,7 +249,7 @@ def _security_check(
     """Return the predicate name and spec that grade the claim."""
 
     if level == REPLY:
-        return RUBRIC_NAME, {
+        return RUBRIC_NAME if turns is None else TURNS_RUBRIC_NAME, {
             "rubric": _rubric(package),
             **_judged_text(turns),
             "judge_url": value_slot("judge_url"),
@@ -277,7 +292,7 @@ def bundle_manifest(
         "package_digest": package.manifest.manifest_digest,
         "claim_level": level,
         "delivery": delivery,
-        "plugins": [RUBRIC_NAME, NEUTRAL_NAME] if reply else [NEUTRAL_NAME],
+        "plugins": [_rubric_name(delivery), NEUTRAL_NAME] if reply else [NEUTRAL_NAME],
         "requires": requires,
         "environment": ["OPENAI_API_KEY", JUDGE_KEY] if reply else ["OPENAI_API_KEY"],
         "templates": {"suite": SUITE_TEMPLATE},
@@ -320,6 +335,10 @@ def bundle_manifest(
         ],
         "native_outputs": list(NATIVE_OUTPUTS[level]),
     }
+
+
+def _rubric_name(delivery: str) -> str:
+    return TURNS_RUBRIC_NAME if delivery == SEQUENTIAL else RUBRIC_NAME
 
 
 def _base_target(path: Path, domain: str) -> dict[str, Any]:
@@ -376,20 +395,20 @@ def _json_member(package: ArtifactPackage, name: str) -> Any:
         raise CompileError(f"package {name} is not JSON: {exc}") from exc
 
 
-def _write(out: Path, documents: dict[str, Any]) -> None:
+def _write(out: Path, documents: dict[str, Any], code: dict[str, tuple[str, str]]) -> None:
     if out.exists() and any(out.iterdir()):
         raise CompileError(f"output directory is not empty: {out}")
     out.mkdir(parents=True, exist_ok=True)
     (out / SUITE_PACKAGE).mkdir()
     for name, document in documents.items():
         (out / name).write_text(canonical_text(document), encoding="utf-8")
-    write_bundle_code(out)
+    write_bundle_code(out, code)
 
 
-def write_bundle_code(out: Path) -> None:
-    """Copy each file of ``BUNDLE_CODE`` byte for byte to its bundle path under ``out``."""
+def write_bundle_code(out: Path, code: dict[str, tuple[str, str]] = BUNDLE_CODE) -> None:
+    """Copy each file of ``code`` byte for byte to its bundle path under ``out``."""
 
-    for name, (package, original) in BUNDLE_CODE.items():
+    for name, (package, original) in code.items():
         target = out / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(files(package).joinpath(original).read_bytes())

@@ -50,6 +50,7 @@ from .compiler import (
     SEQUENTIAL,
     SUITE_FILE,
     TOOL,
+    TURNS_CODE,
     VERDICT_FILE,
 )
 from .environment import placeholder
@@ -64,7 +65,8 @@ JUDGE_OUTCOMES = {
     "contradicted": "not_detected",
     "unresolved": "inconclusive",
 }
-DIGESTED = (BUNDLE_FILE, SUITE_FILE, *BUNDLE_CODE)
+# A file a bundle lacks (``TURNS_CODE`` in all but a sequential reply bundle) is left out.
+DIGESTED = (BUNDLE_FILE, SUITE_FILE, *BUNDLE_CODE, *TURNS_CODE)
 MANIFEST_KEYS = frozenset({"scenario_id", "package_digest", "claim_level"})
 RUNTIME_LISTS = (
     "processes",
@@ -171,14 +173,17 @@ def read_bundle(root: Path) -> Bundle:
 def build_attempt(bundle: Bundle, records: Records) -> tuple[dict[str, Any] | None, str | None]:
     """Return the run's one attempt and why the run cannot be graded, if it cannot.
 
-    Only a sequential run whose turn failed keeps its attempt: the turns it sent.
+    A sequential run whose turn failed is the one exception to the order of ``CHECKS``:
+    MiDojo completes and grades an evaluation only after every turn got its reply, so
+    the failed turn, not the missing grade, is the reason, and the receipt keeps the
+    attempt of the turns sent (``failed_turn``).
     """
 
     control, reason = read_control_plane(bundle)
     if control is None:
         return None, reason
     if bundle.turns is not None:
-        attempt, reason = conversation_failure(control, bundle, records)
+        attempt, reason = failed_turn(control, bundle, records)
         if reason:
             return attempt, reason
     evidence, reason = read_evidence(bundle, control)
@@ -336,7 +341,7 @@ def _prompt_matches(evidence: Evidence, bundle: Bundle, records: Records) -> str
     """A single run sent the bundle's prompt; a sequential one, a prefix of its turns."""
 
     if bundle.turns is not None:
-        return _turn_inputs(evidence, bundle, records)
+        return _turns_match(evidence, bundle, records)
     same = evidence.evaluation.get("agent_input") == bundle.prompt
     return None if same else "agent_input_mismatch"
 
@@ -403,6 +408,8 @@ def _records_agree(evidence: Evidence, bundle: Bundle, records: Records) -> str 
         evidence.evaluation["function_calls"]
     ):
         return "tool_call_count_mismatch"
+    if bundle.turns is not None and records.calls is not None:
+        return _proxy_calls_match(evidence.evaluation["function_calls"], records.calls)
     return None
 
 
@@ -422,18 +429,31 @@ CHECKS: tuple[Check, ...] = (
 # --- the turns of a sequential run ---------------------------------------------------------
 
 
+def _turns_match(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
+    """The sequential check in the place of the prompt's: the turns and the calls' turns."""
+
+    for check in (_turns_shape, _turn_inputs, _call_turns):
+        reason = check(evidence, bundle, records)
+        if reason:
+            return reason
+    return None
+
+
 def _turns_shape(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
     """The evaluation's turns are numbered from 0, each with its message text."""
 
-    turns = evidence.evaluation.get("turns")
-    ok = isinstance(turns, list) and all(
+    return None if well_formed_turns(evidence.evaluation) else "turns_malformed"
+
+
+def well_formed_turns(evaluation: dict[str, Any]) -> bool:
+    turns = evaluation.get("turns")
+    return isinstance(turns, list) and all(
         isinstance(turn, dict)
-        and turn.get("index") == position
         and type(turn.get("index")) is int
+        and turn["index"] == position
         and isinstance(turn.get("message"), str)
         for position, turn in enumerate(turns)
     )
-    return None if ok else "turns_malformed"
 
 
 def _turn_inputs(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
@@ -445,47 +465,57 @@ def _turn_inputs(evidence: Evidence, bundle: Bundle, records: Records) -> str | 
 
 
 def _call_turns(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
-    """Every control-plane call names a planned turn; none is placed by default."""
+    """Every control-plane call names a turn MiDojo sent; none is placed by default."""
 
+    sent = len(evidence.evaluation["turns"])
     for call in evidence.evaluation["function_calls"]:
         turn = call.get("turn")
         if turn is None:
             return "call_turn_missing"
-        if type(turn) is not int or not 0 <= turn < len(bundle.turns):
+        if type(turn) is not int or not 0 <= turn < sent:
             return "call_turn_out_of_range"
     return None
 
 
-# The checks a sequential run passes before its turns are counted.
-CONVERSATION_CHECKS: tuple[Check, ...] = (
-    _evaluation_count,
-    _evaluation_identity,
-    _calls_shape,
-    _turns_shape,
-    _turn_inputs,
-    _call_turns,
-    _records_agree,
-)
+def _proxy_calls_match(
+    function_calls: list[dict[str, Any]], proxy: list[dict[str, Any]]
+) -> str | None:
+    """Each proxy call is the control-plane call at its position, whose turn it takes.
+
+    The proxy lists calls as their requests arrive and the control plane as the sink
+    delivers them, once settled, so the two orders can differ. The names must agree,
+    and the arguments too when both sides hold them as objects.
+    """
+
+    for call, recorded in zip(proxy, function_calls, strict=True):
+        arguments, args = call.get("arguments"), recorded.get("args")
+        if call.get("name") != recorded.get("function") or (
+            isinstance(arguments, dict) and isinstance(args, dict) and arguments != args
+        ):
+            return "tool_call_mismatch"
+    return None
 
 
-def conversation_failure(
+def failed_turn(
     control: tuple[dict[str, Any], dict[str, Any]], bundle: Bundle, records: Records
 ) -> tuple[dict[str, Any] | None, str | None]:
-    """Return why a sequential run's conversation cannot be graded, with the turns it sent.
+    """Return ``turn_failed:<position>`` and the attempt of the turns sent, or no reason.
 
-    A conversation whose records fail a check has no attempt. One that ends before its
-    last turn, or holds a turn without a reply, keeps the attempt of the turns it sent.
+    Turns that are not well formed are left to ``_turns_shape`` in its place. The
+    attempt is written only when the records it shows pass their checks; otherwise
+    the receipt names the failed turn and holds no attempt.
     """
 
     run, evaluation = control
-    unread = Evidence(run, evaluation, {})
-    for check in CONVERSATION_CHECKS:
-        reason = check(unread, bundle, records)
-        if reason:
-            return None, reason
+    if not well_formed_turns(evaluation):
+        return None, None
     reason = turn_failure(evaluation["turns"], len(bundle.turns))
     if reason is None:
         return None, None
+    unread = Evidence(run, evaluation, {})
+    for check in SENT_TURN_CHECKS:
+        if check(unread, bundle, records):
+            return None, reason
     level = bundle.manifest["claim_level"]
     source, calls = sequential_calls(evaluation["function_calls"], records)
     replies = turn_replies(evaluation["turns"])
@@ -513,11 +543,26 @@ def conversation_failure(
     }, reason
 
 
+# The checks of the records a failed turn's attempt shows.
+SENT_TURN_CHECKS: tuple[Check, ...] = (
+    _evaluation_count,
+    _evaluation_identity,
+    _calls_shape,
+    _turn_inputs,
+    _call_turns,
+    _records_agree,
+)
+
+
 def turn_failure(turns: list[dict[str, Any]], planned: int) -> str | None:
-    """Return ``turn_failed:<position>`` for the first turn without a reply, else None."""
+    """Return ``turn_failed:<position>`` for the first turn without a reply, else None.
+
+    An empty reply is no reply, as Garak's ``EmptyReply``.
+    """
 
     for turn in turns:
-        if not isinstance(turn.get("reply"), str):
+        reply = turn.get("reply")
+        if not isinstance(reply, str) or not reply:
             return f"turn_failed:{turn['index'] + 1}"
     if len(turns) < planned:
         return f"turn_failed:{len(turns) + 1}"
@@ -535,8 +580,8 @@ def sequential_calls(
 ) -> tuple[str, list[dict[str, Any]]]:
     """Return the observed calls, each with the turn MiDojo stamped on its control-plane call.
 
-    The proxy's calls and the control plane's are the same calls in the same order
-    (``_records_agree`` holds their counts equal).
+    A proxy call takes the turn of the control-plane call it matches by position
+    (``_records_agree`` has checked the counts and ``_proxy_calls_match`` each pair).
     """
 
     source, calls = observed_calls(function_calls, records)

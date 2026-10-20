@@ -66,10 +66,12 @@ def seed_item(
     return {"slot": slot, "record_ref": record, "mode": mode, "content": content}
 
 
-def write_seeded_package(root: Path, seed: dict[str, Any]) -> Path:
+def write_seeded_package(
+    root: Path, seed: dict[str, Any], stimulus: dict[str, Any] | None = None
+) -> Path:
     """A command-attempt package that also holds ``seed.json``, written with the package writer."""
 
-    plain = write_test_package(root / "plain")
+    plain = write_test_package(root / "plain", stimulus=stimulus)
     members = {
         path.name: path.read_bytes()
         for path in plain.iterdir()
