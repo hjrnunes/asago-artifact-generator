@@ -599,3 +599,14 @@ def test_a_malformed_suite_condition_raises_a_parse_error(bundle: Path, conditio
 
     with pytest.raises(ParseError, match="condition is invalid"):
         parse_bundle(bundle, bundle / "receipt.json")
+
+
+def test_a_bundle_compiled_before_the_builtin_predicate_names_the_cause(bundle: Path) -> None:
+    write_native(bundle)
+    suite_path = bundle / "asago_suite/suite.yaml"
+    suite = json.loads(suite_path.read_text(encoding="utf-8"))
+    suite["injection_tasks"][0]["security"] = {"verifier": "condition"}
+    suite_path.write_text(json.dumps(suite), encoding="utf-8")
+
+    with pytest.raises(ParseError, match="no tool_call_condition.*recompile the package"):
+        parse_bundle(bundle, bundle / "receipt.json")

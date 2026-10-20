@@ -132,7 +132,13 @@ def read_bundle(root: Path) -> Bundle:
         suite = json.loads((root / SUITE_FILE).read_text(encoding="utf-8"))
         prompt = suite["user_tasks"][0]["prompt"]
         if manifest.get("claim_level") == COMMAND_ATTEMPT:
-            condition = suite["injection_tasks"][0]["security"]["tool_call_condition"]
+            security = suite["injection_tasks"][0]["security"]
+            if "tool_call_condition" not in security:
+                raise ParseError(
+                    "the suite has no tool_call_condition: it was compiled before the builtin "
+                    "MiDojo predicate; recompile the package"
+                )
+            condition = security["tool_call_condition"]
             problem = validate_condition(condition)
             if problem:
                 raise ParseError(f"the suite's condition is invalid: {problem}")

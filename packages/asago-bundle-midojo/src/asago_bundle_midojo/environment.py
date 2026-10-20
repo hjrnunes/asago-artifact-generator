@@ -83,7 +83,7 @@ def _plant(
         raise EnvironmentFault(
             f"seed item {index}: record {record_ref!r} is not a record of slot {slot['id']}"
         )
-    operation = item.get("mode", item.get("operation"))
+    operation = item.get("mode")
     if operation not in (REPLACE, APPEND):
         raise EnvironmentFault(f"seed item {index}: unknown operation {operation!r}")
     try:
