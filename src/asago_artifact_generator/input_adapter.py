@@ -564,6 +564,18 @@ def _procedure_chain(steps: list[dict[str, Any]], path: str) -> _Break:
     return None
 
 
+def _taxonomy_references(taxonomy: dict[str, Any], path: str) -> _Break:
+    """List the references sorted by scheme and id, each once.
+
+    The rule is the producer's ``HandoffTaxonomy.validate_reference_order``; keep both in step.
+    """
+
+    keys = [(ref["scheme"], ref["id"]) for ref in taxonomy.get("references", [])]
+    if keys != sorted(set(keys)):
+        return f"{path}.references", "must be sorted by scheme and id, each once"
+    return None
+
+
 def _tool_call_status_reason(status: dict[str, Any], path: str) -> _Break:
     if (status["status"] == "bound") != (status["reason"] == "bound"):
         return path, "reason must be bound exactly when the status is bound"
@@ -609,6 +621,7 @@ _HAND_RULES: tuple[tuple[str, tuple[Any, ...]], ...] = (
     ("safe_observable_outcome", (_safe_outcome_claim, _safe_outcome_refs)),
     ("deduplication", (_deduplication,)),
     ("tool_call_condition_status", (_tool_call_status_reason,)),
+    ("taxonomy", (_taxonomy_references,)),
 )
 
 
