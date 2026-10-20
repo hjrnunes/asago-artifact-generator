@@ -293,10 +293,16 @@
     "artifact_design_field:role",
     "schema_violation:attack_path"
   ],
+  "invalid/taxonomy-asi-scheme-llm-id.json": [
+    "schema_violation:taxonomy"
+  ],
   "invalid/taxonomy-bad-edition.json": [
     "schema_violation:taxonomy"
   ],
   "invalid/taxonomy-extra-key.json": [
+    "schema_violation:taxonomy"
+  ],
+  "invalid/taxonomy-llm-scheme-asi-id.json": [
     "schema_violation:taxonomy"
   ],
   "invalid/taxonomy-unknown-scheme.json": [

@@ -1301,7 +1301,47 @@
     },
     "HandoffTaxonomyRef": {
       "additionalProperties": false,
-      "description": "One OWASP Top 10 entry a scenario's losses map to, in its edition.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "scheme": {
+                "const": "owasp-llm"
+              }
+            },
+            "required": [
+              "scheme"
+            ]
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^LLM\\d{2}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "scheme": {
+                "const": "owasp-asi"
+              }
+            },
+            "required": [
+              "scheme"
+            ]
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^ASI\\d{2}$"
+              }
+            }
+          }
+        }
+      ],
+      "description": "One OWASP Top 10 entry a scenario's losses map to, in its edition.\n\nThe id belongs to the scheme: ``LLMnn`` under ``owasp-llm``, ``ASInn``\nunder ``owasp-asi``. The schema states the pairing with one if/then block\nper scheme.",
       "properties": {
         "scheme": {
           "enum": [

@@ -1,6 +1,6 @@
 {
   "content_sha256": {
-    "expected-violations.json": "17d7d0fc3c6e5a9c3f97b5d7c146c1d1f6a854c3d33563431410d74ff8b5987b",
+    "expected-violations.json": "e0ec4c65686fe19addc8c08e1d1ba8a7f4401f7a84a09ba1465c4191b2068fea",
     "invalid/narrative-role-serialization.json": "a5e7f5bad74121ee72db41df6ed86a0a935e9432f77088cc1e697e8359c01b88",
     "invalid/narrative-turn-array.json": "588d4ac0982c1148c06e4ca60499b2a53c5c44adc046aaa18afe7f347bea2c42",
     "invalid/ownership-deliver-this-message.json": "d7872da7e52e9a22c937e18bda9256825f8740dc6d6feaa74596f053c83e529b",
@@ -94,8 +94,10 @@
     "invalid/shape-turns-array-key.json": "282757bf7d9f58645ee05c3b2a647c0201bb05821f94fc25b356626171ccd5c3",
     "invalid/smuggled-prose.json": "ae829b5d0e10c1927376eac4586bc9accaebdb7f8985770d08ad6260887ccfdc",
     "invalid/stimulus-turn-field.json": "b0941ae291da359f657d33cbdf7e8974662a2de3e9e624b49e82dd909a1c0fc2",
+    "invalid/taxonomy-asi-scheme-llm-id.json": "4ef411d1efb9bd134d44717a5c33e0f5d8fac257be9a03148c1a64ec4cc49745",
     "invalid/taxonomy-bad-edition.json": "73cc509a98ffc3cce9aa1bd8090ae858693193d5ba519fead9d32633704f3e82",
     "invalid/taxonomy-extra-key.json": "908d02a14feceb88d9ade73db76946cc12c5e29447abd3c63bf355d58bd56262",
+    "invalid/taxonomy-llm-scheme-asi-id.json": "e92a0f1208b0aa8a535ce58be0308240916bf51d196aa617e9873ef947ddb1cd",
     "invalid/taxonomy-unknown-scheme.json": "80838d73e2b7e96c1420a2893bc288cba47e20a67e54c5fdc2111fd87863dd4b",
     "invalid/taxonomy-unsorted-references.json": "fa58ec11ae023b3d2ee8d6f415ef114640ffe8582989ee8f26447a8214ab8641",
     "invalid/v5-actor-blank-goal.json": "daf196b3ec58b8d563186a23871989f0ffa2f0bdfb54a27be1ee3d2795c82f8d",
@@ -146,7 +148,7 @@
     "invalid/v5-uca-unknown-field.json": "7dd0a448036406793a6887b7dc341636a52381a19224d2ebd8acdaa7d78f2e49",
     "invalid/v5-worst-case-threat-blank.json": "c82679990ebbfb94940eaf53cb0700c8e0e84e619a8c8d97cf467f3ea0a5897d",
     "invalid/v5-worst-case-threat-missing.json": "2f8b59e8bb8e2b963971b1ed9c991cc8d41a065fa6e6f5eca13ae41f20a1999c",
-    "schema.json": "730c4376d0da4534d7579c8edf5b7ff756e4d6d5de95a6fdb3b6dccda2a0031e",
+    "schema.json": "70752d673f909268c2d25a310e3fd26dae82b6f1ed3fbbc616ce9fcb21cceef2",
     "valid/adversarial-condition-omitted.json": "de567792ab0a689e5a1cb2bc2b4da3eb439be96a607b3088498a457422eedcd0",
     "valid/adversarial-direct-multi-turn.json": "812264273283a647c2c0d3b68844f0e3325e344db1dbdac35acb175cf910cd52",
     "valid/adversarial-direct-single.json": "cfd6692c17b3106f9eca32c975299d9a1a7d4854de3c096c8feda9a302626bd1",

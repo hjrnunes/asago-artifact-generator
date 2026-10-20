@@ -205,6 +205,29 @@ def test_the_taxonomy_block_is_accepted_but_stays_out_of_the_model_view() -> Non
     assert "Excessive Agency" not in projected
 
 
+@pytest.mark.parametrize(
+    ("relative", "scheme", "code"),
+    [
+        ("invalid/taxonomy-asi-scheme-llm-id.json", "owasp-asi", "LLM03"),
+        ("invalid/taxonomy-llm-scheme-asi-id.json", "owasp-llm", "ASI02"),
+    ],
+)
+def test_a_taxonomy_id_of_the_other_scheme_is_refused(
+    relative: str, scheme: str, code: str
+) -> None:
+    references = json.loads((_KIT / relative).read_text(encoding="utf-8"))["taxonomy"][
+        "references"
+    ]
+    assert {"scheme": scheme, "id": code} in [
+        {"scheme": ref["scheme"], "id": ref["id"]} for ref in references
+    ]
+
+    with pytest.raises(InputSourceError) as raised:
+        load_input(_KIT / relative)
+
+    assert raised.value.codes == ("schema_violation:taxonomy",)
+
+
 def test_a_view_exposes_the_shape_but_not_to_the_model_projection() -> None:
     view = load_input(_KIT / "valid" / "adversarial-direct-multi-turn.json")
 
