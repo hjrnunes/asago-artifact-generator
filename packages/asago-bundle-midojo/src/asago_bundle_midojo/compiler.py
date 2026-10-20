@@ -33,8 +33,10 @@ from .environment import EnvironmentFault, base_target, suite_environment
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "midojo"
 TOOL_REVISION_RANGE = ">=5efb3de8"
-# A user task's ``turns`` and each call's ``turn`` arrived on asago/main at 29d2b6e.
-TURNS_REVISION_RANGE = ">=29d2b6e9"
+# A user task's ``turns`` and each call's ``turn`` arrived on asago/main at 29d2b6e, and a
+# verifier's ``VerificationContext.turns`` (the conversation the sequential judge reads) at
+# bddb79b.
+TURNS_REVISION_RANGE = ">=bddb79bc"
 # MiDojo's builtin predicate; its value is the condition object itself.
 TOOL_CALL_CONDITION = "tool_call_condition"
 COMMAND_ATTEMPT = "command_attempt"
@@ -72,7 +74,7 @@ BUNDLE_CODE = {
     RUN_SCRIPT: (BUNDLE_FILES, "run_midojo.py"),
     f"{SUITE_PACKAGE}/verifier_names.py": (BUNDLE_FILES, "verifier_names.py"),
 }
-# A sequential reply bundle also gets the rubric judge of the final turn, and a suite
+# A sequential reply bundle also gets the rubric judge of the conversation, and a suite
 # module that registers it; every other bundle's code stays ``BUNDLE_CODE``.
 TURNS_CODE = {
     f"{SUITE_PACKAGE}/suite.py": (BUNDLE_FILES, "suite_module_turns.py"),
@@ -260,11 +262,12 @@ def _security_check(
 
 
 def _judged_text(turns: int | None) -> dict[str, Any]:
-    """Return the user text the judge sees and, for a sequential package, its history.
+    """Return the user text the judge sees and, for a sequential package, the planned turns.
 
-    MiDojo grades once, after the last turn, and hands the verifier only the final reply,
-    so the judge grades the final turn: its user text is the last turn and its history
-    the earlier user turns (``judge_turns`` must be ``final``).
+    A sequential spec names its user turns: ``user_text`` the last and ``history`` the
+    earlier ones. The judge reads the conversation MiDojo recorded, checks that it holds
+    those turns, and judges the turns ``judge_turns`` names (``final`` or ``all``), each
+    with the earlier messages and replies as its history (``asago_rubric_turns``).
     """
 
     if turns is None:

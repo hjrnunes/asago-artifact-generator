@@ -38,9 +38,8 @@ PROBE_PLACEHOLDER = re.compile(r"\{([A-Za-z_]\w*):([A-Za-z_]\w*)\}")
 # Characters PyYAML refuses or folds inside a quoted scalar; JSON text escapes them.
 YAML_UNSAFE = re.compile("[\x7f-\x9f\u2028\u2029\ufeff\ufffe\uffff]")
 MAX_PORT = 65535
-# MiDojo grades once, after the last turn, and its verifier sees only the final
-# reply, so the judge cannot grade the earlier turns (Garak's ``all``).
-JUDGE_TURNS = frozenset({"final"})
+# The turns a sequential reply bundle's judge grades, as Garak's ``judge_turns``.
+JUDGE_TURNS = frozenset({"final", "all"})
 
 
 class InstantiateError(BundleError):

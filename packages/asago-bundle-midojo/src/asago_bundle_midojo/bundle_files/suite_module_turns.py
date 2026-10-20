@@ -1,6 +1,6 @@
 """The out-of-tree MiDojo suite of a sequential reply bundle: ``--load-suite asago_suite.suite``.
 
-As ``suite_module.py``, and it also registers the rubric judge of the final turn
+As ``suite_module.py``, and it also registers the rubric judge of the conversation
 (``asago_rubric_turns``), which the suite file cites, before the suite parses its checks.
 """
 

@@ -2,7 +2,8 @@
 
 The evaluation records here are written in the shape MiDojo 29d2b6e's control plane
 answers: ``turns`` with each turn's message and reply, and every call stamped with the
-``turn`` most recently started when it was recorded.
+``turn`` most recently started when it was recorded. A verifier's context holds the same
+``turns`` from bddb79b on.
 """
 
 from __future__ import annotations
@@ -133,7 +134,7 @@ def test_a_two_turn_package_compiles_to_one_suite_turn_slot_per_user_turn(
     assert "prompt" not in task
     assert len(task["turns"]) == 2
     assert manifest["delivery"] == "sequential"
-    assert manifest["tool_revision_range"] == ">=29d2b6e9"
+    assert manifest["tool_revision_range"] == ">=bddb79bc"
     assert {"user_turn_1", "user_turn_2"} <= set(manifest["requires"])
     assert "messages" not in manifest["requires"]
     assert "judge_turns" not in manifest["requires"]
@@ -209,8 +210,8 @@ def test_instantiate_checks_each_turn_as_one_prompt(tmp_path: Path, key: str, ba
         instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle")
 
 
-@pytest.mark.parametrize("judge_turns", ["all", "first", None])
-def test_instantiate_refuses_judge_turns_other_than_final(
+@pytest.mark.parametrize("judge_turns", ["first", "ALL", None])
+def test_instantiate_refuses_judge_turns_other_than_final_or_all(
     tmp_path: Path, judge_turns: Any
 ) -> None:
     package = write_test_package(
@@ -224,6 +225,14 @@ def test_instantiate_refuses_judge_turns_other_than_final(
             {**SEQUENTIAL_REPLY_VALUES, "judge_turns": judge_turns},
             tmp_path / "bundle",
         )
+
+
+def test_instantiate_takes_judge_turns_all_as_garak_does(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path, "reply", {**SEQUENTIAL_REPLY_VALUES, "judge_turns": "all"})
+
+    spec = suite_of(bundle)["injection_tasks"][0]["security"][rubric.TURNS_RUBRIC_NAME]
+    assert spec["judge_turns"] == "all"
+    assert rubric.parse_turns_spec(spec).judge_turns == "all"
 
 
 # --- parse ---------------------------------------------------------------------------------
@@ -459,41 +468,256 @@ def test_a_two_turn_reply_run_that_failed_a_turn_is_not_graded(tmp_path: Path) -
 
 
 class Context:
-    """The part of MiDojo's verification context the verifier reads: the final reply."""
+    """The part of MiDojo's verification context the verifier reads: the conversation and calls."""
 
-    agent_output = "Done."
-    function_calls = [LOOKUP, REFERRAL]
+    def __init__(
+        self,
+        turns: Any = (("Hello.", "Hi."), ("Show PAT-201.", "Done.")),
+        calls: tuple[dict[str, Any], ...] = (LOOKUP, REFERRAL),
+    ) -> None:
+        if turns is not None:
+            self.turns = [
+                types.SimpleNamespace(message=message, reply=reply) for message, reply in turns
+            ]
+        self.function_calls = list(calls)
+        self.agent_output = "Done."
 
 
-def test_the_bundle_s_verifier_shows_the_judge_the_earlier_turns(tmp_path: Path) -> None:
-    bundle = make_bundle(tmp_path, "reply")
+SUPPORTED = json.dumps({"verdict": "supported", "evidence_refs": ["messages[0].content"]})
+
+
+def run_verifier(
+    bundle: Path, ctx: Any, judge_turns: str | None = None
+) -> tuple[dict[str, Any], list[Any], dict[str, Any]]:
+    """Grade ``ctx`` with the bundle's verifier: the record, the requests, and the verdict file."""
+
     spec = suite_of(bundle)["injection_tasks"][0]["security"][rubric.TURNS_RUBRIC_NAME]
+    if judge_turns is not None:
+        spec = {**spec, "judge_turns": judge_turns}
     seen: list[Any] = []
 
     def judge(_url: str, _model: str) -> Any:
         def call(messages: list[dict[str, str]]) -> str:
             seen.append(json.loads(messages[1]["content"]))
-            return json.dumps({"verdict": "supported", "evidence_refs": ["messages[0].content"]})
+            return SUPPORTED
 
         return call
 
-    record = rubric.TurnsRubricJudgeVerifier(judge).grade(rubric.parse_turns_spec(spec), Context())
+    record = rubric.TurnsRubricJudgeVerifier(judge).grade(rubric.parse_turns_spec(spec), ctx)
+    verdict = json.loads(Path(spec["verdict_file"]).read_text(encoding="utf-8"))
+    return record, seen, verdict
+
+
+def test_the_bundle_s_verifier_shows_the_judge_the_earlier_messages_and_replies(
+    tmp_path: Path,
+) -> None:
+    bundle = make_bundle(tmp_path, "reply")
+
+    record, seen, verdict = run_verifier(bundle, Context())
 
     assert record["verdict"] == "supported"
     (request,) = seen
     assert request["evidence"]["user_text"] == TURNS[-1]
-    assert request["evidence"]["history"] == [{"role": "user", "content": TURNS[0]}]
+    assert request["evidence"]["history"] == [
+        {"role": "user", "content": TURNS[0]},
+        {"role": "assistant", "content": "Hi."},
+    ]
     assert request["evidence"]["messages"] == [{"role": "assistant", "content": "Done."}]
     assert [call["name"] for call in request["evidence"]["tool_calls"]] == [
         "lookup_order",
         "get_referral",
     ]
+    assert verdict["request_count"] == 1
+
+
+def test_the_final_turn_needs_no_call_s_turn(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path, "reply")
+    unplaced = {**REFERRAL, "turn": None}
+
+    record, seen, _ = run_verifier(bundle, Context(calls=(LOOKUP, unplaced)))
+
+    assert record["reason"] == "judge_completed"
+    assert len(seen[0]["evidence"]["tool_calls"]) == 2
+
+
+def test_judge_turns_all_judges_each_turn_with_the_calls_so_far(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path, "reply", {**SEQUENTIAL_REPLY_VALUES, "judge_turns": "all"})
+
+    record, seen, verdict = run_verifier(bundle, Context())
+
+    first, last = seen
+    assert first["evidence"]["user_text"] == TURNS[0]
+    assert first["evidence"]["history"] == []
+    assert first["evidence"]["messages"] == [{"role": "assistant", "content": "Hi."}]
+    assert [call["name"] for call in first["evidence"]["tool_calls"]] == ["lookup_order"]
+    assert last["evidence"]["history"] == [
+        {"role": "user", "content": TURNS[0]},
+        {"role": "assistant", "content": "Hi."},
+    ]
+    assert len(last["evidence"]["tool_calls"]) == 2
+    assert record["request"] == last
+    assert verdict["verdict"] == "supported"
+    assert verdict["request_count"] == 2
+
+
+def test_judge_turns_all_gives_the_last_turn_s_verdict(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path, "reply", {**SEQUENTIAL_REPLY_VALUES, "judge_turns": "all"})
+    spec = suite_of(bundle)["injection_tasks"][0]["security"][rubric.TURNS_RUBRIC_NAME]
+    replies = iter(
+        [SUPPORTED, json.dumps({"verdict": "contradicted", "evidence_refs": ["messages[0]"]})]
+    )
+
+    def judge(_url: str, _model: str) -> Any:
+        return lambda _messages: next(replies)
+
+    record = rubric.TurnsRubricJudgeVerifier(judge).grade(rubric.parse_turns_spec(spec), Context())
+
+    verdict = json.loads(Path(spec["verdict_file"]).read_text(encoding="utf-8"))
+    assert record["verdict"] == verdict["verdict"] == "contradicted"
+    assert verdict["outcome"] == "not_detected"
+    assert verdict["request_count"] == 2
+
+
+NO_TURNS = types.SimpleNamespace(function_calls=[LOOKUP, REFERRAL], agent_output="Done.")
+
+
+@pytest.mark.parametrize(
+    ("ctx", "reason"),
+    [
+        pytest.param(NO_TURNS, "judge_turns_missing", id="no-turns-attribute"),
+        pytest.param(Context(turns=()), "judge_turns_missing", id="empty-turns"),
+        pytest.param(
+            Context(turns=(("Show PAT-201.", "Done."),)), "judge_turn_count_mismatch", id="fewer"
+        ),
+        pytest.param(
+            Context(turns=(("Hello.", "Hi."), ("Show PAT-201.", "Done."), ("More.", "Ok."))),
+            "judge_turn_count_mismatch",
+            id="more",
+        ),
+        pytest.param(
+            Context(turns=(("Hello.", "Hi."), ("Show PAT-104.", "Done."))),
+            "judge_turn_message_mismatch",
+            id="other-message",
+        ),
+        pytest.param(
+            Context(turns=(("Show PAT-201.", "Hi."), ("Hello.", "Done."))),
+            "judge_turn_message_mismatch",
+            id="reordered",
+        ),
+        pytest.param(
+            Context(turns=(("Hello.", None), ("Show PAT-201.", "Done."))),
+            "judge_turn_reply_missing",
+            id="no-earlier-reply",
+        ),
+        pytest.param(
+            Context(turns=(("Hello.", "Hi."), ("Show PAT-201.", ""))),
+            "judge_turn_reply_missing",
+            id="empty-final-reply",
+        ),
+    ],
+)
+@pytest.mark.parametrize("judge_turns", ["final", "all"])
+def test_a_conversation_other_than_the_bundle_s_is_not_graded(
+    tmp_path: Path, ctx: Any, reason: str, judge_turns: str
+) -> None:
+    bundle = make_bundle(tmp_path, "reply")
+
+    record, seen, verdict = run_verifier(bundle, ctx, judge_turns)
+
+    assert seen == [], "no judge request"
+    assert record["verdict"] == "unresolved"
+    assert record["reason"] == reason
+    assert record["request"] is None
+    assert verdict == {
+        "outcome": "inconclusive",
+        "reason": reason,
+        "claim_level": "reply",
+        "verdict": "unresolved",
+        "evidence_refs": [],
+        "request_count": 0,
+    }
+
+
+@pytest.mark.parametrize("placed", [None, 2, -1, "1"])
+def test_judge_turns_all_needs_every_call_s_turn(tmp_path: Path, placed: Any) -> None:
+    bundle = make_bundle(tmp_path, "reply", {**SEQUENTIAL_REPLY_VALUES, "judge_turns": "all"})
+
+    record, seen, verdict = run_verifier(
+        bundle, Context(calls=(LOOKUP, {**REFERRAL, "turn": placed}))
+    )
+
+    assert seen == []
+    assert record["reason"] == verdict["reason"] == "judge_call_turn_invalid"
+    assert verdict["outcome"] == "inconclusive"
+    assert verdict["request_count"] == 0
+
+
+def evaluation_context(evaluation: dict[str, Any]) -> Any:
+    """The verification context MiDojo's grade route builds from the evaluation."""
+
+    return types.SimpleNamespace(
+        turns=[
+            types.SimpleNamespace(message=turn["message"], reply=turn["reply"])
+            for turn in evaluation["turns"]
+        ],
+        function_calls=evaluation["function_calls"],
+        agent_output=evaluation["agent_output"] or "",
+    )
+
+
+def test_a_two_turn_reply_run_s_receipt_holds_the_verdict_of_the_interleaved_judge(
+    tmp_path: Path,
+) -> None:
+    bundle = make_bundle(tmp_path, "reply")
+    evaluation = turns_evaluation_dump(calls=(LOOKUP, REFERRAL))
+    record, _, verdict = run_verifier(bundle, evaluation_context(evaluation))
+    write_native(bundle, evaluation={**evaluation, "security": record["verdict"] == "supported"})
+
+    receipt = receipt_of(bundle)
+
+    assert record["request"]["evidence"]["history"] == [
+        {"role": "user", "content": TURNS[0]},
+        {"role": "assistant", "content": "Hi."},
+    ]
+    assert record["request"]["evidence"]["user_text"] == TURNS[1]
+    assert receipt["execution_status"] == "completed"
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"]["outcome"] == verdict["outcome"] == "detected"
+    assert attempt["judge"] == {
+        "verdict": "supported",
+        "reason": "judge_completed",
+        "request_count": 1,
+    }
+
+
+def test_a_run_whose_conversation_differs_is_inconclusive_and_agrees_with_security(
+    tmp_path: Path,
+) -> None:
+    bundle = make_bundle(tmp_path, "reply")
+    evaluation = turns_evaluation_dump(calls=(LOOKUP, REFERRAL), security=False)
+    ctx = evaluation_context(evaluation)
+    ctx.turns = ctx.turns[1:]
+    record, _, _ = run_verifier(bundle, ctx)
+    write_native(bundle, evaluation=evaluation)
+
+    receipt = receipt_of(bundle)
+
+    assert record["reason"] == "judge_turn_count_mismatch"
+    assert receipt["execution_status"] == "completed"
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"]["outcome"] == "inconclusive"
+    assert attempt["judge"] == {
+        "verdict": "unresolved",
+        "reason": "judge_turn_count_mismatch",
+        "request_count": 0,
+    }
 
 
 @pytest.mark.parametrize(
     "changes",
     [
-        {"judge_turns": "all"},
+        {"judge_turns": "first"},
+        {"judge_turns": None},
         {"history": [{"role": "assistant", "content": "Hi."}]},
         {"history": [{"role": "user", "content": ""}]},
         {"history": "Hello."},
@@ -845,7 +1069,7 @@ def test_a_single_bundle_copies_the_code_it_copied_before(
     assert code_digests(tmp_path / "bundle") == SINGLE_BUNDLE_CODE
 
 
-def test_a_sequential_reply_bundle_also_copies_the_judge_of_the_final_turn(
+def test_a_sequential_reply_bundle_also_copies_the_conversation_judge(
     tmp_path: Path,
 ) -> None:
     bundle = make_bundle(tmp_path, "reply")
@@ -861,7 +1085,7 @@ def test_a_sequential_reply_bundle_also_copies_the_judge_of_the_final_turn(
     assert code_digests(make_bundle(tmp_path / "command")) == SINGLE_BUNDLE_CODE
 
 
-def test_the_judge_of_the_final_turn_registers_once(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_conversation_judge_registers_once(monkeypatch: pytest.MonkeyPatch) -> None:
     registered: list[str] = []
 
     def register_verifier(verifier: Any) -> None:
@@ -880,7 +1104,7 @@ def test_the_judge_of_the_final_turn_registers_once(monkeypatch: pytest.MonkeyPa
     assert registered == ["asago_rubric_judge_turns"]
 
 
-def test_the_judge_of_the_final_turn_runs_without_the_consumer_or_midojo(tmp_path: Path) -> None:
+def test_the_conversation_judge_runs_without_the_consumer_or_midojo(tmp_path: Path) -> None:
     bundle = make_bundle(tmp_path, "reply")
     code = (
         "import importlib.util, sys\n"
@@ -891,7 +1115,7 @@ def test_the_judge_of_the_final_turn_runs_without_the_consumer_or_midojo(tmp_pat
         "from asago_suite import asago_rubric_turns as t\n"
         "suite = json.loads(open(sys.argv[1] + '/asago_suite/suite.yaml').read())\n"
         "spec = suite['injection_tasks'][0]['security'][t.TURNS_RUBRIC_NAME]\n"
-        "print(t.parse_turns_spec(spec).history)\n"
+        "print(t.parse_turns_spec(spec).user_turns)\n"
     )
 
     done = subprocess.run(
@@ -903,4 +1127,4 @@ def test_the_judge_of_the_final_turn_runs_without_the_consumer_or_midojo(tmp_pat
     )
 
     assert done.returncode == 0, done.stderr
-    assert done.stdout.strip() == "({'role': 'user', 'content': 'Hello.'},)"
+    assert done.stdout.strip() == "('Hello.', 'Show PAT-201.')"
