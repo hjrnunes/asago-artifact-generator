@@ -12,6 +12,14 @@ true exactly when the verdict is ``detected``, and the verdict tells ``not_detec
 ``inconclusive`` (an inconclusive command grade agrees with either flag). When the
 orchestrator's boundary services recorded the package, their calls replace the control
 plane's, and the two counts must agree; so must the mini-agents server's own report log.
+
+A sequential bundle's evaluation holds one turn per user turn MiDojo sent, each with
+its message and reply, and every recorded call names the turn it belongs to
+(``turn``). The receipt lists every planned turn with its reply and the calls made in
+it; each call, from the proxy or the control plane, takes its turn from the matching
+control-plane call. A turn that has no reply, or a run that ends before the last turn,
+yields a ``failed`` receipt with ``incomplete_reason`` ``turn_failed:<position>``
+(counted from 1) and the turns sent so far, as the Garak adapter writes it.
 """
 
 from __future__ import annotations
@@ -39,6 +47,7 @@ from .compiler import (
     NATIVE_OUTPUTS,
     REPLY,
     RUN_DUMP,
+    SEQUENTIAL,
     SUITE_FILE,
     TOOL,
     VERDICT_FILE,
@@ -74,10 +83,13 @@ class ParseError(BundleError):
 
 @dataclass(frozen=True)
 class Bundle:
+    """A concrete bundle; ``turns`` holds a sequential bundle's user turns, else None."""
+
     root: Path
     manifest: dict[str, Any]
-    prompt: str
+    prompt: str | None
     suite: dict[str, Any]
+    turns: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -130,7 +142,13 @@ def read_bundle(root: Path) -> Bundle:
     try:
         manifest = json.loads((root / BUNDLE_FILE).read_text(encoding="utf-8"))
         suite = json.loads((root / SUITE_FILE).read_text(encoding="utf-8"))
-        prompt = suite["user_tasks"][0]["prompt"]
+        task = suite["user_tasks"][0]
+        turns = task["turns"] if manifest.get("delivery") == SEQUENTIAL else None
+        if turns is not None and not (
+            isinstance(turns, list) and turns and all(isinstance(item, str) for item in turns)
+        ):
+            raise ParseError("the suite's turns are not a list of user texts")
+        prompt = task["prompt"] if turns is None else None
         if manifest.get("claim_level") == COMMAND_ATTEMPT:
             security = suite["injection_tasks"][0]["security"]
             if "tool_call_condition" not in security:
@@ -147,13 +165,23 @@ def read_bundle(root: Path) -> Bundle:
         raise ParseError(f"bundle is unreadable: {exc}") from exc
     if missing:
         raise ParseError(f"bundle manifest lacks {sorted(missing)}")
-    return Bundle(root, manifest, prompt, suite)
+    return Bundle(root, manifest, prompt, suite, turns)
 
 
 def build_attempt(bundle: Bundle, records: Records) -> tuple[dict[str, Any] | None, str | None]:
-    """Return the run's one attempt, or why the run cannot be graded."""
+    """Return the run's one attempt and why the run cannot be graded, if it cannot.
 
-    evidence, reason = read_evidence(bundle)
+    Only a sequential run whose turn failed keeps its attempt: the turns it sent.
+    """
+
+    control, reason = read_control_plane(bundle)
+    if control is None:
+        return None, reason
+    if bundle.turns is not None:
+        attempt, reason = conversation_failure(control, bundle, records)
+        if reason:
+            return attempt, reason
+    evidence, reason = read_evidence(bundle, control)
     if evidence is None:
         return None, reason
     reason = evidence_failure(evidence, bundle, records)
@@ -162,7 +190,11 @@ def build_attempt(bundle: Bundle, records: Records) -> tuple[dict[str, Any] | No
     return attempt_of(evidence, bundle, records), None
 
 
-def read_evidence(bundle: Bundle) -> tuple[Evidence | None, str | None]:
+def read_control_plane(
+    bundle: Bundle,
+) -> tuple[tuple[dict[str, Any], dict[str, Any]] | None, str | None]:
+    """Return the run and evaluation records, or why they cannot be read."""
+
     documents = []
     for name in (RUN_DUMP, EVALUATION_DUMP):
         document, reason = read_document(bundle.root / name, "control_plane")
@@ -170,6 +202,13 @@ def read_evidence(bundle: Bundle) -> tuple[Evidence | None, str | None]:
             return None, reason
         documents.append(document)
     run, evaluation = documents
+    return (run, evaluation), None
+
+
+def read_evidence(
+    bundle: Bundle, control: tuple[dict[str, Any], dict[str, Any]]
+) -> tuple[Evidence | None, str | None]:
+    run, evaluation = control
     if bundle.manifest["claim_level"] == COMMAND_ATTEMPT:
         return Evidence(run, evaluation, command_verdict(bundle, evaluation)), None
     verdict, reason = read_document(bundle.root / VERDICT_FILE, "verdict")
@@ -294,6 +333,10 @@ def _verdict_agrees(evidence: Evidence, bundle: Bundle, records: Records) -> str
 
 
 def _prompt_matches(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
+    """A single run sent the bundle's prompt; a sequential one, a prefix of its turns."""
+
+    if bundle.turns is not None:
+        return _turn_inputs(evidence, bundle, records)
     same = evidence.evaluation.get("agent_input") == bundle.prompt
     return None if same else "agent_input_mismatch"
 
@@ -376,11 +419,166 @@ CHECKS: tuple[Check, ...] = (
 )
 
 
+# --- the turns of a sequential run ---------------------------------------------------------
+
+
+def _turns_shape(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
+    """The evaluation's turns are numbered from 0, each with its message text."""
+
+    turns = evidence.evaluation.get("turns")
+    ok = isinstance(turns, list) and all(
+        isinstance(turn, dict)
+        and turn.get("index") == position
+        and type(turn.get("index")) is int
+        and isinstance(turn.get("message"), str)
+        for position, turn in enumerate(turns)
+    )
+    return None if ok else "turns_malformed"
+
+
+def _turn_inputs(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
+    """The turns MiDojo sent are the bundle's turns, in order, and no more."""
+
+    sent = [turn["message"] for turn in evidence.evaluation["turns"]]
+    same = len(sent) <= len(bundle.turns) and sent == bundle.turns[: len(sent)]
+    return None if same else "turn_input_mismatch"
+
+
+def _call_turns(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
+    """Every control-plane call names a planned turn; none is placed by default."""
+
+    for call in evidence.evaluation["function_calls"]:
+        turn = call.get("turn")
+        if turn is None:
+            return "call_turn_missing"
+        if type(turn) is not int or not 0 <= turn < len(bundle.turns):
+            return "call_turn_out_of_range"
+    return None
+
+
+# The checks a sequential run passes before its turns are counted.
+CONVERSATION_CHECKS: tuple[Check, ...] = (
+    _evaluation_count,
+    _evaluation_identity,
+    _calls_shape,
+    _turns_shape,
+    _turn_inputs,
+    _call_turns,
+    _records_agree,
+)
+
+
+def conversation_failure(
+    control: tuple[dict[str, Any], dict[str, Any]], bundle: Bundle, records: Records
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Return why a sequential run's conversation cannot be graded, with the turns it sent.
+
+    A conversation whose records fail a check has no attempt. One that ends before its
+    last turn, or holds a turn without a reply, keeps the attempt of the turns it sent.
+    """
+
+    run, evaluation = control
+    unread = Evidence(run, evaluation, {})
+    for check in CONVERSATION_CHECKS:
+        reason = check(unread, bundle, records)
+        if reason:
+            return None, reason
+    reason = turn_failure(evaluation["turns"], len(bundle.turns))
+    if reason is None:
+        return None, None
+    level = bundle.manifest["claim_level"]
+    source, calls = sequential_calls(evaluation["function_calls"], records)
+    replies = turn_replies(evaluation["turns"])
+    return {
+        "index": 0,
+        "generation": {
+            "request_count": records.request_count,
+            "response_status": None,
+            "error_type": None,
+        },
+        "turns": receipt_turns(bundle.turns, replies, calls),
+        "result": {
+            "outcome": None,
+            "claim_level": level,
+            "reason": f"detection_missing:{DETECTORS[level]}",
+        },
+        "observation": {
+            "source": source,
+            "assistant_messages": [replies[index] for index in sorted(replies)],
+            "tool_calls": calls,
+        },
+        "runtime_observations": {"source": None, **{name: [] for name in RUNTIME_LISTS}},
+        "detections": [],
+        "judge": None,
+    }, reason
+
+
+def turn_failure(turns: list[dict[str, Any]], planned: int) -> str | None:
+    """Return ``turn_failed:<position>`` for the first turn without a reply, else None."""
+
+    for turn in turns:
+        if not isinstance(turn.get("reply"), str):
+            return f"turn_failed:{turn['index'] + 1}"
+    if len(turns) < planned:
+        return f"turn_failed:{len(turns) + 1}"
+    return None
+
+
+def turn_replies(turns: list[dict[str, Any]]) -> dict[int, str]:
+    """Map each turn index to its reply text."""
+
+    return {turn["index"]: turn["reply"] for turn in turns if text(turn.get("reply"))}
+
+
+def sequential_calls(
+    function_calls: list[dict[str, Any]], records: Records
+) -> tuple[str, list[dict[str, Any]]]:
+    """Return the observed calls, each with the turn MiDojo stamped on its control-plane call.
+
+    The proxy's calls and the control plane's are the same calls in the same order
+    (``_records_agree`` holds their counts equal).
+    """
+
+    source, calls = observed_calls(function_calls, records)
+    placed = [
+        {**call, "turn_index": recorded["turn"]}
+        for call, recorded in zip(calls, function_calls, strict=True)
+    ]
+    return source, placed
+
+
+def receipt_turns(
+    messages: list[str], replies: dict[int, str], calls: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Return one receipt turn per planned user turn: its request, reply, and calls."""
+
+    return [
+        {
+            "index": index,
+            "request": {"messages": [{"role": "user", "content": message}]},
+            "response": {
+                "assistant_messages": [replies[index]] if index in replies else [],
+                "tool_call_indices": [
+                    position for position, call in enumerate(calls) if call["turn_index"] == index
+                ],
+            },
+        }
+        for index, message in enumerate(messages)
+    ]
+
+
 def attempt_of(evidence: Evidence, bundle: Bundle, records: Records) -> dict[str, Any]:
     evaluation, verdict = evidence.evaluation, evidence.verdict
-    source, calls = observed_calls(evaluation["function_calls"], records)
-    output = text(evaluation.get("agent_output"))
-    replies = [output] if output else []
+    if bundle.turns is None:
+        source, calls = observed_calls(evaluation["function_calls"], records)
+        output = text(evaluation.get("agent_output"))
+        replies = [output] if output else []
+        turns = receipt_turns([bundle.prompt], {0: output} if output else {}, calls)
+    else:
+        source, calls = sequential_calls(evaluation["function_calls"], records)
+        by_turn = turn_replies(evaluation["turns"])
+        replies = [by_turn[index] for index in sorted(by_turn)]
+        turns = receipt_turns(bundle.turns, by_turn, calls)
     return {
         "index": 0,
         "generation": {
@@ -388,16 +586,7 @@ def attempt_of(evidence: Evidence, bundle: Bundle, records: Records) -> dict[str
             "response_status": "completed",
             "error_type": None,
         },
-        "turns": [
-            {
-                "index": 0,
-                "request": {"messages": [{"role": "user", "content": bundle.prompt}]},
-                "response": {
-                    "assistant_messages": replies,
-                    "tool_call_indices": list(range(len(calls))),
-                },
-            }
-        ],
+        "turns": turns,
         "result": {
             "outcome": verdict["outcome"],
             "claim_level": verdict["claim_level"],

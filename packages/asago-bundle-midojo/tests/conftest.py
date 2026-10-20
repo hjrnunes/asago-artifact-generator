@@ -29,6 +29,17 @@ REPLY_VALUES: dict[str, Any] = {
     "judge_model": "fixture-judge",
     "judge_runtime_facts": {"state": {"actor": "GST001"}},
 }
+# The user turns of ``sequential_stimulus()``: its history, then its user text.
+TURNS = ("Hello.", "Show PAT-201.")
+SEQUENTIAL_VALUES: dict[str, Any] = {
+    **{key: value for key, value in VALUES.items() if key != "messages"},
+    **{f"user_turn_{number}": text for number, text in enumerate(TURNS, start=1)},
+}
+SEQUENTIAL_REPLY_VALUES: dict[str, Any] = {
+    **SEQUENTIAL_VALUES,
+    **{key: REPLY_VALUES[key] for key in ("judge_url", "judge_model", "judge_runtime_facts")},
+    "judge_turns": "final",
+}
 
 
 def compile_options() -> dict[str, Any]:
@@ -187,6 +198,36 @@ def evaluation_dump(
         "function_calls": list(calls),
         "pre_environment": {} if pre_environment is None else pre_environment,
         "environment": {} if environment is None else environment,
+    }
+
+
+def turn(index: int, reply: str | None = "Done.", message: str | None = None) -> dict[str, Any]:
+    """One entry of a multi-turn evaluation's ``turns``."""
+
+    return {
+        "index": index,
+        "message": TURNS[index] if message is None else message,
+        "reply": reply,
+        "started_at": f"2026-10-09T10:0{index}:00Z",
+        "ended_at": f"2026-10-09T10:0{index}:30Z" if reply is not None else None,
+    }
+
+
+def turns_evaluation_dump(
+    *,
+    turns: tuple[dict[str, Any], ...] | None = None,
+    calls: tuple[dict[str, Any], ...] = ({**CALL, "turn": 1},),
+    **changes: Any,
+) -> dict[str, Any]:
+    """A multi-turn evaluation: ``agent_input`` is the first message, ``agent_output`` the
+    last reply, and each call names its turn."""
+
+    turns = (turn(0, "Hi."), turn(1, "Done.")) if turns is None else turns
+    return {
+        **evaluation_dump(calls=calls, **changes),
+        "agent_input": turns[0]["message"] if turns else None,
+        "agent_output": turns[-1]["reply"] if turns else None,
+        "turns": list(turns),
     }
 
 

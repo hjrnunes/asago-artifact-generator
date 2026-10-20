@@ -28,13 +28,41 @@ def gap_of(package: Path, tmp_path: Path) -> dict[str, Any]:
     return raised.value.record
 
 
-def test_a_sequential_package_is_a_gap(sequential_package: Path, tmp_path: Path) -> None:
-    record = gap_of(sequential_package, tmp_path)
+def test_a_sequential_package_compiles(sequential_package: Path, tmp_path: Path) -> None:
+    manifest = compile_package(sequential_package, tmp_path / "out")
+
+    assert manifest["delivery"] == "sequential"
+
+
+def test_a_sequential_package_with_a_non_user_message_is_a_gap(tmp_path: Path) -> None:
+    stimulus = {
+        **sequential_stimulus(),
+        "history": [
+            {"role": "user", "content": "Hello."},
+            {"role": "assistant", "content": "Hi."},
+        ],
+        "turn_count": 3,
+    }
+    package = write_test_package(tmp_path / "packages", stimulus=stimulus)
+
+    record = gap_of(package, tmp_path)
 
     assert set(record) == GAP_FIELDS
     assert record["tool"] == "midojo"
     assert record["delivery"] == "sequential"
-    assert "one prompt" in record["reason"]
+    assert "non-user message" in record["reason"]
+
+
+@pytest.mark.parametrize("stated", [3, 1, None, "2"])
+def test_a_sequential_turn_count_that_disagrees_is_a_compile_error(
+    tmp_path: Path, stated: Any
+) -> None:
+    package = write_test_package(
+        tmp_path / "packages", stimulus={**sequential_stimulus(), "turn_count": stated}
+    )
+
+    with pytest.raises(CompileError, match="turn_count"):
+        compile_package(package, tmp_path / "out")
 
 
 def test_a_single_package_with_a_non_user_message_is_a_gap(tmp_path: Path) -> None:
@@ -53,23 +81,20 @@ def test_a_single_package_with_earlier_user_turns_is_a_gap(tmp_path: Path) -> No
 
     record = gap_of(package, tmp_path)
 
+    assert record["delivery"] == "single"
     assert "one prompt" in record["reason"]
+    assert "own turn" in record["reason"]
     assert "non-user" not in record["reason"]
 
 
-def test_a_reply_package_with_sequential_turns_is_a_gap_for_the_turns_alone(
-    tmp_path: Path,
-) -> None:
+def test_a_reply_package_with_sequential_turns_compiles(tmp_path: Path) -> None:
     package = write_test_package(
         tmp_path / "packages", claim_level="reply", stimulus=sequential_stimulus()
     )
 
-    record = gap_of(package, tmp_path)
+    manifest = compile_package(package, tmp_path / "out")
 
-    assert record["delivery"] == "sequential"
-    assert "one prompt" in record["reason"]
-    assert "rubric" not in record["reason"]
-    assert "reply" not in record["reason"]
+    assert (manifest["claim_level"], manifest["delivery"]) == ("reply", "sequential")
 
 
 def test_a_reply_package_with_earlier_user_turns_is_a_gap_for_the_turns_alone(

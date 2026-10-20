@@ -92,7 +92,11 @@ def _undelivered(raw: list[dict[str, Any]]) -> bool:
 
 
 def proxy_call(call: dict[str, Any]) -> dict[str, Any]:
-    """Return a recorded call in the receipt's shape; every call belongs to turn 0."""
+    """Return a recorded call in the receipt's shape, in turn 0.
+
+    A sequential receipt replaces the turn with the one MiDojo stamped on the matching
+    control-plane call (``parse.sequential_calls``).
+    """
 
     fields = {key: call.get(key) for key in CALL_FIELDS}
     fields["result"], decoded_error = decoded_result(fields["result"])
@@ -103,7 +107,10 @@ def proxy_call(call: dict[str, Any]) -> dict[str, Any]:
 
 
 def native_call(call: dict[str, Any]) -> dict[str, Any]:
-    """Return a control-plane function call in the receipt's shape."""
+    """Return a control-plane function call in the receipt's shape, in turn 0.
+
+    A sequential receipt replaces the turn as for ``proxy_call``.
+    """
 
     return {
         "name": text(call.get("function")),
