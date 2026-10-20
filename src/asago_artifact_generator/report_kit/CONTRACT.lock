@@ -3,9 +3,9 @@
   "contract": "report-kit",
   "schema_version": "report-kit-v1",
   "files": {
-    "__init__.py": "f8bfd357d4d82ab0e4d44f1a3794d2b7379e2f9e92c2258d9aeb473b7dded238",
-    "catalog.html": "212c60295b2a637b660cf90cfd372d1420d38d733ae617f658520be0317bad9a",
-    "kit.css": "9d1199f4aa92f068ff6defbcd8144777f401ef0d1d0a290b44c6428562b379b6",
+    "__init__.py": "bd9e715de0392338d6b410635fdfe1f81446cd9f89b0596fde00882ce97e431b",
+    "catalog.html": "5806c8836972ab192e348f5c314484683f93c849889ff77add35715d0223f977",
+    "kit.css": "81083ef00aec5e724c155ab09804a1fc14e8a908861bbf65f178e553eb35dfb0",
     "kit.js": "2cc7077c1c36983e6f17bc9d66df866325f4ad33baba210e20c614a52e88cead",
     "stage-summary-v1.schema.json": "d667507e6786b1da1e8385268c32e26e1b27040a1a64865a57ab28e8ec7f7691"
   }

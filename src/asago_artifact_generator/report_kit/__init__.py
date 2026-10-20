@@ -1182,6 +1182,17 @@ _DG_LINE = 14
 # these characters; every other one becomes the entity code "#<code point>;".
 _MERMAID_ENCODE = re.compile(r"[^A-Za-z0-9 ]")
 _MERMAID_SHAPES = {"or": ("{{", "}}"), "and": ("{{", "}}"), "unsafe": ("[/", "/]")}
+# What the diagram's text list calls each kind of node.
+DIAGRAM_KIND_WORDS = {
+    "root": "hazard",
+    "or": "any one of",
+    "and": "all of",
+    "action": "scenario",
+    "condition": "condition",
+    "step": "step",
+    "unsafe": "unsafe action",
+}
+DIAGRAM_TEXT_LABEL = "Tree as text"
 
 
 @dataclass(frozen=True)
@@ -1263,6 +1274,37 @@ def _diagram_edge(parent: _Placed, child: _Placed) -> str:
     )
 
 
+def _diagram_item(node: DiagramNode) -> str:
+    """Return one node of the text list: its kind, its whole label, its tags."""
+
+    tags = (
+        f' <span class="dg-t">· {esc(" · ".join(_flat(tag) for tag in node.tags))}'
+        "</span>"
+        if node.tags
+        else ""
+    )
+    children = "".join(_diagram_item(child) for child in node.children)
+    nested = f"<ul>{children}</ul>" if children else ""
+    return (
+        f'<li><span class="dg-k">{DIAGRAM_KIND_WORDS[node.kind]}</span> '
+        f"{esc(_flat(node.label))}{tags}{nested}</li>"
+    )
+
+
+def _diagram_list(root: DiagramNode) -> str:
+    """Return the tree as a nested list in pre-order, folded on screen.
+
+    The drawing cuts a long label to its box; the list carries every label
+    whole, so print and screen readers lose none of it. Print opens it.
+    """
+
+    return (
+        f'<details class="mini dg-text"><summary>{DIAGRAM_TEXT_LABEL}</summary>'
+        f'<div class="body"><ul class="dg-list">{_diagram_item(root)}</ul></div>'
+        "</details>"
+    )
+
+
 def _mermaid_label(node: DiagramNode) -> str:
     """Return the node's label and its tags, as the SVG draws them, encoded."""
 
@@ -1307,10 +1349,12 @@ def and_or_diagram(
 ) -> Markup:
     """Render an and-or tree as offline SVG, left to right, with a live view.
 
-    The SVG is the complete diagram. Its Mermaid source sits beside it, and a
-    button loads the pinned library from its CDN, with Subresource Integrity,
-    only when the reader clicks it. *embedded* adds a control that saves that
-    data as *embedded_name* (by default ``<id>.json``).
+    The SVG is the complete diagram. A nested list after it says the same in
+    text, each node's kind, whole label and tags in pre-order; it is folded
+    behind "Tree as text" on screen and shown in print. The Mermaid source sits
+    beside them, and a button loads the pinned library from its CDN, with
+    Subresource Integrity, only when the reader clicks it. *embedded* adds a
+    control that saves that data as *embedded_name* (by default ``<id>.json``).
     """
 
     _check_id(id, "diagram id")
@@ -1334,6 +1378,7 @@ def and_or_diagram(
         f'<figure class="dg" id="{id}"><div class="dg-view"><svg class="dg-svg" '
         f'role="img" aria-label="{esc(label)}" width="{width}" height="{height}" '
         f'viewBox="-1 -1 {width} {height}">{edges}{boxes}</svg></div>'
+        f"{_diagram_list(root)}"
         f'<pre class="dg-src" hidden>{esc(_mermaid(placed))}</pre>'
         f'<button type="button" data-dg-load data-lib="{DIAGRAM_LIBRARY_URL}" '
         f'data-sri="{DIAGRAM_LIBRARY_SRI}">{DIAGRAM_LOAD_LABEL}</button>'
