@@ -37,7 +37,11 @@ LOAD_FAILURES = ("failed", "no_token")
 
 @dataclass(frozen=True)
 class Records:
-    """The boundary records of one package; ``calls`` is None when none were recorded."""
+    """The boundary records of one package; ``calls`` is None when none were recorded.
+
+    ``arrivals`` holds each proxy call's ``sequence``: the proxy numbers the calls in the
+    order their requests arrive. Only a sequential receipt reads it.
+    """
 
     calls: list[dict[str, Any]] | None = None
     request_count: int | None = None
@@ -45,6 +49,7 @@ class Records:
     malformed: bool = False
     undelivered: bool = False
     server: list[dict[str, Any]] | None = None
+    arrivals: list[Any] | None = None
 
 
 def read_records(directory: Path) -> Records:
@@ -72,6 +77,7 @@ def read_records(directory: Path) -> Records:
         **{
             **counts,
             "calls": [proxy_call(call) for call in raw],
+            "arrivals": [call.get("sequence") for call in raw],
             "undelivered": counts.get("undelivered", False) or _undelivered(raw),
         }
     )

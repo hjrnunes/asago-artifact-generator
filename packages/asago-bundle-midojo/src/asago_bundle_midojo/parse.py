@@ -175,8 +175,9 @@ def build_attempt(bundle: Bundle, records: Records) -> tuple[dict[str, Any] | No
 
     A sequential run whose turn failed is the one exception to the order of ``CHECKS``:
     MiDojo completes and grades an evaluation only after every turn got its reply, so
-    the failed turn, not the missing grade, is the reason, and the receipt keeps the
-    attempt of the turns sent (``failed_turn``).
+    the failed turn takes the place of ``_graded`` (after the evaluation's count and
+    identity) and comes before the verdict is read, and the receipt keeps the attempt
+    of the turns sent (``failed_turn``).
     """
 
     control, reason = read_control_plane(bundle)
@@ -409,7 +410,8 @@ def _records_agree(evidence: Evidence, bundle: Bundle, records: Records) -> str 
     ):
         return "tool_call_count_mismatch"
     if bundle.turns is not None and records.calls is not None:
-        return _proxy_calls_match(evidence.evaluation["function_calls"], records.calls)
+        _, reason = proxy_turns(evidence.evaluation["function_calls"], records)
+        return reason
     return None
 
 
@@ -477,23 +479,71 @@ def _call_turns(evidence: Evidence, bundle: Bundle, records: Records) -> str | N
     return None
 
 
-def _proxy_calls_match(
-    function_calls: list[dict[str, Any]], proxy: list[dict[str, Any]]
-) -> str | None:
-    """Each proxy call is the control-plane call at its position, whose turn it takes.
+def call_key(name: Any, arguments: Any) -> str:
+    """Return a call's identity: its tool name and its arguments, canonical JSON text."""
 
-    The proxy lists calls as their requests arrive and the control plane as the sink
-    delivers them, once settled, so the two orders can differ. The names must agree,
-    and the arguments too when both sides hold them as objects.
+    return json.dumps([name, arguments], sort_keys=True, ensure_ascii=False)
+
+
+def proxy_turns(
+    function_calls: list[dict[str, Any]], records: Records
+) -> tuple[list[int] | None, str | None]:
+    """Return the turn of each proxy call, from the control-plane call of the same content.
+
+    The proxy lists calls as their requests arrive and the sink delivers them to the
+    control plane once settled, so the two lists can differ in order; calls are paired by
+    ``call_key``, never by position or by name alone, and the two lists must hold the
+    same calls (``tool_call_mismatch``).
+
+    Calls of one key that MiDojo stamped with different turns are paired in order:
+    the earlier-arriving proxy call takes the earlier turn. The proxy numbers each call
+    as its request arrives (``sequence``, asago-orch ``mcp_proxy.py:171-182``). MiDojo
+    starts turn k before it sends message k and records reply k before it starts turn
+    k+1 (midojo ``orchestrator.py:235-237``), and stamps a call with the latest started
+    turn when the sink delivers it (``control_plane/store.py:209``), which the sink does
+    before the result reaches the target (``mcp_proxy.py:11-13``). So while the target
+    waits for each result before it replies, every call of turn k arrives before every
+    call of turn k+1. That holding is checked: the arrival order of all calls must not
+    go back a turn. Without arrival numbers, or when it goes back, the pairing is
+    ``tool_call_ambiguous``.
     """
 
-    for call, recorded in zip(proxy, function_calls, strict=True):
-        arguments, args = call.get("arguments"), recorded.get("args")
-        if call.get("name") != recorded.get("function") or (
-            isinstance(arguments, dict) and isinstance(args, dict) and arguments != args
-        ):
-            return "tool_call_mismatch"
-    return None
+    proxy = records.calls or []
+    stamped: dict[str, list[int]] = {}
+    for call in function_calls:
+        stamped.setdefault(call_key(call.get("function"), call.get("args")), []).append(
+            call["turn"]
+        )
+    positions: dict[str, list[int]] = {}
+    for position, call in enumerate(proxy):
+        positions.setdefault(call_key(call.get("name"), call.get("arguments")), []).append(
+            position
+        )
+    if {key: len(turns) for key, turns in stamped.items()} != {
+        key: len(found) for key, found in positions.items()
+    }:
+        return None, "tool_call_mismatch"
+    arrivals = records.arrivals or []
+    ordered = len(arrivals) == len(proxy) and all(type(a) is int for a in arrivals)
+    ordered = ordered and len(set(arrivals)) == len(arrivals)
+    turns: list[int] = [0] * len(proxy)
+    by_arrival = False
+    for key, found in positions.items():
+        expected = sorted(stamped[key])
+        if len(set(expected)) > 1:
+            if not ordered:
+                return None, "tool_call_ambiguous"
+            found = sorted(found, key=lambda position: arrivals[position])
+            by_arrival = True
+        for position, turn in zip(found, expected, strict=True):
+            turns[position] = turn
+    if by_arrival:
+        in_arrival = [
+            turns[position] for position in sorted(range(len(proxy)), key=arrivals.__getitem__)
+        ]
+        if in_arrival != sorted(in_arrival):
+            return None, "tool_call_ambiguous"
+    return turns, None
 
 
 def failed_turn(
@@ -513,6 +563,11 @@ def failed_turn(
     if reason is None:
         return None, None
     unread = Evidence(run, evaluation, {})
+    # The checks before ``_graded`` in ``CHECKS`` come before the failed turn too.
+    for check in RUN_CHECKS:
+        failure = check(unread, bundle, records)
+        if failure:
+            return None, failure
     for check in SENT_TURN_CHECKS:
         if check(unread, bundle, records):
             return None, reason
@@ -543,10 +598,10 @@ def failed_turn(
     }, reason
 
 
+# The checks of ``CHECKS`` before ``_graded``, whose place a failed turn takes.
+RUN_CHECKS: tuple[Check, ...] = (_evaluation_count, _evaluation_identity)
 # The checks of the records a failed turn's attempt shows.
 SENT_TURN_CHECKS: tuple[Check, ...] = (
-    _evaluation_count,
-    _evaluation_identity,
     _calls_shape,
     _turn_inputs,
     _call_turns,
@@ -580,16 +635,17 @@ def sequential_calls(
 ) -> tuple[str, list[dict[str, Any]]]:
     """Return the observed calls, each with the turn MiDojo stamped on its control-plane call.
 
-    A proxy call takes the turn of the control-plane call it matches by position
-    (``_records_agree`` has checked the counts and ``_proxy_calls_match`` each pair).
+    A proxy call takes the turn of the control-plane call of the same content
+    (``proxy_turns``, which ``_records_agree`` has already run).
     """
 
     source, calls = observed_calls(function_calls, records)
-    placed = [
-        {**call, "turn_index": recorded["turn"]}
-        for call, recorded in zip(calls, function_calls, strict=True)
-    ]
-    return source, placed
+    if records.calls is None:
+        turns = [recorded["turn"] for recorded in function_calls]
+    else:
+        turns, _ = proxy_turns(function_calls, records)
+        assert turns is not None, "the records were checked by _records_agree"
+    return source, [{**call, "turn_index": turn} for call, turn in zip(calls, turns, strict=True)]
 
 
 def receipt_turns(

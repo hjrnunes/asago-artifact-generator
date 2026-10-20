@@ -36,6 +36,7 @@ from conftest import (
     compile_options,
     evaluation_dump,
     reply_verdict_dump,
+    run_dump,
     seed_document,
     seed_item,
     turn,
@@ -104,8 +105,10 @@ def write_records(directory: Path, calls: list[dict[str, Any]]) -> Path:
     return directory
 
 
-def proxy_call(name: str, arguments: Any) -> dict[str, Any]:
-    return {
+def proxy_call(name: str, arguments: Any, sequence: int | None = None) -> dict[str, Any]:
+    """One line of the proxy's ``calls.jsonl``; ``sequence`` is its arrival number."""
+
+    call = {
         "name": name,
         "arguments": arguments,
         "status": "ok",
@@ -113,6 +116,7 @@ def proxy_call(name: str, arguments: Any) -> dict[str, Any]:
         "error": None,
         "sink": "ok",
     }
+    return call if sequence is None else {"sequence": sequence, **call}
 
 
 # --- compile -------------------------------------------------------------------------------
@@ -548,47 +552,172 @@ def test_a_completed_run_s_call_in_an_unsent_turn_is_out_of_range(tmp_path: Path
     assert receipt_of(bundle)["incomplete_reason"] == "call_turn_out_of_range"
 
 
+def proxy_receipt(
+    tmp_path: Path,
+    calls: tuple[dict[str, Any], ...],
+    proxy: list[dict[str, Any]],
+    **changes: Any,
+) -> dict[str, Any]:
+    bundle = make_bundle(tmp_path)
+    write_native(bundle, evaluation=turns_evaluation_dump(calls=calls, **changes))
+    return receipt_of(bundle, records_dir=write_records(tmp_path / "records", proxy))
+
+
+def placed(receipt: dict[str, Any]) -> list[tuple[str, Any, int]]:
+    (attempt,) = receipt["attempts"]
+    return [
+        (call["name"], call["arguments"], call["turn_index"])
+        for call in attempt["observation"]["tool_calls"]
+    ]
+
+
+ORDERS = {**CALL, "function": "list_orders", "args": {}, "turn": 1}
+
+
+def test_concurrent_calls_of_one_turn_that_arrive_out_of_order_keep_their_turn(
+    tmp_path: Path,
+) -> None:
+    receipt = proxy_receipt(
+        tmp_path,
+        (LOOKUP, REFERRAL, ORDERS),
+        [
+            proxy_call("lookup_order", {"order": "ORD-101"}),
+            proxy_call("list_orders", {}),
+            proxy_call("get_referral", {"patient_id": "PAT-201"}),
+        ],
+    )
+
+    assert receipt["execution_status"] == "completed"
+    assert placed(receipt) == [
+        ("lookup_order", {"order": "ORD-101"}, 0),
+        ("list_orders", {}, 1),
+        ("get_referral", {"patient_id": "PAT-201"}, 1),
+    ]
+    (attempt,) = receipt["attempts"]
+    assert [t["response"]["tool_call_indices"] for t in attempt["turns"]] == [[0], [1, 2]]
+
+
+def test_same_name_calls_are_paired_by_their_arguments_whatever_their_type(
+    tmp_path: Path,
+) -> None:
+    first = {**CALL, "function": "lookup_order", "args": "first", "turn": 0}
+    second = {**CALL, "function": "lookup_order", "args": "second", "turn": 1}
+
+    receipt = proxy_receipt(
+        tmp_path,
+        (first, second),
+        [proxy_call("lookup_order", "second"), proxy_call("lookup_order", "first")],
+        security=False,
+    )
+
+    assert placed(receipt) == [("lookup_order", "second", 1), ("lookup_order", "first", 0)]
+
+
+def test_identical_calls_in_two_turns_are_paired_by_arrival(tmp_path: Path) -> None:
+    again = {**LOOKUP, "turn": 1}
+
+    receipt = proxy_receipt(
+        tmp_path,
+        (LOOKUP, again),
+        [
+            proxy_call("lookup_order", {"order": "ORD-101"}, sequence=2),
+            proxy_call("lookup_order", {"order": "ORD-101"}, sequence=1),
+        ],
+        security=False,
+    )
+
+    assert [turn for *_, turn in placed(receipt)] == [1, 0], "the later arrival, the later turn"
+
+
+def test_identical_calls_in_one_turn_need_no_arrival_order(tmp_path: Path) -> None:
+    again = {**REFERRAL}
+
+    receipt = proxy_receipt(
+        tmp_path,
+        (LOOKUP, REFERRAL, again),
+        [
+            proxy_call("get_referral", {"patient_id": "PAT-201"}),
+            proxy_call("lookup_order", {"order": "ORD-101"}),
+            proxy_call("get_referral", {"patient_id": "PAT-201"}),
+        ],
+    )
+
+    assert [turn for *_, turn in placed(receipt)] == [1, 0, 1]
+
+
+@pytest.mark.parametrize(
+    "sequences",
+    [(None, None, None), (1, 1, 2), (1, 2, 3)],
+    ids=["no-arrivals", "repeated-arrival", "arrival-goes-back-a-turn"],
+)
+def test_identical_calls_in_two_turns_without_a_sound_order_are_ambiguous(
+    tmp_path: Path, sequences: tuple[int | None, ...]
+) -> None:
+    referral = {**REFERRAL, "turn": 0}
+    again = {**LOOKUP, "turn": 1}
+    proxy = [
+        proxy_call("lookup_order", {"order": "ORD-101"}, sequence=sequences[0]),
+        proxy_call("lookup_order", {"order": "ORD-101"}, sequence=sequences[1]),
+        proxy_call("get_referral", {"patient_id": "PAT-201"}, sequence=sequences[2]),
+    ]
+
+    receipt = proxy_receipt(tmp_path, (LOOKUP, referral, again), proxy)
+
+    assert receipt["incomplete_reason"] == "tool_call_ambiguous"
+    assert receipt["attempts"] == []
+
+
 @pytest.mark.parametrize(
     "proxy",
     [
         [
-            proxy_call("get_referral", {"patient_id": "PAT-201"}),
             proxy_call("lookup_order", {"order": "ORD-101"}),
+            proxy_call("get_referral", {"patient_id": "PAT-104"}),
         ],
         [
-            proxy_call("lookup_order", {"order": "ORD-999"}),
+            proxy_call("lookup_order", {"order": "ORD-101"}),
+            proxy_call("cancel_order", {"order": "ORD-101"}),
+        ],
+        [
+            proxy_call("lookup_order", "ORD-101"),
             proxy_call("get_referral", {"patient_id": "PAT-201"}),
         ],
     ],
-    ids=["order", "arguments"],
+    ids=["arguments", "name", "argument-type"],
 )
-def test_proxy_calls_that_differ_from_the_control_plane_s_fail_the_receipt(
+def test_a_call_on_one_side_only_fails_the_receipt(
     tmp_path: Path, proxy: list[dict[str, Any]]
 ) -> None:
-    bundle = make_bundle(tmp_path)
-    write_native(bundle, evaluation=turns_evaluation_dump(calls=(LOOKUP, REFERRAL)))
-    records = write_records(tmp_path / "records", proxy)
-
-    receipt = receipt_of(bundle, records_dir=records)
+    receipt = proxy_receipt(tmp_path, (LOOKUP, REFERRAL), proxy)
 
     assert receipt["incomplete_reason"] == "tool_call_mismatch"
     assert receipt["attempts"] == []
 
 
-def test_proxy_calls_whose_arguments_are_not_objects_are_matched_by_name(tmp_path: Path) -> None:
+def test_a_failed_turn_after_a_wrong_evaluation_count_reports_the_count(tmp_path: Path) -> None:
     bundle = make_bundle(tmp_path)
-    write_native(bundle, evaluation=turns_evaluation_dump(calls=(LOOKUP, REFERRAL)))
-    records = write_records(
-        tmp_path / "records",
-        [
-            proxy_call("lookup_order", "raw text"),
-            proxy_call("get_referral", {"patient_id": "PAT-201"}),
-        ],
+    evaluation = turns_evaluation_dump(
+        turns=(turn(0, "Hi."),), calls=(LOOKUP,), completed=False, security=None
     )
+    write_native(bundle, run=run_dump(("eval-1", "eval-2")), evaluation=evaluation)
 
-    receipt = receipt_of(bundle, records_dir=records)
+    receipt = receipt_of(bundle)
 
-    assert receipt["execution_status"] == "completed"
+    assert receipt["incomplete_reason"] == "evaluation_count_mismatch"
+    assert receipt["attempts"] == []
+
+
+def test_a_failed_turn_of_another_evaluation_reports_the_mismatch(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path)
+    evaluation = turns_evaluation_dump(
+        turns=(turn(0, "Hi."),), calls=(LOOKUP,), completed=False, security=None
+    )
+    write_native(bundle, run=run_dump(("eval-9",)), evaluation=evaluation)
+
+    receipt = receipt_of(bundle)
+
+    assert receipt["incomplete_reason"] == "evaluation_mismatch"
+    assert receipt["attempts"] == []
 
 
 def seeded_pair(tmp_path: Path) -> tuple[Path, Path]:
