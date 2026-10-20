@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -181,3 +182,9 @@ def test_the_bundle_no_longer_carries_condition_eval(
 
     assert len(names) == 8
     assert "asago_suite/condition_eval.py" not in names
+
+
+def test_the_bundle_files_no_longer_hold_the_rubric_judge() -> None:
+    held = {entry.name for entry in files("asago_bundle_midojo.bundle_files").iterdir()}
+
+    assert "asago_rubric.py" not in held

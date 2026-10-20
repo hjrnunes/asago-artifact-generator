@@ -270,12 +270,10 @@ def test_a_reply_suite_template_holds_the_rubric_and_the_judge_slots(
 def test_a_reply_template_copies_the_rubric_module_with_the_other_bundle_code(
     reply_template: Path, template: Path
 ) -> None:
-    source = files("asago_bundle_midojo").joinpath("bundle_files")
+    source = files("asago_artifact_generator.authoring").joinpath("rubric_judge.py")
 
     for root in (reply_template, template):
-        assert (root / "asago_suite/asago_rubric.py").read_bytes() == source.joinpath(
-            "asago_rubric.py"
-        ).read_bytes()
+        assert (root / "asago_suite/asago_rubric.py").read_bytes() == source.read_bytes()
 
 
 def test_a_command_template_is_unchanged_by_the_reply_claim(template: Path) -> None:

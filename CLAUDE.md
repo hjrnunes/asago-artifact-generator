@@ -115,7 +115,8 @@ Deterministic tests must not contact a model endpoint or target.
 - `packages/asago-bundle-garak/`: the Garak adapter workspace member.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It serves command-attempt
   and single reply packages with one user prompt; sequential and state_effect packages exit 3.
-  A reply package is graded by `asago_rubric.py`, a port of Garak's `RubricJudge` checked
+  A reply package is graded by `authoring/rubric_judge.py` (the compiler copies it byte for byte
+  into the suite as `asago_rubric.py`), a port of Garak's `RubricJudge` checked
   against vectors Garak computes (`tests/fixtures/rubric/`). A command attempt is graded by
   MiDojo's builtin `tool_call_condition` predicate. `compile` takes `--midojo-base` (a
   mini-agents `mini-agents-midojo-base-v1` file) and `--domain`: the domain's ledger becomes the
