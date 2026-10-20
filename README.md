@@ -423,6 +423,17 @@ scenario meaning (Call 1, the plan review, Call 2, the artifact review, and both
 corrections) shows these fields under `structured_analysis`, with a fixed
 `note` that explains them; a null or empty field is left out.
 
+A handoff may also carry an optional `taxonomy` block: `atlas_release`, the
+producer's pinned MITRE ATLAS release (`YYYY.MM`), and `references`, the
+scenario's OWASP LLM and Agentic Top 10 2026 entries. Each reference has
+`scheme` (`owasp-llm` or `owasp-asi`), `edition`, `id` (`LLMnn` under
+`owasp-llm`, `ASInn` under `owasp-asi`; the schema states the pairing), and
+`name`. The adapter checks the rule the schema cannot state: the references are
+sorted by scheme and id, each once, and a break reports
+`schema_violation:taxonomy`. The block is outside `V5_FIELDS` and the model
+view, so it never enters a prompt; it stays in the package's source record. A
+handoff without it is valid and keeps its digest.
+
 A handoff carries `attack_shape`: the channel, the number of user turns (1
 to 4) and each turn's purpose, never attack text, or null for a functional
 scenario. `InputView.attack_shape` returns it. The consumer authors `direct`
