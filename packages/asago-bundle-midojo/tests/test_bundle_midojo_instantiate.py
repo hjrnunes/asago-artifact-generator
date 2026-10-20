@@ -37,12 +37,7 @@ def test_the_suite_file_loads_as_yaml_with_the_prompt_and_the_verdict_path(
     (injection_task,) = suite["injection_tasks"]
     assert user_task["prompt"] == PROMPT
     assert user_task["utility"] == {"asago_neutral": {}}
-    assert injection_task["security"] == {
-        "asago_tool_call_condition": {
-            "condition": CONDITION,
-            "verdict_file": str(bundle.resolve() / "verdict.json"),
-        }
-    }
+    assert injection_task["security"] == {"tool_call_condition": CONDITION}
 
 
 def test_the_concrete_manifest_validates_and_renders_the_commands(bundle: Path) -> None:
@@ -88,7 +83,6 @@ def test_the_bundle_code_matches_the_template(template: Path, bundle: Path) -> N
         "asago_suite/__init__.py",
         "asago_suite/suite.py",
         "asago_suite/asago_verifiers.py",
-        "asago_suite/condition_eval.py",
         "asago_suite/verifier_names.py",
         "run_midojo.py",
     ):

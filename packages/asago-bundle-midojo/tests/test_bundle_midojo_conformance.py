@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,14 @@ from asago_bundle_core.testing import sequential_stimulus, write_test_package
 from asago_bundle_midojo.compiler import ENTRYPOINT_VALUES, compile_package
 from asago_bundle_midojo.instantiate import instantiate_bundle
 from asago_bundle_midojo.parse import parse_bundle
-from conftest import RECEIPT_SCHEMA, REPLY_VALUES, VALUES, reply_verdict_dump, write_native
+from conftest import (
+    RECEIPT_SCHEMA,
+    REPLY_VALUES,
+    VALUES,
+    compile_options,
+    reply_verdict_dump,
+    write_native,
+)
 
 
 def midojo() -> AdapterUnderTest:
@@ -19,7 +27,7 @@ def midojo() -> AdapterUnderTest:
         write_native(bundle, verdict=reply_verdict_dump() if reply else None)
 
     return AdapterUnderTest(
-        compile=compile_package,
+        compile=partial(compile_package, **compile_options()),
         instantiate=instantiate_bundle,
         parse=lambda bundle, out: parse_bundle(bundle, out),
         write_native=write_run,

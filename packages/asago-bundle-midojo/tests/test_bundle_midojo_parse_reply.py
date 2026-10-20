@@ -193,12 +193,6 @@ def test_a_command_verdict_in_a_reply_bundle_is_malformed(reply_bundle: Path) ->
     assert receipt_of(reply_bundle)["incomplete_reason"] == "verdict_malformed"
 
 
-def test_a_reply_verdict_in_a_command_bundle_is_malformed(bundle: Path) -> None:
-    write_native(bundle, verdict=reply_verdict_dump())
-
-    assert receipt_of(bundle)["incomplete_reason"] == "verdict_malformed"
-
-
 def test_a_supported_verdict_with_a_false_security_flag_disagrees(reply_bundle: Path) -> None:
     write_native(
         reply_bundle, evaluation=evaluation_dump(security=False), verdict=reply_verdict_dump()
@@ -208,7 +202,9 @@ def test_a_supported_verdict_with_a_false_security_flag_disagrees(reply_bundle: 
 
 
 def test_an_ungraded_reply_evaluation_stays_ungraded(reply_bundle: Path) -> None:
-    write_native(reply_bundle, evaluation=evaluation_dump(security=None))
+    write_native(
+        reply_bundle, evaluation=evaluation_dump(security=None), verdict=reply_verdict_dump()
+    )
     (reply_bundle / "verdict.json").unlink()
 
     assert receipt_of(reply_bundle)["incomplete_reason"] == "evaluation_ungraded"
@@ -218,3 +214,26 @@ def test_a_reply_run_still_needs_exactly_one_evaluation(reply_bundle: Path) -> N
     write_native(reply_bundle, run=run_dump(("eval-1", "eval-2")), verdict=reply_verdict_dump())
 
     assert receipt_of(reply_bundle)["incomplete_reason"] == "evaluation_count_mismatch"
+
+
+def test_a_graded_reply_run_without_a_verdict_file_names_it(reply_bundle: Path) -> None:
+    write_native(reply_bundle, verdict=reply_verdict_dump())
+    (reply_bundle / "verdict.json").unlink()
+
+    receipt = receipt_of(reply_bundle)
+
+    assert receipt["incomplete_reason"] == "verdict_missing"
+    assert receipt["attempts"] == []
+
+
+@pytest.mark.parametrize("content", ["{not json", "[]", '"text"'])
+def test_a_reply_verdict_file_that_is_not_an_object_is_malformed(
+    reply_bundle: Path, content: str
+) -> None:
+    write_native(reply_bundle, verdict=reply_verdict_dump())
+    (reply_bundle / "verdict.json").write_text(content, encoding="utf-8")
+
+    receipt = receipt_of(reply_bundle)
+
+    assert receipt["incomplete_reason"] == "verdict_malformed"
+    assert receipt["attempts"] == []

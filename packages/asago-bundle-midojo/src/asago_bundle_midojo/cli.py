@@ -30,6 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     compile_cmd.add_argument("package", type=Path, help="artifact package directory")
     compile_cmd.add_argument("--out", type=Path, required=True, help="new template directory")
+    compile_cmd.add_argument(
+        "--midojo-base", type=Path, required=True, help="mini-agents-midojo-base-v1 file"
+    )
+    compile_cmd.add_argument("--domain", required=True, help="domain of the base to compile for")
     compile_cmd.set_defaults(handler=_compile)
     instantiate_cmd = commands.add_parser(
         "instantiate", help="fill a bundle template with values.json into a concrete bundle"
@@ -60,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _compile(args: argparse.Namespace) -> int:
     try:
-        compile_package(args.package, args.out)
+        compile_package(args.package, args.out, midojo_base=args.midojo_base, domain=args.domain)
     except CapabilityGap as gap:
         print(json.dumps(gap.record, indent=2, sort_keys=True))
         return EXIT_CAPABILITY_GAP
