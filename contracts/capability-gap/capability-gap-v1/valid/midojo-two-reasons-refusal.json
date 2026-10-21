@@ -1,0 +1,9 @@
+{
+  "delivery": "sequential",
+  "kind": "capability_gap",
+  "package_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+  "package_id": "SCN-002-SCN-002",
+  "reason": "MiDojo sends one prompt per evaluation; this package holds several user turns; the state_effect claim is not graded by this adapter",
+  "scenario_id": "SCN-002",
+  "tool": "midojo"
+}

@@ -1,0 +1,34 @@
+{
+  "invalid/blank-reason.json": {
+    "path": "/reason",
+    "keyword": "minLength"
+  },
+  "invalid/blank-tool.json": {
+    "path": "/tool",
+    "keyword": "minLength"
+  },
+  "invalid/empty-package-digest.json": {
+    "path": "/package_digest",
+    "keyword": "minLength"
+  },
+  "invalid/missing-delivery.json": {
+    "path": "/",
+    "keyword": "required"
+  },
+  "invalid/null-package-digest.json": {
+    "path": "/package_digest",
+    "keyword": "type"
+  },
+  "invalid/reason-not-text.json": {
+    "path": "/reason",
+    "keyword": "type"
+  },
+  "invalid/unknown-field.json": {
+    "path": "/",
+    "keyword": "additionalProperties"
+  },
+  "invalid/wrong-kind.json": {
+    "path": "/kind",
+    "keyword": "const"
+  }
+}
