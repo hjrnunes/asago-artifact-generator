@@ -1,0 +1,20 @@
+{
+  "authority": "asago-artifact-generator",
+  "contract": "capability-gap",
+  "schema_version": "capability-gap-v1",
+  "files": {
+    "capability-gap-v1/expected-violations.json": "3bdcd40180028ad8a44be99b5a37b0f77a2ffd06a14a0c42851bcd8f1021f8ec",
+    "capability-gap-v1/invalid/blank-reason.json": "8345c000273278a3ffb8783b69aca9aec8426e523f1caf8e31f6f847cda850aa",
+    "capability-gap-v1/invalid/blank-tool.json": "805b7b5a4701c3cc2834499d5c8c92777381472210c79ead51f7cca2dbc46c36",
+    "capability-gap-v1/invalid/empty-package-digest.json": "64ceaac999c347d00662a0ab2938aef0f6c40f7d812c999f1cea3f7a403601a1",
+    "capability-gap-v1/invalid/missing-delivery.json": "ba91d59f2e3ae7f4a5023a9a86858d7d07f8c3c7d78f01327c76cb160603533c",
+    "capability-gap-v1/invalid/null-package-digest.json": "8674f1c289f83a7cce593f19f367dcc6e9a0efda957f66a29135ef91bdc87383",
+    "capability-gap-v1/invalid/reason-not-text.json": "0af1d4a9fec13e04bec5a09f57803d6838ef5253ae4d2467d325f8728cf38516",
+    "capability-gap-v1/invalid/unknown-field.json": "e727c9e4d302e471c2ee43a91aabaa3b96fd945b37c9c53bda89c8ec88040b73",
+    "capability-gap-v1/invalid/wrong-kind.json": "f5d30811c8a7d5106ea04a6ff5bc1e39786188fc5d582adf110c83114ae3acb7",
+    "capability-gap-v1/valid/garak-sequential-refusal.json": "c80b7c85716a6f1335cf8e95615fcf8f0c085609189cbc03f7f96fe94039b0e2",
+    "capability-gap-v1/valid/midojo-single-claim-refusal.json": "c6c36b79459733736f1eb0935f6db1fea44b33f4abe9b2e5b918dce0d33e0369",
+    "capability-gap-v1/valid/midojo-two-reasons-refusal.json": "88e7aa7f7b51d911831fae2108cc45f43e9c37c579fdd8dc8dc65d11f5ca3e36",
+    "capability-gap-v1.schema.json": "76f97dc74d0a7299f084860421342c49e6d778f991afdf57f211a039c271cb55"
+  }
+}

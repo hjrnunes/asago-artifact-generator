@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asago.local/contracts/capability-gap/capability-gap-v1.schema.json",
+  "title": "capability-gap-v1",
+  "description": "Why an adapter refused one authored package: the tool cannot deliver it yet. The adapter's compile step writes it to stdout and exits 3; the orchestrator writes it as capability-gap.json beside the tool's templates and reads it at execute, where it becomes the item's capability_gap reason. It names the tool, the package and its digest, how the package would be delivered, and the reason.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "tool",
+    "package_id",
+    "scenario_id",
+    "package_digest",
+    "delivery",
+    "reason"
+  ],
+  "properties": {
+    "kind": {"const": "capability_gap"},
+    "tool": {"$ref": "#/$defs/name"},
+    "package_id": {"$ref": "#/$defs/name"},
+    "scenario_id": {"$ref": "#/$defs/name"},
+    "package_digest": {"$ref": "#/$defs/name"},
+    "delivery": {"$ref": "#/$defs/name"},
+    "reason": {"$ref": "#/$defs/name"}
+  },
+  "$defs": {
+    "name": {"type": "string", "minLength": 1}
+  }
+}

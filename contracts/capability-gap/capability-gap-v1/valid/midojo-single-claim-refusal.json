@@ -1,0 +1,9 @@
+{
+  "delivery": "single",
+  "kind": "capability_gap",
+  "package_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "package_id": "SCN-014-SCN-014",
+  "reason": "the state_effect claim is not graded by this adapter",
+  "scenario_id": "SCN-014",
+  "tool": "midojo"
+}

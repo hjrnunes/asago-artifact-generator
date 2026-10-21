@@ -1,0 +1,9 @@
+{
+  "delivery": "sequential",
+  "kind": "capability_gap",
+  "package_digest": null,
+  "package_id": "SCN-001-SCN-001",
+  "reason": "the reason",
+  "scenario_id": "SCN-001",
+  "tool": "garak"
+}
