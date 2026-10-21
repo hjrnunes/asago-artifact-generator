@@ -37,7 +37,11 @@ LOAD_FAILURES = ("failed", "no_token")
 
 @dataclass(frozen=True)
 class Records:
-    """The boundary records of one package; ``calls`` is None when none were recorded."""
+    """The boundary records of one package; ``calls`` is None when none were recorded.
+
+    ``arrivals`` holds each proxy call's ``sequence``: the proxy numbers the calls in the
+    order their requests arrive. Only a sequential receipt reads it.
+    """
 
     calls: list[dict[str, Any]] | None = None
     request_count: int | None = None
@@ -45,6 +49,7 @@ class Records:
     malformed: bool = False
     undelivered: bool = False
     server: list[dict[str, Any]] | None = None
+    arrivals: list[Any] | None = None
 
 
 def read_records(directory: Path) -> Records:
@@ -72,6 +77,7 @@ def read_records(directory: Path) -> Records:
         **{
             **counts,
             "calls": [proxy_call(call) for call in raw],
+            "arrivals": [call.get("sequence") for call in raw],
             "undelivered": counts.get("undelivered", False) or _undelivered(raw),
         }
     )
@@ -92,7 +98,11 @@ def _undelivered(raw: list[dict[str, Any]]) -> bool:
 
 
 def proxy_call(call: dict[str, Any]) -> dict[str, Any]:
-    """Return a recorded call in the receipt's shape; every call belongs to turn 0."""
+    """Return a recorded call in the receipt's shape, in turn 0.
+
+    A sequential receipt replaces the turn with the one MiDojo stamped on the matching
+    control-plane call (``parse.sequential_calls``).
+    """
 
     fields = {key: call.get(key) for key in CALL_FIELDS}
     fields["result"], decoded_error = decoded_result(fields["result"])
@@ -103,7 +113,10 @@ def proxy_call(call: dict[str, Any]) -> dict[str, Any]:
 
 
 def native_call(call: dict[str, Any]) -> dict[str, Any]:
-    """Return a control-plane function call in the receipt's shape."""
+    """Return a control-plane function call in the receipt's shape, in turn 0.
+
+    A sequential receipt replaces the turn as for ``proxy_call``.
+    """
 
     return {
         "name": text(call.get("function")),

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from asago_bundle_core.testing import write_test_package
 from asago_bundle_midojo.cli import main
 from conftest import BASE, DOMAIN, VALUES, write_native
 
@@ -47,15 +48,28 @@ def test_compile_writes_the_template_and_exits_zero(command_package: Path, tmp_p
     assert (tmp_path / "template" / "bundle.json").is_file()
 
 
-def test_compile_of_a_gap_prints_the_record_and_exits_three(
-    sequential_package: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_compile_of_a_sequential_package_writes_the_template_and_exits_zero(
+    sequential_package: Path, tmp_path: Path
 ) -> None:
     code = main(["compile", str(sequential_package), "--out", str(tmp_path / "template"), *FLAGS])
+
+    assert code == 0
+    manifest = json.loads((tmp_path / "template" / "bundle.json").read_text(encoding="utf-8"))
+    assert manifest["delivery"] == "sequential"
+
+
+def test_compile_of_a_gap_prints_the_record_and_exits_three(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    package = write_test_package(tmp_path / "packages", claim_level="state_effect")
+
+    code = main(["compile", str(package), "--out", str(tmp_path / "template"), *FLAGS])
 
     assert code == 3
     record = json.loads(capsys.readouterr().out)
     assert record["tool"] == "midojo"
-    assert record["delivery"] == "sequential"
+    assert record["delivery"] == "single"
+    assert "state_effect" in record["reason"]
     assert not (tmp_path / "template").exists()
 
 

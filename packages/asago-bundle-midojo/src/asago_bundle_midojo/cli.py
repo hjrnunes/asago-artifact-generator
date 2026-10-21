@@ -2,7 +2,7 @@
 
 Exit codes: 0 done, 1 the input cannot be used, 2 usage error, 3 capability
 gap (``compile`` only: MiDojo cannot deliver or grade the package, such as a
-sequential one or one that claims a state effect).
+single one with history or one that claims a state effect).
 """
 
 from __future__ import annotations

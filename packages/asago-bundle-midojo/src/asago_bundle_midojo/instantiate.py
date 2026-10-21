@@ -2,8 +2,10 @@
 
 The orchestrator knows the values (the gateway and MCP URLs, the model, the
 rendered messages, the control plane's port); this module knows MiDojo's format.
-The package's one rendered user message becomes the suite's prompt, and the
-verdict file's path becomes the absolute path inside the concrete bundle.
+The package's one rendered user message becomes the suite's prompt, or, for a
+sequential package, each rendered ``user_turn_<n>`` becomes one of the suite's
+``turns``; the verdict file's path becomes the absolute path inside the concrete
+bundle.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +22,14 @@ from asago_bundle_core.slots import BUNDLE, fill
 from asago_bundle_core.text import canonical_text
 from asago_bundle_core.values import check_values, render_entrypoint
 
-from .compiler import BUNDLE_CODE, BUNDLE_FILE, ENTRYPOINT_VALUES, SUITE_FILE
+from .compiler import (
+    BUNDLE_FILE,
+    ENTRYPOINT_VALUES,
+    SINGLE,
+    SUITE_FILE,
+    USER_TURN_PREFIX,
+    bundle_code,
+)
 
 TEMPLATE_KEYS = frozenset({"requires", "templates", "entrypoint", "serve"})
 # MiDojo replaces ``{task:probe}`` in a prompt with the active payload, or with
@@ -29,6 +38,8 @@ PROBE_PLACEHOLDER = re.compile(r"\{([A-Za-z_]\w*):([A-Za-z_]\w*)\}")
 # Characters PyYAML refuses or folds inside a quoted scalar; JSON text escapes them.
 YAML_UNSAFE = re.compile("[\x7f-\x9f\u2028\u2029\ufeff\ufffe\uffff]")
 MAX_PORT = 65535
+# The turns a sequential reply bundle's judge grades, as Garak's ``judge_turns``.
+JUDGE_TURNS = frozenset({"final", "all"})
 
 
 class InstantiateError(BundleError):
@@ -58,13 +69,17 @@ def instantiate_bundle(
         "entrypoint": _render(manifest["entrypoint"], out, values),
         "values_digest": hashlib.sha256(canonical_text(values).encode()).hexdigest(),
     }
-    _write(out, template, {SUITE_FILE: yaml_text(suite), BUNDLE_FILE: canonical_text(concrete)})
+    code = bundle_code(manifest.get("claim_level"), manifest.get("delivery", SINGLE))
+    documents = {SUITE_FILE: yaml_text(suite), BUNDLE_FILE: canonical_text(concrete)}
+    _write(out, template, documents, code)
     return concrete
 
 
 def check_for(key: str) -> Callable[[Any], bool] | None:
-    """Return the check of a value key."""
+    """Return the check of a value key; each ``user_turn_<n>`` is checked as one prompt."""
 
+    if key.startswith(USER_TURN_PREFIX):
+        return _prompt
     return CHECKS.get(key)
 
 
@@ -104,22 +119,27 @@ def _port(value: Any) -> bool:
     return type(value) is int and 0 < value <= MAX_PORT
 
 
+def _prompt(value: Any) -> bool:
+    """Accept a text MiDojo sends unchanged: one without a probe placeholder."""
+
+    return _text(value) and PROBE_PLACEHOLDER.search(value) is None
+
+
 def _messages(value: Any) -> bool:
-    """Accept exactly one user message: MiDojo sends one prompt per evaluation."""
+    """Accept exactly one user message: a single package is one prompt."""
 
     if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict):
         return False
     message = value[0]
-    content = message.get("content")
-    return (
-        message.get("role") == "user"
-        and _text(content)
-        and PROBE_PLACEHOLDER.search(content) is None
-    )
+    return message.get("role") == "user" and _prompt(message.get("content"))
 
 
 def _facts(value: Any) -> bool:
     return isinstance(value, dict)
+
+
+def _judge_turns(value: Any) -> bool:
+    return isinstance(value, str) and value in JUDGE_TURNS
 
 
 CHECKS: dict[str, Callable[[Any], bool]] = {
@@ -131,6 +151,7 @@ CHECKS: dict[str, Callable[[Any], bool]] = {
     "judge_url": _url,
     "judge_model": _text,
     "judge_runtime_facts": _facts,
+    "judge_turns": _judge_turns,
 }
 
 
@@ -141,10 +162,10 @@ def _read_json(path: Path) -> Any:
         raise InstantiateError(f"template file is unreadable: {path.name}: {exc}") from exc
 
 
-def _write(out: Path, template: Path, documents: dict[str, str]) -> None:
+def _write(out: Path, template: Path, documents: dict[str, str], names: Iterable[str]) -> None:
     if out.exists() and any(out.iterdir()):
         raise InstantiateError(f"output directory is not empty: {out}")
-    code = {name: _template_bytes(template, name) for name in BUNDLE_CODE}
+    code = {name: _template_bytes(template, name) for name in names}
     out.mkdir(parents=True, exist_ok=True)
     (out / Path(SUITE_FILE).parent).mkdir()
     for name, text in documents.items():
