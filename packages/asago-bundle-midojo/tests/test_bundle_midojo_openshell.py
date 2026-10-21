@@ -682,6 +682,8 @@ SUMMARY_KEYS = (
         *(json.dumps(without(json.loads(summary_text()), key)) for key in SUMMARY_KEYS),
         summary_text(domain=None),
         summary_text(turn_count="1"),
+        summary_text(turn_count=True),
+        summary_text(turn_count=1.0),
         summary_text(turns_run=-1),
         summary_text(final="true"),
         summary_text(served_model=3),
@@ -735,17 +737,47 @@ def test_the_ogx_log_counts_only_responses_posts(openshell_bundle: Path) -> None
     assert receipt["attempts"][0]["generation"]["request_count"] == 2
 
 
+REJECTED = {
+    "index": 1,
+    "reply": None,
+    "response_id": None,
+    "served_model": None,
+    "gateway_requests": 0,
+    "exit_reason": "turn-out-of-order",
+    "failure": "turn 1 does not follow turn 0",
+}
+
+
 def test_a_rejected_agent_run_fails_the_receipt(openshell_bundle: Path) -> None:
+    evaluation = with_files(openshell_evaluation(), summary=summary_text(rejected=[REJECTED]))
+
+    assert reason_of(openshell_bundle, evaluation) == "agent_run_rejected"
+
+
+@pytest.mark.parametrize("count", [-1, 0, None])
+def test_a_run_rejected_for_its_turn_count_is_a_rejection_not_a_malformed_summary(
+    openshell_bundle: Path, count: int | None
+) -> None:
+    # mini-agents writes MIDOJO_TURN_COUNT as it parsed it: -1 and 0 are integers
+    # read_turn refuses, and a count that is not an integer is null (cli.py:114-143).
     rejected = {
-        "index": 1,
-        "reply": None,
-        "response_id": None,
-        "served_model": None,
-        "gateway_requests": 0,
-        "exit_reason": "turn-out-of-order",
-        "failure": "turn 1 does not follow turn 0",
+        **REJECTED,
+        "index": 0,
+        "exit_reason": "input-invalid",
+        "failure": f"MIDOJO_TURN_INDEX=0 is not a turn of MIDOJO_TURN_COUNT={count}",
     }
-    evaluation = with_files(openshell_evaluation(), summary=summary_text(rejected=[rejected]))
+    summary = summary_text(
+        turn_count=count,
+        turns_run=0,
+        final=False,
+        served_model=None,
+        gateway_request_count=0,
+        exit_reasons=[],
+        turns=[],
+        rejected=[rejected],
+    )
+    log = "INFO     ogx.cli.stack.run:222 Listening on   category=cli\n"
+    evaluation = with_files(openshell_evaluation(), summary=summary, ogx=log)
 
     assert reason_of(openshell_bundle, evaluation) == "agent_run_rejected"
 

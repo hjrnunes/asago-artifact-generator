@@ -213,6 +213,10 @@ def _is_text(value: Any) -> bool:
     return isinstance(value, str)
 
 
+def _is_integer(value: Any) -> bool:
+    return type(value) is int
+
+
 def _is_count(value: Any) -> bool:
     return count_value(value) is not None
 
@@ -236,12 +240,14 @@ SERVER_LINE_FIELDS: dict[str, Callable[[Any], bool]] = {
     "failure": _optional(_is_text),
 }
 # ``mini-agents-run-summary-v1``'s top level, as mini-agents 728b731
-# ``sandbox_agent/summary.py`` writes it; ``turn_count`` is null only for a rejected run
-# whose count is unreadable. The turns are checked as objects only: parse reads no more.
+# ``sandbox_agent/summary.py`` writes it. ``turn_count`` is ``MIDOJO_TURN_COUNT`` as the
+# agent parsed it (``cli._turn_variable``), so a rejected run's summary can hold any
+# integer, a negative one included, or null when the count is not an integer. The turns
+# are checked as objects only: parse reads no more.
 SUMMARY_FIELDS: dict[str, Callable[[Any], bool]] = {
     "schema": lambda value: value == SUMMARY_SCHEMA,
     "domain": _is_text,
-    "turn_count": _optional(_is_count),
+    "turn_count": _optional(_is_integer),
     "turns_run": _is_count,
     "final": lambda value: isinstance(value, bool),
     "served_model": _optional(_is_text),
