@@ -40,10 +40,36 @@ SEQUENTIAL_REPLY_VALUES: dict[str, Any] = {
     **{key: REPLY_VALUES[key] for key in ("judge_url", "judge_model", "judge_runtime_facts")},
     "judge_turns": "final",
 }
+IMAGE_ID = "sha256:" + "4f" * 32
+# An openshell bundle's values: the sandbox's, then those of its commands.
+OPENSHELL_SANDBOX_VALUES: dict[str, Any] = {
+    "image_id": IMAGE_ID,
+    "relay_port": 18006,
+    "relay_url": "http://host.openshell.internal:18006/v1",
+    "model": "fixture-model",
+    "instructions": "You are the support agent.",
+    "gateway": "openshell",
+    "agent_timeout": 300,
+    "service_port": 18123,
+}
+OPENSHELL_VALUES: dict[str, Any] = {**OPENSHELL_SANDBOX_VALUES, "messages": VALUES["messages"]}
+OPENSHELL_SEQUENTIAL_VALUES: dict[str, Any] = {
+    **OPENSHELL_SANDBOX_VALUES,
+    **{key: SEQUENTIAL_VALUES[key] for key in ("user_turn_1", "user_turn_2")},
+}
+OPENSHELL_FIXTURES = Path(__file__).parent / "fixtures" / "openshell"
 
 
-def compile_options() -> dict[str, Any]:
-    return {"midojo_base": BASE, "domain": DOMAIN}
+def compile_options(runtime: str = "unmanaged") -> dict[str, Any]:
+    return {"midojo_base": BASE, "domain": DOMAIN, "runtime": runtime}
+
+
+def openshell_evaluation(name: str = "single") -> dict[str, Any]:
+    """An openshell evaluation record: ``single`` or ``two-turn``, with the agent's ``.asago/``
+    files in its observations."""
+
+    path = OPENSHELL_FIXTURES / f"evaluation-{name}.json"
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def seed_document(

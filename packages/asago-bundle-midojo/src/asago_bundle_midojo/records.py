@@ -13,12 +13,24 @@ mini-agents ``kernel/midojo_mode.py``): one line per call with ``call_id``, ``fu
 and the outcome of ``load``, ``start``, ``push`` and ``report``. ``report`` is
 ``unfinished`` for a call that started in MiDojo and never reached its report. A log
 written before MiDojo started calls has no ``call_id`` or ``start``.
+
+An ``openshell`` run has no proxy, gateway or server outside the sandbox. MiDojo's
+``observe()`` carries every file created in ``/sandbox/workdir`` out in
+``observations["openshell"]["workdir_new_file_contents"]``, keyed by absolute path, and
+the mini-agents agent command writes its evidence under ``.asago/`` there (mini-agents
+``sandbox_agent/summary.py``): ``mcp-calls.jsonl``, the server's log as above, which the
+server creates at its first call; ``ogx.log``, OGX's output, whose ``POST
+/v1/responses`` access lines are counted as orch's gateway accounting counts them; and
+``run-summary.json`` (``mini-agents-run-summary-v1``). ``workdir_records`` reads them in
+place of the boundary's calls and gateway count; the summary is self-reported, so its
+request count must equal the log's, and a run it lists as ``rejected`` fails the receipt.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +43,7 @@ from asago_bundle_core.mcp_records import (
     read_json,
     text,
 )
+from asago_bundle_core.text import jsonl_lines
 
 PROXY_CALLS = Path("mcp_capture/calls.jsonl")
 SERVER_CALLS = Path("midojo_capture/calls.jsonl")
@@ -40,6 +53,25 @@ CALL_FIELDS = ("name", "arguments", "result", "error", "status")
 SINK_DELIVERED = "ok"
 LOAD_FAILURES = ("failed", "no_token")
 UNFINISHED = "unfinished"
+OPENSHELL_SOURCE = "openshell"
+EVIDENCE_DIR = "/sandbox/workdir/.asago"
+SERVER_LOG = "mcp-calls.jsonl"
+OGX_LOG = "ogx.log"
+RUN_SUMMARY = "run-summary.json"
+SUMMARY_SCHEMA = "mini-agents-run-summary-v1"
+# The arrays of MiDojo's openshell observations that ``execution-receipt-v1`` carries.
+RUNTIME_LISTS = (
+    "processes",
+    "network_calls_allowed",
+    "network_calls_blocked",
+    "files_created",
+    "files_modified",
+    "files_deleted",
+    "security_findings",
+)
+# orch ``boundary/gateway_accounting.py``: an access line and a Responses path.
+ACCESS_LINE = re.compile(r'"(?P<method>[A-Z]+) (?P<path>\S+) HTTP/[0-9.]+" (?P<status>\d{3})\b')
+RESPONSES_PATH = re.compile(r"^/v1/responses/?(?:\?.*)?$")
 
 
 @dataclass(frozen=True)
@@ -57,6 +89,9 @@ class Records:
     undelivered: bool = False
     server: list[dict[str, Any]] | None = None
     arrivals: list[Any] | None = None
+    # Why an openshell run's workdir evidence cannot be used; None when it can, or when
+    # the records are the boundary's.
+    failure: str | None = None
 
 
 def read_records(directory: Path) -> Records:
@@ -87,6 +122,88 @@ def read_records(directory: Path) -> Records:
             "arrivals": [call.get("sequence") for call in raw],
             "undelivered": counts.get("undelivered", False) or _undelivered(raw),
         }
+    )
+
+
+def workdir_records(evaluation: dict[str, Any], boundary: Records) -> Records:
+    """Return an openshell run's records: the server log and request count from the workdir.
+
+    Only the judge's count comes from the boundary. ``failure`` names the first reason
+    the evidence cannot be used: ``openshell_observations_missing`` or ``_malformed``,
+    ``workdir_file_missing:<file>`` (``mcp-calls.jsonl`` only when MiDojo recorded a
+    call), ``run_summary_malformed``, ``server_log_malformed``,
+    ``request_count_mismatch`` (the summary's count is not the log's) or
+    ``agent_run_rejected``.
+    """
+
+    records = Records(judge_count=boundary.judge_count)
+    observed = openshell_observations(evaluation)
+    if observed is None:
+        return replace(records, failure="openshell_observations_missing")
+    if not well_formed_observations(observed):
+        return replace(records, failure="openshell_observations_malformed")
+    files = observed["workdir_new_file_contents"]
+    contents = {name: files.get(f"{EVIDENCE_DIR}/{name}") for name in (RUN_SUMMARY, OGX_LOG)}
+    for name, content in contents.items():
+        if content is None:
+            return replace(records, failure=f"workdir_file_missing:{name}")
+    log = files.get(f"{EVIDENCE_DIR}/{SERVER_LOG}")
+    calls = evaluation.get("function_calls")
+    if log is None and isinstance(calls, list) and calls:
+        return replace(records, failure=f"workdir_file_missing:{SERVER_LOG}")
+    summary = _raw_call(contents[RUN_SUMMARY])
+    if not _well_formed_summary(summary):
+        return replace(records, failure="run_summary_malformed")
+    server = [_raw_call(line) for line in jsonl_lines(log or "")]
+    if not all(isinstance(line, dict) for line in server):
+        return replace(records, failure="server_log_malformed")
+    count = ogx_request_count(contents[OGX_LOG])
+    found = replace(
+        records,
+        server=server,
+        undelivered=any(_server_failure(line) for line in server),
+        request_count=count,
+    )
+    if summary["gateway_request_count"] != count:
+        return replace(found, failure="request_count_mismatch")
+    if summary["rejected"]:
+        return replace(found, failure="agent_run_rejected")
+    return found
+
+
+def openshell_observations(evaluation: Any) -> dict[str, Any] | None:
+    """Return the evaluation's ``observations["openshell"]``, or None."""
+
+    observations = evaluation.get("observations") if isinstance(evaluation, dict) else None
+    observed = observations.get(OPENSHELL_SOURCE) if isinstance(observations, dict) else None
+    return observed if isinstance(observed, dict) else None
+
+
+def well_formed_observations(observed: dict[str, Any]) -> bool:
+    files = observed.get("workdir_new_file_contents")
+    return (
+        all(isinstance(observed.get(name), list) for name in RUNTIME_LISTS)
+        and isinstance(files, dict)
+        and all(isinstance(content, str) for content in files.values())
+    )
+
+
+def ogx_request_count(log: str) -> int:
+    """Count the ``POST /v1/responses`` access lines of OGX's log."""
+
+    return sum(
+        1
+        for match in ACCESS_LINE.finditer(log)
+        if match["method"] == "POST" and RESPONSES_PATH.match(match["path"])
+    )
+
+
+def _well_formed_summary(summary: Any) -> bool:
+    return (
+        isinstance(summary, dict)
+        and summary.get("schema") == SUMMARY_SCHEMA
+        and count_value(summary.get("gateway_request_count")) is not None
+        and isinstance(summary.get("rejected"), list)
     )
 
 

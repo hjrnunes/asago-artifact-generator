@@ -6,16 +6,26 @@ The package's one rendered user message becomes the suite's prompt, or, for a
 sequential package, each rendered ``user_turn_<n>`` becomes one of the suite's
 ``turns``; the verdict file's path becomes the absolute path inside the concrete
 bundle.
+
+An ``openshell`` bundle also takes the sandbox's values: ``image_id`` (a bare image ID,
+``sha256:<64 hex>``: ``name@sha256:`` makes OpenShell's Docker driver pull),
+``relay_port`` and ``service_port`` (integers, into the policy's port rules),
+``relay_url`` (the model relay as the sandbox reaches it, on ``relay_port``),
+``model``, ``instructions`` (the system message), and ``gateway`` and
+``agent_timeout`` for ``midojo-run``. MiDojo expands ``${env.VAR}`` in the runtime
+settings, so a value it would expand is refused.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.slots import BUNDLE, fill
@@ -24,12 +34,13 @@ from asago_bundle_core.values import check_values, render_entrypoint
 
 from .compiler import (
     BUNDLE_FILE,
-    ENTRYPOINT_VALUES,
     SINGLE,
     SUITE_FILE,
     USER_TURN_PREFIX,
     bundle_code,
+    entrypoint_values,
 )
+from .openshell import OPENSHELL, runtime_type
 
 TEMPLATE_KEYS = frozenset({"requires", "templates", "entrypoint", "serve"})
 # MiDojo replaces ``{task:probe}`` in a prompt with the active payload, or with
@@ -40,6 +51,11 @@ YAML_UNSAFE = re.compile("[\x7f-\x9f\u2028\u2029\ufeff\ufffe\uffff]")
 MAX_PORT = 65535
 # The turns a sequential reply bundle's judge grades, as Garak's ``judge_turns``.
 JUDGE_TURNS = frozenset({"final", "all"})
+IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}")
+# MiDojo's ``${env.VAR}`` reference (midojo ``yaml_task_suite._ENV_VAR_RE``), which it
+# expands in the runtime settings when it loads the suite.
+ENV_REFERENCE = re.compile(r"\$\{env\.[A-Za-z_]")
+DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 class InstantiateError(BundleError):
@@ -56,17 +72,25 @@ def instantiate_bundle(
     manifest = _read_json(template / BUNDLE_FILE)
     if not isinstance(manifest, dict) or not TEMPLATE_KEYS <= manifest.keys():
         raise InstantiateError(f"{BUNDLE_FILE} is not a bundle template manifest")
-    check_values(manifest["requires"], values, check_for, InstantiateError)
-    suite = fill(_read_json(template / manifest["templates"]["suite"]), _resolver(out, values))
+    suite_template = _read_json(template / manifest["templates"]["suite"])
+    runtime = runtime_type(suite_template)
+    checks = checks_for(runtime)
+    if runtime == OPENSHELL:
+        _explain_malformed(manifest["requires"], values, checks)
+    check_values(manifest["requires"], values, checks, InstantiateError)
+    if runtime == OPENSHELL:
+        _check_relay(values)
+    suite = fill(suite_template, _resolver(out, values))
     serve = manifest["serve"]
+    keys = entrypoint_values(runtime)
     concrete = {
         **manifest,
         "templates": {},
         "serve": {
-            "argv": _render(serve["argv"], out, values),
-            "ready_url": _render([serve["ready_url"]], out, values)[0],
+            "argv": render_entrypoint(serve["argv"], out, values, keys),
+            "ready_url": render_entrypoint([serve["ready_url"]], out, values, keys)[0],
         },
-        "entrypoint": _render(manifest["entrypoint"], out, values),
+        "entrypoint": render_entrypoint(manifest["entrypoint"], out, values, keys),
         "values_digest": hashlib.sha256(canonical_text(values).encode()).hexdigest(),
     }
     code = bundle_code(manifest.get("claim_level"), manifest.get("delivery", SINGLE))
@@ -81,6 +105,46 @@ def check_for(key: str) -> Callable[[Any], bool] | None:
     if key.startswith(USER_TURN_PREFIX):
         return _prompt
     return CHECKS.get(key)
+
+
+def checks_for(runtime: Any) -> Callable[[str], Callable[[Any], bool] | None]:
+    """Return the value checks of a bundle whose suite runs the agent in ``runtime``."""
+
+    if runtime != OPENSHELL:
+        return check_for
+
+    def check(key: str) -> Callable[[Any], bool] | None:
+        return OPENSHELL_CHECKS.get(key) or check_for(key)
+
+    return check
+
+
+def _explain_malformed(
+    requires: Any, values: Any, checks: Callable[[str], Callable[[Any], bool] | None]
+) -> None:
+    """Refuse a malformed sandbox value, saying what it must be."""
+
+    if not isinstance(values, dict) or not isinstance(requires, list):
+        return
+    for key in requires:
+        check = checks(key)
+        if key in EXPECTED and key in values and check is not None and not check(values[key]):
+            raise InstantiateError(f"values carry a malformed {key}: expected {EXPECTED[key]}")
+
+
+def _check_relay(values: dict[str, Any]) -> None:
+    """The relay URL must use the port the policy lets the sandbox reach."""
+
+    parts = urlsplit(values["relay_url"])
+    try:
+        port = parts.port or DEFAULT_PORTS[parts.scheme]
+    except ValueError as exc:
+        raise InstantiateError(f"values carry a malformed relay_url: {exc}") from exc
+    if port != values["relay_port"]:
+        raise InstantiateError(
+            f"values carry a relay_url on port {port}, not relay_port {values['relay_port']}: "
+            "the sandbox policy lets the agent reach relay_port only"
+        )
 
 
 def yaml_text(document: Any) -> str:
@@ -101,10 +165,6 @@ def _resolver(out: Path, values: dict[str, Any]) -> Callable[[str, Any], Any]:
         return values[argument][0]["content"] if argument == "messages" else values[argument]
 
     return resolve
-
-
-def _render(argv: list[str], out: Path, values: dict[str, Any]) -> list[str]:
-    return render_entrypoint(argv, out, values, ENTRYPOINT_VALUES)
 
 
 def _url(value: Any) -> bool:
@@ -134,6 +194,24 @@ def _messages(value: Any) -> bool:
     return message.get("role") == "user" and _prompt(message.get("content"))
 
 
+def _setting(value: Any) -> bool:
+    """Accept a text MiDojo keeps as it is in the runtime settings."""
+
+    return _text(value) and ENV_REFERENCE.search(value) is None
+
+
+def _relay_url(value: Any) -> bool:
+    return _url(value) and _setting(value) and bool(urlsplit(value).hostname)
+
+
+def _image_id(value: Any) -> bool:
+    return isinstance(value, str) and IMAGE_ID.fullmatch(value) is not None
+
+
+def _seconds(value: Any) -> bool:
+    return type(value) in (int, float) and math.isfinite(value) and value > 0
+
+
 def _facts(value: Any) -> bool:
     return isinstance(value, dict)
 
@@ -152,6 +230,26 @@ CHECKS: dict[str, Callable[[Any], bool]] = {
     "judge_model": _text,
     "judge_runtime_facts": _facts,
     "judge_turns": _judge_turns,
+}
+# An openshell bundle's values; ``model`` goes into the runtime settings there.
+OPENSHELL_CHECKS: dict[str, Callable[[Any], bool]] = {
+    "image_id": _image_id,
+    "relay_port": _port,
+    "relay_url": _relay_url,
+    "model": _setting,
+    "instructions": _setting,
+    "gateway": _text,
+    "agent_timeout": _seconds,
+}
+EXPECTED = {
+    "image_id": "a bare image ID, sha256:<64 lowercase hex>",
+    "relay_port": f"an integer port, 1..{MAX_PORT}",
+    "service_port": f"an integer port, 1..{MAX_PORT}",
+    "relay_url": "an http(s) URL with a host and no ${env.} reference",
+    "model": "non-empty text with no ${env.} reference",
+    "instructions": "non-empty text with no ${env.} reference",
+    "gateway": "the OpenShell gateway's name, non-empty text",
+    "agent_timeout": "a positive number of seconds",
 }
 
 
