@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -131,7 +132,9 @@ def workdir_records(evaluation: dict[str, Any], boundary: Records) -> Records:
     Only the judge's count comes from the boundary. ``failure`` names the first reason
     the evidence cannot be used: ``openshell_observations_missing`` or ``_malformed``,
     ``workdir_file_missing:<file>`` (``mcp-calls.jsonl`` only when MiDojo recorded a
-    call), ``run_summary_malformed``, ``server_log_malformed``,
+    call), ``run_summary_malformed`` or ``server_log_malformed`` (a summary or log line
+    without a field its writer writes, or with one of another type or value:
+    ``SUMMARY_FIELDS``, ``SERVER_LINE_FIELDS``),
     ``request_count_mismatch`` (the summary's count is not the log's) or
     ``agent_run_rejected``.
     """
@@ -155,7 +158,7 @@ def workdir_records(evaluation: dict[str, Any], boundary: Records) -> Records:
     if not _well_formed_summary(summary):
         return replace(records, failure="run_summary_malformed")
     server = [_raw_call(line) for line in jsonl_lines(log or "")]
-    if not all(isinstance(line, dict) for line in server):
+    if not all(well_formed_server_line(line) for line in server):
         return replace(records, failure="server_log_malformed")
     count = ogx_request_count(contents[OGX_LOG])
     found = replace(
@@ -198,13 +201,71 @@ def ogx_request_count(log: str) -> int:
     )
 
 
-def _well_formed_summary(summary: Any) -> bool:
-    return (
-        isinstance(summary, dict)
-        and summary.get("schema") == SUMMARY_SCHEMA
-        and count_value(summary.get("gateway_request_count")) is not None
-        and isinstance(summary.get("rejected"), list)
+def _optional(check: Callable[[Any], bool]) -> Callable[[Any], bool]:
+    return lambda value: value is None or check(value)
+
+
+def _one_of(*allowed: str) -> Callable[[Any], bool]:
+    return lambda value: value is None or value in allowed
+
+
+def _is_text(value: Any) -> bool:
+    return isinstance(value, str)
+
+
+def _is_count(value: Any) -> bool:
+    return count_value(value) is not None
+
+
+def _list_of(kind: type) -> Callable[[Any], bool]:
+    return lambda value: isinstance(value, list) and all(isinstance(item, kind) for item in value)
+
+
+# A line of the server's ``--midojo-log``, as mini-agents 728b731 ``kernel/midojo_mode.py``
+# writes it: ``sequence`` counts from 1; ``call_id`` is null until the call starts in
+# MiDojo; each step is null when not attempted (``load`` also when the session was loaded),
+# and ``report`` is ``unfinished`` from the start until the report overwrites it.
+SERVER_LINE_FIELDS: dict[str, Callable[[Any], bool]] = {
+    "sequence": lambda value: _is_count(value) and value >= 1,
+    "call_id": _optional(_is_text),
+    "function": _is_text,
+    "load": _one_of("ok", "failed", "no_token"),
+    "start": _one_of("ok", "failed"),
+    "push": _one_of("ok", "failed"),
+    "report": _one_of("ok", "failed", UNFINISHED),
+    "failure": _optional(_is_text),
+}
+# ``mini-agents-run-summary-v1``'s top level, as mini-agents 728b731
+# ``sandbox_agent/summary.py`` writes it; ``turn_count`` is null only for a rejected run
+# whose count is unreadable. The turns are checked as objects only: parse reads no more.
+SUMMARY_FIELDS: dict[str, Callable[[Any], bool]] = {
+    "schema": lambda value: value == SUMMARY_SCHEMA,
+    "domain": _is_text,
+    "turn_count": _optional(_is_count),
+    "turns_run": _is_count,
+    "final": lambda value: isinstance(value, bool),
+    "served_model": _optional(_is_text),
+    "gateway_request_count": _is_count,
+    "exit_reasons": _list_of(str),
+    "turns": _list_of(dict),
+    "rejected": _list_of(dict),
+}
+
+
+def _has_fields(document: Any, fields: dict[str, Callable[[Any], bool]]) -> bool:
+    """Say whether ``document`` is an object holding every field, each passing its check."""
+
+    return isinstance(document, dict) and all(
+        name in document and check(document[name]) for name, check in fields.items()
     )
+
+
+def well_formed_server_line(line: Any) -> bool:
+    return _has_fields(line, SERVER_LINE_FIELDS)
+
+
+def _well_formed_summary(summary: Any) -> bool:
+    return _has_fields(summary, SUMMARY_FIELDS)
 
 
 def _server_failure(line: dict[str, Any]) -> bool:

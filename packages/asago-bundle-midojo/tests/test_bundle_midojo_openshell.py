@@ -613,6 +613,100 @@ def test_a_malformed_server_log_fails_the_receipt(openshell_bundle: Path, log: s
     assert reason_of(openshell_bundle, evaluation) == "server_log_malformed"
 
 
+def without(document: dict[str, Any], key: str) -> dict[str, Any]:
+    return {name: value for name, value in document.items() if name != key}
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        *(
+            without(server_line(), key)
+            for key in ("sequence", "call_id", "function", "load", "start", "push", "report")
+        ),
+        without(server_line(), "failure"),
+        {"call_id": CALL_ID, "function": "get_referral"},
+        server_line(sequence=0),
+        server_line(sequence="1"),
+        server_line(sequence=True),
+        server_line(call_id=7),
+        server_line(function=None),
+        server_line(load="unfinished"),
+        server_line(start="unfinished"),
+        server_line(push="unfinished"),
+        server_line(report="done"),
+        server_line(failure=["refused"]),
+    ],
+)
+def test_a_server_log_line_unlike_its_writers_fails_the_receipt(
+    openshell_bundle: Path, line: dict[str, Any]
+) -> None:
+    evaluation = with_files(openshell_evaluation(), server=server_text(line))
+
+    assert reason_of(openshell_bundle, evaluation) == "server_log_malformed"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        server_line(load=None),
+        server_line(load="failed", call_id=None, start=None, push=None, report=None),
+        server_line(failure="PUT /agent/environment: HTTP 500"),
+    ],
+)
+def test_a_server_log_line_the_writer_can_write_is_read(
+    openshell_bundle: Path, line: dict[str, Any]
+) -> None:
+    evaluation = with_files(openshell_evaluation(), server=server_text(line))
+
+    assert reason_of(openshell_bundle, evaluation) != "server_log_malformed"
+
+
+SUMMARY_KEYS = (
+    "schema",
+    "domain",
+    "turn_count",
+    "turns_run",
+    "final",
+    "served_model",
+    "gateway_request_count",
+    "exit_reasons",
+    "turns",
+    "rejected",
+)
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        *(json.dumps(without(json.loads(summary_text()), key)) for key in SUMMARY_KEYS),
+        summary_text(domain=None),
+        summary_text(turn_count="1"),
+        summary_text(turns_run=-1),
+        summary_text(final="true"),
+        summary_text(served_model=3),
+        summary_text(exit_reasons="ok"),
+        summary_text(exit_reasons=[None]),
+        summary_text(turns={}),
+        summary_text(turns=["ok"]),
+        summary_text(rejected=[1]),
+    ],
+)
+def test_a_run_summary_unlike_its_writers_fails_the_receipt(
+    openshell_bundle: Path, summary: str
+) -> None:
+    evaluation = with_files(openshell_evaluation(), summary=summary)
+
+    assert reason_of(openshell_bundle, evaluation) == "run_summary_malformed"
+
+
+def test_a_summary_with_no_turn_count_or_served_model_is_read(openshell_bundle: Path) -> None:
+    summary = summary_text(turn_count=None, served_model=None)
+    evaluation = with_files(openshell_evaluation(), summary=summary)
+
+    assert parsed(openshell_bundle, evaluation)["execution_status"] == "completed"
+
+
 @pytest.mark.parametrize("count", [0, 2])
 def test_a_summary_count_other_than_the_ogx_logs_fails_the_receipt(
     openshell_bundle: Path, count: int
