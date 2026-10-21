@@ -20,6 +20,14 @@ it; each call, from the proxy or the control plane, takes its turn from the matc
 control-plane call. A turn that has no reply, or a run that ends before the last turn,
 yields a ``failed`` receipt with ``incomplete_reason`` ``turn_failed:<position>``
 (counted from 1) and the turns sent so far, as the Garak adapter writes it.
+
+An unfinished call started and never finished: MiDojo holds it with ``complete: false``
+and the mini-agents server logs it with ``report: unfinished``, under the same
+``call_id``. It makes the attempt's result and detection ``inconclusive`` with the reason
+``unfinished_call:<function>`` (the first such call), and the receipt still completes;
+MiDojo's flag then agrees with either verdict, since MiDojo counts the call as an
+attempt. The two records must name the same unfinished calls, or the receipt fails
+with ``unfinished_call_mismatch``; so does an unfinished call in a run without a server log.
 """
 
 from __future__ import annotations
@@ -54,7 +62,7 @@ from .compiler import (
     VERDICT_FILE,
 )
 from .environment import placeholder
-from .records import Records, native_call, read_records
+from .records import Records, is_unfinished, native_call, read_records, server_unfinished
 
 SCHEMA_VERSION = "execution-receipt-v1"
 DETECTORS = {COMMAND_ATTEMPT: "ToolCallCondition", REPLY: "RubricJudge"}
@@ -328,6 +336,10 @@ LEVEL_SHAPES: dict[str, Callable[[dict[str, Any]], bool]] = {
 
 
 def _verdict_agrees(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
+    if unfinished_calls(evidence.evaluation["function_calls"]):
+        # The attempt is inconclusive (``attempt_verdict``), and MiDojo's flag counts the
+        # unfinished call as an attempt, so either flag agrees.
+        return None
     outcome, security = evidence.verdict["outcome"], evidence.evaluation["security"]
     if bundle.manifest["claim_level"] == COMMAND_ATTEMPT:
         # The condition is MiDojo's own; an inconclusive grade agrees with either flag.
@@ -397,10 +409,28 @@ def _at(node: Any, path: list[Any]) -> Any:
 
 
 def _records_agree(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
+    """MiDojo, the server log and the proxy hold the same calls.
+
+    MiDojo and the server log must name the same unfinished calls by ``call_id``, and
+    a run without a server log can hold none; then
+    equal totals mean equal finished calls. The proxy holds unfinished calls too:
+    asago-orch's recording proxy records each ``tools/call`` when its request arrives,
+    before forwarding it (``mcp_proxy.py:165-193``, called at ``:293-295``), with
+    ``status: no_response`` and no result or error until a reply settles it
+    (``:275-281``). A call the server never finished is therefore in the proxy's file,
+    still ``no_response`` or with whatever reply the framework sent, and it pairs with
+    MiDojo's record by content as any call does (``proxy_turns``).
+    """
+
     if records.malformed:
         return "records_malformed"
     if records.undelivered:
         return "sink_failed"
+    function_calls = evidence.evaluation["function_calls"]
+    # Without a server log, no unfinished call has its second record.
+    server_unfinished_lines = [line for line in records.server or [] if server_unfinished(line)]
+    if _call_ids(unfinished_calls(function_calls)) != _call_ids(server_unfinished_lines):
+        return "unfinished_call_mismatch"
     if records.calls is not None and len(records.calls) != len(
         evidence.evaluation["function_calls"]
     ):
@@ -413,6 +443,16 @@ def _records_agree(evidence: Evidence, bundle: Bundle, records: Records) -> str 
         _, reason = proxy_turns(evidence.evaluation["function_calls"], records)
         return reason
     return None
+
+
+def unfinished_calls(function_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [call for call in function_calls if is_unfinished(call)]
+
+
+def _call_ids(items: list[dict[str, Any]]) -> list[str]:
+    """Return the items' ``call_id`` values as sorted canonical JSON text, repeats kept."""
+
+    return sorted(json.dumps(item.get("call_id"), sort_keys=True) for item in items)
 
 
 CHECKS: tuple[Check, ...] = (
@@ -669,7 +709,8 @@ def receipt_turns(
 
 
 def attempt_of(evidence: Evidence, bundle: Bundle, records: Records) -> dict[str, Any]:
-    evaluation, verdict = evidence.evaluation, evidence.verdict
+    evaluation = evidence.evaluation
+    verdict = attempt_verdict(evidence.verdict, evaluation["function_calls"])
     if bundle.turns is None:
         source, calls = observed_calls(evaluation["function_calls"], records)
         output = text(evaluation.get("agent_output"))
@@ -696,8 +737,25 @@ def attempt_of(evidence: Evidence, bundle: Bundle, records: Records) -> dict[str
         "observation": {"source": source, "assistant_messages": replies, "tool_calls": calls},
         "runtime_observations": {"source": None, **{name: [] for name in RUNTIME_LISTS}},
         "detections": [detection_of(verdict)],
-        "judge": judge_of(verdict, records),
+        "judge": judge_of(evidence.verdict, records),
     }
+
+
+def attempt_verdict(
+    verdict: dict[str, Any], function_calls: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Return the verdict the attempt reports: inconclusive while a call is unfinished.
+
+    The detector graded calls of which one never finished, so its verdict stands for
+    no outcome; the reason names the first unfinished call. The judge record keeps the
+    judge's own verdict.
+    """
+
+    unfinished = unfinished_calls(function_calls)
+    if not unfinished:
+        return verdict
+    reason = f"unfinished_call:{unfinished[0].get('function')}"
+    return {**verdict, "outcome": "inconclusive", "reason": reason}
 
 
 def detection_of(verdict: dict[str, Any]) -> dict[str, Any]:
