@@ -117,7 +117,9 @@ Deterministic tests must not contact a model endpoint or target.
   and reply packages: a single package with one user prompt, or a sequential one whose user turns
   `midojo-run` sends in one conversation (MiDojo `>=bddb79bc`, each call's `turn` gives its
   receipt turn). A single package with history, a non-user history message, and state_effect
-  packages exit 3.
+  packages exit 3. An unfinished call (MiDojo `complete: false`, server log `report: unfinished`,
+  same `call_id`) makes the attempt `inconclusive` (`unfinished_call:<function>`); records that
+  disagree on it fail with `unfinished_call_mismatch`.
   A reply package is graded by `authoring/rubric_judge.py` (the compiler copies it byte for byte
   into the suite as `asago_rubric.py`), a port of Garak's `RubricJudge` checked
   against vectors Garak computes (`tests/fixtures/rubric/`). A sequential package's judge

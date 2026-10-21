@@ -7,6 +7,12 @@ served (a reply package's rubric judge). With the
 MiDojo call sink on, each recorded call also says whether the sink delivered it
 to the control plane (``sink: ok|failed|no_token``). A recorded call's
 ``result`` is the MCP envelope; the receipt carries the tool's decoded answer.
+
+``midojo_capture/calls.jsonl`` is the mini-agents server's own log (``--midojo-log``,
+mini-agents ``kernel/midojo_mode.py``): one line per call with ``call_id``, ``function``
+and the outcome of ``load``, ``start``, ``push`` and ``report``. ``report`` is
+``unfinished`` for a call that started in MiDojo and never reached its report. A log
+written before MiDojo started calls has no ``call_id`` or ``start``.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ JUDGE_EXCHANGES = Path("boundary/judge-exchanges.jsonl")
 CALL_FIELDS = ("name", "arguments", "result", "error", "status")
 SINK_DELIVERED = "ok"
 LOAD_FAILURES = ("failed", "no_token")
+UNFINISHED = "unfinished"
 
 
 @dataclass(frozen=True)
@@ -84,9 +91,23 @@ def read_records(directory: Path) -> Records:
 
 
 def _server_failure(line: dict[str, Any]) -> bool:
-    """Say whether the mini-agents server could not load, push or report for one call."""
+    """Say whether the mini-agents server could not load, start, push or report for one call.
 
-    return line.get("load") in LOAD_FAILURES or "failed" in (line.get("push"), line.get("report"))
+    An unfinished call (``report: unfinished``) is no failure: ``parse`` makes its
+    attempt inconclusive.
+    """
+
+    return line.get("load") in LOAD_FAILURES or "failed" in (
+        line.get("start"),
+        line.get("push"),
+        line.get("report"),
+    )
+
+
+def server_unfinished(line: dict[str, Any]) -> bool:
+    """Say whether the server started one call in MiDojo and never reported it."""
+
+    return line.get("report") == UNFINISHED
 
 
 def _undelivered(raw: list[dict[str, Any]]) -> bool:
@@ -115,7 +136,8 @@ def proxy_call(call: dict[str, Any]) -> dict[str, Any]:
 def native_call(call: dict[str, Any]) -> dict[str, Any]:
     """Return a control-plane function call in the receipt's shape, in turn 0.
 
-    A sequential receipt replaces the turn as for ``proxy_call``.
+    A sequential receipt replaces the turn as for ``proxy_call``. An unfinished call
+    (``complete: false``) has no result and the status ``unfinished``.
     """
 
     return {
@@ -123,9 +145,18 @@ def native_call(call: dict[str, Any]) -> dict[str, Any]:
         "arguments": call.get("args"),
         "result": decoded(call.get("result")),
         "error": text(call.get("error")),
-        "status": None,
+        "status": UNFINISHED if is_unfinished(call) else None,
         "turn_index": 0,
     }
+
+
+def is_unfinished(call: dict[str, Any]) -> bool:
+    """Say whether MiDojo holds a control-plane call as started and not finished.
+
+    A record from a MiDojo that predates started calls has no ``complete`` and is finished.
+    """
+
+    return call.get("complete") is False
 
 
 def _raw_call(line: str) -> Any:
