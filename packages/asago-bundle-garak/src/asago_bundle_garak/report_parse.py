@@ -351,16 +351,21 @@ def sequential_calls(
     """Return each call once, with the turn that made it.
 
     A turn's ``tool_calls`` note holds every call so far; its own calls start
-    at ``call_offset``. A recorded proxy call without a turn goes to the last.
+    at ``call_offset``. A recorded proxy call without a turn takes the turn of
+    the native call at its position when the proxy's calls and Garak's per-turn
+    calls pair by name and order; otherwise it goes to the last turn.
     """
 
+    native = [call for turn in turns for call in turn_calls(turn)]
     if records.calls is not None:
+        names = [call["name"] for call in records.calls]
+        paired = names == [call["name"] for call in native]
         calls = [dict(call) for call in records.calls]
-        for call in calls:
+        for position, call in enumerate(calls):
             if call["turn_index"] is None:
-                call["turn_index"] = planned - 1
+                call["turn_index"] = native[position]["turn_index"] if paired else planned - 1
         return "mcp_recording_proxy", calls
-    return "tool_native", [call for turn in turns for call in turn_calls(turn)]
+    return "tool_native", native
 
 
 def turn_calls(turn: dict[str, Any]) -> list[dict[str, Any]]:

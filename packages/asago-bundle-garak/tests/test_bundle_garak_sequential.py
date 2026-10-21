@@ -305,3 +305,127 @@ def test_proxy_calls_keep_a_recorded_turn_or_go_to_the_last(tmp_path: Path) -> N
         ({"status": "REJECTED"}, None),
         (None, '{"code":-32601}'),
     ]
+
+
+def parse_with_proxy(output: Path, lines: list[dict[str, Any]]) -> dict[str, Any]:
+    """Parse *output* with the proxy's recorded calls, one per line of ``lines``."""
+
+    records = output.parent / "records"
+    (records / "mcp_capture").mkdir(parents=True)
+    (records / "mcp_capture/calls.jsonl").write_text(
+        "".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8"
+    )
+    receipt = parse_report(
+        output / "bundle", output / "execution-receipt.json", records_dir=records
+    )
+    jsonschema.validate(receipt, json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))
+    return receipt
+
+
+def proxy_call(name: str, **extra: Any) -> dict[str, Any]:
+    return {"name": name, "arguments": {}, "result": {}, **extra}
+
+
+def call_turns(receipt: dict[str, Any]) -> list[int]:
+    return [c["turn_index"] for c in receipt["attempts"][0]["observation"]["tool_calls"]]
+
+
+def test_a_proxy_call_takes_the_turn_garak_recorded_it_in(tmp_path: Path) -> None:
+    output = make_bundle(tmp_path, "command_attempt", values())
+    write_report(
+        output,
+        [
+            turn(0, "a", [], 0, **condition(0.0)),
+            turn(1, "b", [REFUND], 0, **condition(0.0)),
+            turn(2, "c", [REFUND], 1, **condition(0.0)),
+        ],
+    )
+
+    receipt = parse_with_proxy(output, [proxy_call("issue_refund", session=1)])
+
+    assert call_turns(receipt) == [1]
+    turns = receipt["attempts"][0]["turns"]
+    assert [t["response"]["tool_call_indices"] for t in turns] == [[], [0], []]
+
+
+def test_proxy_calls_take_their_turns_across_three_turns(tmp_path: Path) -> None:
+    output = make_bundle(tmp_path, "command_attempt", values())
+    write_report(
+        output,
+        [
+            turn(0, "a", [ORDERS], 0, **condition(0.0)),
+            turn(1, "b", [ORDERS], 1, **condition(0.0)),
+            turn(2, "c", [ORDERS, REFUND, ORDERS], 1, **condition(0.0)),
+        ],
+    )
+
+    receipt = parse_with_proxy(
+        output, [proxy_call("get_orders"), proxy_call("issue_refund"), proxy_call("get_orders")]
+    )
+
+    assert call_turns(receipt) == [0, 2, 2]
+    turns = receipt["attempts"][0]["turns"]
+    assert [t["response"]["tool_call_indices"] for t in turns] == [[0], [], [1, 2]]
+
+
+def test_a_recorded_turn_wins_over_garaks_turn(tmp_path: Path) -> None:
+    output = make_bundle(tmp_path, "command_attempt", values())
+    write_report(
+        output,
+        [
+            turn(0, "a", [], 0, **condition(0.0)),
+            turn(1, "b", [REFUND], 0, **condition(0.0)),
+            turn(2, "c", [REFUND], 1, **condition(0.0)),
+        ],
+    )
+
+    receipt = parse_with_proxy(output, [proxy_call("issue_refund", turn_index=0)])
+
+    assert call_turns(receipt) == [0]
+
+
+def test_an_extra_proxy_call_sends_every_call_to_the_last_turn(tmp_path: Path) -> None:
+    output = make_bundle(tmp_path, "command_attempt", values())
+    write_report(
+        output,
+        [
+            turn(0, "a", [ORDERS], 0, **condition(0.0)),
+            turn(1, "b", [ORDERS], 1, **condition(0.0)),
+            turn(2, "c", [ORDERS], 1, **condition(0.0)),
+        ],
+    )
+
+    receipt = parse_with_proxy(output, [proxy_call("get_orders"), proxy_call("get_orders")])
+
+    assert call_turns(receipt) == [2, 2]
+
+
+def test_a_name_mismatch_sends_every_call_to_the_last_turn(tmp_path: Path) -> None:
+    output = make_bundle(tmp_path, "command_attempt", values())
+    write_report(
+        output,
+        [
+            turn(0, "a", [ORDERS], 0, **condition(0.0)),
+            turn(1, "b", [REFUND], 1, **condition(0.0)),
+            turn(2, "c", [REFUND], 2, **condition(0.0)),
+        ],
+    )
+
+    receipt = parse_with_proxy(output, [proxy_call("get_orders"), proxy_call("get_orders")])
+
+    assert call_turns(receipt) == [2, 2]
+
+
+def test_an_unfinished_turn_is_not_used_for_pairing(tmp_path: Path) -> None:
+    output = make_bundle(tmp_path, "command_attempt", values())
+    write_report(
+        output,
+        [
+            turn(0, "a", [], 0, **condition(0.0)),
+            turn(1, "b", [REFUND], 0, **condition(0.0)) | {"status": 1},
+        ],
+    )
+
+    receipt = parse_with_proxy(output, [proxy_call("issue_refund")])
+
+    assert call_turns(receipt) == [2]
