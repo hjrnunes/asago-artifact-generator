@@ -12,7 +12,8 @@ An ``openshell`` bundle also takes the sandbox's values: ``image_id`` (a bare im
 ``relay_port`` and ``service_port`` (integers, into the policy's port rules),
 ``relay_url`` (the model relay as the sandbox reaches it, on ``relay_port``),
 ``model``, ``instructions`` (the system message; empty when the suite has none, as
-MiDojo's unmanaged runs send), and ``gateway`` and
+MiDojo's unmanaged runs send), ``allowed_tools`` (the package's exposed tools,
+comma-separated, which the model may call), and ``gateway`` and
 ``agent_timeout`` for ``midojo-run``. MiDojo expands ``${env.VAR}`` in the runtime
 settings, so a value it would expand is refused.
 """
@@ -207,6 +208,15 @@ def _instructions(value: Any) -> bool:
     return isinstance(value, str) and ENV_REFERENCE.search(value) is None
 
 
+_TOOL_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _tool_list(value: Any) -> bool:
+    """Accept the package's exposed tools as comma-separated names."""
+
+    return isinstance(value, str) and all(_TOOL_NAME.match(name) for name in value.split(","))
+
+
 def _relay_url(value: Any) -> bool:
     return _url(value) and _setting(value) and bool(urlsplit(value).hostname)
 
@@ -245,6 +255,7 @@ OPENSHELL_CHECKS: dict[str, Callable[[Any], bool]] = {
     "relay_url": _relay_url,
     "model": _setting,
     "instructions": _instructions,
+    "allowed_tools": _tool_list,
     "gateway": _text,
     "agent_timeout": _seconds,
 }
@@ -255,6 +266,7 @@ EXPECTED = {
     "relay_url": "an http(s) URL with a host and no ${env.} reference",
     "model": "non-empty text with no ${env.} reference",
     "instructions": "text, possibly empty, with no ${env.} reference",
+    "allowed_tools": "comma-separated tool names, at least one",
     "gateway": "the OpenShell gateway's name, non-empty text",
     "agent_timeout": "a positive number of seconds",
 }

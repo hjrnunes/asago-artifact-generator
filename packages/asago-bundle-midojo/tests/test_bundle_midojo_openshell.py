@@ -110,6 +110,7 @@ def test_the_suite_runs_the_bases_sandbox_with_its_slots_as_values(
         "AGENT_MODEL_BASE_URL": {"$value": "relay_url"},
         "AGENT_MODEL_API_KEY": "${env.OPENAI_API_KEY}",
         "AGENT_INSTRUCTIONS": {"$value": "instructions"},
+        "AGENT_ALLOWED_TOOLS": {"$value": "allowed_tools"},
     }
 
 
@@ -123,6 +124,7 @@ def test_the_manifest_runs_midojo_on_the_gateway_with_the_agent_timeout(
     assert manifest["environment"] == ["OPENAI_API_KEY"]
     assert manifest["requires"] == [
         "agent_timeout",
+        "allowed_tools",
         "gateway",
         "image_id",
         "instructions",
@@ -270,6 +272,7 @@ def test_instantiate_fills_the_sandbox_and_renders_the_commands(openshell_bundle
         "AGENT_MODEL_BASE_URL": "http://host.openshell.internal:18006/v1",
         "AGENT_MODEL_API_KEY": "${env.OPENAI_API_KEY}",
         "AGENT_INSTRUCTIONS": "You are the support agent.",
+        "AGENT_ALLOWED_TOOLS": "lookup_order,get_account_details",
     }
     assert manifest_errors(manifest) == []
     flags = manifest["entrypoint"][manifest["entrypoint"].index("--") + 1 :]
@@ -284,6 +287,16 @@ def test_an_empty_system_message_is_accepted(openshell_template: Path, tmp_path:
     instantiate_bundle(
         openshell_template, {**OPENSHELL_VALUES, "instructions": ""}, tmp_path / "b"
     )
+
+
+@pytest.mark.parametrize("bad", ["", "lookup_order,", "lookup order", None, ["lookup_order"]])
+def test_a_malformed_tool_list_is_refused(
+    openshell_template: Path, tmp_path: Path, bad: Any
+) -> None:
+    with pytest.raises(InstantiateError, match="malformed allowed_tools: expected "):
+        instantiate_bundle(
+            openshell_template, {**OPENSHELL_VALUES, "allowed_tools": bad}, tmp_path / "b"
+        )
 
 
 @pytest.mark.parametrize(
