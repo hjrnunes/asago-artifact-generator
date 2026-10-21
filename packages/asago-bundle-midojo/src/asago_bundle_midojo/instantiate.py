@@ -11,7 +11,8 @@ An ``openshell`` bundle also takes the sandbox's values: ``image_id`` (a bare im
 ``sha256:<64 hex>``: ``name@sha256:`` makes OpenShell's Docker driver pull),
 ``relay_port`` and ``service_port`` (integers, into the policy's port rules),
 ``relay_url`` (the model relay as the sandbox reaches it, on ``relay_port``),
-``model``, ``instructions`` (the system message), and ``gateway`` and
+``model``, ``instructions`` (the system message; empty when the suite has none, as
+MiDojo's unmanaged runs send), and ``gateway`` and
 ``agent_timeout`` for ``midojo-run``. MiDojo expands ``${env.VAR}`` in the runtime
 settings, so a value it would expand is refused.
 """
@@ -200,6 +201,12 @@ def _setting(value: Any) -> bool:
     return _text(value) and ENV_REFERENCE.search(value) is None
 
 
+def _instructions(value: Any) -> bool:
+    """Accept the system message, which may be empty: a MiDojo suite without one sends none."""
+
+    return isinstance(value, str) and ENV_REFERENCE.search(value) is None
+
+
 def _relay_url(value: Any) -> bool:
     return _url(value) and _setting(value) and bool(urlsplit(value).hostname)
 
@@ -237,7 +244,7 @@ OPENSHELL_CHECKS: dict[str, Callable[[Any], bool]] = {
     "relay_port": _port,
     "relay_url": _relay_url,
     "model": _setting,
-    "instructions": _setting,
+    "instructions": _instructions,
     "gateway": _text,
     "agent_timeout": _seconds,
 }
@@ -247,7 +254,7 @@ EXPECTED = {
     "service_port": f"an integer port, 1..{MAX_PORT}",
     "relay_url": "an http(s) URL with a host and no ${env.} reference",
     "model": "non-empty text with no ${env.} reference",
-    "instructions": "non-empty text with no ${env.} reference",
+    "instructions": "text, possibly empty, with no ${env.} reference",
     "gateway": "the OpenShell gateway's name, non-empty text",
     "agent_timeout": "a positive number of seconds",
 }

@@ -278,6 +278,28 @@ def test_instantiate_fills_the_sandbox_and_renders_the_commands(openshell_bundle
     assert not any("{" in argument for argument in manifest["entrypoint"][1:])
 
 
+def test_an_empty_system_message_is_accepted(openshell_template: Path, tmp_path: Path) -> None:
+    # MiDojo's unmanaged runs send an empty system message when the suite has none;
+    # an openshell bundle gets the same.
+    instantiate_bundle(
+        openshell_template, {**OPENSHELL_VALUES, "instructions": ""}, tmp_path / "b"
+    )
+
+
+@pytest.mark.parametrize(
+    "key,bad",
+    [
+        ("instructions", None),
+        ("instructions", "Answer as ${env.USER}."),
+    ],
+)
+def test_a_malformed_system_message_is_refused(
+    openshell_template: Path, tmp_path: Path, key: str, bad: Any
+) -> None:
+    with pytest.raises(InstantiateError, match=f"malformed {key}: expected "):
+        instantiate_bundle(openshell_template, {**OPENSHELL_VALUES, key: bad}, tmp_path / "b")
+
+
 @pytest.mark.parametrize(
     ("key", "bad"),
     [
@@ -295,7 +317,6 @@ def test_instantiate_fills_the_sandbox_and_renders_the_commands(openshell_bundle
         ("relay_url", "http://${env.RELAY_HOST}:18006/v1"),
         ("model", ""),
         ("model", "${env.MODEL}"),
-        ("instructions", "   "),
         ("instructions", "Answer as ${env.USER}."),
         ("instructions", None),
         ("gateway", ""),
