@@ -296,6 +296,26 @@ def test_a_server_unfinished_call_midojo_does_not_hold_unfinished_fails(
     assert receipt["attempts"] == []
 
 
+@pytest.mark.parametrize("proxy", [False, True], ids=["no-records", "proxy-only"])
+def test_a_midojo_unfinished_call_without_a_server_log_fails_with_unfinished_call_mismatch(
+    bundle: Path, tmp_path: Path, proxy: bool
+) -> None:
+    calls = (FINISHED, UNFINISHED)
+    write_native(bundle, evaluation=evaluation_dump(calls=calls))
+    options: dict[str, Any] = {}
+    if proxy:
+        options["records_dir"] = write_records(
+            tmp_path / "records",
+            proxy=[proxied(call, sequence) for sequence, call in enumerate(calls, start=1)],
+        )
+
+    receipt = receipt_of(bundle, **options)
+
+    assert receipt["execution_status"] == "failed"
+    assert receipt["incomplete_reason"] == "unfinished_call_mismatch"
+    assert receipt["attempts"] == []
+
+
 def test_agreeing_unfinished_calls_with_a_finished_count_mismatch_still_fail_the_count(
     bundle: Path, tmp_path: Path
 ) -> None:

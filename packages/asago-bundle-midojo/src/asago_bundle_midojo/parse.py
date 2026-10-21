@@ -27,7 +27,7 @@ and the mini-agents server logs it with ``report: unfinished``, under the same
 ``unfinished_call:<function>`` (the first such call), and the receipt still completes;
 MiDojo's flag then agrees with either verdict, since MiDojo counts the call as an
 attempt. The two records must name the same unfinished calls, or the receipt fails
-with ``unfinished_call_mismatch``.
+with ``unfinished_call_mismatch``; so does an unfinished call in a run without a server log.
 """
 
 from __future__ import annotations
@@ -411,7 +411,8 @@ def _at(node: Any, path: list[Any]) -> Any:
 def _records_agree(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
     """MiDojo, the server log and the proxy hold the same calls.
 
-    MiDojo and the server log must name the same unfinished calls by ``call_id``; then
+    MiDojo and the server log must name the same unfinished calls by ``call_id``, and
+    a run without a server log can hold none; then
     equal totals mean equal finished calls. The proxy holds unfinished calls too:
     asago-orch's recording proxy records each ``tools/call`` when its request arrives,
     before forwarding it (``mcp_proxy.py:165-193``, called at ``:293-295``), with
@@ -426,9 +427,9 @@ def _records_agree(evidence: Evidence, bundle: Bundle, records: Records) -> str 
     if records.undelivered:
         return "sink_failed"
     function_calls = evidence.evaluation["function_calls"]
-    if records.server is not None and _call_ids(unfinished_calls(function_calls)) != _call_ids(
-        [line for line in records.server if server_unfinished(line)]
-    ):
+    # Without a server log, no unfinished call has its second record.
+    server_unfinished_lines = [line for line in records.server or [] if server_unfinished(line)]
+    if _call_ids(unfinished_calls(function_calls)) != _call_ids(server_unfinished_lines):
         return "unfinished_call_mismatch"
     if records.calls is not None and len(records.calls) != len(
         evidence.evaluation["function_calls"]
