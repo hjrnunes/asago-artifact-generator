@@ -12,10 +12,11 @@ listens on, which MiDojo hands the sandbox as ``host.openshell.internal:<port>``
 the relay's into ``relay_port``; ``instantiate`` fills the ports as integers. The agent
 command reads its inputs from the sandbox environment (mini-agents README, "Sandbox
 agent command"): the model, the relay as the sandbox reaches it, the system message and
-the package's exposed tools (comma-separated, sent as the MCP tool's ``allowed_tools``,
-as the Garak path does) are values, and the relay's key is ``OPENAI_API_KEY``, the
-placeholder the orchestrator sets, which MiDojo expands when it loads the suite. MiDojo
-sets the turn variables, ``MIDOJO_URL`` and ``MIDOJO_SESSION_TOKEN`` itself.
+the package's exposed tools (the Garak path's ``allowed_tools`` list, comma-separated in
+the sandbox and sent as the MCP tool's ``allowed_tools``) are values, and the relay's
+key is ``OPENAI_API_KEY``, the placeholder the orchestrator sets, which MiDojo expands
+when it loads the suite. MiDojo sets the turn variables, ``MIDOJO_URL`` and
+``MIDOJO_SESSION_TOKEN`` itself.
 """
 
 from __future__ import annotations

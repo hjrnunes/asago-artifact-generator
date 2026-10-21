@@ -289,7 +289,7 @@ def test_an_empty_system_message_is_accepted(openshell_template: Path, tmp_path:
     )
 
 
-@pytest.mark.parametrize("bad", ["", "lookup_order,", "lookup order", None, ["lookup_order"]])
+@pytest.mark.parametrize("bad", [[], ["lookup order"], [""], "lookup_order", None, [1]])
 def test_a_malformed_tool_list_is_refused(
     openshell_template: Path, tmp_path: Path, bad: Any
 ) -> None:

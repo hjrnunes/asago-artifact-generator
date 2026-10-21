@@ -12,8 +12,8 @@ An ``openshell`` bundle also takes the sandbox's values: ``image_id`` (a bare im
 ``relay_port`` and ``service_port`` (integers, into the policy's port rules),
 ``relay_url`` (the model relay as the sandbox reaches it, on ``relay_port``),
 ``model``, ``instructions`` (the system message; empty when the suite has none, as
-MiDojo's unmanaged runs send), ``allowed_tools`` (the package's exposed tools,
-comma-separated, which the model may call), and ``gateway`` and
+MiDojo's unmanaged runs send), ``allowed_tools`` (the package's exposed tools, the list
+the Garak path gets, set comma-separated in the sandbox), and ``gateway`` and
 ``agent_timeout`` for ``midojo-run``. MiDojo expands ``${env.VAR}`` in the runtime
 settings, so a value it would expand is refused.
 """
@@ -80,9 +80,12 @@ def instantiate_bundle(
     if runtime == OPENSHELL:
         _explain_malformed(manifest["requires"], values, checks)
     check_values(manifest["requires"], values, checks, InstantiateError)
+    suite_values = values
     if runtime == OPENSHELL:
         _check_relay(values)
-    suite = fill(suite_template, _resolver(out, values))
+        # The sandbox reads its tools from one environment variable, comma-separated.
+        suite_values = {**values, "allowed_tools": ",".join(values["allowed_tools"])}
+    suite = fill(suite_template, _resolver(out, suite_values))
     serve = manifest["serve"]
     keys = entrypoint_values(runtime)
     concrete = {
@@ -212,9 +215,13 @@ _TOOL_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 def _tool_list(value: Any) -> bool:
-    """Accept the package's exposed tools as comma-separated names."""
+    """Accept the package's exposed tools: a non-empty list of names, as Garak gets them."""
 
-    return isinstance(value, str) and all(_TOOL_NAME.match(name) for name in value.split(","))
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(name, str) and _TOOL_NAME.match(name) for name in value)
+    )
 
 
 def _relay_url(value: Any) -> bool:
@@ -266,7 +273,7 @@ EXPECTED = {
     "relay_url": "an http(s) URL with a host and no ${env.} reference",
     "model": "non-empty text with no ${env.} reference",
     "instructions": "text, possibly empty, with no ${env.} reference",
-    "allowed_tools": "comma-separated tool names, at least one",
+    "allowed_tools": "a non-empty list of tool names",
     "gateway": "the OpenShell gateway's name, non-empty text",
     "agent_timeout": "a positive number of seconds",
 }

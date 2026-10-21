@@ -48,7 +48,7 @@ OPENSHELL_SANDBOX_VALUES: dict[str, Any] = {
     "relay_url": "http://host.openshell.internal:18006/v1",
     "model": "fixture-model",
     "instructions": "You are the support agent.",
-    "allowed_tools": "lookup_order,get_account_details",
+    "allowed_tools": ["lookup_order", "get_account_details"],
     "gateway": "openshell",
     "agent_timeout": 300,
     "service_port": 18123,
