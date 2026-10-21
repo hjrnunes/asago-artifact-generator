@@ -10,6 +10,11 @@ and ``control-plane/evaluation.json`` under the bundle and exits with the
 orchestrator's code, or 1 when the orchestrator succeeded but the records could
 not be read.
 
+A control plane started with a control token answers only requests that carry it.
+When ``MIDOJO_CONTROL_TOKEN`` is set, the script sends it as a bearer token on its
+reads, as ``midojo-run`` (which reads the same variable) does; the token stays in the
+environment and never reaches the bundle.
+
 Standard library only: it runs in MiDojo's interpreter.
 """
 
@@ -30,6 +35,7 @@ CONTROL_PLANE = "control-plane"
 LOGS = "midojo-logs"
 RESULTS = "results.json"
 REQUEST_TIMEOUT_SECONDS = 30.0
+CONTROL_TOKEN = "MIDOJO_CONTROL_TOKEN"
 
 Orchestrator = Callable[[str, list[str], Path], int]
 
@@ -64,8 +70,16 @@ def run_orchestrator(control_url: str, flags: list[str], bundle: Path) -> int:
     ).returncode
 
 
-def fetch_json(url: str) -> Any:
-    with urllib.request.urlopen(url, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+def control_headers(environ: Mapping[str, str]) -> dict[str, str]:
+    """Return the control token's bearer header, or none when the token is not set."""
+
+    token = environ.get(CONTROL_TOKEN)
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def fetch_json(url: str, headers: Mapping[str, str] | None = None) -> Any:
+    request = urllib.request.Request(url, headers=dict(headers or {}))
+    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
         return json.load(response)
 
 
@@ -91,28 +105,33 @@ def evaluation_ids(run: Any) -> list[str]:
     return [item for item in ids if isinstance(item, str)]
 
 
-def dump_control_plane(control_url: str, run_id: str, bundle: Path) -> bool:
+def dump_control_plane(
+    control_url: str, run_id: str, bundle: Path, headers: Mapping[str, str] | None = None
+) -> bool:
     """Write the run and its one evaluation under the bundle; return whether both were written."""
 
     directory = bundle / CONTROL_PLANE
-    run = fetch_json(f"{control_url}/runs/{run_id}")
+    run = fetch_json(f"{control_url}/runs/{run_id}", headers)
     write_json(directory / "run.json", run)
     ids = evaluation_ids(run)
     if len(ids) != 1:
         return False
     write_json(
         directory / "evaluation.json",
-        fetch_json(f"{control_url}/runs/{run_id}/evaluations/{ids[0]}"),
+        fetch_json(f"{control_url}/runs/{run_id}/evaluations/{ids[0]}", headers),
     )
     return True
 
 
-def read_control_plane(control_url: str, bundle: Path) -> bool:
+def read_control_plane(
+    control_url: str, bundle: Path, environ: Mapping[str, str] | None = None
+) -> bool:
     run_id = results_run_id(bundle)
     if run_id is None:
         return False
+    headers = control_headers(os.environ if environ is None else environ)
     try:
-        return dump_control_plane(control_url, run_id, bundle)
+        return dump_control_plane(control_url, run_id, bundle, headers)
     except (OSError, ValueError, urllib.error.URLError) as exc:
         print(f"run_midojo: control plane unreadable: {exc}", file=sys.stderr)
         return False
