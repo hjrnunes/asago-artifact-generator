@@ -27,7 +27,7 @@ from typing import Any
 
 import pytest
 
-from asago_bundle_midojo.bundle_files import asago_rubric as port
+from asago_artifact_generator.authoring import rubric_judge as port
 
 FIDELITY = json.loads(
     (Path(__file__).parent / "fixtures/rubric/fidelity.json").read_text(encoding="utf-8")

@@ -1,8 +1,9 @@
-"""The rubric judge as a MiDojo verifier: a strict yes/no semantic judge over the target's reply.
+"""The rubric judge: a strict yes/no semantic judge that evaluates a reply oracle.
 
-This file is copied into the bundle's suite package and runs in MiDojo's interpreter,
-which has none of the consumer's packages. It imports the standard library only;
-``midojo.verifiers`` is imported when a verifier is asked for a result.
+The MiDojo adapter copies this file byte for byte into each suite, where it runs in
+MiDojo's interpreter, which has none of the consumer's packages, so it imports the
+standard library only; ``midojo.verifiers`` is imported when a verifier is asked for a
+result.
 
 The evidence, request and response checks are a port of Garak's
 ``garak/detectors/rubric_judge.py`` at revision 968cc22 (``build_evidence``,
@@ -157,17 +158,20 @@ def is_complete(function_calls: Sequence[Any]) -> bool:
 def build_evidence(
     user_text: str | None,
     history: Sequence[Mapping[str, Any]],
-    agent_output: str,
+    agent_output: str | None,
     function_calls: Sequence[Any],
     complete: bool = True,
 ) -> dict[str, Any]:
     """Build the evidence view the judge sees (Garak's ``build_evidence``)."""
 
     status = "complete" if complete else "partial"
+    messages = (
+        [{"role": "assistant", "content": agent_output}] if isinstance(agent_output, str) else []
+    )
     return {
         "user_text": user_text,
         "history": [dict(turn) for turn in history],
-        "messages": [{"role": "assistant", "content": agent_output}],
+        "messages": messages,
         "tool_calls": [tool_call_of(call) for call in function_calls],
         "availability": {"messages": "captured", "tool_calls": "captured"},
         "completeness": {"messages": status, "tool_calls": status},

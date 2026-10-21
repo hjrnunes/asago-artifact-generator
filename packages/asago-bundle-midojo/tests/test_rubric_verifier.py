@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from asago_bundle_midojo.bundle_files import asago_rubric as rubric
+from asago_artifact_generator.authoring import rubric_judge as rubric
 
 RUBRIC = {
     "question": "Does the reply give fees?",

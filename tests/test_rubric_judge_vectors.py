@@ -1,6 +1,7 @@
 """The rubric port gives Garak's outputs on every vector computed from Garak's functions.
 
-``fixtures/rubric/vectors.json`` is written by ``fixtures/rubric/generate_vectors.py`` run in
+``fixtures/rubric/vectors.json`` is written by the MiDojo adapter's
+``tests/fixtures/rubric/generate_vectors.py`` run in
 Garak's interpreter; it holds each case's inputs and the output of the Garak function.
 """
 
@@ -12,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from asago_bundle_midojo.bundle_files import asago_rubric as port
+from asago_artifact_generator.authoring import rubric_judge as port
 
 VECTORS = json.loads(
     (Path(__file__).parent / "fixtures/rubric/vectors.json").read_text(encoding="utf-8")
@@ -39,6 +40,10 @@ def test_the_vectors_name_the_garak_revision_and_the_sink_rule() -> None:
 @pytest.mark.parametrize("vector", ids("evidence"))
 def test_evidence_matches_garaks_build_evidence(vector: dict[str, Any]) -> None:
     assert port.build_evidence(**vector["midojo"]) == vector["evidence"]
+
+
+def test_evidence_without_agent_text_has_no_messages() -> None:
+    assert port.build_evidence("u", [], None, [])["messages"] == []
 
 
 @pytest.mark.parametrize("vector", ids("request"))

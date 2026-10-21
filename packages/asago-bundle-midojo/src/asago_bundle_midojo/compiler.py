@@ -17,13 +17,13 @@ from pathlib import Path
 from typing import Any
 
 from asago_artifact_generator.authoring.condition_eval import validate_condition
+from asago_artifact_generator.authoring.rubric_judge import RUBRIC_NAME
 from asago_artifact_generator.package_io import ArtifactPackage, load_package
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.gap import CapabilityGap, capability_gap_record
 from asago_bundle_core.slots import bundle_slot, contains_marker, template_slots, value_slot
 from asago_bundle_core.text import canonical_text
 
-from .bundle_files.asago_rubric import RUBRIC_NAME
 from .bundle_files.verifier_names import NEUTRAL_NAME
 from .environment import EnvironmentFault, base_target, suite_environment
 
@@ -62,7 +62,7 @@ BUNDLE_CODE = {
     f"{SUITE_PACKAGE}/__init__.py": (BUNDLE_FILES, "suite_package.py"),
     f"{SUITE_PACKAGE}/suite.py": (BUNDLE_FILES, "suite_module.py"),
     f"{SUITE_PACKAGE}/asago_verifiers.py": (BUNDLE_FILES, "asago_verifiers.py"),
-    f"{SUITE_PACKAGE}/asago_rubric.py": (BUNDLE_FILES, "asago_rubric.py"),
+    f"{SUITE_PACKAGE}/asago_rubric.py": ("asago_artifact_generator.authoring", "rubric_judge.py"),
     RUN_SCRIPT: (BUNDLE_FILES, "run_midojo.py"),
     f"{SUITE_PACKAGE}/verifier_names.py": (BUNDLE_FILES, "verifier_names.py"),
 }
