@@ -774,6 +774,33 @@ validator applies the same rule to `stimulus_approach.request`, and rejects a
 request slot that names no declared binding, so plan correction can repair the
 binding before the artifact stage freezes the plan.
 
+## MiDojo adapter runtimes
+
+`asago-bundle-midojo compile --midojo-base BASE --domain DOMAIN --runtime RUNTIME`
+picks MiDojo's agent runtime:
+
+- `unmanaged` (the default): the orchestrator hosts the target, and `midojo-run`
+  reaches it with `--agent-uri`, `--protocol openai` and the MCP server flags.
+- `openshell`: MiDojo (`>=b0fb4576`) runs the mini-agents target in an OpenShell
+  sandbox per evaluation, from the base's `runtime` block: its image, its agent
+  command for the domain, and its default-deny policy. `midojo-run` takes
+  `--gateway {gateway} --agent-timeout {agent_timeout}`. `instantiate` needs:
+  - `image_id`, a bare `sha256:<64 hex>` image ID;
+  - `service_port` (the control plane) and `relay_port`, integers that fill the
+    policy's port rules;
+  - `relay_url`, the model relay as the sandbox reaches it, on `relay_port`;
+  - `model` and `instructions`, the system message.
+
+  The relay key is `${env.OPENAI_API_KEY}`, which MiDojo expands. `parse` reads the
+  agent's `.asago/` files (`mcp-calls.jsonl`, `ogx.log`, `run-summary.json`) from the
+  evaluation's observations. It writes MiDojo's openshell observations into
+  `runtime_observations`. The image, its digest, the policy digest, interrupted
+  network calls and the network callers go into `openshell-evidence.json` beside the
+  receipt.
+
+`run_midojo.py` sends `MIDOJO_CONTROL_TOKEN`, when it is set, as a bearer token on
+its control-plane reads. The token never enters the bundle.
+
 ## Development
 
 ```bash
@@ -789,7 +816,7 @@ The unit test suite is deterministic and does not require an LLM endpoint.
 ├── src/asago_artifact_generator/    # authoring, packages, CLI
 ├── packages/asago-bundle-core/      # shared adapter core (workspace member): tool-bundle-v1 schema, slots, conformance helper
 ├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse
-├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): command-attempt and reply packages, single or sequential; single packages with history exit 3
+├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): command-attempt and reply packages, single or sequential, unmanaged or openshell runtime; single packages with history exit 3
 ├── contracts/                        # vendored and consumer-owned contracts
 ├── scripts/                          # quality, replay, and budget tools
 ├── tests/                            # unit tests

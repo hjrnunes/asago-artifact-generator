@@ -16,6 +16,7 @@ from asago_bundle_core.gap import EXIT_CAPABILITY_GAP, EXIT_INPUT, EXIT_OK, Capa
 
 from .compiler import CompileError, compile_package
 from .instantiate import InstantiateError, instantiate_bundle
+from .openshell import RUNTIMES, UNMANAGED
 from .parse import ParseError, parse_bundle
 
 
@@ -34,6 +35,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--midojo-base", type=Path, required=True, help="mini-agents-midojo-base-v1 file"
     )
     compile_cmd.add_argument("--domain", required=True, help="domain of the base to compile for")
+    compile_cmd.add_argument(
+        "--runtime",
+        choices=RUNTIMES,
+        default=UNMANAGED,
+        help="MiDojo agent runtime: unmanaged (the orchestrator hosts the target) or openshell "
+        "(MiDojo runs the base's sandbox image)",
+    )
     compile_cmd.set_defaults(handler=_compile)
     instantiate_cmd = commands.add_parser(
         "instantiate", help="fill a bundle template with values.json into a concrete bundle"
@@ -44,7 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     instantiate_cmd.set_defaults(handler=_instantiate)
     parse_cmd = commands.add_parser(
         "parse",
-        help="write execution-receipt-v1 from the control-plane records; a failed run exits 0",
+        help="write execution-receipt-v1 from the control-plane records (and, for an openshell "
+        "bundle, openshell-evidence.json beside it); a failed run exits 0",
     )
     parse_cmd.add_argument("bundle", type=Path, help="concrete bundle directory")
     parse_cmd.add_argument("--out", type=Path, required=True, help="receipt path")
@@ -64,7 +73,13 @@ def main(argv: list[str] | None = None) -> int:
 
 def _compile(args: argparse.Namespace) -> int:
     try:
-        compile_package(args.package, args.out, midojo_base=args.midojo_base, domain=args.domain)
+        compile_package(
+            args.package,
+            args.out,
+            midojo_base=args.midojo_base,
+            domain=args.domain,
+            runtime=args.runtime,
+        )
     except CapabilityGap as gap:
         print(json.dumps(gap.record, indent=2, sort_keys=True))
         return EXIT_CAPABILITY_GAP

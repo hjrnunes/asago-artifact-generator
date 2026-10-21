@@ -47,14 +47,27 @@ EVALUATION = {
 
 
 @contextmanager
-def control_plane(routes: dict[str, Any]) -> Iterator[str]:
-    """A stub control plane on loopback that answers ``routes`` and 404 elsewhere."""
+def control_plane(
+    routes: dict[str, Any], token: str | None = None, seen: list[str | None] | None = None
+) -> Iterator[str]:
+    """A stub control plane on loopback that answers ``routes`` and 404 elsewhere.
+
+    With ``token`` it answers 401 to a request without that bearer token, as
+    ``midojo-serve`` started with a control token does; ``seen`` collects each
+    request's ``Authorization`` header.
+    """
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - http.server's name
+            header = self.headers.get("Authorization")
+            if seen is not None:
+                seen.append(header)
             document = routes.get(self.path)
+            status = 200 if document is not None else 404
+            if token is not None and header != f"Bearer {token}":
+                document, status = {"detail": "Control token required"}, 401
             body = json.dumps(document).encode()
-            self.send_response(200 if document is not None else 404)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -220,3 +233,71 @@ def test_run_orchestrator_returns_the_child_exit_code(
     assert seen["command"][1:3] == ["-m", "midojo.orchestrator"]
     assert seen["env"]["PYTHONPATH"].split(os.pathsep)[0] == str(tmp_path)
     assert seen["check"] is False
+
+
+ROUTES = {"/runs/run-1": RUN, "/runs/run-1/evaluations/eval-1": EVALUATION}
+TOKEN = "fixture-control-token"
+
+
+def test_the_control_token_is_sent_on_every_read_when_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MIDOJO_CONTROL_TOKEN", TOKEN)
+    seen: list[str | None] = []
+    with control_plane(ROUTES, token=TOKEN, seen=seen) as url:
+        rc = run_midojo.main(argv(tmp_path, url), orchestrator(0, {"run_id": "run-1"}))
+
+    assert rc == 0
+    assert seen == [f"Bearer {TOKEN}"] * 2
+    assert json.loads((tmp_path / "control-plane/evaluation.json").read_text()) == EVALUATION
+    written = b"".join(path.read_bytes() for path in tmp_path.rglob("*") if path.is_file())
+    assert TOKEN.encode() not in written
+
+
+def test_without_the_token_no_authorization_is_sent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MIDOJO_CONTROL_TOKEN", raising=False)
+    seen: list[str | None] = []
+    with control_plane(ROUTES, seen=seen) as url:
+        rc = run_midojo.main(argv(tmp_path, url), orchestrator(0, {"run_id": "run-1"}))
+
+    assert rc == 0
+    assert seen == [None, None]
+
+
+def test_a_control_plane_that_wants_a_token_it_was_not_given_fails_without_a_dump(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("MIDOJO_CONTROL_TOKEN", raising=False)
+    with control_plane(ROUTES, token=TOKEN) as url:
+        rc = run_midojo.main(argv(tmp_path, url), orchestrator(0, {"run_id": "run-1"}))
+
+    assert rc == 1
+    assert not (tmp_path / "control-plane").exists()
+    assert "401" in capsys.readouterr().err
+
+
+def test_a_wrong_token_fails_without_leaking_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("MIDOJO_CONTROL_TOKEN", "wrong-token")
+    with control_plane(ROUTES, token=TOKEN) as url:
+        rc = run_midojo.main(argv(tmp_path, url), orchestrator(0, {"run_id": "run-1"}))
+
+    assert rc == 1
+    assert "wrong-token" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("environ", "headers"),
+    [
+        ({"MIDOJO_CONTROL_TOKEN": TOKEN}, {"Authorization": f"Bearer {TOKEN}"}),
+        ({"MIDOJO_CONTROL_TOKEN": ""}, {}),
+        ({}, {}),
+    ],
+)
+def test_the_control_headers_come_from_the_environment(
+    environ: dict[str, str], headers: dict[str, str]
+) -> None:
+    assert run_midojo.control_headers(environ) == headers

@@ -28,6 +28,15 @@ and the mini-agents server logs it with ``report: unfinished``, under the same
 MiDojo's flag then agrees with either verdict, since MiDojo counts the call as an
 attempt. The two records must name the same unfinished calls, or the receipt fails
 with ``unfinished_call_mismatch``; so does an unfinished call in a run without a server log.
+
+An ``openshell`` bundle's run has no proxy or gateway: the server log, OGX's log and the
+agent's run summary come out of the sandbox's workdir in the evaluation's observations
+(``records.workdir_records``), and their failure reasons come where the boundary
+records' do, before ``_records_agree``. MiDojo's calls and the server log must hold the
+same calls by ``call_id`` (``call_id_mismatch``), the request count is OGX's, and the
+attempt's ``runtime_observations`` are MiDojo's openshell observations. What the
+receipt schema has no field for (the image, its digest, the policy digest, interrupted
+network calls and the callers) goes in ``openshell-evidence.json`` beside the receipt.
 """
 
 from __future__ import annotations
@@ -62,7 +71,18 @@ from .compiler import (
     VERDICT_FILE,
 )
 from .environment import placeholder
-from .records import Records, is_unfinished, native_call, read_records, server_unfinished
+from .openshell import OPENSHELL, UNMANAGED, runtime_type
+from .records import (
+    OPENSHELL_SOURCE,
+    RUNTIME_LISTS,
+    Records,
+    is_unfinished,
+    native_call,
+    openshell_observations,
+    read_records,
+    server_unfinished,
+    workdir_records,
+)
 
 SCHEMA_VERSION = "execution-receipt-v1"
 DETECTORS = {COMMAND_ATTEMPT: "ToolCallCondition", REPLY: "RubricJudge"}
@@ -76,14 +96,15 @@ JUDGE_OUTCOMES = {
 # A file a bundle lacks (``TURNS_CODE`` in all but a sequential reply bundle) is left out.
 DIGESTED = (BUNDLE_FILE, SUITE_FILE, *BUNDLE_CODE, *TURNS_CODE)
 MANIFEST_KEYS = frozenset({"scenario_id", "package_digest", "claim_level"})
-RUNTIME_LISTS = (
-    "processes",
-    "network_calls_allowed",
-    "network_calls_blocked",
-    "files_created",
-    "files_modified",
-    "files_deleted",
-    "security_findings",
+EVIDENCE_FILE = "openshell-evidence.json"
+EVIDENCE_SCHEMA = "midojo-openshell-evidence-v1"
+# The observations the receipt has no field for, copied into the evidence file.
+EVIDENCE_FIELDS = (
+    "image",
+    "image_digest",
+    "policy_digest",
+    "network_calls_interrupted",
+    "network_callers",
 )
 
 
@@ -100,6 +121,7 @@ class Bundle:
     prompt: str | None
     suite: dict[str, Any]
     turns: list[str] | None = None
+    runtime: str = UNMANAGED
 
 
 @dataclass(frozen=True)
@@ -145,7 +167,27 @@ def parse_bundle(
     }
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(canonical_text(receipt), encoding="utf-8")
+    if bundle.runtime == OPENSHELL:
+        evidence = openshell_evidence(bundle, receipt)
+        (out.parent / EVIDENCE_FILE).write_text(canonical_text(evidence), encoding="utf-8")
     return receipt
+
+
+def openshell_evidence(bundle: Bundle, receipt: dict[str, Any]) -> dict[str, Any]:
+    """Return what the receipt cannot hold of an openshell run's observations.
+
+    A field the evaluation does not carry is None, never an empty list.
+    """
+
+    evaluation, _ = read_document(bundle.root / EVALUATION_DUMP, "control_plane")
+    observed = openshell_observations(evaluation) or {}
+    return {
+        "schema_version": EVIDENCE_SCHEMA,
+        "package": receipt["package"],
+        "bundle_digest": receipt["bundle_digest"],
+        "evaluation_id": evaluation.get("id") if evaluation else None,
+        **{name: observed.get(name) for name in EVIDENCE_FIELDS},
+    }
 
 
 def read_bundle(root: Path) -> Bundle:
@@ -171,11 +213,14 @@ def read_bundle(root: Path) -> Bundle:
             if problem:
                 raise ParseError(f"the suite's condition is invalid: {problem}")
         missing = MANIFEST_KEYS - manifest.keys()
+        runtime = runtime_type(suite)
     except (OSError, IndexError, KeyError, TypeError, AttributeError, ValueError) as exc:
         raise ParseError(f"bundle is unreadable: {exc}") from exc
     if missing:
         raise ParseError(f"bundle manifest lacks {sorted(missing)}")
-    return Bundle(root, manifest, prompt, suite, turns)
+    if runtime not in (UNMANAGED, OPENSHELL):
+        raise ParseError(f"the suite's agent runtime is not one this adapter runs: {runtime!r}")
+    return Bundle(root, manifest, prompt, suite, turns, runtime)
 
 
 def build_attempt(bundle: Bundle, records: Records) -> tuple[dict[str, Any] | None, str | None]:
@@ -191,6 +236,8 @@ def build_attempt(bundle: Bundle, records: Records) -> tuple[dict[str, Any] | No
     control, reason = read_control_plane(bundle)
     if control is None:
         return None, reason
+    if bundle.runtime == OPENSHELL:
+        records = workdir_records(control[1], records)
     if bundle.turns is not None:
         attempt, reason = failed_turn(control, bundle, records)
         if reason:
@@ -408,6 +455,12 @@ def _at(node: Any, path: list[Any]) -> Any:
     return node
 
 
+def _workdir_evidence(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
+    """An openshell run's workdir evidence can be read (``records.workdir_records``)."""
+
+    return records.failure
+
+
 def _records_agree(evidence: Evidence, bundle: Bundle, records: Records) -> str | None:
     """MiDojo, the server log and the proxy hold the same calls.
 
@@ -420,6 +473,9 @@ def _records_agree(evidence: Evidence, bundle: Bundle, records: Records) -> str 
     (``:275-281``). A call the server never finished is therefore in the proxy's file,
     still ``no_response`` or with whatever reply the framework sent, and it pairs with
     MiDojo's record by content as any call does (``proxy_turns``).
+
+    An openshell run has the server log only, from the workdir, and its lines name
+    MiDojo's calls by ``call_id``: each ``call_id`` and its function must be in both.
     """
 
     if records.malformed:
@@ -439,6 +495,10 @@ def _records_agree(evidence: Evidence, bundle: Bundle, records: Records) -> str 
         evidence.evaluation["function_calls"]
     ):
         return "tool_call_count_mismatch"
+    if bundle.runtime == OPENSHELL and _call_identities(function_calls) != _call_identities(
+        records.server or []
+    ):
+        return "call_id_mismatch"
     if bundle.turns is not None and records.calls is not None:
         _, reason = proxy_turns(evidence.evaluation["function_calls"], records)
         return reason
@@ -455,6 +515,12 @@ def _call_ids(items: list[dict[str, Any]]) -> list[str]:
     return sorted(json.dumps(item.get("call_id"), sort_keys=True) for item in items)
 
 
+def _call_identities(items: list[dict[str, Any]]) -> list[str]:
+    """Return each item's ``call_id`` and ``function`` as sorted canonical JSON text."""
+
+    return sorted(json.dumps([item.get("call_id"), item.get("function")]) for item in items)
+
+
 CHECKS: tuple[Check, ...] = (
     _evaluation_count,
     _evaluation_identity,
@@ -464,6 +530,7 @@ CHECKS: tuple[Check, ...] = (
     _verdict_agrees,
     _prompt_matches,
     _seed_provisioned,
+    _workdir_evidence,
     _records_agree,
 )
 
@@ -632,7 +699,7 @@ def failed_turn(
             "assistant_messages": [replies[index] for index in sorted(replies)],
             "tool_calls": calls,
         },
-        "runtime_observations": {"source": None, **{name: [] for name in RUNTIME_LISTS}},
+        "runtime_observations": runtime_observations(bundle, evaluation),
         "detections": [],
         "judge": None,
     }, reason
@@ -645,6 +712,7 @@ SENT_TURN_CHECKS: tuple[Check, ...] = (
     _calls_shape,
     _turn_inputs,
     _call_turns,
+    _workdir_evidence,
     _records_agree,
 )
 
@@ -735,10 +803,22 @@ def attempt_of(evidence: Evidence, bundle: Bundle, records: Records) -> dict[str
             "reason": verdict["reason"],
         },
         "observation": {"source": source, "assistant_messages": replies, "tool_calls": calls},
-        "runtime_observations": {"source": None, **{name: [] for name in RUNTIME_LISTS}},
+        "runtime_observations": runtime_observations(bundle, evaluation),
         "detections": [detection_of(verdict)],
         "judge": judge_of(evidence.verdict, records),
     }
+
+
+def runtime_observations(bundle: Bundle, evaluation: dict[str, Any]) -> dict[str, Any]:
+    """Return MiDojo's openshell observations in the receipt's seven arrays; else empty.
+
+    ``_workdir_evidence`` has checked that an openshell evaluation holds them.
+    """
+
+    observed = openshell_observations(evaluation) if bundle.runtime == OPENSHELL else None
+    if observed is None:
+        return {"source": None, **{name: [] for name in RUNTIME_LISTS}}
+    return {"source": OPENSHELL_SOURCE, **{name: observed[name] for name in RUNTIME_LISTS}}
 
 
 def attempt_verdict(

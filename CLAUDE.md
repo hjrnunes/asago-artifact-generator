@@ -130,7 +130,11 @@ Deterministic tests must not contact a model endpoint or target.
   graded (an `unresolved` verdict naming why). A command attempt is graded by
   MiDojo's builtin `tool_call_condition` predicate. `compile` takes `--midojo-base` (a
   mini-agents `mini-agents-midojo-base-v1` file) and `--domain`: the domain's ledger becomes the
-  suite `environment` and the package's `seed.json` becomes probes (`environment.py`). Its suite
+  suite `environment` and the package's `seed.json` becomes probes (`environment.py`).
+  `--runtime openshell` (default `unmanaged`, whose bundles stay as they were) runs the target in
+  MiDojo's OpenShell sandbox from the base's `runtime` block (`openshell.py`, MiDojo `>=b0fb4576`);
+  `parse` then reads the agent's `.asago/` files from the evaluation's observations and writes
+  `openshell-evidence.json` beside the receipt. Its suite
   code under `bundle_files/`, which the compiler copies into each bundle, runs in MiDojo's
   interpreter, so it imports the standard library and, lazily, `midojo`.
 - Each `packages/*` member runs in its own pytest session, for example

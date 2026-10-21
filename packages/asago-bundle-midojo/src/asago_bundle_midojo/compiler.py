@@ -7,8 +7,13 @@ for a sequential package, one ``user_turn_<n>`` slot per user turn, which
 ``bundle.json`` (``tool-bundle-v1``) names the values the orchestrator resolves
 and the two commands: ``serve`` starts the control plane on loopback, and the
 entrypoint runs ``midojo-run`` against it and reads the control plane's records
-into the bundle. The agent runtime is ``unmanaged``: the
-orchestrator hosts the target and MiDojo reaches it through the model gateway.
+into the bundle.
+
+The agent runtime is ``unmanaged`` by default: the orchestrator hosts the target and
+MiDojo reaches it through the model gateway. With ``openshell`` MiDojo runs the
+mini-agents target in a sandbox it creates per evaluation, from the base's runtime
+block (``openshell.py``), and ``midojo-run`` takes the OpenShell gateway and the agent
+timeout instead of the agent's URL, protocol and MCP server.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ from asago_bundle_core.text import canonical_text
 from .bundle_files.asago_rubric_turns import TURNS_RUBRIC_NAME
 from .bundle_files.verifier_names import NEUTRAL_NAME
 from .environment import EnvironmentFault, base_target, suite_environment
+from .openshell import OPENSHELL, RUNTIMES, UNMANAGED, RuntimeFault, agent_runtime
 
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "midojo"
@@ -37,6 +43,9 @@ TOOL_REVISION_RANGE = ">=5efb3de8"
 # verifier's ``VerificationContext.turns`` (the conversation the sequential judge reads) at
 # bddb79b.
 TURNS_REVISION_RANGE = ">=bddb79bc"
+# The openshell runtime's agent command, ``--agent-timeout`` and the turn variables
+# arrived on asago/main by b0fb457, a descendant of bddb79b.
+OPENSHELL_REVISION_RANGE = ">=b0fb4576"
 # MiDojo's builtin predicate; its value is the condition object itself.
 TOOL_CALL_CONDITION = "tool_call_condition"
 COMMAND_ATTEMPT = "command_attempt"
@@ -64,6 +73,23 @@ CONTROL_URL = "http://127.0.0.1:{service_port}"
 JUDGE_KEY = "OPENAICOMPATIBLE_API_KEY"
 # Values the commands name as ``{key}``; the suite template holds the others.
 ENTRYPOINT_VALUES = ("gateway_url", "mcp_url", "model", "service_port")
+OPENSHELL_ENTRYPOINT_VALUES = ("agent_timeout", "gateway", "service_port")
+# The ``midojo-run`` flags that say how to reach the agent, per runtime.
+AGENT_FLAGS = {
+    UNMANAGED: [
+        "--agent-uri",
+        "{gateway_url}",
+        "--protocol",
+        "openai",
+        "--model-name",
+        "{model}",
+        "--mcp-server-url",
+        "{mcp_url}",
+        "--mcp-server-label",
+        MCP_SERVER_LABEL,
+    ],
+    OPENSHELL: ["--gateway", "{gateway}", "--agent-timeout", "{agent_timeout}"],
+}
 BUNDLE_FILES = "asago_bundle_midojo.bundle_files"
 # Bundle path -> (package, file of that package it copies).
 BUNDLE_CODE = {
@@ -94,14 +120,22 @@ class CompileError(BundleError):
 
 
 def compile_package(
-    package_dir: str | Path, out_dir: str | Path, *, midojo_base: str | Path, domain: str
+    package_dir: str | Path,
+    out_dir: str | Path,
+    *,
+    midojo_base: str | Path,
+    domain: str,
+    runtime: str = UNMANAGED,
 ) -> dict[str, Any]:
     """Write the bundle template for one package and return its manifest.
 
     ``midojo_base`` is mini-agents' ``mini-agents-midojo-base-v1`` file; ``domain`` picks the
-    ledger the suite serves and the slots the package's seed may target.
+    ledger the suite serves and the slots the package's seed may target. ``runtime`` is
+    ``unmanaged`` or ``openshell``.
     """
 
+    if runtime not in RUNTIMES:
+        raise CompileError(f"unknown agent runtime: {runtime!r}")
     out = Path(out_dir)
     package = _load(Path(package_dir))
     stimulus = _json_member(package, "stimulus.json")
@@ -111,17 +145,28 @@ def compile_package(
     if reasons:
         raise CapabilityGap(capability_gap_record(TOOL, package, delivery, "; ".join(reasons)))
     turns = user_turn_count(stimulus)
-    target = _base_target(Path(midojo_base), domain)
+    base = _read_base(Path(midojo_base))
+    target = _base_target(base, domain)
+    try:
+        sandbox = agent_runtime(base, domain) if runtime == OPENSHELL else None
+    except RuntimeFault as exc:
+        raise CompileError(str(exc)) from exc
     seed = _json_member(package, SEED_MEMBER) if SEED_MEMBER in package.members else None
     try:
         environment, probes = suite_environment(target, seed)
     except EnvironmentFault as exc:
         raise CompileError(str(exc)) from exc
-    suite = suite_template(package, level, environment, probes, turns)
-    requires = sorted(template_slots([suite]) | set(ENTRYPOINT_VALUES))
-    manifest = bundle_manifest(package, level, requires, delivery)
+    suite = suite_template(package, level, environment, probes, turns, sandbox)
+    requires = sorted(template_slots([suite]) | set(entrypoint_values(runtime)))
+    manifest = bundle_manifest(package, level, requires, delivery, runtime)
     _write(out, {SUITE_TEMPLATE: suite, BUNDLE_FILE: manifest}, bundle_code(level, delivery))
     return manifest
+
+
+def entrypoint_values(runtime: str) -> tuple[str, ...]:
+    """Return the value keys the commands of a ``runtime`` bundle name as ``{key}``."""
+
+    return OPENSHELL_ENTRYPOINT_VALUES if runtime == OPENSHELL else ENTRYPOINT_VALUES
 
 
 def bundle_code(level: str, delivery: str) -> dict[str, tuple[str, str]]:
@@ -206,11 +251,13 @@ def suite_template(
     environment: dict[str, Any],
     probes: dict[str, dict[str, str]],
     turns: int | None = None,
+    sandbox: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the suite file with its slots: one user task and one injection task.
 
     A single package's user task has a ``prompt``; a sequential one's has ``turns``,
-    each text a ``user_turn_<n>`` slot counted from 1.
+    each text a ``user_turn_<n>`` slot counted from 1. ``sandbox`` is an ``openshell``
+    agent runtime; without one the runtime is ``unmanaged``.
     """
 
     scenario_id = package.manifest.scenario_id
@@ -228,7 +275,7 @@ def suite_template(
     else:
         user_task["turns"] = [value_slot(key) for key in user_turn_keys(turns)]
     return {
-        "agent_runtime": {"type": "unmanaged"},
+        "agent_runtime": {"type": UNMANAGED} if sandbox is None else sandbox,
         "environment": environment,
         "user_tasks": [{**user_task, "utility": {NEUTRAL_NAME: {}}}],
         "injection_tasks": [injection_task],
@@ -281,15 +328,17 @@ def _judged_text(turns: int | None) -> dict[str, Any]:
 
 
 def bundle_manifest(
-    package: ArtifactPackage, level: str, requires: list[str], delivery: str = SINGLE
+    package: ArtifactPackage,
+    level: str,
+    requires: list[str],
+    delivery: str = SINGLE,
+    runtime: str = UNMANAGED,
 ) -> dict[str, Any]:
     reply = level == REPLY
     return {
         "schema_version": BUNDLE_SCHEMA_VERSION,
         "tool": TOOL,
-        "tool_revision_range": (
-            TURNS_REVISION_RANGE if delivery == SEQUENTIAL else TOOL_REVISION_RANGE
-        ),
+        "tool_revision_range": _revision_range(delivery, runtime),
         "package_id": package.manifest.package_id,
         "scenario_id": package.manifest.scenario_id,
         "package_digest": package.manifest.manifest_digest,
@@ -321,16 +370,7 @@ def bundle_manifest(
             "--control-url",
             CONTROL_URL,
             "--",
-            "--agent-uri",
-            "{gateway_url}",
-            "--protocol",
-            "openai",
-            "--model-name",
-            "{model}",
-            "--mcp-server-url",
-            "{mcp_url}",
-            "--mcp-server-label",
-            MCP_SERVER_LABEL,
+            *AGENT_FLAGS[runtime],
             "--suite",
             SUITE_MODULE,
             "--logdir",
@@ -340,15 +380,24 @@ def bundle_manifest(
     }
 
 
+def _revision_range(delivery: str, runtime: str) -> str:
+    if runtime == OPENSHELL:
+        return OPENSHELL_REVISION_RANGE
+    return TURNS_REVISION_RANGE if delivery == SEQUENTIAL else TOOL_REVISION_RANGE
+
+
 def _rubric_name(delivery: str) -> str:
     return TURNS_RUBRIC_NAME if delivery == SEQUENTIAL else RUBRIC_NAME
 
 
-def _base_target(path: Path, domain: str) -> dict[str, Any]:
+def _read_base(path: Path) -> Any:
     try:
-        base = json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise CompileError(f"the MiDojo base cannot be read: {exc}") from exc
+
+
+def _base_target(base: Any, domain: str) -> dict[str, Any]:
     try:
         return dict(base_target(base, domain))
     except EnvironmentFault as exc:
