@@ -253,22 +253,45 @@ def handler(target: Target) -> type[BaseHTTPRequestHandler]:
 
 
 @contextlib.contextmanager
-def running(*, bare: bool = False) -> Iterator[str]:
-    """Run the target in a subprocess on a free localhost port; yield its base URL."""
+def started(
+    command: list[str], *, cwd: Path | None = None, timeout: float = 10.0, grace: float = 5.0
+) -> Iterator[str]:
+    """Run ``command`` until the block ends; yield the base URL it prints on its first line.
 
-    command = [sys.executable, str(HERE / "server.py"), "serve", "--port", "0"]
-    process = subprocess.Popen([*command, *(["--bare"] if bare else [])], stdout=subprocess.PIPE)
+    A child that prints nothing within ``timeout`` seconds is an error. On the way out the
+    child is terminated, killed if it outlives ``grace`` seconds, and always reaped.
+    """
+
+    process = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE)
+    assert process.stdout is not None
+    lines: list[bytes] = []
+    reader = threading.Thread(target=lambda: lines.append(process.stdout.readline()), daemon=True)
+    reader.start()
     try:
-        assert process.stdout is not None
-        url = process.stdout.readline().decode("utf-8").strip()
+        reader.join(timeout)
+        if reader.is_alive():
+            raise RuntimeError(f"the fixture target printed no URL within {timeout} seconds")
+        url = lines[0].decode("utf-8").strip()
         if not url:
             raise RuntimeError("the fixture target exited before it served")
         yield url
     finally:
         process.terminate()
-        process.wait(timeout=10)
-        if process.stdout is not None:
-            process.stdout.close()
+        try:
+            process.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        process.stdout.close()
+
+
+@contextlib.contextmanager
+def running(*, bare: bool = False) -> Iterator[str]:
+    """Run the target in a subprocess on a free localhost port; yield its base URL."""
+
+    command = [sys.executable, str(HERE / "server.py"), "serve", "--port", "0"]
+    with started([*command, *(["--bare"] if bare else [])]) as url:
+        yield url
 
 
 def main(argv: list[str] | None = None) -> int:

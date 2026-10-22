@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -159,12 +161,8 @@ def test_the_declared_steps_start_seed_and_reset_the_target(tmp_path: Path) -> N
     endpoint = _read_yaml("target.yaml")["endpoint"]
     seed_file = tmp_path / "seed.json"
     seed_file.write_text(json.dumps(_seed(_item())), encoding="utf-8")
-    process = subprocess.Popen(
-        _command(endpoint["start"], port="0"), cwd=TARGET, stdout=subprocess.PIPE, text=True
-    )
-    try:
-        assert process.stdout is not None
-        port = str(urlsplit(process.stdout.readline().strip()).port)
+    with server.started(_command(endpoint["start"], port="0"), cwd=TARGET) as url:
+        port = str(urlsplit(url).port)
         client = Client(endpoint["mcp_url"].format(port=port).removesuffix("/mcp"))
         assert _run(endpoint["health"], port=port).returncode == 0
         initial = client.notes()
@@ -181,11 +179,6 @@ def test_the_declared_steps_start_seed_and_reset_the_target(tmp_path: Path) -> N
         assert (
             client.call("get_balance", account_id="ACC-1")["structuredContent"]["balance"] == 120
         )
-    finally:
-        process.terminate()
-        process.wait(timeout=10)
-        if process.stdout is not None:
-            process.stdout.close()
 
 
 @pytest.mark.parametrize(
@@ -280,3 +273,20 @@ def test_the_declared_server_needs_its_runtime_spec(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="exited before it served"):
         with _load_server(tmp_path).running():
             pass
+
+
+def test_a_target_that_never_prints_its_url_fails_in_time_and_is_reaped(tmp_path: Path) -> None:
+    pid_file = tmp_path / "pid"
+    silent = (
+        "import os, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(60)"
+    )
+    began = time.monotonic()
+
+    with pytest.raises(RuntimeError, match="printed no URL within 1.0 seconds"):
+        with server.started([sys.executable, "-c", silent, str(pid_file)], timeout=1.0, grace=0.2):
+            pass
+
+    assert time.monotonic() - began < 10
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pid_file.read_text()), 0)
