@@ -1,0 +1,26 @@
+schema_version: target-v2
+target: piggybank
+# A made-up target for the adapter tests: tools-list.json and runtime-spec.yaml
+# beside this file describe it, and server.py serves it on localhost.
+kind: declared
+discovery:
+  target_id: piggybank-fixture
+  authorization_scope_id: piggybank-fixture
+# Where the running target answers, and the commands that run it. Each command
+# is an argument list run from this directory, after the caller fills three
+# placeholders: {python} is a Python interpreter with PyYAML, {port} a free
+# localhost port, and {seed_file} the path of an artifact-seed-v1 document.
+# start keeps running and prints its base URL on its first line; with port 0 it
+# takes a free port, and the caller reads the port from that line. health, seed
+# and reset exit 0 on success and 1 with the reason on stderr.
+endpoint:
+  # server.py serves tools only: nothing answers here (404) until a test
+  # supplies an agent of its own.
+  agent_url: http://127.0.0.1:{port}/agent
+  mcp_url: http://127.0.0.1:{port}/mcp
+  start: ["{python}", server.py, serve, --port, "{port}"]
+  health: ["{python}", server.py, health, --url, "http://127.0.0.1:{port}"]
+  # Plants the seed's items in the records its slots name; nothing on refusal.
+  seed: ["{python}", server.py, seed, --url, "http://127.0.0.1:{port}", "{seed_file}"]
+  # Restores the initial state.
+  reset: ["{python}", server.py, reset, --url, "http://127.0.0.1:{port}"]

@@ -1,0 +1,93 @@
+{
+  "tools": [
+    {
+      "name": "get_balance",
+      "description": "Read the balance of an account.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "balance": {
+            "type": "number"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "list_notes",
+      "description": "List the notes kept with the accounts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "note_id": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "withdraw",
+      "description": "Withdraw an amount from an account, up to its balance.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "account_id",
+          "amount"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "balance": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  ]
+}
