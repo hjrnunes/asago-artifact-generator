@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -275,18 +276,28 @@ def test_the_declared_server_needs_its_runtime_spec(tmp_path: Path) -> None:
             pass
 
 
-def test_a_target_that_never_prints_its_url_fails_in_time_and_is_reaped(tmp_path: Path) -> None:
-    pid_file = tmp_path / "pid"
-    silent = (
-        "import os, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-        "open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(60)"
-    )
+def test_a_target_that_never_prints_its_url_fails_in_time_and_is_reaped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spawned: list[subprocess.Popen[bytes]] = []
+    popen = subprocess.Popen
+
+    def spy(*args: Any, **kwargs: Any) -> subprocess.Popen[bytes]:
+        spawned.append(popen(*args, **kwargs))
+        return spawned[-1]
+
+    monkeypatch.setattr(server.subprocess, "Popen", spy)
+    silent = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+    threads = set(threading.enumerate())
     began = time.monotonic()
 
     with pytest.raises(RuntimeError, match="printed no URL within 1.0 seconds"):
-        with server.started([sys.executable, "-c", silent, str(pid_file)], timeout=1.0, grace=0.2):
+        with server.started([sys.executable, "-c", silent], timeout=1.0, grace=0.2):
             pass
 
     assert time.monotonic() - began < 10
+    assert [thread for thread in threading.enumerate() if thread not in threads] == []
+    (child,) = spawned
+    assert child.returncode is not None and child.stdout is not None and child.stdout.closed
     with pytest.raises(ProcessLookupError):
-        os.kill(int(pid_file.read_text()), 0)
+        os.kill(child.pid, 0)

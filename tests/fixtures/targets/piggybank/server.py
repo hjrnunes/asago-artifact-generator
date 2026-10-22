@@ -259,7 +259,8 @@ def started(
     """Run ``command`` until the block ends; yield the base URL it prints on its first line.
 
     A child that prints nothing within ``timeout`` seconds is an error. On the way out the
-    child is terminated, killed if it outlives ``grace`` seconds, and always reaped.
+    child is terminated, killed if it outlives ``grace`` seconds, and always reaped; its pipe
+    is closed, and the thread reading it is joined within ``grace`` seconds or an error.
     """
 
     process = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE)
@@ -276,13 +277,18 @@ def started(
             raise RuntimeError("the fixture target exited before it served")
         yield url
     finally:
-        process.terminate()
         try:
-            process.wait(timeout=grace)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-        process.stdout.close()
+            process.terminate()
+            try:
+                process.wait(timeout=grace)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        finally:
+            process.stdout.close()
+        reader.join(grace)
+        if reader.is_alive():
+            raise RuntimeError("the fixture target's output reader outlived the child")
 
 
 @contextlib.contextmanager
