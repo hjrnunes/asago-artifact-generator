@@ -1,0 +1,170 @@
+{
+  "revision": "c59a8fbf77981212e8cdec6d17c5426a1c0f8cba",
+  "cases": [
+    {
+      "template": "command",
+      "case": "good",
+      "values": "{\n  \"gateway_url\": \"http://127.0.0.1:18997/v1\",\n  \"mcp_url\": \"http://127.0.0.1:18996/sse\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Show the referral for PAT-201.\"\n    }\n  ],\n  \"model\": \"fixture-model\",\n  \"service_port\": 18123\n}",
+      "exit": 0,
+      "stdout": "",
+      "stderr": "",
+      "files": {
+        "asago_suite": "dir",
+        "asago_suite/__init__.py": "c87d13b640fbee039e17d8b3c9991e54c4c59d9a72fb4e7f8c35c32cc28c4d71",
+        "asago_suite/asago_rubric.py": "77ee582e4bd0fc491eab5a0c87805bdb48640790f54498c1b0cb8453cd23fb4d",
+        "asago_suite/asago_verifiers.py": "96259c443d6e0ccea9353801295fbd1f8d1309a6646352df4ecd9baa63ed41ac",
+        "asago_suite/suite.py": "efe07d32a2e94771f57c5d64a648ebdaa2dc5e5882d681dfd197f15d136c0a38",
+        "asago_suite/suite.yaml": "e857ba361bb2d54558b2fbc3408b7103a1fae15e00d6a1ed36c1dc063d496fcc",
+        "asago_suite/verifier_names.py": "39cb305829acf5a03a3fe3c61a07bd0692ebe3a30ef20f0b1427733719219c44",
+        "bundle.json": "05754a948dd4c57399ece421a8037690723676cbd0fde5bbcc917b62d1008dbe",
+        "run_midojo.py": "c0f84fa4c7eec5521962f4320205e3ea1e4e38894fc168892f94d70b5eac2485"
+      }
+    },
+    {
+      "template": "command",
+      "case": "lacks-model",
+      "values": "{\"gateway_url\": \"http://127.0.0.1:18997/v1\", \"mcp_url\": \"http://127.0.0.1:18996/sse\", \"messages\": [{\"role\": \"user\", \"content\": \"Show the referral for PAT-201.\"}], \"service_port\": 18123}",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "instantiate: values lack model\n",
+      "files": {}
+    },
+    {
+      "template": "command",
+      "case": "malformed-gateway-url",
+      "values": "{\"gateway_url\": \"ftp://gateway\", \"mcp_url\": \"http://127.0.0.1:18996/sse\", \"messages\": [{\"role\": \"user\", \"content\": \"Show the referral for PAT-201.\"}], \"model\": \"fixture-model\", \"service_port\": 18123}",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "instantiate: values carry a malformed gateway_url\n",
+      "files": {}
+    },
+    {
+      "template": "command",
+      "case": "unreadable",
+      "values": "{not json",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "instantiate: values are unreadable: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\n",
+      "files": {}
+    },
+    {
+      "template": "command",
+      "case": "absent",
+      "values": null,
+      "exit": 1,
+      "stdout": "",
+      "stderr": "instantiate: values are unreadable: [Errno 2] No such file or directory: '{tmp}/values.json'\n",
+      "files": {}
+    },
+    {
+      "template": "reply",
+      "case": "good",
+      "values": "{\n  \"gateway_url\": \"http://127.0.0.1:18997/v1\",\n  \"judge_model\": \"fixture-judge\",\n  \"judge_runtime_facts\": {\n    \"state\": {\n      \"actor\": \"GST001\"\n    }\n  },\n  \"judge_url\": \"http://127.0.0.1:18998/v1\",\n  \"mcp_url\": \"http://127.0.0.1:18996/sse\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Show the referral for PAT-201.\"\n    }\n  ],\n  \"model\": \"fixture-model\",\n  \"service_port\": 18123\n}",
+      "exit": 0,
+      "stdout": "",
+      "stderr": "",
+      "files": {
+        "asago_suite": "dir",
+        "asago_suite/__init__.py": "c87d13b640fbee039e17d8b3c9991e54c4c59d9a72fb4e7f8c35c32cc28c4d71",
+        "asago_suite/asago_rubric.py": "77ee582e4bd0fc491eab5a0c87805bdb48640790f54498c1b0cb8453cd23fb4d",
+        "asago_suite/asago_verifiers.py": "96259c443d6e0ccea9353801295fbd1f8d1309a6646352df4ecd9baa63ed41ac",
+        "asago_suite/suite.py": "efe07d32a2e94771f57c5d64a648ebdaa2dc5e5882d681dfd197f15d136c0a38",
+        "asago_suite/suite.yaml": "bdc6d3cda4efb27e4f00597b118d24ff8dd6cd649d58d7967e02d688917c4443",
+        "asago_suite/verifier_names.py": "39cb305829acf5a03a3fe3c61a07bd0692ebe3a30ef20f0b1427733719219c44",
+        "bundle.json": "3043cae25c4c64896f918a803eaedf7451bae04364929155dbf882cc9caf4585",
+        "run_midojo.py": "c0f84fa4c7eec5521962f4320205e3ea1e4e38894fc168892f94d70b5eac2485"
+      }
+    },
+    {
+      "template": "reply",
+      "case": "lacks-model",
+      "values": "{\"gateway_url\": \"http://127.0.0.1:18997/v1\", \"judge_model\": \"fixture-judge\", \"judge_runtime_facts\": {\"state\": {\"actor\": \"GST001\"}}, \"judge_url\": \"http://127.0.0.1:18998/v1\", \"mcp_url\": \"http://127.0.0.1:18996/sse\", \"messages\": [{\"role\": \"user\", \"content\": \"Show the referral for PAT-201.\"}], \"service_port\": 18123}",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "instantiate: values lack model\n",
+      "files": {}
+    },
+    {
+      "template": "reply",
+      "case": "malformed-gateway-url",
+      "values": "{\"gateway_url\": \"ftp://gateway\", \"judge_model\": \"fixture-judge\", \"judge_runtime_facts\": {\"state\": {\"actor\": \"GST001\"}}, \"judge_url\": \"http://127.0.0.1:18998/v1\", \"mcp_url\": \"http://127.0.0.1:18996/sse\", \"messages\": [{\"role\": \"user\", \"content\": \"Show the referral for PAT-201.\"}], \"model\": \"fixture-model\", \"service_port\": 18123}",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "instantiate: values carry a malformed gateway_url\n",
+      "files": {}
+    },
+    {
+      "template": "reply",
+      "case": "unreadable",
+      "values": "{not json",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "instantiate: values are unreadable: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\n",
+      "files": {}
+    },
+    {
+      "template": "reply",
+      "case": "absent",
+      "values": null,
+      "exit": 1,
+      "stdout": "",
+      "stderr": "instantiate: values are unreadable: [Errno 2] No such file or directory: '{tmp}/values.json'\n",
+      "files": {}
+    },
+    {
+      "template": "sequential",
+      "case": "good",
+      "values": "{\n  \"gateway_url\": \"http://127.0.0.1:18997/v1\",\n  \"mcp_url\": \"http://127.0.0.1:18996/sse\",\n  \"model\": \"fixture-model\",\n  \"service_port\": 18123,\n  \"user_turn_1\": \"Hello.\",\n  \"user_turn_2\": \"Show PAT-201.\"\n}",
+      "exit": 0,
+      "stdout": "",
+      "stderr": "",
+      "files": {
+        "asago_suite": "dir",
+        "asago_suite/__init__.py": "c87d13b640fbee039e17d8b3c9991e54c4c59d9a72fb4e7f8c35c32cc28c4d71",
+        "asago_suite/asago_rubric.py": "77ee582e4bd0fc491eab5a0c87805bdb48640790f54498c1b0cb8453cd23fb4d",
+        "asago_suite/asago_verifiers.py": "96259c443d6e0ccea9353801295fbd1f8d1309a6646352df4ecd9baa63ed41ac",
+        "asago_suite/suite.py": "efe07d32a2e94771f57c5d64a648ebdaa2dc5e5882d681dfd197f15d136c0a38",
+        "asago_suite/suite.yaml": "5af7fcd4dc4330ce0c093ca7fd2455b76470e3e8e27ee9439d7abd20117f471d",
+        "asago_suite/verifier_names.py": "39cb305829acf5a03a3fe3c61a07bd0692ebe3a30ef20f0b1427733719219c44",
+        "bundle.json": "70bbdac256ba29e5c996e39c16180b60ec797e4bcbfc9ddb2d5b5686ae8e9740",
+        "run_midojo.py": "c0f84fa4c7eec5521962f4320205e3ea1e4e38894fc168892f94d70b5eac2485"
+      }
+    },
+    {
+      "template": "sequential",
+      "case": "lacks-model",
+      "values": "{\"gateway_url\": \"http://127.0.0.1:18997/v1\", \"mcp_url\": \"http://127.0.0.1:18996/sse\", \"service_port\": 18123, \"user_turn_1\": \"Hello.\", \"user_turn_2\": \"Show PAT-201.\"}",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "instantiate: values lack model\n",
+      "files": {}
+    },
+    {
+      "template": "sequential",
+      "case": "malformed-gateway-url",
+      "values": "{\"gateway_url\": \"ftp://gateway\", \"mcp_url\": \"http://127.0.0.1:18996/sse\", \"model\": \"fixture-model\", \"service_port\": 18123, \"user_turn_1\": \"Hello.\", \"user_turn_2\": \"Show PAT-201.\"}",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "instantiate: values carry a malformed gateway_url\n",
+      "files": {}
+    },
+    {
+      "template": "sequential",
+      "case": "unreadable",
+      "values": "{not json",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "instantiate: values are unreadable: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\n",
+      "files": {}
+    },
+    {
+      "template": "sequential",
+      "case": "absent",
+      "values": null,
+      "exit": 1,
+      "stdout": "",
+      "stderr": "instantiate: values are unreadable: [Errno 2] No such file or directory: '{tmp}/values.json'\n",
+      "files": {}
+    }
+  ]
+}

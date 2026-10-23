@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,9 @@ from asago_bundle_midojo.instantiate import instantiate_bundle
 from conftest import BASE, DOMAIN, TARGET_CONFIG, VALUES, write_native
 
 FLAGS = ["--midojo-base", str(BASE), "--domain", DOMAIN]
+# What the legacy form did at c59a8fb, recorded with that revision's code (see generate.py).
+LEGACY = Path(__file__).parent / "fixtures" / "legacy_instantiate"
+LEGACY_CASES = json.loads((LEGACY / "cases.json").read_text(encoding="utf-8"))["cases"]
 
 
 def test_help_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
@@ -315,3 +320,51 @@ def test_parse_of_an_unreadable_bundle_exits_one(
 
     assert code == 1
     assert capsys.readouterr().err.startswith("parse: ")
+
+
+def normalise(text: str, tmp: Path) -> str:
+    return text.replace(str(tmp.resolve()), "{tmp}").replace(str(tmp), "{tmp}")
+
+
+def digests(bundle: Path, tmp: Path) -> dict[str, str]:
+    return {
+        path.relative_to(bundle).as_posix(): (
+            hashlib.sha256(normalise(path.read_text("utf-8"), tmp).encode()).hexdigest()
+            if path.is_file()
+            else "dir"
+        )
+        for path in sorted(bundle.rglob("*"))
+    }
+
+
+@pytest.mark.parametrize(
+    "case", LEGACY_CASES, ids=[f"{case['template']}-{case['case']}" for case in LEGACY_CASES]
+)
+def test_the_legacy_form_does_what_it_did_at_c59a8fb(
+    case: dict[str, Any], tmp_path: Path, capsys: pytest.CaptureFixture[str], no_target: None
+) -> None:
+    # A template is its own files plus the suite code every template copies.
+    template = tmp_path / "template"
+    shutil.copytree(LEGACY / "templates" / case["template"], template)
+    shutil.copytree(LEGACY / "templates" / "code", template, dirs_exist_ok=True)
+    if case["values"] is not None:
+        (tmp_path / "values.json").write_text(case["values"], encoding="utf-8")
+
+    code = main(
+        [
+            "instantiate",
+            str(template),
+            "--values",
+            str(tmp_path / "values.json"),
+            "--out",
+            str(tmp_path / "bundle"),
+        ]
+    )
+
+    out, err = capsys.readouterr()
+    assert (code, normalise(out, tmp_path), normalise(err, tmp_path)) == (
+        case["exit"],
+        case["stdout"],
+        case["stderr"],
+    )
+    assert digests(tmp_path / "bundle", tmp_path) == case["files"]

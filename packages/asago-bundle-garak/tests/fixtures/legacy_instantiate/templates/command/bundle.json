@@ -1,0 +1,46 @@
+{
+  "claim_level": "command_attempt",
+  "delivery": "single",
+  "entrypoint": [
+    "{tool_python}",
+    "-m",
+    "garak",
+    "--config",
+    "{bundle}/run.yaml",
+    "--target_type",
+    "openai.OpenAIResponsesGenerator",
+    "--target_name",
+    "{model}",
+    "--probes",
+    "injection.IndirectInjection",
+    "--detectors",
+    "toolcall.ToolCallCondition"
+  ],
+  "environment": [
+    "OPENAI_API_KEY"
+  ],
+  "native_outputs": [
+    "reports/SCN-001.report.jsonl"
+  ],
+  "package_digest": "76f38272b830974e4b1c493a1f5faab376fc017b38ef0c1f02425f15d7b5c391",
+  "package_id": "SCN-001-SCN-001",
+  "plugins": [
+    "injection.IndirectInjection",
+    "toolcall.ToolCallCondition"
+  ],
+  "requires": [
+    "allowed_tools",
+    "gateway_url",
+    "mcp_url",
+    "messages",
+    "model"
+  ],
+  "scenario_id": "SCN-001",
+  "schema_version": "tool-bundle-v1",
+  "templates": {
+    "conversation": "conversation.template.json",
+    "run": "run.template.json"
+  },
+  "tool": "garak",
+  "tool_revision_range": ">=968cc224"
+}

@@ -1,0 +1,69 @@
+{
+  "claim_level": "command_attempt",
+  "delivery": "sequential",
+  "entrypoint": [
+    "{tool_python}",
+    "{bundle}/run_midojo.py",
+    "--bundle",
+    "{bundle}",
+    "--control-url",
+    "http://127.0.0.1:{service_port}",
+    "--",
+    "--agent-uri",
+    "{gateway_url}",
+    "--protocol",
+    "openai",
+    "--model-name",
+    "{model}",
+    "--mcp-server-url",
+    "{mcp_url}",
+    "--mcp-server-label",
+    "qualification_target",
+    "--suite",
+    "asago_suite.suite",
+    "--logdir",
+    "{bundle}/midojo-logs"
+  ],
+  "environment": [
+    "OPENAI_API_KEY"
+  ],
+  "native_outputs": [
+    "control-plane/run.json",
+    "control-plane/evaluation.json",
+    "midojo-logs/results.json"
+  ],
+  "package_digest": "a1111c3887c433c0dc033e6ecb94d28dd3442a8b355297340fdfe701295d618d",
+  "package_id": "SCN-001-SCN-001",
+  "plugins": [
+    "asago_neutral"
+  ],
+  "requires": [
+    "gateway_url",
+    "mcp_url",
+    "model",
+    "service_port",
+    "user_turn_1",
+    "user_turn_2"
+  ],
+  "scenario_id": "SCN-001",
+  "schema_version": "tool-bundle-v1",
+  "serve": {
+    "argv": [
+      "{tool_python}",
+      "-m",
+      "midojo.serve",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "{service_port}",
+      "--load-suite",
+      "asago_suite.suite"
+    ],
+    "ready_url": "http://127.0.0.1:{service_port}/health"
+  },
+  "templates": {
+    "suite": "suite.template.json"
+  },
+  "tool": "midojo",
+  "tool_revision_range": ">=bddb79bc"
+}

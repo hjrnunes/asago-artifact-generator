@@ -1,0 +1,63 @@
+{
+  "plugins": {
+    "detectors": {
+      "rubric_judge": {
+        "RubricJudge": {
+          "detector_model_config": {
+            "client_options": {
+              "timeout": 180.0
+            },
+            "max_retries": 0,
+            "uri": {
+              "$value": "judge_url"
+            }
+          },
+          "detector_model_name": {
+            "$value": "judge_model"
+          },
+          "detector_model_type": "openai.OpenAICompatible"
+        }
+      }
+    },
+    "generators": {
+      "openai": {
+        "OpenAIResponsesGenerator": {
+          "client_options": {
+            "timeout": 180.0
+          },
+          "extra_params": {
+            "tool_choice": "auto"
+          },
+          "max_retries": 0,
+          "max_tokens": 4096,
+          "uri": {
+            "$value": "gateway_url"
+          }
+        }
+      }
+    },
+    "probes": {
+      "injection": {
+        "IndirectInjection": {
+          "conversation_source": {
+            "$bundle": "conversations.jsonl"
+          }
+        }
+      }
+    }
+  },
+  "reporting": {
+    "report_dir": {
+      "$bundle": "reports"
+    },
+    "report_prefix": "SCN-001"
+  },
+  "run": {
+    "generations": 1
+  },
+  "system": {
+    "lite": false,
+    "parallel_attempts": false,
+    "parallel_requests": false
+  }
+}
