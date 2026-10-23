@@ -74,7 +74,7 @@ def test_the_manifest_keeps_only_the_authoring_outcome(package_dir: Path) -> Non
     assert manifest["authoring"] == {
         "status": "accepted",
         "terminal_status": "accepted",
-        "review_status": {"plan": "accepted", "artifact": "accepted"},
+        "review_status": {"artifact": "accepted"},
     }
     # Kept, empty: the artifact-package-v4 schema and downstream loaders require the key.
     assert manifest["creation_model"] == {}

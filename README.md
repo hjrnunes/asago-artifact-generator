@@ -664,7 +664,7 @@ declarations, prerequisites, the tool-call condition or judge specification,
 explanation, examples, `checks.json`, and `inputs.json` (the inventory, runtime
 contract, discovery provenance, and `authoring_input_pins`). The manifest's
 `authoring` records only the outcome (`status`, `terminal_status`, and
-`review_status`); `creation_model` stays an empty object because the schema
+`review_status.artifact`); `creation_model` stays an empty object because the schema
 requires the key. Each request's prompt, raw response, usage, and review live
 only in the failure-evidence sidecar described below.
 The context guard estimates prompt tokens from the rendered UTF-8 system and

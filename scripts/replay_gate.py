@@ -102,7 +102,7 @@ _RETIRED_MEMBERS = frozenset({"source-hashes.json", "observations.json"})
 _RETIRED_MEMBER_DIRECTORY = "authoring/"
 _RETIRED_REQUESTS_SUFFIX = ".authoring"
 _RETIRED_INPUT_KEYS = ("model_facing_input", "source_input")
-_MANIFEST_AUTHORING_KEYS = ("status", "terminal_status", "review_status")
+_MANIFEST_AUTHORING_KEYS = ("status", "terminal_status")
 
 
 class ReplayRecordError(ValueError):
@@ -677,7 +677,8 @@ def current_layout(
 
     The result is the recorded files without the retired copies, and the bytes
     of each file that changes: ``inputs.json`` without its retired keys, and
-    ``manifest.json`` with the remaining members, only the authoring outcome,
+    ``manifest.json`` with the remaining members, only the authoring outcome
+    (``status``, ``terminal_status``, and ``review_status.artifact``),
     an empty ``creation_model``, and its digest recomputed.  A recording made
     by the current writer comes back unchanged.
     """
@@ -712,6 +713,9 @@ def current_layout(
     manifest["authoring"] = {
         key: authoring[key] for key in _MANIFEST_AUTHORING_KEYS if key in authoring
     }
+    review_status = authoring.get("review_status")
+    if isinstance(review_status, dict) and "artifact" in review_status:
+        manifest["authoring"]["review_status"] = {"artifact": review_status["artifact"]}
     manifest["creation_model"] = {}
     manifest["manifest_digest"] = _manifest_digest(manifest)
     if manifest != original:

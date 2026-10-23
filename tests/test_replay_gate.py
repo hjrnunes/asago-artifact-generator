@@ -647,7 +647,12 @@ def _age_package(output: Path, item_id: str) -> None:
     members = {record["path"]: record for record in manifest["members"]}
     members.update({name: _member_record(name, content) for name, content in copies.items()})
     manifest["members"] = [members[path] for path in sorted(members)]
-    manifest["authoring"].update(ledger=[{"stage": "call1"}], usage=[], policy={})
+    manifest["authoring"].update(
+        ledger=[{"stage": "call1"}],
+        usage=[],
+        policy={},
+        review_status={"plan": "accepted"},
+    )
     manifest["creation_model"] = {"model": "configured-private-authoring"}
     manifest["manifest_digest"] = _manifest_digest(manifest)
     (package / "manifest.json").write_text(canonical_json(manifest) + "\n", encoding="utf-8")

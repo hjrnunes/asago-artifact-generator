@@ -88,8 +88,8 @@ def _authoring_summary(
     """Return the manifest's authoring outcome, the fields downstream admission reads."""
 
     summary: dict[str, Any] = {}
-    if review_status is not None:
-        summary["review_status"] = dict(review_status)
+    if review_status is not None and "artifact" in review_status:
+        summary["review_status"] = {"artifact": review_status["artifact"]}
     if terminal_status is not None:
         summary["status"] = terminal_status
         summary["terminal_status"] = terminal_status
