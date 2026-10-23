@@ -607,6 +607,11 @@ The consumer-owned artifact-package contract lives in
 writes a complete directory atomically, and `load_package` verifies its
 manifest, member paths, lengths, and digests before returning content. A
 manifest has no `detector_interface`, and a package has no `detector.py`.
+A package written while packages still copied each request also loads: its
+`source-hashes.json`, `authoring/ledger.json`, `authoring/reviews.json`,
+`authoring/transformations.json`, and `authoring/NN-<stage>.json`, `.prompt`,
+and `.raw` members are verified like the others and left out of the loaded
+members. The writer refuses them, and the loader refuses any other member.
 Each package carries the scoring input for its plan's claim level:
 
 - `tool_call_condition.json` holds the handoff's `tool_call_condition` exactly
@@ -660,8 +665,9 @@ and the stage-local correction allowances, and never contacts a target, setup,
 discovery, or runtime-judge transport. An essential unresolved requirement
 produces a retained `*.blocked.json` plan and no package. The package contains
 the accepted plan, the user-only stimulus, setup, exact runtime-binding
-declarations, prerequisites, the tool-call condition or judge specification,
-explanation, examples, `checks.json`, and `inputs.json` (the inventory, runtime
+declarations, prerequisites, the required observations (`observations.json`),
+the tool-call condition or judge specification, explanation, examples,
+`checks.json`, and `inputs.json` (the inventory, runtime
 contract, discovery provenance, and `authoring_input_pins`). The manifest's
 `authoring` records only the outcome (`status`, `terminal_status`, and
 `review_status.artifact`); `creation_model` stays an empty object because the schema

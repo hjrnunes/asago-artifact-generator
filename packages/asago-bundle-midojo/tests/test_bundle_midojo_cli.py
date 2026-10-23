@@ -14,9 +14,11 @@ import pytest
 from asago_bundle_core.testing import MOCK_TARGET, write_test_package
 from asago_bundle_midojo.cli import main
 from asago_bundle_midojo.instantiate import instantiate_bundle
-from conftest import BASE, DOMAIN, TARGET_CONFIG, VALUES, write_native
+from conftest import BASE, DOMAIN, REPO, TARGET_CONFIG, VALUES, write_native
 
 FLAGS = ["--midojo-base", str(BASE), "--domain", DOMAIN]
+# Written by c18e46d's package writer (see its generate.py).
+PACKAGE_WITH_REQUEST_COPIES = REPO / "tests/fixtures/package_with_request_copies/package"
 # What the legacy form did at c59a8fb, recorded with that revision's code (see generate.py).
 LEGACY = Path(__file__).parent / "fixtures" / "legacy_instantiate"
 LEGACY_CASES = json.loads((LEGACY / "cases.json").read_text(encoding="utf-8"))["cases"]
@@ -54,6 +56,21 @@ def test_compile_writes_the_template_and_exits_zero(command_package: Path, tmp_p
 
     assert code == 0
     assert (tmp_path / "template" / "bundle.json").is_file()
+
+
+def test_compile_takes_a_package_written_before_the_request_copies_were_retired(
+    tmp_path: Path,
+) -> None:
+    # Its authoring/ request copies and source-hashes.json are verified, then ignored.
+    template = tmp_path / "template"
+
+    code = main(["compile", str(PACKAGE_WITH_REQUEST_COPIES), "--out", str(template), *FLAGS])
+
+    assert code == 0
+    manifest = json.loads((template / "bundle.json").read_text(encoding="utf-8"))
+    package = json.loads((PACKAGE_WITH_REQUEST_COPIES / "manifest.json").read_text("utf-8"))
+    assert manifest["package_digest"] == package["manifest_digest"]
+    assert manifest["claim_level"] == "command_attempt"
 
 
 def test_compile_of_a_sequential_package_writes_the_template_and_exits_zero(

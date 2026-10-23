@@ -459,6 +459,7 @@ def build_neutral_artifact_package(destination: str | Path) -> Path:
         "tool_call_condition.json": tool_call_condition_bytes(NEUTRAL_TOOL_CALL_CONDITION),
         "checks.json": _json_bytes({"interface": AUTHORING_INTERFACE_VERSION_V2}),
         "inputs.json": _json_bytes({"neutral": True, "operation": "inspect_record"}),
+        "observations.json": _json_bytes(plan["required_observations"]),
         "explanation.json": _json_bytes({"text": metadata["explanation"]}),
         "examples.json": _json_bytes(metadata["examples"]),
     }

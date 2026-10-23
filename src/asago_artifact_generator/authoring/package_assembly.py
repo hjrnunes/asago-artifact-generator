@@ -57,6 +57,7 @@ def _package_from_responses(
                 ),
             }
         ),
+        "observations.json": _json_bytes(artifact["required_observations"]),
         "explanation.json": _json_bytes({"text": artifact["explanation"]}),
         "examples.json": _json_bytes(artifact["examples"]),
     }

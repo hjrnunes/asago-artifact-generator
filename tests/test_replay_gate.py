@@ -635,7 +635,6 @@ def _age_package(output: Path, item_id: str) -> None:
         "authoring/reviews.json": b"{}\n",
         "authoring/transformations.json": b"[]\n",
         "source-hashes.json": b"{}\n",
-        "observations.json": b"{}\n",
     }
     inputs = json.loads((package / "inputs.json").read_bytes())
     inputs.update(model_facing_input={"narrative": "n"}, source_input={"payload": {}})
@@ -685,8 +684,8 @@ def test_a_recording_with_the_retired_request_copies_compares_equal(tmp_path: Pa
     compared, differences = _differences(recorded, replayed)
 
     assert differences == []
-    # The 11 package files, the evidence, and the log.
-    assert compared == 13
+    # The 12 package files, the evidence, and the log.
+    assert compared == 14
 
 
 def test_a_current_recording_is_compared_unchanged(tmp_path: Path) -> None:

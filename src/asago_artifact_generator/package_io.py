@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass, field
@@ -33,12 +34,28 @@ _ALLOWED_MEMBER_NAMES = {
     "prerequisites.json",
     "checks.json",
     "inputs.json",
+    "observations.json",
     "judge.json",
     "explanation.json",
     "examples.json",
     TOOL_CALL_CONDITION_MEMBER,
     SEED_MEMBER,
 }
+# What a package written at c18e46d held beside the members above: the source digests
+# (the manifest pins them) and each authoring request's copies, which the failure
+# evidence now keeps. The loader verifies and then drops them; the writer refuses them.
+_RETIRED_MEMBER_NAMES = frozenset(
+    {
+        "source-hashes.json",
+        "authoring/ledger.json",
+        "authoring/reviews.json",
+        "authoring/transformations.json",
+    }
+)
+_RETIRED_REQUEST_MEMBER = re.compile(
+    r"authoring/[0-9]{2,}-(call1|call2|correction|plan_review|artifact_review)"
+    r"\.(json|prompt|raw)"
+)
 # Each claim level names the member that downstream detection reads.
 _CLAIM_LEVEL_MEMBERS = {
     ClaimLevel.COMMAND_ATTEMPT.value: TOOL_CALL_CONDITION_MEMBER,
@@ -201,7 +218,12 @@ def _remove_path(path: Path) -> None:
 
 
 def load_package(path: str | Path) -> ArtifactPackage:
-    """Load and verify every package member before returning any content."""
+    """Load and verify every package member before returning any content.
+
+    A package written before the request copies were retired loads too: its
+    retired members are verified like the others, then left out of ``members``
+    (the manifest, whose digest covers them, still lists them).
+    """
 
     validate_artifact_package_contract()
     root = Path(path)
@@ -221,15 +243,15 @@ def load_package(path: str | Path) -> ArtifactPackage:
         relative, content = _load_member(root, record, members)
         members[relative] = content
     _verify_package_layout(root, set(members))
-    package = ArtifactPackage(manifest, members)
-    _validate_package(package)
-    return package
+    _validate_package(ArtifactPackage(manifest, members), allow_retired=True)
+    current = {name: value for name, value in members.items() if not _is_retired_member(name)}
+    return ArtifactPackage(manifest, current)
 
 
 def _load_member(root: Path, record: Any, loaded: dict[str, bytes]) -> tuple[str, bytes]:
     """Read one manifest member and verify its path, digest, and length."""
 
-    relative = _validate_member_path(record.get("path"))
+    relative = _validate_member_path(record.get("path"), allow_retired=True)
     if relative in loaded:
         raise PackageIntegrityError(f"duplicate package member: {relative}")
     member_path = _contained_path(root, relative)
@@ -269,12 +291,14 @@ def _member_directories(paths: set[str]) -> set[str]:
     }
 
 
-def _normalize_members(members: dict[str, bytes]) -> dict[str, bytes]:
+def _normalize_members(
+    members: dict[str, bytes], *, allow_retired: bool = False
+) -> dict[str, bytes]:
     if not isinstance(members, dict):
         raise PackageIntegrityError("package members must be a mapping")
     result: dict[str, bytes] = {}
     for name, value in members.items():
-        relative = _validate_member_path(name)
+        relative = _validate_member_path(name, allow_retired=allow_retired)
         if not isinstance(value, bytes):
             raise PackageIntegrityError(f"package member is not bytes: {relative}")
         if relative in result:
@@ -283,7 +307,7 @@ def _normalize_members(members: dict[str, bytes]) -> dict[str, bytes]:
     return dict(sorted(result.items()))
 
 
-def _validate_member_path(value: Any) -> str:
+def _validate_member_path(value: Any, *, allow_retired: bool = False) -> str:
     if not isinstance(value, str) or not value or "\\" in value:
         raise PackagePathError(f"invalid package member path: {value!r}")
     path = PurePosixPath(value)
@@ -292,9 +316,13 @@ def _validate_member_path(value: Any) -> str:
     relative = path.as_posix()
     if relative != value:
         raise PackagePathError(f"non-canonical package member path: {value!r}")
-    if relative not in _ALLOWED_MEMBER_NAMES:
-        raise PackagePathError(f"unexpected package member path: {relative}")
-    return relative
+    if relative in _ALLOWED_MEMBER_NAMES or (allow_retired and _is_retired_member(relative)):
+        return relative
+    raise PackagePathError(f"unexpected package member path: {relative}")
+
+
+def _is_retired_member(relative: str) -> bool:
+    return relative in _RETIRED_MEMBER_NAMES or bool(_RETIRED_REQUEST_MEMBER.fullmatch(relative))
 
 
 def _contained_path(root: Path, relative: str) -> Path:
@@ -414,9 +442,9 @@ def _validate_manifest_metadata(value: Any) -> None:
         raise PackageIntegrityError("manifest contains secret-bearing metadata")
 
 
-def _validate_package(package: ArtifactPackage) -> None:
+def _validate_package(package: ArtifactPackage, *, allow_retired: bool = False) -> None:
     _validate_manifest_fields(package.manifest)
-    normalized = _normalize_members(package.members)
+    normalized = _normalize_members(package.members, allow_retired=allow_retired)
     declared = {
         record.get("path") for record in package.manifest.members if isinstance(record, dict)
     }
@@ -425,7 +453,7 @@ def _validate_package(package: ArtifactPackage) -> None:
     for record in package.manifest.members:
         if not isinstance(record, dict):
             raise PackageIntegrityError("package member record must be an object")
-        relative = _validate_member_path(record.get("path"))
+        relative = _validate_member_path(record.get("path"), allow_retired=allow_retired)
         expected = _member_record(relative, normalized[relative])
         if record != expected:
             raise PackageIntegrityError(f"member digest or metadata mismatch: {relative}")

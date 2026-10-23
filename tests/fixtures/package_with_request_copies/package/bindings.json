@@ -1,0 +1,1 @@
+[{"consumers":["prerequisites.owned_order"],"expected_type":"object","name":"owned_order","on_missing":"stop","selector":"value","source_kind":"supplied_input","source_ref":"facts:order:owned"}]

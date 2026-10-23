@@ -23,10 +23,10 @@ output file and the item log with the recording.  Only the differences in
 :data:`ALLOWED_DIFFERENCES` are permitted.
 
 A recording made while packages still copied each request (``authoring/``
-members, ``source-hashes.json``, ``observations.json``, a manifest ledger, and
-the ``<ID>.authoring/`` request files of a failed item) is compared as the
-current writer lays it out: :func:`current_layout` drops those copies, whose
-content the failure evidence keeps, and the gate compares everything else.
+members, ``source-hashes.json``, a manifest ledger, and the ``<ID>.authoring/``
+request files of a failed item) is compared as the current writer lays it out:
+:func:`current_layout` drops those copies, whose content the failure evidence
+keeps, and the gate compares everything else.
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ ALLOWED_DIFFERENCES: tuple[AllowedDifference, ...] = (
 
 # What a recording made while packages copied each request holds that the
 # current writer no longer writes; see :func:`current_layout`.
-_RETIRED_MEMBERS = frozenset({"source-hashes.json", "observations.json"})
+_RETIRED_MEMBERS = frozenset({"source-hashes.json"})
 _RETIRED_MEMBER_DIRECTORY = "authoring/"
 _RETIRED_REQUESTS_SUFFIX = ".authoring"
 _RETIRED_INPUT_KEYS = ("model_facing_input", "source_input")
