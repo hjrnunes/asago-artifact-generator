@@ -34,7 +34,7 @@ from asago_bundle_core.preparation import (
 from asago_bundle_core.target import TargetConfig, authorized_target, mcp_call_target
 
 from .compiler import CompileError, compile_package
-from .instantiate import CHECKS, InstantiateError, instantiate_bundle, read_template
+from .instantiate import CHECKS, InstantiateError, Template, fill_template, read_template
 from .report_parse import ParseError, parse_report
 
 DEFAULT_JUDGE_TURNS = "final"
@@ -129,8 +129,8 @@ def instantiate(
     loaded = authorized_target(target, InstantiateError)
     settings = run if isinstance(run, RunSettings) else RunSettings.from_mapping(run)
     package = _package(package_dir)
-    template = _directory(template_dir, "template", InstantiateError)
-    requires = _template_requires(template, package)
+    template = _template(_directory(template_dir, "template", InstantiateError), package)
+    requires = template.manifest["requires"]
     _new_directory(out_dir, InstantiateError)
     mcp_url = loaded.mcp_url
     if not mcp_url or "{" in mcp_url:
@@ -151,7 +151,8 @@ def instantiate(
     if isinstance(prepared, PreparationIncomplete):
         return prepared
     values = bundle_values(prepared, settings, mcp_url=mcp_url, allowed_tools=allowed_tools)
-    manifest = instantiate_bundle(template, values, out_dir, target=loaded)
+    # The template read and checked above, before setup, is the one filled.
+    manifest = fill_template(template, values, out_dir)
     return Instantiated(manifest=manifest, values=values, preparation=prepared)
 
 
@@ -279,17 +280,13 @@ def _check_settings(
             raise InstantiateError(f"the run settings carry a malformed {key}")
 
 
-def _template_requires(template: Path, package: ArtifactPackage) -> list[str]:
-    """Return the template's required values, after checking every template member.
+def _template(directory: Path, package: ArtifactPackage) -> Template:
+    """Return the template, checked whole; refuse one not compiled for this package."""
 
-    Refuses a template whose manifest or conversation and run templates
-    ``instantiate_bundle`` could not use, and one not compiled for this package.
-    """
-
-    manifest, _ = read_template(template)
-    if manifest.get("package_digest") != package.manifest.manifest_digest:
+    template = read_template(directory)
+    if template.manifest.get("package_digest") != package.manifest.manifest_digest:
         raise InstantiateError("the template was not compiled from this package")
-    return manifest["requires"]
+    return template
 
 
 def _package(package_dir: str | Path) -> ArtifactPackage:

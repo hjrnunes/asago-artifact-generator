@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable, Mapping
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from asago_bundle_core.errors import BundleError
-from asago_bundle_core.slots import BUNDLE, fill
+from asago_bundle_core.schema import manifest_errors
+from asago_bundle_core.slots import BUNDLE, VALUE, fill
 from asago_bundle_core.target import TargetConfig, authorized_target
 from asago_bundle_core.text import canonical_text
 from asago_bundle_core.values import check_values, render_entrypoint
@@ -36,6 +39,7 @@ MESSAGE_ROLES = frozenset({"system", "user", "assistant"})
 JUDGE_TURNS = frozenset({"final", "all"})
 TEMPLATE_KEYS = frozenset({"requires", "templates", "entrypoint"})
 TEMPLATE_ROLES = frozenset({"conversation", "run"})
+USER_TURN = re.compile(rf"{USER_TURN_PREFIX}[1-9][0-9]*")
 
 
 class InstantiateError(BundleError):
@@ -56,15 +60,79 @@ def instantiate_bundle(
     """
 
     authorized_target(target, InstantiateError)
+    return fill_template(read_template(template_dir), values, out_dir)
+
+
+@dataclass(frozen=True)
+class Template:
+    """A bundle template ``read_template`` checked: its manifest and its two documents."""
+
+    manifest: dict[str, Any]
+    documents: dict[str, Any]
+
+
+def read_template(template_dir: str | Path) -> Template:
+    """Read a bundle template and refuse every defect of its own that filling could meet.
+
+    The manifest must satisfy ``tool-bundle-v1`` and name exactly a conversation and a run
+    template, each a file inside the template directory holding a JSON object. Every
+    ``requires`` key must be one this adapter checks (``check_for``), and the entrypoint's
+    value keys must be among them. Every slot marker in the documents must be a
+    ``$value`` naming a ``requires`` key or a ``$bundle`` naming a relative path inside
+    the bundle; any other one-key ``$`` object is an unknown marker. What is left to
+    ``fill_template`` is the values themselves.
+    """
+
+    template = Path(template_dir)
+    manifest = _read_json(template / BUNDLE_FILE)
+    if not isinstance(manifest, dict) or not TEMPLATE_KEYS <= manifest.keys():
+        raise InstantiateError(f"{BUNDLE_FILE} is not a bundle template manifest")
+    errors = manifest_errors(manifest)
+    if errors:
+        raise InstantiateError(f"{BUNDLE_FILE} is not a tool-bundle-v1 template: {errors[0]}")
+    names = manifest["templates"]
+    if set(names) != TEMPLATE_ROLES:
+        raise InstantiateError(f"{BUNDLE_FILE} templates must name {sorted(TEMPLATE_ROLES)}")
+    for name in names.values():
+        if not _inside(name):
+            raise InstantiateError(f"template file {name!r} is outside the template directory")
+    requires = manifest["requires"]
+    unknown = sorted(key for key in requires if check_for(key) is None)
+    if unknown:
+        raise InstantiateError(
+            f"{BUNDLE_FILE} requires keys this adapter has no check for: {unknown}"
+        )
+    missing = sorted(set(ENTRYPOINT_VALUES) - set(requires))
+    if missing:
+        raise InstantiateError(f"{BUNDLE_FILE} requires lacks the entrypoint's {missing}")
+    documents = {role: _read_json(template / name) for role, name in names.items()}
+    for role, document in documents.items():
+        if not isinstance(document, dict):
+            raise InstantiateError(f"the {role} template is not a JSON object")
+        problem = _slot_problem(document, set(requires))
+        if problem:
+            raise InstantiateError(f"the {role} template {problem}")
+    return Template(manifest, documents)
+
+
+def fill_template(
+    template: Template, values: dict[str, Any], out_dir: str | Path
+) -> dict[str, Any]:
+    """Write the concrete bundle of a template ``read_template`` returned; return its manifest.
+
+    The caller has authorized the target. Raises ``InstantiateError`` for values that lack
+    a ``requires`` key or carry a malformed one, and for an output directory in use.
+    """
+
+    manifest = template.manifest
     out = Path(out_dir).resolve()
-    manifest, templates = read_template(template_dir)
     check_values(manifest["requires"], values, check_for, InstantiateError)
 
     def resolve(kind: str, argument: Any) -> Any:
         return str(out / argument) if kind == BUNDLE else values[argument]
 
-    conversation = fill(templates["conversation"], resolve)
-    run = fill(templates["run"], resolve)
+    conversation = fill(template.documents["conversation"], resolve)
+    run = fill(template.documents["run"], resolve)
     concrete = {
         **manifest,
         "templates": {},
@@ -83,37 +151,42 @@ def instantiate_bundle(
     return concrete
 
 
-def read_template(template_dir: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Return a template's manifest and its conversation and run templates, all checked.
+def _inside(name: Any) -> bool:
+    """Say whether ``name`` is a relative path that stays inside its directory."""
 
-    Raises ``InstantiateError`` for a manifest without the template fields, or with a
-    ``requires``, ``templates`` or ``entrypoint`` of the wrong shape, and for a template
-    member that is missing or not JSON.
-    """
+    if not isinstance(name, str) or not name:
+        return False
+    path = PurePosixPath(name)
+    return not path.is_absolute() and not name.startswith("\\") and ".." not in path.parts
 
-    template = Path(template_dir)
-    manifest = _read_json(template / BUNDLE_FILE)
-    if not isinstance(manifest, dict) or not TEMPLATE_KEYS <= manifest.keys():
-        raise InstantiateError(f"{BUNDLE_FILE} is not a bundle template manifest")
-    names = manifest["templates"]
-    if not isinstance(names, dict) or set(names) != TEMPLATE_ROLES:
-        raise InstantiateError(f"{BUNDLE_FILE} templates must name {sorted(TEMPLATE_ROLES)}")
-    for field in ("requires", "entrypoint"):
-        if not _names(manifest[field]):
-            raise InstantiateError(f"{BUNDLE_FILE} {field} must be a list of texts")
-    if not all(isinstance(name, str) and name for name in names.values()):
-        raise InstantiateError(f"{BUNDLE_FILE} templates must be file names")
-    templates = {role: _read_json(template / name) for role, name in names.items()}
-    for role, content in templates.items():
-        if not isinstance(content, dict):
-            raise InstantiateError(f"the {role} template is not a JSON object")
-    return manifest, templates
+
+def _slot_problem(node: Any, requires: set[str]) -> str | None:
+    """Return what is wrong with the first bad slot marker under ``node``, or None."""
+
+    if isinstance(node, dict) and len(node) == 1:
+        ((key, argument),) = node.items()
+        if key == VALUE:
+            if not isinstance(argument, str) or argument not in requires:
+                return f"has a $value slot naming {argument!r}, which requires does not list"
+            return None
+        if key == BUNDLE:
+            if not _inside(argument):
+                return f"has a $bundle slot {argument!r} that is not a path inside the bundle"
+            return None
+        if isinstance(key, str) and key.startswith("$"):
+            return f"has an unknown slot marker {key!r}"
+    children = node.values() if isinstance(node, dict) else node if isinstance(node, list) else []
+    for child in children:
+        problem = _slot_problem(child, requires)
+        if problem:
+            return problem
+    return None
 
 
 def check_for(key: str) -> Callable[[Any], bool] | None:
-    """Return the check of a value key; each ``user_turn_<n>`` is a text."""
+    """Return the check of a value key; each ``user_turn_<n>`` (n from 1) is a text."""
 
-    if key.startswith(USER_TURN_PREFIX):
+    if USER_TURN.fullmatch(key):
         return _text
     return CHECKS.get(key)
 

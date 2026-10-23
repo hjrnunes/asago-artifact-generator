@@ -22,6 +22,7 @@ from asago_bundle_garak import (
     ParseError,
     RunSettings,
     compile,
+    entry_points,
     instantiate,
     parse,
 )
@@ -53,6 +54,22 @@ class FakeTarget:
         if isinstance(self.result, Exception):
             raise self.result
         return self.result
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the MCP call ``instantiate`` builds when given no ``call_target`` refuse every call.
+
+    No test here opens a socket: a setup step that reaches the default call fails at once.
+    """
+
+    def refusing(mcp_url: str) -> Any:
+        def call(operation: str, arguments: dict[str, Any]) -> Any:
+            raise RuntimeError(f"no network: {mcp_url}")
+
+        return call
+
+    monkeypatch.setattr(entry_points, "mcp_call_target", refusing)
 
 
 @pytest.fixture
@@ -210,6 +227,26 @@ def test_a_run_mcp_url_equal_to_the_targets_is_accepted(
         ),
         pytest.param(lambda t: _edit_manifest(t, requires="model"), id="requires-not-a-list"),
         pytest.param(lambda t: _edit_manifest(t, entrypoint=[1]), id="entrypoint-not-texts"),
+        pytest.param(lambda t: _edit_manifest(t, entrypoint=[]), id="entrypoint-empty"),
+        pytest.param(lambda t: _require(t, 3), id="requires-a-number"),
+        pytest.param(lambda t: _require(t, "model"), id="requires-a-repeat"),
+        pytest.param(lambda t: _require(t, "sandbox_id"), id="requires-an-unknown-key"),
+        pytest.param(lambda t: _require(t, "user_turn_0"), id="requires-turn-zero"),
+        pytest.param(
+            lambda t: _edit_manifest(t, requires=_requires(t, drop="model")),
+            id="requires-lacks-the-entrypoint-model",
+        ),
+        pytest.param(lambda t: _plant(t, {"$value": "secret"}), id="value-slot-undeclared"),
+        pytest.param(lambda t: _plant(t, {"$value": 3}), id="value-slot-not-a-key"),
+        pytest.param(lambda t: _plant(t, {"$bundle": "../outside"}), id="bundle-slot-escapes"),
+        pytest.param(lambda t: _plant(t, {"$bundle": "/etc/passwd"}), id="bundle-slot-absolute"),
+        pytest.param(lambda t: _plant(t, {"$bundle": 3}), id="bundle-slot-not-a-path"),
+        pytest.param(lambda t: _plant(t, {"$values": "model"}), id="unknown-slot-kind"),
+        pytest.param(lambda t: _move_run(t, "../run.template.json"), id="template-name-escapes"),
+        pytest.param(
+            lambda t: _move_run(t, str((t / "run.template.json").resolve())),
+            id="template-name-absolute",
+        ),
     ],
 )
 def test_a_damaged_template_is_refused_before_any_target_call(
@@ -231,6 +268,34 @@ def _edit_manifest(template: Path, **fields: Any) -> None:
     path = template / "bundle.json"
     manifest = json.loads(path.read_text("utf-8"))
     path.write_text(json.dumps({**manifest, **fields}), "utf-8")
+
+
+def _requires(template: Path, drop: str | None = None) -> list[Any]:
+    manifest = json.loads((template / "bundle.json").read_text("utf-8"))
+    return [key for key in manifest["requires"] if key != drop]
+
+
+def _require(template: Path, key: Any) -> None:
+    _edit_manifest(template, requires=[*_requires(template), key])
+
+
+def _plant(template: Path, slot: dict[str, Any]) -> None:
+    """Put ``slot`` deep inside the conversation template."""
+
+    path = template / "conversation.template.json"
+    document = json.loads(path.read_text("utf-8"))
+    document["tools"][0]["headers"] = [{"x": slot}]
+    path.write_text(json.dumps(document), "utf-8")
+
+
+def _move_run(template: Path, name: str) -> None:
+    """Name the run template by ``name``, a copy of it existing there."""
+
+    source = template / "run.template.json"
+    copy = (template / name) if not Path(name).is_absolute() else Path(name)
+    copy.write_text(source.read_text("utf-8"), "utf-8")
+    conversation = "conversation.template.json"
+    _edit_manifest(template, templates={"conversation": conversation, "run": name})
 
 
 @pytest.mark.parametrize(
@@ -448,7 +513,7 @@ def test_cli_instantiate_fills_the_port_and_prints_the_preparation(
 def test_cli_instantiate_exits_4_when_the_package_cannot_be_prepared(
     setup_package: Path, setup_template: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Nothing listens on port 1, so the setup call to the target's MCP server fails.
+    # The MCP call the CLI makes for setup is the stub, which refuses without a socket.
     run = write_run(tmp_path, {**vars(RUN), "allowed_tools": None})
 
     code = cli_instantiate(
@@ -458,12 +523,13 @@ def test_cli_instantiate_exits_4_when_the_package_cannot_be_prepared(
         run,
         PIGGYBANK / "target.yaml",
         "--port",
-        "1",
+        "18001",
     )
 
     assert code == 4
     printed = json.loads(capsys.readouterr().out)
     assert (printed["status"], printed["reason"]) == ("incomplete", "setup_failed")
+    assert printed["setup_ledger"][0]["error"] == "no network: http://127.0.0.1:18001/mcp"
     assert not (tmp_path / "bundle").exists()
 
 
