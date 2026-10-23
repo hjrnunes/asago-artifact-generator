@@ -115,19 +115,22 @@ Deterministic tests must not contact a model endpoint or target.
   records, and the `conformance` helper that round-trips `compile`, `instantiate` and
   `parse` of an adapter and returns failure messages). A new adapter runs `check_round_trip`
   in its tests. `preparation.prepare_package(package, call_target=...)` prepares a package for
-  one run before `instantiate`: it runs setup through the caller's target call (real writes,
-  not graded, returned as a ledger), resolves the bindings, checks the prerequisites, renders
-  the stimulus and returns the judge's facts, or an incomplete reason. Recording the result
-  is the caller's job. `target` holds the target config an adapter's `instantiate` takes (a
+  one run: it runs setup through a target call (real writes, not graded, returned as a
+  ledger), resolves the bindings, checks the prerequisites, renders the stimulus and returns
+  the judge's facts, or an incomplete reason. An adapter's public `instantiate` runs it; the
+  lower-level template filler (`instantiate_bundle`) takes values already resolved. Recording
+  the result is the caller's job. `target` holds the target config an adapter's `instantiate` takes (a
   `target.yaml` path or a loaded mapping): one whose `authorized_as` is not `mock` or
   `test_instance` is refused before any work, and `mcp_call_target` sends setup steps to the
   target's MCP server. The optional schema fields `repeats` and `serve` stay out of a bundle
   that does not need them: Garak omits both, because `bundle.json` feeds the receipt's
   `bundle_digest`.
 - `packages/asago-bundle-garak/`: the Garak adapter workspace member. Its library entry points
-  `compile`, `instantiate` and `parse` (`entry_points.py`) are what its CLI calls; `instantiate`
-  takes the target config and `RunSettings` and runs `prepare_package` before it fills the
-  template.
+  `compile`, `instantiate` and `parse` (`entry_points.py`) are what its CLI calls. The public
+  `instantiate` takes the target config and `RunSettings`, checks every input and template
+  member, runs `prepare_package`, and hands the resolved values to the lower-level template
+  filler `instantiate_bundle` (`instantiate.py`). The bundle's MCP server is the authorized
+  config's `endpoint.mcp_url`.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It serves command-attempt
   and reply packages: a single package with one user prompt, or a sequential one whose user turns
   `midojo-run` sends in one conversation (MiDojo `>=bddb79bc`, each call's `turn` gives its
