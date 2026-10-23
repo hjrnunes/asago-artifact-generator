@@ -356,10 +356,34 @@ def test_request_links_point_at_existing_files_only(run_dir: Path) -> None:
     hrefs = [a["href"] for tag, a in _elements(html) if tag == "a" and "href" in a]
     files = [h for h in hrefs if not h.startswith("#")]
     report = _output(run_dir) / "report"
-    assert "../SCN-001.authoring/01-call1.prompt" in files
-    assert "../SCN-004/authoring/01-call1.raw" in files
+    assert "../SCN-001.failure-evidence.json" in files
+    assert "../SCN-004.failure-evidence.json" in files
     assert all((report / h.split("#", 1)[0]).exists() for h in files)
-    assert "SCN-011.authoring" not in html
+    assert ".authoring" not in html
+    assert "/authoring/" not in html
+
+
+def _request_labels(html: str, scenario: str) -> list[str]:
+    section = html.split(f'id="{scenario}"', 1)[1].split("</details>", 1)[0]
+    return re.findall(
+        rf'<a class="artifact" href="\.\./{scenario}\.failure-evidence\.json">'
+        r"(attempts\[\d+\])</a>",
+        section,
+    )
+
+
+def test_each_request_links_its_record_in_the_failure_evidence(run_dir: Path) -> None:
+    html, _ = _render(run_dir)
+
+    for scenario in ("SCN-001", "SCN-004"):
+        path = _output(run_dir) / f"{scenario}.failure-evidence.json"
+        attempts = json.loads(path.read_text(encoding="utf-8"))["attempts"]
+        assert _request_labels(html, scenario) == [
+            f"attempts[{index}]" for index in range(len(attempts))
+        ]
+    assert "authoring evidence" in html
+    assert ">reviews<" not in html
+    assert ">ledger<" not in html
 
 
 def test_the_generate_report_link_appears_only_when_that_report_exists(run_dir: Path) -> None:

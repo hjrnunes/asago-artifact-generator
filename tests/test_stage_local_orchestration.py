@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -31,6 +32,10 @@ _framed, _inventory, _plan, _runtime_contract, _view = world_builders(
 
 
 _orchestrator = partial(scripted_orchestrator, task_id="stage-local")
+
+
+def _evidence_policy(tmp_path: Path) -> dict[str, Any]:
+    return load_failure_evidence(tmp_path / "package.failure-evidence.json")["policy"]
 
 
 def test_policy_defaults_and_strict_correction_validation() -> None:
@@ -65,7 +70,7 @@ def test_orchestrator_records_the_supplied_stage_policy(tmp_path: Path) -> None:
 
     assert result.status == "accepted"
     assert result.package is not None
-    assert result.package.manifest.authoring["policy"] == {
+    assert _evidence_policy(tmp_path) == {
         "plan_max_corrections": 0,
         "artifact_max_corrections": 2,
         "plan_max_review_revisions": 0,
@@ -102,9 +107,7 @@ def test_reviewer_controls_record_profile_model_and_zero_temperature(
         "model": "reviewer-model",
     }
     assert result.package is not None
-    assert result.package.manifest.authoring["policy"]["review_model_profile"] == (
-        "reviewer-profile"
-    )
+    assert _evidence_policy(tmp_path)["review_model_profile"] == ("reviewer-profile")
 
 
 def test_unparseable_candidate_records_checks_that_did_not_run(tmp_path: Path) -> None:
@@ -156,7 +159,7 @@ def test_default_review_order_is_plan_author_review_artifact_author_review(
         "artifact": "accepted",
     }
     assert result.package is not None
-    assert result.package.manifest.authoring["policy"]["plan_max_corrections"] == 1
+    assert _evidence_policy(tmp_path)["plan_max_corrections"] == 1
     assert result.package.manifest.authoring["terminal_status"] == "accepted"
     assert result.failure_evidence_path is None
     assert result.ledger[1]["reviewed_input_sha256"]
@@ -245,10 +248,8 @@ def test_artifact_review_revision_preserves_plan_and_uses_artifact_review_allowa
     assert result.review_revision_allowances == {"plan": 2, "artifact": 0}
     assert result.package is not None
     assert json.loads(result.package.members["plan.json"]) == plan
-    assert (
-        result.package.members["authoring/05-correction.prompt"]
-        == transport.requests[4]["user"].encode()
-    )
+    evidence = load_failure_evidence(tmp_path / "package.failure-evidence.json")
+    assert evidence["attempts"][4]["prompt"]["user"] == transport.requests[4]["user"]
 
 
 def test_reviewer_blocked_and_malformed_are_distinct_terminal_states(tmp_path: Path) -> None:
@@ -544,7 +545,7 @@ def test_plan_stage_accepts_after_two_consecutive_review_revisions(tmp_path: Pat
     assert result.review_revision_allowances == {"plan": 0, "artifact": 1}
     assert result.budget["task_limit"] == 14
     assert result.package is not None
-    policy = result.package.manifest.authoring["policy"]
+    policy = _evidence_policy(tmp_path)
     assert policy["plan_max_review_revisions"] == 2
     assert policy["artifact_max_review_revisions"] == 1
 

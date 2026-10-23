@@ -659,9 +659,14 @@ is its own), records prompts, raw and decoded responses, usage, controls,
 and the stage-local correction allowances, and never contacts a target, setup,
 discovery, or runtime-judge transport. An essential unresolved requirement
 produces a retained `*.blocked.json` plan and no package. The package contains
-the user-only stimulus, exact runtime-binding declarations, observations, the
-tool-call condition or judge specification, explanation, examples, and
-digest-bound evidence.
+the accepted plan, the user-only stimulus, setup, exact runtime-binding
+declarations, prerequisites, the tool-call condition or judge specification,
+explanation, examples, `checks.json`, and `inputs.json` (the inventory, runtime
+contract, discovery provenance, and `authoring_input_pins`). The manifest's
+`authoring` records only the outcome (`status`, `terminal_status`, and
+`review_status`); `creation_model` stays an empty object because the schema
+requires the key. Each request's prompt, raw response, usage, and review live
+only in the failure-evidence sidecar described below.
 The context guard estimates prompt tokens from the rendered UTF-8 system and
 user bytes using the calibration described above; it does not report estimated
 values as provider usage. Use the test helper `build_neutral_artifact_package`
@@ -683,8 +688,9 @@ The plan validator rejects the older `source` and `expected` prerequisite
 fields as unexpected, and reports `binding` and `equals` as missing when they
 are absent. `load_package` does not parse `prerequisites.json`; it verifies
 the manifest, the member set, and each member's digest and length.
-If authoring fails before a package exists, the sibling
-`<package>.failure-evidence.json` sidecar is written atomically. It preserves
+The sibling `<package>.failure-evidence.json` sidecar is written atomically for
+every run that dispatched a request or recorded a finding, whether or not it
+produced a package. It preserves
 each exact rendered prompt, available raw response bytes, provider usage,
 controls, transformations, and findings. Missing responses or usage use an
 explicit `unavailable` marker. Provider endpoint and secret metadata are
@@ -704,12 +710,7 @@ run stopped without an `Exception` (a kill or an interrupt) or the failed
 sidecar write itself raised.
 Every reviewer attempt's `review` record also keeps `reviewed_candidate`: the
 plan or artifact candidate the reviewer read, whose canonical JSON hashes to
-`reviewed_candidate_sha256`. The ledger, `authoring/reviews.json`, and the
-package manifest keep no copy.
-A scenario that ends without a package after at least one request also keeps
-its exact requests beside its evidence, in `<package>.authoring/`, as
-`NN-<stage>.prompt` and `NN-<stage>.raw` files; a package keeps the same files
-in its own `authoring/` directory.
+`reviewed_candidate_sha256`. The in-memory ledger and the package keep no copy.
 
 ### Author report
 
@@ -724,7 +725,9 @@ uv run asago-artifact-generator report <author-output> \
 It writes `index.html` and `stage-summary.json` (`stage-summary-v1`, checked
 against its schema and the page's numbers). `--out` defaults to
 `<author-output>/report`. The page reads only saved files: failure evidence,
-packages, request files, and the scenario inputs; it sends no requests. Each
+packages, and the scenario inputs; it sends no requests. Each request links to
+its record in the scenario's failure evidence (`attempts[i]`), which holds the
+exact prompt and raw reply. Each
 failed scenario shows its terminal reason with a one-line meaning from
 `report/reasons.py`, its cause, the signals that repeat across requests, and
 every request in order. A before-and-after panel appears only when both

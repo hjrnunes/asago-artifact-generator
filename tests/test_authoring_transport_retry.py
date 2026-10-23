@@ -302,16 +302,17 @@ def test_the_ledger_and_the_evidence_record_the_retry_on_its_dispatch(
     assert first["controls"]["max_retries"] == 0
 
 
-def test_the_package_ledger_carries_the_retry_and_keeps_max_retries_zero(
+def test_an_accepted_run_evidence_carries_the_retry_and_keeps_max_retries_zero(
     tmp_path: Path,
 ) -> None:
     result = _run(tmp_path, _plan_then_artifact(connection_error()))
 
-    assert result.package is not None
-    ledger = json.loads(result.package.members["authoring/ledger.json"])
-    assert ledger[0]["transport_retries"][0]["retry_of"]["type"] == "APIConnectionError"
-    assert result.package.manifest.authoring["max_retries"] == 0
-    assert result.package.manifest.authoring["budget"]["task_spent"] == 3
+    assert result.status == "accepted"
+    evidence = load_failure_evidence(tmp_path / "package.failure-evidence.json")
+    first = evidence["attempts"][0]
+    assert first["transport_retries"][0]["retry_of"]["type"] == "APIConnectionError"
+    assert first["controls"]["value"]["max_retries"] == 0
+    assert evidence["budget"]["task_spent"] == 3
 
 
 def test_a_ledger_without_a_retry_has_no_retry_key(tmp_path: Path) -> None:

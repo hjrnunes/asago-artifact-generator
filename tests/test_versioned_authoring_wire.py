@@ -377,7 +377,7 @@ def test_new_orchestrator_copies_plan_owned_fields_and_the_tool_call_condition(t
     assert json.loads(result.package.members["setup.json"]) == plan["setup_recipe"]
     assert json.loads(result.package.members["bindings.json"]) == plan["runtime_bindings"]
     assert json.loads(result.package.members["prerequisites.json"]) == plan["prerequisites"]
-    assert json.loads(result.package.members["observations.json"]) == plan["required_observations"]
+    assert "observations.json" not in result.package.members
 
 
 def test_command_attempt_package_keeps_the_condition_and_drops_an_unused_judge(tmp_path) -> None:

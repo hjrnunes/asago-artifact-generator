@@ -10,9 +10,9 @@ from typing import Any
 
 from ..authoring.review import ARTIFACT_REVIEW_QUESTION_IDS, PLAN_REVIEW_QUESTION_IDS
 from ..authoring.templates import prose
-from ..report_kit import Markup, Turn, artifact, badge, chip, compare, conversation, esc, join
+from ..report_kit import Markup, Turn, artifact, badge, chip, compare, conversation, esc
 from .analysis import is_absent
-from .model import REQUESTS_SUFFIX, Authoring, Finding, Package, Scenario, Step
+from .model import EVIDENCE_SUFFIX, Authoring, Finding, Package, Scenario, Step
 
 STAGE_LABEL = {"plan": "Plan", "artifact": "Artifact"}
 STAGE_TONE = {"plan": "green", "artifact": "amber"}
@@ -121,42 +121,22 @@ def _allowance(step: Step, used: Counter[tuple[str, str]], policy: dict[str, Any
     return str(chip(f"{name} {used[(step.group, step.kind)]} of {limit}", "outline"))
 
 
-def request_files(item: Authoring, links: Links) -> dict[int, Markup]:
-    """Link each request's prompt and reply, from the package or the failed scenario's files.
+def request_links(item: Authoring, links: Links) -> list[Markup]:
+    """Link each request to its record in the scenario's failure evidence, in request order.
 
-    The files are named ``NN-<stage>.prompt`` and ``.raw``, where ``NN`` is the
-    request number.
+    The record at ``attempts[i]`` holds the request's exact prompt and raw reply.
     """
 
-    directory = (
-        links.output / item.id / "authoring"
-        if item.accepted
-        else links.output / f"{item.id}{REQUESTS_SUFFIX}"
-    )
-    found: dict[int, list[str]] = {}
-    for path in sorted(directory.iterdir() if directory.is_dir() else []):
-        number = path.name.split("-", 1)[0]
-        if path.suffix in (".prompt", ".raw") and number.isdigit():
-            found.setdefault(int(number), []).append(path.name)
-    return {
-        index: join(
-            (
-                links.file(directory / name, "prompt" if name.endswith(".prompt") else "reply")
-                for name in names
-            ),
-            " ",
-        )
-        for index, names in found.items()
-    }
+    evidence = links.output / f"{item.id}{EVIDENCE_SUFFIX}"
+    return [links.file(evidence, f"attempts[{index}]") for index in range(len(item.steps))]
 
 
 def timeline(item: Authoring, links: Links) -> Markup:
     """Render every request of a scenario in order."""
 
     used: Counter[tuple[str, str]] = Counter()
-    files = request_files(item, links)
     rows = []
-    for step in item.steps:
+    for step, request in zip(item.steps, request_links(item, links), strict=True):
         flag = badge("warn", "same output as before") if step.unchanged else ""
         found = "".join(finding_html(finding) for finding in step.findings)
         rows.append(
@@ -164,7 +144,7 @@ def timeline(item: Authoring, links: Links) -> Markup:
             f'<span class="tl-n">{step.index}</span> '
             f"{stage_chip(step.group)} <b>{esc(step.title)}</b> "
             f"{_allowance(step, used, item.policy)}{flag}"
-            f'<span class="tl-t">{files.get(step.index, "")} {step.tokens:,} tokens</span>'
+            f'<span class="tl-t">{request} {step.tokens:,} tokens</span>'
             f"</p>{found}</li>"
         )
     return Markup(f'<ol class="tl">{"".join(rows)}</ol>')

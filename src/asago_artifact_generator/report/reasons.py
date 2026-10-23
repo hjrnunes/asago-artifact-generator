@@ -42,9 +42,6 @@ _RUN = {
     "secret_in_response": "The response contained a value shaped like a secret and was rejected.",
     "assembly_validation": "The accepted plan and artifact did not assemble into a valid package.",
     "package_write_failed": "The package could not be written to disk.",
-    "request_files_unwritten": (
-        "The failed run's prompts and raw responses could not be written beside its evidence."
-    ),
     "tool_call_condition_missing": (
         "The scenario needs a tool-call condition from the producer, and the handoff has none."
     ),

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..contract_kit import ClaimLevel
-from ..failure_evidence import metadata_record, request_files_path, write_request_files
+from ..failure_evidence import metadata_record
 from ..input_adapter import InputView
 from ..package_io import write_package
 from .binding_repair import correction_repair_inputs
@@ -83,7 +83,7 @@ from .journal import (
     ValidationTransformed,
 )
 from .oracle_self_test import DEFECT_CODE, oracle_defect_findings
-from .package_assembly import _attempt_records, _package_from_responses, _persist_blocked_plan
+from .package_assembly import _package_from_responses, _persist_blocked_plan
 from .planted_item import planted_text_limit
 from .policy import (
     AuthoringBudget,
@@ -125,7 +125,6 @@ from .sequential_turns import (
 from .shape_gate import shape_refusal_findings
 
 CRASH_FINDING_CODE = "authoring_crashed"
-REQUEST_FILES_FINDING_CODE = "request_files_unwritten"
 _CRASH_MESSAGE_LIMIT = 200
 
 
@@ -622,7 +621,6 @@ class AuthoringOrchestrator:
             task_id=self.task_id,
             packet=packet,
             policy=self._effective_policy_record(),
-            raw_response_path=f"authoring/{dispatch_index:02d}-{packet.stage}.raw",
             model_identity=self._dispatch_model_identity(),
             review=self._review_dispatch_fields(packet) if reviewed else None,
             reviewed_candidate=review_packet_candidate(packet) if reviewed else None,
@@ -913,17 +911,11 @@ class AuthoringOrchestrator:
                     "required_observations": plan["required_observations"],
                 },
                 task_id=self.task_id,
-                ledger=self._journal.ledger,
-                raw_responses=self._raw_responses,
-                transformations=self._transformations,
                 inventory=inventory,
                 runtime_contract=runtime_contract,
                 discovery_provenance=self.discovery_provenance,
-                policy=self._effective_policy_record(),
                 review_status=dict(self._review_status),
-                preserved_reviews=self._journal.reviews,
                 terminal_status="accepted",
-                budget=self.budget.snapshot(self.task_id),
             )
         except ArtifactValidationError as exc:
             return self._result(
@@ -1538,35 +1530,7 @@ class AuthoringOrchestrator:
                 },
             )
         )
-        evidence_path = self._journal.flush()
-        if status != "accepted" and attempts:
-            self._keep_request_files()
-        return evidence_path
-
-    def _keep_request_files(self) -> None:
-        """Write the request files, recording a failed write as a run finding.
-
-        The terminal record is already flushed, so a failed write must not raise:
-        the crash handler would replace that record's reason with
-        ``authoring_crashed``.
-        """
-
-        try:
-            self._write_request_files()
-        except Exception as exc:  # noqa: BLE001 - the files are evidence, not the outcome
-            detail = f"{type(exc).__name__}: {_safe_error(exc)[:_CRASH_MESSAGE_LIMIT]}"
-            self._record_run_finding(Finding(REQUEST_FILES_FINDING_CODE, detail, "run"))
-
-    def _write_request_files(self) -> None:
-        """Write a failed run's prompts and raw responses under the package's names."""
-
-        records = _attempt_records(list(self._journal.ledger), self._raw_responses, None)
-        files = {
-            name.removeprefix("authoring/"): payload
-            for name, payload in records.items()
-            if name.endswith((".prompt", ".raw"))
-        }
-        write_request_files(request_files_path(self.package_dir), files)
+        return self._journal.flush()
 
     def _terminal_findings(self, status: str, findings: list[Finding]) -> list[Finding]:
         """Return the findings the terminal record carries for ``status``."""

@@ -70,6 +70,4 @@ def test_the_package_records_keep_no_candidate_copy(tmp_path: Path) -> None:
     assert result.package is not None
     assert all("reviewed_candidate" not in record for record in result.ledger)
     assert all("reviewed_candidate" not in (r.get("review") or {}) for r in result.ledger)
-    reviews = json.loads((tmp_path / "package" / "authoring" / "reviews.json").read_text())
-    assert "reviewed_candidate" not in reviews["plan"]
     assert '"reviewed_candidate"' not in json.dumps(result.package.manifest.authoring)

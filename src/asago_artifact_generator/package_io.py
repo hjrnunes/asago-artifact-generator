@@ -33,8 +33,6 @@ _ALLOWED_MEMBER_NAMES = {
     "prerequisites.json",
     "checks.json",
     "inputs.json",
-    "source-hashes.json",
-    "observations.json",
     "judge.json",
     "explanation.json",
     "examples.json",
@@ -70,6 +68,7 @@ class PackageManifest:
     members: list[dict[str, Any]]
     authoring: dict[str, Any] = field(default_factory=dict)
     runtime_capabilities: dict[str, Any] = field(default_factory=dict)
+    # Required by the v4 schema; the authoring writer leaves it empty.
     creation_model: dict[str, Any] = field(default_factory=dict)
     manifest_digest: str = ""
     schema_version: str = PACKAGE_SCHEMA_VERSION
@@ -293,7 +292,7 @@ def _validate_member_path(value: Any) -> str:
     relative = path.as_posix()
     if relative != value:
         raise PackagePathError(f"non-canonical package member path: {value!r}")
-    if relative not in _ALLOWED_MEMBER_NAMES and not relative.startswith("authoring/"):
+    if relative not in _ALLOWED_MEMBER_NAMES:
         raise PackagePathError(f"unexpected package member path: {relative}")
     return relative
 

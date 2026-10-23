@@ -57,7 +57,6 @@ def _open_review(journal: AuthoringJournal, pinned: dict[str, str]) -> None:
             task_id="journal",
             packet=_PACKET,
             policy={"max_retries": 0},
-            raw_response_path="authoring/01-plan_review.raw",
             model_identity={"requested_model": None},
             review={**pinned, "review": {"status": "pending"}},
         ),
@@ -76,7 +75,6 @@ def _open_author(journal: AuthoringJournal, stage: str = "call1") -> None:
             task_id="journal",
             packet=packet,
             policy={"max_retries": 0},
-            raw_response_path=f"authoring/01-{stage}.raw",
             model_identity={"requested_model": None},
         ),
     )

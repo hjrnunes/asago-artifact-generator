@@ -636,8 +636,8 @@ def test_gate_replays_a_recorded_stage_offline_and_passes(
     assert item.status == item.recorded_status == "unresolved"
     assert item.served == 2 and item.unused == 0
     assert item.mismatches == [] and item.network_attempts == []
-    # The evidence, the log, and a prompt and raw response for each of the two requests.
-    assert item.files_compared == 6
+    # The evidence and the log: the failure evidence alone keeps each request.
+    assert item.files_compared == 2
     assert result.skipped == 1
     after = {path: path.read_bytes() for path in unresolved_stage.rglob("*") if path.is_file()}
     assert after == before, "the recorded stage is never written"
