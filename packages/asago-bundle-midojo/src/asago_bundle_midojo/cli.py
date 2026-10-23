@@ -1,8 +1,14 @@
 """Command line for the MiDojo adapter.
 
-Exit codes: 0 done, 1 the input cannot be used, 2 usage error, 3 capability
-gap (``compile`` only: MiDojo cannot deliver or grade the package, such as a
-single one with history or one that claims a state effect).
+Exit codes: 0 done, 1 the input cannot be used (including a target config not
+authorized for a run), 2 usage error, 3 capability gap (``compile`` only:
+MiDojo cannot deliver or grade the package, such as a single one with history
+or one that claims a state effect).
+
+``instantiate`` with ``--target`` refuses a target config not authorized for a run before
+it reads the values. Without ``--target`` it is the legacy form for callers that resolve
+the values themselves, ``instantiate TEMPLATE --values VALUES --out OUT``: it reads no
+target config. Both forms take ``--values``; neither runs package preparation.
 """
 
 from __future__ import annotations
@@ -13,9 +19,10 @@ import sys
 from pathlib import Path
 
 from asago_bundle_core.gap import EXIT_CAPABILITY_GAP, EXIT_INPUT, EXIT_OK, CapabilityGap
+from asago_bundle_core.target import AUTHORIZATION_FIELD, AUTHORIZED_KINDS, authorized_target
 
 from .compiler import CompileError, compile_package
-from .instantiate import InstantiateError, instantiate_bundle
+from .instantiate import InstantiateError, instantiate_bundle, instantiate_resolved
 from .openshell import RUNTIMES, UNMANAGED
 from .parse import ParseError, parse_bundle
 
@@ -44,10 +51,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     compile_cmd.set_defaults(handler=_compile)
     instantiate_cmd = commands.add_parser(
-        "instantiate", help="fill a bundle template with values.json into a concrete bundle"
+        "instantiate",
+        help="fill a bundle template with values.json into a concrete bundle",
+        description="With --target, the target config is checked first. Without it, the "
+        "legacy form, TEMPLATE --values VALUES --out OUT, is for callers that resolve the "
+        "values themselves: it reads no target config.",
     )
     instantiate_cmd.add_argument("template", type=Path, help="bundle template directory")
     instantiate_cmd.add_argument("--values", type=Path, required=True, help="values.json")
+    instantiate_cmd.add_argument(
+        "--target",
+        type=Path,
+        help=f"the target's target.yaml; its {AUTHORIZATION_FIELD} must be one of "
+        f"{', '.join(AUTHORIZED_KINDS)}; without it, the legacy form reads no target config",
+    )
     instantiate_cmd.add_argument("--out", type=Path, required=True, help="new bundle directory")
     instantiate_cmd.set_defaults(handler=_instantiate)
     parse_cmd = commands.add_parser(
@@ -90,13 +107,35 @@ def _compile(args: argparse.Namespace) -> int:
 
 
 def _instantiate(args: argparse.Namespace) -> int:
+    if args.target is None:
+        return _instantiate_resolved(args)
+    # The target config is checked before anything else is read.
+    try:
+        authorized_target(args.target, InstantiateError)
+    except InstantiateError as exc:
+        print(f"instantiate: {exc}", file=sys.stderr)
+        return EXIT_INPUT
     try:
         values = json.loads(args.values.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         print(f"instantiate: values are unreadable: {exc}", file=sys.stderr)
         return EXIT_INPUT
     try:
-        instantiate_bundle(args.template, values, args.out)
+        instantiate_bundle(args.template, values, args.out, target=args.target)
+    except InstantiateError as exc:
+        print(f"instantiate: {exc}", file=sys.stderr)
+        return EXIT_INPUT
+    return EXIT_OK
+
+
+def _instantiate_resolved(args: argparse.Namespace) -> int:
+    try:
+        values = json.loads(args.values.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"instantiate: values are unreadable: {exc}", file=sys.stderr)
+        return EXIT_INPUT
+    try:
+        instantiate_resolved(args.template, values, args.out)
     except InstantiateError as exc:
         print(f"instantiate: {exc}", file=sys.stderr)
         return EXIT_INPUT

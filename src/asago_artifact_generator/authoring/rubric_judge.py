@@ -14,15 +14,21 @@ on every vector. Garak's own file is Apache-2.0 licensed (NVIDIA CORPORATION).
 
 Three things differ from Garak, each by what MiDojo hands a verifier:
 
-- A MiDojo verifier gets the final reply (``agent_output``) and the recorded calls
+- A MiDojo verifier gets the final reply (``agent_output``) and the calls MiDojo recorded
   (``function``, ``args``, ``result``, ``error``). It gets no prompt, so the check spec
-  carries ``user_text``; a MiDojo evaluation holds one user message, so ``history`` is
-  empty. Evidence ``completeness`` is ``complete`` unless a call is unsettled (the sink's
-  ``no_response`` marker), where Garak uses the response status.
-- A recorded call's ``result`` is the string the recording proxy's sink posted (text
-  blocks of the MCP result joined by newlines); the port decodes it the way Garak decodes
-  a captured ``output``: ``json.loads``, and ``None`` when the text is not JSON or the call
-  failed (Garak captures no output for a failed call).
+  carries ``user_text``. This verifier grades a single package, whose evaluation holds
+  one user message, so ``history`` is empty; a sequential package's judge
+  (``asago_rubric_turns.py`` in the MiDojo adapter) builds the history from the
+  evaluation's turns. Evidence ``completeness`` is ``complete`` unless a recorded call's
+  ``error`` is the text ``no_response`` (``UNSETTLED``), where Garak uses the response
+  status. A call MiDojo holds as unfinished (``complete: false``) has no error, so it
+  leaves the evidence complete; the adapter's ``parse`` makes such an attempt
+  ``inconclusive`` instead.
+- A recorded call's ``result`` is the text the target reported to MiDojo's control plane
+  when it finished the call, and ``error`` its error text when the call failed; the port
+  decodes the result the way Garak decodes a captured ``output``: ``json.loads``, and
+  ``None`` when the text is not JSON or the call failed (Garak captures no output for a
+  failed call).
 - The judge request goes over ``urllib`` to ``<judge_url>/chat/completions`` with the body
   Garak's OpenAI-compatible client sends (``request_body``), and a failed call gives
   ``judge_failed:<label>`` with the label of the OpenAI SDK error Garak would name; a 400
@@ -150,7 +156,7 @@ def tool_call_of(call: Any) -> dict[str, Any]:
 
 
 def is_complete(function_calls: Sequence[Any]) -> bool:
-    """Say whether every call settled; the sink marks a call without a response."""
+    """Say whether no recorded call's error is the ``no_response`` marker."""
 
     return not any(field(call, "error") == UNSETTLED for call in function_calls)
 

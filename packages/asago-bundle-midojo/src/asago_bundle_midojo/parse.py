@@ -597,22 +597,23 @@ def proxy_turns(
 ) -> tuple[list[int] | None, str | None]:
     """Return the turn of each proxy call, from the control-plane call of the same content.
 
-    The proxy lists calls as their requests arrive and the sink delivers them to the
-    control plane once settled, so the two lists can differ in order; calls are paired by
-    ``call_key``, never by position or by name alone, and the two lists must hold the
-    same calls (``tool_call_mismatch``).
+    The proxy lists calls as their requests arrive, and the target records each call in
+    the control plane itself: it starts the call there before it runs the tool and
+    reports it with its result afterwards, so the two lists can differ in order; calls are
+    paired by ``call_key``, never by position or by name alone, and the two lists must
+    hold the same calls (``tool_call_mismatch``).
 
     Calls of one key that MiDojo stamped with different turns are paired in order:
     the earlier-arriving proxy call takes the earlier turn. The proxy numbers each call
     as its request arrives (``sequence``, asago-orch ``mcp_proxy.py:171-182``). MiDojo
     starts turn k before it sends message k and records reply k before it starts turn
     k+1 (midojo ``orchestrator.py:235-237``), and stamps a call with the latest started
-    turn when the sink delivers it (``control_plane/store.py:209``), which the sink does
-    before the result reaches the target (``mcp_proxy.py:11-13``). So while the target
-    waits for each result before it replies, every call of turn k arrives before every
-    call of turn k+1. That holding is checked: the arrival order of all calls must not
-    go back a turn. Without arrival numbers, or when it goes back, the pairing is
-    ``tool_call_ambiguous``.
+    turn when the target starts it (``control_plane/store.py:253`` at b0fb4576), which the
+    target does before the tool runs, so before the result reaches the agent. So while
+    the agent waits for each result before it replies, every call of turn k arrives
+    before every call of turn k+1. That holding is checked: the arrival order of all
+    calls must not go back a turn. Without arrival numbers, or when it goes back, the
+    pairing is ``tool_call_ambiguous``.
     """
 
     proxy = records.calls or []

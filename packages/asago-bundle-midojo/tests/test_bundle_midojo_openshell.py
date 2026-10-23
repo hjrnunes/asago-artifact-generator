@@ -13,7 +13,7 @@ import pytest
 
 from asago_bundle_core.conformance import AdapterUnderTest, check_round_trip
 from asago_bundle_core.schema import manifest_errors
-from asago_bundle_core.testing import sequential_stimulus, write_test_package
+from asago_bundle_core.testing import MOCK_TARGET, sequential_stimulus, write_test_package
 from asago_bundle_midojo import cli
 from asago_bundle_midojo.compiler import (
     OPENSHELL_ENTRYPOINT_VALUES,
@@ -71,14 +71,16 @@ def openshell_template(command_package: Path, tmp_path: Path) -> Path:
 @pytest.fixture
 def openshell_bundle(openshell_template: Path, tmp_path: Path) -> Path:
     out = tmp_path / "openshell-bundle"
-    instantiate_bundle(openshell_template, OPENSHELL_VALUES, out)
+    instantiate_bundle(openshell_template, OPENSHELL_VALUES, out, target=MOCK_TARGET)
     return out
 
 
 def sequential_bundle(tmp_path: Path) -> Path:
     package = write_test_package(tmp_path / "packages", stimulus=sequential_stimulus())
     compile_openshell(package, tmp_path / "template")
-    instantiate_bundle(tmp_path / "template", OPENSHELL_SEQUENTIAL_VALUES, tmp_path / "bundle")
+    instantiate_bundle(
+        tmp_path / "template", OPENSHELL_SEQUENTIAL_VALUES, tmp_path / "bundle", target=MOCK_TARGET
+    )
     return tmp_path / "bundle"
 
 
@@ -285,7 +287,10 @@ def test_an_empty_system_message_is_accepted(openshell_template: Path, tmp_path:
     # MiDojo's unmanaged runs send an empty system message when the suite has none;
     # an openshell bundle gets the same.
     instantiate_bundle(
-        openshell_template, {**OPENSHELL_VALUES, "instructions": ""}, tmp_path / "b"
+        openshell_template,
+        {**OPENSHELL_VALUES, "instructions": ""},
+        tmp_path / "b",
+        target=MOCK_TARGET,
     )
 
 
@@ -295,7 +300,10 @@ def test_a_malformed_tool_list_is_refused(
 ) -> None:
     with pytest.raises(InstantiateError, match="malformed allowed_tools: expected "):
         instantiate_bundle(
-            openshell_template, {**OPENSHELL_VALUES, "allowed_tools": bad}, tmp_path / "b"
+            openshell_template,
+            {**OPENSHELL_VALUES, "allowed_tools": bad},
+            tmp_path / "b",
+            target=MOCK_TARGET,
         )
 
 
@@ -310,7 +318,9 @@ def test_a_malformed_system_message_is_refused(
     openshell_template: Path, tmp_path: Path, key: str, bad: Any
 ) -> None:
     with pytest.raises(InstantiateError, match=f"malformed {key}: expected "):
-        instantiate_bundle(openshell_template, {**OPENSHELL_VALUES, key: bad}, tmp_path / "b")
+        instantiate_bundle(
+            openshell_template, {**OPENSHELL_VALUES, key: bad}, tmp_path / "b", target=MOCK_TARGET
+        )
 
 
 @pytest.mark.parametrize(
@@ -344,7 +354,9 @@ def test_a_malformed_sandbox_value_is_refused_with_what_it_must_be(
     openshell_template: Path, tmp_path: Path, key: str, bad: Any
 ) -> None:
     with pytest.raises(InstantiateError, match=f"malformed {key}: expected "):
-        instantiate_bundle(openshell_template, {**OPENSHELL_VALUES, key: bad}, tmp_path / "b")
+        instantiate_bundle(
+            openshell_template, {**OPENSHELL_VALUES, key: bad}, tmp_path / "b", target=MOCK_TARGET
+        )
 
 
 @pytest.mark.parametrize("key", sorted(set(OPENSHELL_VALUES)))
@@ -354,7 +366,7 @@ def test_a_missing_sandbox_value_is_refused(
     values = {name: value for name, value in OPENSHELL_VALUES.items() if name != key}
 
     with pytest.raises(InstantiateError, match=f"values lack {key}"):
-        instantiate_bundle(openshell_template, values, tmp_path / "b")
+        instantiate_bundle(openshell_template, values, tmp_path / "b", target=MOCK_TARGET)
 
 
 @pytest.mark.parametrize(
@@ -365,7 +377,10 @@ def test_a_relay_url_off_the_relay_port_is_refused(
 ) -> None:
     with pytest.raises(InstantiateError, match="not relay_port 18006"):
         instantiate_bundle(
-            openshell_template, {**OPENSHELL_VALUES, "relay_url": url}, tmp_path / "b"
+            openshell_template,
+            {**OPENSHELL_VALUES, "relay_url": url},
+            tmp_path / "b",
+            target=MOCK_TARGET,
         )
 
 
@@ -374,7 +389,7 @@ def test_a_relay_url_on_its_scheme_port_is_accepted(
 ) -> None:
     values = {**OPENSHELL_VALUES, "relay_url": "https://relay.example/v1", "relay_port": 443}
 
-    instantiate_bundle(openshell_template, values, tmp_path / "b")
+    instantiate_bundle(openshell_template, values, tmp_path / "b", target=MOCK_TARGET)
 
     suite = read_json(tmp_path / "b" / "asago_suite/suite.yaml")
     assert suite["agent_runtime"]["policy"]["networkPolicies"]["model_relay"]["endpoints"] == [
@@ -386,7 +401,10 @@ def test_a_fractional_agent_timeout_is_passed_as_it_is(
     openshell_template: Path, tmp_path: Path
 ) -> None:
     manifest = instantiate_bundle(
-        openshell_template, {**OPENSHELL_VALUES, "agent_timeout": 90.5}, tmp_path / "b"
+        openshell_template,
+        {**OPENSHELL_VALUES, "agent_timeout": 90.5},
+        tmp_path / "b",
+        target=MOCK_TARGET,
     )
 
     assert manifest["entrypoint"][manifest["entrypoint"].index("--agent-timeout") + 1] == "90.5"
@@ -396,7 +414,9 @@ def test_an_unmanaged_template_keeps_its_values_and_messages(
     template: Path, tmp_path: Path
 ) -> None:
     with pytest.raises(InstantiateError, match=r"^values carry a malformed service_port$"):
-        instantiate_bundle(template, {**VALUES, "service_port": 0}, tmp_path / "b")
+        instantiate_bundle(
+            template, {**VALUES, "service_port": 0}, tmp_path / "b", target=MOCK_TARGET
+        )
 
 
 # --- parse -----------------------------------------------------------------------------------
@@ -903,7 +923,7 @@ def openshell_adapter() -> AdapterUnderTest:
 
     return AdapterUnderTest(
         compile=partial(compile_package, **compile_options("openshell")),
-        instantiate=instantiate_bundle,
+        instantiate=partial(instantiate_bundle, target=MOCK_TARGET),
         parse=lambda bundle, out: parse_bundle(bundle, out),
         write_native=write_run,
         entrypoint_keys=OPENSHELL_ENTRYPOINT_VALUES,

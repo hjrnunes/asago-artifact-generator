@@ -1,7 +1,8 @@
 """compile: turn an artifact package into a Garak bundle template.
 
 The template is one conversation entry and one Garak run configuration, both
-with slots for the values the orchestrator resolves at execute time, plus
+with slots for the values ``instantiate`` resolves for one run (from the prepared
+package, the target config and the run settings), plus
 ``bundle.json`` (``tool-bundle-v1``), which names those values and the command
 that runs Garak on the concrete bundle. ``injection.IndirectInjection`` sends a
 single-turn package's messages in one request; ``injection.SequentialInjection``

@@ -115,13 +115,27 @@ Deterministic tests must not contact a model endpoint or target.
   records, and the `conformance` helper that round-trips `compile`, `instantiate` and
   `parse` of an adapter and returns failure messages). A new adapter runs `check_round_trip`
   in its tests. `preparation.prepare_package(package, call_target=...)` prepares a package for
-  one run before `instantiate`: it runs setup through the caller's target call (real writes,
-  not graded, returned as a ledger), resolves the bindings, checks the prerequisites, renders
-  the stimulus and returns the judge's facts, or an incomplete reason. Recording the result
-  is the caller's job. The optional schema fields `repeats` and `serve` stay out of a bundle that
-  does not need them: Garak omits both, because `bundle.json` feeds the receipt's
+  one run: it runs setup through a target call (real writes, not graded, returned as a
+  ledger), resolves the bindings, checks the prerequisites, renders the stimulus and returns
+  the judge's facts, or an incomplete reason. So far only the Garak adapter's public
+  `instantiate` runs it; the lower-level template fillers (`instantiate_bundle` in both
+  adapters) take values already resolved. Recording the result is the caller's job. `target`
+  holds the target config an adapter's `instantiate` takes (a `target.yaml` path or a loaded
+  mapping): one whose `authorized_as` is not `mock` or `test_instance` is refused before any
+  work. `mcp_call_target` sends a setup step to the target's MCP server; the Garak
+  `instantiate` uses it for `endpoint.mcp_url` by default, and a caller's `call_target`
+  replaces it. The optional schema fields `repeats` and `serve` stay out of a bundle
+  that does not need them: Garak omits both, because `bundle.json` feeds the receipt's
   `bundle_digest`.
-- `packages/asago-bundle-garak/`: the Garak adapter workspace member.
+- `packages/asago-bundle-garak/`: the Garak adapter workspace member. Its library entry points
+  `compile`, `instantiate` and `parse` (`entry_points.py`) are what its CLI calls. The public
+  `instantiate` takes the target config and `RunSettings`, checks every input and the whole
+  template (`read_template`) before the first setup call, runs `prepare_package`, and fills
+  that same template with the resolved values (`fill_template`, which `instantiate_bundle`
+  also uses). The bundle's MCP server is the authorized config's `endpoint.mcp_url`.
+  `instantiate TEMPLATE --values VALUES --out OUT` is the legacy CLI form the orchestrator
+  calls (`instantiate_resolved`, unchanged behaviour): no target config, no preparation;
+  `--values` with `--package`, `--target`, `--port` or `--run` exits 2.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It serves command-attempt
   and reply packages: a single package with one user prompt, or a sequential one whose user turns
   `midojo-run` sends in one conversation (MiDojo `>=bddb79bc`, each call's `turn` gives its
@@ -137,7 +151,9 @@ Deterministic tests must not contact a model endpoint or target.
   (`turns.json`): each judged turn (`judge_turns` `final` or `all`) with the earlier messages
   and replies interleaved as history. A conversation other than the bundle's turns is not
   graded (an `unresolved` verdict naming why). A command attempt is graded by
-  MiDojo's builtin `tool_call_condition` predicate. `compile` takes `--midojo-base` (a
+  MiDojo's builtin `tool_call_condition` predicate. `instantiate` takes the target config
+  (`--target`) only to check `authorized_as`; without `--target` it is the legacy form
+  (`instantiate_resolved`), which reads no target config. `compile` takes `--midojo-base` (a
   mini-agents `mini-agents-midojo-base-v1` file) and `--domain`: the domain's ledger becomes the
   suite `environment` and the package's `seed.json` becomes probes (`environment.py`).
   `--runtime openshell` (default `unmanaged`, whose bundles stay as they were) runs the target in

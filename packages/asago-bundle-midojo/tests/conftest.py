@@ -9,10 +9,12 @@ from typing import Any
 import pytest
 
 from asago_artifact_generator.package_io import SEED_MEMBER, build_package, write_package
-from asago_bundle_core.testing import sequential_stimulus, write_test_package
+from asago_bundle_core.testing import MOCK_TARGET, sequential_stimulus, write_test_package
 
 REPO = Path(__file__).resolve().parents[3]
 RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v1.schema.json"
+# The fixture target's config, authorized for a run as a mock.
+TARGET_CONFIG = REPO / "tests/fixtures/targets/piggybank/target.yaml"
 BASE = Path(__file__).parent / "fixtures" / "midojo-base.json"
 DOMAIN = "klarna"
 PROMPT = "Show the referral for PAT-201."
@@ -144,7 +146,7 @@ def bundle(template: Path, tmp_path: Path) -> Path:
     from asago_bundle_midojo.instantiate import instantiate_bundle
 
     out = tmp_path / "bundle"
-    instantiate_bundle(template, VALUES, out)
+    instantiate_bundle(template, VALUES, out, target=MOCK_TARGET)
     return out
 
 
@@ -162,7 +164,7 @@ def reply_bundle(reply_template: Path, tmp_path: Path) -> Path:
     from asago_bundle_midojo.instantiate import instantiate_bundle
 
     out = tmp_path / "reply-bundle"
-    instantiate_bundle(reply_template, REPLY_VALUES, out)
+    instantiate_bundle(reply_template, REPLY_VALUES, out, target=MOCK_TARGET)
     return out
 
 

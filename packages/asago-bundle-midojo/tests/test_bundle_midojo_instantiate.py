@@ -13,10 +13,10 @@ import yaml
 
 from asago_bundle_core.schema import validate_manifest
 from asago_bundle_core.slots import contains_marker
-from asago_bundle_core.testing import CONDITION, JUDGE
+from asago_bundle_core.testing import CONDITION, JUDGE, MOCK_TARGET
 from asago_bundle_core.text import canonical_text
 from asago_bundle_midojo.instantiate import InstantiateError, instantiate_bundle
-from conftest import PROMPT, REPLY_VALUES, VALUES
+from conftest import PROMPT, REPLY_VALUES, TARGET_CONFIG, VALUES
 
 
 def suite_of(bundle: Path) -> dict[str, Any]:
@@ -73,7 +73,7 @@ def test_the_values_digest_hashes_the_canonical_values(bundle: Path) -> None:
 
 
 def test_instantiate_returns_the_manifest_it_wrote(template: Path, tmp_path: Path) -> None:
-    returned = instantiate_bundle(template, VALUES, tmp_path / "out")
+    returned = instantiate_bundle(template, VALUES, tmp_path / "out", target=MOCK_TARGET)
 
     assert returned == manifest_of(tmp_path / "out")
 
@@ -111,7 +111,7 @@ def test_any_prompt_survives_the_yaml_file(template: Path, tmp_path: Path, text:
     values = {**VALUES, "messages": [{"role": "user", "content": text}]}
 
     out = tmp_path / "special"
-    instantiate_bundle(template, values, out)
+    instantiate_bundle(template, values, out, target=MOCK_TARGET)
 
     (user_task,) = suite_of(out)["user_tasks"]
     assert user_task["prompt"] == text
@@ -122,7 +122,7 @@ def test_a_missing_value_is_refused(template: Path, tmp_path: Path, key: str) ->
     values = {name: value for name, value in VALUES.items() if name != key}
 
     with pytest.raises(InstantiateError, match=f"values lack {key}"):
-        instantiate_bundle(template, values, tmp_path / "out")
+        instantiate_bundle(template, values, tmp_path / "out", target=MOCK_TARGET)
 
 
 @pytest.mark.parametrize(
@@ -154,12 +154,47 @@ def test_a_malformed_value_is_refused(template: Path, tmp_path: Path, key: str, 
     values[key] = bad
 
     with pytest.raises(InstantiateError, match=f"malformed {key}"):
-        instantiate_bundle(template, values, tmp_path / "out")
+        instantiate_bundle(template, values, tmp_path / "out", target=MOCK_TARGET)
 
 
 def test_values_that_are_not_an_object_are_refused(template: Path, tmp_path: Path) -> None:
     with pytest.raises(InstantiateError, match="JSON object"):
-        instantiate_bundle(template, ["x"], tmp_path / "out")  # type: ignore[arg-type]
+        instantiate_bundle(template, ["x"], tmp_path / "out", target=MOCK_TARGET)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param({"target": "piggybank"}, id="no-field"),
+        pytest.param({"authorized_as": "production"}, id="other-value"),
+        pytest.param({"authorized_as": None}, id="null"),
+        pytest.param({"authorized_as": ["mock"]}, id="list"),
+    ],
+)
+def test_a_target_not_authorized_for_a_run_is_refused_before_any_work(
+    template: Path, tmp_path: Path, target: dict[str, Any]
+) -> None:
+    with pytest.raises(InstantiateError, match="authorized_as must be one of mock, test_instance"):
+        instantiate_bundle(template, VALUES, tmp_path / "out", target=target)
+
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("kind", ["mock", "test_instance"])
+def test_a_mock_or_a_test_instance_is_authorized(
+    template: Path, tmp_path: Path, kind: str
+) -> None:
+    instantiate_bundle(template, VALUES, tmp_path / "out", target={"authorized_as": kind})
+
+    assert (tmp_path / "out" / "bundle.json").is_file()
+
+
+def test_the_target_config_can_be_the_path_of_its_target_yaml(
+    template: Path, tmp_path: Path
+) -> None:
+    instantiate_bundle(template, VALUES, tmp_path / "out", target=TARGET_CONFIG)
+
+    assert (tmp_path / "out" / "bundle.json").is_file()
 
 
 def test_a_non_empty_output_directory_is_refused(template: Path, tmp_path: Path) -> None:
@@ -167,28 +202,28 @@ def test_a_non_empty_output_directory_is_refused(template: Path, tmp_path: Path)
     (tmp_path / "out" / "x").write_text("x", encoding="utf-8")
 
     with pytest.raises(InstantiateError, match="not empty"):
-        instantiate_bundle(template, VALUES, tmp_path / "out")
+        instantiate_bundle(template, VALUES, tmp_path / "out", target=MOCK_TARGET)
 
 
 def test_a_directory_that_is_not_a_template_is_refused(tmp_path: Path) -> None:
     (tmp_path / "t").mkdir()
 
     with pytest.raises(InstantiateError, match="unreadable"):
-        instantiate_bundle(tmp_path / "t", VALUES, tmp_path / "out")
+        instantiate_bundle(tmp_path / "t", VALUES, tmp_path / "out", target=MOCK_TARGET)
 
 
 def test_a_manifest_that_is_not_a_template_is_refused(template: Path, tmp_path: Path) -> None:
     (template / "bundle.json").write_text("{}", encoding="utf-8")
 
     with pytest.raises(InstantiateError, match="not a bundle template"):
-        instantiate_bundle(template, VALUES, tmp_path / "out")
+        instantiate_bundle(template, VALUES, tmp_path / "out", target=MOCK_TARGET)
 
 
 def test_a_template_without_its_bundle_code_is_refused(template: Path, tmp_path: Path) -> None:
     (template / "run_midojo.py").unlink()
 
     with pytest.raises(InstantiateError, match="run_midojo.py"):
-        instantiate_bundle(template, VALUES, tmp_path / "out")
+        instantiate_bundle(template, VALUES, tmp_path / "out", target=MOCK_TARGET)
 
 
 # --- the reply claim ---------------------------------------------------------------------
@@ -242,7 +277,7 @@ def test_a_missing_judge_value_is_refused(reply_template: Path, tmp_path: Path, 
     values = {name: value for name, value in REPLY_VALUES.items() if name != key}
 
     with pytest.raises(InstantiateError, match=f"values lack {key}"):
-        instantiate_bundle(reply_template, values, tmp_path / "out")
+        instantiate_bundle(reply_template, values, tmp_path / "out", target=MOCK_TARGET)
 
 
 @pytest.mark.parametrize(
@@ -264,10 +299,10 @@ def test_a_malformed_judge_value_is_refused(
     values = {**REPLY_VALUES, key: bad}
 
     with pytest.raises(InstantiateError, match=f"malformed {key}"):
-        instantiate_bundle(reply_template, values, tmp_path / "out")
+        instantiate_bundle(reply_template, values, tmp_path / "out", target=MOCK_TARGET)
 
 
 def test_a_command_template_ignores_the_judge_values(template: Path, tmp_path: Path) -> None:
-    instantiate_bundle(template, REPLY_VALUES, tmp_path / "out")
+    instantiate_bundle(template, REPLY_VALUES, tmp_path / "out", target=MOCK_TARGET)
 
     assert (tmp_path / "out" / "bundle.json").is_file()

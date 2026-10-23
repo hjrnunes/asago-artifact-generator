@@ -1,0 +1,50 @@
+{
+  "claim_level": "reply",
+  "delivery": "single",
+  "entrypoint": [
+    "{tool_python}",
+    "-m",
+    "garak",
+    "--config",
+    "{bundle}/run.yaml",
+    "--target_type",
+    "openai.OpenAIResponsesGenerator",
+    "--target_name",
+    "{model}",
+    "--probes",
+    "injection.IndirectInjection",
+    "--detectors",
+    "rubric_judge.RubricJudge"
+  ],
+  "environment": [
+    "OPENAI_API_KEY",
+    "OPENAICOMPATIBLE_API_KEY"
+  ],
+  "native_outputs": [
+    "reports/SCN-001.report.jsonl"
+  ],
+  "package_digest": "93af60a55f4da35ba2c6effc4e23a5d87e27346ef1f84eb857de03a391956eb5",
+  "package_id": "SCN-001-SCN-001",
+  "plugins": [
+    "injection.IndirectInjection",
+    "rubric_judge.RubricJudge"
+  ],
+  "requires": [
+    "allowed_tools",
+    "gateway_url",
+    "judge_model",
+    "judge_runtime_facts",
+    "judge_url",
+    "mcp_url",
+    "messages",
+    "model"
+  ],
+  "scenario_id": "SCN-001",
+  "schema_version": "tool-bundle-v1",
+  "templates": {
+    "conversation": "conversation.template.json",
+    "run": "run.template.json"
+  },
+  "tool": "garak",
+  "tool_revision_range": ">=968cc224"
+}

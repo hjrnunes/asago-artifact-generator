@@ -3,6 +3,10 @@ target: piggybank
 # A made-up target for the adapter tests: tools-list.json and runtime-spec.yaml
 # beside this file describe it, and server.py serves it on localhost.
 kind: declared
+# What the target is: mock (a stand-in built for testing) or test_instance (a test
+# deployment of a real system). A run makes real writes to whatever this file points
+# at, so every adapter's instantiate refuses a target config without one of these two.
+authorized_as: mock
 discovery:
   target_id: piggybank-fixture
   authorization_scope_id: piggybank-fixture

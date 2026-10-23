@@ -1,0 +1,46 @@
+{
+  "messages": [
+    {
+      "content": {
+        "$value": "user_turn_1"
+      },
+      "role": "user"
+    },
+    {
+      "content": {
+        "$value": "user_turn_2"
+      },
+      "role": "user"
+    }
+  ],
+  "tool_call_condition": {
+    "comparisons": [
+      {
+        "kind": "value",
+        "left": {
+          "argument": "patient_id",
+          "operation": "get_referral",
+          "source": "argument"
+        },
+        "op": "ne",
+        "right": {
+          "source": "literal",
+          "value": "PAT-104"
+        }
+      }
+    ]
+  },
+  "tools": [
+    {
+      "allowed_tools": {
+        "$value": "allowed_tools"
+      },
+      "require_approval": "never",
+      "server_label": "qualification_target",
+      "server_url": {
+        "$value": "mcp_url"
+      },
+      "type": "mcp"
+    }
+  ]
+}

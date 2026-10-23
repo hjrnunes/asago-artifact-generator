@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from asago_bundle_core.conformance import AdapterUnderTest, check_round_trip
-from asago_bundle_core.testing import sequential_stimulus, write_test_package
+from asago_bundle_core.testing import MOCK_TARGET, sequential_stimulus, write_test_package
 from asago_bundle_midojo.compiler import ENTRYPOINT_VALUES, compile_package
 from asago_bundle_midojo.instantiate import instantiate_bundle
 from asago_bundle_midojo.parse import parse_bundle
@@ -36,7 +36,7 @@ def midojo() -> AdapterUnderTest:
 
     return AdapterUnderTest(
         compile=partial(compile_package, **compile_options()),
-        instantiate=instantiate_bundle,
+        instantiate=partial(instantiate_bundle, target=MOCK_TARGET),
         parse=lambda bundle, out: parse_bundle(bundle, out),
         write_native=write_run,
         entrypoint_keys=ENTRYPOINT_VALUES,

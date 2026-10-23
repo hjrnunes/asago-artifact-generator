@@ -1,11 +1,12 @@
 """Prepare a package for one run: setup, bindings, prerequisites, stimulus and judge facts.
 
-``prepare_package`` is what a tool adapter's caller runs before ``instantiate``:
-the adapters receive the rendered stimulus and the judge's facts already
-resolved. It runs the package's setup operations through the caller's own
-target call, validates and resolves the package's bindings, checks its
-prerequisites, fills the binding values into the stimulus, and resolves the
-facts the judge reads.
+``prepare_package`` is what an adapter's public ``instantiate`` runs (the Garak
+adapter's ``entry_points.instantiate``) before it hands the rendered stimulus and
+the judge's facts to its lower-level template filler, which takes them already
+resolved. It runs the package's setup operations through a target call (the
+caller's own, or the adapter's MCP call to the target), validates and resolves the
+package's bindings, checks its prerequisites, fills the binding values into the
+stimulus, and resolves the facts the judge reads.
 
 Setup is preparation, not graded: each operation calls the target directly and
 makes a real write, which the returned setup ledger records. The result is plain

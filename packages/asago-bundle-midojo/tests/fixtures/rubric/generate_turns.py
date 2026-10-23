@@ -106,7 +106,7 @@ def turn_values(texts: list[str]) -> dict[str, Any]:
 def garak_entry(texts: list[str]) -> dict[str, Any]:
     """The conversation entry the Garak adapter writes for a reply package of ``texts``."""
 
-    from asago_bundle_core.testing import write_test_package
+    from asago_bundle_core.testing import MOCK_TARGET, write_test_package
     from asago_bundle_garak.compiler import compile_package
     from asago_bundle_garak.instantiate import instantiate_bundle
 
@@ -117,7 +117,7 @@ def garak_entry(texts: list[str]) -> dict[str, Any]:
         )
         compile_package(package, root / "template")
         values = {**VALUES, **turn_values(texts), "judge_turns": "final"}
-        instantiate_bundle(root / "template", values, root / "bundle")
+        instantiate_bundle(root / "template", values, root / "bundle", target=MOCK_TARGET)
         return json.loads((root / "bundle/conversations.jsonl").read_text(encoding="utf-8"))
 
 

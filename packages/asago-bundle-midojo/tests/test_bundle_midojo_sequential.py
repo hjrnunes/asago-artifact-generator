@@ -20,7 +20,7 @@ import jsonschema
 import pytest
 
 from asago_artifact_generator.package_io import SEED_MEMBER, build_package, write_package
-from asago_bundle_core.testing import sequential_stimulus, write_test_package
+from asago_bundle_core.testing import MOCK_TARGET, sequential_stimulus, write_test_package
 from asago_bundle_midojo.bundle_files import asago_rubric_turns as rubric
 from asago_bundle_midojo.compiler import BUNDLE_CODE, TURNS_CODE, compile_package
 from asago_bundle_midojo.instantiate import InstantiateError, instantiate_bundle
@@ -62,7 +62,7 @@ def make_bundle(
     compile_package(package, tmp_path / "template", **compile_options())
     if values is None:
         values = SEQUENTIAL_REPLY_VALUES if claim_level == "reply" else SEQUENTIAL_VALUES
-    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle")
+    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle", target=MOCK_TARGET)
     return tmp_path / "bundle"
 
 
@@ -207,7 +207,7 @@ def test_instantiate_checks_each_turn_as_one_prompt(tmp_path: Path, key: str, ba
         del values[key]
 
     with pytest.raises(InstantiateError, match=key):
-        instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle")
+        instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle", target=MOCK_TARGET)
 
 
 @pytest.mark.parametrize("judge_turns", ["first", "ALL", None])
@@ -224,6 +224,7 @@ def test_instantiate_refuses_judge_turns_other_than_final_or_all(
             tmp_path / "template",
             {**SEQUENTIAL_REPLY_VALUES, "judge_turns": judge_turns},
             tmp_path / "bundle",
+            target=MOCK_TARGET,
         )
 
 
@@ -408,7 +409,7 @@ def test_a_sequential_seed_missing_from_the_pre_environment_fails_the_receipt(
         **{key: value for key, value in VALUES.items() if key != "messages"},
         **{f"user_turn_{number}": text for number, text in enumerate(texts, start=1)},
     }
-    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle")
+    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle", target=MOCK_TARGET)
     turns = tuple(turn(index, "Ok.", message=text) for index, text in enumerate(texts))
     (probe,) = suite_of(tmp_path / "bundle")["injection_tasks"][0]["probes"].values()
     provisioned = {"orders": {"ORD-101": {"item": probe["payload"]}}}
@@ -955,7 +956,9 @@ def seeded_pair(tmp_path: Path) -> tuple[Path, Path]:
     ):
         package = write_seeded_package(tmp_path / name, seed, stimulus)
         compile_package(package, tmp_path / name / "template", **compile_options())
-        instantiate_bundle(tmp_path / name / "template", values, tmp_path / name / "bundle")
+        instantiate_bundle(
+            tmp_path / name / "template", values, tmp_path / name / "bundle", target=MOCK_TARGET
+        )
         bundles.append(tmp_path / name / "bundle")
     return bundles[0], bundles[1]
 
@@ -1032,8 +1035,10 @@ def test_a_failed_turn_comes_before_the_records_as_the_missing_grade_does(
 # The sha256 of each file a single bundle copies, as on main before sequential packages
 # compiled (61f7e5a, with asago_rubric.py as main's authoring/rubric_judge.py at 207c0aa): a
 # single bundle's code, and so its bundle_digest, is what it was before. run_midojo.py is
-# the one exception: it sends the control token on its reads since the openshell runtime
-# (asago-eysb.9), in every bundle.
+# one exception: it sends the control token on its reads since the openshell runtime, in
+# every bundle. asago_rubric.py is the other: its docstring was corrected to describe the
+# calls MiDojo records today, so its bytes and digest changed, while its executable
+# behaviour is unchanged.
 SINGLE_BUNDLE_CODE = {
     "asago_suite/__init__.py": "c87d13b640fbee039e17d8b3c9991e54c4c59d9a72fb4e7f8c35c32cc28c4d71",
     "asago_suite/suite.py": "efe07d32a2e94771f57c5d64a648ebdaa2dc5e5882d681dfd197f15d136c0a38",
@@ -1041,7 +1046,7 @@ SINGLE_BUNDLE_CODE = {
         "96259c443d6e0ccea9353801295fbd1f8d1309a6646352df4ecd9baa63ed41ac"
     ),
     "asago_suite/asago_rubric.py": (
-        "77ee582e4bd0fc491eab5a0c87805bdb48640790f54498c1b0cb8453cd23fb4d"
+        "cc5ce1c16b8dcb12f61129fd55e50e829ce6a9cb2d12a7645d2487b1a2752ed2"
     ),
     "run_midojo.py": "c0f84fa4c7eec5521962f4320205e3ea1e4e38894fc168892f94d70b5eac2485",
     "asago_suite/verifier_names.py": (
@@ -1065,7 +1070,7 @@ def test_a_single_bundle_copies_the_code_it_copied_before(
 ) -> None:
     package = write_test_package(tmp_path / "packages", claim_level=claim_level)
     compile_package(package, tmp_path / "template", **compile_options())
-    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle")
+    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle", target=MOCK_TARGET)
 
     assert set(BUNDLE_CODE) == set(SINGLE_BUNDLE_CODE)
     assert code_digests(tmp_path / "template") == SINGLE_BUNDLE_CODE

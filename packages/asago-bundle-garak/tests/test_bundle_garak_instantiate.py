@@ -9,9 +9,8 @@ from typing import Any
 import pytest
 
 from asago_bundle_core.schema import validate_manifest
-from asago_bundle_core.testing import CONDITION, JUDGE
+from asago_bundle_core.testing import CONDITION, JUDGE, MOCK_TARGET
 from asago_bundle_core.text import jsonl_lines
-from asago_bundle_garak.cli import main
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import InstantiateError, instantiate_bundle
 from asago_bundle_garak.report_parse import read_bundle
@@ -69,7 +68,7 @@ def test_a_turn_with_unicode_line_separators_reads_back_whole(
     messages = [{"role": "user", "content": "Show\u0085the\u2028referral\u2029now."}]
     out = tmp_path / "bundle"
 
-    instantiate_bundle(command_template, values(messages=messages), out)
+    instantiate_bundle(command_template, values(messages=messages), out, target=MOCK_TARGET)
 
     assert read_bundle(out).messages == messages
 
@@ -77,7 +76,7 @@ def test_a_turn_with_unicode_line_separators_reads_back_whole(
 def test_command_attempt_conversation_entry(command_template: Path, tmp_path: Path) -> None:
     out = tmp_path / "bundle"
 
-    instantiate_bundle(command_template, values(), out)
+    instantiate_bundle(command_template, values(), out, target=MOCK_TARGET)
 
     assert conversation_entries(out) == [
         {
@@ -99,7 +98,7 @@ def test_command_attempt_conversation_entry(command_template: Path, tmp_path: Pa
 def test_run_configuration_points_into_the_bundle(command_template: Path, tmp_path: Path) -> None:
     out = tmp_path / "bundle"
 
-    instantiate_bundle(command_template, values(), out)
+    instantiate_bundle(command_template, values(), out, target=MOCK_TARGET)
 
     run = read(out / "run.yaml")
     generator = run["plugins"]["generators"]["openai"]["OpenAIResponsesGenerator"]
@@ -122,7 +121,7 @@ def test_run_configuration_points_into_the_bundle(command_template: Path, tmp_pa
 def test_concrete_manifest_renders_the_entrypoint(command_template: Path, tmp_path: Path) -> None:
     out = tmp_path / "bundle"
 
-    manifest = instantiate_bundle(command_template, values(), out)
+    manifest = instantiate_bundle(command_template, values(), out, target=MOCK_TARGET)
 
     assert manifest == read(out / "bundle.json")
     assert manifest["entrypoint"][0] == "{tool_python}"
@@ -139,7 +138,7 @@ def test_reply_entry_carries_the_resolved_judge_facts(
 ) -> None:
     out = tmp_path / "bundle"
 
-    instantiate_bundle(reply_template, reply_values(), out)
+    instantiate_bundle(reply_template, reply_values(), out, target=MOCK_TARGET)
 
     (entry,) = conversation_entries(out)
     assert entry["judge_rubric"] == {**JUDGE, "runtime_facts": {"target_reservation": False}}
@@ -157,7 +156,7 @@ def test_missing_value_is_refused_and_nothing_is_written(
     del supplied["judge_runtime_facts"]
 
     with pytest.raises(InstantiateError, match="judge_runtime_facts"):
-        instantiate_bundle(reply_template, supplied, out)
+        instantiate_bundle(reply_template, supplied, out, target=MOCK_TARGET)
 
     assert not out.exists()
 
@@ -180,20 +179,22 @@ def test_malformed_value_is_refused(
     command_template: Path, tmp_path: Path, key: str, bad: Any
 ) -> None:
     with pytest.raises(InstantiateError, match=key):
-        instantiate_bundle(command_template, values(**{key: bad}), tmp_path / "bundle")
+        instantiate_bundle(
+            command_template, values(**{key: bad}), tmp_path / "bundle", target=MOCK_TARGET
+        )
 
 
 def test_judge_facts_must_be_an_object(reply_template: Path, tmp_path: Path) -> None:
     supplied = {**reply_values(), "judge_runtime_facts": ["not", "an", "object"]}
 
     with pytest.raises(InstantiateError, match="judge_runtime_facts"):
-        instantiate_bundle(reply_template, supplied, tmp_path / "bundle")
+        instantiate_bundle(reply_template, supplied, tmp_path / "bundle", target=MOCK_TARGET)
 
 
 def test_extra_values_are_ignored(command_template: Path, tmp_path: Path) -> None:
     out = tmp_path / "bundle"
 
-    instantiate_bundle(command_template, values(sandbox_id="sb-1"), out)
+    instantiate_bundle(command_template, values(sandbox_id="sb-1"), out, target=MOCK_TARGET)
 
     assert "sb-1" not in (out / "run.yaml").read_text(encoding="utf-8")
 
@@ -204,38 +205,4 @@ def test_non_empty_output_directory_is_refused(command_template: Path, tmp_path:
     (out / "left-over").write_text("x", encoding="utf-8")
 
     with pytest.raises(InstantiateError, match="not empty"):
-        instantiate_bundle(command_template, values(), out)
-
-
-def test_cli_instantiate(command_template: Path, tmp_path: Path) -> None:
-    values_path = tmp_path / "values.json"
-    values_path.write_text(json.dumps(values()), encoding="utf-8")
-    out = tmp_path / "bundle"
-
-    code = main(
-        ["instantiate", str(command_template), "--values", str(values_path), "--out", str(out)]
-    )
-
-    assert code == 0
-    assert (out / "conversations.jsonl").is_file()
-
-
-def test_cli_instantiate_reports_bad_values_with_exit_1(
-    command_template: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    values_path = tmp_path / "values.json"
-    values_path.write_text("{not json", encoding="utf-8")
-
-    code = main(
-        [
-            "instantiate",
-            str(command_template),
-            "--values",
-            str(values_path),
-            "--out",
-            str(tmp_path / "b"),
-        ]
-    )
-
-    assert code == 1
-    assert "values" in capsys.readouterr().err
+        instantiate_bundle(command_template, values(), out, target=MOCK_TARGET)
