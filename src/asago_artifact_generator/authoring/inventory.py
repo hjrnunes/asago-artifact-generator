@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..input_adapter import InputView, build_scenario_handoff_view
-from .core import ArtifactValidationError, _mapping_sha256, _sha256
+from ..input_adapter import InputView
+from .core import ArtifactValidationError, _mapping_sha256
 
 
 def _expected_authoring_input_pins(
@@ -144,39 +144,3 @@ def _selected_evidence_ref(
     if ref in fact_refs:
         return "facts", ref
     return "sources", ref
-
-
-def _input_view_payload(
-    view: InputView,
-    *,
-    include_scenario_handoff: bool = True,
-) -> dict[str, Any]:
-    """Build the meaning-preserving model-facing input projection."""
-
-    payload = {
-        "kind": view.kind.value,
-        "scenario_id": view.scenario_id,
-        "narrative": view.narrative,
-        "narrative_bytes_sha256": _sha256(view.narrative_bytes),
-        "gherkin_text": view.gherkin_text,
-        "gherkin_bytes_sha256": _sha256(view.gherkin_bytes),
-        "source_digests": view.source_digests,
-    }
-    if include_scenario_handoff:
-        payload["scenario_handoff"] = build_scenario_handoff_view(view)
-    return payload
-
-
-def _source_input_payload(view: InputView) -> dict[str, Any]:
-    """Build the complete source-bearing package record outside model context."""
-
-    return {
-        "kind": view.kind.value,
-        "scenario_id": view.scenario_id,
-        "payload": view.payload,
-        "narrative": view.narrative,
-        "narrative_bytes_sha256": _sha256(view.narrative_bytes),
-        "gherkin_text": view.gherkin_text,
-        "gherkin_bytes_sha256": _sha256(view.gherkin_bytes),
-        "source_digests": view.source_digests,
-    }

@@ -19,7 +19,6 @@ import yaml
 from ..authoring.core import _canonical_json
 
 EVIDENCE_SUFFIX = ".failure-evidence.json"
-REQUESTS_SUFFIX = ".authoring"
 STAGE_OF = {
     "call1": "plan",
     "plan_review": "plan",

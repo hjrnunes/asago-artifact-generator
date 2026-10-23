@@ -79,7 +79,6 @@ class DispatchOpened:
     task_id: str
     packet: PromptPacket
     policy: dict[str, Any]
-    raw_response_path: str
     model_identity: dict[str, Any]
     review: dict[str, Any] | None = None
     # The candidate a review dispatch judges; only the evidence attempt keeps it.
@@ -347,7 +346,6 @@ class _Projections:
             "prompt_system": packet.system,
             "prompt_user": packet.user,
             "controls": {"max_retries": 0},
-            "raw_response": event.raw_response_path,
         }
         attempt = {
             **_dispatch_fields(event),

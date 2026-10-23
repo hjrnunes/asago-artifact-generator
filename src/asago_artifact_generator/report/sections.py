@@ -445,8 +445,7 @@ def package_row(item: Authoring, places: Places) -> Markup:
     files = join(
         [
             links.file(links.output / item.id, "package"),
-            links.file(links.output / item.id / "authoring" / "reviews.json", "reviews"),
-            links.file(links.output / item.id / "authoring" / "ledger.json", "ledger"),
+            links.file(links.output / f"{item.id}{EVIDENCE_SUFFIX}", "authoring evidence"),
         ],
         " · ",
     )

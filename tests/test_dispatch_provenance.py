@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -206,16 +207,13 @@ def test_private_transport_uses_none_when_provider_omits_model(monkeypatch) -> N
     assert response.provider_model is None
 
 
-def test_package_raw_response_paths_match_members(tmp_path: Path) -> None:
+def test_accepted_evidence_raw_responses_match_the_ledger(tmp_path: Path) -> None:
     raw_responses = [json.dumps(_plan()).encode(), _framed()]
     transport = ScriptedAuthoringTransport(raw_responses)
     result = _run_direct(tmp_path, transport, raw_responses)
 
     assert result.status == "accepted"
-    assert result.package is not None
-    for record in result.ledger:
-        member_name = record["raw_response"]
-        assert member_name in result.package.members
-        assert (
-            result.package.members[member_name] == result.raw_responses[record["raw_response_key"]]
-        )
+    evidence = load_failure_evidence(tmp_path / "package.failure-evidence.json")
+    assert [
+        base64.b64decode(attempt["raw_response"]["base64"]) for attempt in evidence["attempts"]
+    ] == [result.raw_responses[record["raw_response_key"]] for record in result.ledger]

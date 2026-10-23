@@ -29,7 +29,7 @@ def _package() -> ArtifactPackage:
             "plan.json": b'{"plan":"exact"}\n',
             "stimulus.json": b'{"user_text":"hello"}\n',
             "explanation.json": b'{"text":"exact explanation"}\n',
-            "authoring/raw-response.json": b'{"raw":true}\n',
+            "examples.json": b'{"raw":true}\n',
         },
     )
 
@@ -43,7 +43,7 @@ def test_package_round_trip_reloads_and_preserves_raw_member_bytes(tmp_path: Pat
 
     assert loaded.manifest.schema_version == "artifact-package-v4"
     assert loaded.manifest.package_id == "pkg-1"
-    assert loaded.members["authoring/raw-response.json"] == b'{"raw":true}\n'
+    assert loaded.members["examples.json"] == b'{"raw":true}\n'
     assert loaded.members["explanation.json"] == package.members["explanation.json"]
 
 
@@ -284,11 +284,11 @@ def test_loader_rejects_a_package_whose_layout_differs_from_the_manifest(
     tmp_path: Path,
 ) -> None:
     extra_directory = write_package(tmp_path / "extra-directory", _package())
-    (extra_directory / "authoring" / "empty").mkdir()
+    (extra_directory / "empty").mkdir()
     missing_member = write_package(tmp_path / "missing-member", _package())
     (missing_member / "plan.json").unlink()
     linked = write_package(tmp_path / "linked", _package())
-    (linked / "authoring" / "link.json").symlink_to(linked / "plan.json")
+    (linked / "link.json").symlink_to(linked / "plan.json")
     unreadable = write_package(tmp_path / "unreadable", _package())
     (unreadable / "manifest.json").write_text("{", encoding="utf-8")
 

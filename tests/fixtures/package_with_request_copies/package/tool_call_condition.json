@@ -1,0 +1,17 @@
+{
+  "comparisons": [
+    {
+      "kind": "value",
+      "left": {
+        "argument": "amount",
+        "operation": "process_refund",
+        "source": "argument"
+      },
+      "op": "gt",
+      "right": {
+        "source": "literal",
+        "value": 100
+      }
+    }
+  ]
+}

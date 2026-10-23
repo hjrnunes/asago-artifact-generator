@@ -82,7 +82,6 @@ def _open(
             task_id="projection",
             packet=packet,
             policy={"max_retries": 0, "review_plan": True},
-            raw_response_path=f"authoring/{index:02d}-{stage}.raw",
             model_identity={"profile_alias": "p", "requested_model": "m"},
             review=review,
         ),

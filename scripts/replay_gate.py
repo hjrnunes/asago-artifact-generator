@@ -21,6 +21,12 @@ parsing, profile loading, request controls, response capture, validation,
 corrections, and reviews all run for real.  The gate then compares every
 output file and the item log with the recording.  Only the differences in
 :data:`ALLOWED_DIFFERENCES` are permitted.
+
+A recording made while packages still copied each request (``authoring/``
+members, ``source-hashes.json``, a manifest ledger, and the ``<ID>.authoring/``
+request files of a failed item) is compared as the current writer lays it out:
+:func:`current_layout` drops those copies, whose content the failure evidence
+keeps, and the gate compares everything else.
 """
 
 from __future__ import annotations
@@ -88,6 +94,15 @@ ALLOWED_DIFFERENCES: tuple[AllowedDifference, ...] = (
     AllowedDifference("*.blocked.json", ("package_path",), _OUTPUT_LOCATION),
     AllowedDifference("items/*.log", ("package",), _OUTPUT_LOCATION),
 )
+
+
+# What a recording made while packages copied each request holds that the
+# current writer no longer writes; see :func:`current_layout`.
+_RETIRED_MEMBERS = frozenset({"source-hashes.json"})
+_RETIRED_MEMBER_DIRECTORY = "authoring/"
+_RETIRED_REQUESTS_SUFFIX = ".authoring"
+_RETIRED_INPUT_KEYS = ("model_facing_input", "source_input")
+_MANIFEST_AUTHORING_KEYS = ("status", "terminal_status")
 
 
 class ReplayRecordError(ValueError):
@@ -599,11 +614,18 @@ def _compare_log(
 
 
 def compare_file(
-    recorded: Path, replayed: Path, relative: str, aliases: dict[str, str]
+    recorded: Path,
+    replayed: Path,
+    relative: str,
+    aliases: dict[str, str],
+    recorded_bytes: bytes | None = None,
 ) -> str | None:
-    """Return the first difference not covered by an allowance, or ``None``."""
+    """Return the first difference not covered by an allowance, or ``None``.
 
-    left = recorded.read_bytes()
+    *recorded_bytes*, when given, stands in for the recorded file's content.
+    """
+
+    left = recorded.read_bytes() if recorded_bytes is None else recorded_bytes
     right = replayed.read_bytes()
     if left == right:
         return None
@@ -639,6 +661,68 @@ def _owned_files(root: Path, item_id: str) -> set[str]:
     return owned
 
 
+def _is_retired(relative: str, item_id: str) -> bool:
+    head, _, rest = relative.partition("/")
+    if head == item_id + _RETIRED_REQUESTS_SUFFIX:
+        return True
+    return head == item_id and (
+        rest in _RETIRED_MEMBERS or rest.startswith(_RETIRED_MEMBER_DIRECTORY)
+    )
+
+
+def current_layout(
+    recorded_output: Path, item_id: str, files: set[str]
+) -> tuple[set[str], dict[str, bytes]]:
+    """Return an item's recorded files as the current writer lays them out.
+
+    The result is the recorded files without the retired copies, and the bytes
+    of each file that changes: ``inputs.json`` without its retired keys, and
+    ``manifest.json`` with the remaining members, only the authoring outcome
+    (``status``, ``terminal_status``, and ``review_status.artifact``),
+    an empty ``creation_model``, and its digest recomputed.  A recording made
+    by the current writer comes back unchanged.
+    """
+
+    from asago_artifact_generator.contract_kit import canonical_json
+    from asago_artifact_generator.package_io import _manifest_digest, _member_record
+
+    kept = {name for name in files if not _is_retired(name, item_id)}
+    manifest_name = f"{item_id}/manifest.json"
+    if manifest_name not in kept:
+        return kept, {}
+    rewritten: dict[str, bytes] = {}
+    inputs_name = f"{item_id}/inputs.json"
+    if inputs_name in kept:
+        inputs = json.loads((recorded_output / inputs_name).read_bytes())
+        if any(key in inputs for key in _RETIRED_INPUT_KEYS):
+            for key in _RETIRED_INPUT_KEYS:
+                inputs.pop(key, None)
+            rewritten[inputs_name] = (canonical_json(inputs) + "\n").encode("utf-8")
+    original = json.loads((recorded_output / manifest_name).read_bytes())
+    manifest = dict(original)
+    members = {
+        record["path"]: record
+        for record in original["members"]
+        if not _is_retired(f"{item_id}/{record['path']}", item_id)
+    }
+    for name, content in rewritten.items():
+        path = name.split("/", 1)[1]
+        members[path] = _member_record(path, content)
+    manifest["members"] = [members[path] for path in sorted(members)]
+    authoring = original["authoring"]
+    manifest["authoring"] = {
+        key: authoring[key] for key in _MANIFEST_AUTHORING_KEYS if key in authoring
+    }
+    review_status = authoring.get("review_status")
+    if isinstance(review_status, dict) and "artifact" in review_status:
+        manifest["authoring"]["review_status"] = {"artifact": review_status["artifact"]}
+    manifest["creation_model"] = {}
+    manifest["manifest_digest"] = _manifest_digest(manifest)
+    if manifest != original:
+        rewritten[manifest_name] = (canonical_json(manifest) + "\n").encode("utf-8")
+    return kept, rewritten
+
+
 def _location_aliases(replayed_output: Path, recorded_label: str) -> dict[str, str]:
     aliases = {str(replayed_output): recorded_label}
     aliases.setdefault(str(replayed_output.resolve()), recorded_label)
@@ -661,13 +745,20 @@ def compare_item_outputs(
     """
 
     aliases = _location_aliases(replayed_output, recorded_output_label or str(recorded_output))
-    left, right = _owned_files(recorded_output, item_id), _owned_files(replayed_output, item_id)
+    left, rewritten = current_layout(
+        recorded_output, item_id, _owned_files(recorded_output, item_id)
+    )
+    right = _owned_files(replayed_output, item_id)
     differences = [Difference(name, "only in recording") for name in sorted(left - right)]
     differences += [Difference(name, "only in replay") for name in sorted(right - left)]
     shared = sorted(left & right)
     for relative in shared:
         detail = compare_file(
-            recorded_output / relative, replayed_output / relative, relative, aliases
+            recorded_output / relative,
+            replayed_output / relative,
+            relative,
+            aliases,
+            rewritten.get(relative),
         )
         if detail:
             differences.append(Difference(relative, detail))

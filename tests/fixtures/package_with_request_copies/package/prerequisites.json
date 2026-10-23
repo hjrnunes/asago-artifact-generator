@@ -1,0 +1,1 @@
+[{"binding":"owned_order","check":"The supplied order is available.","equals":{"balance":10,"order_id":"ord-1"},"evidence_refs":["order:owned"],"name":"owned_order"}]

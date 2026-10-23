@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -99,9 +100,12 @@ def test_two_calls_build_an_immutable_package_without_detector_code(tmp_path: Pa
     assert json.loads(result.package.members["examples.json"])["unsafe"]["label"] == (
         "author-proposed"
     )
-    assert result.package.members["authoring/01-call1.raw"] == json.dumps(_plan_v2()).encode()
+    assert not any(name.startswith("authoring/") for name in result.package.members)
     assert [record["stage"] for record in result.ledger] == ["call1", "call2"]
-    assert result.package.manifest.authoring["usage"][0]["availability"] == "unavailable"
+    evidence = load_failure_evidence(tmp_path / "package.failure-evidence.json")
+    first = evidence["attempts"][0]
+    assert base64.b64decode(first["raw_response"]["base64"]) == json.dumps(_plan_v2()).encode()
+    assert first["usage"]["availability"] == "unavailable"
     assert result.raw_responses["call1"] == json.dumps(_plan_v2()).encode()
     assert result.raw_responses["call2"] == _framed()
     assert transport.max_retries == 0
