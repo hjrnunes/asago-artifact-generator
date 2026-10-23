@@ -798,7 +798,7 @@ written or sent to the target. The MiDojo adapter's `instantiate` takes the conf
 The Garak adapter's `compile`, `instantiate` and `parse` are library functions, and
 its command line calls them. `instantiate` prepares the package for one run with
 `asago_bundle_core.preparation.prepare_package`: the setup steps go to the target's MCP
-server (real writes), the bindings resolve from their results, the prerequisites are
+server by default (real writes), the bindings resolve from their results, the prerequisites are
 checked, and the rendered stimulus and the judge's facts become the bundle values. A
 package that cannot be prepared returns `PreparationIncomplete` and writes no bundle.
 
@@ -816,9 +816,12 @@ result = instantiate("package", "template", "bundle", target=target, run=run)
 parse("bundle", "execution-receipt.json")
 ```
 
-The MCP server the setup steps call and the bundle's agent is told to use is always the
-authorized config's `endpoint.mcp_url`, with `{port}` filled; `RunSettings.mcp_url`, when
-set, must name that same URL or `instantiate` refuses the run. `allowed_tools` defaults to
+The MCP server the bundle's agent is told to use is always the authorized config's
+`endpoint.mcp_url`, with `{port}` filled; `RunSettings.mcp_url`, when set, must name that
+same URL or `instantiate` refuses the run. The setup steps go to that URL by default; a
+caller that passes its own `call_target` sends them through it instead. Package
+preparation is the Garak adapter's for now: the MiDojo adapter's `instantiate` still takes
+values already resolved. `allowed_tools` defaults to
 every operation of the package's inventory. Every template member and the run settings
 are checked before the first setup call. On the command line:
 
