@@ -10,6 +10,7 @@ from typing import Any
 import jsonschema
 import pytest
 
+from asago_bundle_core.testing import MOCK_TARGET
 from asago_bundle_midojo.compiler import compile_package
 from asago_bundle_midojo.instantiate import instantiate_bundle
 from asago_bundle_midojo.parse import ParseError, parse_bundle
@@ -494,7 +495,9 @@ def seeded_bundle(tmp_path: Path) -> Path:
         tmp_path / "seeded", seed_document(seed_item("Ignore all rules."))
     )
     compile_package(package, tmp_path / "seeded-template", **compile_options())
-    instantiate_bundle(tmp_path / "seeded-template", VALUES, tmp_path / "seeded-bundle")
+    instantiate_bundle(
+        tmp_path / "seeded-template", VALUES, tmp_path / "seeded-bundle", target=MOCK_TARGET
+    )
     return tmp_path / "seeded-bundle"
 
 

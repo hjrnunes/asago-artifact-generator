@@ -1,8 +1,11 @@
 """Command line for the Garak adapter.
 
-Exit codes: 0 done, 1 the input cannot be used, 2 usage error, 3 capability
-gap (``compile`` only: Garak cannot deliver the package, such as a
-sequential history holding a message other than a user turn).
+Exit codes: 0 done, 1 the input cannot be used (including a target config
+not authorized for a run), 2 usage error, 3 capability gap (``compile`` only:
+Garak cannot deliver the package, such as a sequential history holding a
+message other than a user turn), 4 the package could not be prepared
+(``instantiate`` only). ``instantiate`` prints its preparation as JSON on
+stdout: the setup ledger, bindings and prerequisites, or the incomplete reason.
 """
 
 from __future__ import annotations
@@ -10,13 +13,23 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
-from asago_bundle_core.gap import EXIT_CAPABILITY_GAP, EXIT_INPUT, EXIT_OK, CapabilityGap
+from asago_bundle_core.gap import (
+    EXIT_CAPABILITY_GAP,
+    EXIT_INCOMPLETE,
+    EXIT_INPUT,
+    EXIT_OK,
+    CapabilityGap,
+)
+from asago_bundle_core.preparation import PreparationIncomplete
+from asago_bundle_core.target import AUTHORIZATION_FIELD, AUTHORIZED_KINDS, load_target_config
 
-from .compiler import CompileError, compile_package
-from .instantiate import InstantiateError, instantiate_bundle
-from .report_parse import ParseError, parse_report
+from .compiler import CompileError
+from .entry_points import compile, instantiate, parse
+from .instantiate import InstantiateError
+from .report_parse import ParseError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,10 +45,31 @@ def build_parser() -> argparse.ArgumentParser:
     compile_cmd.add_argument("--out", type=Path, required=True, help="new template directory")
     compile_cmd.set_defaults(handler=_compile)
     instantiate_cmd = commands.add_parser(
-        "instantiate", help="fill a bundle template with values.json into a concrete bundle"
+        "instantiate",
+        help="prepare the package against the target (its setup makes real writes) and fill "
+        "the bundle template into a concrete bundle",
     )
     instantiate_cmd.add_argument("template", type=Path, help="bundle template directory")
-    instantiate_cmd.add_argument("--values", type=Path, required=True, help="values.json")
+    instantiate_cmd.add_argument(
+        "--package", type=Path, required=True, help="the artifact package the template is for"
+    )
+    instantiate_cmd.add_argument(
+        "--target",
+        type=Path,
+        required=True,
+        help=f"the target's target.yaml; its {AUTHORIZATION_FIELD} must be one of "
+        f"{', '.join(AUTHORIZED_KINDS)}",
+    )
+    instantiate_cmd.add_argument(
+        "--port", type=int, help="fills {port} in the target's endpoint URLs"
+    )
+    instantiate_cmd.add_argument(
+        "--run",
+        type=Path,
+        required=True,
+        help="run settings JSON: gateway_url, model, and optionally judge_url, judge_model, "
+        "judge_turns, mcp_url, allowed_tools",
+    )
     instantiate_cmd.add_argument("--out", type=Path, required=True, help="new bundle directory")
     instantiate_cmd.set_defaults(handler=_instantiate)
     parse_cmd = commands.add_parser(
@@ -63,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _compile(args: argparse.Namespace) -> int:
     try:
-        compile_package(args.package, args.out)
+        compile(args.package, args.out)
     except CapabilityGap as gap:
         print(json.dumps(gap.record, indent=2, sort_keys=True))
         return EXIT_CAPABILITY_GAP
@@ -75,21 +109,27 @@ def _compile(args: argparse.Namespace) -> int:
 
 def _instantiate(args: argparse.Namespace) -> int:
     try:
-        values = json.loads(args.values.read_text(encoding="utf-8"))
+        run = json.loads(args.run.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        print(f"instantiate: values are unreadable: {exc}", file=sys.stderr)
+        print(f"instantiate: run settings are unreadable: {exc}", file=sys.stderr)
         return EXIT_INPUT
     try:
-        instantiate_bundle(args.template, values, args.out)
+        target = load_target_config(args.target, InstantiateError, port=args.port)
+        result = instantiate(args.package, args.template, args.out, target=target, run=run)
     except InstantiateError as exc:
         print(f"instantiate: {exc}", file=sys.stderr)
         return EXIT_INPUT
+    if isinstance(result, PreparationIncomplete):
+        print(json.dumps({"status": "incomplete", **asdict(result)}, indent=2, sort_keys=True))
+        return EXIT_INCOMPLETE
+    record = {"status": "prepared", **asdict(result.preparation)}
+    print(json.dumps(record, indent=2, sort_keys=True))
     return EXIT_OK
 
 
 def _parse(args: argparse.Namespace) -> int:
     try:
-        parse_report(
+        parse(
             args.bundle,
             args.out,
             report=args.report,

@@ -1,7 +1,8 @@
 """Capability gaps: a tool cannot deliver a package, and the orchestrator reads the record.
 
 Exit codes: 0 done, 1 the input cannot be used, 2 usage error, 3 capability gap
-(``compile`` only).
+(``compile`` only), 4 the package could not be prepared for the run (``instantiate``
+only, for an adapter whose ``instantiate`` prepares the package).
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from asago_artifact_generator.package_io import ArtifactPackage
 EXIT_OK = 0
 EXIT_INPUT = 1
 EXIT_CAPABILITY_GAP = 3
+EXIT_INCOMPLETE = 4
 
 
 class CapabilityGap(Exception):

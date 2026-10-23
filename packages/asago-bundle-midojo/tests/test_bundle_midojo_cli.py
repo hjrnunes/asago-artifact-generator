@@ -9,7 +9,7 @@ import pytest
 
 from asago_bundle_core.testing import write_test_package
 from asago_bundle_midojo.cli import main
-from conftest import BASE, DOMAIN, VALUES, write_native
+from conftest import BASE, DOMAIN, TARGET_CONFIG, VALUES, write_native
 
 FLAGS = ["--midojo-base", str(BASE), "--domain", DOMAIN]
 
@@ -99,7 +99,16 @@ def test_instantiate_writes_the_bundle_and_exits_zero(template: Path, tmp_path: 
     values.write_text(json.dumps(VALUES), encoding="utf-8")
 
     code = main(
-        ["instantiate", str(template), "--values", str(values), "--out", str(tmp_path / "b")]
+        [
+            "instantiate",
+            str(template),
+            "--values",
+            str(values),
+            "--target",
+            str(TARGET_CONFIG),
+            "--out",
+            str(tmp_path / "b"),
+        ]
     )
 
     assert code == 0
@@ -115,11 +124,46 @@ def test_instantiate_with_unusable_values_exits_one(
         values.write_text(content, encoding="utf-8")
 
     code = main(
-        ["instantiate", str(template), "--values", str(values), "--out", str(tmp_path / "b")]
+        [
+            "instantiate",
+            str(template),
+            "--values",
+            str(values),
+            "--target",
+            str(TARGET_CONFIG),
+            "--out",
+            str(tmp_path / "b"),
+        ]
     )
 
     assert code == 1
     assert capsys.readouterr().err.startswith("instantiate: ")
+
+
+def test_instantiate_refuses_a_target_not_authorized_for_a_run(
+    template: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    values = tmp_path / "values.json"
+    values.write_text(json.dumps(VALUES), encoding="utf-8")
+    target = tmp_path / "target.yaml"
+    target.write_text("target: production\n", encoding="utf-8")
+
+    code = main(
+        [
+            "instantiate",
+            str(template),
+            "--values",
+            str(values),
+            "--target",
+            str(target),
+            "--out",
+            str(tmp_path / "b"),
+        ]
+    )
+
+    assert code == 1
+    assert "authorized_as" in capsys.readouterr().err
+    assert not (tmp_path / "b").exists()
 
 
 def test_parse_writes_the_receipt_and_exits_zero(bundle: Path) -> None:

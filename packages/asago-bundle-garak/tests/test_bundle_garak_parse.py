@@ -20,7 +20,7 @@ import jsonschema
 import pytest
 
 from asago_artifact_generator.package_io import load_package
-from asago_bundle_core.testing import write_test_package
+from asago_bundle_core.testing import MOCK_TARGET, write_test_package
 from asago_bundle_garak.cli import main
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import instantiate_bundle
@@ -63,7 +63,7 @@ def make_bundle(tmp_path: Path, scenario_id: str, claim_level: str) -> Path:
     )
     output = tmp_path / "execute" / scenario_id
     compile_package(package, output / "template")
-    instantiate_bundle(output / "template", values(), output / "bundle")
+    instantiate_bundle(output / "template", values(), output / "bundle", target=MOCK_TARGET)
     report = output / "bundle" / "reports" / f"{scenario_id}.report.jsonl"
     shutil.copyfile(FIXTURES / f"{scenario_id}.report.jsonl", report)
     return output
@@ -460,6 +460,43 @@ def test_boundary_records_replace_native_evidence(reply_output: Path) -> None:
     ]
     assert attempt["generation"]["request_count"] == 1
     assert attempt["judge"]["request_count"] == 2
+
+
+@pytest.mark.parametrize(
+    ("scenario_id", "claim_level", "outcome", "judge"),
+    [
+        pytest.param("SCN-001", "command_attempt", "detected", None, id="command-attempt"),
+        pytest.param(
+            "SCN-013",
+            "reply",
+            "not_detected",
+            {"verdict": "contradicted", "reason": "judge_completed", "request_count": 1},
+            id="reply",
+        ),
+    ],
+)
+def test_a_run_without_proxy_records_keeps_the_reports_own_evidence(
+    tmp_path: Path, scenario_id: str, claim_level: str, outcome: str, judge: Any
+) -> None:
+    # A run with no recording proxy and no boundary services: the records directory the
+    # caller names holds none of their files, so Garak's report is the only evidence.
+    output = make_bundle(tmp_path, scenario_id, claim_level)
+
+    receipt = parse(output, records_dir=output)
+
+    assert receipt["execution_status"] == "completed"
+    assert receipt["incomplete_reason"] is None
+    (attempt,) = receipt["attempts"]
+    assert attempt["observation"]["source"] == "tool_native"
+    assert attempt["observation"]["tool_calls"] == [CALL]
+    assert attempt["turns"][0]["response"]["tool_call_indices"] == [0]
+    # The gateway's request count came only from the boundary's accounting.
+    assert attempt["generation"]["request_count"] is None
+    assert attempt["result"]["outcome"] == outcome
+    # The judge's request count comes from the report's own judge records.
+    assert attempt["judge"] == judge
+    without_records = parse_report(output / "bundle", output / "receipt-without-records.json")
+    assert receipt == without_records
 
 
 def test_cli_parse_writes_a_failure_receipt_with_exit_0(command_output: Path) -> None:

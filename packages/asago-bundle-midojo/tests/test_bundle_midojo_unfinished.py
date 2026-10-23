@@ -16,7 +16,7 @@ from typing import Any
 import jsonschema
 import pytest
 
-from asago_bundle_core.testing import sequential_stimulus, write_test_package
+from asago_bundle_core.testing import MOCK_TARGET, sequential_stimulus, write_test_package
 from asago_bundle_midojo.compiler import compile_package
 from asago_bundle_midojo.instantiate import instantiate_bundle
 from asago_bundle_midojo.parse import parse_bundle
@@ -221,7 +221,7 @@ def sequential_bundle(tmp_path: Path, claim_level: str) -> Path:
     )
     compile_package(package, tmp_path / "template", **compile_options())
     values = SEQUENTIAL_REPLY_VALUES if claim_level == "reply" else SEQUENTIAL_VALUES
-    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle")
+    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle", target=MOCK_TARGET)
     return tmp_path / "bundle"
 
 

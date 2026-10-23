@@ -20,7 +20,7 @@ import jsonschema
 import pytest
 
 from asago_artifact_generator.package_io import SEED_MEMBER, build_package, write_package
-from asago_bundle_core.testing import sequential_stimulus, write_test_package
+from asago_bundle_core.testing import MOCK_TARGET, sequential_stimulus, write_test_package
 from asago_bundle_midojo.bundle_files import asago_rubric_turns as rubric
 from asago_bundle_midojo.compiler import BUNDLE_CODE, TURNS_CODE, compile_package
 from asago_bundle_midojo.instantiate import InstantiateError, instantiate_bundle
@@ -62,7 +62,7 @@ def make_bundle(
     compile_package(package, tmp_path / "template", **compile_options())
     if values is None:
         values = SEQUENTIAL_REPLY_VALUES if claim_level == "reply" else SEQUENTIAL_VALUES
-    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle")
+    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle", target=MOCK_TARGET)
     return tmp_path / "bundle"
 
 
@@ -207,7 +207,7 @@ def test_instantiate_checks_each_turn_as_one_prompt(tmp_path: Path, key: str, ba
         del values[key]
 
     with pytest.raises(InstantiateError, match=key):
-        instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle")
+        instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle", target=MOCK_TARGET)
 
 
 @pytest.mark.parametrize("judge_turns", ["first", "ALL", None])
@@ -224,6 +224,7 @@ def test_instantiate_refuses_judge_turns_other_than_final_or_all(
             tmp_path / "template",
             {**SEQUENTIAL_REPLY_VALUES, "judge_turns": judge_turns},
             tmp_path / "bundle",
+            target=MOCK_TARGET,
         )
 
 
@@ -408,7 +409,7 @@ def test_a_sequential_seed_missing_from_the_pre_environment_fails_the_receipt(
         **{key: value for key, value in VALUES.items() if key != "messages"},
         **{f"user_turn_{number}": text for number, text in enumerate(texts, start=1)},
     }
-    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle")
+    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle", target=MOCK_TARGET)
     turns = tuple(turn(index, "Ok.", message=text) for index, text in enumerate(texts))
     (probe,) = suite_of(tmp_path / "bundle")["injection_tasks"][0]["probes"].values()
     provisioned = {"orders": {"ORD-101": {"item": probe["payload"]}}}
@@ -955,7 +956,9 @@ def seeded_pair(tmp_path: Path) -> tuple[Path, Path]:
     ):
         package = write_seeded_package(tmp_path / name, seed, stimulus)
         compile_package(package, tmp_path / name / "template", **compile_options())
-        instantiate_bundle(tmp_path / name / "template", values, tmp_path / name / "bundle")
+        instantiate_bundle(
+            tmp_path / name / "template", values, tmp_path / name / "bundle", target=MOCK_TARGET
+        )
         bundles.append(tmp_path / name / "bundle")
     return bundles[0], bundles[1]
 
@@ -1065,7 +1068,7 @@ def test_a_single_bundle_copies_the_code_it_copied_before(
 ) -> None:
     package = write_test_package(tmp_path / "packages", claim_level=claim_level)
     compile_package(package, tmp_path / "template", **compile_options())
-    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle")
+    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle", target=MOCK_TARGET)
 
     assert set(BUNDLE_CODE) == set(SINGLE_BUNDLE_CODE)
     assert code_digests(tmp_path / "template") == SINGLE_BUNDLE_CODE

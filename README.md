@@ -774,6 +774,58 @@ validator applies the same rule to `stimulus_approach.request`, and rejects a
 request slot that names no declared binding, so plan correction can repair the
 binding before the artifact stage freezes the plan.
 
+## Target config and the Garak entry points
+
+A run's target is described by its `target.yaml`, with `tools-list.json` and
+`runtime-spec.yaml` beside it, and an `endpoint` block (`mcp_url`, `agent_url`, and
+the commands that start, check, seed and reset it). The caller passes that file, or a
+mapping it already loaded, to the adapter; `tests/fixtures/targets/piggybank/` is an
+example. A run makes real writes to whatever the config points at, so the config must
+say what the target is:
+
+```yaml
+# mock: a stand-in built for testing; test_instance: a test deployment of a real system.
+authorized_as: mock
+```
+
+Each adapter's `instantiate` refuses a config without `authorized_as`, or with any
+value other than `mock` or `test_instance`, before it reads or writes anything else
+(exit 1 on the command line). The MiDojo adapter's `instantiate` takes the config as
+`--target` (`instantiate_bundle(..., target=...)`) and reads only that field.
+
+The Garak adapter's `compile`, `instantiate` and `parse` are library functions, and
+its command line calls them. `instantiate` prepares the package for one run with
+`asago_bundle_core.preparation.prepare_package`: the setup steps go to the target's MCP
+server (real writes), the bindings resolve from their results, the prerequisites are
+checked, and the rendered stimulus and the judge's facts become the bundle values. A
+package that cannot be prepared returns `PreparationIncomplete` and writes no bundle.
+
+```python
+from asago_bundle_core.target import load_target_config
+from asago_bundle_garak import InstantiateError, RunSettings, compile, instantiate, parse
+
+target = load_target_config("path/to/target.yaml", InstantiateError, port=8010)
+run = RunSettings(gateway_url="http://127.0.0.1:8000/v1", model="model-name",
+                  judge_url="http://127.0.0.1:8001/v1", judge_model="judge-name")
+compile("package", "template")
+result = instantiate("package", "template", "bundle", target=target, run=run)
+# result.preparation holds the setup ledger, bindings and prerequisites to record.
+# After Garak runs the bundle's entrypoint:
+parse("bundle", "execution-receipt.json")
+```
+
+`RunSettings.mcp_url` defaults to the config's `endpoint.mcp_url` and `allowed_tools`
+to every operation of the package's inventory. On the command line:
+
+```bash
+asago-bundle-garak instantiate TEMPLATE --package PACKAGE --target target.yaml \
+  --port 8010 --run run.json --out BUNDLE
+```
+
+`run.json` holds the `RunSettings` fields; `--port` fills `{port}` in the endpoint
+URLs. The command prints the preparation as JSON and exits 4 when the package cannot
+be prepared.
+
 ## MiDojo adapter runtimes
 
 `asago-bundle-midojo compile --midojo-base BASE --domain DOMAIN --runtime RUNTIME`
@@ -814,8 +866,8 @@ The unit test suite is deterministic and does not require an LLM endpoint.
 
 ```
 ├── src/asago_artifact_generator/    # authoring, packages, CLI
-├── packages/asago-bundle-core/      # shared adapter core (workspace member): tool-bundle-v1 schema, slots, package preparation, conformance helper
-├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse
+├── packages/asago-bundle-core/      # shared adapter core (workspace member): tool-bundle-v1 schema, slots, package preparation, target config, conformance helper
+├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse as library entry points
 ├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): command-attempt and reply packages, single or sequential, unmanaged or openshell runtime; single packages with history exit 3
 ├── contracts/                        # vendored and consumer-owned contracts
 ├── scripts/                          # quality, replay, and budget tools

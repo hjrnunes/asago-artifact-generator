@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from asago_bundle_core.conformance import AdapterUnderTest, check_round_trip
-from asago_bundle_core.testing import sequential_stimulus, write_test_package
+from asago_bundle_core.testing import MOCK_TARGET, sequential_stimulus, write_test_package
 from asago_bundle_garak.compiler import ENTRYPOINT_VALUES, compile_package
 from asago_bundle_garak.instantiate import instantiate_bundle
 from asago_bundle_garak.report_parse import parse_report
@@ -40,7 +41,7 @@ def garak(report: str) -> AdapterUnderTest:
 
     return AdapterUnderTest(
         compile=compile_package,
-        instantiate=instantiate_bundle,
+        instantiate=partial(instantiate_bundle, target=MOCK_TARGET),
         parse=lambda bundle, out: parse_report(bundle, out),
         write_native=write_native,
         entrypoint_keys=ENTRYPOINT_VALUES,

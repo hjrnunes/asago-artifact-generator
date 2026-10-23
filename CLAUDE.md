@@ -118,10 +118,16 @@ Deterministic tests must not contact a model endpoint or target.
   one run before `instantiate`: it runs setup through the caller's target call (real writes,
   not graded, returned as a ledger), resolves the bindings, checks the prerequisites, renders
   the stimulus and returns the judge's facts, or an incomplete reason. Recording the result
-  is the caller's job. The optional schema fields `repeats` and `serve` stay out of a bundle that
-  does not need them: Garak omits both, because `bundle.json` feeds the receipt's
+  is the caller's job. `target` holds the target config an adapter's `instantiate` takes (a
+  `target.yaml` path or a loaded mapping): one whose `authorized_as` is not `mock` or
+  `test_instance` is refused before any work, and `mcp_call_target` sends setup steps to the
+  target's MCP server. The optional schema fields `repeats` and `serve` stay out of a bundle
+  that does not need them: Garak omits both, because `bundle.json` feeds the receipt's
   `bundle_digest`.
-- `packages/asago-bundle-garak/`: the Garak adapter workspace member.
+- `packages/asago-bundle-garak/`: the Garak adapter workspace member. Its library entry points
+  `compile`, `instantiate` and `parse` (`entry_points.py`) are what its CLI calls; `instantiate`
+  takes the target config and `RunSettings` and runs `prepare_package` before it fills the
+  template.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It serves command-attempt
   and reply packages: a single package with one user prompt, or a sequential one whose user turns
   `midojo-run` sends in one conversation (MiDojo `>=bddb79bc`, each call's `turn` gives its
@@ -137,7 +143,8 @@ Deterministic tests must not contact a model endpoint or target.
   (`turns.json`): each judged turn (`judge_turns` `final` or `all`) with the earlier messages
   and replies interleaved as history. A conversation other than the bundle's turns is not
   graded (an `unresolved` verdict naming why). A command attempt is graded by
-  MiDojo's builtin `tool_call_condition` predicate. `compile` takes `--midojo-base` (a
+  MiDojo's builtin `tool_call_condition` predicate. `instantiate` takes the target config
+  (`--target`) only to check `authorized_as`. `compile` takes `--midojo-base` (a
   mini-agents `mini-agents-midojo-base-v1` file) and `--domain`: the domain's ledger becomes the
   suite `environment` and the package's `seed.json` becomes probes (`environment.py`).
   `--runtime openshell` (default `unmanaged`, whose bundles stay as they were) runs the target in

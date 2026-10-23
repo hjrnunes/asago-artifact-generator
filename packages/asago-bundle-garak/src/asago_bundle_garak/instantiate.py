@@ -1,21 +1,25 @@
-"""instantiate: fill a bundle template with the orchestrator's values.
+"""instantiate: fill a bundle template with resolved values.
 
-The orchestrator knows the values (URLs, model, allowed tools, rendered messages
-or, for a sequential package, each rendered user turn, resolved judge facts, the
-turns the judge grades); this module knows Garak's format. It substitutes no
-package bindings: the messages and facts arrive already resolved.
+``instantiate_bundle`` is the lower step of the adapter's ``instantiate``
+(``entry_points``), which prepares the package and builds the values. The values
+are the URLs, model, allowed tools, rendered messages or, for a sequential
+package, each rendered user turn, resolved judge facts, and the turns the judge
+grades; this module knows Garak's format. It substitutes no package bindings:
+the messages and facts arrive already resolved. Like ``instantiate``, it refuses
+a target config not authorized for a run before it reads anything else.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.slots import BUNDLE, fill
+from asago_bundle_core.target import TargetConfig, authorized_target
 from asago_bundle_core.text import canonical_text
 from asago_bundle_core.values import check_values, render_entrypoint
 
@@ -38,10 +42,19 @@ class InstantiateError(BundleError):
 
 
 def instantiate_bundle(
-    template_dir: str | Path, values: dict[str, Any], out_dir: str | Path
+    template_dir: str | Path,
+    values: dict[str, Any],
+    out_dir: str | Path,
+    *,
+    target: TargetConfig | Mapping[str, Any] | str | Path,
 ) -> dict[str, Any]:
-    """Write the concrete bundle for ``values`` and return its manifest."""
+    """Write the concrete bundle for ``values`` and return its manifest.
 
+    ``target`` is the target config (see ``asago_bundle_core.target``); one that does not
+    mark the target as a mock or a test instance is refused first.
+    """
+
+    authorized_target(target, InstantiateError)
     template = Path(template_dir)
     out = Path(out_dir).resolve()
     manifest = _read_json(template / BUNDLE_FILE)

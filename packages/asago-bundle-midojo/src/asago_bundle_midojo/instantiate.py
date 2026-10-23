@@ -16,6 +16,9 @@ MiDojo's unmanaged runs send), ``allowed_tools`` (the package's exposed tools, t
 the Garak path gets, set comma-separated in the sandbox), and ``gateway`` and
 ``agent_timeout`` for ``midojo-run``. MiDojo expands ``${env.VAR}`` in the runtime
 settings, so a value it would expand is refused.
+
+``target`` is the target config (``asago_bundle_core.target``): its ``authorized_as`` must
+mark the target as a ``mock`` or a ``test_instance``, or nothing is read or written.
 """
 
 from __future__ import annotations
@@ -24,13 +27,14 @@ import hashlib
 import json
 import math
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.slots import BUNDLE, fill
+from asago_bundle_core.target import TargetConfig, authorized_target
 from asago_bundle_core.text import canonical_text
 from asago_bundle_core.values import check_values, render_entrypoint
 
@@ -65,10 +69,19 @@ class InstantiateError(BundleError):
 
 
 def instantiate_bundle(
-    template_dir: str | Path, values: dict[str, Any], out_dir: str | Path
+    template_dir: str | Path,
+    values: dict[str, Any],
+    out_dir: str | Path,
+    *,
+    target: TargetConfig | Mapping[str, Any] | str | Path,
 ) -> dict[str, Any]:
-    """Write the concrete bundle for ``values`` and return its manifest."""
+    """Write the concrete bundle for ``values`` and return its manifest.
 
+    ``target`` is the target config, a loaded mapping or the path of a ``target.yaml``; one
+    that does not mark the target as a mock or a test instance is refused first.
+    """
+
+    authorized_target(target, InstantiateError)
     template = Path(template_dir)
     out = Path(out_dir).resolve()
     manifest = _read_json(template / BUNDLE_FILE)

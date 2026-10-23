@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 
 from asago_artifact_generator.authoring import rubric_judge as port
-from asago_bundle_core.testing import write_test_package
+from asago_bundle_core.testing import MOCK_TARGET, write_test_package
 from asago_bundle_garak.compiler import compile_package as compile_garak
 from asago_bundle_garak.instantiate import instantiate_bundle as instantiate_garak
 from asago_bundle_midojo.bundle_files import asago_rubric_turns as rubric
@@ -69,7 +69,7 @@ def midojo_spec(tmp_path: Path, case: dict[str, Any], judge_turns: str) -> dict[
         "service_port": SERVICE_PORT,
         "judge_turns": judge_turns,
     }
-    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle")
+    instantiate_bundle(tmp_path / "template", values, tmp_path / "bundle", target=MOCK_TARGET)
     suite = json.loads((tmp_path / "bundle/asago_suite/suite.yaml").read_text(encoding="utf-8"))
     return suite["injection_tasks"][0]["security"][rubric.TURNS_RUBRIC_NAME]
 
@@ -116,7 +116,7 @@ def test_the_garak_entry_is_the_one_the_garak_adapter_writes_for_the_package(
 ) -> None:
     compile_garak(package_of(tmp_path, case), tmp_path / "template")
     values = {**case["values"], **turn_values(case["user_turns"]), "judge_turns": "final"}
-    instantiate_garak(tmp_path / "template", values, tmp_path / "bundle")
+    instantiate_garak(tmp_path / "template", values, tmp_path / "bundle", target=MOCK_TARGET)
 
     entry = json.loads((tmp_path / "bundle/conversations.jsonl").read_text(encoding="utf-8"))
     assert entry == case["garak_entry"]

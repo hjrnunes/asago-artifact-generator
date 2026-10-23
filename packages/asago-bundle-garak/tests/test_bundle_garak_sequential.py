@@ -14,7 +14,7 @@ from typing import Any
 import jsonschema
 import pytest
 
-from asago_bundle_core.testing import sequential_stimulus, write_test_package
+from asago_bundle_core.testing import MOCK_TARGET, sequential_stimulus, write_test_package
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import InstantiateError, instantiate_bundle
 from asago_bundle_garak.report_parse import parse_report
@@ -68,7 +68,7 @@ def make_bundle(tmp_path: Path, claim_level: str, filled: dict[str, Any]) -> Pat
     )
     output = tmp_path / "execute" / "SCN-001"
     compile_package(package, output / "template")
-    instantiate_bundle(output / "template", filled, output / "bundle")
+    instantiate_bundle(output / "template", filled, output / "bundle", target=MOCK_TARGET)
     return output
 
 
@@ -305,6 +305,40 @@ def test_proxy_calls_keep_a_recorded_turn_or_go_to_the_last(tmp_path: Path) -> N
         ({"status": "REJECTED"}, None),
         (None, '{"code":-32601}'),
     ]
+
+
+def test_a_run_without_proxy_records_takes_each_turns_calls_from_the_report(
+    tmp_path: Path,
+) -> None:
+    # No recording proxy: the records directory holds no mcp_capture or boundary file.
+    output = make_bundle(tmp_path, "command_attempt", values())
+    write_report(
+        output,
+        [
+            turn(0, "a", [ORDERS], 0, **condition(0.0)),
+            turn(1, "b", [ORDERS], 1, **condition(0.0)),
+            turn(2, "c", [ORDERS, REFUND], 1, **condition(1.0, [1])),
+        ],
+    )
+    records = tmp_path / "records"
+    records.mkdir()
+
+    receipt = parse_report(
+        output / "bundle", output / "execution-receipt.json", records_dir=records
+    )
+
+    jsonschema.validate(receipt, json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))
+    assert receipt["execution_status"] == "completed"
+    (attempt,) = receipt["attempts"]
+    assert attempt["observation"]["source"] == "tool_native"
+    calls = attempt["observation"]["tool_calls"]
+    assert [(c["name"], c["turn_index"]) for c in calls] == [
+        ("get_orders", 0),
+        ("issue_refund", 2),
+    ]
+    assert [t["response"]["tool_call_indices"] for t in attempt["turns"]] == [[0], [], [1]]
+    assert attempt["generation"]["request_count"] is None
+    assert attempt["result"]["outcome"] == "detected"
 
 
 def parse_with_proxy(output: Path, lines: list[dict[str, Any]]) -> dict[str, Any]:

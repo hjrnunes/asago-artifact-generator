@@ -1,8 +1,9 @@
 """Command line for the MiDojo adapter.
 
-Exit codes: 0 done, 1 the input cannot be used, 2 usage error, 3 capability
-gap (``compile`` only: MiDojo cannot deliver or grade the package, such as a
-single one with history or one that claims a state effect).
+Exit codes: 0 done, 1 the input cannot be used (including a target config not
+authorized for a run), 2 usage error, 3 capability gap (``compile`` only:
+MiDojo cannot deliver or grade the package, such as a single one with history
+or one that claims a state effect).
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import sys
 from pathlib import Path
 
 from asago_bundle_core.gap import EXIT_CAPABILITY_GAP, EXIT_INPUT, EXIT_OK, CapabilityGap
+from asago_bundle_core.target import AUTHORIZATION_FIELD, AUTHORIZED_KINDS
 
 from .compiler import CompileError, compile_package
 from .instantiate import InstantiateError, instantiate_bundle
@@ -48,6 +50,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     instantiate_cmd.add_argument("template", type=Path, help="bundle template directory")
     instantiate_cmd.add_argument("--values", type=Path, required=True, help="values.json")
+    instantiate_cmd.add_argument(
+        "--target",
+        type=Path,
+        required=True,
+        help=f"the target's target.yaml; its {AUTHORIZATION_FIELD} must be one of "
+        f"{', '.join(AUTHORIZED_KINDS)}",
+    )
     instantiate_cmd.add_argument("--out", type=Path, required=True, help="new bundle directory")
     instantiate_cmd.set_defaults(handler=_instantiate)
     parse_cmd = commands.add_parser(
@@ -96,7 +105,7 @@ def _instantiate(args: argparse.Namespace) -> int:
         print(f"instantiate: values are unreadable: {exc}", file=sys.stderr)
         return EXIT_INPUT
     try:
-        instantiate_bundle(args.template, values, args.out)
+        instantiate_bundle(args.template, values, args.out, target=args.target)
     except InstantiateError as exc:
         print(f"instantiate: {exc}", file=sys.stderr)
         return EXIT_INPUT
