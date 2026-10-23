@@ -133,6 +133,9 @@ Deterministic tests must not contact a model endpoint or target.
   template (`read_template`) before the first setup call, runs `prepare_package`, and fills
   that same template with the resolved values (`fill_template`, which `instantiate_bundle`
   also uses). The bundle's MCP server is the authorized config's `endpoint.mcp_url`.
+  `instantiate TEMPLATE --values VALUES --out OUT` is the legacy CLI form the orchestrator
+  calls (`instantiate_resolved`, unchanged behaviour): no target config, no preparation;
+  `--values` with `--package`, `--target`, `--port` or `--run` exits 2.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It serves command-attempt
   and reply packages: a single package with one user prompt, or a sequential one whose user turns
   `midojo-run` sends in one conversation (MiDojo `>=bddb79bc`, each call's `turn` gives its
@@ -149,7 +152,8 @@ Deterministic tests must not contact a model endpoint or target.
   and replies interleaved as history. A conversation other than the bundle's turns is not
   graded (an `unresolved` verdict naming why). A command attempt is graded by
   MiDojo's builtin `tool_call_condition` predicate. `instantiate` takes the target config
-  (`--target`) only to check `authorized_as`. `compile` takes `--midojo-base` (a
+  (`--target`) only to check `authorized_as`; without `--target` it is the legacy form
+  (`instantiate_resolved`), which reads no target config. `compile` takes `--midojo-base` (a
   mini-agents `mini-agents-midojo-base-v1` file) and `--domain`: the domain's ledger becomes the
   suite `environment` and the package's `seed.json` becomes probes (`environment.py`).
   `--runtime openshell` (default `unmanaged`, whose bundles stay as they were) runs the target in

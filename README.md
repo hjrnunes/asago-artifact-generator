@@ -788,8 +788,8 @@ say what the target is:
 authorized_as: mock
 ```
 
-Each adapter's `instantiate`, as a function and on the command line, checks the
-target config first: a config without `authorized_as`, or with any value other than
+Each adapter's `instantiate`, as a function and on the command line (except the
+legacy `--values` form below), checks the target config first: a config without `authorized_as`, or with any value other than
 `mock` or `test_instance`, is refused (exit 1 on the command line) before the package,
 the template, the run settings or the values are read, and before anything is
 written or sent to the target. The MiDojo adapter's `instantiate` takes the config as
@@ -833,6 +833,24 @@ asago-bundle-garak instantiate TEMPLATE --package PACKAGE --target target.yaml \
 `run.json` holds the `RunSettings` fields; `--port` fills `{port}` in the endpoint
 URLs. The command prints the preparation as JSON and exits 4 when the package cannot
 be prepared.
+
+Both adapters keep a legacy command-line form for callers that resolve the values
+themselves:
+
+```bash
+asago-bundle-garak instantiate TEMPLATE --values values.json --out BUNDLE
+asago-bundle-midojo instantiate TEMPLATE --values values.json --out BUNDLE
+```
+
+It fills the template with the values as given, as the adapters did before Garak's
+`instantiate` prepared packages: it reads no target config, runs no preparation or setup,
+calls no target, and prints nothing (`instantiate_resolved` in each adapter's
+`instantiate` module is the function it calls). For Garak, `--values` combined with
+`--package`, `--target`, `--port` or `--run` is a usage error (exit 2), and so is a call
+that gives neither `--values` nor all of `--package`, `--target` and `--run`. The MiDojo
+form with `--target` takes `--values` too, so `--target` alone selects it: with it the
+config is checked first, without it the call is the legacy form; a call without
+`--values` is a usage error (exit 2).
 
 ## MiDojo adapter runtimes
 

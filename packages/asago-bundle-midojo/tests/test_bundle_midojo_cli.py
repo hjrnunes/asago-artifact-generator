@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from asago_bundle_core.testing import write_test_package
+from asago_bundle_core.testing import MOCK_TARGET, write_test_package
 from asago_bundle_midojo.cli import main
+from asago_bundle_midojo.instantiate import instantiate_bundle
 from conftest import BASE, DOMAIN, TARGET_CONFIG, VALUES, write_native
 
 FLAGS = ["--midojo-base", str(BASE), "--domain", DOMAIN]
@@ -171,6 +174,89 @@ def test_instantiate_refuses_a_target_not_authorized_for_a_run(
 
     assert code == 1
     assert "authorized_as" in capsys.readouterr().err
+    assert not (tmp_path / "b").exists()
+
+
+def _refuse(*_: Any, **__: Any) -> Any:
+    raise AssertionError("the legacy form read a target config or prepared the package")
+
+
+@pytest.fixture
+def no_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail the test if anything reads a target config, prepares a package or calls a target."""
+
+    for module, name in [
+        ("asago_bundle_core.target", "load_target_config"),
+        ("asago_bundle_core.target", "authorized_target"),
+        ("asago_bundle_core.target", "mcp_call_target"),
+        ("asago_bundle_core.preparation", "prepare_package"),
+        ("asago_bundle_midojo.cli", "authorized_target"),
+        ("asago_bundle_midojo.instantiate", "authorized_target"),
+    ]:
+        monkeypatch.setattr(importlib.import_module(module), name, _refuse)
+
+
+def files(bundle: Path) -> dict[str, bytes]:
+    return {
+        str(path.relative_to(bundle)): path.read_bytes() if path.is_file() else b""
+        for path in sorted(bundle.rglob("*"))
+    }
+
+
+def test_the_legacy_form_without_target_fills_the_template_and_touches_no_target(
+    template: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    no_target: None,
+) -> None:
+    values = tmp_path / "values.json"
+    values.write_text(json.dumps(VALUES), encoding="utf-8")
+    bundle = tmp_path / "b"
+
+    code = main(["instantiate", str(template), "--values", str(values), "--out", str(bundle)])
+
+    assert code == 0
+    assert capsys.readouterr() == ("", "")
+    legacy = files(bundle)
+    bundle.rename(tmp_path / "legacy")
+    monkeypatch.undo()
+    # The same template and values make the same bundle as with an authorized target.
+    instantiate_bundle(template, VALUES, bundle, target=MOCK_TARGET)
+    assert legacy == files(bundle)
+    assert "asago_suite/suite.yaml" in legacy
+
+
+@pytest.mark.parametrize("content", [None, "{not json", json.dumps({"model": "m"})])
+def test_the_legacy_form_with_unusable_values_exits_one(
+    template: Path,
+    tmp_path: Path,
+    content: str | None,
+    capsys: pytest.CaptureFixture[str],
+    no_target: None,
+) -> None:
+    values = tmp_path / "values.json"
+    if content is not None:
+        values.write_text(content, encoding="utf-8")
+
+    code = main(
+        ["instantiate", str(template), "--values", str(values), "--out", str(tmp_path / "b")]
+    )
+
+    assert code == 1
+    assert capsys.readouterr().err.startswith("instantiate: ")
+    assert not (tmp_path / "b").exists()
+
+
+@pytest.mark.parametrize("extra", [[], ["--target", str(TARGET_CONFIG)]])
+def test_instantiate_without_values_is_a_usage_error(
+    template: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], extra: list[str]
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(["instantiate", str(template), "--out", str(tmp_path / "b"), *extra])
+
+    assert raised.value.code == 2
+    assert "--values" in capsys.readouterr().err
     assert not (tmp_path / "b").exists()
 
 

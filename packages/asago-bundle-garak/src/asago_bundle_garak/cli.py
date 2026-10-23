@@ -6,6 +6,12 @@ Garak cannot deliver the package, such as a sequential history holding a
 message other than a user turn), 4 the package could not be prepared
 (``instantiate`` only). ``instantiate`` prints its preparation as JSON on
 stdout: the setup ledger, bindings and prerequisites, or the incomplete reason.
+
+``instantiate TEMPLATE --values VALUES --out OUT`` is the legacy form for callers that
+resolve the values themselves: it reads no target config, runs no preparation and prints
+nothing. ``--values`` combined with ``--package``, ``--target``, ``--port`` or ``--run`` is
+a usage error, and so is a call that gives neither ``--values`` nor all of ``--package``,
+``--target`` and ``--run``.
 """
 
 from __future__ import annotations
@@ -28,7 +34,7 @@ from asago_bundle_core.target import AUTHORIZATION_FIELD, AUTHORIZED_KINDS, auth
 
 from .compiler import CompileError
 from .entry_points import compile, instantiate, parse
-from .instantiate import InstantiateError
+from .instantiate import InstantiateError, instantiate_resolved
 from .report_parse import ParseError
 
 
@@ -47,16 +53,26 @@ def build_parser() -> argparse.ArgumentParser:
     instantiate_cmd = commands.add_parser(
         "instantiate",
         help="prepare the package against the target (its setup makes real writes) and fill "
-        "the bundle template into a concrete bundle",
+        "the bundle template into a concrete bundle; or, in the legacy form, fill it with "
+        "values already resolved",
+        description="Give --package, --target and --run (and --port when the endpoint URLs "
+        "hold {port}) to prepare the package against the target and fill the template. The "
+        "legacy form, TEMPLATE --values VALUES --out OUT, is for callers that resolve the "
+        "values themselves: it reads no target config and runs no preparation. --values "
+        "cannot be combined with --package, --target, --port or --run.",
     )
     instantiate_cmd.add_argument("template", type=Path, help="bundle template directory")
     instantiate_cmd.add_argument(
-        "--package", type=Path, required=True, help="the artifact package the template is for"
+        "--values",
+        type=Path,
+        help="legacy form: values.json holding values already resolved; no preparation runs",
+    )
+    instantiate_cmd.add_argument(
+        "--package", type=Path, help="the artifact package the template is for"
     )
     instantiate_cmd.add_argument(
         "--target",
         type=Path,
-        required=True,
         help=f"the target's target.yaml; its {AUTHORIZATION_FIELD} must be one of "
         f"{', '.join(AUTHORIZED_KINDS)}",
     )
@@ -66,12 +82,11 @@ def build_parser() -> argparse.ArgumentParser:
     instantiate_cmd.add_argument(
         "--run",
         type=Path,
-        required=True,
         help="run settings JSON: gateway_url, model, and optionally judge_url, judge_model, "
         "judge_turns, mcp_url, allowed_tools",
     )
     instantiate_cmd.add_argument("--out", type=Path, required=True, help="new bundle directory")
-    instantiate_cmd.set_defaults(handler=_instantiate)
+    instantiate_cmd.set_defaults(handler=_instantiate, usage_error=instantiate_cmd.error)
     parse_cmd = commands.add_parser(
         "parse",
         help="write execution-receipt-v1 from Garak's report; a failed run still exits 0",
@@ -107,7 +122,44 @@ def _compile(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+# The options of the form that prepares the package; none may go with --values.
+PREPARED_OPTIONS = ("package", "target", "port", "run")
+PREPARED_REQUIRED = ("package", "target", "run")
+
+
 def _instantiate(args: argparse.Namespace) -> int:
+    given = [f"--{name}" for name in PREPARED_OPTIONS if getattr(args, name) is not None]
+    if args.values is not None:
+        if given:
+            args.usage_error(
+                f"--values (the legacy form, values already resolved) cannot be combined "
+                f"with {', '.join(given)}"
+            )
+        return _instantiate_resolved(args)
+    missing = [f"--{name}" for name in PREPARED_REQUIRED if getattr(args, name) is None]
+    if missing:
+        args.usage_error(
+            "give either --package, --target and --run, or, in the legacy form, --values; "
+            f"missing {', '.join(missing)}"
+        )
+    return _instantiate_prepared(args)
+
+
+def _instantiate_resolved(args: argparse.Namespace) -> int:
+    try:
+        values = json.loads(args.values.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"instantiate: values are unreadable: {exc}", file=sys.stderr)
+        return EXIT_INPUT
+    try:
+        instantiate_resolved(args.template, values, args.out)
+    except InstantiateError as exc:
+        print(f"instantiate: {exc}", file=sys.stderr)
+        return EXIT_INPUT
+    return EXIT_OK
+
+
+def _instantiate_prepared(args: argparse.Namespace) -> int:
     # The target config is checked before anything else is read.
     try:
         target = authorized_target(args.target, InstantiateError, port=args.port)
