@@ -8,7 +8,7 @@ import pytest
 
 from asago_bundle_core.bindings import (
     BindingError,
-    RuntimeBinding,
+    parse_binding,
     resolve_bindings,
     select_value,
     substitute_slots,
@@ -323,7 +323,7 @@ def _raised(call: Any) -> BindingError:
     return error.value
 
 
-_DECLARED = (RuntimeBinding.parse(_binding("result.order.id", "string")),)
+_DECLARED = (parse_binding(_binding("result.order.id", "string")),)
 
 
 @pytest.mark.parametrize(

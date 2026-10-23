@@ -27,6 +27,7 @@ import pytest
 from asago_bundle_core.bindings import (
     BindingError,
     RuntimeBinding,
+    parse_binding,
     resolve_bindings,
     validate_binding_declarations,
     validate_stimulus_declarations,
@@ -75,7 +76,7 @@ def _outcome(call: Callable[[], Any]) -> tuple[str | None, Any]:
 
 
 def _declarations(case: dict[str, Any]) -> tuple[RuntimeBinding, ...]:
-    return tuple(RuntimeBinding.parse(item) for item in case["bindings"])
+    return tuple(parse_binding(item) for item in case["bindings"])
 
 
 def _resolve(case: dict[str, Any]) -> tuple[str | None, Any]:

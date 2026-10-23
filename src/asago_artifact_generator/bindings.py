@@ -3,8 +3,10 @@
 Bindings are declarations only.  This module never calls setup operations and
 never evaluates template expressions; downstream execution resolves the exact
 selectors after it has captured a permitted setup result.  The closed
-vocabulary and the rules package preparation shares live in ``binding_rules``;
-this module adds authoring's canonical paths and its stricter declaration checks.
+vocabulary, the rules and the declaration-validation engine live in
+``binding_rules``, which package preparation uses too.  This module adds
+authoring's canonical paths, which run before the engine, the policy authoring
+checks a declaration list with, and authoring's wording of each violation.
 """
 
 from __future__ import annotations
@@ -16,18 +18,22 @@ from typing import Any
 from .binding_rules import (
     BINDING_SPEC,
     CLOSED_TYPES,
-    MISSING_POLICIES,
     SLOT_PATTERN,
-    SOURCE_KINDS,
+    BindingPolicy,
     BindingSpec,
-    BindingValidationError,
     ConsumerPrefix,
     RuntimeBinding,
-    selector_root_mismatch,
+    Violation,
+    check_declarations,
+    first_fact_named,
+    read_binding,
     selector_type,
     type_below_root,
-    types_compatible,
 )
+
+
+class BindingValidationError(ValueError):
+    """Raised when a binding or substitution is not closed and documented."""
 
 
 def validate_bindings(
@@ -44,100 +50,32 @@ def validate_bindings(
     same-name declarations that differ in any field remain an error.
     """
 
-    if not isinstance(declarations, (list, tuple)):
-        raise BindingValidationError("runtime_bindings must be a list")
     normalized_declarations = normalize_binding_declarations(
         declarations,
         inventory=inventory,
         transformations=transformations,
     )
-    parsed_bindings = [RuntimeBinding.from_dict(raw) for raw in normalized_declarations]
-    names: set[str] = set()
-    for binding in parsed_bindings:
-        if binding.name in names:
-            raise BindingValidationError(f"duplicate binding: {binding.name}")
-        names.add(binding.name)
-    bindings: list[RuntimeBinding] = []
-    for binding in parsed_bindings:
-        _require_closed_fields(binding)
-        root_mismatch = selector_root_mismatch(binding.name, binding.source_kind, binding.selector)
-        if root_mismatch is not None:
-            raise BindingValidationError(root_mismatch)
-        schema = _source_schema(binding, inventory, runtime_contract)
-        actual_type = _schema_at_selector(schema, binding.selector)
-        if actual_type is None:
-            raise BindingValidationError(
-                f"undocumented selector for binding {binding.name}: {binding.selector}"
-            )
-        if not types_compatible(actual_type, binding.expected_type):
-            raise BindingValidationError(
-                f"binding type mismatch for {binding.name}: "
-                f"expected {binding.expected_type}, source is {actual_type}"
-            )
-        _require_record_key_selector(binding, inventory)
-        bindings.append(binding)
-    return tuple(bindings)
-
-
-def _require_closed_fields(binding: RuntimeBinding) -> None:
-    if not binding.name.strip():
-        raise BindingValidationError("binding name is blank")
-    if binding.expected_type not in CLOSED_TYPES:
-        raise BindingValidationError(f"binding expected_type is not closed: {binding.name}")
-    if binding.source_kind not in SOURCE_KINDS:
-        raise BindingValidationError(f"binding source_kind is not closed: {binding.name}")
-    if not binding.source_ref.strip() or not binding.selector.strip():
-        raise BindingValidationError(f"binding source reference is blank: {binding.name}")
-    if binding.on_missing not in MISSING_POLICIES:
-        raise BindingValidationError(f"binding on_missing is not closed: {binding.name}")
-
-
-def _require_record_key_selector(binding: RuntimeBinding, inventory: dict[str, Any]) -> None:
-    """Reject a record-key companion binding that does not select the key string.
-
-    The companion's records are ``{"record_key": key}`` wrappers, so any other
-    selector yields a wrapper that carries none of the record's fields.
-    """
-
-    if binding.source_kind != "supplied_input":
-        return
-    source_ref, selector = canonical_binding_paths(
-        binding.source_kind, binding.source_ref, binding.selector, inventory
+    checked = check_declarations(
+        normalized_declarations,
+        inventory=inventory,
+        runtime_contract=runtime_contract,
+        policy=AUTHORING_POLICY,
     )
-    reference = source_ref.removeprefix("facts:")
-    provenance = _fact_provenance(inventory, reference)
-    if not isinstance(provenance, dict):
-        return
-    if provenance.get("derivation") != "keyed_map_record_key":
-        return
-    parts = selector.split(".")
-    if len(parts) == 3 and parts[0] == "value" and parts[2] == "record_key":
-        return
-    base = provenance.get("derived_from") or reference.removesuffix(":records")
-    raise BindingValidationError(
-        f"binding {binding.name} selects {selector} from facts:{reference}, whose records "
-        f"hold only record_key: select value.<key>.record_key there for the key string, "
-        f"or bind facts:{base} with value.<key> for the whole record or "
-        f"value.<key>.<field> for one field"
-    )
+    if checked.violations:
+        raise BindingValidationError(authoring_message(checked.violations[0]))
+    return checked.bindings
 
 
-def _fact_provenance(inventory: dict[str, Any], reference: str) -> Any:
-    fact = _first_fact_named(inventory, reference)
-    return fact.get("provenance") if fact is not None else None
+def binding_from_dict(value: Any) -> RuntimeBinding:
+    """Read an authored declaration: every field a string, every consumer closed."""
+
+    read = read_binding(value, AUTHORING_POLICY)
+    if isinstance(read, Violation):
+        raise BindingValidationError(authoring_message(read))
+    return read
 
 
-def _first_fact_named(inventory: Mapping[str, Any], reference: Any) -> dict[str, Any] | None:
-    """Return the first supplied fact whose ref equals ``reference``."""
-
-    return next(
-        (
-            item
-            for item in inventory.get("facts", [])
-            if isinstance(item, dict) and item.get("ref") == reference
-        ),
-        None,
-    )
+_first_fact_named = first_fact_named
 
 
 def canonical_binding_paths(
@@ -424,9 +362,8 @@ def normalize_binding_declarations(
         if not isinstance(raw, dict):
             normalized.append(raw)
             continue
-        try:
-            binding = RuntimeBinding.from_dict(raw)
-        except BindingValidationError:
+        binding = read_binding(raw, AUTHORING_POLICY)
+        if isinstance(binding, Violation):
             normalized.append(raw)
             continue
         original_source_ref = binding.source_ref
@@ -694,65 +631,6 @@ def _value_at_selector(value: Any, selector: str) -> Any:
     return current
 
 
-def _source_schema(
-    binding: RuntimeBinding,
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-) -> dict[str, Any]:
-    if binding.source_kind == "setup_output":
-        schema = _setup_output_schema(binding, inventory, runtime_contract)
-    else:
-        schema = _supplied_fact_schema(binding, inventory)
-    if not isinstance(schema, dict):
-        raise BindingValidationError(f"missing source schema for binding: {binding.name}")
-    return schema
-
-
-def _setup_output_schema(
-    binding: RuntimeBinding,
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-) -> Any:
-    """Return the result schema of the permitted setup operation a binding names."""
-
-    prefix, _, operation = binding.source_ref.partition(":")
-    if prefix != "setup" or not operation:
-        raise BindingValidationError(
-            f"setup binding source_ref must be setup:<operation>: {binding.name}"
-        )
-    operations = inventory.get("operations", [])
-    operation_record = next(
-        (item for item in operations if isinstance(item, dict) and item.get("name") == operation),
-        None,
-    )
-    if operation_record is None:
-        raise BindingValidationError(f"unknown setup operation: {operation}")
-    permissions = runtime_contract.get("setup_permissions", [])
-    if operation not in permissions:
-        raise BindingValidationError(f"setup operation is not permitted: {operation}")
-    return operation_record.get("result_schema")
-
-
-def _supplied_fact_schema(binding: RuntimeBinding, inventory: dict[str, Any]) -> Any:
-    """Return the schema of the supplied fact a binding's canonical source names."""
-
-    source_ref, _ = canonical_binding_paths(
-        binding.source_kind,
-        binding.source_ref,
-        binding.selector,
-        inventory,
-    )
-    prefix, _, reference = source_ref.partition(":")
-    if prefix != "facts" or not reference:
-        raise BindingValidationError(
-            f"supplied binding source_ref must be facts:<ref>: {binding.name}"
-        )
-    fact = _first_fact_named(inventory, reference)
-    if fact is None:
-        raise BindingValidationError(f"unknown supplied fact: {reference}")
-    return fact.get("schema")
-
-
 def _schema_at_selector(schema: dict[str, Any], selector: str) -> str | None:
     if not all(selector.split(".")):
         return None
@@ -767,13 +645,103 @@ def _binding_selector_type(schema: Any, selector: str) -> str | None:
     return type_below_root(schema, selector)
 
 
+_AUTHORING_READABLE = (
+    "object",
+    "fields",
+    "consumers_list",
+    "consumer_blank",
+    "string_fields",
+    "consumer_closed",
+)
+# Authoring reads every declaration first, then checks the names, then checks each
+# declaration's values, stopping at the first violation. It accepts an empty
+# consumer list, and adds the canonical paths and the record-key companion rule.
+AUTHORING_POLICY = BindingPolicy(
+    readable=_AUTHORING_READABLE,
+    phases=(
+        (_AUTHORING_READABLE,),
+        (("duplicate",),),
+        (
+            (
+                "name_blank",
+                "expected_type",
+                "source_kind",
+                "source_ref_blank",
+                "selector_blank",
+                "on_missing",
+                "root_mismatch",
+                "source",
+                "selector_documented",
+                "type",
+                "record_key",
+            ),
+        ),
+    ),
+    canonical_paths=canonical_binding_paths,
+    canonical_selector="declared",
+    facts_prefix_required=True,
+    unknown_fact_reported=True,
+    permissions_must_be_list=False,
+    empty_selector_parts_undocumented=True,
+)
+
+
+def authoring_message(violation: Violation) -> str:
+    """Word a violation of ``AUTHORING_POLICY`` as authoring reports it."""
+
+    name, details = violation.name, violation.details
+    if violation.kind == "fields":
+        return (
+            f"binding fields invalid (missing={sorted(details['missing'])}, "
+            f"unknown={sorted(details['unknown'])})"
+        )
+    if violation.kind == "source_ref_form":
+        if details["source_kind"] == "setup_output":
+            return f"setup binding source_ref must be setup:<operation>: {name}"
+        return f"supplied binding source_ref must be facts:<ref>: {name}"
+    if violation.kind == "record_key_selector":
+        return (
+            f"binding {name} selects {details['selector']} from facts:{details['reference']}, "
+            f"whose records hold only record_key: select value.<key>.record_key there for the "
+            f"key string, or bind facts:{details['base']} with value.<key> for the whole record "
+            f"or value.<key>.<field> for one field"
+        )
+    return {
+        "not_list": "runtime_bindings must be a list",
+        "not_object": "binding must be an object",
+        "consumers_not_list": "binding consumers must be non-empty strings",
+        "consumer_blank": "binding consumers must be non-empty strings",
+        "string_field": f"binding {violation.field} must be a string",
+        "consumer_not_closed": "binding consumer is not a closed path",
+        "duplicate": f"duplicate binding: {name}",
+        "name_blank": "binding name is blank",
+        "expected_type_not_closed": f"binding expected_type is not closed: {name}",
+        "source_kind_not_closed": f"binding source_kind is not closed: {name}",
+        "source_reference_blank": f"binding source reference is blank: {name}",
+        "selector_blank": f"binding source reference is blank: {name}",
+        "on_missing_not_closed": f"binding on_missing is not closed: {name}",
+        "root_mismatch": details.get("text"),
+        "unknown_operation": f"unknown setup operation: {details.get('reference')}",
+        "operation_not_permitted": f"setup operation is not permitted: {details.get('reference')}",
+        "unknown_fact": f"unknown supplied fact: {details.get('reference')}",
+        "schema_missing": f"missing source schema for binding: {name}",
+        "selector_undocumented": f"undocumented selector for binding {name}: "
+        f"{details.get('selector')}",
+        "type_mismatch": f"binding type mismatch for {name}: expected "
+        f"{details.get('expected')}, source is {details.get('actual')}",
+    }[violation.kind]
+
+
 __all__ = [
+    "AUTHORING_POLICY",
     "BINDING_SPEC",
     "BindingSpec",
     "BindingValidationError",
     "CLOSED_TYPES",
     "ConsumerPrefix",
     "RuntimeBinding",
+    "authoring_message",
+    "binding_from_dict",
     "canonical_binding_paths",
     "find_stimulus_user_text_consumer_mismatches",
     "named_record_facts",

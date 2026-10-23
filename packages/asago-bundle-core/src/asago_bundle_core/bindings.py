@@ -18,6 +18,7 @@ from asago_artifact_generator.binding_rules import (
     RuntimeBinding,
     check_slot_reference,
     declared_types,
+    parse_binding,
     setup_operation,
     validate_binding_declarations,
     validate_slot_references,
@@ -123,6 +124,7 @@ def value_matches_type(value: Any, expected: str) -> bool:
 __all__ = [
     "BindingError",
     "RuntimeBinding",
+    "parse_binding",
     "resolve_bindings",
     "select_value",
     "substitute_slots",

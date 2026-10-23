@@ -10,6 +10,7 @@ from typing import Any
 
 from ..bindings import (
     BindingValidationError,
+    _binding_selector_type,
     _first_fact_named,
     canonical_binding_paths,
     normalize_binding_declarations,
@@ -18,7 +19,7 @@ from ..bindings import (
 )
 from ..input_adapter import V5_FIELDS, InputView, build_scenario_handoff_view
 from .attack_path_outline import ATTACK_PATH_FORMAT, attack_path_outline, attack_path_provenance
-from .checks import _binding_selector_type, _collect_canonical_prerequisite_findings
+from .checks import _collect_canonical_prerequisite_findings
 from .contracts import (
     NEUTRAL_ESTABLISHED_OMISSION_OUTCOME_EXAMPLE,
     NEUTRAL_OMISSION_OUTCOME_EXAMPLE,

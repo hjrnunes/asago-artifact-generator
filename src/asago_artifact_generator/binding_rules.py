@@ -8,15 +8,20 @@ and ``validate_slot_references`` before it resolves any value; each
 
 The closed vocabulary, the selector rules (root, schema walk, array step, type
 compatibility) and the slot rules (pattern, identifier name, declared binding,
-scalar value) are defined here once, for both.
+scalar value) are defined here once, for both. Declarations are checked by one
+engine, ``check_declarations``: a ``BindingPolicy`` names the checks it runs and
+in what order, and the engine returns typed bindings and structured
+``Violation``s for the caller to word. ``PACKAGE_POLICY`` is how preparation
+reads a package; authoring states its own policies beside its wording.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Mapping
-from dataclasses import asdict, dataclass
-from typing import Any
+from collections.abc import Callable, Collection, Mapping
+from dataclasses import asdict, dataclass, replace
+from dataclasses import field as dataclass_field
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -97,10 +102,6 @@ UNDECLARED_SLOT = "undeclared_slot"
 NON_SCALAR_SLOT = "non_scalar_slot"
 
 
-class BindingValidationError(ValueError):
-    """Raised when a binding or substitution is not closed and documented."""
-
-
 class BindingError(ValueError):
     """Raised when a package's binding or slot cannot be resolved exactly.
 
@@ -128,60 +129,6 @@ class RuntimeBinding:
 
     def to_dict(self) -> dict[str, Any]:
         return {**asdict(self), "consumers": list(self.consumers)}
-
-    @classmethod
-    def from_dict(cls, value: Any) -> RuntimeBinding:
-        """Read an authored declaration: every field a string, every consumer closed."""
-
-        if not isinstance(value, dict):
-            raise BindingValidationError("binding must be an object")
-        _require_binding_fields(value)
-        consumers = value["consumers"]
-        if not isinstance(consumers, list) or not all(
-            isinstance(item, str) and item.strip() for item in consumers
-        ):
-            raise BindingValidationError("binding consumers must be non-empty strings")
-        _require_string_fields(value)
-        if not all(BINDING_SPEC.is_closed_consumer(item) for item in consumers):
-            raise BindingValidationError("binding consumer is not a closed path")
-        return cls(**{**value, "consumers": tuple(consumers)})
-
-    @classmethod
-    def parse(cls, value: Any) -> RuntimeBinding:
-        """Read a package declaration: the field set and the consumer list.
-
-        ``validate_binding_declarations`` checks the closed values afterwards.
-        """
-
-        if not isinstance(value, dict):
-            raise BindingError("binding must be an object")
-        missing, unknown = _BINDING_FIELDS - set(value), set(value) - _BINDING_FIELDS
-        if missing or unknown:
-            raise BindingError(
-                f"binding fields invalid (missing={sorted(missing)}, unknown={sorted(unknown)})",
-                code="binding_missing",
-            )
-        consumers = value["consumers"]
-        if not isinstance(consumers, list) or not all(
-            isinstance(item, str) and item.strip() for item in consumers
-        ):
-            raise BindingError("binding consumers must be non-empty strings")
-        return cls(**{**value, "consumers": tuple(consumers)})
-
-
-def _require_binding_fields(value: dict[str, Any]) -> None:
-    missing = _BINDING_FIELDS - set(value)
-    unknown = set(value) - _BINDING_FIELDS
-    if missing or unknown:
-        raise BindingValidationError(
-            f"binding fields invalid (missing={sorted(missing)}, unknown={sorted(unknown)})"
-        )
-
-
-def _require_string_fields(value: dict[str, Any]) -> None:
-    for field_name in BINDING_SPEC.string_fields:
-        if not isinstance(value[field_name], str):
-            raise BindingValidationError(f"binding {field_name} must be a string")
 
 
 def selector_root(selector: str) -> str | None:
@@ -282,13 +229,556 @@ def types_compatible(actual: str, expected: str) -> bool:
     return actual == expected or (actual == "integer" and expected == "number")
 
 
+def _setup_reference(source_ref: str) -> str | None:
+    """Return the operation a ``setup:<operation>`` source reference names, or None."""
+
+    prefix, _, operation = source_ref.partition(":")
+    return operation if prefix == "setup" and operation else None
+
+
 def setup_operation(source_ref: str) -> str:
     """Return the operation a ``setup:<operation>`` source reference names."""
 
-    prefix, _, operation = source_ref.partition(":")
-    if prefix != "setup" or not operation:
+    operation = _setup_reference(source_ref)
+    if operation is None:
         raise BindingError(f"setup binding source_ref must be setup:<operation>: {source_ref}")
     return operation
+
+
+def first_fact_named(inventory: Mapping[str, Any], reference: Any) -> dict[str, Any] | None:
+    """Return the first supplied fact whose ref equals ``reference``."""
+
+    return next(
+        (
+            item
+            for item in inventory.get("facts", [])
+            if isinstance(item, dict) and item.get("ref") == reference
+        ),
+        None,
+    )
+
+
+# The declaration-validation engine. Every check of a declaration is named below,
+# once; a ``BindingPolicy`` picks the checks and their order, and each caller words
+# the ``Violation``s it gets back.
+
+Chain = tuple[str, ...]
+# (source_kind, source_ref, selector, inventory) -> the canonical (source_ref, selector).
+CanonicalPaths = Callable[[str, str, str, dict[str, Any]], tuple[str, str]]
+
+
+@dataclass(frozen=True)
+class Violation:
+    """One rule a declaration breaks, for the caller to word.
+
+    ``index`` is the declaration's position (-1 for the declaration list itself),
+    ``name`` its ``name`` as written, and ``field`` the part of the declaration
+    the rule reads (``selector``, ``consumers[1]``), when it reads one.
+    """
+
+    kind: str
+    index: int
+    name: Any = None
+    field: str | None = None
+    details: Mapping[str, Any] = dataclass_field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BindingPolicy:
+    """Which checks the engine runs on declarations, in what order, and how strictly.
+
+    ``phases`` run in order, each over every declaration before the next phase.
+    A phase is a sequence of chains; a chain stops at its first check that
+    reports a violation or a gate (``if_str:<field>``, ``if_closed:<field>``,
+    ``if_schema``) that does not hold. With ``stop_at_first`` the engine returns
+    at the first violation; otherwise it runs every chain. A declaration that is
+    not an object takes no check after ``object``. ``readable`` is the chain that
+    makes one declaration readable as a ``RuntimeBinding``.
+
+    The options state the rules that differ between readers:
+    ``canonical_paths`` rewrites a source to its canonical path before the
+    source is looked up (``canonical_selector`` says whether with the declared
+    selector or the source kind's root); ``facts_prefix_required`` requires a
+    supplied source to read ``facts:<ref>``; ``unknown_fact_reported`` reports a
+    fact the inventory lacks rather than its missing schema;
+    ``permissions_must_be_list`` permits nothing unless ``setup_permissions`` is a
+    list; ``empty_selector_parts_undocumented`` treats a selector with an empty
+    part as undocumented.
+    """
+
+    readable: Chain
+    phases: tuple[tuple[Chain, ...], ...]
+    stop_at_first: bool = True
+    canonical_paths: CanonicalPaths | None = None
+    canonical_selector: Literal["declared", "root"] = "declared"
+    facts_prefix_required: bool = False
+    unknown_fact_reported: bool = False
+    permissions_must_be_list: bool = True
+    empty_selector_parts_undocumented: bool = False
+
+
+@dataclass(frozen=True)
+class BindingCheck:
+    """The engine's result: the declarations that broke no rule, and every violation."""
+
+    bindings: tuple[RuntimeBinding, ...]
+    violations: tuple[Violation, ...]
+
+
+@dataclass
+class _Declaration:
+    raw: Any
+    index: int
+    schema: dict[str, Any] | None = None
+    actual: str | None = None
+    ended: bool = False
+
+
+@dataclass
+class _Context:
+    inventory: dict[str, Any]
+    runtime_contract: dict[str, Any]
+    policy: BindingPolicy
+    names: set[Any] = dataclass_field(default_factory=set)
+
+
+_STOP = object()
+_Outcome = Any  # None (holds), _STOP (gate closed), or a list of violations
+
+
+def check_declarations(
+    declarations: Any,
+    *,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    policy: BindingPolicy,
+) -> BindingCheck:
+    """Run ``policy``'s checks over ``declarations`` and return what they found."""
+
+    if not isinstance(declarations, list):
+        return BindingCheck((), (Violation("not_list", -1),))
+    context = _Context(inventory, runtime_contract, policy)
+    states = [_Declaration(raw, index) for index, raw in enumerate(declarations)]
+    violations: list[Violation] = []
+    for phase in policy.phases:
+        for state in states:
+            for chain in phase:
+                if state.ended:
+                    break
+                found = _run_chain(chain, state, context)
+                violations.extend(found)
+                if found and policy.stop_at_first:
+                    return BindingCheck((), tuple(violations))
+    broken = {item.index for item in violations}
+    return BindingCheck(
+        tuple(_binding(state.raw) for state in states if state.index not in broken),
+        tuple(violations),
+    )
+
+
+def read_binding(value: Any, policy: BindingPolicy) -> RuntimeBinding | Violation:
+    """Read one declaration with ``policy.readable``; return it or its first violation."""
+
+    context = _Context({}, {}, policy)
+    found = _run_chain(policy.readable, _Declaration(value, 0), context)
+    return found[0] if found else _binding(value)
+
+
+def resolve_source(
+    source_kind: Any,
+    source_ref: str,
+    selector: Any,
+    *,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    policy: BindingPolicy,
+) -> tuple[dict[str, Any] | None, Violation | None]:
+    """Return the schema a binding's source documents, or the violation that hides it."""
+
+    if policy.canonical_paths is not None:
+        lookup = (
+            selector
+            if policy.canonical_selector == "declared"
+            else ("value" if source_kind == "supplied_input" else "result")
+        )
+        source_ref, _ = policy.canonical_paths(source_kind, source_ref, lookup, inventory)
+    if source_kind == "setup_output":
+        operation = _setup_reference(source_ref)
+        if operation is None:
+            return None, _source_violation("source_ref_form", source_kind, source_ref)
+        record = next(
+            (
+                item
+                for item in inventory.get("operations", [])
+                if isinstance(item, dict) and item.get("name") == operation
+            ),
+            None,
+        )
+        if record is None:
+            return None, _source_violation("unknown_operation", source_kind, source_ref, operation)
+        permitted = runtime_contract.get("setup_permissions", [])
+        if (policy.permissions_must_be_list and not isinstance(permitted, list)) or (
+            operation not in permitted
+        ):
+            return None, _source_violation(
+                "operation_not_permitted", source_kind, source_ref, operation
+            )
+        schema = record.get("result_schema")
+    else:
+        if policy.facts_prefix_required:
+            prefix, _, reference = source_ref.partition(":")
+            if prefix != "facts" or not reference:
+                return None, _source_violation("source_ref_form", source_kind, source_ref)
+        else:
+            reference = source_ref.removeprefix("facts:")
+        fact = first_fact_named(inventory, reference)
+        if fact is None and policy.unknown_fact_reported:
+            return None, _source_violation("unknown_fact", source_kind, source_ref, reference)
+        schema = fact.get("schema") if fact else None
+    if not isinstance(schema, dict):
+        return None, _source_violation("schema_missing", source_kind, source_ref)
+    return schema, None
+
+
+def _source_violation(
+    kind: str, source_kind: Any, source_ref: str, reference: str | None = None
+) -> Violation:
+    details = {"source_kind": source_kind, "source_ref": source_ref, "reference": reference}
+    return Violation(kind, -1, field="source_ref", details=details)
+
+
+def _binding(raw: dict[str, Any]) -> RuntimeBinding:
+    return RuntimeBinding(**{**raw, "consumers": tuple(raw["consumers"])})
+
+
+def _run_chain(chain: Chain, state: _Declaration, context: _Context) -> list[Violation]:
+    for check in chain:
+        outcome = _check(check, state, context)
+        if outcome is _STOP:
+            return []
+        if outcome:
+            return outcome
+        if state.ended:
+            return []
+    return []
+
+
+def _check(check: str, state: _Declaration, context: _Context) -> _Outcome:
+    gate, _, field = check.partition(":")
+    if gate == "if_str":
+        return None if isinstance(state.raw.get(field), str) else _STOP
+    if gate == "if_closed":
+        closed = {"source_kind": SOURCE_KINDS, "expected_type": CLOSED_TYPES}[field]
+        value = state.raw.get(field)
+        return None if isinstance(value, str) and value in closed else _STOP
+    return _CHECKS[check](state, context)
+
+
+def _violation(state: _Declaration, kind: str, field: str | None = None, **details: Any) -> list:
+    return [Violation(kind, state.index, state.raw.get("name"), field, details)]
+
+
+def _check_object(state: _Declaration, context: _Context) -> _Outcome:
+    if isinstance(state.raw, dict):
+        return None
+    state.ended = True
+    return [Violation("not_object", state.index)]
+
+
+def _check_fields(state: _Declaration, context: _Context) -> _Outcome:
+    missing = _BINDING_FIELDS - set(state.raw)
+    unknown = set(state.raw) - _BINDING_FIELDS
+    if missing or unknown:
+        return _violation(state, "fields", missing=missing, unknown=unknown)
+    return None
+
+
+def _check_string_fields(state: _Declaration, context: _Context) -> _Outcome:
+    return [
+        Violation("string_field", state.index, state.raw.get("name"), field_name)
+        for field_name in BINDING_SPEC.string_fields
+        if field_name in state.raw and not isinstance(state.raw[field_name], str)
+    ]
+
+
+def _check_consumers_list(state: _Declaration, context: _Context) -> _Outcome:
+    if isinstance(state.raw.get("consumers"), list):
+        return None
+    return _violation(state, "consumers_not_list", "consumers")
+
+
+def _check_consumers_empty(state: _Declaration, context: _Context) -> _Outcome:
+    return (
+        None if state.raw.get("consumers") else _violation(state, "consumers_empty", "consumers")
+    )
+
+
+def _consumer_items(state: _Declaration) -> list[Violation]:
+    """Return each consumer that is blank or not a closed destination, in order."""
+
+    found: list[Violation] = []
+    for index, consumer in enumerate(state.raw["consumers"]):
+        field_name = f"consumers[{index}]"
+        if not isinstance(consumer, str) or not consumer.strip():
+            found += _violation(state, "consumer_blank", field_name)
+        elif not BINDING_SPEC.is_closed_consumer(consumer):
+            found += _violation(state, "consumer_not_closed", field_name, consumer=consumer)
+    return found
+
+
+def _check_consumer_items(state: _Declaration, context: _Context) -> _Outcome:
+    return _consumer_items(state)
+
+
+def _check_consumer_blank(state: _Declaration, context: _Context) -> _Outcome:
+    return [item for item in _consumer_items(state) if item.kind == "consumer_blank"]
+
+
+def _check_consumer_closed(state: _Declaration, context: _Context) -> _Outcome:
+    return [item for item in _consumer_items(state) if item.kind == "consumer_not_closed"]
+
+
+def _check_duplicate(state: _Declaration, context: _Context) -> _Outcome:
+    name = state.raw.get("name") if isinstance(state.raw, dict) else None
+    if not isinstance(name, str):
+        return None
+    if name in context.names:
+        return _violation(state, "duplicate")
+    context.names.add(name)
+    return None
+
+
+def _check_name_or_duplicate(state: _Declaration, context: _Context) -> _Outcome:
+    name = state.raw.get("name")
+    if not isinstance(name, str) or not name or name in context.names:
+        return _violation(state, "name_invalid", "name")
+    context.names.add(name)
+    return None
+
+
+def _check_name_blank(state: _Declaration, context: _Context) -> _Outcome:
+    return None if state.raw["name"].strip() else _violation(state, "name_blank", "name")
+
+
+def _closed_check(field_name: str, values: frozenset[str]) -> Callable[..., _Outcome]:
+    def check(state: _Declaration, context: _Context) -> _Outcome:
+        value = state.raw.get(field_name)
+        if isinstance(value, str) and value in values:
+            return None
+        return _violation(state, f"{field_name}_not_closed", field_name)
+
+    return check
+
+
+def _blank_check(field_name: str, kind: str) -> Callable[..., _Outcome]:
+    def check(state: _Declaration, context: _Context) -> _Outcome:
+        return None if state.raw[field_name].strip() else _violation(state, kind, field_name)
+
+    return check
+
+
+def _check_selector_string(state: _Declaration, context: _Context) -> _Outcome:
+    if isinstance(state.raw.get("selector"), str):
+        return None
+    if "selector" in state.raw:
+        return _violation(state, "selector_not_string", "selector")
+    return _STOP
+
+
+def _check_root_known(state: _Declaration, context: _Context) -> _Outcome:
+    if selector_root(state.raw["selector"]) is not None:
+        return None
+    return _violation(state, "root_unknown", "selector")
+
+
+def _check_root_mismatch(state: _Declaration, context: _Context) -> _Outcome:
+    raw = state.raw
+    text = selector_root_mismatch(raw.get("name"), raw.get("source_kind"), raw["selector"])
+    return None if text is None else _violation(state, "root_mismatch", "selector", text=text)
+
+
+def _check_source(state: _Declaration, context: _Context) -> _Outcome:
+    raw = state.raw
+    schema, violation = resolve_source(
+        raw["source_kind"],
+        raw["source_ref"],
+        raw.get("selector"),
+        inventory=context.inventory,
+        runtime_contract=context.runtime_contract,
+        policy=context.policy,
+    )
+    state.schema = schema
+    if violation is None:
+        return None
+    return [replace(violation, index=state.index, name=raw.get("name"))]
+
+
+def _check_schema(state: _Declaration, context: _Context) -> _Outcome:
+    return None if state.schema is not None else _STOP
+
+
+def _check_array_step(state: _Declaration, context: _Context) -> _Outcome:
+    selector = state.raw["selector"]
+    path = selector_array_step(state.schema, selector)
+    if path is None:
+        return None
+    return _violation(state, "array_step", "selector", array_path=path, selector=selector)
+
+
+def _check_selector_documented(state: _Declaration, context: _Context) -> _Outcome:
+    selector = state.raw["selector"]
+    if context.policy.empty_selector_parts_undocumented and not all(selector.split(".")):
+        state.actual = None
+    else:
+        state.actual = selector_type(state.schema, selector)
+    if state.actual is not None:
+        return None
+    return _violation(state, "selector_undocumented", "selector", selector=selector)
+
+
+def _check_type(state: _Declaration, context: _Context) -> _Outcome:
+    expected = state.raw["expected_type"]
+    if types_compatible(state.actual, expected):
+        return None
+    return _violation(state, "type_mismatch", "selector", expected=expected, actual=state.actual)
+
+
+def _check_record_key(state: _Declaration, context: _Context) -> _Outcome:
+    """Reject a record-key companion binding that does not select the key string.
+
+    The companion's records are ``{"record_key": key}`` wrappers, so any other
+    selector yields a wrapper that carries none of the record's fields.
+    """
+
+    raw = state.raw
+    canonical_paths = context.policy.canonical_paths
+    if raw["source_kind"] != "supplied_input" or canonical_paths is None:
+        return None
+    source_ref, selector = canonical_paths(
+        raw["source_kind"], raw["source_ref"], raw["selector"], context.inventory
+    )
+    reference = source_ref.removeprefix("facts:")
+    fact = first_fact_named(context.inventory, reference)
+    provenance = fact.get("provenance") if fact is not None else None
+    if not isinstance(provenance, dict) or provenance.get("derivation") != "keyed_map_record_key":
+        return None
+    parts = selector.split(".")
+    if len(parts) == 3 and parts[0] == "value" and parts[2] == "record_key":
+        return None
+    base = provenance.get("derived_from") or reference.removesuffix(":records")
+    return _violation(
+        state, "record_key_selector", "selector", selector=selector, reference=reference, base=base
+    )
+
+
+_CHECKS: dict[str, Callable[[_Declaration, _Context], _Outcome]] = {
+    "object": _check_object,
+    "fields": _check_fields,
+    "string_fields": _check_string_fields,
+    "consumers_list": _check_consumers_list,
+    "consumers_empty": _check_consumers_empty,
+    "consumer_items": _check_consumer_items,
+    "consumer_blank": _check_consumer_blank,
+    "consumer_closed": _check_consumer_closed,
+    "duplicate": _check_duplicate,
+    "name_or_duplicate": _check_name_or_duplicate,
+    "name_blank": _check_name_blank,
+    "expected_type": _closed_check("expected_type", CLOSED_TYPES),
+    "source_kind": _closed_check("source_kind", SOURCE_KINDS),
+    "on_missing": _closed_check("on_missing", MISSING_POLICIES),
+    "source_ref_blank": _blank_check("source_ref", "source_reference_blank"),
+    "selector_blank": _blank_check("selector", "selector_blank"),
+    "selector_string": _check_selector_string,
+    "root_known": _check_root_known,
+    "root_mismatch": _check_root_mismatch,
+    "source": _check_source,
+    "if_schema": _check_schema,
+    "array_step": _check_array_step,
+    "selector_documented": _check_selector_documented,
+    "type": _check_type,
+    "record_key": _check_record_key,
+}
+
+_PACKAGE_READABLE: Chain = ("object", "fields", "consumers_list", "consumer_blank")
+# A package declaration is checked as preparation reads it: one chain per
+# declaration, in declaration order, stopping at the first violation.
+PACKAGE_POLICY = BindingPolicy(
+    readable=_PACKAGE_READABLE,
+    phases=(
+        (
+            (
+                *_PACKAGE_READABLE,
+                "name_or_duplicate",
+                "expected_type",
+                "source_kind",
+                "on_missing",
+                "consumers_empty",
+                "consumer_closed",
+                "root_mismatch",
+                "source",
+                "array_step",
+                "selector_documented",
+                "type",
+            ),
+        ),
+    ),
+)
+# The reason preparation reports for each violation; any other is binding_invalid.
+_PACKAGE_MISSING = frozenset(
+    {"fields", "on_missing_not_closed", "schema_missing", "selector_undocumented"}
+)
+
+
+def package_error(violation: Violation) -> BindingError:
+    """Word a violation of ``PACKAGE_POLICY`` as the ``BindingError`` preparation reports."""
+
+    name, details = violation.name, violation.details
+    messages = {
+        "not_list": "runtime_bindings must be a list",
+        "not_object": "binding must be an object",
+        "consumers_not_list": "binding consumers must be non-empty strings",
+        "consumer_blank": "binding consumers must be non-empty strings",
+        "consumers_empty": f"binding consumers must be non-empty strings: {name}",
+        "name_invalid": f"duplicate or blank binding: {name!r}",
+        "expected_type_not_closed": f"binding expected_type is not closed: {name}",
+        "source_kind_not_closed": f"binding source_kind is not closed: {name}",
+        "on_missing_not_closed": f"binding on_missing is not closed: {name}",
+        "root_mismatch": details.get("text"),
+        "source_ref_form": "setup binding source_ref must be setup:<operation>: "
+        f"{details.get('source_ref')}",
+        "unknown_operation": f"unknown setup operation: {details.get('reference')}",
+        "operation_not_permitted": f"setup operation is not permitted: {details.get('reference')}",
+        "schema_missing": f"missing source schema for binding: {name}",
+        "selector_undocumented": f"undocumented selector for binding {name}: "
+        f"{details.get('selector')}",
+        "type_mismatch": f"binding type mismatch for {name}: expected "
+        f"{details.get('expected')}, source is {details.get('actual')}",
+    }
+    if violation.kind == "fields":
+        message = (
+            f"binding fields invalid (missing={sorted(details['missing'])}, "
+            f"unknown={sorted(details['unknown'])})"
+        )
+    elif violation.kind == "consumer_not_closed":
+        message = f"binding consumer is not a closed path for {name}: {details['consumer']}"
+    elif violation.kind == "array_step":
+        message = (
+            f"selector for binding {name} steps into the array at "
+            f"{details['array_path']}: {details['selector']}"
+        )
+    else:
+        message = messages[violation.kind]
+    code = "binding_missing" if violation.kind in _PACKAGE_MISSING else "binding_invalid"
+    return BindingError(message, code=code)
+
+
+def parse_binding(value: Any) -> RuntimeBinding:
+    """Read one package declaration: its field set and its consumer list."""
+
+    read = read_binding(value, PACKAGE_POLICY)
+    if isinstance(read, Violation):
+        raise package_error(read)
+    return read
 
 
 def validate_binding_declarations(
@@ -303,112 +793,15 @@ def validate_binding_declarations(
     documented, or whose source type cannot fill it.
     """
 
-    if not isinstance(declarations, list):
-        raise BindingError("runtime_bindings must be a list")
-    result: list[RuntimeBinding] = []
-    names: set[str] = set()
-    for raw in declarations:
-        binding = RuntimeBinding.parse(raw)
-        _check_closed_fields(binding, names)
-        mismatch = selector_root_mismatch(binding.name, binding.source_kind, binding.selector)
-        if mismatch is not None:
-            raise BindingError(mismatch)
-        schema = _source_schema(binding, inventory, runtime_contract)
-        actual = _selected_type(binding, schema)
-        if not types_compatible(actual, binding.expected_type):
-            raise BindingError(
-                f"binding type mismatch for {binding.name}: expected "
-                f"{binding.expected_type}, source is {actual}"
-            )
-        names.add(binding.name)
-        result.append(binding)
-    return tuple(result)
-
-
-def _check_closed_fields(binding: RuntimeBinding, names: set[str]) -> None:
-    if not isinstance(binding.name, str) or not binding.name or binding.name in names:
-        raise BindingError(f"duplicate or blank binding: {binding.name!r}")
-    if not isinstance(binding.expected_type, str) or binding.expected_type not in CLOSED_TYPES:
-        raise BindingError(f"binding expected_type is not closed: {binding.name}")
-    if not isinstance(binding.source_kind, str) or binding.source_kind not in SOURCE_KINDS:
-        raise BindingError(f"binding source_kind is not closed: {binding.name}")
-    if not isinstance(binding.on_missing, str) or binding.on_missing not in MISSING_POLICIES:
-        raise BindingError(
-            f"binding on_missing is not closed: {binding.name}", code="binding_missing"
-        )
-    if not binding.consumers:
-        raise BindingError(f"binding consumers must be non-empty strings: {binding.name}")
-    for consumer in binding.consumers:
-        if not BINDING_SPEC.is_closed_consumer(consumer):
-            raise BindingError(
-                f"binding consumer is not a closed path for {binding.name}: {consumer}"
-            )
-
-
-def _source_schema(
-    binding: RuntimeBinding, inventory: dict[str, Any], runtime_contract: dict[str, Any]
-) -> dict[str, Any]:
-    schema = (
-        _setup_output_schema(binding, inventory, runtime_contract)
-        if binding.source_kind == "setup_output"
-        else _supplied_input_schema(binding, inventory)
+    checked = check_declarations(
+        declarations,
+        inventory=inventory,
+        runtime_contract=runtime_contract,
+        policy=PACKAGE_POLICY,
     )
-    if not isinstance(schema, dict):
-        raise BindingError(
-            f"missing source schema for binding: {binding.name}", code="binding_missing"
-        )
-    return schema
-
-
-def _setup_output_schema(
-    binding: RuntimeBinding, inventory: dict[str, Any], runtime_contract: dict[str, Any]
-) -> Any:
-    operation = setup_operation(binding.source_ref)
-    record = next(
-        (
-            item
-            for item in inventory.get("operations", [])
-            if isinstance(item, dict) and item.get("name") == operation
-        ),
-        None,
-    )
-    if record is None:
-        raise BindingError(f"unknown setup operation: {operation}")
-    permitted = runtime_contract.get("setup_permissions", [])
-    if not isinstance(permitted, list) or operation not in permitted:
-        raise BindingError(f"setup operation is not permitted: {operation}")
-    return record.get("result_schema")
-
-
-def _supplied_input_schema(binding: RuntimeBinding, inventory: dict[str, Any]) -> Any:
-    fact_name = binding.source_ref.removeprefix("facts:")
-    record = next(
-        (
-            item
-            for item in inventory.get("facts", [])
-            if isinstance(item, dict) and item.get("ref") == fact_name
-        ),
-        None,
-    )
-    return record.get("schema") if record else None
-
-
-def _selected_type(binding: RuntimeBinding, schema: dict[str, Any]) -> str:
-    """Return the documented type that ``binding.selector`` names in ``schema``."""
-
-    array_path = selector_array_step(schema, binding.selector)
-    if array_path is not None:
-        raise BindingError(
-            f"selector for binding {binding.name} steps into the array at "
-            f"{array_path}: {binding.selector}"
-        )
-    actual = selector_type(schema, binding.selector)
-    if actual is None:
-        raise BindingError(
-            f"undocumented selector for binding {binding.name}: {binding.selector}",
-            code="binding_missing",
-        )
-    return actual
+    if checked.violations:
+        raise package_error(checked.violations[0])
+    return checked.bindings
 
 
 def slot_names(text: str) -> list[str]:
@@ -511,6 +904,7 @@ __all__ = [
     "MISSING_POLICIES",
     "NON_SCALAR_SLOT",
     "NON_SCALAR_TYPES",
+    "PACKAGE_POLICY",
     "PREREQUISITE_CONSUMERS",
     "SELECTOR_ROOTS",
     "SETUP_ARGUMENT_CONSUMERS",
@@ -518,13 +912,23 @@ __all__ = [
     "SLOT_PATTERN",
     "SOURCE_KINDS",
     "UNDECLARED_SLOT",
+    "BindingCheck",
     "BindingError",
+    "BindingPolicy",
     "BindingSpec",
-    "BindingValidationError",
+    "CanonicalPaths",
+    "Chain",
     "ConsumerPrefix",
     "RuntimeBinding",
+    "Violation",
+    "check_declarations",
     "check_slot_reference",
     "declared_types",
+    "first_fact_named",
+    "package_error",
+    "parse_binding",
+    "read_binding",
+    "resolve_source",
     "schema_child",
     "selector_array_step",
     "selector_root",

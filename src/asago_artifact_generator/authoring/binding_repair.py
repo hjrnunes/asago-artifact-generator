@@ -14,12 +14,13 @@ from typing import Any
 
 from ..binding_rules import CLOSED_TYPES, types_compatible
 from ..bindings import (
+    _binding_selector_type,
     _first_fact_named,
     canonical_binding_paths,
     named_record_facts,
 )
 from ..input_adapter import InputView
-from .checks import _binding_selector_type, _binding_source_schema
+from .checks import _binding_source_schema
 from .core import Call1FramingError, Finding, FindingTarget
 from .prompt_context import _explained_operations, _plan_evidence_references
 from .response_decode import _decode_stage_response

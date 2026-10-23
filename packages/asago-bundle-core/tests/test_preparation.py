@@ -11,6 +11,7 @@ from asago_artifact_generator.package_io import ArtifactPackage, build_package
 from asago_bundle_core.bindings import (
     BindingError,
     RuntimeBinding,
+    parse_binding,
     resolve_bindings,
     substitute_slots,
     validate_slot_references,
@@ -191,7 +192,7 @@ def test_a_failed_binding_or_prerequisite_is_incomplete(
 
 
 def test_supplied_fact_binding_resolves_from_package_inventory() -> None:
-    declaration = RuntimeBinding.parse(
+    declaration = parse_binding(
         {
             "name": "draft_status",
             "expected_type": "string",
