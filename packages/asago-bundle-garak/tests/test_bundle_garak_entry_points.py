@@ -14,7 +14,13 @@ import pytest
 
 import asago_bundle_garak
 from asago_bundle_core.preparation import PreparationIncomplete
-from asago_bundle_core.testing import MOCK_TARGET
+from asago_bundle_core.testing import (
+    CONDITION,
+    JUDGE,
+    MOCK_TARGET,
+    sequential_stimulus,
+    write_test_package,
+)
 from asago_bundle_garak import (
     CompileError,
     Instantiated,
@@ -241,7 +247,11 @@ def test_a_run_mcp_url_equal_to_the_targets_is_accepted(
         pytest.param(lambda t: _plant(t, {"$bundle": "../outside"}), id="bundle-slot-escapes"),
         pytest.param(lambda t: _plant(t, {"$bundle": "/etc/passwd"}), id="bundle-slot-absolute"),
         pytest.param(lambda t: _plant(t, {"$bundle": 3}), id="bundle-slot-not-a-path"),
-        pytest.param(lambda t: _plant(t, {"$values": "model"}), id="unknown-slot-kind"),
+        pytest.param(lambda t: _require(t, "user_turn_999"), id="requires-an-unused-turn"),
+        pytest.param(
+            lambda t: _edit_manifest(t, entrypoint=[*_entrypoint(t), "--x", "{bogus}"]),
+            id="entrypoint-unknown-placeholder",
+        ),
         pytest.param(lambda t: _move_run(t, "../run.template.json"), id="template-name-escapes"),
         pytest.param(
             lambda t: _move_run(t, str((t / "run.template.json").resolve())),
@@ -275,6 +285,10 @@ def _requires(template: Path, drop: str | None = None) -> list[Any]:
     return [key for key in manifest["requires"] if key != drop]
 
 
+def _entrypoint(template: Path) -> list[str]:
+    return json.loads((template / "bundle.json").read_text("utf-8"))["entrypoint"]
+
+
 def _require(template: Path, key: Any) -> None:
     _edit_manifest(template, requires=[*_requires(template), key])
 
@@ -296,6 +310,37 @@ def _move_run(template: Path, name: str) -> None:
     copy.write_text(source.read_text("utf-8"), "utf-8")
     conversation = "conversation.template.json"
     _edit_manifest(template, templates={"conversation": conversation, "run": name})
+
+
+# Package data holding an object with a dollar-prefixed key, which is not a slot marker.
+DOLLAR_LITERAL = {"$schema": "https://example.invalid/condition", "$id": "literal"}
+
+
+@pytest.mark.parametrize("sequential", [False, True], ids=["single", "sequential"])
+@pytest.mark.parametrize("claim_level", ["command_attempt", "reply"])
+def test_a_dollar_prefixed_literal_in_package_data_survives_into_the_bundle(
+    tmp_path: Path, claim_level: str, sequential: bool
+) -> None:
+    condition = {**CONDITION, "notes": [{"$schema": DOLLAR_LITERAL["$schema"]}, DOLLAR_LITERAL]}
+    judge = {**JUDGE, "facts": [*JUDGE["facts"], {"$schema": DOLLAR_LITERAL["$schema"]}]}
+    package = write_test_package(
+        tmp_path / "packages",
+        claim_level=claim_level,
+        stimulus=sequential_stimulus() if sequential else None,
+        condition=condition,
+        judge=judge,
+    )
+    compile(package, tmp_path / "template")
+    run = RunSettings(**{**vars(RUN), "allowed_tools": ("get_referral",)})
+
+    result = instantiate(package, tmp_path / "template", tmp_path / "b", target=TARGET, run=run)
+
+    assert isinstance(result, Instantiated)
+    entry = json.loads((tmp_path / "b" / "conversations.jsonl").read_text("utf-8"))
+    if claim_level == "command_attempt":
+        assert entry["tool_call_condition"] == condition
+    else:
+        assert entry["judge_rubric"]["facts"] == judge["facts"]
 
 
 @pytest.mark.parametrize(

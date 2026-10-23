@@ -21,7 +21,7 @@ from typing import Any
 
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.schema import manifest_errors
-from asago_bundle_core.slots import BUNDLE, VALUE, fill
+from asago_bundle_core.slots import BUNDLE, VALUE, fill, template_slots
 from asago_bundle_core.target import TargetConfig, authorized_target
 from asago_bundle_core.text import canonical_text
 from asago_bundle_core.values import check_values, render_entrypoint
@@ -40,6 +40,10 @@ JUDGE_TURNS = frozenset({"final", "all"})
 TEMPLATE_KEYS = frozenset({"requires", "templates", "entrypoint"})
 TEMPLATE_ROLES = frozenset({"conversation", "run"})
 USER_TURN = re.compile(rf"{USER_TURN_PREFIX}[1-9][0-9]*")
+PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
+# What may stand in braces in a template's entrypoint: what render_entrypoint renders
+# ({bundle} and the value keys), and {tool_python}, which it leaves for the runner.
+ENTRYPOINT_PLACEHOLDERS = frozenset({"bundle", "tool_python", *ENTRYPOINT_VALUES})
 
 
 class InstantiateError(BundleError):
@@ -75,11 +79,13 @@ def read_template(template_dir: str | Path) -> Template:
     """Read a bundle template and refuse every defect of its own that filling could meet.
 
     The manifest must satisfy ``tool-bundle-v1`` and name exactly a conversation and a run
-    template, each a file inside the template directory holding a JSON object. Every
-    ``requires`` key must be one this adapter checks (``check_for``), and the entrypoint's
-    value keys must be among them. Every slot marker in the documents must be a
-    ``$value`` naming a ``requires`` key or a ``$bundle`` naming a relative path inside
-    the bundle; any other one-key ``$`` object is an unknown marker. What is left to
+    template, each a file inside the template directory holding a JSON object. The slot
+    markers are the ones core ``fill`` replaces (``$value`` and ``$bundle``); any other
+    object, ``$``-prefixed keys included, is data. Every ``$value`` must name a text key
+    and every ``$bundle`` a relative path inside the bundle. ``requires`` must list exactly
+    the ``$value`` keys plus the entrypoint's value keys (``ENTRYPOINT_VALUES``), each one
+    this adapter checks (``check_for``), and the entrypoint may hold no placeholder
+    ``render_entrypoint`` does not render besides ``{tool_python}``. What is left to
     ``fill_template`` is the values themselves.
     """
 
@@ -102,16 +108,29 @@ def read_template(template_dir: str | Path) -> Template:
         raise InstantiateError(
             f"{BUNDLE_FILE} requires keys this adapter has no check for: {unknown}"
         )
-    missing = sorted(set(ENTRYPOINT_VALUES) - set(requires))
-    if missing:
-        raise InstantiateError(f"{BUNDLE_FILE} requires lacks the entrypoint's {missing}")
+    unrendered = sorted(
+        {
+            name
+            for arg in manifest["entrypoint"]
+            for name in PLACEHOLDER.findall(arg)
+            if name not in ENTRYPOINT_PLACEHOLDERS
+        }
+    )
+    if unrendered:
+        raise InstantiateError(f"{BUNDLE_FILE} entrypoint has unknown placeholders: {unrendered}")
     documents = {role: _read_json(template / name) for role, name in names.items()}
     for role, document in documents.items():
         if not isinstance(document, dict):
             raise InstantiateError(f"the {role} template is not a JSON object")
-        problem = _slot_problem(document, set(requires))
+        problem = _slot_problem(document)
         if problem:
             raise InstantiateError(f"the {role} template {problem}")
+    used = template_slots(documents.values()) | set(ENTRYPOINT_VALUES)
+    if set(requires) != used:
+        raise InstantiateError(
+            f"{BUNDLE_FILE} requires does not match what the templates and the entrypoint "
+            f"use: unused {sorted(set(requires) - used)}, unlisted {sorted(used - set(requires))}"
+        )
     return Template(manifest, documents)
 
 
@@ -160,27 +179,22 @@ def _inside(name: Any) -> bool:
     return not path.is_absolute() and not name.startswith("\\") and ".." not in path.parts
 
 
-def _slot_problem(node: Any, requires: set[str]) -> str | None:
-    """Return what is wrong with the first bad slot marker under ``node``, or None."""
+def _slot_problem(document: Any) -> str | None:
+    """Return what is wrong with the first slot marker of ``document`` that core
+    ``fill`` would replace, or None; other objects are data and are not inspected."""
 
-    if isinstance(node, dict) and len(node) == 1:
-        ((key, argument),) = node.items()
-        if key == VALUE:
-            if not isinstance(argument, str) or argument not in requires:
-                return f"has a $value slot naming {argument!r}, which requires does not list"
-            return None
-        if key == BUNDLE:
-            if not _inside(argument):
-                return f"has a $bundle slot {argument!r} that is not a path inside the bundle"
-            return None
-        if isinstance(key, str) and key.startswith("$"):
-            return f"has an unknown slot marker {key!r}"
-    children = node.values() if isinstance(node, dict) else node if isinstance(node, list) else []
-    for child in children:
-        problem = _slot_problem(child, requires)
-        if problem:
-            return problem
-    return None
+    problems: list[str] = []
+
+    def visit(kind: str, argument: Any) -> None:
+        if kind == VALUE and not isinstance(argument, str):
+            problems.append(f"has a $value slot naming {argument!r}, which is not a key")
+        elif kind == BUNDLE and not _inside(argument):
+            problems.append(
+                f"has a $bundle slot {argument!r} that is not a path inside the bundle"
+            )
+
+    fill(document, visit)
+    return problems[0] if problems else None
 
 
 def check_for(key: str) -> Callable[[Any], bool] | None:
