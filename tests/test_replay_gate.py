@@ -26,6 +26,7 @@ from typer.testing import CliRunner
 import replay_gate
 from asago_artifact_generator import cli
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
+from asago_artifact_generator.contract_kit import canonical_json
 from replay_gate import (
     ALLOWED_DIFFERENCES,
     Difference,
@@ -36,12 +37,13 @@ from replay_gate import (
     ReplayRecordError,
     _summary,
     compare_item_outputs,
+    current_layout,
     load_recorded_calls,
     replay_environment,
     run_gate,
 )
 
-from .support import HANDOFF, target_inputs
+from .support import HANDOFF, build_neutral_artifact_package, target_inputs
 
 TASK_ID = "SCN-901"
 
@@ -617,6 +619,87 @@ def test_missing_and_extra_files_are_differences(tmp_path: Path) -> None:
         (f"{TASK_ID}/plan.json", "only in recording"),
         (f"{TASK_ID}.blocked.json", "only in replay"),
     ]
+
+
+def _age_package(output: Path, item_id: str) -> None:
+    """Rewrite a current package in the layout a recording made before the copies were dropped."""
+
+    from asago_artifact_generator.package_io import _manifest_digest, _member_record
+
+    package = output / item_id
+    copies = {
+        "authoring/01-call1.json": b"{}\n",
+        "authoring/01-call1.prompt": b"the prompt",
+        "authoring/01-call1.raw": b"the reply",
+        "authoring/ledger.json": b"[]\n",
+        "authoring/reviews.json": b"{}\n",
+        "authoring/transformations.json": b"[]\n",
+        "source-hashes.json": b"{}\n",
+        "observations.json": b"{}\n",
+    }
+    inputs = json.loads((package / "inputs.json").read_bytes())
+    inputs.update(model_facing_input={"narrative": "n"}, source_input={"payload": {}})
+    copies["inputs.json"] = (canonical_json(inputs) + "\n").encode("utf-8")
+    for name, content in copies.items():
+        (package / name).parent.mkdir(exist_ok=True)
+        (package / name).write_bytes(content)
+    manifest = json.loads((package / "manifest.json").read_bytes())
+    members = {record["path"]: record for record in manifest["members"]}
+    members.update({name: _member_record(name, content) for name, content in copies.items()})
+    manifest["members"] = [members[path] for path in sorted(members)]
+    manifest["authoring"].update(ledger=[{"stage": "call1"}], usage=[], policy={})
+    manifest["creation_model"] = {"model": "configured-private-authoring"}
+    manifest["manifest_digest"] = _manifest_digest(manifest)
+    (package / "manifest.json").write_text(canonical_json(manifest) + "\n", encoding="utf-8")
+    (output / f"{item_id}.authoring").mkdir()
+    (output / f"{item_id}.authoring" / "01-call1.prompt").write_bytes(b"the prompt")
+
+
+def _package_trees(tmp_path: Path) -> tuple[Path, Path]:
+    recorded, replayed = tmp_path / "recorded", tmp_path / "replayed"
+    for root in (recorded, replayed):
+        _write_tree(root, f"{root / 'output'}/{TASK_ID}", status="accepted")
+        build_neutral_artifact_package(root / "output" / TASK_ID)
+    _age_package(recorded / "output", TASK_ID)
+    return recorded, replayed
+
+
+def _differences(recorded: Path, replayed: Path) -> tuple[int, list[Difference]]:
+    return compare_item_outputs(
+        TASK_ID,
+        recorded_output=recorded / "output",
+        recorded_log=recorded / "items" / f"{TASK_ID}.log",
+        replayed_output=replayed / "output",
+        replayed_log=replayed / "items" / f"{TASK_ID}.log",
+    )
+
+
+def test_a_recording_with_the_retired_request_copies_compares_equal(tmp_path: Path) -> None:
+    recorded, replayed = _package_trees(tmp_path)
+
+    compared, differences = _differences(recorded, replayed)
+
+    assert differences == []
+    # The 11 package files, the evidence, and the log.
+    assert compared == 13
+
+
+def test_a_current_recording_is_compared_unchanged(tmp_path: Path) -> None:
+    output = tmp_path / "output"
+    build_neutral_artifact_package(output / TASK_ID)
+    files = {path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()}
+
+    assert current_layout(output, TASK_ID, files) == (files, {})
+
+
+def test_a_retired_layout_still_shows_a_difference_in_a_kept_member(tmp_path: Path) -> None:
+    recorded, replayed = _package_trees(tmp_path)
+    inputs = replayed / "output" / TASK_ID / "inputs.json"
+    inputs.write_text('{"neutral":false}\n', encoding="utf-8")
+
+    _, differences = _differences(recorded, replayed)
+
+    assert [item.path for item in differences] == [f"{TASK_ID}/inputs.json"]
 
 
 # --- end to end -------------------------------------------------------------------
