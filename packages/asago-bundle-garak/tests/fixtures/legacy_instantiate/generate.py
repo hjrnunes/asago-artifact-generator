@@ -10,8 +10,11 @@ template into ``templates/<kind>/``, and its command line fills each template wi
 values and with unusable ones. ``cases.json`` holds, per case, the values file's text
 (none: the file is absent), the exit code, stdout, stderr and the SHA-256 of the bytes of
 every file of the bundle (``dir`` for a directory). The template, the values and the
-bundle sit in one temporary directory (left in place), written ``{tmp}`` in the recorded
-output and in the file bytes, which are otherwise hashed as written.
+bundle sit in one temporary directory (left in place), reached through a symlink to it
+(``case_directory``): in the recorded output and the file bytes, which are otherwise
+hashed as written, the path as given is ``{tmp}`` and its resolved spelling
+``{tmp_resolved}``. The symlink keeps the two spellings different on every system, so
+whether the adapter writes a path as given or resolved is recorded too.
 ``test_bundle_garak_cli.py`` replays every case with the current code. To regenerate,
 make the checkout with ``git worktree add --detach "$(mktemp -d)/c59a8fb" c59a8fb``.
 
@@ -62,14 +65,42 @@ def value_cases(requires: list[str]) -> dict[str, str | None]:
     }
 
 
+def case_directory(base: Path) -> Path:
+    """Return ``base/given``, a symlink to ``base/real``, as the directory a case runs in.
+
+    The adapters write some paths as given and some resolved, and the two get different
+    tokens, so their spellings must differ on every system: on Linux a temporary directory
+    is often its own resolved path. A run where they coincide, or one holds the other, fails.
+    """
+
+    (base / "real").mkdir()
+    given = base / "given"
+    given.symlink_to(base / "real", target_is_directory=True)
+    spelled, resolved = str(given), str(given.resolve())
+    if spelled in resolved or resolved in spelled:
+        raise AssertionError(f"the as-given and resolved paths must differ: {spelled}, {resolved}")
+    return given
+
+
+def spellings(tmp: Path) -> list[tuple[str, str]]:
+    """Return each spelling of ``tmp`` with its token, the longer spelling first."""
+
+    pairs = [(str(tmp.resolve()), "{tmp_resolved}"), (str(tmp), "{tmp}")]
+    return sorted(pairs, key=lambda pair: len(pair[0]), reverse=True)
+
+
 def normalise(text: str, tmp: Path) -> str:
-    return text.replace(str(tmp.resolve()), "{tmp}").replace(str(tmp), "{tmp}")
+    for spelling, token in spellings(tmp):
+        text = text.replace(spelling, token)
+    return text
 
 
 def normalise_bytes(data: bytes, tmp: Path) -> bytes:
-    """Write the temporary directory as ``{tmp}`` in a file's bytes, which stay as written."""
+    """Write the case directory's spellings as their tokens in a file's bytes."""
 
-    return data.replace(str(tmp.resolve()).encode(), b"{tmp}").replace(str(tmp).encode(), b"{tmp}")
+    for spelling, token in spellings(tmp):
+        data = data.replace(spelling.encode(), token.encode())
+    return data
 
 
 def digests(bundle: Path, tmp: Path) -> dict[str, str]:
@@ -108,7 +139,7 @@ def main(checkout: Path) -> None:
         shutil.copytree(scratch / "t", target, dirs_exist_ok=True)
         requires = json.loads((target / "bundle.json").read_text("utf-8"))["requires"]
         for case, text in value_cases(requires).items():
-            tmp = Path(tempfile.mkdtemp())
+            tmp = case_directory(Path(tempfile.mkdtemp()))
             shutil.copytree(target, tmp / "template")
             if text is not None:
                 (tmp / "values.json").write_text(text, encoding="utf-8")

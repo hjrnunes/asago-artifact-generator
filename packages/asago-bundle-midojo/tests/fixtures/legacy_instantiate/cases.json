@@ -16,7 +16,7 @@
         "asago_suite/suite.py": "efe07d32a2e94771f57c5d64a648ebdaa2dc5e5882d681dfd197f15d136c0a38",
         "asago_suite/suite.yaml": "e857ba361bb2d54558b2fbc3408b7103a1fae15e00d6a1ed36c1dc063d496fcc",
         "asago_suite/verifier_names.py": "39cb305829acf5a03a3fe3c61a07bd0692ebe3a30ef20f0b1427733719219c44",
-        "bundle.json": "05754a948dd4c57399ece421a8037690723676cbd0fde5bbcc917b62d1008dbe",
+        "bundle.json": "081acb00092673b28391a4c94e68f888d3f2278229f110aed066ddf4cb225967",
         "run_midojo.py": "c0f84fa4c7eec5521962f4320205e3ea1e4e38894fc168892f94d70b5eac2485"
       }
     },
@@ -69,9 +69,9 @@
         "asago_suite/asago_rubric.py": "77ee582e4bd0fc491eab5a0c87805bdb48640790f54498c1b0cb8453cd23fb4d",
         "asago_suite/asago_verifiers.py": "96259c443d6e0ccea9353801295fbd1f8d1309a6646352df4ecd9baa63ed41ac",
         "asago_suite/suite.py": "efe07d32a2e94771f57c5d64a648ebdaa2dc5e5882d681dfd197f15d136c0a38",
-        "asago_suite/suite.yaml": "bdc6d3cda4efb27e4f00597b118d24ff8dd6cd649d58d7967e02d688917c4443",
+        "asago_suite/suite.yaml": "dc49653b08c974bafe5e8713b45b5f6dc599c1bb6507d7ca982426d960e65162",
         "asago_suite/verifier_names.py": "39cb305829acf5a03a3fe3c61a07bd0692ebe3a30ef20f0b1427733719219c44",
-        "bundle.json": "3043cae25c4c64896f918a803eaedf7451bae04364929155dbf882cc9caf4585",
+        "bundle.json": "74951393664155935c0a7dfc2b8e3e1d92576099d49b1c22f603b7c084bb67e1",
         "run_midojo.py": "c0f84fa4c7eec5521962f4320205e3ea1e4e38894fc168892f94d70b5eac2485"
       }
     },
@@ -126,7 +126,7 @@
         "asago_suite/suite.py": "efe07d32a2e94771f57c5d64a648ebdaa2dc5e5882d681dfd197f15d136c0a38",
         "asago_suite/suite.yaml": "5af7fcd4dc4330ce0c093ca7fd2455b76470e3e8e27ee9439d7abd20117f471d",
         "asago_suite/verifier_names.py": "39cb305829acf5a03a3fe3c61a07bd0692ebe3a30ef20f0b1427733719219c44",
-        "bundle.json": "70bbdac256ba29e5c996e39c16180b60ec797e4bcbfc9ddb2d5b5686ae8e9740",
+        "bundle.json": "b8ee65fcaaf9a5625c773c1b447ee23aa59fdb883c6a40adf30e00a70ed48fe5",
         "run_midojo.py": "c0f84fa4c7eec5521962f4320205e3ea1e4e38894fc168892f94d70b5eac2485"
       }
     },

@@ -233,14 +233,42 @@ def test_a_call_without_either_form_is_a_usage_error(
     assert not (tmp_path / "b").exists()
 
 
+def case_directory(base: Path) -> Path:
+    """Return ``base/given``, a symlink to ``base/real``, as the directory a case runs in.
+
+    The adapters write some paths as given and some resolved, and the two get different
+    tokens, so their spellings must differ on every system: on Linux a temporary directory
+    is often its own resolved path. A run where they coincide, or one holds the other, fails.
+    """
+
+    (base / "real").mkdir()
+    given = base / "given"
+    given.symlink_to(base / "real", target_is_directory=True)
+    spelled, resolved = str(given), str(given.resolve())
+    if spelled in resolved or resolved in spelled:
+        raise AssertionError(f"the as-given and resolved paths must differ: {spelled}, {resolved}")
+    return given
+
+
+def spellings(tmp: Path) -> list[tuple[str, str]]:
+    """Return each spelling of ``tmp`` with its token, the longer spelling first."""
+
+    pairs = [(str(tmp.resolve()), "{tmp_resolved}"), (str(tmp), "{tmp}")]
+    return sorted(pairs, key=lambda pair: len(pair[0]), reverse=True)
+
+
 def normalise(text: str, tmp: Path) -> str:
-    return text.replace(str(tmp.resolve()), "{tmp}").replace(str(tmp), "{tmp}")
+    for spelling, token in spellings(tmp):
+        text = text.replace(spelling, token)
+    return text
 
 
 def normalise_bytes(data: bytes, tmp: Path) -> bytes:
-    """Write the temporary directory as ``{tmp}`` in a file's bytes, which stay as written."""
+    """Write the case directory's spellings as their tokens in a file's bytes."""
 
-    return data.replace(str(tmp.resolve()).encode(), b"{tmp}").replace(str(tmp).encode(), b"{tmp}")
+    for spelling, token in spellings(tmp):
+        data = data.replace(spelling.encode(), token.encode())
+    return data
 
 
 def digests(bundle: Path, tmp: Path) -> dict[str, str]:
@@ -260,25 +288,26 @@ def digests(bundle: Path, tmp: Path) -> dict[str, str]:
 def test_the_legacy_form_does_what_it_did_at_c59a8fb(
     case: dict[str, Any], tmp_path: Path, capsys: pytest.CaptureFixture[str], no_target: None
 ) -> None:
-    shutil.copytree(LEGACY / "templates" / case["template"], tmp_path / "template")
+    tmp = case_directory(tmp_path)
+    shutil.copytree(LEGACY / "templates" / case["template"], tmp / "template")
     if case["values"] is not None:
-        (tmp_path / "values.json").write_text(case["values"], encoding="utf-8")
+        (tmp / "values.json").write_text(case["values"], encoding="utf-8")
 
     code = main(
         [
             "instantiate",
-            str(tmp_path / "template"),
+            str(tmp / "template"),
             "--values",
-            str(tmp_path / "values.json"),
+            str(tmp / "values.json"),
             "--out",
-            str(tmp_path / "bundle"),
+            str(tmp / "bundle"),
         ]
     )
 
     out, err = capsys.readouterr()
-    assert (code, normalise(out, tmp_path), normalise(err, tmp_path)) == (
+    assert (code, normalise(out, tmp), normalise(err, tmp)) == (
         case["exit"],
         case["stdout"],
         case["stderr"],
     )
-    assert digests(tmp_path / "bundle", tmp_path) == case["files"]
+    assert digests(tmp / "bundle", tmp) == case["files"]
