@@ -103,13 +103,22 @@ Deterministic tests must not contact a model endpoint or target.
   `correction.py` build prompts; `contracts.py` and `checks.py` hold response
   contracts and structural checks; `transport.py` is the provider client.
 - `src/asago_artifact_generator/bindings.py`: binding sources and destinations.
+  `binding_rules.py` holds the binding and slot rules authoring and package preparation share,
+  and the one declaration-validation engine (`check_declarations`): a `BindingPolicy` names its
+  checks and their order, and each caller words the `Violation`s. Authoring's policies sit
+  beside its wording (`bindings.AUTHORING_POLICY`, `checks._FINDINGS_POLICY`); change a rule
+  in the engine, for both.
 - `src/asago_artifact_generator/package_io.py`: the artifact-package-v4 writer and loader.
 - `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
   `tool-bundle-v1` schema, slot markers, the capability-gap record, `BundleError`, the
   `testing` package builders, the `mcp_records` readers of the orchestrator's boundary
   records, and the `conformance` helper that round-trips `compile`, `instantiate` and
   `parse` of an adapter and returns failure messages). A new adapter runs `check_round_trip`
-  in its tests. The optional schema fields `repeats` and `serve` stay out of a bundle that
+  in its tests. `preparation.prepare_package(package, call_target=...)` prepares a package for
+  one run before `instantiate`: it runs setup through the caller's target call (real writes,
+  not graded, returned as a ledger), resolves the bindings, checks the prerequisites, renders
+  the stimulus and returns the judge's facts, or an incomplete reason. Recording the result
+  is the caller's job. The optional schema fields `repeats` and `serve` stay out of a bundle that
   does not need them: Garak omits both, because `bundle.json` feeds the receipt's
   `bundle_digest`.
 - `packages/asago-bundle-garak/`: the Garak adapter workspace member.

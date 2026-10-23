@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Protocol
 
+from ..binding_rules import SLOT_PATTERN
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from ..contract_kit import canonical_json as _canonical_json
 from ..contract_kit import sha256_hex as _sha256
@@ -64,7 +65,6 @@ _CONTEXT_MESSAGE_SCHEMA_OVERHEAD_BYTES = 128
 # The values are non-secret and are recorded as per-call controls.
 AUTHORING_THINKING_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
 REVIEW_THINKING_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
-_SLOT_RE = re.compile(r"\{\{([^{}]*)\}\}")
 _PROMPT_URL_RE = re.compile(r"\bhttps?://[^\s\"'<>]+", re.IGNORECASE)
 _PROMPT_TOKEN_RE = re.compile(
     r"\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_-]{12,}|xox[baprs]-[A-Za-z0-9-]{12,})\b"
@@ -471,7 +471,7 @@ _SCHEMA_PYTHON_TYPES = (
 
 
 def _matches_schema_type(value: Any, schema_type: str) -> bool:
-    if isinstance(value, str) and _SLOT_RE.fullmatch(value):
+    if isinstance(value, str) and SLOT_PATTERN.fullmatch(value):
         return True
     python_type = next((t for name, t in _SCHEMA_PYTHON_TYPES if name == schema_type), None)
     if python_type is None:

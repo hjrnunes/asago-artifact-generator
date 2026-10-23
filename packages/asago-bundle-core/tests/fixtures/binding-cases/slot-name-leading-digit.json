@@ -1,0 +1,123 @@
+{
+  "bindings": [
+    {
+      "consumers": [
+        "stimulus.user_text"
+      ],
+      "expected_type": "string",
+      "name": "1st",
+      "on_missing": "stop",
+      "selector": "value.id",
+      "source_kind": "supplied_input",
+      "source_ref": "facts:order"
+    }
+  ],
+  "description": "A declared binding name that starts with a digit cannot be a slot.",
+  "expected": {
+    "slots": {
+      "outcome": "rejected",
+      "reason": "slot_name_invalid"
+    }
+  },
+  "inventory": {
+    "facts": [
+      {
+        "ref": "order",
+        "schema": {
+          "properties": {
+            "count": {
+              "type": "integer"
+            },
+            "customer": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "email": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "lines": {
+              "items": {
+                "properties": {
+                  "sku": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "tags": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "value": {
+          "count": 3,
+          "customer": {
+            "name": "Ada"
+          },
+          "id": "A-1",
+          "lines": [
+            {
+              "sku": "S-1"
+            }
+          ],
+          "tags": [
+            "gift",
+            "rush"
+          ]
+        }
+      }
+    ],
+    "operations": [
+      {
+        "name": "create_order",
+        "result_schema": {
+          "properties": {
+            "order_id": {
+              "type": "string"
+            },
+            "skus": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      {
+        "name": "delete_order",
+        "result_schema": {
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "runtime_contract": {
+    "setup_permissions": [
+      "create_order"
+    ]
+  },
+  "stimulus": {
+    "history": [],
+    "user_text": "Cancel {{1st}}."
+  }
+}

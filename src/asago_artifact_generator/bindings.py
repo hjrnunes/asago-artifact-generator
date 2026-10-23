@@ -2,132 +2,38 @@
 
 Bindings are declarations only.  This module never calls setup operations and
 never evaluates template expressions; downstream execution resolves the exact
-selectors after it has captured a permitted setup result.
+selectors after it has captured a permitted setup result.  The closed
+vocabulary, the rules and the declaration-validation engine live in
+``binding_rules``, which package preparation uses too.  This module adds
+authoring's canonical paths, which run before the engine, the policy authoring
+checks a declaration list with, and authoring's wording of each violation.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, replace
+from dataclasses import replace
 from typing import Any
 
-
-@dataclass(frozen=True)
-class ConsumerPrefix:
-    """A consumer destination family: the prefix and what the rest of the path names."""
-
-    prefix: str
-    suffix: str
-
-    @property
-    def spelling(self) -> str:
-        return f"{self.prefix}<{self.suffix}>"
-
-
-@dataclass(frozen=True)
-class BindingSpec:
-    """The closed runtime-binding vocabulary; tuple order is the wire and schema order."""
-
-    fields: tuple[str, ...]
-    expected_types: tuple[str, ...]
-    source_kinds: tuple[str, ...]
-    missing_policies: tuple[str, ...]
-    consumer_paths: tuple[str, ...]
-    consumer_prefixes: tuple[ConsumerPrefix, ...]
-
-    @property
-    def string_fields(self) -> tuple[str, ...]:
-        return tuple(name for name in self.fields if name != "consumers")
-
-    @property
-    def consumer_destinations(self) -> tuple[str, ...]:
-        """Return each closed destination as a model writes it, in prompt order."""
-
-        return (*self.consumer_paths, *(family.spelling for family in self.consumer_prefixes))
-
-    def is_closed_consumer(self, value: str) -> bool:
-        return value in self.consumer_paths or value.startswith(
-            tuple(family.prefix for family in self.consumer_prefixes)
-        )
-
-
-PREREQUISITE_CONSUMERS = ConsumerPrefix("prerequisites.", "binding name")
-JUDGE_CONSUMERS = ConsumerPrefix("judge.", "binding name")
-SETUP_ARGUMENT_CONSUMERS = ConsumerPrefix("setup.arguments.", "argument name")
-
-
-BINDING_SPEC = BindingSpec(
-    fields=(
-        "name",
-        "expected_type",
-        "source_kind",
-        "source_ref",
-        "selector",
-        "consumers",
-        "on_missing",
-    ),
-    expected_types=("array", "boolean", "integer", "number", "object", "string"),
-    source_kinds=("supplied_input", "setup_output"),
-    missing_policies=("inconclusive", "stop"),
-    consumer_paths=("stimulus.user_text", "stimulus.history"),
-    consumer_prefixes=(PREREQUISITE_CONSUMERS, JUDGE_CONSUMERS, SETUP_ARGUMENT_CONSUMERS),
+from .binding_rules import (
+    BINDING_SPEC,
+    CLOSED_TYPES,
+    SLOT_PATTERN,
+    BindingPolicy,
+    BindingSpec,
+    ConsumerPrefix,
+    RuntimeBinding,
+    Violation,
+    check_declarations,
+    first_fact_named,
+    read_binding,
+    selector_type,
+    type_below_root,
 )
-CLOSED_TYPES = frozenset(BINDING_SPEC.expected_types)
-SOURCE_KINDS = frozenset(BINDING_SPEC.source_kinds)
-MISSING_POLICIES = frozenset(BINDING_SPEC.missing_policies)
-_SLOT_RE = re.compile(r"\{\{([^{}]*)\}\}")
-_BINDING_FIELDS = frozenset(BINDING_SPEC.fields)
 
 
 class BindingValidationError(ValueError):
     """Raised when a binding or substitution is not closed and documented."""
-
-
-@dataclass(frozen=True)
-class RuntimeBinding:
-    """One typed value that downstream execution resolves without re-authoring."""
-
-    name: str
-    expected_type: str
-    source_kind: str
-    source_ref: str
-    selector: str
-    consumers: tuple[str, ...]
-    on_missing: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return {**asdict(self), "consumers": list(self.consumers)}
-
-    @classmethod
-    def from_dict(cls, value: Any) -> RuntimeBinding:
-        if not isinstance(value, dict):
-            raise BindingValidationError("binding must be an object")
-        _require_binding_fields(value)
-        consumers = value["consumers"]
-        if not isinstance(consumers, list) or not all(
-            isinstance(item, str) and item.strip() for item in consumers
-        ):
-            raise BindingValidationError("binding consumers must be non-empty strings")
-        _require_string_fields(value)
-        if not all(BINDING_SPEC.is_closed_consumer(item) for item in consumers):
-            raise BindingValidationError("binding consumer is not a closed path")
-        return cls(**{**value, "consumers": tuple(consumers)})
-
-
-def _require_binding_fields(value: dict[str, Any]) -> None:
-    missing = _BINDING_FIELDS - set(value)
-    unknown = set(value) - _BINDING_FIELDS
-    if missing or unknown:
-        raise BindingValidationError(
-            f"binding fields invalid (missing={sorted(missing)}, unknown={sorted(unknown)})"
-        )
-
-
-def _require_string_fields(value: dict[str, Any]) -> None:
-    for field_name in BINDING_SPEC.string_fields:
-        if not isinstance(value[field_name], str):
-            raise BindingValidationError(f"binding {field_name} must be a string")
 
 
 def validate_bindings(
@@ -144,100 +50,32 @@ def validate_bindings(
     same-name declarations that differ in any field remain an error.
     """
 
-    if not isinstance(declarations, (list, tuple)):
-        raise BindingValidationError("runtime_bindings must be a list")
     normalized_declarations = normalize_binding_declarations(
         declarations,
         inventory=inventory,
         transformations=transformations,
     )
-    parsed_bindings = [RuntimeBinding.from_dict(raw) for raw in normalized_declarations]
-    names: set[str] = set()
-    for binding in parsed_bindings:
-        if binding.name in names:
-            raise BindingValidationError(f"duplicate binding: {binding.name}")
-        names.add(binding.name)
-    bindings: list[RuntimeBinding] = []
-    for binding in parsed_bindings:
-        _require_closed_fields(binding)
-        root_mismatch = selector_root_mismatch(binding.name, binding.source_kind, binding.selector)
-        if root_mismatch is not None:
-            raise BindingValidationError(root_mismatch)
-        schema = _source_schema(binding, inventory, runtime_contract)
-        actual_type = _schema_at_selector(schema, binding.selector)
-        if actual_type is None:
-            raise BindingValidationError(
-                f"undocumented selector for binding {binding.name}: {binding.selector}"
-            )
-        if not _binding_types_compatible(actual_type, binding.expected_type):
-            raise BindingValidationError(
-                f"binding type mismatch for {binding.name}: "
-                f"expected {binding.expected_type}, source is {actual_type}"
-            )
-        _require_record_key_selector(binding, inventory)
-        bindings.append(binding)
-    return tuple(bindings)
-
-
-def _require_closed_fields(binding: RuntimeBinding) -> None:
-    if not binding.name.strip():
-        raise BindingValidationError("binding name is blank")
-    if binding.expected_type not in CLOSED_TYPES:
-        raise BindingValidationError(f"binding expected_type is not closed: {binding.name}")
-    if binding.source_kind not in SOURCE_KINDS:
-        raise BindingValidationError(f"binding source_kind is not closed: {binding.name}")
-    if not binding.source_ref.strip() or not binding.selector.strip():
-        raise BindingValidationError(f"binding source reference is blank: {binding.name}")
-    if binding.on_missing not in MISSING_POLICIES:
-        raise BindingValidationError(f"binding on_missing is not closed: {binding.name}")
-
-
-def _require_record_key_selector(binding: RuntimeBinding, inventory: dict[str, Any]) -> None:
-    """Reject a record-key companion binding that does not select the key string.
-
-    The companion's records are ``{"record_key": key}`` wrappers, so any other
-    selector yields a wrapper that carries none of the record's fields.
-    """
-
-    if binding.source_kind != "supplied_input":
-        return
-    source_ref, selector = canonical_binding_paths(
-        binding.source_kind, binding.source_ref, binding.selector, inventory
+    checked = check_declarations(
+        normalized_declarations,
+        inventory=inventory,
+        runtime_contract=runtime_contract,
+        policy=AUTHORING_POLICY,
     )
-    reference = source_ref.removeprefix("facts:")
-    provenance = _fact_provenance(inventory, reference)
-    if not isinstance(provenance, dict):
-        return
-    if provenance.get("derivation") != "keyed_map_record_key":
-        return
-    parts = selector.split(".")
-    if len(parts) == 3 and parts[0] == "value" and parts[2] == "record_key":
-        return
-    base = provenance.get("derived_from") or reference.removesuffix(":records")
-    raise BindingValidationError(
-        f"binding {binding.name} selects {selector} from facts:{reference}, whose records "
-        f"hold only record_key: select value.<key>.record_key there for the key string, "
-        f"or bind facts:{base} with value.<key> for the whole record or "
-        f"value.<key>.<field> for one field"
-    )
+    if checked.violations:
+        raise BindingValidationError(authoring_message(checked.violations[0]))
+    return checked.bindings
 
 
-def _fact_provenance(inventory: dict[str, Any], reference: str) -> Any:
-    fact = _first_fact_named(inventory, reference)
-    return fact.get("provenance") if fact is not None else None
+def binding_from_dict(value: Any) -> RuntimeBinding:
+    """Read an authored declaration: every field a string, every consumer closed."""
+
+    read = read_binding(value, AUTHORING_POLICY)
+    if isinstance(read, Violation):
+        raise BindingValidationError(authoring_message(read))
+    return read
 
 
-def _first_fact_named(inventory: Mapping[str, Any], reference: Any) -> dict[str, Any] | None:
-    """Return the first supplied fact whose ref equals ``reference``."""
-
-    return next(
-        (
-            item
-            for item in inventory.get("facts", [])
-            if isinstance(item, dict) and item.get("ref") == reference
-        ),
-        None,
-    )
+_first_fact_named = first_fact_named
 
 
 def canonical_binding_paths(
@@ -524,9 +362,8 @@ def normalize_binding_declarations(
         if not isinstance(raw, dict):
             normalized.append(raw)
             continue
-        try:
-            binding = RuntimeBinding.from_dict(raw)
-        except BindingValidationError:
+        binding = read_binding(raw, AUTHORING_POLICY)
+        if isinstance(binding, Violation):
             normalized.append(raw)
             continue
         original_source_ref = binding.source_ref
@@ -735,7 +572,7 @@ def find_stimulus_user_text_consumer_mismatches(
     if not isinstance(user_text, str):
         return ()
     values = resolved_values if isinstance(resolved_values, Mapping) else {}
-    slots = {match.group(1) for match in _SLOT_RE.finditer(user_text)}
+    slots = {match.group(1) for match in SLOT_PATTERN.finditer(user_text)}
     findings: list[dict[str, Any]] = []
     for binding_index, raw in enumerate(declarations):
         if not isinstance(raw, dict):
@@ -794,169 +631,117 @@ def _value_at_selector(value: Any, selector: str) -> Any:
     return current
 
 
-def _source_schema(
-    binding: RuntimeBinding,
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-) -> dict[str, Any]:
-    if binding.source_kind == "setup_output":
-        schema = _setup_output_schema(binding, inventory, runtime_contract)
-    else:
-        schema = _supplied_fact_schema(binding, inventory)
-    if not isinstance(schema, dict):
-        raise BindingValidationError(f"missing source schema for binding: {binding.name}")
-    return schema
-
-
-def _setup_output_schema(
-    binding: RuntimeBinding,
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-) -> Any:
-    """Return the result schema of the permitted setup operation a binding names."""
-
-    prefix, _, operation = binding.source_ref.partition(":")
-    if prefix != "setup" or not operation:
-        raise BindingValidationError(
-            f"setup binding source_ref must be setup:<operation>: {binding.name}"
-        )
-    operations = inventory.get("operations", [])
-    operation_record = next(
-        (item for item in operations if isinstance(item, dict) and item.get("name") == operation),
-        None,
-    )
-    if operation_record is None:
-        raise BindingValidationError(f"unknown setup operation: {operation}")
-    permissions = runtime_contract.get("setup_permissions", [])
-    if operation not in permissions:
-        raise BindingValidationError(f"setup operation is not permitted: {operation}")
-    return operation_record.get("result_schema")
-
-
-def _supplied_fact_schema(binding: RuntimeBinding, inventory: dict[str, Any]) -> Any:
-    """Return the schema of the supplied fact a binding's canonical source names."""
-
-    source_ref, _ = canonical_binding_paths(
-        binding.source_kind,
-        binding.source_ref,
-        binding.selector,
-        inventory,
-    )
-    prefix, _, reference = source_ref.partition(":")
-    if prefix != "facts" or not reference:
-        raise BindingValidationError(
-            f"supplied binding source_ref must be facts:<ref>: {binding.name}"
-        )
-    fact = _first_fact_named(inventory, reference)
-    if fact is None:
-        raise BindingValidationError(f"unknown supplied fact: {reference}")
-    return fact.get("schema")
-
-
 def _schema_at_selector(schema: dict[str, Any], selector: str) -> str | None:
-    if _selector_root(selector) is None:
+    if not all(selector.split(".")):
         return None
-    return _binding_selector_type(schema, selector)
-
-
-def _selector_root(selector: str) -> str | None:
-    """Return a selector's root part when it is ``result`` or ``value``, else None.
-
-    Setup outputs are documented relative to ``result``; supplied facts use
-    ``value``.  Requiring the root makes accidental field-name inference fail.
-    """
-
-    root = selector.split(".", 1)[0]
-    return root if root in {"result", "value"} else None
-
-
-_SOURCE_ROOTS = {"supplied_input": "value", "setup_output": "result"}
-
-
-def selector_root_mismatch(name: Any, source_kind: Any, selector: str) -> str | None:
-    """Describe a selector rooted for the other source kind, or return None.
-
-    Execute reads a supplied fact under ``value`` and a setup output under
-    ``result``, so the other root resolves to nothing even when the schema
-    below it documents the path.
-    """
-
-    root = _selector_root(selector)
-    expected = _SOURCE_ROOTS.get(source_kind) if isinstance(source_kind, str) else None
-    if root is None or expected is None or root == expected:
-        return None
-    return (
-        f"selector for binding {name} must be rooted at {expected} for {source_kind}, "
-        f"not {root}: {selector}"
-    )
+    return selector_type(schema, selector)
 
 
 def _binding_selector_type(schema: Any, selector: str) -> str | None:
     """Return the type a selector names below its root part, or None."""
 
-    parts = selector.split(".")
-    if not all(parts):
+    if not all(selector.split(".")):
         return None
-    current: Any = schema
-    for part in parts[1:]:
-        current = _child_schema(current, part)
-    return current.get("type") if isinstance(current, dict) else None
+    return type_below_root(schema, selector)
 
 
-def _child_schema(current: Any, part: str) -> Any:
-    """Return the schema one selector part names, or None when it names none.
-
-    A non-dict schema documents no type, so returning None for it leaves the
-    caller's result unchanged.
-    """
-
-    if not isinstance(current, dict):
-        return None
-    if current.get("type") == "object":
-        properties = current.get("properties")
-        if not isinstance(properties, dict) or part not in properties:
-            return None
-        return properties[part]
-    return None
-
-
-def selector_array_step(schema: Any, selector: str) -> str | None:
-    """Return the selector prefix naming the array that ``selector`` steps into, or None.
-
-    A selector follows object properties only. The ``items`` schema keyword, a
-    numeric part (``content.0``), and a bracketed index (``content[0]``) are not
-    properties, and a recorded value is never read through an array.
-    """
-
-    parts = selector.split(".")
-    current = schema
-    for index, part in enumerate(parts[1:], start=1):
-        name = _INDEX_SUFFIX.sub("", part)
-        if name != part and _is_array(_child_schema(current, name)):
-            return ".".join([*parts[:index], name])
-        if _is_array(current) and (part == "items" or part.isdecimal()):
-            return ".".join(parts[:index])
-        current = _child_schema(current, part)
-    return None
-
-
-_INDEX_SUFFIX = re.compile(r"\[\d+\]$")
-
-
-def _is_array(schema: Any) -> bool:
-    return isinstance(schema, dict) and schema.get("type") == "array"
+_AUTHORING_READABLE = (
+    "object",
+    "fields",
+    "consumers_list",
+    "consumer_blank",
+    "string_fields",
+    "consumer_closed",
+)
+# Authoring reads every declaration first, then checks the names, then checks each
+# declaration's values, stopping at the first violation. It accepts an empty
+# consumer list, and adds the canonical paths and the record-key companion rule.
+AUTHORING_POLICY = BindingPolicy(
+    readable=_AUTHORING_READABLE,
+    phases=(
+        (_AUTHORING_READABLE,),
+        (("duplicate",),),
+        (
+            (
+                "name_blank",
+                "expected_type",
+                "source_kind",
+                "source_ref_blank",
+                "selector_blank",
+                "on_missing",
+                "root_mismatch",
+                "source",
+                "selector_documented",
+                "type",
+                "record_key",
+            ),
+        ),
+    ),
+    canonical_paths=canonical_binding_paths,
+    canonical_selector="declared",
+    facts_prefix_required=True,
+    unknown_fact_reported=True,
+    permissions_must_be_list=False,
+    empty_selector_parts_undocumented=True,
+)
 
 
-def _binding_types_compatible(actual: str, expected: str) -> bool:
-    return actual == expected or (actual == "integer" and expected == "number")
+def authoring_message(violation: Violation) -> str:
+    """Word a violation of ``AUTHORING_POLICY`` as authoring reports it."""
+
+    name, details = violation.name, violation.details
+    if violation.kind == "fields":
+        return (
+            f"binding fields invalid (missing={sorted(details['missing'])}, "
+            f"unknown={sorted(details['unknown'])})"
+        )
+    if violation.kind == "source_ref_form":
+        if details["source_kind"] == "setup_output":
+            return f"setup binding source_ref must be setup:<operation>: {name}"
+        return f"supplied binding source_ref must be facts:<ref>: {name}"
+    if violation.kind == "record_key_selector":
+        return (
+            f"binding {name} selects {details['selector']} from facts:{details['reference']}, "
+            f"whose records hold only record_key: select value.<key>.record_key there for the "
+            f"key string, or bind facts:{details['base']} with value.<key> for the whole record "
+            f"or value.<key>.<field> for one field"
+        )
+    return {
+        "not_list": "runtime_bindings must be a list",
+        "not_object": "binding must be an object",
+        "consumers_not_list": "binding consumers must be non-empty strings",
+        "consumer_blank": "binding consumers must be non-empty strings",
+        "string_field": f"binding {violation.field} must be a string",
+        "consumer_not_closed": "binding consumer is not a closed path",
+        "duplicate": f"duplicate binding: {name}",
+        "name_blank": "binding name is blank",
+        "expected_type_not_closed": f"binding expected_type is not closed: {name}",
+        "source_kind_not_closed": f"binding source_kind is not closed: {name}",
+        "source_reference_blank": f"binding source reference is blank: {name}",
+        "selector_blank": f"binding source reference is blank: {name}",
+        "on_missing_not_closed": f"binding on_missing is not closed: {name}",
+        "root_mismatch": details.get("text"),
+        "unknown_operation": f"unknown setup operation: {details.get('reference')}",
+        "operation_not_permitted": f"setup operation is not permitted: {details.get('reference')}",
+        "unknown_fact": f"unknown supplied fact: {details.get('reference')}",
+        "schema_missing": f"missing source schema for binding: {name}",
+        "selector_undocumented": f"undocumented selector for binding {name}: "
+        f"{details.get('selector')}",
+        "type_mismatch": f"binding type mismatch for {name}: expected "
+        f"{details.get('expected')}, source is {details.get('actual')}",
+    }[violation.kind]
 
 
 __all__ = [
+    "AUTHORING_POLICY",
     "BINDING_SPEC",
     "BindingSpec",
     "BindingValidationError",
     "CLOSED_TYPES",
+    "ConsumerPrefix",
     "RuntimeBinding",
+    "authoring_message",
+    "binding_from_dict",
     "canonical_binding_paths",
     "find_stimulus_user_text_consumer_mismatches",
     "named_record_facts",

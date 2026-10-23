@@ -18,6 +18,7 @@ from asago_artifact_generator.bindings import (
     BindingValidationError,
     ConsumerPrefix,
     RuntimeBinding,
+    binding_from_dict,
     canonical_binding_paths,
     find_stimulus_user_text_consumer_mismatches,
     named_record_facts,
@@ -102,7 +103,7 @@ def test_binding_rejects_undocumented_selector(expected_type: str, message: str)
 
 def test_binding_rejects_non_string_declaration_fields() -> None:
     with pytest.raises(BindingValidationError, match="source_ref must be a string"):
-        RuntimeBinding.from_dict(
+        binding_from_dict(
             {
                 "name": "draft_id",
                 "expected_type": "string",
@@ -933,10 +934,10 @@ def test_binding_spec_closes_consumers_for_parser_and_collector(
     assert BINDING_SPEC.is_closed_consumer(consumer) is closed
     assert (not consumer_findings) is closed
     if closed:
-        assert RuntimeBinding.from_dict(raw).consumers == (consumer,)
+        assert binding_from_dict(raw).consumers == (consumer,)
     else:
         with pytest.raises(BindingValidationError, match="not a closed path"):
-            RuntimeBinding.from_dict(raw)
+            binding_from_dict(raw)
 
 
 def test_binding_spec_is_the_contract_schema_vocabulary() -> None:
@@ -1077,7 +1078,7 @@ def test_binding_spec_field_set_drives_both_field_checks() -> None:
         "binding has unsupported field: extra",
     ]
     with pytest.raises(BindingValidationError, match=r"missing=\['expected_type'"):
-        RuntimeBinding.from_dict(raw)
+        binding_from_dict(raw)
 
 
 def _coded_findings(findings: list) -> list[tuple[str, str, str]]:

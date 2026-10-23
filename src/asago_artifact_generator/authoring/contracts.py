@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from ..bindings import BINDING_SPEC, JUDGE_CONSUMERS, PREREQUISITE_CONSUMERS
+from ..binding_rules import BINDING_SPEC, JUDGE_CONSUMERS, PREREQUISITE_CONSUMERS
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from .core import AUTHORING_INTERFACE_VERSION_V2
 from .example_capture import CAPTURE_MEANING, CAPTURED_EXAMPLES, capture_schema

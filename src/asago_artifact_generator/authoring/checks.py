@@ -7,34 +7,35 @@ review.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable, Collection, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
-from ..bindings import (
-    BINDING_SPEC,
+from ..binding_rules import (
     CLOSED_TYPES,
+    INVALID_SLOT_NAME,
     JUDGE_CONSUMERS,
-    MISSING_POLICIES,
-    SOURCE_KINDS,
+    NON_SCALAR_SLOT,
+    UNDECLARED_SLOT,
+    Violation,
+    check_declarations,
+    resolve_source,
+    slot_names,
+    slot_reference_problems,
+    types_compatible,
+)
+from ..bindings import (
+    AUTHORING_POLICY,
     BindingValidationError,
-    _binding_selector_type,
-    _binding_types_compatible,
-    _first_fact_named,
-    _selector_root,
     canonical_binding_paths,
     find_stimulus_user_text_consumer_mismatches,
     normalize_binding_declarations,
-    selector_array_step,
-    selector_root_mismatch,
     supplied_binding_values,
     validate_bindings,
 )
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from .contracts import _SEMANTIC_JUDGE_SPEC_RULES, _call1_contract_v2
 from .core import (
-    _SLOT_RE,
     Finding,
     PlanValidationError,
     _findings_from_error,
@@ -58,10 +59,6 @@ from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observation
 from .planted_item import PLANTED_TEXT_FIELD, RECORD_FIELD, planted_item_findings
 
 SELECTOR_THROUGH_ARRAY_CODE = "selector_through_array"
-# Execution fills a slot with one scalar and rejects a binding of these types.
-_NON_SCALAR_TYPES = frozenset({"array", "object"})
-# Execution fills only a slot whose name is an identifier, whatever the bindings declare.
-_SLOT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _validate_call2_metadata_shape(value: Any) -> list[Finding]:
@@ -388,14 +385,17 @@ def _plan_stimulus_slot_findings(
     for path, text in _stimulus_slot_texts(
         "stimulus_approach.request", request, "stimulus_approach.history", approach.get("history")
     ):
-        findings.extend(_invalid_slot_name_findings(path, text))
-        findings.extend(_plan_undeclared_slot_findings(path, text, declared))
-        findings.extend(_non_scalar_slot_findings(path, text, expected_types))
+        problems = slot_reference_problems(text, declared, expected_types)
+        findings.extend(_invalid_slot_name_findings(path, problems))
+        findings.extend(_plan_undeclared_slot_findings(path, problems, declared))
+        findings.extend(_non_scalar_slot_findings(path, problems, expected_types))
     findings.extend(_plan_consumer_mismatch_findings(bindings, request, inventory))
     return findings
 
 
-def _plan_undeclared_slot_findings(path: str, text: str, declared: set[str]) -> list[Finding]:
+def _plan_undeclared_slot_findings(
+    path: str, problems: list[tuple[str, str]], declared: set[str]
+) -> list[Finding]:
     return [
         Finding(
             "undeclared_slot",
@@ -407,8 +407,8 @@ def _plan_undeclared_slot_findings(path: str, text: str, declared: set[str]) -> 
             ),
             f"{path}:{slot}",
         )
-        for slot in _identifier_slots(text)
-        if slot not in declared
+        for slot, problem in problems
+        if problem == UNDECLARED_SLOT
     ]
 
 
@@ -717,14 +717,17 @@ def _stimulus_slot_findings(stimulus: dict[str, Any], runtime_bindings: Any) -> 
     for path, text in _stimulus_slot_texts(
         "stimulus.user_text", user_text, "stimulus.history", stimulus.get("history")
     ):
-        findings.extend(_invalid_slot_name_findings(path, text))
-        findings.extend(_artifact_undeclared_slot_findings(path, text, declared))
-        findings.extend(_non_scalar_slot_findings(path, text, expected_types))
+        problems = slot_reference_problems(text, declared, expected_types)
+        findings.extend(_invalid_slot_name_findings(path, problems))
+        findings.extend(_artifact_undeclared_slot_findings(path, problems, declared))
+        findings.extend(_non_scalar_slot_findings(path, problems, expected_types))
     return findings
 
 
-def _artifact_undeclared_slot_findings(path: str, text: str, declared: set[str]) -> list[Finding]:
-    undeclared = [slot for slot in _identifier_slots(text) if slot not in declared]
+def _artifact_undeclared_slot_findings(
+    path: str, problems: list[tuple[str, str]], declared: set[str]
+) -> list[Finding]:
+    undeclared = [slot for slot, problem in problems if problem == UNDECLARED_SLOT]
     return [
         Finding(
             "undeclared_slot",
@@ -759,11 +762,7 @@ def _stimulus_slot_texts(
             yield path, text
 
 
-def _identifier_slots(text: str) -> list[str]:
-    return [slot for slot in _slot_names_in_order(text) if _SLOT_NAME.fullmatch(slot)]
-
-
-def _invalid_slot_name_findings(path: str, text: str) -> list[Finding]:
+def _invalid_slot_name_findings(path: str, problems: list[tuple[str, str]]) -> list[Finding]:
     """Flag each slot whose name is not an identifier; execution cannot fill it."""
 
     return [
@@ -777,13 +776,13 @@ def _invalid_slot_name_findings(path: str, text: str) -> list[Finding]:
             ),
             f"{path}:{slot}",
         )
-        for slot in _slot_names_in_order(text)
-        if not _SLOT_NAME.fullmatch(slot)
+        for slot, problem in problems
+        if problem == INVALID_SLOT_NAME
     ]
 
 
 def _non_scalar_slot_findings(
-    path: str, text: str, expected_types: dict[str, str]
+    path: str, problems: list[tuple[str, str]], expected_types: dict[str, str]
 ) -> list[Finding]:
     """Flag each slot whose binding is an array or object; a slot interpolates one scalar."""
 
@@ -797,8 +796,8 @@ def _non_scalar_slot_findings(
             ),
             f"{path}:{slot}",
         )
-        for slot in _slot_names_in_order(text)
-        if expected_types.get(slot) in _NON_SCALAR_TYPES
+        for slot, problem in problems
+        if problem == NON_SCALAR_SLOT
     ]
 
 
@@ -1502,25 +1501,33 @@ def _collect_binding_findings(
     *,
     finding_code: str = "artifact_validation",
 ) -> list[Finding]:
-    """Check declarations that ``normalize_binding_declarations`` already canonicalized."""
+    """Check declarations that ``normalize_binding_declarations`` already canonicalized.
 
+    The binding engine reports every fault of each declaration under
+    ``_FINDINGS_POLICY``; a declaration with none of its own is then checked by
+    ``validate_bindings``, which also applies authoring's record-key rule.
+    """
+
+    declarations = list(declarations)
+    for raw in declarations:
+        if isinstance(raw, dict):
+            _canonicalize_binding_source(raw, raw.get("source_kind"), inventory)
+    checked = check_declarations(
+        declarations,
+        inventory=inventory,
+        runtime_contract=runtime_contract,
+        policy=_FINDINGS_POLICY,
+    )
+    by_index: dict[int, list[Violation]] = {}
+    for violation in checked.violations:
+        by_index.setdefault(violation.index, []).append(violation)
     findings: list[Finding] = []
-    names: dict[str, int] = {}
     for index, raw in enumerate(declarations):
         path = f"runtime_bindings[{index}]"
-        if isinstance(raw, dict) and isinstance(raw.get("name"), str):
-            if raw["name"] in names:
-                findings.append(Finding(finding_code, f"duplicate binding: {raw['name']}", path))
-            names[raw["name"]] = index
-        nested = _collect_binding_nested_findings(
-            raw,
-            inventory=inventory,
-            runtime_contract=runtime_contract,
-            path=path,
-            finding_code=finding_code,
-        )
-        findings.extend(nested)
-        if not nested:
+        violations = by_index.get(index, [])
+        for violation in violations:
+            findings.extend(_binding_findings(violation, path, finding_code))
+        if all(violation.kind == "duplicate" for violation in violations):
             try:
                 validate_bindings([raw], inventory=inventory, runtime_contract=runtime_contract)
             except BindingValidationError as exc:
@@ -1528,130 +1535,117 @@ def _collect_binding_findings(
     return findings
 
 
-def _collect_binding_nested_findings(
-    raw: Any,
-    *,
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-    path: str,
-    finding_code: str,
-) -> list[Finding]:
-    """Collect independent binding faults without changing the closed validator."""
+# Every fault of each declaration: each chain stops at its first fault or closed gate.
+_FINDINGS_POLICY = replace(
+    AUTHORING_POLICY,
+    phases=(
+        (
+            ("duplicate",),
+            ("object",),
+            ("fields",),
+            ("string_fields",),
+            ("if_str:name", "name_blank"),
+            ("if_str:expected_type", "expected_type"),
+            ("if_str:source_kind", "source_kind"),
+            ("if_str:source_ref", "source_ref_blank", "if_closed:source_kind", "source"),
+            ("if_str:on_missing", "on_missing"),
+            ("consumers_list", "consumers_empty", "consumer_items"),
+            (
+                "selector_string",
+                "selector_blank",
+                "root_known",
+                "root_mismatch",
+                "if_schema",
+                "array_step",
+                "selector_documented",
+                "if_closed:expected_type",
+                "type",
+            ),
+        ),
+    ),
+    stop_at_first=False,
+    canonical_selector="root",
+)
 
-    if not isinstance(raw, dict):
-        return [Finding(finding_code, "binding must be an object", path)]
 
-    findings = _binding_field_findings(raw, path=path, finding_code=finding_code)
-    name = raw.get("name")
-    expected_type = raw.get("expected_type")
-    source_kind = raw.get("source_kind")
-    findings.extend(
-        _binding_closed_value_findings(
-            name, expected_type, source_kind, path=path, finding_code=finding_code
-        )
-    )
-    source_ref, selector = _canonicalize_binding_source(raw, source_kind, inventory)
-    source_schema, source_findings = _binding_source_ref_findings(
-        source_kind,
-        source_ref,
-        name,
-        inventory=inventory,
-        runtime_contract=runtime_contract,
-        path=path,
-        finding_code=finding_code,
-    )
-    findings.extend(source_findings)
-    on_missing = raw.get("on_missing")
-    if isinstance(on_missing, str) and on_missing not in MISSING_POLICIES:
-        findings.append(
+def _binding_findings(violation: Violation, path: str, finding_code: str) -> list[Finding]:
+    """Word one violation of ``_FINDINGS_POLICY`` as the findings authoring reports."""
+
+    details = violation.details
+    if violation.kind == "fields":
+        return [
+            *missing_field_findings(
+                {},
+                sorted(details["missing"]),
+                "binding missing field",
+                f"{path}.",
+                code=finding_code,
+            ),
+            *unexpected_field_findings(
+                dict.fromkeys(details["unknown"]),
+                (),
+                "binding has unsupported field",
+                f"{path}.",
+                code=finding_code,
+            ),
+        ]
+    location = path if violation.field is None else f"{path}.{violation.field}"
+    if violation.kind == "array_step":
+        name, array_path, selector = violation.name, details["array_path"], details["selector"]
+        return [
             Finding(
-                finding_code,
-                f"binding on_missing is not closed: {name}",
-                f"{path}.on_missing",
+                SELECTOR_THROUGH_ARRAY_CODE,
+                (
+                    f"selector for binding {name} steps into the array at {array_path}: "
+                    f"{selector}. A selector follows object properties only and cannot step "
+                    f"into an array or its items; select {array_path} itself or a documented "
+                    "selector that does not pass through an array."
+                ),
+                location,
             )
-        )
-    findings.extend(
-        _binding_consumer_findings(raw.get("consumers"), path=path, finding_code=finding_code)
-    )
-    if not isinstance(selector, str):
-        if "selector" in raw:
-            findings.append(
-                Finding(
-                    finding_code,
-                    f"binding selector must be a string: {name}",
-                    f"{path}.selector",
-                )
-            )
-    else:
-        findings.extend(
-            _binding_selector_findings(
-                selector,
-                name,
-                expected_type,
-                source_schema,
-                source_kind=source_kind,
-                path=path,
-                finding_code=finding_code,
-            )
-        )
-    return findings
+        ]
+    return [Finding(finding_code, _binding_detail(violation), location)]
 
 
-def _binding_field_findings(
-    raw: dict[str, Any],
-    *,
-    path: str,
-    finding_code: str,
-) -> list[Finding]:
-    required = frozenset(BINDING_SPEC.fields)
-    findings = missing_field_findings(
-        raw, sorted(required), "binding missing field", f"{path}.", code=finding_code
-    )
-    findings.extend(
-        unexpected_field_findings(
-            raw, required, "binding has unsupported field", f"{path}.", code=finding_code
+def _binding_detail(violation: Violation) -> str:
+    name, details = violation.name, violation.details
+    if violation.kind == "source_ref_form":
+        source_kind = details["source_kind"]
+        expected_prefix = "setup" if source_kind == "setup_output" else "facts"
+        reference_label = "operation" if source_kind == "setup_output" else "ref"
+        return (
+            f"{source_kind} binding source_ref must be {expected_prefix}:<{reference_label}>: "
+            f"{name}"
         )
-    )
-    for field_name in BINDING_SPEC.string_fields:
-        if field_name in raw and not isinstance(raw[field_name], str):
-            findings.append(
-                Finding(
-                    finding_code,
-                    f"binding {field_name} must be a string",
-                    f"{path}.{field_name}",
-                )
-            )
-    return findings
-
-
-def _binding_closed_value_findings(
-    name: Any,
-    expected_type: Any,
-    source_kind: Any,
-    *,
-    path: str,
-    finding_code: str,
-) -> list[Finding]:
-    findings: list[Finding] = []
-    if isinstance(name, str) and not name.strip():
-        findings.append(Finding(finding_code, "binding name is blank", f"{path}.name"))
-    if isinstance(expected_type, str) and expected_type not in CLOSED_TYPES:
-        findings.append(
-            Finding(
-                finding_code,
-                f"binding expected_type is not closed: {name}",
-                f"{path}.expected_type",
-            )
-        )
-    if isinstance(source_kind, str) and source_kind not in SOURCE_KINDS:
-        findings.append(
-            Finding(
-                finding_code,
-                f"binding source_kind is not closed: {name}",
-                f"{path}.source_kind",
-            )
-        )
-    return findings
+    return {
+        "duplicate": f"duplicate binding: {name}",
+        "not_object": "binding must be an object",
+        "string_field": f"binding {violation.field} must be a string",
+        "name_blank": "binding name is blank",
+        "expected_type_not_closed": f"binding expected_type is not closed: {name}",
+        "source_kind_not_closed": f"binding source_kind is not closed: {name}",
+        "source_reference_blank": f"binding source reference is blank: {name}",
+        "unknown_operation": f"unknown setup operation: {details.get('reference')}",
+        "operation_not_permitted": f"setup operation is not permitted: {details.get('reference')}",
+        "unknown_fact": f"unknown supplied fact: {details.get('reference')}",
+        "schema_missing": f"missing source schema for binding: {name}",
+        "on_missing_not_closed": f"binding on_missing is not closed: {name}",
+        "consumers_not_list": "binding consumers must be a list",
+        "consumers_empty": "binding consumers must be non-empty strings",
+        "consumer_blank": "binding consumers must be non-empty strings",
+        "consumer_not_closed": "binding consumer is not a closed path",
+        "selector_not_string": f"binding selector must be a string: {name}",
+        "selector_blank": f"binding selector is blank: {name}",
+        "root_unknown": (
+            "selector must be an exact documented dot path rooted at value "
+            "for supplied_input or result for setup_output"
+        ),
+        "root_mismatch": details.get("text"),
+        "selector_undocumented": f"undocumented selector for binding {name}: "
+        f"{details.get('selector')}",
+        "type_mismatch": f"binding type mismatch for {name}: expected "
+        f"{details.get('expected')}, source is {details.get('actual')}",
+    }[violation.kind]
 
 
 def _canonicalize_binding_source(
@@ -1680,84 +1674,6 @@ def _canonicalize_binding_source(
         raw["source_ref"] = canonical_source_ref
         raw["selector"] = canonical_selector
     return canonical_source_ref, canonical_selector
-
-
-def _binding_source_ref_findings(
-    source_kind: Any,
-    source_ref: Any,
-    name: Any,
-    *,
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-    path: str,
-    finding_code: str,
-) -> tuple[dict[str, Any] | None, list[Finding]]:
-    if not isinstance(source_ref, str):
-        return None, []
-    if not source_ref.strip():
-        return None, [
-            Finding(
-                finding_code,
-                f"binding source reference is blank: {name}",
-                f"{path}.source_ref",
-            )
-        ]
-    if not isinstance(source_kind, str) or source_kind not in SOURCE_KINDS:
-        return None, []
-    source_schema, source_error = _binding_source_schema(
-        source_kind,
-        source_ref,
-        inventory,
-        runtime_contract,
-        name,
-    )
-    if source_error:
-        return source_schema, [Finding(finding_code, source_error, f"{path}.source_ref")]
-    return source_schema, []
-
-
-def _binding_consumer_findings(
-    consumers: Any,
-    *,
-    path: str,
-    finding_code: str,
-) -> list[Finding]:
-    if not isinstance(consumers, list):
-        return [
-            Finding(
-                finding_code,
-                "binding consumers must be a list",
-                f"{path}.consumers",
-            )
-        ]
-    if not consumers:
-        return [
-            Finding(
-                finding_code,
-                "binding consumers must be non-empty strings",
-                f"{path}.consumers",
-            )
-        ]
-    findings: list[Finding] = []
-    for consumer_index, consumer in enumerate(consumers):
-        consumer_path = f"{path}.consumers[{consumer_index}]"
-        if not isinstance(consumer, str) or not consumer.strip():
-            findings.append(
-                Finding(
-                    finding_code,
-                    "binding consumers must be non-empty strings",
-                    consumer_path,
-                )
-            )
-        elif not BINDING_SPEC.is_closed_consumer(consumer):
-            findings.append(
-                Finding(
-                    finding_code,
-                    "binding consumer is not a closed path",
-                    consumer_path,
-                )
-            )
-    return findings
 
 
 def _judge_consumer_findings(plan: dict[str, Any], *, finding_code: str) -> list[Finding]:
@@ -1794,81 +1710,6 @@ def _consumer_list(declaration: Any) -> list[Any]:
     return consumers if isinstance(consumers, list) else []
 
 
-def _binding_selector_findings(
-    selector: str,
-    name: Any,
-    expected_type: Any,
-    source_schema: dict[str, Any] | None,
-    *,
-    source_kind: Any,
-    path: str,
-    finding_code: str,
-) -> list[Finding]:
-    if not selector.strip():
-        return [
-            Finding(
-                finding_code,
-                f"binding selector is blank: {name}",
-                f"{path}.selector",
-            )
-        ]
-    root_problem = _selector_root_problem(selector, name, source_kind)
-    if root_problem is not None:
-        return [Finding(finding_code, root_problem, f"{path}.selector")]
-    if source_schema is None:
-        return []
-    array_path = selector_array_step(source_schema, selector)
-    if array_path is not None:
-        return [
-            Finding(
-                SELECTOR_THROUGH_ARRAY_CODE,
-                (
-                    f"selector for binding {name} steps into the array at {array_path}: "
-                    f"{selector}. A selector follows object properties only and cannot step "
-                    f"into an array or its items; select {array_path} itself or a documented "
-                    "selector that does not pass through an array."
-                ),
-                f"{path}.selector",
-            )
-        ]
-    actual_type = _binding_selector_type(source_schema, selector)
-    if actual_type is None:
-        return [
-            Finding(
-                finding_code,
-                f"undocumented selector for binding {name}: {selector}",
-                f"{path}.selector",
-            )
-        ]
-    if (
-        isinstance(expected_type, str)
-        and expected_type in CLOSED_TYPES
-        and not _binding_types_compatible(actual_type, expected_type)
-    ):
-        return [
-            Finding(
-                finding_code,
-                (
-                    f"binding type mismatch for {name}: expected {expected_type}, "
-                    f"source is {actual_type}"
-                ),
-                f"{path}.selector",
-            )
-        ]
-    return []
-
-
-def _selector_root_problem(selector: str, name: Any, source_kind: Any) -> str | None:
-    """Describe a selector whose root is unknown or belongs to the other source kind."""
-
-    if _selector_root(selector) is None:
-        return (
-            "selector must be an exact documented dot path rooted at value "
-            "for supplied_input or result for setup_output"
-        )
-    return selector_root_mismatch(name, source_kind, selector)
-
-
 def _binding_source_schema(
     source_kind: str,
     source_ref: str,
@@ -1876,68 +1717,19 @@ def _binding_source_schema(
     runtime_contract: dict[str, Any],
     name: Any,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    canonical_source_ref, _ = canonical_binding_paths(
+    """Return a binding source's raw schema, or why the source is unusable."""
+
+    schema, violation = resolve_source(
         source_kind,
         source_ref,
-        "value" if source_kind == "supplied_input" else "result",
-        inventory,
-    )
-    source_ref = canonical_source_ref
-    prefix, _, reference = source_ref.partition(":")
-    expected_prefix = "setup" if source_kind == "setup_output" else "facts"
-    if prefix != expected_prefix or not reference:
-        reference_label = "operation" if source_kind == "setup_output" else "ref"
-        return (
-            None,
-            (
-                f"{source_kind} binding source_ref must be "
-                f"{expected_prefix}:<{reference_label}>: "
-                f"{name}"
-            ),
-        )
-    if source_kind == "setup_output":
-        schema, error = _setup_output_source_schema(reference, inventory, runtime_contract)
-    else:
-        schema, error = _supplied_input_source_schema(reference, inventory)
-    if error is not None:
-        return None, error
-    if not isinstance(schema, dict):
-        return None, f"missing source schema for binding: {name}"
-    return schema, None
-
-
-def _setup_output_source_schema(
-    reference: str,
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-) -> tuple[Any, str | None]:
-    """Return a permitted setup operation's raw result schema, or why it is unusable."""
-
-    operation = next(
-        (
-            item
-            for item in inventory.get("operations", [])
-            if isinstance(item, dict) and item.get("name") == reference
-        ),
         None,
+        inventory=inventory,
+        runtime_contract=runtime_contract,
+        policy=_FINDINGS_POLICY,
     )
-    if operation is None:
-        return None, f"unknown setup operation: {reference}"
-    if reference not in runtime_contract.get("setup_permissions", []):
-        return None, f"setup operation is not permitted: {reference}"
-    return operation.get("result_schema"), None
-
-
-def _supplied_input_source_schema(
-    reference: str,
-    inventory: dict[str, Any],
-) -> tuple[Any, str | None]:
-    """Return a supplied fact's raw schema, or why the fact is unknown."""
-
-    fact = _first_fact_named(inventory, reference)
-    if fact is None:
-        return None, f"unknown supplied fact: {reference}"
-    return fact.get("schema"), None
+    if violation is None:
+        return schema, None
+    return None, _binding_detail(replace(violation, name=name))
 
 
 def _collect_canonical_prerequisite_findings(
@@ -2121,7 +1913,7 @@ def _prerequisite_equals_findings(
         and _is_json_value(prerequisite["equals"])
     ):
         equals_type = _json_value_type(prerequisite["equals"])
-        if not _binding_types_compatible(equals_type, expected_type):
+        if not types_compatible(equals_type, expected_type):
             findings.append(
                 Finding(
                     "prerequisite_type_mismatch",
@@ -2269,7 +2061,7 @@ def _normalize_prerequisite_binding_consumers(
 def _slot_names_in_order(user_text: str) -> list[str]:
     """Return unique placeholder names in first-appearance order."""
 
-    return list(dict.fromkeys(match.group(1) for match in _SLOT_RE.finditer(user_text)))
+    return slot_names(user_text)
 
 
 def _normalize_stimulus_slots(
