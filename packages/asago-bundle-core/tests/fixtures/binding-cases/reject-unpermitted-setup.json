@@ -1,0 +1,119 @@
+{
+  "bindings": [
+    {
+      "consumers": [
+        "judge.deleted"
+      ],
+      "expected_type": "boolean",
+      "name": "deleted",
+      "on_missing": "stop",
+      "selector": "result.ok",
+      "source_kind": "setup_output",
+      "source_ref": "setup:delete_order"
+    }
+  ],
+  "description": "A setup binding must name an operation the runtime contract permits.",
+  "expected": {
+    "declaration": {
+      "outcome": "rejected",
+      "reason": "setup_not_permitted"
+    }
+  },
+  "inventory": {
+    "facts": [
+      {
+        "ref": "order",
+        "schema": {
+          "properties": {
+            "count": {
+              "type": "integer"
+            },
+            "customer": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "email": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "lines": {
+              "items": {
+                "properties": {
+                  "sku": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "tags": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "value": {
+          "count": 3,
+          "customer": {
+            "name": "Ada"
+          },
+          "id": "A-1",
+          "lines": [
+            {
+              "sku": "S-1"
+            }
+          ],
+          "tags": [
+            "gift",
+            "rush"
+          ]
+        }
+      }
+    ],
+    "operations": [
+      {
+        "name": "create_order",
+        "result_schema": {
+          "properties": {
+            "order_id": {
+              "type": "string"
+            },
+            "skus": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      {
+        "name": "delete_order",
+        "result_schema": {
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "runtime_contract": {
+    "setup_permissions": [
+      "create_order"
+    ]
+  }
+}

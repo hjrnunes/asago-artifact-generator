@@ -1,0 +1,124 @@
+{
+  "bindings": [
+    {
+      "consumers": [
+        "judge.customer_name"
+      ],
+      "expected_type": "string",
+      "name": "customer_name",
+      "on_missing": "stop",
+      "selector": "value.customer.name",
+      "source_kind": "supplied_input",
+      "source_ref": "facts:order"
+    }
+  ],
+  "description": "A selector follows two object properties.",
+  "expected": {
+    "declaration": {
+      "outcome": "accepted"
+    },
+    "values": {
+      "outcome": "accepted",
+      "values": {
+        "customer_name": "Ada"
+      }
+    }
+  },
+  "inventory": {
+    "facts": [
+      {
+        "ref": "order",
+        "schema": {
+          "properties": {
+            "count": {
+              "type": "integer"
+            },
+            "customer": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "email": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "lines": {
+              "items": {
+                "properties": {
+                  "sku": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "tags": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "value": {
+          "count": 3,
+          "customer": {
+            "name": "Ada"
+          },
+          "id": "A-1",
+          "lines": [
+            {
+              "sku": "S-1"
+            }
+          ],
+          "tags": [
+            "gift",
+            "rush"
+          ]
+        }
+      }
+    ],
+    "operations": [
+      {
+        "name": "create_order",
+        "result_schema": {
+          "properties": {
+            "order_id": {
+              "type": "string"
+            },
+            "skus": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      {
+        "name": "delete_order",
+        "result_schema": {
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "runtime_contract": {
+    "setup_permissions": [
+      "create_order"
+    ]
+  }
+}
