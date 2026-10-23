@@ -1035,8 +1035,9 @@ def test_a_failed_turn_comes_before_the_records_as_the_missing_grade_does(
 # The sha256 of each file a single bundle copies, as on main before sequential packages
 # compiled (61f7e5a, with asago_rubric.py as main's authoring/rubric_judge.py at 207c0aa): a
 # single bundle's code, and so its bundle_digest, is what it was before. run_midojo.py is
-# the one exception: it sends the control token on its reads since the openshell runtime
-# (asago-eysb.9), in every bundle.
+# one exception: it sends the control token on its reads since the openshell runtime
+# (asago-eysb.9), in every bundle. asago_rubric.py is the other: its docstring was
+# corrected to describe the calls MiDojo records today; its code is unchanged.
 SINGLE_BUNDLE_CODE = {
     "asago_suite/__init__.py": "c87d13b640fbee039e17d8b3c9991e54c4c59d9a72fb4e7f8c35c32cc28c4d71",
     "asago_suite/suite.py": "efe07d32a2e94771f57c5d64a648ebdaa2dc5e5882d681dfd197f15d136c0a38",
@@ -1044,7 +1045,7 @@ SINGLE_BUNDLE_CODE = {
         "96259c443d6e0ccea9353801295fbd1f8d1309a6646352df4ecd9baa63ed41ac"
     ),
     "asago_suite/asago_rubric.py": (
-        "77ee582e4bd0fc491eab5a0c87805bdb48640790f54498c1b0cb8453cd23fb4d"
+        "cc5ce1c16b8dcb12f61129fd55e50e829ce6a9cb2d12a7645d2487b1a2752ed2"
     ),
     "run_midojo.py": "c0f84fa4c7eec5521962f4320205e3ea1e4e38894fc168892f94d70b5eac2485",
     "asago_suite/verifier_names.py": (
