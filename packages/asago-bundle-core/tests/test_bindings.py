@@ -394,9 +394,7 @@ _DECLARED = (RuntimeBinding.parse(_binding("result.order.id", "string")),)
         ),
     ],
 )
-def test_binding_errors_carry_the_code_preparation_reports(
-    raise_error: Any, code: str
-) -> None:
+def test_binding_errors_carry_the_code_preparation_reports(raise_error: Any, code: str) -> None:
     error = raise_error()
 
     assert error.code == code
