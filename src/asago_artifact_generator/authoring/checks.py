@@ -7,34 +7,39 @@ review.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable, Collection, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from ..bindings import (
+from ..binding_rules import (
     BINDING_SPEC,
     CLOSED_TYPES,
+    INVALID_SLOT_NAME,
     JUDGE_CONSUMERS,
     MISSING_POLICIES,
+    NON_SCALAR_SLOT,
     SOURCE_KINDS,
+    UNDECLARED_SLOT,
     BindingValidationError,
+    selector_array_step,
+    selector_root,
+    selector_root_mismatch,
+    slot_names,
+    slot_reference_problems,
+    types_compatible,
+)
+from ..bindings import (
     _binding_selector_type,
-    _binding_types_compatible,
     _first_fact_named,
-    _selector_root,
     canonical_binding_paths,
     find_stimulus_user_text_consumer_mismatches,
     normalize_binding_declarations,
-    selector_array_step,
-    selector_root_mismatch,
     supplied_binding_values,
     validate_bindings,
 )
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from .contracts import _SEMANTIC_JUDGE_SPEC_RULES, _call1_contract_v2
 from .core import (
-    _SLOT_RE,
     Finding,
     PlanValidationError,
     _findings_from_error,
@@ -58,10 +63,6 @@ from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observation
 from .planted_item import PLANTED_TEXT_FIELD, RECORD_FIELD, planted_item_findings
 
 SELECTOR_THROUGH_ARRAY_CODE = "selector_through_array"
-# Execution fills a slot with one scalar and rejects a binding of these types.
-_NON_SCALAR_TYPES = frozenset({"array", "object"})
-# Execution fills only a slot whose name is an identifier, whatever the bindings declare.
-_SLOT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _validate_call2_metadata_shape(value: Any) -> list[Finding]:
@@ -388,14 +389,17 @@ def _plan_stimulus_slot_findings(
     for path, text in _stimulus_slot_texts(
         "stimulus_approach.request", request, "stimulus_approach.history", approach.get("history")
     ):
-        findings.extend(_invalid_slot_name_findings(path, text))
-        findings.extend(_plan_undeclared_slot_findings(path, text, declared))
-        findings.extend(_non_scalar_slot_findings(path, text, expected_types))
+        problems = slot_reference_problems(text, declared, expected_types)
+        findings.extend(_invalid_slot_name_findings(path, problems))
+        findings.extend(_plan_undeclared_slot_findings(path, problems, declared))
+        findings.extend(_non_scalar_slot_findings(path, problems, expected_types))
     findings.extend(_plan_consumer_mismatch_findings(bindings, request, inventory))
     return findings
 
 
-def _plan_undeclared_slot_findings(path: str, text: str, declared: set[str]) -> list[Finding]:
+def _plan_undeclared_slot_findings(
+    path: str, problems: list[tuple[str, str]], declared: set[str]
+) -> list[Finding]:
     return [
         Finding(
             "undeclared_slot",
@@ -407,8 +411,8 @@ def _plan_undeclared_slot_findings(path: str, text: str, declared: set[str]) -> 
             ),
             f"{path}:{slot}",
         )
-        for slot in _identifier_slots(text)
-        if slot not in declared
+        for slot, problem in problems
+        if problem == UNDECLARED_SLOT
     ]
 
 
@@ -717,14 +721,17 @@ def _stimulus_slot_findings(stimulus: dict[str, Any], runtime_bindings: Any) -> 
     for path, text in _stimulus_slot_texts(
         "stimulus.user_text", user_text, "stimulus.history", stimulus.get("history")
     ):
-        findings.extend(_invalid_slot_name_findings(path, text))
-        findings.extend(_artifact_undeclared_slot_findings(path, text, declared))
-        findings.extend(_non_scalar_slot_findings(path, text, expected_types))
+        problems = slot_reference_problems(text, declared, expected_types)
+        findings.extend(_invalid_slot_name_findings(path, problems))
+        findings.extend(_artifact_undeclared_slot_findings(path, problems, declared))
+        findings.extend(_non_scalar_slot_findings(path, problems, expected_types))
     return findings
 
 
-def _artifact_undeclared_slot_findings(path: str, text: str, declared: set[str]) -> list[Finding]:
-    undeclared = [slot for slot in _identifier_slots(text) if slot not in declared]
+def _artifact_undeclared_slot_findings(
+    path: str, problems: list[tuple[str, str]], declared: set[str]
+) -> list[Finding]:
+    undeclared = [slot for slot, problem in problems if problem == UNDECLARED_SLOT]
     return [
         Finding(
             "undeclared_slot",
@@ -759,11 +766,7 @@ def _stimulus_slot_texts(
             yield path, text
 
 
-def _identifier_slots(text: str) -> list[str]:
-    return [slot for slot in _slot_names_in_order(text) if _SLOT_NAME.fullmatch(slot)]
-
-
-def _invalid_slot_name_findings(path: str, text: str) -> list[Finding]:
+def _invalid_slot_name_findings(path: str, problems: list[tuple[str, str]]) -> list[Finding]:
     """Flag each slot whose name is not an identifier; execution cannot fill it."""
 
     return [
@@ -777,13 +780,13 @@ def _invalid_slot_name_findings(path: str, text: str) -> list[Finding]:
             ),
             f"{path}:{slot}",
         )
-        for slot in _slot_names_in_order(text)
-        if not _SLOT_NAME.fullmatch(slot)
+        for slot, problem in problems
+        if problem == INVALID_SLOT_NAME
     ]
 
 
 def _non_scalar_slot_findings(
-    path: str, text: str, expected_types: dict[str, str]
+    path: str, problems: list[tuple[str, str]], expected_types: dict[str, str]
 ) -> list[Finding]:
     """Flag each slot whose binding is an array or object; a slot interpolates one scalar."""
 
@@ -797,8 +800,8 @@ def _non_scalar_slot_findings(
             ),
             f"{path}:{slot}",
         )
-        for slot in _slot_names_in_order(text)
-        if expected_types.get(slot) in _NON_SCALAR_TYPES
+        for slot, problem in problems
+        if problem == NON_SCALAR_SLOT
     ]
 
 
@@ -1843,7 +1846,7 @@ def _binding_selector_findings(
     if (
         isinstance(expected_type, str)
         and expected_type in CLOSED_TYPES
-        and not _binding_types_compatible(actual_type, expected_type)
+        and not types_compatible(actual_type, expected_type)
     ):
         return [
             Finding(
@@ -1861,7 +1864,7 @@ def _binding_selector_findings(
 def _selector_root_problem(selector: str, name: Any, source_kind: Any) -> str | None:
     """Describe a selector whose root is unknown or belongs to the other source kind."""
 
-    if _selector_root(selector) is None:
+    if selector_root(selector) is None:
         return (
             "selector must be an exact documented dot path rooted at value "
             "for supplied_input or result for setup_output"
@@ -2121,7 +2124,7 @@ def _prerequisite_equals_findings(
         and _is_json_value(prerequisite["equals"])
     ):
         equals_type = _json_value_type(prerequisite["equals"])
-        if not _binding_types_compatible(equals_type, expected_type):
+        if not types_compatible(equals_type, expected_type):
             findings.append(
                 Finding(
                     "prerequisite_type_mismatch",
@@ -2269,7 +2272,7 @@ def _normalize_prerequisite_binding_consumers(
 def _slot_names_in_order(user_text: str) -> list[str]:
     """Return unique placeholder names in first-appearance order."""
 
-    return list(dict.fromkeys(match.group(1) for match in _SLOT_RE.finditer(user_text)))
+    return slot_names(user_text)
 
 
 def _normalize_stimulus_slots(

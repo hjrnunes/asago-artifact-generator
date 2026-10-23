@@ -2,132 +2,32 @@
 
 Bindings are declarations only.  This module never calls setup operations and
 never evaluates template expressions; downstream execution resolves the exact
-selectors after it has captured a permitted setup result.
+selectors after it has captured a permitted setup result.  The closed
+vocabulary and the rules package preparation shares live in ``binding_rules``;
+this module adds authoring's canonical paths and its stricter declaration checks.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, replace
+from dataclasses import replace
 from typing import Any
 
-
-@dataclass(frozen=True)
-class ConsumerPrefix:
-    """A consumer destination family: the prefix and what the rest of the path names."""
-
-    prefix: str
-    suffix: str
-
-    @property
-    def spelling(self) -> str:
-        return f"{self.prefix}<{self.suffix}>"
-
-
-@dataclass(frozen=True)
-class BindingSpec:
-    """The closed runtime-binding vocabulary; tuple order is the wire and schema order."""
-
-    fields: tuple[str, ...]
-    expected_types: tuple[str, ...]
-    source_kinds: tuple[str, ...]
-    missing_policies: tuple[str, ...]
-    consumer_paths: tuple[str, ...]
-    consumer_prefixes: tuple[ConsumerPrefix, ...]
-
-    @property
-    def string_fields(self) -> tuple[str, ...]:
-        return tuple(name for name in self.fields if name != "consumers")
-
-    @property
-    def consumer_destinations(self) -> tuple[str, ...]:
-        """Return each closed destination as a model writes it, in prompt order."""
-
-        return (*self.consumer_paths, *(family.spelling for family in self.consumer_prefixes))
-
-    def is_closed_consumer(self, value: str) -> bool:
-        return value in self.consumer_paths or value.startswith(
-            tuple(family.prefix for family in self.consumer_prefixes)
-        )
-
-
-PREREQUISITE_CONSUMERS = ConsumerPrefix("prerequisites.", "binding name")
-JUDGE_CONSUMERS = ConsumerPrefix("judge.", "binding name")
-SETUP_ARGUMENT_CONSUMERS = ConsumerPrefix("setup.arguments.", "argument name")
-
-
-BINDING_SPEC = BindingSpec(
-    fields=(
-        "name",
-        "expected_type",
-        "source_kind",
-        "source_ref",
-        "selector",
-        "consumers",
-        "on_missing",
-    ),
-    expected_types=("array", "boolean", "integer", "number", "object", "string"),
-    source_kinds=("supplied_input", "setup_output"),
-    missing_policies=("inconclusive", "stop"),
-    consumer_paths=("stimulus.user_text", "stimulus.history"),
-    consumer_prefixes=(PREREQUISITE_CONSUMERS, JUDGE_CONSUMERS, SETUP_ARGUMENT_CONSUMERS),
+from .binding_rules import (
+    BINDING_SPEC,
+    CLOSED_TYPES,
+    MISSING_POLICIES,
+    SLOT_PATTERN,
+    SOURCE_KINDS,
+    BindingSpec,
+    BindingValidationError,
+    ConsumerPrefix,
+    RuntimeBinding,
+    selector_root_mismatch,
+    selector_type,
+    type_below_root,
+    types_compatible,
 )
-CLOSED_TYPES = frozenset(BINDING_SPEC.expected_types)
-SOURCE_KINDS = frozenset(BINDING_SPEC.source_kinds)
-MISSING_POLICIES = frozenset(BINDING_SPEC.missing_policies)
-_SLOT_RE = re.compile(r"\{\{([^{}]*)\}\}")
-_BINDING_FIELDS = frozenset(BINDING_SPEC.fields)
-
-
-class BindingValidationError(ValueError):
-    """Raised when a binding or substitution is not closed and documented."""
-
-
-@dataclass(frozen=True)
-class RuntimeBinding:
-    """One typed value that downstream execution resolves without re-authoring."""
-
-    name: str
-    expected_type: str
-    source_kind: str
-    source_ref: str
-    selector: str
-    consumers: tuple[str, ...]
-    on_missing: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return {**asdict(self), "consumers": list(self.consumers)}
-
-    @classmethod
-    def from_dict(cls, value: Any) -> RuntimeBinding:
-        if not isinstance(value, dict):
-            raise BindingValidationError("binding must be an object")
-        _require_binding_fields(value)
-        consumers = value["consumers"]
-        if not isinstance(consumers, list) or not all(
-            isinstance(item, str) and item.strip() for item in consumers
-        ):
-            raise BindingValidationError("binding consumers must be non-empty strings")
-        _require_string_fields(value)
-        if not all(BINDING_SPEC.is_closed_consumer(item) for item in consumers):
-            raise BindingValidationError("binding consumer is not a closed path")
-        return cls(**{**value, "consumers": tuple(consumers)})
-
-
-def _require_binding_fields(value: dict[str, Any]) -> None:
-    missing = _BINDING_FIELDS - set(value)
-    unknown = set(value) - _BINDING_FIELDS
-    if missing or unknown:
-        raise BindingValidationError(
-            f"binding fields invalid (missing={sorted(missing)}, unknown={sorted(unknown)})"
-        )
-
-
-def _require_string_fields(value: dict[str, Any]) -> None:
-    for field_name in BINDING_SPEC.string_fields:
-        if not isinstance(value[field_name], str):
-            raise BindingValidationError(f"binding {field_name} must be a string")
 
 
 def validate_bindings(
@@ -169,7 +69,7 @@ def validate_bindings(
             raise BindingValidationError(
                 f"undocumented selector for binding {binding.name}: {binding.selector}"
             )
-        if not _binding_types_compatible(actual_type, binding.expected_type):
+        if not types_compatible(actual_type, binding.expected_type):
             raise BindingValidationError(
                 f"binding type mismatch for {binding.name}: "
                 f"expected {binding.expected_type}, source is {actual_type}"
@@ -735,7 +635,7 @@ def find_stimulus_user_text_consumer_mismatches(
     if not isinstance(user_text, str):
         return ()
     values = resolved_values if isinstance(resolved_values, Mapping) else {}
-    slots = {match.group(1) for match in _SLOT_RE.finditer(user_text)}
+    slots = {match.group(1) for match in SLOT_PATTERN.finditer(user_text)}
     findings: list[dict[str, Any]] = []
     for binding_index, raw in enumerate(declarations):
         if not isinstance(raw, dict):
@@ -854,101 +754,17 @@ def _supplied_fact_schema(binding: RuntimeBinding, inventory: dict[str, Any]) ->
 
 
 def _schema_at_selector(schema: dict[str, Any], selector: str) -> str | None:
-    if _selector_root(selector) is None:
+    if not all(selector.split(".")):
         return None
-    return _binding_selector_type(schema, selector)
-
-
-def _selector_root(selector: str) -> str | None:
-    """Return a selector's root part when it is ``result`` or ``value``, else None.
-
-    Setup outputs are documented relative to ``result``; supplied facts use
-    ``value``.  Requiring the root makes accidental field-name inference fail.
-    """
-
-    root = selector.split(".", 1)[0]
-    return root if root in {"result", "value"} else None
-
-
-_SOURCE_ROOTS = {"supplied_input": "value", "setup_output": "result"}
-
-
-def selector_root_mismatch(name: Any, source_kind: Any, selector: str) -> str | None:
-    """Describe a selector rooted for the other source kind, or return None.
-
-    Execute reads a supplied fact under ``value`` and a setup output under
-    ``result``, so the other root resolves to nothing even when the schema
-    below it documents the path.
-    """
-
-    root = _selector_root(selector)
-    expected = _SOURCE_ROOTS.get(source_kind) if isinstance(source_kind, str) else None
-    if root is None or expected is None or root == expected:
-        return None
-    return (
-        f"selector for binding {name} must be rooted at {expected} for {source_kind}, "
-        f"not {root}: {selector}"
-    )
+    return selector_type(schema, selector)
 
 
 def _binding_selector_type(schema: Any, selector: str) -> str | None:
     """Return the type a selector names below its root part, or None."""
 
-    parts = selector.split(".")
-    if not all(parts):
+    if not all(selector.split(".")):
         return None
-    current: Any = schema
-    for part in parts[1:]:
-        current = _child_schema(current, part)
-    return current.get("type") if isinstance(current, dict) else None
-
-
-def _child_schema(current: Any, part: str) -> Any:
-    """Return the schema one selector part names, or None when it names none.
-
-    A non-dict schema documents no type, so returning None for it leaves the
-    caller's result unchanged.
-    """
-
-    if not isinstance(current, dict):
-        return None
-    if current.get("type") == "object":
-        properties = current.get("properties")
-        if not isinstance(properties, dict) or part not in properties:
-            return None
-        return properties[part]
-    return None
-
-
-def selector_array_step(schema: Any, selector: str) -> str | None:
-    """Return the selector prefix naming the array that ``selector`` steps into, or None.
-
-    A selector follows object properties only. The ``items`` schema keyword, a
-    numeric part (``content.0``), and a bracketed index (``content[0]``) are not
-    properties, and a recorded value is never read through an array.
-    """
-
-    parts = selector.split(".")
-    current = schema
-    for index, part in enumerate(parts[1:], start=1):
-        name = _INDEX_SUFFIX.sub("", part)
-        if name != part and _is_array(_child_schema(current, name)):
-            return ".".join([*parts[:index], name])
-        if _is_array(current) and (part == "items" or part.isdecimal()):
-            return ".".join(parts[:index])
-        current = _child_schema(current, part)
-    return None
-
-
-_INDEX_SUFFIX = re.compile(r"\[\d+\]$")
-
-
-def _is_array(schema: Any) -> bool:
-    return isinstance(schema, dict) and schema.get("type") == "array"
-
-
-def _binding_types_compatible(actual: str, expected: str) -> bool:
-    return actual == expected or (actual == "integer" and expected == "number")
+    return type_below_root(schema, selector)
 
 
 __all__ = [
@@ -956,6 +772,7 @@ __all__ = [
     "BindingSpec",
     "BindingValidationError",
     "CLOSED_TYPES",
+    "ConsumerPrefix",
     "RuntimeBinding",
     "canonical_binding_paths",
     "find_stimulus_user_text_consumer_mismatches",
