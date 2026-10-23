@@ -10,10 +10,10 @@ template (for the ``klarna`` domain of the checkout's ``tests/fixtures/midojo-ba
 into ``templates/<kind>/``, with the suite code every template copies stored once in
 ``templates/code/``, and its command line fills each template with good
 values and with unusable ones. ``cases.json`` holds, per case, the values file's text
-(none: the file is absent), the exit code, stdout, stderr and the SHA-256 of every file of
-the bundle (``dir`` for a directory). The template, the values and the bundle sit in one
-temporary directory (left in place), written ``{tmp}`` in the recorded output and file
-contents.
+(none: the file is absent), the exit code, stdout, stderr and the SHA-256 of the bytes of
+every file of the bundle (``dir`` for a directory). The template, the values and the
+bundle sit in one temporary directory (left in place), written ``{tmp}`` in the recorded
+output and in the file bytes, which are otherwise hashed as written.
 ``test_bundle_midojo_cli.py`` replays every case with the current code. To regenerate,
 make the checkout with ``git worktree add --detach "$(mktemp -d)/c59a8fb" c59a8fb``.
 
@@ -69,10 +69,16 @@ def normalise(text: str, tmp: Path) -> str:
     return text.replace(str(tmp.resolve()), "{tmp}").replace(str(tmp), "{tmp}")
 
 
+def normalise_bytes(data: bytes, tmp: Path) -> bytes:
+    """Write the temporary directory as ``{tmp}`` in a file's bytes, which stay as written."""
+
+    return data.replace(str(tmp.resolve()).encode(), b"{tmp}").replace(str(tmp).encode(), b"{tmp}")
+
+
 def digests(bundle: Path, tmp: Path) -> dict[str, str]:
     return {
         path.relative_to(bundle).as_posix(): (
-            hashlib.sha256(normalise(path.read_text("utf-8"), tmp).encode()).hexdigest()
+            hashlib.sha256(normalise_bytes(path.read_bytes(), tmp)).hexdigest()
             if path.is_file()
             else "dir"
         )

@@ -8,10 +8,10 @@ Everything runs with that checkout's code, which the script checks: its test pac
 builders write a command, a reply and a sequential package, its compiler writes each
 template into ``templates/<kind>/``, and its command line fills each template with good
 values and with unusable ones. ``cases.json`` holds, per case, the values file's text
-(none: the file is absent), the exit code, stdout, stderr and the SHA-256 of every file of
-the bundle (``dir`` for a directory). The template, the values and the bundle sit in one
-temporary directory (left in place), written ``{tmp}`` in the recorded output and file
-contents.
+(none: the file is absent), the exit code, stdout, stderr and the SHA-256 of the bytes of
+every file of the bundle (``dir`` for a directory). The template, the values and the
+bundle sit in one temporary directory (left in place), written ``{tmp}`` in the recorded
+output and in the file bytes, which are otherwise hashed as written.
 ``test_bundle_garak_cli.py`` replays every case with the current code. To regenerate,
 make the checkout with ``git worktree add --detach "$(mktemp -d)/c59a8fb" c59a8fb``.
 
@@ -66,10 +66,16 @@ def normalise(text: str, tmp: Path) -> str:
     return text.replace(str(tmp.resolve()), "{tmp}").replace(str(tmp), "{tmp}")
 
 
+def normalise_bytes(data: bytes, tmp: Path) -> bytes:
+    """Write the temporary directory as ``{tmp}`` in a file's bytes, which stay as written."""
+
+    return data.replace(str(tmp.resolve()).encode(), b"{tmp}").replace(str(tmp).encode(), b"{tmp}")
+
+
 def digests(bundle: Path, tmp: Path) -> dict[str, str]:
     return {
         path.relative_to(bundle).as_posix(): (
-            hashlib.sha256(normalise(path.read_text("utf-8"), tmp).encode()).hexdigest()
+            hashlib.sha256(normalise_bytes(path.read_bytes(), tmp)).hexdigest()
             if path.is_file()
             else "dir"
         )

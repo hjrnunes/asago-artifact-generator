@@ -237,10 +237,16 @@ def normalise(text: str, tmp: Path) -> str:
     return text.replace(str(tmp.resolve()), "{tmp}").replace(str(tmp), "{tmp}")
 
 
+def normalise_bytes(data: bytes, tmp: Path) -> bytes:
+    """Write the temporary directory as ``{tmp}`` in a file's bytes, which stay as written."""
+
+    return data.replace(str(tmp.resolve()).encode(), b"{tmp}").replace(str(tmp).encode(), b"{tmp}")
+
+
 def digests(bundle: Path, tmp: Path) -> dict[str, str]:
     return {
         path.relative_to(bundle).as_posix(): (
-            hashlib.sha256(normalise(path.read_text("utf-8"), tmp).encode()).hexdigest()
+            hashlib.sha256(normalise_bytes(path.read_bytes(), tmp)).hexdigest()
             if path.is_file()
             else "dir"
         )

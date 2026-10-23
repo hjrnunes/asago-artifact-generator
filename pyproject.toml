@@ -57,6 +57,8 @@ packages = ["src/asago_artifact_generator"]
 target-version = "py311"
 line-length = 99
 src = ["src", "tests", "scripts", "packages/asago-bundle-core/src", "packages/asago-bundle-garak/src", "packages/asago-bundle-midojo/src"]
+# Copies of templates c59a8fb compiled, kept byte for byte.
+extend-exclude = ["packages/*/tests/fixtures/legacy_instantiate/templates"]
 
 [tool.ruff.format]
 # The report kit is a byte-for-byte mirror of the scenario generator's copy, formatted by the
