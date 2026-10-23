@@ -181,7 +181,8 @@ def _inside(name: Any) -> bool:
 
 def _slot_problem(document: Any) -> str | None:
     """Return what is wrong with the first slot marker of ``document`` that core
-    ``fill`` would replace, or None; other objects are data and are not inspected."""
+    ``fill`` would replace, or None. Other objects, ``$``-prefixed keys included, are not
+    treated as markers; ``fill`` still walks into them for nested markers."""
 
     problems: list[str] = []
 

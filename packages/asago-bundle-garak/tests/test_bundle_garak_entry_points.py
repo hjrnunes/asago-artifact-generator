@@ -10,12 +10,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 import pytest
 
 import asago_bundle_garak
 from asago_bundle_core.preparation import PreparationIncomplete
 from asago_bundle_core.testing import (
-    CONDITION,
     JUDGE,
     MOCK_TARGET,
     sequential_stimulus,
@@ -34,7 +34,7 @@ from asago_bundle_garak import (
 )
 from asago_bundle_garak.cli import main
 from asago_bundle_garak.report_parse import read_bundle
-from conftest import PIGGYBANK, WITHDRAW, write_setup_package
+from conftest import PIGGYBANK, REPO, WITHDRAW, write_setup_package
 
 MCP_URL = "http://127.0.0.1:18001/mcp"
 # An authorized target config whose MCP server the bundle's agent and the setup steps use.
@@ -313,7 +313,10 @@ def _move_run(template: Path, name: str) -> None:
 
 
 # Package data holding an object with a dollar-prefixed key, which is not a slot marker.
-DOLLAR_LITERAL = {"$schema": "https://example.invalid/condition", "$id": "literal"}
+# Package data holding one-key objects with a dollar-prefixed key, which are not slot
+# markers: a refusal of unknown "$" keys would reject them.
+DOLLAR_LITERAL = {"$schema": {"$id": "https://example.invalid/literal"}}
+CONDITION_SCHEMA = REPO / "contracts/tool-call-condition/tool-call-condition-v1/schema.json"
 
 
 @pytest.mark.parametrize("sequential", [False, True], ids=["single", "sequential"])
@@ -321,8 +324,13 @@ DOLLAR_LITERAL = {"$schema": "https://example.invalid/condition", "$id": "litera
 def test_a_dollar_prefixed_literal_in_package_data_survives_into_the_bundle(
     tmp_path: Path, claim_level: str, sequential: bool
 ) -> None:
-    condition = {**CONDITION, "notes": [{"$schema": DOLLAR_LITERAL["$schema"]}, DOLLAR_LITERAL]}
-    judge = {**JUDGE, "facts": [*JUDGE["facts"], {"$schema": DOLLAR_LITERAL["$schema"]}]}
+    # A literal operand's value and a judge fact's value may be any JSON.
+    left = {"source": "argument", "operation": "get_referral", "argument": "filter"}
+    right = {"source": "literal", "value": DOLLAR_LITERAL}
+    condition = {"comparisons": [{"kind": "value", "left": left, "op": "ne", "right": right}]}
+    jsonschema.validate(condition, json.loads(CONDITION_SCHEMA.read_text("utf-8")))
+    fact = {"ref": "state:filter", "value": DOLLAR_LITERAL, "source": "state:filter"}
+    judge = {**JUDGE, "facts": [fact]}
     package = write_test_package(
         tmp_path / "packages",
         claim_level=claim_level,
