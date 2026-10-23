@@ -52,8 +52,9 @@ _RETIRED_MEMBER_NAMES = frozenset(
         "authoring/transformations.json",
     }
 )
+# The writer numbered requests from 1 as ``{index:02d}``: 01 to 99, then 100 and up.
 _RETIRED_REQUEST_MEMBER = re.compile(
-    r"authoring/[0-9]{2,}-(call1|call2|correction|plan_review|artifact_review)"
+    r"authoring/(0[1-9]|[1-9][0-9]+)-(call1|call2|correction|plan_review|artifact_review)"
     r"\.(json|prompt|raw)"
 )
 # Each claim level names the member that downstream detection reads.
@@ -222,7 +223,8 @@ def load_package(path: str | Path) -> ArtifactPackage:
 
     A package written before the request copies were retired loads too: its
     retired members are verified like the others, then left out of ``members``
-    (the manifest, whose digest covers them, still lists them).
+    (the manifest, whose digest covers them, still lists them). ``write_package``
+    therefore refuses such a loaded package: retired members are never written.
     """
 
     validate_artifact_package_contract()

@@ -17,11 +17,13 @@ import pytest
 
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 from asago_artifact_generator.package_io import (
+    PackageIntegrityError,
     PackagePathError,
     _manifest_digest,
     _member_record,
     build_package,
     load_package,
+    write_package,
 )
 
 from .support import review_response, scripted_orchestrator, world_builders
@@ -44,6 +46,7 @@ _RETIRED_MEMBERS = (
     "authoring/03-call2.raw",
     "authoring/04-correction.json",
     "authoring/05-artifact_review.raw",
+    "authoring/99-call2.json",
     "authoring/100-correction.prompt",
 )
 _UNKNOWN_MEMBERS = (
@@ -53,6 +56,9 @@ _UNKNOWN_MEMBERS = (
     "authoring/notes.json",
     "authoring/01-call1.txt",
     "authoring/1-call1.json",
+    "authoring/00-call1.json",
+    "authoring/001-call1.raw",
+    "authoring/099-plan_review.prompt",
     "authoring/01-review.json",
     "authoring/01-call1.json/inner.json",
 )
@@ -170,6 +176,14 @@ def test_a_package_written_by_c18e46d_loads_without_its_request_copies(
     assert len(loaded.manifest.authoring["ledger"]) == 4
     assert loaded.manifest.creation_model["model"] == "configured-private-authoring"
     assert len(loaded.manifest.members) == len(_files(_OLD_PACKAGE)) - 1
+
+
+def test_a_loaded_c18e46d_package_cannot_be_written_back(tmp_path: Path) -> None:
+    # Its manifest still declares the retired members the loader dropped.
+    with pytest.raises(PackageIntegrityError, match="member set does not match manifest"):
+        write_package(tmp_path / "copy", load_package(_OLD_PACKAGE))
+
+    assert not (tmp_path / "copy").exists()
 
 
 @pytest.mark.parametrize("member", _RETIRED_MEMBERS)
