@@ -140,11 +140,19 @@ def test_instantiate_with_unusable_values_exits_one(
     assert capsys.readouterr().err.startswith("instantiate: ")
 
 
+@pytest.mark.parametrize(
+    "values_text",
+    [
+        pytest.param(json.dumps(VALUES), id="usable-values"),
+        # The target config is checked before the values are read.
+        pytest.param("{not json", id="unreadable-values"),
+    ],
+)
 def test_instantiate_refuses_a_target_not_authorized_for_a_run(
-    template: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    template: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], values_text: str
 ) -> None:
     values = tmp_path / "values.json"
-    values.write_text(json.dumps(VALUES), encoding="utf-8")
+    values.write_text(values_text, encoding="utf-8")
     target = tmp_path / "target.yaml"
     target.write_text("target: production\n", encoding="utf-8")
 

@@ -35,6 +35,7 @@ from .compiler import (
 MESSAGE_ROLES = frozenset({"system", "user", "assistant"})
 JUDGE_TURNS = frozenset({"final", "all"})
 TEMPLATE_KEYS = frozenset({"requires", "templates", "entrypoint"})
+TEMPLATE_ROLES = frozenset({"conversation", "run"})
 
 
 class InstantiateError(BundleError):
@@ -55,13 +56,9 @@ def instantiate_bundle(
     """
 
     authorized_target(target, InstantiateError)
-    template = Path(template_dir)
     out = Path(out_dir).resolve()
-    manifest = _read_json(template / BUNDLE_FILE)
-    if not isinstance(manifest, dict) or not TEMPLATE_KEYS <= manifest.keys():
-        raise InstantiateError(f"{BUNDLE_FILE} is not a bundle template manifest")
+    manifest, templates = read_template(template_dir)
     check_values(manifest["requires"], values, check_for, InstantiateError)
-    templates = {role: _read_json(template / name) for role, name in manifest["templates"].items()}
 
     def resolve(kind: str, argument: Any) -> Any:
         return str(out / argument) if kind == BUNDLE else values[argument]
@@ -84,6 +81,33 @@ def instantiate_bundle(
     )
     (out / REPORTS).mkdir()
     return concrete
+
+
+def read_template(template_dir: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return a template's manifest and its conversation and run templates, all checked.
+
+    Raises ``InstantiateError`` for a manifest without the template fields, or with a
+    ``requires``, ``templates`` or ``entrypoint`` of the wrong shape, and for a template
+    member that is missing or not JSON.
+    """
+
+    template = Path(template_dir)
+    manifest = _read_json(template / BUNDLE_FILE)
+    if not isinstance(manifest, dict) or not TEMPLATE_KEYS <= manifest.keys():
+        raise InstantiateError(f"{BUNDLE_FILE} is not a bundle template manifest")
+    names = manifest["templates"]
+    if not isinstance(names, dict) or set(names) != TEMPLATE_ROLES:
+        raise InstantiateError(f"{BUNDLE_FILE} templates must name {sorted(TEMPLATE_ROLES)}")
+    for field in ("requires", "entrypoint"):
+        if not _names(manifest[field]):
+            raise InstantiateError(f"{BUNDLE_FILE} {field} must be a list of texts")
+    if not all(isinstance(name, str) and name for name in names.values()):
+        raise InstantiateError(f"{BUNDLE_FILE} templates must be file names")
+    templates = {role: _read_json(template / name) for role, name in names.items()}
+    for role, content in templates.items():
+        if not isinstance(content, dict):
+            raise InstantiateError(f"the {role} template is not a JSON object")
+    return manifest, templates
 
 
 def check_for(key: str) -> Callable[[Any], bool] | None:

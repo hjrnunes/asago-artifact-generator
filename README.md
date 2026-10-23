@@ -788,9 +788,11 @@ say what the target is:
 authorized_as: mock
 ```
 
-Each adapter's `instantiate` refuses a config without `authorized_as`, or with any
-value other than `mock` or `test_instance`, before it reads or writes anything else
-(exit 1 on the command line). The MiDojo adapter's `instantiate` takes the config as
+Each adapter's `instantiate`, as a function and on the command line, checks the
+target config first: a config without `authorized_as`, or with any value other than
+`mock` or `test_instance`, is refused (exit 1 on the command line) before the package,
+the template, the run settings or the values are read, and before anything is
+written or sent to the target. The MiDojo adapter's `instantiate` takes the config as
 `--target` (`instantiate_bundle(..., target=...)`) and reads only that field.
 
 The Garak adapter's `compile`, `instantiate` and `parse` are library functions, and
@@ -814,8 +816,11 @@ result = instantiate("package", "template", "bundle", target=target, run=run)
 parse("bundle", "execution-receipt.json")
 ```
 
-`RunSettings.mcp_url` defaults to the config's `endpoint.mcp_url` and `allowed_tools`
-to every operation of the package's inventory. On the command line:
+The MCP server the setup steps call and the bundle's agent is told to use is always the
+authorized config's `endpoint.mcp_url`, with `{port}` filled; `RunSettings.mcp_url`, when
+set, must name that same URL or `instantiate` refuses the run. `allowed_tools` defaults to
+every operation of the package's inventory. Every template member and the run settings
+are checked before the first setup call. On the command line:
 
 ```bash
 asago-bundle-garak instantiate TEMPLATE --package PACKAGE --target target.yaml \

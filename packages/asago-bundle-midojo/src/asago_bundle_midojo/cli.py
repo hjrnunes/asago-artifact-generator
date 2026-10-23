@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from asago_bundle_core.gap import EXIT_CAPABILITY_GAP, EXIT_INPUT, EXIT_OK, CapabilityGap
-from asago_bundle_core.target import AUTHORIZATION_FIELD, AUTHORIZED_KINDS
+from asago_bundle_core.target import AUTHORIZATION_FIELD, AUTHORIZED_KINDS, authorized_target
 
 from .compiler import CompileError, compile_package
 from .instantiate import InstantiateError, instantiate_bundle
@@ -99,6 +99,12 @@ def _compile(args: argparse.Namespace) -> int:
 
 
 def _instantiate(args: argparse.Namespace) -> int:
+    # The target config is checked before anything else is read.
+    try:
+        authorized_target(args.target, InstantiateError)
+    except InstantiateError as exc:
+        print(f"instantiate: {exc}", file=sys.stderr)
+        return EXIT_INPUT
     try:
         values = json.loads(args.values.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:

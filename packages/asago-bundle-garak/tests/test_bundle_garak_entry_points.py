@@ -29,12 +29,14 @@ from asago_bundle_garak.cli import main
 from asago_bundle_garak.report_parse import read_bundle
 from conftest import PIGGYBANK, WITHDRAW, write_setup_package
 
+MCP_URL = "http://127.0.0.1:18001/mcp"
+# An authorized target config whose MCP server the bundle's agent and the setup steps use.
+TARGET = {**MOCK_TARGET, "endpoint": {"mcp_url": MCP_URL}}
 RUN = RunSettings(
     gateway_url="http://127.0.0.1:18999/v1",
     model="fixture-model",
     judge_url="http://127.0.0.1:18998/v1",
     judge_model="judge-model",
-    mcp_url="http://127.0.0.1:18001/mcp",
 )
 AFTER_SETUP = {"account_id": "ACC-1", "balance": 100.0}
 
@@ -77,7 +79,7 @@ def test_instantiate_prepares_the_package_and_fills_the_bundle(
         setup_package,
         setup_template,
         tmp_path / "bundle",
-        target=MOCK_TARGET,
+        target=TARGET,
         run=RUN,
         call_target=target,
     )
@@ -89,7 +91,7 @@ def test_instantiate_prepares_the_package_and_fills_the_bundle(
     assert result.values["messages"] == [message]
     assert result.values["judge_runtime_facts"] == {"balance": 100.0}
     assert result.values["allowed_tools"] == ["get_balance", "list_notes", "withdraw"]
-    assert result.values["mcp_url"] == RUN.mcp_url
+    assert result.values["mcp_url"] == MCP_URL
     assert read_bundle(tmp_path / "bundle").messages == [message]
     entry = json.loads((tmp_path / "bundle" / "conversations.jsonl").read_text("utf-8"))
     assert entry["judge_rubric"]["runtime_facts"] == {"balance": 100.0}
@@ -105,7 +107,7 @@ def test_instantiate_returns_an_incomplete_preparation_and_writes_no_bundle(
         setup_package,
         setup_template,
         tmp_path / "bundle",
-        target=MOCK_TARGET,
+        target=TARGET,
         run=RUN,
         call_target=target,
     )
@@ -123,7 +125,7 @@ def test_a_failed_setup_call_is_an_incomplete_preparation(
         setup_package,
         setup_template,
         tmp_path / "bundle",
-        target=MOCK_TARGET,
+        target=TARGET,
         run=RUN,
         call_target=FakeTarget(RuntimeError("refused")),
     )
@@ -157,16 +159,78 @@ def test_instantiate_refuses_a_target_not_authorized_before_any_setup(
 def test_instantiate_takes_the_path_of_a_target_yaml(
     setup_package: Path, setup_template: Path, tmp_path: Path
 ) -> None:
+    config = tmp_path / "target.yaml"
+    config.write_text(
+        (PIGGYBANK / "target.yaml").read_text("utf-8").replace("{port}", "18001"), "utf-8"
+    )
+
     result = instantiate(
         setup_package,
         setup_template,
         tmp_path / "bundle",
-        target=PIGGYBANK / "target.yaml",
+        target=config,
         run=RUN,
         call_target=FakeTarget(),
     )
 
     assert isinstance(result, Instantiated)
+    assert result.values["mcp_url"] == MCP_URL
+
+
+def test_a_run_mcp_url_equal_to_the_targets_is_accepted(
+    setup_package: Path, setup_template: Path, tmp_path: Path
+) -> None:
+    run = RunSettings(**{**vars(RUN), "mcp_url": MCP_URL})
+
+    result = instantiate(
+        setup_package,
+        setup_template,
+        tmp_path / "b",
+        target=TARGET,
+        run=run,
+        call_target=FakeTarget(),
+    )
+
+    assert isinstance(result, Instantiated)
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        pytest.param(lambda t: (t / "conversation.template.json").unlink(), id="no-conversation"),
+        pytest.param(
+            lambda t: (t / "run.template.json").write_text("{", "utf-8"), id="run-not-json"
+        ),
+        pytest.param(
+            lambda t: (t / "run.template.json").write_text("[]", "utf-8"), id="run-a-list"
+        ),
+        pytest.param(
+            lambda t: _edit_manifest(t, templates={"conversation": "conversation.template.json"}),
+            id="templates-without-run",
+        ),
+        pytest.param(lambda t: _edit_manifest(t, requires="model"), id="requires-not-a-list"),
+        pytest.param(lambda t: _edit_manifest(t, entrypoint=[1]), id="entrypoint-not-texts"),
+    ],
+)
+def test_a_damaged_template_is_refused_before_any_target_call(
+    setup_package: Path, setup_template: Path, tmp_path: Path, damage: Any
+) -> None:
+    damage(setup_template)
+    call = FakeTarget()
+
+    with pytest.raises(InstantiateError):
+        instantiate(
+            setup_package, setup_template, tmp_path / "b", target=TARGET, run=RUN, call_target=call
+        )
+
+    assert call.calls == []
+    assert not (tmp_path / "b").exists()
+
+
+def _edit_manifest(template: Path, **fields: Any) -> None:
+    path = template / "bundle.json"
+    manifest = json.loads(path.read_text("utf-8"))
+    path.write_text(json.dumps({**manifest, **fields}), "utf-8")
 
 
 @pytest.mark.parametrize(
@@ -181,8 +245,19 @@ def test_instantiate_takes_the_path_of_a_target_yaml(
         pytest.param({"target": 7}, "neither a mapping nor a path", id="target-not-a-config"),
         pytest.param({"target": "missing.yaml"}, "unreadable", id="target-missing"),
         pytest.param(
-            {"run": {**vars(RUN), "mcp_url": None}}, "no MCP URL", id="no-mcp-url-anywhere"
+            {"target": MOCK_TARGET}, "names no usable endpoint.mcp_url", id="target-without-mcp"
         ),
+        pytest.param(
+            {"target": {**MOCK_TARGET, "endpoint": {"mcp_url": "http://127.0.0.1:{port}/mcp"}}},
+            "names no usable endpoint.mcp_url",
+            id="target-mcp-unfilled",
+        ),
+        pytest.param(
+            {"run": {**vars(RUN), "mcp_url": "http://127.0.0.1:9/mcp"}},
+            "is not the authorized target config's endpoint.mcp_url",
+            id="run-mcp-url-mismatch",
+        ),
+        pytest.param({"run": {1: "x", "model": "m"}}, "keys must be texts", id="run-key-not-text"),
         pytest.param(
             {"run": {**vars(RUN), "gateway_url": "ftp://x"}},
             "malformed gateway_url",
@@ -208,7 +283,7 @@ def test_instantiate_refuses_unusable_inputs_before_any_setup(
     message: str,
 ) -> None:
     call = FakeTarget()
-    arguments = {"target": MOCK_TARGET, "run": RUN, **change}
+    arguments = {"target": TARGET, "run": RUN, **change}
 
     with pytest.raises(InstantiateError, match=message):
         instantiate(setup_package, setup_template, tmp_path / "b", call_target=call, **arguments)
@@ -224,7 +299,7 @@ def test_instantiate_refuses_a_template_of_another_package(
             command_package,
             setup_template,
             tmp_path / "b",
-            target=MOCK_TARGET,
+            target=TARGET,
             run=RUN,
             call_target=FakeTarget(),
         )
@@ -242,7 +317,7 @@ def test_instantiate_refuses_a_non_empty_output_before_setup(
             setup_package,
             setup_template,
             tmp_path / "b",
-            target=MOCK_TARGET,
+            target=TARGET,
             run=RUN,
             call_target=call,
         )
@@ -256,13 +331,11 @@ def test_a_package_without_an_inventory_needs_the_allowed_tools(
     compile(command_package, tmp_path / "template")
 
     with pytest.raises(InstantiateError, match="no allowed tools"):
-        instantiate(
-            command_package, tmp_path / "template", tmp_path / "b", target=MOCK_TARGET, run=RUN
-        )
+        instantiate(command_package, tmp_path / "template", tmp_path / "b", target=TARGET, run=RUN)
 
     run = RunSettings(**{**vars(RUN), "allowed_tools": ("get_referral",)})
     result = instantiate(
-        command_package, tmp_path / "template", tmp_path / "b", target=MOCK_TARGET, run=run
+        command_package, tmp_path / "template", tmp_path / "b", target=TARGET, run=run
     )
     assert isinstance(result, Instantiated)
     assert result.values["allowed_tools"] == ["get_referral"]
@@ -281,7 +354,7 @@ def test_parse_refuses_a_missing_bundle_or_records_directory(
         setup_package,
         setup_template,
         tmp_path / "bundle",
-        target=MOCK_TARGET,
+        target=TARGET,
         run=RUN,
         call_target=FakeTarget(),
     )
@@ -290,6 +363,34 @@ def test_parse_refuses_a_missing_bundle_or_records_directory(
         parse(tmp_path / "missing", tmp_path / "receipt.json")
     with pytest.raises(ParseError, match="records directory does not exist"):
         parse(tmp_path / "bundle", tmp_path / "receipt.json", records_dir=tmp_path / "none")
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        pytest.param({"out_path": 7}, "receipt path must be a path", id="out-not-a-path"),
+        pytest.param({"out_path": ""}, "receipt path must be a path", id="out-empty"),
+        pytest.param({"out_path": "."}, "receipt path is a directory", id="out-a-directory"),
+        pytest.param({"report": 7}, "report must be a path", id="report-not-a-path"),
+        pytest.param({"report": ""}, "report must be a path", id="report-empty"),
+        pytest.param({"tool_revision": 7}, "tool_revision must be a string", id="bad-revision"),
+    ],
+)
+def test_parse_refuses_unusable_arguments(
+    setup_package: Path,
+    setup_template: Path,
+    tmp_path: Path,
+    arguments: dict[str, Any],
+    message: str,
+) -> None:
+    bundle = tmp_path / "bundle"
+    instantiate(
+        setup_package, setup_template, bundle, target=TARGET, run=RUN, call_target=FakeTarget()
+    )
+    given = {"out_path": bundle / "receipt.json", **arguments}
+
+    with pytest.raises(ParseError, match=message):
+        parse(bundle, **given)
 
 
 def write_run(tmp_path: Path, settings: Any) -> Path:
@@ -347,11 +448,17 @@ def test_cli_instantiate_fills_the_port_and_prints_the_preparation(
 def test_cli_instantiate_exits_4_when_the_package_cannot_be_prepared(
     setup_package: Path, setup_template: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Without --port the target's MCP URL keeps its placeholder, so setup has no target call.
+    # Nothing listens on port 1, so the setup call to the target's MCP server fails.
     run = write_run(tmp_path, {**vars(RUN), "allowed_tools": None})
 
     code = cli_instantiate(
-        setup_package, setup_template, tmp_path / "bundle", run, PIGGYBANK / "target.yaml"
+        setup_package,
+        setup_template,
+        tmp_path / "bundle",
+        run,
+        PIGGYBANK / "target.yaml",
+        "--port",
+        "1",
     )
 
     assert code == 4
@@ -365,6 +472,10 @@ def test_cli_instantiate_exits_4_when_the_package_cannot_be_prepared(
     [
         pytest.param("target: production\n", None, "authorized_as", id="unauthorized"),
         pytest.param(None, "{not json", "run settings are unreadable", id="bad-run"),
+        # The target config is checked first, before the run settings are read.
+        pytest.param(
+            "target: production\n", "{not json", "authorized_as", id="unauthorized-bad-run"
+        ),
     ],
 )
 def test_cli_instantiate_refuses_unusable_input_with_exit_1(

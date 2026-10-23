@@ -24,7 +24,7 @@ from asago_bundle_core.gap import (
     CapabilityGap,
 )
 from asago_bundle_core.preparation import PreparationIncomplete
-from asago_bundle_core.target import AUTHORIZATION_FIELD, AUTHORIZED_KINDS, load_target_config
+from asago_bundle_core.target import AUTHORIZATION_FIELD, AUTHORIZED_KINDS, authorized_target
 
 from .compiler import CompileError
 from .entry_points import compile, instantiate, parse
@@ -108,13 +108,18 @@ def _compile(args: argparse.Namespace) -> int:
 
 
 def _instantiate(args: argparse.Namespace) -> int:
+    # The target config is checked before anything else is read.
+    try:
+        target = authorized_target(args.target, InstantiateError, port=args.port)
+    except InstantiateError as exc:
+        print(f"instantiate: {exc}", file=sys.stderr)
+        return EXIT_INPUT
     try:
         run = json.loads(args.run.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         print(f"instantiate: run settings are unreadable: {exc}", file=sys.stderr)
         return EXIT_INPUT
     try:
-        target = load_target_config(args.target, InstantiateError, port=args.port)
         result = instantiate(args.package, args.template, args.out, target=target, run=run)
     except InstantiateError as exc:
         print(f"instantiate: {exc}", file=sys.stderr)

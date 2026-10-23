@@ -9,8 +9,10 @@ authorized for a run (``asago_bundle_core.target``) before it does anything else
 prepares the package for the run with ``asago_bundle_core.preparation.prepare_package``,
 whose setup steps make real writes through ``call_target`` (by default an MCP call to the
 target config's ``endpoint.mcp_url``), and turns the rendered stimulus and the judge's
-facts into the bundle values. A package that cannot be prepared returns the
-``PreparationIncomplete`` result and writes no bundle.
+facts into the values the lower-level template filler ``instantiate_bundle`` takes. The
+bundle's agent uses the same authorized ``endpoint.mcp_url``. Every input, including each
+template member, is checked before the first setup call. A package that cannot be
+prepared returns the ``PreparationIncomplete`` result and writes no bundle.
 """
 
 from __future__ import annotations
@@ -31,8 +33,8 @@ from asago_bundle_core.preparation import (
 )
 from asago_bundle_core.target import TargetConfig, authorized_target, mcp_call_target
 
-from .compiler import BUNDLE_FILE, CompileError, compile_package
-from .instantiate import CHECKS, InstantiateError, instantiate_bundle
+from .compiler import CompileError, compile_package
+from .instantiate import CHECKS, InstantiateError, instantiate_bundle, read_template
 from .report_parse import ParseError, parse_report
 
 DEFAULT_JUDGE_TURNS = "final"
@@ -44,10 +46,10 @@ class RunSettings:
 
     ``gateway_url`` is the Responses endpoint Garak's generator calls and ``model`` the model
     it names. ``judge_url`` and ``judge_model`` serve a reply package's judge, and
-    ``judge_turns`` (``final`` or ``all``) a sequential reply package's. ``mcp_url`` is the
-    MCP server the agent is told to use, the target config's ``endpoint.mcp_url`` when None.
-    ``allowed_tools`` are the tools the agent may call, every operation of the package's
-    inventory when None.
+    ``judge_turns`` (``final`` or ``all``) a sequential reply package's. The MCP server the
+    agent is told to use is always the authorized target config's ``endpoint.mcp_url``;
+    ``mcp_url``, when set, must name that same URL. ``allowed_tools`` are the tools the
+    agent may call, every operation of the package's inventory when None.
     """
 
     gateway_url: str
@@ -64,6 +66,8 @@ class RunSettings:
 
         if not isinstance(settings, Mapping):
             raise InstantiateError("the run settings must be a JSON object")
+        if not all(isinstance(key, str) for key in settings):
+            raise InstantiateError("the run settings' keys must be texts")
         known = {field.name for field in fields(cls)}
         unknown = sorted(set(settings) - known)
         if unknown:
@@ -115,10 +119,11 @@ def instantiate(
     """Prepare the package for one run against ``target`` and write its concrete bundle.
 
     ``template_dir`` is what ``compile`` wrote for ``package_dir``. ``target`` is the target
-    config: a ``TargetConfig``, a loaded mapping, or the path of a ``target.yaml``.
-    ``call_target`` runs the package's setup steps; when None they go to the target config's
-    ``endpoint.mcp_url`` over MCP. Raises ``InstantiateError`` for an unauthorized target
-    config or any other input it cannot use, before setup runs.
+    config: a ``TargetConfig``, a loaded mapping, or the path of a ``target.yaml``; its
+    ``endpoint.mcp_url``, with any placeholder filled, is the MCP server both the setup steps
+    and the bundle's agent use. ``call_target`` runs the setup steps; when None they go to
+    that URL over MCP. Raises ``InstantiateError`` for an unauthorized target config or any
+    other input it cannot use, including every template member, before setup runs.
     """
 
     loaded = authorized_target(target, InstantiateError)
@@ -127,15 +132,18 @@ def instantiate(
     template = _directory(template_dir, "template", InstantiateError)
     requires = _template_requires(template, package)
     _new_directory(out_dir, InstantiateError)
-    mcp_url = settings.mcp_url or loaded.mcp_url
+    mcp_url = loaded.mcp_url
     if not mcp_url or "{" in mcp_url:
+        raise InstantiateError(f"the target config names no usable endpoint.mcp_url: {mcp_url!r}")
+    if settings.mcp_url is not None and settings.mcp_url != mcp_url:
         raise InstantiateError(
-            f"no MCP URL: the run settings name none and the target config has {mcp_url!r}"
+            f"the run settings' mcp_url {settings.mcp_url!r} is not the authorized target "
+            f"config's endpoint.mcp_url {mcp_url!r}"
         )
     allowed_tools = _allowed_tools(settings, package)
     _check_settings(settings, mcp_url, allowed_tools, requires)
-    if call_target is None and loaded.mcp_url and "{" not in loaded.mcp_url:
-        call_target = mcp_call_target(loaded.mcp_url)
+    if call_target is None:
+        call_target = mcp_call_target(mcp_url)
     try:
         prepared = prepare_package(package, call_target=call_target)
     except PreparationError as exc:
@@ -164,6 +172,12 @@ def parse(
     """
 
     _directory(bundle_dir, "bundle", ParseError)
+    if not isinstance(out_path, str | Path) or not str(out_path):
+        raise ParseError("the receipt path must be a path")
+    if Path(out_path).is_dir():
+        raise ParseError(f"the receipt path is a directory: {out_path}")
+    if report is not None and (not isinstance(report, str | Path) or not str(report)):
+        raise ParseError("the report must be a path")
     if records_dir is not None:
         _directory(records_dir, "records", ParseError)
     for name, value in (("tool_revision", tool_revision), ("adapter_revision", adapter_revision)):
@@ -266,17 +280,16 @@ def _check_settings(
 
 
 def _template_requires(template: Path, package: ArtifactPackage) -> list[str]:
-    """Return the template's required values; refuse one not compiled for this package."""
+    """Return the template's required values, after checking every template member.
 
-    try:
-        manifest = json.loads((template / BUNDLE_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise InstantiateError(f"the template has no readable {BUNDLE_FILE}: {exc}") from exc
-    digest = manifest.get("package_digest") if isinstance(manifest, dict) else None
-    if digest != package.manifest.manifest_digest:
+    Refuses a template whose manifest or conversation and run templates
+    ``instantiate_bundle`` could not use, and one not compiled for this package.
+    """
+
+    manifest, _ = read_template(template)
+    if manifest.get("package_digest") != package.manifest.manifest_digest:
         raise InstantiateError("the template was not compiled from this package")
-    requires = manifest.get("requires")
-    return requires if isinstance(requires, list) else []
+    return manifest["requires"]
 
 
 def _package(package_dir: str | Path) -> ArtifactPackage:
