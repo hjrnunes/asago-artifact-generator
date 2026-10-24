@@ -2,9 +2,10 @@
 
 An author stage directory recorded by the orchestrator holds the exact
 command line of every item in ``stage.json``, each item's console log under
-``items/``, and the item's outputs under ``output/``.  Every item writes
-``<ID>.failure-evidence.json``, which records each dispatched prompt and the
-provider's response.  The gate re-runs every item with the current code::
+``items/``, and the item's outputs under ``output/``.  Each item that
+dispatched a request writes ``<ID>.failure-evidence.json``, accepted or not,
+which records each dispatched prompt and the provider's response.  The gate
+re-runs every item with the current code::
 
     python scripts/replay_gate.py check STAGE_DIR [STAGE_DIR ...]
 
