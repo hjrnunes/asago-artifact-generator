@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "artifact-package-v5 directory manifest",
+  "description": "The consumer-owned immutable artifact package. Each listed member is one of the code-owned member names below, and its bytes are digest-bound. The package contains no detector code and no copy of an authoring request: each request's prompt, reply, ledger record, and review stay in the authoring failure evidence. A command_attempt package carries tool_call_condition.json, the handoff tool-call condition, exactly when the handoff binds it; a reply package carries judge.json, the semantic judge specification. A package comes from a scenario-handoff-v5 input. A package whose handoff plans a planted item may carry seed.json, which follows artifact-seed-v1/schema.json, and stimulus.json carries mode and turn_count; this manifest schema lists members only and does not constrain their contents. authoring records only the authoring outcome, and creation_model is empty. artifact-package-v4 packages, which may also carry source-hashes.json and authoring/ request copies, still load under artifact-package-v4/schema.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "artifact-package-v5"
+    },
+    "package_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scenario_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_kind": {
+      "enum": [
+        "scenario-handoff-v5"
+      ]
+    },
+    "source_digests": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "pattern": "^[a-f0-9]{64}$",
+        "type": "string"
+      }
+    },
+    "members": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/member"
+      },
+      "minItems": 1
+    },
+    "authoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "terminal_status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "review_status": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "artifact"
+          ]
+        }
+      }
+    },
+    "runtime_capabilities": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "creation_model": {
+      "type": "object",
+      "maxProperties": 0
+    },
+    "manifest_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "package_id",
+    "scenario_id",
+    "input_kind",
+    "source_digests",
+    "members",
+    "authoring",
+    "runtime_capabilities",
+    "creation_model",
+    "manifest_digest"
+  ],
+  "$defs": {
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "enum": [
+            "bindings.json",
+            "checks.json",
+            "examples.json",
+            "explanation.json",
+            "inputs.json",
+            "judge.json",
+            "observations.json",
+            "plan.json",
+            "prerequisites.json",
+            "seed.json",
+            "setup.json",
+            "stimulus.json",
+            "tool_call_condition.json"
+          ]
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "media_type",
+        "length",
+        "sha256"
+      ]
+    }
+  }
+}

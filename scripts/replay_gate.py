@@ -678,14 +678,18 @@ def current_layout(
 
     The result is the recorded files without the retired copies, and the bytes
     of each file that changes: ``inputs.json`` without its retired keys, and
-    ``manifest.json`` with the remaining members, only the authoring outcome
-    (``status``, ``terminal_status``, and ``review_status.artifact``),
-    an empty ``creation_model``, and its digest recomputed.  A recording made
-    by the current writer comes back unchanged.
+    ``manifest.json`` with the current ``schema_version``, the remaining members,
+    only the authoring outcome (``status``, ``terminal_status``, and
+    ``review_status.artifact``), an empty ``creation_model``, and its digest
+    recomputed.  A recording made by the current writer comes back unchanged.
     """
 
     from asago_artifact_generator.contract_kit import canonical_json
-    from asago_artifact_generator.package_io import _manifest_digest, _member_record
+    from asago_artifact_generator.package_io import (
+        PACKAGE_SCHEMA_VERSION,
+        _manifest_digest,
+        _member_record,
+    )
 
     kept = {name for name in files if not _is_retired(name, item_id)}
     manifest_name = f"{item_id}/manifest.json"
@@ -701,6 +705,7 @@ def current_layout(
             rewritten[inputs_name] = (canonical_json(inputs) + "\n").encode("utf-8")
     original = json.loads((recorded_output / manifest_name).read_bytes())
     manifest = dict(original)
+    manifest["schema_version"] = PACKAGE_SCHEMA_VERSION
     members = {
         record["path"]: record
         for record in original["members"]

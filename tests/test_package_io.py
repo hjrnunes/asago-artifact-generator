@@ -41,7 +41,7 @@ def test_package_round_trip_reloads_and_preserves_raw_member_bytes(tmp_path: Pat
     written = write_package(destination, package)
     loaded = load_package(written)
 
-    assert loaded.manifest.schema_version == "artifact-package-v4"
+    assert loaded.manifest.schema_version == "artifact-package-v5"
     assert loaded.manifest.package_id == "pkg-1"
     assert loaded.members["examples.json"] == b'{"raw":true}\n'
     assert loaded.members["explanation.json"] == package.members["explanation.json"]
@@ -82,7 +82,7 @@ def test_writer_rejects_secret_bearing_manifest_metadata(tmp_path: Path) -> None
                 input_kind="scenario-handoff-v5",
                 source_digests={"source": "a" * 64},
                 members={"explanation.json": b"{}\n"},
-                creation_model={"api_key": "not persisted"},
+                runtime_capabilities={"api_key": "not persisted"},
             ),
         )
 
@@ -341,7 +341,7 @@ def test_manifest_carries_no_detector_interface_and_rejects_a_detector_member(
     destination = write_package(tmp_path / "package", _package())
     manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
 
-    assert manifest["schema_version"] == "artifact-package-v4"
+    assert manifest["schema_version"] == "artifact-package-v5"
     assert set(manifest) == {
         "schema_version",
         "package_id",
@@ -383,18 +383,18 @@ def test_claim_level_requires_its_scoring_member(
     assert load_package(written).members[member] == b"{}\n"
 
 
-def test_written_manifest_matches_the_locked_v4_schema(tmp_path: Path) -> None:
+def test_written_manifest_matches_the_locked_v5_schema(tmp_path: Path) -> None:
     import jsonschema
 
     root = Path(package_io.__file__).resolve().parents[2] / "contracts" / "artifact-package"
     lock = json.loads((root / "CONTRACT.lock").read_text(encoding="utf-8"))
-    schema = json.loads((root / "artifact-package-v4" / "schema.json").read_text(encoding="utf-8"))
+    schema = json.loads((root / "artifact-package-v5" / "schema.json").read_text(encoding="utf-8"))
     destination = write_package(tmp_path / "package", _package())
     manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
 
-    assert lock["package_schema_version"] == "artifact-package-v4"
-    assert lock["digest_domain"] == "artifact-package-v4"
-    assert "artifact-package-v4/schema.json" in lock["files"]
+    assert lock["package_schema_version"] == "artifact-package-v5"
+    assert lock["digest_domain"] == "artifact-package-v5"
+    assert "artifact-package-v5/schema.json" in lock["files"]
     jsonschema.validate(manifest, schema)
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({**manifest, "detector_interface": "x"}, schema)

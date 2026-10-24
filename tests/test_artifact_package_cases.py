@@ -2,7 +2,8 @@
 
 The cases live in ``contracts/artifact-package/`` and the orchestrator runs the
 same files from its mirror. Each invalid case names a stable code;
-``_MESSAGES`` maps the code to this reader's error wording.
+``_MESSAGES`` maps the code to this reader's error wording, and
+``_VERSION_MESSAGES`` names the wording a version's schema gives first.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from asago_artifact_generator.package_io import (
 
 _REPO = Path(__file__).resolve().parents[1]
 _ROOT = _REPO / "contracts" / "artifact-package"
-_VERSIONS = ("artifact-package-v4",)
+_VERSIONS = ("artifact-package-v4", "artifact-package-v5")
 _SEED = "artifact-seed-v1"
 _MESSAGES = {
     "manifest_not_object": r"^package manifest must be an object$",
@@ -53,7 +54,26 @@ _MESSAGES = {
     "member_duplicate": r"^duplicate package member: ",
     "member_set_mismatch": r"^package member set does not match manifest$",
     "member_digest_mismatch": r"^digest mismatch for package member: ",
+    "authoring_field_unexpected": (
+        r"^package manifest schema invalid at authoring(\.review_status)?: "
+        r"Additional properties are not allowed "
+    ),
+    "creation_model_not_empty": r"^package manifest schema invalid at creation_model: ",
 }
+# The v5 schema lists the member names, so it rejects any other path before the path checks run.
+_V5_MEMBER_PATH = r"^package manifest schema invalid at members\.\d+\.path: .* is not one of "
+_VERSION_MESSAGES = {
+    "artifact-package-v5": {
+        "member_path_invalid": _V5_MEMBER_PATH,
+        "member_path_escapes": _V5_MEMBER_PATH,
+        "member_path_non_canonical": _V5_MEMBER_PATH,
+        "member_path_unexpected": _V5_MEMBER_PATH,
+    },
+}
+
+
+def _message(version: str, code: str) -> str:
+    return _VERSION_MESSAGES.get(version, {}).get(code, _MESSAGES[code])
 
 
 def _json(path: Path) -> Any:
@@ -141,7 +161,8 @@ def test_the_reader_rejects_every_invalid_case_with_its_code(tmp_path: Path, cas
     with pytest.raises((PackageIntegrityError, PackagePathError)) as raised:
         load_package(_materialize(case, tmp_path / "package"))
 
-    assert re.search(_MESSAGES[code], str(raised.value)), (code, str(raised.value))
+    message = _message(case.parents[1].name, code)
+    assert re.search(message, str(raised.value)), (code, str(raised.value))
 
 
 def _first_seed_error(document: Any) -> ValidationError | None:

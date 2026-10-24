@@ -722,7 +722,7 @@ def _author(
     return result, transport
 
 
-def test_an_indirect_handoff_becomes_a_v4_package_with_a_seed_that_follows_the_seed_schema(
+def test_an_indirect_handoff_becomes_a_v5_package_with_a_seed_that_follows_the_seed_schema(
     tmp_path: Path,
 ) -> None:
     result, transport = _author(tmp_path)
@@ -752,7 +752,7 @@ def test_an_indirect_handoff_becomes_a_v4_package_with_a_seed_that_follows_the_s
     assert PLANTED not in json.dumps(stimulus)
     assert "planted_text" not in json.dumps(stimulus)
     loaded = load_package(package)
-    assert loaded.manifest.schema_version == "artifact-package-v4"
+    assert loaded.manifest.schema_version == "artifact-package-v5"
     assert "seed.json" in loaded.members
 
 

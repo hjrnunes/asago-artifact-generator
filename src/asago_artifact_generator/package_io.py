@@ -23,7 +23,11 @@ from .contract_kit import (
 from .metadata_policy import secret_metadata_paths
 from .value_checks import is_sha256_hex
 
-PACKAGE_SCHEMA_VERSION = "artifact-package-v4"
+PACKAGE_SCHEMA_VERSION = "artifact-package-v5"
+# The version written before the request copies were retired. The loader still reads it;
+# the writer writes only PACKAGE_SCHEMA_VERSION.
+V4_SCHEMA_VERSION = "artifact-package-v4"
+_READABLE_SCHEMA_VERSIONS = frozenset({PACKAGE_SCHEMA_VERSION, V4_SCHEMA_VERSION})
 TOOL_CALL_CONDITION_MEMBER = "tool_call_condition.json"
 SEED_MEMBER = "seed.json"
 _ALLOWED_MEMBER_NAMES = {
@@ -41,9 +45,10 @@ _ALLOWED_MEMBER_NAMES = {
     TOOL_CALL_CONDITION_MEMBER,
     SEED_MEMBER,
 }
-# What a package written at c18e46d held beside the members above: the source digests
-# (the manifest pins them) and each authoring request's copies, which the failure
-# evidence now keeps. The loader verifies and then drops them; the writer refuses them.
+# What an artifact-package-v4 package written at c18e46d held beside the members above:
+# the source digests (the manifest pins them) and each authoring request's copies, which
+# the failure evidence now keeps. The loader verifies and then drops them in a v4 package
+# only; the writer and a v5 package refuse them.
 _RETIRED_MEMBER_NAMES = frozenset(
     {
         "source-hashes.json",
@@ -63,7 +68,7 @@ _CLAIM_LEVEL_MEMBERS = {
     ClaimLevel.REPLY.value: "judge.json",
 }
 _CONTRACT_ROOT = contract_dir("artifact-package")
-# The handoff version a package may come from; the artifact-package-v4 schema lists the same.
+# The handoff version a package may come from; both package schemas list the same.
 _INPUT_KINDS = frozenset({"scenario-handoff-v5"})
 
 
@@ -86,7 +91,7 @@ class PackageManifest:
     members: list[dict[str, Any]]
     authoring: dict[str, Any] = field(default_factory=dict)
     runtime_capabilities: dict[str, Any] = field(default_factory=dict)
-    # Required by the v4 schema; the authoring writer leaves it empty.
+    # Required by both schemas; v5 requires it empty, and the writer leaves it so.
     creation_model: dict[str, Any] = field(default_factory=dict)
     manifest_digest: str = ""
     schema_version: str = PACKAGE_SCHEMA_VERSION
@@ -125,7 +130,6 @@ def build_package(
     members: dict[str, bytes],
     authoring: dict[str, Any] | None = None,
     runtime_capabilities: dict[str, Any] | None = None,
-    creation_model: dict[str, Any] | None = None,
 ) -> ArtifactPackage:
     """Build a package and derive its canonical member manifest."""
 
@@ -138,7 +142,6 @@ def build_package(
         members=[_member_record(path, value) for path, value in normalized_members.items()],
         authoring=authoring or {},
         runtime_capabilities=runtime_capabilities or {},
-        creation_model=creation_model or {},
     )
     manifest.manifest_digest = _manifest_digest(manifest.to_dict())
     _validate_manifest_fields(manifest)
@@ -157,6 +160,8 @@ def write_package(
 
     destination = Path(destination)
     validate_artifact_package_contract()
+    if package.manifest.schema_version != PACKAGE_SCHEMA_VERSION:
+        raise PackageIntegrityError(f"the writer writes only {PACKAGE_SCHEMA_VERSION} packages")
     _validate_package(package)
     parent = destination.parent
     parent.mkdir(parents=True, exist_ok=True)
@@ -221,10 +226,11 @@ def _remove_path(path: Path) -> None:
 def load_package(path: str | Path) -> ArtifactPackage:
     """Load and verify every package member before returning any content.
 
-    A package written before the request copies were retired loads too: its
-    retired members are verified like the others, then left out of ``members``
-    (the manifest, whose digest covers them, still lists them). ``write_package``
-    therefore refuses such a loaded package: retired members are never written.
+    An ``artifact-package-v5`` package holds only the current members. An
+    ``artifact-package-v4`` package loads too, written before or after the request
+    copies were retired: its retired members are verified like the others, then left
+    out of ``members`` (the manifest, whose digest covers them, still lists them).
+    ``write_package`` refuses a loaded v4 package: it writes only v5.
     """
 
     validate_artifact_package_contract()
@@ -240,20 +246,23 @@ def load_package(path: str | Path) -> ArtifactPackage:
     for candidate in root.rglob("*"):
         if candidate.is_symlink():
             raise PackageIntegrityError(f"symlink is not allowed in package: {candidate}")
+    allow_retired = manifest.schema_version == V4_SCHEMA_VERSION
     members: dict[str, bytes] = {}
     for record in manifest.members:
-        relative, content = _load_member(root, record, members)
+        relative, content = _load_member(root, record, members, allow_retired=allow_retired)
         members[relative] = content
     _verify_package_layout(root, set(members))
-    _validate_package(ArtifactPackage(manifest, members), allow_retired=True)
+    _validate_package(ArtifactPackage(manifest, members), allow_retired=allow_retired)
     current = {name: value for name, value in members.items() if not _is_retired_member(name)}
     return ArtifactPackage(manifest, current)
 
 
-def _load_member(root: Path, record: Any, loaded: dict[str, bytes]) -> tuple[str, bytes]:
+def _load_member(
+    root: Path, record: Any, loaded: dict[str, bytes], *, allow_retired: bool
+) -> tuple[str, bytes]:
     """Read one manifest member and verify its path, digest, and length."""
 
-    relative = _validate_member_path(record.get("path"), allow_retired=True)
+    relative = _validate_member_path(record.get("path"), allow_retired=allow_retired)
     if relative in loaded:
         raise PackageIntegrityError(f"duplicate package member: {relative}")
     member_path = _contained_path(root, relative)
@@ -384,22 +393,22 @@ def _manifest_from_dict(value: Any) -> PackageManifest:
         schema_version=value["schema_version"],
     )
     _validate_manifest_fields(manifest)
-    schema_error = first_schema_error(_manifest_schema(), value)
+    schema_error = first_schema_error(_manifest_schema(manifest.schema_version), value)
     if schema_error is not None:
         raise PackageIntegrityError(f"package manifest schema invalid {schema_error}")
     return manifest
 
 
-def _manifest_schema() -> dict[str, Any]:
+def _manifest_schema(version: str = PACKAGE_SCHEMA_VERSION) -> dict[str, Any]:
     return load_json_file(
-        _CONTRACT_ROOT / PACKAGE_SCHEMA_VERSION / "schema.json",
+        _CONTRACT_ROOT / version / "schema.json",
         PackageIntegrityError,
         "cannot read artifact package schema",
     )
 
 
 def _validate_manifest_fields(manifest: PackageManifest) -> None:
-    if manifest.schema_version != PACKAGE_SCHEMA_VERSION:
+    if manifest.schema_version not in _READABLE_SCHEMA_VERSIONS:
         raise PackageIntegrityError("unknown artifact package schema version")
     if not manifest.manifest_digest:
         raise PackageIntegrityError("manifest digest is missing")
@@ -510,6 +519,7 @@ __all__ = [
     "PackageManifest",
     "PackagePathError",
     "TOOL_CALL_CONDITION_MEMBER",
+    "V4_SCHEMA_VERSION",
     "build_package",
     "load_package",
     "tool_call_condition_bytes",

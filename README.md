@@ -46,7 +46,7 @@ correction gets one `unexpected_field` finding at `examples.<label>.capture`
 that says a reply claim carries no capture, ahead of any other finding; shape
 findings about that same capture are dropped, because the author removes the
 field. `examples.json` holds the examples
-as written; `artifact-package-v4` constrains only its manifest entry.
+as written; `artifact-package-v5` constrains only its manifest entry.
 Each v2 prompt carries the selected case meaning once under `case_meaning`;
 the input projection retains scenario/reference identities and narrative/Gherkin
 SHA-256 digests without repeating those texts.
@@ -442,7 +442,7 @@ shapes, and `indirect` shapes when the runtime contract lists the
 shape with more than one turn is authored as sequential user turns: the plan
 states one intent per turn, Call 2 writes the earlier turns as `history` and the
 last as `user_text`, and code checks `1 + len(history) == turn_count`. The
-package is `artifact-package-v4`, and its `stimulus.json` states `mode`
+package is `artifact-package-v5`, and its `stimulus.json` states `mode`
 (`single` or `sequential`) and `turn_count`; a functional handoff's stimulus
 stays as authored. Before any model request, a shape the consumer cannot
 author stops with a typed finding: `shape_channel_unsupported` (the runtime
@@ -607,15 +607,27 @@ lists the unknown keys (sorted, at most 10, each cut to 64 characters). Three ch
 answers, or hand-built inventories.
 
 The consumer-owned artifact-package contract lives in
-`contracts/artifact-package/artifact-package-v4/`. `package_io.write_package`
+`contracts/artifact-package/artifact-package-v5/`. `package_io.write_package`
 writes a complete directory atomically, and `load_package` verifies its
 manifest, member paths, lengths, and digests before returning content. A
 manifest has no `detector_interface`, and a package has no `detector.py`.
-A package written while packages still copied each request also loads: its
-`source-hashes.json`, `authoring/ledger.json`, `authoring/reviews.json`,
+The v5 schema lists the member names (`plan.json`, `stimulus.json`,
+`setup.json`, `bindings.json`, `prerequisites.json`, `checks.json`,
+`inputs.json`, `observations.json`, `judge.json`, `tool_call_condition.json`,
+`explanation.json`, `examples.json`, and `seed.json`), closes the manifest's
+`authoring` to the outcome (`status`, `terminal_status`, and
+`review_status.artifact`), and requires an empty `creation_model`. The loader
+refuses a v5 package with any other member or manifest field.
+
+The loader still reads `artifact-package-v4`
+(`contracts/artifact-package/artifact-package-v4/`), the version written before
+packages stopped copying each request. A v4 package's `source-hashes.json`,
+`authoring/ledger.json`, `authoring/reviews.json`,
 `authoring/transformations.json`, and `authoring/NN-<stage>.json`, `.prompt`,
 and `.raw` members are verified like the others and left out of the loaded
-members. The writer refuses them, and the loader refuses any other member.
+members; its `authoring` and `creation_model` stay open. The loader refuses any
+other member of a v4 package, and the writer writes only v5, so it refuses a
+loaded v4 package.
 Each package carries the scoring input for its plan's claim level:
 
 - `tool_call_condition.json` holds the handoff's `tool_call_condition` exactly
@@ -632,7 +644,11 @@ slot's `mode`, and the planted text as `content`.
 The schema states no length limit, because the slot's `max_chars` bounds the
 text.
 
-The writer writes and the loader reads only `artifact-package-v4`.
+The writer writes only `artifact-package-v5`; the loader reads
+`artifact-package-v5` and `artifact-package-v4`. The lock's `package_schema_version`
+and `digest_domain` name v5. The manifest digest is the SHA-256 of the canonical
+manifest without `manifest_digest`, in both versions, so a v4 package's digest
+verifies unchanged: its `schema_version` is part of the digested bytes.
 
 The version directory also holds the contract's cases: `valid/` packages every
 reader must load, `invalid/` packages every reader must reject, and
@@ -674,8 +690,8 @@ the tool-call condition or judge specification, explanation, examples,
 `checks.json`, and `inputs.json` (the inventory, runtime
 contract, discovery provenance, and `authoring_input_pins`). The manifest's
 `authoring` records only the outcome (`status`, `terminal_status`, and
-`review_status.artifact`); `creation_model` stays an empty object because the schema
-requires the key. Each request's prompt, raw response, usage, and review live
+`review_status.artifact`); `creation_model` stays an empty object, which the v5
+schema requires. Each request's prompt, raw response, usage, and review live
 only in the failure-evidence sidecar described below.
 The context guard estimates prompt tokens from the rendered UTF-8 system and
 user bytes using the calibration described above; it does not report estimated

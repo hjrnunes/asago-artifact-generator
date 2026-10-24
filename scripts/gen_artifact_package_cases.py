@@ -9,6 +9,9 @@ reader runs the same cases: ``valid/`` cases must load, and each
 metadata the closed policy accepts, and rejected metadata with the exact
 violation paths.
 
+``artifact-package-v5/`` holds the cases of the package version the writer writes, and
+``artifact-package-v4/`` those of the version before it, which readers still load.
+
 ``artifact-seed-v1/`` holds the cases of the seed member's schema, each one
 seed document: ``valid/`` cases pass its ``schema.json``, and each
 ``invalid/`` case fails first at the path and keyword that its
@@ -35,6 +38,7 @@ from typing import Any
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[1] / "contracts" / "artifact-package"
 V4 = "artifact-package-v4"
+V5 = "artifact-package-v5"
 BINDING_CASES = "binding-cases"
 _HANDOFF_V5 = "scenario-handoff-v5"
 SEED = "artifact-seed-v1"
@@ -50,7 +54,7 @@ _SEED_DOCUMENT = {
     "items": [_SEED_ITEM],
 }
 _CONDITION = '{\n  "comparisons": []\n}\n'
-_V4_FILES = {
+_FILES = {
     "plan.json": '{"runtime_contract":{"setup_permissions":[]}}\n',
     "stimulus.json": '{"user_text":"hello","history":[],"mode":"single","turn_count":1}\n',
     "setup.json": "[]\n",
@@ -60,8 +64,14 @@ _V4_FILES = {
     "tool_call_condition.json": _CONDITION,
     "seed.json": json.dumps(_SEED_DOCUMENT, separators=(",", ":")) + "\n",
 }
-_AUTHORING = {"interface": "artifact-authoring-v1", "max_retries": 0}
-_CREATION_MODEL = {"model": "configured-private-authoring"}
+_V4_AUTHORING = {"interface": "artifact-authoring-v1", "max_retries": 0}
+_V4_CREATION_MODEL = {"model": "configured-private-authoring"}
+# A v5 manifest records only the authoring outcome and an empty creation model.
+_V5_AUTHORING = {
+    "status": "accepted",
+    "terminal_status": "accepted",
+    "review_status": {"artifact": "accepted"},
+}
 
 
 def _sha256(data: bytes) -> str:
@@ -93,18 +103,19 @@ def _sign(manifest: dict[str, Any]) -> dict[str, Any]:
     return {**unsigned, "manifest_digest": _sha256(_canonical(unsigned))}
 
 
-def _package(files: dict[str, str], *, description: str) -> dict[str, Any]:
+def _package(files: dict[str, str], *, description: str, version: str) -> dict[str, Any]:
+    v4 = version == V4
     manifest = _sign(
         {
-            "schema_version": V4,
+            "schema_version": version,
             "package_id": "pkg-1",
             "scenario_id": "SCN-1",
             "input_kind": _HANDOFF_V5,
             "source_digests": {"input": "a" * 64},
             "members": [_record(path, files[path]) for path in sorted(files)],
-            "authoring": dict(_AUTHORING),
+            "authoring": copy.deepcopy(_V4_AUTHORING if v4 else _V5_AUTHORING),
             "runtime_capabilities": {},
-            "creation_model": dict(_CREATION_MODEL),
+            "creation_model": dict(_V4_CREATION_MODEL) if v4 else {},
         }
     )
     return {"description": description, "manifest": manifest, "files": dict(sorted(files.items()))}
@@ -290,12 +301,77 @@ def _invalid_cases(base: dict[str, Any]) -> dict[str, tuple[str, dict[str, Any]]
 
 
 def _with_files_listed(base: dict[str, Any], description: str, extra: dict[str, str]):
-    return _package({**base["files"], **extra}, description=description)
+    return _package(
+        {**base["files"], **extra},
+        description=description,
+        version=base["manifest"]["schema_version"],
+    )
 
 
-def _v4_cases() -> tuple[dict[str, dict[str, Any]], dict[str, tuple[str, dict[str, Any]]]]:
-    base = _package(_V4_FILES, description="A v4 package with a seed member, from a v5 handoff.")
+_Cases = tuple[dict[str, dict[str, Any]], dict[str, tuple[str, dict[str, Any]]]]
+
+
+def _v4_cases() -> _Cases:
+    base = _package(
+        _FILES, description="A v4 package with a seed member, from a v5 handoff.", version=V4
+    )
     return {"minimal": base}, _invalid_cases(base)
+
+
+def _v5_cases() -> _Cases:
+    """Return the v5 cases: v4's, and the v4 members and metadata a v5 package refuses."""
+
+    base = _package(
+        _FILES, description="A v5 package with a seed member, from a v5 handoff.", version=V5
+    )
+    invalid = _invalid_cases(base)
+    for name, member, text in (
+        ("retired-source-hashes-member", "source-hashes.json", '{"input":"' + "a" * 64 + '"}\n'),
+        ("retired-request-copy-member", "authoring/01-call1.json", '{"stage":"call1"}\n'),
+        ("retired-transformations-member", "authoring/transformations.json", "[]\n"),
+    ):
+        invalid[name] = (
+            "member_path_unexpected",
+            _with_files_listed(
+                base,
+                f"The package carries {member}, which only a v4 package held.",
+                {member: text},
+            ),
+        )
+    invalid["authoring-ledger-field"] = (
+        "authoring_field_unexpected",
+        _changed(
+            base,
+            "authoring carries the ledger a v4 manifest held.",
+            authoring={**_V5_AUTHORING, "ledger": [{"stage": "call1"}]},
+        ),
+    )
+    invalid["authoring-plan-review-status"] = (
+        "authoring_field_unexpected",
+        _changed(
+            base,
+            "authoring.review_status carries the plan review a v4 manifest held.",
+            authoring={
+                **_V5_AUTHORING,
+                "review_status": {"artifact": "accepted", "plan": "accepted"},
+            },
+        ),
+    )
+    invalid["creation-model-not-empty"] = (
+        "creation_model_not_empty",
+        _changed(
+            base,
+            "creation_model names the authoring model, as a v4 manifest could.",
+            creation_model=dict(_V4_CREATION_MODEL),
+        ),
+    )
+    invalid["schema-version-v6"] = (
+        "schema_version_unknown",
+        _changed(
+            base, "schema_version names a version after v5.", schema_version="artifact-package-v6"
+        ),
+    )
+    return {"minimal": base}, invalid
 
 
 _USAGE_TRIPLE = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
@@ -540,13 +616,13 @@ def expected_files() -> dict[str, str]:
     files: dict[str, str] = {"metadata-policy.json": _json_text(_metadata_policy())}
     files.update(_binding_cases())
     files.update(_seed_files())
-    valid, invalid = _v4_cases()
-    for name, case in valid.items():
-        files[f"{V4}/valid/{name}.json"] = _json_text(case)
-    for name, (_, case) in invalid.items():
-        files[f"{V4}/invalid/{name}.json"] = _json_text(case)
-    expected = {f"invalid/{name}.json": code for name, (code, _) in sorted(invalid.items())}
-    files[f"{V4}/expected-violations.json"] = _json_text(expected)
+    for version, (valid, invalid) in ((V4, _v4_cases()), (V5, _v5_cases())):
+        for name, case in valid.items():
+            files[f"{version}/valid/{name}.json"] = _json_text(case)
+        for name, (_, case) in invalid.items():
+            files[f"{version}/invalid/{name}.json"] = _json_text(case)
+        expected = {f"invalid/{name}.json": code for name, (code, _) in sorted(invalid.items())}
+        files[f"{version}/expected-violations.json"] = _json_text(expected)
     return dict(sorted(files.items()))
 
 

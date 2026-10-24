@@ -1,0 +1,82 @@
+{
+  "description": "creation_model is a string.",
+  "files": {
+    "bindings.json": "[]\n",
+    "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",
+    "plan.json": "{\"runtime_contract\":{\"setup_permissions\":[]}}\n",
+    "prerequisites.json": "[]\n",
+    "seed.json": "{\"schema_version\":\"artifact-seed-v1\",\"carrier_operation\":\"read_record\",\"items\":[{\"slot\":\"records.note\",\"record_ref\":\"REC-1\",\"mode\":\"replace\",\"content\":\"Planted text.\"}]}\n",
+    "setup.json": "[]\n",
+    "stimulus.json": "{\"user_text\":\"hello\",\"history\":[],\"mode\":\"single\",\"turn_count\":1}\n",
+    "tool_call_condition.json": "{\n  \"comparisons\": []\n}\n"
+  },
+  "manifest": {
+    "authoring": {
+      "review_status": {
+        "artifact": "accepted"
+      },
+      "status": "accepted",
+      "terminal_status": "accepted"
+    },
+    "creation_model": "model",
+    "input_kind": "scenario-handoff-v5",
+    "manifest_digest": "bef9f2e43072ff638c4d338ff31b53e43b48ce925a77f1e155f3520b9bb6fe38",
+    "members": [
+      {
+        "length": 3,
+        "media_type": "application/json",
+        "path": "bindings.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "length": 39,
+        "media_type": "application/json",
+        "path": "inputs.json",
+        "sha256": "0b9932bff0f80d8cb9e081d53d2b8096659d78a545e8e92240675b7e1c49ceb0"
+      },
+      {
+        "length": 46,
+        "media_type": "application/json",
+        "path": "plan.json",
+        "sha256": "c7ea6e3df7df863a5a9e8827633355cccb589a35885b5067031d52e94d39b02f"
+      },
+      {
+        "length": 3,
+        "media_type": "application/json",
+        "path": "prerequisites.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "length": 170,
+        "media_type": "application/json",
+        "path": "seed.json",
+        "sha256": "9986ad5570a238439803a1481b919527d76ac93d11b938336e6c91aa6f8ba52c"
+      },
+      {
+        "length": 3,
+        "media_type": "application/json",
+        "path": "setup.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "length": 66,
+        "media_type": "application/json",
+        "path": "stimulus.json",
+        "sha256": "b6d8aa8188054fa4a839d06b1c6d512dd8236797d7e2a80702bc7738b46595d3"
+      },
+      {
+        "length": 24,
+        "media_type": "application/json",
+        "path": "tool_call_condition.json",
+        "sha256": "007e6080745589c44a205af0769ef22006a46e3f4d777ed0df8818452a31fb15"
+      }
+    ],
+    "package_id": "pkg-1",
+    "runtime_capabilities": {},
+    "scenario_id": "SCN-1",
+    "schema_version": "artifact-package-v5",
+    "source_digests": {
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

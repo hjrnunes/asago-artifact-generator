@@ -1,0 +1,33 @@
+{
+  "description": "The manifest lists no members.",
+  "files": {
+    "bindings.json": "[]\n",
+    "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",
+    "plan.json": "{\"runtime_contract\":{\"setup_permissions\":[]}}\n",
+    "prerequisites.json": "[]\n",
+    "seed.json": "{\"schema_version\":\"artifact-seed-v1\",\"carrier_operation\":\"read_record\",\"items\":[{\"slot\":\"records.note\",\"record_ref\":\"REC-1\",\"mode\":\"replace\",\"content\":\"Planted text.\"}]}\n",
+    "setup.json": "[]\n",
+    "stimulus.json": "{\"user_text\":\"hello\",\"history\":[],\"mode\":\"single\",\"turn_count\":1}\n",
+    "tool_call_condition.json": "{\n  \"comparisons\": []\n}\n"
+  },
+  "manifest": {
+    "authoring": {
+      "review_status": {
+        "artifact": "accepted"
+      },
+      "status": "accepted",
+      "terminal_status": "accepted"
+    },
+    "creation_model": {},
+    "input_kind": "scenario-handoff-v5",
+    "manifest_digest": "c28b702d4cf9429a06dcecc9844ef99cca03c6ec5168123dec4e0201abc84448",
+    "members": [],
+    "package_id": "pkg-1",
+    "runtime_capabilities": {},
+    "scenario_id": "SCN-1",
+    "schema_version": "artifact-package-v5",
+    "source_digests": {
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

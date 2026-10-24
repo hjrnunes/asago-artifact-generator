@@ -653,6 +653,7 @@ def _age_package(output: Path, item_id: str) -> None:
         review_status={"plan": "accepted"},
     )
     manifest["creation_model"] = {"model": "configured-private-authoring"}
+    manifest["schema_version"] = "artifact-package-v4"
     manifest["manifest_digest"] = _manifest_digest(manifest)
     (package / "manifest.json").write_text(canonical_json(manifest) + "\n", encoding="utf-8")
     (output / f"{item_id}.authoring").mkdir()
