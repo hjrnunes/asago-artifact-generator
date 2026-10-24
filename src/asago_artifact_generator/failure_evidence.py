@@ -1,4 +1,9 @@
-"""Atomic persistence for unsuccessful target-free authoring attempts."""
+"""Atomic persistence for the authoring record of a target-free authoring run.
+
+Every run that dispatched a request or recorded a finding writes the record,
+accepted runs included.  The failure-evidence name predates that and is kept
+because readers find the file by it.
+"""
 
 from __future__ import annotations
 

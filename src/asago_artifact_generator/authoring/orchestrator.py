@@ -1,5 +1,7 @@
 """The authoring orchestrator: runs plan, artifact, review, and correction stages
-within the policy's request allowance and writes the package or failure evidence.
+within the policy's request allowance.  It writes the package when the run is
+accepted, and the failure-evidence record for every run that dispatched a
+request or recorded a finding.
 """
 
 from __future__ import annotations
