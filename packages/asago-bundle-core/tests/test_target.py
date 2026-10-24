@@ -12,8 +12,8 @@ from asago_bundle_core.errors import BundleError
 from asago_bundle_core.preparation import TargetCallFailed
 from asago_bundle_core.target import (
     TargetConfig,
+    _answer,
     _is_sse,
-    _McpSession,
     _tool_value,
     authorized_target,
     load_target_config,
@@ -98,32 +98,27 @@ def test_an_mcp_url_whose_path_ends_in_sse_is_the_sse_transport(url: str, sse: b
     assert _is_sse(url) is sse
 
 
-def test_an_event_stream_answer_is_read_by_its_request_id() -> None:
-    body = "\n".join(
+def test_an_event_stream_answer_is_its_message_with_the_request_id() -> None:
+    events = iter(
         [
-            "event: message",
-            'data: {"jsonrpc": "2.0", "method": "notifications/progress"}',
-            "",
-            "event: message",
-            'data: {"jsonrpc": "2.0", "id": 2, "result": {"ok": true}}',
-            "",
+            ("message", '{"jsonrpc": "2.0", "method": "notifications/progress"}'),
+            ("message", "not json"),
+            ("ping", '{"jsonrpc": "2.0", "id": 2, "result": {"other": true}}'),
+            ("message", '{"jsonrpc": "2.0", "id": 1, "result": {"other": true}}'),
+            ("message", '{"jsonrpc": "2.0", "id": 2, "result": {"ok": true}}'),
         ]
     )
 
-    assert _McpSession._answer(("text/event-stream", body), 2) == {
-        "jsonrpc": "2.0",
-        "id": 2,
-        "result": {"ok": True},
-    }
-    with pytest.raises(RuntimeError, match="no MCP answer to request 3"):
-        _McpSession._answer(("application/json", '{"id": 2}'), 3)
+    assert _answer(events, 2, "the answer") == {"jsonrpc": "2.0", "id": 2, "result": {"ok": True}}
+    with pytest.raises(RuntimeError, match="MCP stream closed before the answer"):
+        _answer(events, 3, "the answer")
 
 
 @pytest.mark.parametrize(
     ("result", "value"),
     [
         pytest.param(
-            {"content": [{"type": "text", "text": "done"}], "structuredContent": {"a": 1}},
+            {"content": [{"type": "text", "text": "{}"}], "structuredContent": {"a": 1}},
             {"a": 1},
             id="structured-content",
         ),
@@ -137,7 +132,25 @@ def test_an_event_stream_answer_is_read_by_its_request_id() -> None:
                 "structuredContent": {"result": json.dumps({"c": 3})},
             },
             {"c": 3},
-            id="text-before-wrapped-structured-content",
+            id="fastmcp-wrapped-json-object",
+        ),
+        pytest.param(
+            # The wrapper of a string that holds no JSON object is the object itself.
+            {
+                "content": [{"type": "text", "text": "[1]"}],
+                "structuredContent": {"result": "[1]"},
+            },
+            {"result": "[1]"},
+            id="fastmcp-wrapped-other-string",
+        ),
+        pytest.param(
+            # Only a wrapper of one string key is unwrapped.
+            {
+                "content": [{"type": "text", "text": json.dumps({"c": 3})}],
+                "structuredContent": {"result": json.dumps({"c": 3}), "more": 1},
+            },
+            {"result": json.dumps({"c": 3}), "more": 1},
+            id="not-a-wrapper",
         ),
     ],
 )

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import http.client
 import json
-import urllib.request
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -142,11 +141,13 @@ def mcp_call_target(mcp_url: str, *, timeout: float = MCP_TIMEOUT_SECONDS) -> Ta
     A URL whose path ends in ``/sse`` speaks the legacy SSE transport, any other streamable
     HTTP. Each call opens its own session (``initialize``, then
     ``notifications/initialized``). Over streamable HTTP an answer is the POST's JSON or
-    event-stream body; over SSE it is a ``message`` event on the stream the session opened.
-    ``timeout`` bounds each request, from sending it to reading its answer.
+    event-stream body, read up to the answer; over SSE it is a ``message`` event on the
+    stream the session opened. ``timeout`` bounds each request, from sending it to reading
+    its answer, however slowly the server sends.
 
-    The call returns a ``ToolResult``: the tool's one text block decoded as a JSON object,
-    or else its structured content, with the MCP result as received in ``native_result``.
+    The call returns a ``ToolResult``: the tool's structured content (``_tool_value``), or
+    else its one text block decoded as a JSON object, with the MCP result as received in
+    ``native_result``.
     A tool error raises ``TargetCallFailed`` carrying that result; any other answer, a
     closed stream or a timeout raises. Preparation records each failure as ``setup_failed``.
     """
@@ -178,7 +179,11 @@ def _is_sse(mcp_url: str) -> bool:
 
 
 class _McpSession:
-    """One MCP session over streamable HTTP: JSON-RPC messages POSTed to one URL."""
+    """One MCP session over streamable HTTP: JSON-RPC messages POSTed to one URL.
+
+    An answer is the POST's JSON body, or a ``message`` event of its event-stream body; the
+    stream is read only up to the message that answers the request.
+    """
 
     def __init__(self, url: str, timeout: float) -> None:
         self.url = url
@@ -189,15 +194,19 @@ class _McpSession:
     def request(self, method: str, params: dict[str, Any]) -> Any:
         self.next_id += 1
         message = {"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params}
-        return _result(method, self._answer(self._post(message), self.next_id))
+        response = self._post(message)
+        try:
+            return _result(method, self._reply(response, f"the answer to MCP {method}"))
+        finally:
+            response.close()
 
     def notify(self, method: str) -> None:
-        self._post({"jsonrpc": "2.0", "method": method})
+        self._post({"jsonrpc": "2.0", "method": method}).close()
 
     def close(self) -> None:
         """Nothing stays open between requests."""
 
-    def _post(self, message: dict[str, Any]) -> tuple[str, str]:
+    def _post(self, message: dict[str, Any]) -> _Response:
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
@@ -205,35 +214,32 @@ class _McpSession:
         }
         if self.session_id:
             headers["Mcp-Session-Id"] = self.session_id
-        request = urllib.request.Request(
-            self.url, data=json.dumps(message).encode("utf-8"), headers=headers, method="POST"
+        response = _Response(
+            self.url,
+            "POST",
+            headers=headers,
+            body=json.dumps(message).encode("utf-8"),
+            deadline=monotonic() + self.timeout,
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
-            self.session_id = response.headers.get("Mcp-Session-Id") or self.session_id
-            body = response.read().decode("utf-8")
-            return response.headers.get("Content-Type", ""), body
+        self.session_id = response.headers.get("Mcp-Session-Id") or self.session_id
+        return response
 
-    @staticmethod
-    def _answer(response: tuple[str, str], request_id: int) -> dict[str, Any]:
-        """Return the JSON-RPC answer to ``request_id`` from a JSON or event-stream body."""
+    def _reply(self, response: _Response, waiting: str) -> dict[str, Any]:
+        """Return the answer to the latest request from its JSON or event-stream body."""
 
-        content_type, body = response
-        if content_type.startswith("text/event-stream"):
-            candidates = [
-                line[len("data:") :].strip()
-                for line in body.splitlines()
-                if line.startswith("data:")
-            ]
-        else:
-            candidates = [body]
-        for candidate in candidates:
-            try:
-                message = json.loads(candidate)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(message, dict) and message.get("id") == request_id:
-                return message
-        raise RuntimeError(f"no MCP answer to request {request_id}")
+        if response.headers.get("Content-Type", "").startswith("text/event-stream"):
+            return _answer(response.events(), self.next_id, waiting)
+        try:
+            body = response.read()
+        except TimeoutError as exc:
+            raise RuntimeError(f"MCP answer timed out: {waiting}") from exc
+        try:
+            reply = json.loads(body)
+        except json.JSONDecodeError:
+            reply = None
+        if isinstance(reply, dict) and reply.get("id") == self.next_id:
+            return reply
+        raise RuntimeError(f"no MCP answer to request {self.next_id}")
 
 
 class _SseSession:
@@ -247,104 +253,157 @@ class _SseSession:
     def __init__(self, url: str, timeout: float) -> None:
         self.timeout = timeout
         self.next_id = 0
-        parts = urlsplit(url)
-        connection = (
-            http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
+        self.stream = _Response(
+            url,
+            "GET",
+            headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
+            deadline=monotonic() + timeout,
         )
-        self.connection = connection(parts.netloc, timeout=timeout)
-        self.stream: http.client.HTTPResponse | None = None
-        self.deadline = monotonic() + timeout
         try:
-            # The stream has no length, so the connection hands its socket to the response
-            # and forgets it; the socket is kept here to bound each read by the deadline.
-            self.connection.connect()
-            self.socket = self.connection.sock
-            self.connection.request(
-                "GET",
-                parts.path + (f"?{parts.query}" if parts.query else "") or "/",
-                headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
-            )
-            self.stream = stream = self.connection.getresponse()
-            if stream.status != 200:
-                raise RuntimeError(f"MCP SSE stream {url} answered HTTP {stream.status}")
-            self.events = self._events(stream)
-            self.post_url = urljoin(url, self._next("endpoint", "the endpoint event"))
+            self.events = self.stream.events()
+            self.post_url = urljoin(url, _next(self.events, "endpoint", "the endpoint event"))
         except BaseException:
-            self.close()
+            self.stream.close()
             raise
 
     def request(self, method: str, params: dict[str, Any]) -> Any:
         self.next_id += 1
-        self.deadline = monotonic() + self.timeout
+        self.stream.deadline = monotonic() + self.timeout
         self._post({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params})
-        waiting = f"the answer to MCP {method}"
-        while True:
-            try:
-                message = json.loads(self._next("message", waiting))
-            except json.JSONDecodeError:
-                continue
-            if isinstance(message, dict) and message.get("id") == self.next_id:
-                return _result(method, message)
+        return _result(method, _answer(self.events, self.next_id, f"the answer to MCP {method}"))
 
     def notify(self, method: str) -> None:
-        self.deadline = monotonic() + self.timeout
+        self.stream.deadline = monotonic() + self.timeout
         self._post({"jsonrpc": "2.0", "method": method})
 
     def close(self) -> None:
-        if self.stream is not None:
-            self.stream.close()
-        self.connection.close()
+        self.stream.close()
 
     def _post(self, message: dict[str, Any]) -> None:
-        request = urllib.request.Request(
+        response = _Response(
             self.post_url,
-            data=json.dumps(message).encode("utf-8"),
+            "POST",
             headers={"Content-Type": "application/json"},
-            method="POST",
+            body=json.dumps(message).encode("utf-8"),
+            deadline=self.stream.deadline,
         )
-        with urllib.request.urlopen(request, timeout=self._remaining()) as response:
-            response.read()
-
-    def _next(self, kind: str, waiting: str) -> str:
-        """Return the data of the stream's next ``kind`` event, skipping any other."""
-
         try:
-            for event, data in self.events:
-                if event == kind:
-                    return data
-        except TimeoutError as exc:
-            raise RuntimeError(f"MCP SSE stream timed out waiting for {waiting}") from exc
-        raise RuntimeError(f"MCP SSE stream closed before {waiting}")
+            response.read()
+        finally:
+            response.close()
 
-    def _events(self, stream: http.client.HTTPResponse) -> Iterator[tuple[str, str]]:
-        """Yield each event of ``stream`` as (event type, data)."""
 
-        kind, data = "message", []
-        while True:
+class _Response:
+    """One HTTP request's response, read by chunks before an absolute deadline.
+
+    ``deadline`` is a ``monotonic`` time; its owner may move it for each request on a
+    stream. Each read waits at most the time left, and none starts once it has passed, so a
+    server that sends its answer slowly cannot stretch a request past it.
+    """
+
+    def __init__(
+        self,
+        url: str,
+        method: str,
+        *,
+        headers: dict[str, str],
+        deadline: float,
+        body: bytes | None = None,
+    ) -> None:
+        self.deadline = deadline
+        parts = urlsplit(url)
+        connection = (
+            http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
+        )
+        self.connection = connection(parts.netloc, timeout=self._remaining())
+        self.response: http.client.HTTPResponse | None = None
+        try:
+            # A response without a length takes the connection's socket over, so the socket
+            # is kept here to bound each read by the time left.
+            self.connection.connect()
+            self.socket = self.connection.sock
+            target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+            self.connection.request(method, target, body=body, headers=headers)
             self.socket.settimeout(self._remaining())
-            raw = stream.readline()
-            if not raw:
+            self.response = self.connection.getresponse()
+            if self.response.status >= 400:
+                raise RuntimeError(f"MCP {method} {url} answered HTTP {self.response.status}")
+        except BaseException:
+            self.close()
+            raise
+        self.headers = self.response.headers
+
+    def read(self) -> bytes:
+        return b"".join(self._chunks())
+
+    def events(self) -> Iterator[tuple[str, str]]:
+        """Yield each server-sent event of the body as (event type, data)."""
+
+        kind, pending = "message", b""
+        data: list[str] = []
+        for chunk in self._chunks():
+            *lines, pending = (pending + chunk).split(b"\n")
+            for raw in lines:
+                line = raw.decode("utf-8").rstrip("\r")
+                if not line:
+                    if data:
+                        yield kind, "\n".join(data)
+                    kind, data = "message", []
+                elif not line.startswith(":"):
+                    field, _, value = line.partition(":")
+                    value = value[1:] if value.startswith(" ") else value
+                    if field == "event":
+                        kind = value
+                    elif field == "data":
+                        data.append(value)
+
+    def close(self) -> None:
+        if self.response is not None:
+            self.response.close()
+        self.connection.close()
+
+    def _chunks(self) -> Iterator[bytes]:
+        assert self.response is not None
+        # A response closes its socket once it has read the whole of a body with a length.
+        while not self.response.isclosed():
+            self.socket.settimeout(self._remaining())
+            chunk = self.response.read1(65536)
+            if not chunk:
                 return
-            line = raw.decode("utf-8").rstrip("\r\n")
-            if not line:
-                if data:
-                    yield kind, "\n".join(data)
-                kind, data = "message", []
-            elif line.startswith(":"):
-                continue
-            else:
-                field, _, value = line.partition(":")
-                value = value[1:] if value.startswith(" ") else value
-                if field == "event":
-                    kind = value
-                elif field == "data":
-                    data.append(value)
+            yield chunk
 
     def _remaining(self) -> float:
         remaining = self.deadline - monotonic()
         if remaining <= 0:
             raise TimeoutError("the MCP request's time ran out")
         return remaining
+
+
+def _next(events: Iterator[tuple[str, str]], kind: str, waiting: str) -> str:
+    """Return the data of the next ``kind`` event of ``events``, skipping any other."""
+
+    try:
+        for event, data in events:
+            if event == kind:
+                return data
+    except TimeoutError as exc:
+        raise RuntimeError(f"MCP stream timed out waiting for {waiting}") from exc
+    raise RuntimeError(f"MCP stream closed before {waiting}")
+
+
+def _answer(events: Iterator[tuple[str, str]], request_id: int, waiting: str) -> dict[str, Any]:
+    """Return the ``message`` event answering ``request_id``.
+
+    Notifications, answers to other ids and data that is no JSON are skipped.
+    """
+
+    while True:
+        try:
+            message = json.loads(_next(events, "message", waiting))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(message, dict) and message.get("id") == request_id:
+            return message
 
 
 def _result(method: str, reply: dict[str, Any]) -> Any:
@@ -356,9 +415,10 @@ def _result(method: str, reply: dict[str, Any]) -> Any:
 def _tool_value(operation: str, result: Any) -> dict[str, Any]:
     """Return the object a ``tools/call`` result holds.
 
-    The tool's one text block decoded as a JSON object comes first: a FastMCP tool that
-    returns a JSON string also reports it as ``structuredContent`` ``{"result": <the
-    string>}``. Structured content is the value when the text is no JSON object.
+    Structured content is the value when present. FastMCP reports a tool whose return type
+    is not an object as the wrapper ``{"result": <value>}``; when the value is a string
+    holding a JSON object, that object is the value. Without structured content, the tool's
+    one text block decoded as a JSON object is.
     """
 
     if not isinstance(result, dict):
@@ -372,16 +432,25 @@ def _tool_value(operation: str, result: Any) -> dict[str, Any]:
         raise TargetCallFailed(
             f"{operation} failed: {' '.join(str(text) for text in texts)}", native_result=result
         )
+    structured = result.get("structuredContent")
+    if isinstance(structured, dict):
+        if structured.keys() == {"result"} and isinstance(structured["result"], str):
+            wrapped = _json_object(structured["result"])
+            return structured if wrapped is None else wrapped
+        return structured
     if len(texts) == 1 and isinstance(texts[0], str):
-        try:
-            value = json.loads(texts[0])
-        except json.JSONDecodeError:
-            value = None
-        if isinstance(value, dict):
+        value = _json_object(texts[0])
+        if value is not None:
             return value
-    if isinstance(result.get("structuredContent"), dict):
-        return result["structuredContent"]
     raise TargetCallFailed(f"{operation} returned no JSON object", native_result=result)
+
+
+def _json_object(text: str) -> dict[str, Any] | None:
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
 
 
 __all__ = [
