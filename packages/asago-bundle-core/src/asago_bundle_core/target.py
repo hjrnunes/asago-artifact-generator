@@ -11,21 +11,28 @@ target is a ``mock`` (a stand-in built for testing) or a ``test_instance`` (a te
 of a real system). No other value runs: a production system is never a target.
 
 ``mcp_call_target`` is the target call package preparation's setup steps go through: one MCP
-``tools/call`` sent straight to the target's MCP server, not through a testing tool.
+``tools/call`` sent straight to the target's MCP server, not through a testing tool. It speaks
+either MCP transport, and ``endpoint.mcp_url`` chooses it: a URL whose path ends in ``/sse``
+is the legacy SSE transport (a GET opens an event stream whose ``endpoint`` event names the URL
+to POST to, and the answers arrive on the stream as ``message`` events); any other is
+streamable HTTP (JSON-RPC messages POSTed to the URL).
 """
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import Any
+from urllib.parse import urljoin, urlsplit
 
 import yaml
 
-from .preparation import TargetCall
+from .preparation import TargetCall, TargetCallFailed, ToolResult
 
 AUTHORIZATION_FIELD = "authorized_as"
 AUTHORIZED_KINDS = ("mock", "test_instance")
@@ -132,31 +139,46 @@ def _read(path: Path, error: type[Exception]) -> TargetConfig:
 def mcp_call_target(mcp_url: str, *, timeout: float = MCP_TIMEOUT_SECONDS) -> TargetCall:
     """Return a setup call that sends one MCP ``tools/call`` to ``mcp_url`` and decodes it.
 
-    Each call opens its own session (``initialize``, then ``notifications/initialized``) over
-    MCP's HTTP transport, reading a JSON or an event-stream answer. The call returns the
-    tool's structured content, or else its one text block decoded as a JSON object; a tool
-    error or any other answer raises, which preparation records as ``setup_failed``.
+    A URL whose path ends in ``/sse`` speaks the legacy SSE transport, any other streamable
+    HTTP. Each call opens its own session (``initialize``, then
+    ``notifications/initialized``). Over streamable HTTP an answer is the POST's JSON or
+    event-stream body; over SSE it is a ``message`` event on the stream the session opened.
+    ``timeout`` bounds each request, from sending it to reading its answer.
+
+    The call returns a ``ToolResult``: the tool's one text block decoded as a JSON object,
+    or else its structured content, with the MCP result as received in ``native_result``.
+    A tool error raises ``TargetCallFailed`` carrying that result; any other answer, a
+    closed stream or a timeout raises. Preparation records each failure as ``setup_failed``.
     """
 
+    session_type = _SseSession if _is_sse(mcp_url) else _McpSession
+
     def call(operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        session = _McpSession(mcp_url, timeout)
-        session.request(
-            "initialize",
-            {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": {"name": "asago-bundle-core", "version": "1"},
-            },
-        )
-        session.notify("notifications/initialized")
-        result = session.request("tools/call", {"name": operation, "arguments": arguments})
-        return _tool_value(operation, result)
+        session = session_type(mcp_url, timeout)
+        try:
+            session.request(
+                "initialize",
+                {
+                    "protocolVersion": MCP_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": "asago-bundle-core", "version": "1"},
+                },
+            )
+            session.notify("notifications/initialized")
+            result = session.request("tools/call", {"name": operation, "arguments": arguments})
+        finally:
+            session.close()
+        return ToolResult(_tool_value(operation, result), result)
 
     return call
 
 
+def _is_sse(mcp_url: str) -> bool:
+    return urlsplit(mcp_url).path.rstrip("/").endswith("/sse")
+
+
 class _McpSession:
-    """One MCP session over HTTP: JSON-RPC messages POSTed to one URL."""
+    """One MCP session over streamable HTTP: JSON-RPC messages POSTed to one URL."""
 
     def __init__(self, url: str, timeout: float) -> None:
         self.url = url
@@ -167,13 +189,13 @@ class _McpSession:
     def request(self, method: str, params: dict[str, Any]) -> Any:
         self.next_id += 1
         message = {"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params}
-        reply = self._answer(self._post(message), self.next_id)
-        if "error" in reply:
-            raise RuntimeError(f"MCP {method} failed: {reply['error']}")
-        return reply.get("result")
+        return _result(method, self._answer(self._post(message), self.next_id))
 
     def notify(self, method: str) -> None:
         self._post({"jsonrpc": "2.0", "method": method})
+
+    def close(self) -> None:
+        """Nothing stays open between requests."""
 
     def _post(self, message: dict[str, Any]) -> tuple[str, str]:
         headers = {
@@ -214,7 +236,131 @@ class _McpSession:
         raise RuntimeError(f"no MCP answer to request {request_id}")
 
 
+class _SseSession:
+    """One MCP session over the legacy SSE transport.
+
+    A GET of ``url`` opens the event stream; its first ``endpoint`` event names the URL
+    (relative to ``url``) each JSON-RPC message is POSTed to, and each answer arrives on
+    the stream as a ``message`` event.
+    """
+
+    def __init__(self, url: str, timeout: float) -> None:
+        self.timeout = timeout
+        self.next_id = 0
+        parts = urlsplit(url)
+        connection = (
+            http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
+        )
+        self.connection = connection(parts.netloc, timeout=timeout)
+        self.stream: http.client.HTTPResponse | None = None
+        self.deadline = monotonic() + timeout
+        try:
+            # The stream has no length, so the connection hands its socket to the response
+            # and forgets it; the socket is kept here to bound each read by the deadline.
+            self.connection.connect()
+            self.socket = self.connection.sock
+            self.connection.request(
+                "GET",
+                parts.path + (f"?{parts.query}" if parts.query else "") or "/",
+                headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
+            )
+            self.stream = stream = self.connection.getresponse()
+            if stream.status != 200:
+                raise RuntimeError(f"MCP SSE stream {url} answered HTTP {stream.status}")
+            self.events = self._events(stream)
+            self.post_url = urljoin(url, self._next("endpoint", "the endpoint event"))
+        except BaseException:
+            self.close()
+            raise
+
+    def request(self, method: str, params: dict[str, Any]) -> Any:
+        self.next_id += 1
+        self.deadline = monotonic() + self.timeout
+        self._post({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params})
+        waiting = f"the answer to MCP {method}"
+        while True:
+            try:
+                message = json.loads(self._next("message", waiting))
+            except json.JSONDecodeError:
+                continue
+            if isinstance(message, dict) and message.get("id") == self.next_id:
+                return _result(method, message)
+
+    def notify(self, method: str) -> None:
+        self.deadline = monotonic() + self.timeout
+        self._post({"jsonrpc": "2.0", "method": method})
+
+    def close(self) -> None:
+        if self.stream is not None:
+            self.stream.close()
+        self.connection.close()
+
+    def _post(self, message: dict[str, Any]) -> None:
+        request = urllib.request.Request(
+            self.post_url,
+            data=json.dumps(message).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=self._remaining()) as response:
+            response.read()
+
+    def _next(self, kind: str, waiting: str) -> str:
+        """Return the data of the stream's next ``kind`` event, skipping any other."""
+
+        try:
+            for event, data in self.events:
+                if event == kind:
+                    return data
+        except TimeoutError as exc:
+            raise RuntimeError(f"MCP SSE stream timed out waiting for {waiting}") from exc
+        raise RuntimeError(f"MCP SSE stream closed before {waiting}")
+
+    def _events(self, stream: http.client.HTTPResponse) -> Iterator[tuple[str, str]]:
+        """Yield each event of ``stream`` as (event type, data)."""
+
+        kind, data = "message", []
+        while True:
+            self.socket.settimeout(self._remaining())
+            raw = stream.readline()
+            if not raw:
+                return
+            line = raw.decode("utf-8").rstrip("\r\n")
+            if not line:
+                if data:
+                    yield kind, "\n".join(data)
+                kind, data = "message", []
+            elif line.startswith(":"):
+                continue
+            else:
+                field, _, value = line.partition(":")
+                value = value[1:] if value.startswith(" ") else value
+                if field == "event":
+                    kind = value
+                elif field == "data":
+                    data.append(value)
+
+    def _remaining(self) -> float:
+        remaining = self.deadline - monotonic()
+        if remaining <= 0:
+            raise TimeoutError("the MCP request's time ran out")
+        return remaining
+
+
+def _result(method: str, reply: dict[str, Any]) -> Any:
+    if "error" in reply:
+        raise RuntimeError(f"MCP {method} failed: {reply['error']}")
+    return reply.get("result")
+
+
 def _tool_value(operation: str, result: Any) -> dict[str, Any]:
+    """Return the object a ``tools/call`` result holds.
+
+    The tool's one text block decoded as a JSON object comes first: a FastMCP tool that
+    returns a JSON string also reports it as ``structuredContent`` ``{"result": <the
+    string>}``. Structured content is the value when the text is no JSON object.
+    """
+
     if not isinstance(result, dict):
         raise RuntimeError(f"{operation} returned no MCP result")
     texts = [
@@ -223,9 +369,9 @@ def _tool_value(operation: str, result: Any) -> dict[str, Any]:
         if isinstance(item, dict) and item.get("type") == "text"
     ]
     if result.get("isError"):
-        raise RuntimeError(f"{operation} failed: {' '.join(str(text) for text in texts)}")
-    if isinstance(result.get("structuredContent"), dict):
-        return result["structuredContent"]
+        raise TargetCallFailed(
+            f"{operation} failed: {' '.join(str(text) for text in texts)}", native_result=result
+        )
     if len(texts) == 1 and isinstance(texts[0], str):
         try:
             value = json.loads(texts[0])
@@ -233,7 +379,9 @@ def _tool_value(operation: str, result: Any) -> dict[str, Any]:
             value = None
         if isinstance(value, dict):
             return value
-    raise RuntimeError(f"{operation} returned no JSON object")
+    if isinstance(result.get("structuredContent"), dict):
+        return result["structuredContent"]
+    raise TargetCallFailed(f"{operation} returned no JSON object", native_result=result)
 
 
 __all__ = [

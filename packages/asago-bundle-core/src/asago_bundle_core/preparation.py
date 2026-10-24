@@ -37,6 +37,32 @@ from .errors import BundleError
 
 # The call a setup operation makes: (operation, arguments) -> the target's result object.
 TargetCall = Callable[[str, dict[str, Any]], dict[str, Any]]
+
+
+class ToolResult(dict[str, Any]):
+    """A target call's decoded result object that keeps the response it was decoded from.
+
+    ``native_result`` is the MCP ``tools/call`` result as received (content blocks,
+    ``isError``, ``structuredContent``). A target call may return one in place of a plain
+    dict; the setup ledger then records ``native_result`` beside the decoded ``result``.
+    """
+
+    def __init__(self, value: dict[str, Any], native_result: Any) -> None:
+        super().__init__(value)
+        self.native_result = native_result
+
+
+class TargetCallFailed(RuntimeError):
+    """A target call that received an answer and failed on it, such as an MCP tool error.
+
+    ``native_result`` is the answer as received, which the setup ledger records.
+    """
+
+    def __init__(self, message: str, *, native_result: Any) -> None:
+        super().__init__(message)
+        self.native_result = native_result
+
+
 # The category of every setup ledger record, which a setup binding's provenance names.
 SETUP_LEDGER_CATEGORY = "setup_capture"
 # A checks.json with this interface makes every prerequisite take the canonical shape.
@@ -79,7 +105,9 @@ class PreparedPackage:
     """A package ready to instantiate: its setup ran and its values resolved.
 
     ``setup_ledger`` holds one record per setup call, in call order, with the
-    result the target returned. ``prerequisites`` holds one result per declared
+    result the target returned (``result``, the decoded object) and the MCP result
+    it was decoded from (``native_result``, None when the call returned a plain dict
+    or received no answer). ``prerequisites`` holds one result per declared
     prerequisite. ``stimulus`` is the package stimulus with every slot of its
     ``user_text`` and ``history`` filled. ``judge_facts`` are the facts a reply
     package's judge reads (the resolved bindings); a command-attempt package
@@ -334,6 +362,7 @@ def _run_setup(
             "operation": operation,
             "arguments": arguments,
             "retries": 0,
+            "native_result": None,
         }
         ledger.append(record)
         if call_target is None:
@@ -342,11 +371,17 @@ def _run_setup(
         try:
             output = call_target(operation, arguments)
         except Exception as exc:  # the caller's target call is the boundary
-            record.update(status="failed", error=str(exc))
+            record.update(
+                status="failed",
+                error=str(exc),
+                native_result=getattr(exc, "native_result", None),
+            )
             raise SetupError(f"setup dispatch failed: {operation}", code="setup_failed") from exc
+        record["native_result"] = getattr(output, "native_result", None)
         if not isinstance(output, dict):
             record.update(status="failed", error="setup result is not an object")
             raise SetupError(f"setup result is not an object: {operation}", code="setup_failed")
+        output = dict(output)
         record.update(status="completed", result=output)
         outputs[operation] = output
     return outputs
@@ -553,6 +588,8 @@ __all__ = [
     "PreparedPackage",
     "SetupError",
     "TargetCall",
+    "TargetCallFailed",
+    "ToolResult",
     "check_prerequisites",
     "has_canonical_prerequisites",
     "prepare_package",

@@ -9,8 +9,10 @@ from typing import Any
 import pytest
 
 from asago_bundle_core.errors import BundleError
+from asago_bundle_core.preparation import TargetCallFailed
 from asago_bundle_core.target import (
     TargetConfig,
+    _is_sse,
     _McpSession,
     _tool_value,
     authorized_target,
@@ -83,6 +85,19 @@ def test_a_port_needs_an_endpoint_block() -> None:
         load_target_config(TargetConfig({"authorized_as": "mock"}), Refused, port=1)
 
 
+@pytest.mark.parametrize(
+    ("url", "sse"),
+    [
+        pytest.param("http://127.0.0.1:1/sse", True, id="sse-path"),
+        pytest.param("http://127.0.0.1:1/x/sse/", True, id="sse-path-slash"),
+        pytest.param("http://127.0.0.1:1/mcp", False, id="other-path"),
+        pytest.param("http://127.0.0.1:1/ssex", False, id="not-sse"),
+    ],
+)
+def test_an_mcp_url_whose_path_ends_in_sse_is_the_sse_transport(url: str, sse: bool) -> None:
+    assert _is_sse(url) is sse
+
+
 def test_an_event_stream_answer_is_read_by_its_request_id() -> None:
     body = "\n".join(
         [
@@ -108,12 +123,21 @@ def test_an_event_stream_answer_is_read_by_its_request_id() -> None:
     ("result", "value"),
     [
         pytest.param(
-            {"content": [{"type": "text", "text": "{}"}], "structuredContent": {"a": 1}},
+            {"content": [{"type": "text", "text": "done"}], "structuredContent": {"a": 1}},
             {"a": 1},
             id="structured-content",
         ),
         pytest.param(
             {"content": [{"type": "text", "text": json.dumps({"b": 2})}]}, {"b": 2}, id="text"
+        ),
+        pytest.param(
+            # How FastMCP reports a tool that returns a JSON string.
+            {
+                "content": [{"type": "text", "text": json.dumps({"c": 3})}],
+                "structuredContent": {"result": json.dumps({"c": 3})},
+            },
+            {"c": 3},
+            id="text-before-wrapped-structured-content",
         ),
     ],
 )
@@ -134,5 +158,10 @@ def test_a_tool_result_decodes_to_its_object(result: dict[str, Any], value: Any)
     ],
 )
 def test_any_other_tool_result_raises(result: Any, message: str) -> None:
-    with pytest.raises(RuntimeError, match=message):
+    with pytest.raises(RuntimeError, match=message) as raised:
         _tool_value("op", result)
+
+    # A failure on an answer keeps that answer.
+    if result is not None:
+        assert isinstance(raised.value, TargetCallFailed)
+        assert raised.value.native_result == result
