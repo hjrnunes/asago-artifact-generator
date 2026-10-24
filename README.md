@@ -694,9 +694,18 @@ The plan validator rejects the older `source` and `expected` prerequisite
 fields as unexpected, and reports `binding` and `equals` as missing when they
 are absent. `load_package` does not parse `prerequisites.json`; it verifies
 the manifest, the member set, and each member's digest and length.
-The sibling `<package>.failure-evidence.json` sidecar is written atomically for
-every run that dispatched a request or recorded a finding, whether or not it
-produced a package. It preserves
+The sibling `<package>.failure-evidence.json` sidecar is the authoring record
+of one item. It is written atomically for every run that dispatched a request
+or recorded a finding, whatever its terminal status: an accepted run writes it
+beside its package. A run that neither dispatched a request nor recorded a
+finding writes no sidecar. Despite its name, the sidecar is not limited to
+failures. The `report` command reads it for every item, and an accepted
+sidecar points the page to the item's package. The replay gate
+(`scripts/replay_gate.py`) replays each item from its recorded attempts. The
+orchestrator's scoring finds the sidecars by their file name. The file name
+and the schema id keep the word `failure` on purpose: these readers and saved
+run folders locate the sidecar by that name, and a rename would require every
+reader to accept both names. The sidecar preserves
 each exact rendered prompt, available raw response bytes, provider usage,
 controls, transformations, and findings. Missing responses or usage use an
 explicit `unavailable` marker. Provider endpoint and secret metadata are
