@@ -265,10 +265,13 @@ def indirect_block(
 ) -> dict[str, Any]:
     """Return the rules for an indirect shape, naming the slot and record.
 
-    Before a plan exists (``plan`` is None) and when the shape names no record, the block
-    lists the slot's records for the plan author to choose from. Once a plan is accepted,
-    it shows the record code resolved. The shape gate refuses a shape no slot carries
-    before any request, so the block always has a slot and its length limit to state.
+    Before a plan exists (``plan`` is None) the block is the plan stages': it explains
+    only the stimulus_approach fields and, when the shape names no record, lists the
+    slot's records for the plan author to choose from. Once a plan is accepted, the block
+    is the artifact stages': it shows the record code resolved and explains the stimulus
+    fields and the planted text, which only the artifact writes. The shape gate refuses a
+    shape no slot carries before any request, so the block always has a slot and its
+    length limit to state.
     """
 
     shape = view.attack_shape
@@ -279,14 +282,16 @@ def indirect_block(
     target = choose_planted_target(shape, contract, plan)
     if target is None:
         raise ValueError("no seed slot carries the indirect shape; the shape gate refuses it")
-    choosing = plan is None and _choice_target(shape, contract) is not None
+    planning = plan is None
+    choosing = planning and _choice_target(shape, contract) is not None
     records = _slot_records(contract, target.slot) if choosing else None
+    rule = prose(
+        "planted_item/rule",
+        carrier_operation=shape["indirect"]["carrier_operation"],
+        turns=turns,
+    )
     return {
-        "rule": prose(
-            "planted_item/rule",
-            carrier_operation=shape["indirect"]["carrier_operation"],
-            turns=turns,
-        ),
+        "rule": rule if planning else f"{rule} {prose('planted_item/planted_text_rule')}",
         "turn_count": turns,
         "delivery": PLANTED_ITEM_DELIVERY,
         "benign_user_actor_ref": relation["benign_user_actor_ref"],
@@ -303,8 +308,12 @@ def indirect_block(
             for turn in shape["turn_plan"]
         ],
         "planted_item": _block_entry(target, shape, plan, records),
-        "fields": _field_entries(turns, target.max_chars, records),
-        "check": prose(
+        "fields": _plan_field_entries(turns, records)
+        if planning
+        else _artifact_field_entries(turns, target.max_chars),
+        "check": prose("planted_item/plan_check", turns=turns)
+        if planning
+        else prose(
             "planted_item/check",
             turns=turns,
             max_chars=target.max_chars,
@@ -357,10 +366,11 @@ def _planted_text_meaning(max_chars: int) -> str:
     return prose("planted_item/planted_text_meaning", max_chars=max_chars)
 
 
-def _field_entries(turns: int, max_chars: int, choices: list[str] | None = None) -> dict[str, Any]:
+def _plan_field_entries(turns: int, choices: list[str] | None) -> dict[str, Any]:
+    """Return the fields a plan writes for an indirect shape; the record only when it chooses."""
+
     earlier = turns - 1
     intents = ["Ask the agent to look up the order by its identifier."][:earlier]
-    messages = ["Can you look up my order for me?", "Thanks, what does it say?"]
     record_entry = (
         {}
         if choices is None
@@ -385,6 +395,15 @@ def _field_entries(turns: int, max_chars: int, choices: list[str] | None = None)
             "meaning": prose("shape/request_intent_meaning", turns=turns),
             "example": "Ask what the record says.",
         },
+    }
+
+
+def _artifact_field_entries(turns: int, max_chars: int) -> dict[str, Any]:
+    """Return the fields an artifact writes for an indirect shape, the planted text among them."""
+
+    earlier = turns - 1
+    messages = ["Can you look up my order for me?", "Thanks, what does it say?"]
+    return {
         "stimulus.delivery": {
             "meaning": prose("shape/stimulus_delivery_meaning", delivery=PLANTED_ITEM_DELIVERY),
             "example": PLANTED_ITEM_DELIVERY,

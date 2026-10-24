@@ -12,12 +12,12 @@ from asago_artifact_generator.authoring.contracts import (
     PLAN_FIELD_MEANINGS,
 )
 from asago_artifact_generator.authoring.core import (
-    ARTIFACT_REVIEW_PROMPT_VERSION_V21,
-    CALL1_PROMPT_VERSION_V25,
-    CALL2_PROMPT_VERSION_V26,
-    CORRECTION_PROMPT_VERSION_V38,
-    CORRECTION_PROMPT_VERSION_V39,
-    PLAN_REVIEW_PROMPT_VERSION_V22,
+    ARTIFACT_REVIEW_PROMPT_VERSION_V22,
+    CALL1_PROMPT_VERSION_V26,
+    CALL2_PROMPT_VERSION_V27,
+    CORRECTION_PROMPT_VERSION_V40,
+    CORRECTION_PROMPT_VERSION_V41,
+    PLAN_REVIEW_PROMPT_VERSION_V23,
     Finding,
     PromptOverflowError,
     PromptPacket,
@@ -78,7 +78,7 @@ def test_five_prompt_roles_have_independent_versions_and_hashes() -> None:
     ]
     correction = PromptPacket(
         stage="correction",
-        version=CORRECTION_PROMPT_VERSION_V38,
+        version=CORRECTION_PROMPT_VERSION_V40,
         system="correction",
         user="correction",
         payload={},
@@ -277,7 +277,7 @@ def test_artifact_reviewer_and_correction_contexts_bound_candidate_and_active_fo
 def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V25,
+        version=CALL1_PROMPT_VERSION_V26,
         system="system",
         user="candidate once",
         payload={"candidate": "candidate once"},
@@ -287,7 +287,7 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
 
     duplicate = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V25,
+        version=CALL1_PROMPT_VERSION_V26,
         system="system",
         user="candidate once candidate once",
         payload={"candidate": "candidate once"},
@@ -308,12 +308,12 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
 @pytest.mark.parametrize(
     "version",
     [
-        CALL1_PROMPT_VERSION_V25,
-        PLAN_REVIEW_PROMPT_VERSION_V22,
-        CALL2_PROMPT_VERSION_V26,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V21,
-        CORRECTION_PROMPT_VERSION_V38,
-        CORRECTION_PROMPT_VERSION_V39,
+        CALL1_PROMPT_VERSION_V26,
+        PLAN_REVIEW_PROMPT_VERSION_V23,
+        CALL2_PROMPT_VERSION_V27,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V22,
+        CORRECTION_PROMPT_VERSION_V40,
+        CORRECTION_PROMPT_VERSION_V41,
     ],
 )
 def test_every_dispatched_role_label_gets_the_duplicate_scan(version: str) -> None:
@@ -332,7 +332,7 @@ def test_every_dispatched_role_label_gets_the_duplicate_scan(version: str) -> No
 def test_prompt_secret_guard_rejects_urls_and_tokens_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V25,
+        version=CALL1_PROMPT_VERSION_V26,
         system="system",
         user=(
             "endpoint "
@@ -369,7 +369,7 @@ def test_duplicate_scan_requires_a_prompt_packet() -> None:
 def test_endpoint_prompt_paths_skip_malformed_urls_and_find_the_host() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V25,
+        version=CALL1_PROMPT_VERSION_V26,
         system="no urls here",
         user="bad http://[::1 then https://API.example.com/x",
         payload={},

@@ -27,20 +27,6 @@
     "stimulus.user_text": {
       "example": "Thanks, what does it say?",
       "meaning": "The message text of turn 4, the last turn, from the benign user."
-    },
-    "stimulus_approach.delivery": {
-      "example": "planted_item",
-      "meaning": "Always planted_item for this shape."
-    },
-    "stimulus_approach.history": {
-      "example": [
-        "Ask the agent to look up the order by its identifier."
-      ],
-      "meaning": "The intent of each of the 3 earlier turns, in order, one plain-language string per turn. It holds intents, not message text."
-    },
-    "stimulus_approach.request": {
-      "example": "Ask what the record says.",
-      "meaning": "The intent of turn 4, the last turn."
     }
   },
   "planted_item": {

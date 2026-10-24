@@ -223,7 +223,7 @@ anything other than a supplied result observation.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v25` renders the plan author context while preserving the
+- `authoring-call1-v26` renders the plan author context while preserving the
   existing 11-field plan response. The handoff's `attack-path-v1`
   `attack_path` appears in SCENARIO DESIGN as an outline of the attacker lines
   and then numbered parts (conditions, attack steps in order, unsafe action,
@@ -231,8 +231,8 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   The purpose, the stimulus rules, the EVIDENCE REFERENCES rules, the response
   contract descriptions, and the correction texts name the attack path, and the
   path's node and source IDs are citable provenance. The plan correction
-  (`authoring-correction-v38`) shows the same outline.
-- `authoring-plan-review-v22` reviews a fresh source-derived plan context. It
+  (`authoring-correction-v40`) shows the same outline.
+- `authoring-plan-review-v23` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
   binding selects inside one record of a keyed fact, the value also carries
@@ -240,7 +240,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `value.<record_key>.record_key` selector that bind the record key itself. A
   required change that replaces a binding path names the complete source and
   selector pair.
-- `authoring-call2-v26` renders the immutable accepted plan and the runtime
+- `authoring-call2-v27` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
   question whose yes answer is the violation, that the criteria are a
@@ -249,16 +249,16 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   does not end with a question mark. A plan that claims `reply` must return a
   `semantic_judge_spec` object; a missing one gets a
   `semantic_judge_spec_required` correction.
-- `authoring-artifact-review-v21` reviews the exact artifact object and the
+- `authoring-artifact-review-v22` reviews the exact artifact object and the
   binding and judge declarations.
-- `authoring-correction-v38` renders only the failed stage format and all
+- `authoring-correction-v40` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option
   lists the binding's documented selectors, the selected record's sources, and
   `review_selector_checks`: each selector path the required change names,
   checked against the sources that document it. Artifact corrections use
-  `authoring-correction-v39`.
+  `authoring-correction-v41`.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
 operations, schemas, provenance, and runtime capabilities. Reviewers do not
@@ -466,7 +466,11 @@ carries it. Call 2 returns the text as `planted_text`. The rule block, the
 Call 2 schema, and the artifact correction state the chosen slot's limit, and
 the planted-text check applies it; the model's copies of the runtime contract
 omit `max_chars` and `mode`. The package's `seed.json` carries the text and the
-slot's `mode`.
+slot's `mode`. The rule block follows the stage: the plan stages (Call 1, its
+correction, and the plan review) see only the `stimulus_approach` fields the
+plan writes, and the plan check rejects a plan that carries `planted_text`; the
+artifact stages (Call 2, its correction, and the artifact review) see the
+`stimulus` fields, `planted_text`, and the rule that asks for it.
 
 When an `indirect` shape names no record (`record_ref` is null) and the runtime
 contract's seed slot lists records, the plan names the record that holds the

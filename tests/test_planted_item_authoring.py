@@ -27,6 +27,7 @@ from asago_artifact_generator.authoring.planted_item import (
     planted_item_findings,
     runtime_contract_for_prompt,
 )
+from asago_artifact_generator.authoring.policy import AuthoringPolicy
 from asago_artifact_generator.authoring.prompt_context import (
     build_artifact_author_context,
     build_plan_author_context,
@@ -54,6 +55,8 @@ from .support import (
     json_section,
     load_failure_evidence,
     rendered_response_contract,
+    review_response,
+    scripted_orchestrator,
     stage_local_orchestrator,
     world,
 )
@@ -134,16 +137,128 @@ def test_the_rule_block_names_the_target_and_explains_each_field(
     for name, entry in block["fields"].items():
         assert entry["meaning"], name
         assert "example" in entry, name
-    assert set(block["fields"]) == {
-        "stimulus_approach.delivery",
-        "stimulus_approach.history",
-        "stimulus_approach.request",
-        "stimulus.delivery",
-        "stimulus.history",
-        "stimulus.user_text",
-        "planted_text",
-    }
+    assert set(block["fields"]) == PLAN_FIELDS
     assert block["fields"]["stimulus_approach.delivery"]["example"] == PLANTED_ITEM
+
+
+PLAN_FIELDS = {
+    "stimulus_approach.delivery",
+    "stimulus_approach.history",
+    "stimulus_approach.request",
+}
+ARTIFACT_FIELDS = {
+    "stimulus.delivery",
+    "stimulus.history",
+    "stimulus.user_text",
+    "planted_text",
+}
+PLANTED_TEXT_RULE = prose("planted_item/planted_text_rule")
+
+
+def _assert_plan_block(block: dict[str, Any], stage: str) -> None:
+    assert set(block["fields"]) == PLAN_FIELDS, stage
+    assert "planted_text" not in json.dumps(block), stage
+    assert PLANTED_TEXT_RULE not in block["rule"], stage
+
+
+def _assert_artifact_block(block: dict[str, Any], stage: str) -> None:
+    assert set(block["fields"]) == ARTIFACT_FIELDS, stage
+    assert block["rule"].endswith(" " + PLANTED_TEXT_RULE), stage
+    assert "planted_text is at most" in block["check"], stage
+    for name, entry in block["fields"].items():
+        assert entry["meaning"] and "example" in entry, (stage, name)
+    assert block["fields"]["stimulus.delivery"]["example"] == PLANTED_ITEM, stage
+
+
+def test_the_artifact_block_explains_the_stimulus_and_the_planted_text_only(
+    tmp_path: Path,
+) -> None:
+    view, _, rt, plan, _ = setup(tmp_path)
+
+    plan_block = multi_turn_block(view, rt)
+    artifact_block = multi_turn_block(view, rt, plan)
+
+    _assert_plan_block(plan_block, "plan")
+    _assert_artifact_block(artifact_block, "artifact")
+    assert artifact_block["rule"] == f"{plan_block['rule']} {PLANTED_TEXT_RULE}"
+
+
+def _before(user: str, title: str) -> str:
+    """Return the prompt text before the section ``title``: the stage's own instructions."""
+
+    return user[: user.index(f"\n{title}\n")]
+
+
+def test_each_dispatched_prompt_asks_only_for_the_fields_its_stage_writes(
+    tmp_path: Path,
+) -> None:
+    refund = world("refund")
+    plan = indirect_plan(refund["plan"], 2)
+    metadata = indirect_metadata(refund["metadata"], 2)
+    without_text = {key: value for key, value in metadata.items() if key != "planted_text"}
+    responses = [
+        json.dumps({**plan, "planted_text": PLANTED}),
+        json.dumps(plan),
+        review_response(),
+        json.dumps(without_text),
+        json.dumps(metadata),
+        review_response(),
+    ]
+    orchestrator, transport = scripted_orchestrator(
+        tmp_path, responses, task_id="task", policy=AuthoringPolicy()
+    )
+
+    result = orchestrator.run(
+        indirect_view(tmp_path, 2),
+        indirect_inventory(refund["inventory"]),
+        indirect_runtime(refund["runtime_contract"]),
+    )
+
+    assert result.status == "accepted"
+    call1, plan_correction, plan_review, call2, artifact_correction, artifact_review = (
+        transport.requests
+    )
+    assert [request["stage"] for request in transport.requests] == [
+        "call1",
+        "correction",
+        "plan_review",
+        "call2",
+        "correction",
+        "artifact_review",
+    ]
+    for stage, request in (("call1", call1), ("plan_review", plan_review)):
+        assert "planted_text" not in request["user"], stage
+        _assert_plan_block(json_section(request["user"], "INDIRECT SHAPE"), stage)
+    # The plan correction shows the rejected output and its finding, and nothing else
+    # names the field.
+    assert "planted_text" not in _before(plan_correction["user"], "CURRENT OUTPUT")
+    _assert_plan_block(
+        plan_correction["payload"]["original_context"]["multi_turn_shape"], "plan_correction"
+    )
+    assert plan_correction["payload"]["findings"] == [
+        {
+            "code": "unexpected_field",
+            "detail": "unexpected plan field: planted_text",
+            "path": "planted_text",
+        }
+    ]
+    for stage, request in (("call2", call2), ("artifact_review", artifact_review)):
+        _assert_artifact_block(json_section(request["user"], "INDIRECT SHAPE"), stage)
+    _assert_artifact_block(
+        artifact_correction["payload"]["original_context"]["multi_turn_shape"],
+        "artifact_correction",
+    )
+    assert PLANTED_TEXT_RULE in artifact_correction["user"]
+
+
+def test_the_plan_check_rejects_a_plan_that_writes_planted_text(tmp_path: Path) -> None:
+    view, inventory, rt, plan, _ = setup(tmp_path)
+    plan["planted_text"] = PLANTED
+
+    findings = collect_plan_findings_v2(plan, inventory, rt)
+
+    assert [(f.code, f.path) for f in findings] == [("unexpected_field", "planted_text")]
+    assert sequential_plan_findings(view, plan, rt) == []
 
 
 def test_every_packet_of_an_indirect_handoff_carries_the_block(tmp_path: Path) -> None:
