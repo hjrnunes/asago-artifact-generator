@@ -19,9 +19,6 @@ settings, so a value it would expand is refused.
 
 ``target`` is the target config (``asago_bundle_core.target``): its ``authorized_as`` must
 mark the target as a ``mock`` or a ``test_instance``, or nothing is read or written.
-``instantiate_resolved`` is the legacy form for callers that resolve the values
-themselves (the command line's ``instantiate`` without ``--target``): it reads no target
-config and fills the template as ``instantiate_bundle`` does after that check.
 """
 
 from __future__ import annotations
@@ -85,14 +82,6 @@ def instantiate_bundle(
     """
 
     authorized_target(target, InstantiateError)
-    return instantiate_resolved(template_dir, values, out_dir)
-
-
-def instantiate_resolved(
-    template_dir: str | Path, values: dict[str, Any], out_dir: str | Path
-) -> dict[str, Any]:
-    """Write the concrete bundle for values the caller resolved, reading no target config."""
-
     template = Path(template_dir)
     out = Path(out_dir).resolve()
     manifest = _read_json(template / BUNDLE_FILE)

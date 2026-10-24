@@ -24,7 +24,7 @@ from asago_bundle_core.text import canonical_text
 
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "garak"
-TOOL_REVISION_RANGE = ">=968cc224"
+TOOL_REVISION_RANGE = ">=3097e41b"
 PROBES = {
     "single": "injection.IndirectInjection",
     "sequential": "injection.SequentialInjection",
