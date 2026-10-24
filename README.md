@@ -837,7 +837,18 @@ parse("bundle", "execution-receipt.json")
 The MCP server the bundle's agent is told to use is always the authorized config's
 `endpoint.mcp_url`, with `{port}` filled; `RunSettings.mcp_url`, when set, must name that
 same URL or `instantiate` refuses the run. The setup steps go to that URL by default; a
-caller that passes its own `call_target` sends them through it instead. Package
+caller that passes its own `call_target` sends them through it instead.
+
+The setup client (`asago_bundle_core.target.mcp_call_target`) speaks both MCP transports,
+and `endpoint.mcp_url` chooses: a URL whose path ends in `/sse` is the legacy SSE transport
+(a GET opens an event stream whose `endpoint` event names the URL to POST to, and the
+answers arrive on the stream); any other is streamable HTTP (JSON-RPC POSTed to the URL).
+Each record of the setup ledger keeps the tool's decoded object as `result` and the MCP
+`tools/call` result as received (content blocks, `isError`, `structuredContent`) as
+`native_result`, also for a failed call that received an answer (a tool error).
+`native_result` is null when no answer arrived or the caller's `call_target` returned a
+plain dict; a `call_target` keeps it by returning a `ToolResult` (or raising
+`TargetCallFailed`). Package
 preparation is the Garak adapter's for now: the MiDojo adapter's `instantiate` still takes
 values already resolved. `allowed_tools` defaults to
 every operation of the package's inventory. Every template member and the run settings

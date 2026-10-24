@@ -111,6 +111,9 @@ def test_a_package_with_setup_runs_from_preparation_to_receipt(
         "completed",
     )
     assert record["result"] == {"account_id": "ACC-1", "balance": 100.0}
+    # The MCP result the decoded one came from.
+    assert record["native_result"]["structuredContent"] == record["result"]
+    assert record["native_result"]["isError"] is False
     assert balance(target) == 100.0
     assert result.preparation.bindings == {"balance": 100.0}
     assert [item["status"] for item in result.preparation.prerequisites] == ["passed"]
@@ -181,4 +184,5 @@ def test_a_refused_setup_call_is_an_incomplete_preparation(
     assert isinstance(result, PreparationIncomplete)
     assert result.reason == "setup_failed"
     assert "cannot withdraw 500" in result.setup_ledger[0]["error"]
+    assert result.setup_ledger[0]["native_result"]["isError"] is True
     assert balance(target) == 120.0

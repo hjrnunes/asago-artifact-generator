@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import Any
 
 import pytest
@@ -23,6 +24,8 @@ from asago_bundle_core.preparation import (
     PreparationIncomplete,
     PreparedPackage,
     SetupError,
+    TargetCallFailed,
+    ToolResult,
     _run_setup,
     _validate_setup,
     check_prerequisites,
@@ -302,11 +305,47 @@ def test_a_prepared_package_has_its_rendered_stimulus_and_setup_ledger() -> None
         "operation": "prepare",
         "arguments": {},
         "retries": 0,
+        # A target call that returns a plain dict keeps no MCP result.
+        "native_result": None,
         "status": "completed",
         "result": {"order_id": "ord-1"},
     }
     assert prepared.setup_outputs == {"prepare": {"order_id": "ord-1"}}
     assert prepared.bindings == {"order_id": "ord-1"}
+
+
+def test_the_setup_ledger_keeps_the_mcp_result_beside_the_decoded_one() -> None:
+    native = {"content": [{"type": "text", "text": '{"order_id": "ord-1"}'}], "isError": False}
+
+    prepared = prepare_package(
+        _package(), call_target=_returning(ToolResult({"order_id": "ord-1"}, native))
+    )
+
+    assert isinstance(prepared, PreparedPackage)
+    (record,) = prepared.setup_ledger
+    assert (record["result"], record["native_result"]) == ({"order_id": "ord-1"}, native)
+    assert type(record["result"]) is dict
+    assert type(prepared.setup_outputs["prepare"]) is dict
+    # The preparation prints as JSON with both.
+    (printed,) = json.loads(json.dumps(asdict(prepared)))["setup_ledger"]
+    assert (printed["result"], printed["native_result"]) == ({"order_id": "ord-1"}, native)
+
+
+def test_a_failed_setup_call_keeps_the_mcp_result_it_received() -> None:
+    native = {"content": [{"type": "text", "text": "no such order"}], "isError": True}
+
+    def call_target(operation: str, arguments: dict[str, object]) -> object:
+        raise TargetCallFailed("prepare failed: no such order", native_result=native)
+
+    prepared = prepare_package(_package(), call_target=call_target)
+
+    assert isinstance(prepared, PreparationIncomplete)
+    (record,) = prepared.setup_ledger
+    assert (record["status"], record["error"], record["native_result"]) == (
+        "failed",
+        "prepare failed: no such order",
+        native,
+    )
 
 
 def test_history_turns_are_rendered_and_non_text_turns_dropped() -> None:
@@ -500,9 +539,9 @@ def test_a_failed_setup_records_its_error() -> None:
     assert prepared.reason == "setup_failed"
     assert prepared.error == "setup dispatch failed: prepare"
     assert prepared.setup_outputs == {}
-    assert [(item["status"], item["error"]) for item in prepared.setup_ledger] == [
-        ("failed", "target down")
-    ]
+    assert [
+        (item["status"], item["error"], item["native_result"]) for item in prepared.setup_ledger
+    ] == [("failed", "target down", None)]
 
 
 def test_setup_without_a_target_call_is_incomplete() -> None:

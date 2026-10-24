@@ -122,11 +122,12 @@ Deterministic tests must not contact a model endpoint or target.
   adapters) take values already resolved. Recording the result is the caller's job. `target`
   holds the target config an adapter's `instantiate` takes (a `target.yaml` path or a loaded
   mapping): one whose `authorized_as` is not `mock` or `test_instance` is refused before any
-  work. `mcp_call_target` sends a setup step to the target's MCP server; the Garak
-  `instantiate` uses it for `endpoint.mcp_url` by default, and a caller's `call_target`
-  replaces it. The optional schema fields `repeats` and `serve` stay out of a bundle
-  that does not need them: Garak omits both, because `bundle.json` feeds the receipt's
-  `bundle_digest`.
+  work. `mcp_call_target` sends a setup step to the target's MCP server over streamable HTTP
+  or, when the `mcp_url` path ends in `/sse`, legacy SSE; the Garak `instantiate` uses it for
+  `endpoint.mcp_url` by default, and a caller's `call_target` replaces it. Each setup ledger record keeps the decoded `result` and the raw
+  MCP result as `native_result` (null for a `call_target` returning a plain dict). The
+  optional schema fields `repeats` and `serve` stay out of a bundle that does not need them:
+  Garak omits both, because `bundle.json` feeds the receipt's `bundle_digest`.
 - `packages/asago-bundle-garak/`: the Garak adapter workspace member. Its library entry points
   `compile`, `instantiate` and `parse` (`entry_points.py`) are what its CLI calls. The public
   `instantiate` takes the target config and `RunSettings`, checks every input and the whole
