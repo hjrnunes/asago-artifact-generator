@@ -7,11 +7,6 @@ package, each rendered user turn, resolved judge facts, and the turns the judge
 grades; this module knows Garak's format. It substitutes no package bindings:
 the messages and facts arrive already resolved. Like ``instantiate``, it refuses
 a target config not authorized for a run before it reads anything else.
-
-``instantiate_resolved`` is the legacy form for callers that resolve the values
-themselves (the command line's ``instantiate TEMPLATE --values VALUES --out OUT``):
-it reads no target config, runs no preparation, and fills the template as this
-adapter did before ``instantiate`` prepared packages.
 """
 
 from __future__ import annotations
@@ -70,25 +65,6 @@ def instantiate_bundle(
 
     authorized_target(target, InstantiateError)
     return fill_template(read_template(template_dir), values, out_dir)
-
-
-def instantiate_resolved(
-    template_dir: str | Path, values: dict[str, Any], out_dir: str | Path
-) -> dict[str, Any]:
-    """Write the concrete bundle for values the caller resolved; return its manifest.
-
-    The legacy form: no target config is read and no preparation runs. It checks only
-    what this adapter checked before ``read_template``: the manifest's keys, then the
-    values (any ``user_turn_`` key as a text), then reads the templates it names.
-    """
-
-    template = Path(template_dir)
-    manifest = _read_json(template / BUNDLE_FILE)
-    if not isinstance(manifest, dict) or not TEMPLATE_KEYS <= manifest.keys():
-        raise InstantiateError(f"{BUNDLE_FILE} is not a bundle template manifest")
-    check_values(manifest["requires"], values, _resolved_check_for, InstantiateError)
-    documents = {role: _read_json(template / name) for role, name in manifest["templates"].items()}
-    return _write_bundle(manifest, documents, values, out_dir)
 
 
 @dataclass(frozen=True)
@@ -236,14 +212,6 @@ def check_for(key: str) -> Callable[[Any], bool] | None:
     """Return the check of a value key; each ``user_turn_<n>`` (n from 1) is a text."""
 
     if USER_TURN.fullmatch(key):
-        return _text
-    return CHECKS.get(key)
-
-
-def _resolved_check_for(key: str) -> Callable[[Any], bool] | None:
-    """Return the check ``instantiate_resolved`` applies: any ``user_turn_`` key is a text."""
-
-    if key.startswith(USER_TURN_PREFIX):
         return _text
     return CHECKS.get(key)
 
