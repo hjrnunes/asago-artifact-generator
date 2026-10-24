@@ -620,14 +620,15 @@ The v5 schema lists the member names (`plan.json`, `stimulus.json`,
 refuses a v5 package with any other member or manifest field.
 
 The loader still reads `artifact-package-v4`
-(`contracts/artifact-package/artifact-package-v4/`), the version written before
-packages stopped copying each request. A v4 package's `source-hashes.json`,
+(`contracts/artifact-package/artifact-package-v4/`). v4 has two layouts. Older
+v4 packages also copy each request and may contain `source-hashes.json`,
 `authoring/ledger.json`, `authoring/reviews.json`,
 `authoring/transformations.json`, and `authoring/NN-<stage>.json`, `.prompt`,
-and `.raw` members are verified like the others and left out of the loaded
-members; its `authoring` and `creation_model` stay open. The loader refuses any
-other member of a v4 package, and the writer writes only v5, so it refuses a
-loaded v4 package.
+and `.raw` members. Later v4 packages have the v5 member set under the v4
+version string. Where present, the retired members are verified like the
+others and left out of the loaded members, and the manifest's `authoring` and
+`creation_model` stay open. The loader refuses any other member of a v4
+package, and the writer writes only v5, so it refuses a loaded v4 package.
 Each package carries the scoring input for its plan's claim level:
 
 - `tool_call_condition.json` holds the handoff's `tool_call_condition` exactly
