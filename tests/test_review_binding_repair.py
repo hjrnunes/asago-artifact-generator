@@ -194,7 +194,7 @@ def test_first_correction_after_a_binding_review_lists_documented_record_sources
     assert "review_binding" in descriptions["kind"]
 
 
-def test_correction_findings_do_not_repeat_review_details() -> None:
+def test_correction_findings_keep_review_details_verbatim() -> None:
     finding = _review_finding_to_finding(
         _review_record("candidate_plan.runtime_bindings[0]"), "plan"
     )
@@ -202,8 +202,8 @@ def test_correction_findings_do_not_repeat_review_details() -> None:
     packet = _correction_packet(_field_binding_plan(), [finding])
 
     findings_section = _section(packet, "CURRENT FINDINGS")
-    assert "review_location" not in findings_section
-    assert "review_required_change" not in findings_section
+    assert '"review_location":"candidate_plan.runtime_bindings[0]"' in findings_section
+    assert f'"review_required_change":"{_RECORD_KEY_CHANGE}"' in findings_section
     assert "Required change: " + _RECORD_KEY_CHANGE in findings_section
 
 

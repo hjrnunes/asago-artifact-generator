@@ -14,9 +14,8 @@ from .binding_repair import (
 )
 from .contracts import _call2_contract_v2
 from .core import (
-    CORRECTION_PROMPT_VERSION_V40,
-    CORRECTION_PROMPT_VERSION_V41,
-    Call2FramingError,
+    CORRECTION_PROMPT_VERSION_V42,
+    CORRECTION_PROMPT_VERSION_V43,
     Finding,
     FindingTarget,
     PromptPacket,
@@ -29,7 +28,7 @@ from .prompt_context import (
     _semantic_judge_fact_ref_guidance,
 )
 from .prompt_packets import _artifact_response_contract_for_prompt
-from .response_decode import _decode_stage_response, _readable_response
+from .response_decode import _readable_response
 from .sequential_turns import (
     delivery_in_context,
     plan_response_contract,
@@ -48,7 +47,6 @@ class _CorrectionView:
     original_context: dict[str, Any]
     fact_ref_guidance: dict[str, Any] | None
     plan_field_meanings: Any
-    neutral_outcome_example: Any
     accepted_plan: Any
     binding_repair_options: dict[str, Any] | None = None
     reference_repair_options: dict[str, Any] | None = None
@@ -72,9 +70,12 @@ def _correction_fact_ref_guidance(source_original_context: Any) -> dict[str, Any
 
 def _correction_view(correction_context: dict[str, Any]) -> _CorrectionView:
     fact_ref_guidance = _correction_fact_ref_guidance(correction_context.get("original_context"))
-    original_context = _correction_prompt_context(correction_context["original_context"])
+    original_context = _correction_prompt_context(
+        correction_context["original_context"],
+        correction_context["current_output"],
+        correction_context["findings"],
+    )
     plan_field_meanings = original_context.pop("plan_field_meanings", None)
-    neutral_outcome_example = original_context.pop("neutral_outcome_example", None)
     original_context.pop("semantic_judge_fact_ref_guidance", None)
     accepted_plan = correction_context.get("original_context", {}).get("accepted_plan")
     artifact = correction_context.get("stage") == "artifact"
@@ -84,7 +85,6 @@ def _correction_view(correction_context: dict[str, Any]) -> _CorrectionView:
         original_context=original_context,
         fact_ref_guidance=fact_ref_guidance,
         plan_field_meanings=plan_field_meanings,
-        neutral_outcome_example=neutral_outcome_example,
         accepted_plan=accepted_plan,
     )
 
@@ -121,12 +121,6 @@ def _plan_field_meanings_section(view: _CorrectionView) -> tuple[str, Any] | Non
     if not isinstance(view.plan_field_meanings, str):
         return None
     return ("PLAN FIELD MEANINGS", view.plan_field_meanings)
-
-
-def _neutral_outcome_example_section(view: _CorrectionView) -> tuple[str, Any] | None:
-    if not isinstance(view.neutral_outcome_example, str):
-        return None
-    return ("NEUTRAL OUTCOME EXAMPLE", view.neutral_outcome_example)
 
 
 def _targets_a_fact_ref(path: Any) -> bool:
@@ -177,10 +171,7 @@ def _response_contract_section(view: _CorrectionView) -> tuple[str, Any] | None:
 
 
 def _current_output_section(view: _CorrectionView) -> tuple[str, Any] | None:
-    return (
-        "CURRENT OUTPUT",
-        _correction_current_output_view(view.context["current_output"], artifact=view.artifact),
-    )
+    return ("CURRENT OUTPUT", view.context["current_output"])
 
 
 def _current_findings_section(view: _CorrectionView) -> tuple[str, Any] | None:
@@ -234,7 +225,6 @@ _CORRECTION_CONTEXT_SECTIONS: tuple[_CorrectionSection, ...] = (
     _fixed_plan_decision_section,
     _original_stage_context_section,
     _plan_field_meanings_section,
-    _neutral_outcome_example_section,
     _fact_ref_guidance_section,
 )
 _CORRECTION_OUTPUT_SECTIONS: tuple[_CorrectionSection, ...] = (
@@ -281,7 +271,7 @@ def _render_correction_packet(
     packet = PromptPacket(
         stage="correction",
         version=(
-            CORRECTION_PROMPT_VERSION_V41 if view.artifact else CORRECTION_PROMPT_VERSION_V40
+            CORRECTION_PROMPT_VERSION_V43 if view.artifact else CORRECTION_PROMPT_VERSION_V42
         ),
         system=_CORRECTION_SYSTEM,
         user=_render_sections(
@@ -293,40 +283,23 @@ def _render_correction_packet(
 
 
 def _correction_findings_view(value: Any) -> Any:
-    """Drop the review details that the finding detail already states."""
+    """Return an independent copy without shortening owner or reviewer text."""
 
-    if not isinstance(value, list):
-        return value
-    result: list[Any] = []
-    for item in value:
-        if not isinstance(item, dict):
-            result.append(item)
-            continue
-        if item.get("code") == "semantic_review" and "details" in item:
-            # The review location and required change already appear in detail.
-            item = {key: value for key, value in item.items() if key != "details"}
-        result.append(item)
-    return result
+    return deepcopy(value)
 
 
-def _correction_current_output_view(value: Any, *, artifact: bool) -> Any:
-    """Canonicalize an artifact object while retaining its exact values."""
-
-    if not artifact or not isinstance(value, str):
-        return value
-    try:
-        decoded, _ = _decode_stage_response("call2", value.encode("utf-8"))
-    except (Call2FramingError, UnicodeDecodeError, ValueError):
-        return value
-    return _canonical_json(decoded)
-
-
-def _correction_prompt_context(context: dict[str, Any]) -> dict[str, Any]:
-    """Keep correction context authoritative without replaying authoring payloads."""
+def _correction_prompt_context(
+    context: dict[str, Any], current_output: Any, findings: Any
+) -> dict[str, Any]:
+    """Keep stage rules and relevant facts without replaying the original request."""
 
     result = deepcopy(context)
     if "scenario_design" in result:
         result["scenario_design"] = _scenario_design_prompt_view(result["scenario_design"])
+    scope_text = f"{current_output}\n{_canonical_json(findings)}"
+    source_context = result.get("source_context")
+    if isinstance(source_context, dict):
+        _scope_plan_correction_source_context(source_context, scope_text)
     authoritative = result.get("authoritative_context")
     if isinstance(authoritative, dict) and isinstance(result.get("runtime_contract"), dict):
         _scope_correction_authoritative_context(
@@ -338,7 +311,90 @@ def _correction_prompt_context(context: dict[str, Any]) -> dict[str, Any]:
         response_contract.pop("neutral_example", None)
     result.pop("response_contract", None)
     result.pop("neutral_example", None)
+    result.pop("neutral_outcome_example", None)
     return result
+
+
+def _scope_plan_correction_source_context(source_context: dict[str, Any], scope_text: str) -> None:
+    """Replace the full Call 1 inventory with referenced detail and compact catalogs.
+
+    Binding and reference findings get deterministic repair options elsewhere in
+    the correction prompt.  This view therefore keeps full operation detail only
+    when the rejected output or findings name it, while retaining the identifiers
+    of every alternative the author may choose.
+    """
+
+    facts = source_context.get("facts")
+    operations = source_context.get("operations")
+    source_handles = source_context.get("source_handles")
+    source_context["facts"] = (
+        [
+            summary
+            for item in facts
+            if isinstance(item, dict)
+            if (
+                summary := _correction_fact_summary(
+                    item,
+                    referenced=isinstance(item.get("ref"), str) and item["ref"] in scope_text,
+                )
+            )
+            is not None
+        ]
+        if isinstance(facts, list)
+        else []
+    )
+    source_context["operations"] = [
+        deepcopy(item)
+        for item in operations or []
+        if isinstance(item, dict)
+        and isinstance(item.get("name"), str)
+        and item["name"] in scope_text
+    ]
+    source_context["source_handles"] = [
+        deepcopy(item)
+        for item in source_handles or []
+        if isinstance(item, dict)
+        and isinstance(item.get("ref"), str)
+        and item["ref"] in scope_text
+    ]
+    source_context["available_operation_names"] = sorted(
+        {
+            item["name"]
+            for item in operations or []
+            if isinstance(item, dict) and isinstance(item.get("name"), str)
+        }
+    )
+    source_context["available_source_refs"] = sorted(
+        {
+            item[key]
+            for values, key in ((facts or [], "ref"), (source_handles or [], "ref"))
+            for item in values
+            if isinstance(item, dict) and isinstance(item.get(key), str)
+        }
+    )
+    source_context["scope"] = (
+        "Facts are compact summaries. Operations and source handles carry full detail only "
+        "when the rejected output or a finding names them; the available identifier lists "
+        "show the remaining documented choices. Finding-specific source and selector detail "
+        "appears in the repair-options sections."
+    )
+
+
+def _correction_fact_summary(fact: dict[str, Any], *, referenced: bool) -> dict[str, Any] | None:
+    """Return the small part of one supplied fact a correction needs for orientation."""
+
+    reference = fact.get("ref")
+    if not isinstance(reference, str):
+        return None
+    summary: dict[str, Any] = {"ref": reference}
+    schema = fact.get("schema")
+    if isinstance(schema, dict) and isinstance(schema.get("type"), str):
+        summary["schema_type"] = schema["type"]
+    value = fact.get("value")
+    if referenced and (isinstance(value, (str, int, float, bool)) or value is None):
+        if len(_canonical_json(value).encode("utf-8")) <= 512:
+            summary["value"] = deepcopy(value)
+    return summary
 
 
 def _scope_correction_authoritative_context(
