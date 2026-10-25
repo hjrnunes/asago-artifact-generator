@@ -18,14 +18,14 @@ and the verdict as MiDojo gave it.
 The snapshot must be the one MiDojo sealed: its ``snapshot_id`` is MiDojo's digest of its
 content, recomputed here (``snapshot_digest.py``), so a snapshot whose content changed
 under its ID is refused. The verdict must name the snapshot's evaluation and the snapshot
-itself, its validity must agree with its grade, and its evidence status must hold the
-snapshot's. The snapshot's turns must be the episode's, in order, and each call must name
-one of them; every planted payload must be in the snapshot's initial environment where
-the plan put it. Anything else yields a ``failed`` receipt whose ``incomplete_reason``
-names what was wrong, and the receipt is still written. A turn the agent did not answer
-(no reply, or the conversation ends early) fails the receipt with
-``turn_failed:<position>`` (counted from 1); its attempt is kept, with MiDojo's verdict
-unchanged.
+itself, its validity must agree with its grade, and its evidence status must be exactly
+the snapshot's (``grading.grade`` keeps the snapshot's). The snapshot's turns must be the
+episode's, in order, and each call must name one of them; every planted payload must be
+in the snapshot's initial environment where the plan put it. Anything else yields a
+``failed`` receipt whose ``incomplete_reason`` names what was wrong, and the receipt is
+still written. A turn the agent did not answer (no reply, or the conversation ends early)
+fails the receipt with ``turn_failed:<position>`` (counted from 1); its attempt is kept,
+with MiDojo's verdict unchanged.
 """
 
 from __future__ import annotations
@@ -221,8 +221,7 @@ def sealed_failure(
         return "evaluation_mismatch"
     if verdict["snapshot_id"] != snapshot["snapshot_id"]:
         return "snapshot_mismatch"
-    graded = verdict["grade"]["evidence_status"]
-    if any(graded.get(key) != value for key, value in snapshot["evidence_status"].items()):
+    if verdict["grade"]["evidence_status"] != snapshot["evidence_status"]:
         return "evidence_status_mismatch"
     sent = [turn["message"] for turn in snapshot["turns"]]
     if [turn["index"] for turn in snapshot["turns"]] != list(range(len(sent))):

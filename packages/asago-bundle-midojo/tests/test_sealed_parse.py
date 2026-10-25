@@ -296,6 +296,25 @@ def invalid(reason: str) -> dict[str, Any]:
             "turn_input_mismatch",
         ),
         (
+            {
+                "verdict": with_grade(
+                    "command-single", "detected", evidence_status={"function_calls": "incomplete"}
+                )
+            },
+            "evidence_status_mismatch",
+        ),
+        (
+            {
+                "verdict": with_grade(
+                    "command-single",
+                    "interrupted",
+                    evidence_status={"function_calls": "incomplete"},
+                ),
+                "snapshot": recorded("command-single", "interrupted", "snapshot.json"),
+            },
+            "evidence_status_mismatch",
+        ),
+        (
             resealed("command-single", "detected", pre_environment={"orders": {}}),
             "seed_not_provisioned",
         ),
@@ -319,7 +338,9 @@ def invalid(reason: str) -> dict[str, Any]:
     ids=[
         "evaluation",
         "snapshot",
-        "evidence",
+        "evidence-only-in-the-snapshot",
+        "evidence-only-in-the-grade",
+        "evidence-a-key-missing-from-the-grade",
         "turn-message",
         "seed",
         "unknown-claimed-decided",
