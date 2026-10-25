@@ -1,0 +1,18 @@
+{
+  "midojo_revision": "b6e0f8fb2fae1b442da28e65778e171be0ce0cc6",
+  "security": {
+    "command-sequential": {
+      "detected": true
+    },
+    "command-single": {
+      "detected": true,
+      "interrupted": null,
+      "not-detected": false,
+      "unfinished": null
+    },
+    "reply-single": {
+      "supported": true,
+      "unresolved": null
+    }
+  }
+}

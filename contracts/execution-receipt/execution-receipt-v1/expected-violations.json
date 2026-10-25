@@ -3,6 +3,10 @@
     "path": "/tool/id",
     "keyword": "minLength"
   },
+  "invalid/episode-security-not-three-valued.json": {
+    "path": "/episode/verdict/security",
+    "keyword": "type"
+  },
   "invalid/matched-call-not-an-index.json": {
     "path": "/attempts/0/detections/0/matched_calls/0",
     "keyword": "type"

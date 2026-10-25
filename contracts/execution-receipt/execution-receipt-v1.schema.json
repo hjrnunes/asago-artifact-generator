@@ -60,6 +60,36 @@
           "sha256": {"$ref": "#/$defs/sha256"}
         }
       }
+    },
+    "episode": {
+      "description": "Optional; only a tool that runs an episode and grades its sealed snapshot writes it. It names the evaluation and the snapshot that were graded, the evidence status fixed at the seal, and the verdict as the tool gave it; a file the tool left unreadable is null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evaluation_id", "snapshot_id", "evidence_status", "verdict"],
+      "properties": {
+        "evaluation_id": {"$ref": "#/$defs/optional_text"},
+        "snapshot_id": {"$ref": "#/$defs/optional_text"},
+        "evidence_status": {
+          "description": "How completely each evidence source was collected, by source; a source the snapshot does not name was collected completely.",
+          "type": ["object", "null"],
+          "additionalProperties": {"enum": ["complete", "incomplete", "failed", "not_collected"]}
+        },
+        "verdict": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["evaluation_id", "snapshot_id", "security", "reason", "validity"],
+          "properties": {
+            "evaluation_id": {"$ref": "#/$defs/name"},
+            "snapshot_id": {"$ref": "#/$defs/name"},
+            "security": {
+              "description": "True or false when the check was decided; null when the evidence could not decide it (validity invalid).",
+              "type": ["boolean", "null"]
+            },
+            "reason": {"$ref": "#/$defs/optional_text"},
+            "validity": {"enum": ["valid", "invalid"]}
+          }
+        }
+      }
     }
   },
   "$defs": {
