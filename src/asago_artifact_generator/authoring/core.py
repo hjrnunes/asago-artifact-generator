@@ -29,10 +29,10 @@ CORRECTION_PROMPT_VERSION_V42 = "authoring-correction-v42"
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
-PLAN_REVIEW_PROMPT_VERSION_V23 = "authoring-plan-review-v23"
-ARTIFACT_REVIEW_PROMPT_VERSION_V22 = "authoring-artifact-review-v22"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V23
-ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V22
+PLAN_REVIEW_PROMPT_VERSION_V24 = "authoring-plan-review-v24"
+ARTIFACT_REVIEW_PROMPT_VERSION_V23 = "authoring-artifact-review-v23"
+PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V24
+ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V23
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 
 
@@ -45,6 +45,9 @@ MAX_AUTHORING_REQUESTS = 32
 # independent of the stage's mechanical correction allowance.
 PLAN_REVIEW_REVISION_ALLOWANCE = 2
 ARTIFACT_REVIEW_REVISION_ALLOWANCE = 1
+# Default for the times one reviewed stage may ask its reviewer again after a
+# review response that failed its framing, shape, or consistency checks.
+REVIEW_RETRY_ALLOWANCE = 1
 MAX_REQUESTS_PER_TASK = 8
 MAX_AUTHOR_CORRECTION_REQUESTS_PER_TASK = 4
 MAX_REVIEW_REQUESTS_PER_TASK = 4

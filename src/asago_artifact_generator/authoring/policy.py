@@ -15,6 +15,7 @@ from .core import (
     MAX_REQUESTS_PER_TASK,
     MAX_REVIEW_REQUESTS_PER_TASK,
     PLAN_REVIEW_REVISION_ALLOWANCE,
+    REVIEW_RETRY_ALLOWANCE,
     BudgetExceeded,
     Finding,
 )
@@ -153,6 +154,9 @@ class AuthoringPolicy:
     ``artifact_max_review_revisions`` (default one) bound the revisions that
     a semantic review of that stage may request; they apply only while the
     stage is reviewed and follow the same integer rules.
+    ``plan_max_review_retries`` and ``artifact_max_review_retries`` (default
+    one each) bound the times that stage's review is asked again after a
+    review response that failed its checks; the same rules apply.
     """
 
     plan_max_corrections: int = 1
@@ -162,6 +166,8 @@ class AuthoringPolicy:
     review_model_profile: str | None = None
     plan_max_review_revisions: int = PLAN_REVIEW_REVISION_ALLOWANCE
     artifact_max_review_revisions: int = ARTIFACT_REVIEW_REVISION_ALLOWANCE
+    plan_max_review_retries: int = REVIEW_RETRY_ALLOWANCE
+    artifact_max_review_retries: int = REVIEW_RETRY_ALLOWANCE
 
     def __post_init__(self) -> None:
         for name in ("review_plan", "review_artifact"):
@@ -176,6 +182,8 @@ class AuthoringPolicy:
             "artifact_max_corrections",
             "plan_max_review_revisions",
             "artifact_max_review_revisions",
+            "plan_max_review_retries",
+            "artifact_max_review_retries",
         ):
             _validate_nonnegative_integer(name, getattr(self, name))
 
@@ -190,6 +198,18 @@ class AuthoringPolicy:
         """Return the artifact stage's review-revision allowance; zero while unreviewed."""
 
         return self.artifact_max_review_revisions if self.review_artifact else 0
+
+    @property
+    def plan_review_retries(self) -> int:
+        """Return the plan stage's review-retry allowance; zero while unreviewed."""
+
+        return self.plan_max_review_retries if self.review_plan else 0
+
+    @property
+    def artifact_review_retries(self) -> int:
+        """Return the artifact stage's review-retry allowance; zero while unreviewed."""
+
+        return self.artifact_max_review_retries if self.review_artifact else 0
 
     @classmethod
     def from_cli(
@@ -224,7 +244,8 @@ def policy_role_limits(policy: AuthoringPolicy) -> dict[str, int]:
 
     A stage's author responses are its initial attempt, its corrections, and,
     when the stage is reviewed, its review revisions.  Each author response
-    can cost at most one review.
+    can cost one review, and a reviewed stage can ask its review again up to
+    its review-retry allowance.
     """
 
     plan_author = _stage_author_dispatches(
@@ -235,8 +256,8 @@ def policy_role_limits(policy: AuthoringPolicy) -> dict[str, int]:
     )
     return {
         "author": plan_author + artifact_author,
-        "reviewer": (plan_author if policy.review_plan else 0)
-        + (artifact_author if policy.review_artifact else 0),
+        "reviewer": (plan_author + policy.plan_review_retries if policy.review_plan else 0)
+        + (artifact_author + policy.artifact_review_retries if policy.review_artifact else 0),
     }
 
 
@@ -245,7 +266,8 @@ def policy_max_dispatches(policy: AuthoringPolicy) -> int:
 
     A reviewed stage costs its initial attempt, its corrections, and its
     review revisions, and each of those author responses can also cost one
-    review; an unreviewed stage costs at most ``corrections + 1``.  These are
+    review, plus the stage's review retries; an unreviewed stage costs at most
+    ``corrections + 1``.  These are
     upper bounds used for default budget guards, not spending targets.
     """
 
@@ -272,3 +294,4 @@ class AuthoringResult:
     allowances: dict[str, int] = field(default_factory=dict)
     budget: dict[str, Any] = field(default_factory=dict)
     review_revision_allowances: dict[str, int] = field(default_factory=dict)
+    review_retry_allowances: dict[str, int] = field(default_factory=dict)

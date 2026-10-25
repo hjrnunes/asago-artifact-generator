@@ -75,6 +75,8 @@ def test_orchestrator_records_the_supplied_stage_policy(tmp_path: Path) -> None:
         "artifact_max_corrections": 2,
         "plan_max_review_revisions": 0,
         "artifact_max_review_revisions": 0,
+        "plan_max_review_retries": 0,
+        "artifact_max_review_retries": 0,
         "review_plan": False,
         "review_artifact": False,
         "review_model_profile": None,
@@ -263,7 +265,7 @@ def test_reviewer_blocked_and_malformed_are_distinct_terminal_states(tmp_path: P
     unavailable, unavailable_transport = _orchestrator(
         tmp_path / "unavailable",
         [json.dumps(_plan()), b'{"decision":"accept","summary":"contradictory","findings":[{}]}'],
-        policy=AuthoringPolicy(),
+        policy=AuthoringPolicy(plan_max_review_retries=0),
     )
     unavailable_result = unavailable.run(_view(), _inventory(), _runtime_contract())
 
@@ -478,7 +480,7 @@ def test_second_semantic_revise_exhausts_a_single_review_revision_allowance(
     assert evidence["allowances"] == {"plan": 1, "artifact": 1}
     assert evidence["review_revision_allowances"] == {"plan": 0, "artifact": 1}
     assert evidence["policy"]["plan_max_review_revisions"] == 1
-    assert evidence["budget"]["task_limit"] == 12
+    assert evidence["budget"]["task_limit"] == 14
     correction = next(item for item in evidence["attempts"] if item["stage"] == "correction")
     assert correction["allowance"] == "review_revision"
     assert evidence["findings"] == [
@@ -493,11 +495,14 @@ def test_second_semantic_revise_exhausts_a_single_review_revision_allowance(
 
 def test_policy_budget_covers_review_revisions() -> None:
     policy = AuthoringPolicy()
-    assert policy_role_limits(policy) == {"author": 7, "reviewer": 7}
-    assert policy_max_dispatches(policy) == 14
+    assert policy_role_limits(policy) == {"author": 7, "reviewer": 9}
+    assert policy_max_dispatches(policy) == 16
     single = AuthoringPolicy(plan_max_review_revisions=1)
-    assert policy_role_limits(single) == {"author": 6, "reviewer": 6}
-    assert policy_max_dispatches(single) == 12
+    assert policy_role_limits(single) == {"author": 6, "reviewer": 8}
+    assert policy_max_dispatches(single) == 14
+    no_retries = AuthoringPolicy(plan_max_review_retries=0, artifact_max_review_retries=0)
+    assert policy_role_limits(no_retries) == {"author": 7, "reviewer": 7}
+    assert policy_max_dispatches(no_retries) == 14
     unreviewed = AuthoringPolicy(review_plan=False, review_artifact=False)
     assert policy_role_limits(unreviewed) == {"author": 4, "reviewer": 0}
     assert policy_max_dispatches(unreviewed) == 4
@@ -543,7 +548,7 @@ def test_plan_stage_accepts_after_two_consecutive_review_revisions(tmp_path: Pat
     ]
     assert result.allowances == {"plan": 1, "artifact": 1}
     assert result.review_revision_allowances == {"plan": 0, "artifact": 1}
-    assert result.budget["task_limit"] == 14
+    assert result.budget["task_limit"] == 16
     assert result.package is not None
     policy = _evidence_policy(tmp_path)
     assert policy["plan_max_review_revisions"] == 2
@@ -576,7 +581,7 @@ def test_third_plan_revise_exhausts_the_default_review_revision_allowance(
     assert result.failure_evidence_path is not None
     evidence = load_failure_evidence(result.failure_evidence_path)
     assert evidence["policy"]["plan_max_review_revisions"] == 2
-    assert evidence["budget"]["task_limit"] == 14
+    assert evidence["budget"]["task_limit"] == 16
 
 
 def test_artifact_stage_still_stops_after_one_review_revision(tmp_path: Path) -> None:

@@ -24,7 +24,7 @@ from pathlib import Path
 from asago_artifact_generator.authoring.core import PromptPacket
 from asago_artifact_generator.input_adapter import load_input
 
-from .prompt_support import STAGES, render_stage_packets
+from .prompt_support import STAGES, render_review_retry_packets, render_stage_packets
 from .support import ATTACK_PATH_HANDOFF, KLARNA_INDIRECT_RUNTIME, OBSERVED_HANDOFF
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden" / "prompts"
@@ -34,11 +34,13 @@ MANIFEST_PATH = GOLDEN_DIR / "manifest.json"
 # carries a tool-call condition, so a first-round review keeps its condition wording. The third
 # renders the plan author and plan correction prompts for the klarna SCN-027 handoff the
 # attack-path producer wrote. That handoff plants an order item, so its runtime contract gains
-# the slot that carries it.
+# the slot that carries it. The fourth renders both reviews asked again after a review response
+# that failed its checks.
 CASE_STAGES: dict[str, tuple[str, ...]] = {
     "ehr": STAGES,
     "ehr-observed-condition": ("plan_review",),
     "ehr-attack-path": ("call1", "plan_correction"),
+    "ehr-review-retry": ("plan_review", "artifact_review"),
 }
 
 
@@ -54,6 +56,8 @@ def rendered_packets(case: str) -> dict[str, PromptPacket]:
         packets = render_stage_packets(
             "ehr", view=load_input(ATTACK_PATH_HANDOFF), runtime_changes=KLARNA_INDIRECT_RUNTIME
         )
+    elif case == "ehr-review-retry":
+        packets = render_review_retry_packets("ehr")
     else:
         raise KeyError(case)
     return {stage: packets[stage] for stage in CASE_STAGES[case]}

@@ -93,7 +93,9 @@ controls it actually sends and keeps `max_retries=0`. `reasoning_effort` and
 `service_tier_fallback` retries one 429 once with the fallback tier. After an
 HTTP 5xx or a connection error that is not a timeout, the transport retries the
 same request once after a fixed delay of at most 2 seconds; it never retries a
-timeout, a 4xx (429 included), or an invalid response. The retry reserves one
+timeout, a 4xx (429 included), or an invalid response (a review response that
+fails its checks is asked again by the review stage, as described under
+reviews, not by the transport). The retry reserves one
 more dispatch from the budget, and the dispatch's ledger and failure-evidence
 record gain `transport_retries`: `[{"attempt": 2, "retry_of": {"type": <error
 class>, "status_code": <HTTP status or null>}}]`. Dispatches without a retry
@@ -195,15 +197,31 @@ revision, while mechanical findings, including findings on the
 revised candidate, spend the correction allowance. The ledger and failure
 evidence record which allowance each correction spent (`allowance`), the
 remaining `allowances` and `review_revision_allowances`, and the effective
-`plan_max_review_revisions`/`artifact_max_review_revisions`. The default
-per-task budget is the policy's closed worst case, which includes each review
-revision and its review (14 dispatches, at most 7 author and 7 review, with
-default settings); `blocked` at the artifact stage stops as
-`needs_plan_revision` without recursing into plan authoring. Malformed or
-contradictory reviewer responses and reviewer transport failures produce
-`review_unavailable`, never a silent pass, and a transport failure stops the run
-after the one recorded transport retry (see the profile section). An explicit caller, per-task, or aggregate budget cap
-stops the run before the next dispatch.
+`plan_max_review_revisions`/`artifact_max_review_revisions`. A reviewer
+response that fails its checks (invalid JSON or framing, a missing or unknown
+field, or a decision that contradicts its findings) is never a silent pass.
+The stage asks the same review again within its review-retry allowance
+(`plan_max_review_retries`/`artifact_max_review_retries`, default one each
+across all of that stage's reviews, nonnegative integers with the same rules,
+zero while the stage is unreviewed). The retry
+request repeats the review prompt and adds the rejected response exactly as
+returned and every check finding exactly as reported. Each retry is its own
+dispatch: it reserves one review request from the budget, and its ledger and
+failure-evidence record carry `"allowance": "review_retry"` and
+`retries_dispatch`, the dispatch index of the rejected response. That rejected
+response's own record keeps its raw bytes, its check findings (`review_error`
+on the ledger, `findings` in the evidence), and its failure. The evidence
+records the remaining `review_retry_allowances`. When the allowance is spent,
+the stage stops as `review_unavailable`, and the last response's record adds a
+`review_retry_limit_exhausted` finding, which is the terminal reason. The
+default per-task budget is the policy's closed worst case, which includes each
+review revision and its review and each review retry (16 dispatches, at most 7
+author and 9 review, with default settings); `blocked` at the artifact stage
+stops as `needs_plan_revision` without recursing into plan authoring. Reviewer
+transport failures produce `review_unavailable`, and a transport failure stops
+the run after the one recorded transport retry (see the profile section). An
+explicit caller, per-task, or aggregate budget cap stops the run before the
+next dispatch, a review retry included.
 
 ### Omission plans
 
@@ -232,7 +250,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   contract descriptions, and the correction texts name the attack path, and the
   path's node and source IDs are citable provenance. The plan correction
   (`authoring-correction-v40`) shows the same outline.
-- `authoring-plan-review-v23` reviews a fresh source-derived plan context. It
+- `authoring-plan-review-v24` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
   binding selects inside one record of a keyed fact, the value also carries
@@ -249,8 +267,12 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   does not end with a question mark. A plan that claims `reply` must return a
   `semantic_judge_spec` object; a missing one gets a
   `semantic_judge_spec_required` correction.
-- `authoring-artifact-review-v22` reviews the exact artifact object and the
+- `authoring-artifact-review-v23` reviews the exact artifact object and the
   binding and judge declarations.
+- A review retry of either role (plan review v24, artifact review v23) sends
+  the same prompt followed by PREVIOUS REVIEW RESPONSE REJECTED, the rejected
+  response verbatim, its check findings, and an instruction to return one
+  complete response that corrects every finding.
 - `authoring-correction-v40` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by

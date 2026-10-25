@@ -243,11 +243,16 @@ def test_explicit_empty_findings_accept_records_no_default(tmp_path: Path) -> No
 def test_accept_with_null_findings_still_stops_as_review_unavailable(tmp_path: Path) -> None:
     null_findings = json.dumps({"decision": "accept", "summary": "ok", "findings": None})
 
-    result = _run(tmp_path, [json.dumps(_plan()), null_findings])
+    # The plan review asks once more after the first rejected response, then stops.
+    result = _run(tmp_path, [json.dumps(_plan()), null_findings, null_findings])
 
     assert result.status == "review_unavailable"
     evidence = load_failure_evidence(result.failure_evidence_path)
-    assert [finding["code"] for finding in evidence["attempts"][-1]["findings"]] == [
+    assert [finding["code"] for finding in evidence["attempts"][-2]["findings"]] == [
         "review_schema"
+    ]
+    assert [finding["code"] for finding in evidence["attempts"][-1]["findings"]] == [
+        "review_schema",
+        "review_retry_limit_exhausted",
     ]
     assert result.transformations == []

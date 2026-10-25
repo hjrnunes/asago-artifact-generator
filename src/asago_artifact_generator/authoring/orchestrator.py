@@ -77,6 +77,7 @@ from .journal import (
     ReviewDecided,
     ReviewEvidenceRecorded,
     ReviewFailed,
+    ReviewRetryRecorded,
     ReviewStatusRecorded,
     RunFindingRecorded,
     TransformationRecorded,
@@ -108,6 +109,7 @@ from .response_decode import (
 from .review import (
     REVIEW_FINDINGS_OMITTED,
     PriorReviewRound,
+    RejectedReviewResponse,
     _review_configuration_digest,
     _review_contract_digest,
     _review_finding_to_finding,
@@ -260,9 +262,16 @@ class _Stage:
     checks: Callable[[Any], list[Finding]]
     # Stands in for the findings when the author request left none.
     missing: Finding
-    # Builds the review packet for a checked candidate and the earlier review round
-    # it answers (if any); None when review is off.
-    review_packet: Callable[[dict[str, Any], PriorReviewRound | None], PromptPacket] | None
+    # Builds the review packet for a checked candidate, the earlier review round it
+    # answers (if any), and the rejected response it asks again after (if any); None
+    # when review is off.
+    review_packet: (
+        Callable[
+            [dict[str, Any], PriorReviewRound | None, RejectedReviewResponse | None],
+            PromptPacket,
+        ]
+        | None
+    )
     # The run status when the review decides the candidate is blocked.
     review_blocked_status: str
     # Only a plan may decline the experiment; a blocked plan stops its stage.
@@ -290,6 +299,10 @@ class _ReviewOutcome:
     findings: tuple[dict[str, Any], ...] = ()
     stop: _StageStop | None = None
     raw: bytes = b""
+    # A response that failed its checks while the stage's review-retry allowance
+    # had room, and the dispatch that returned it; the review asks again.
+    rejected: RejectedReviewResponse | None = None
+    rejected_dispatch: int | None = None
 
 
 class AuthoringOrchestrator:
@@ -328,6 +341,7 @@ class AuthoringOrchestrator:
         self._findings: list[Finding] = []
         self._allowances: dict[str, int] | None = None
         self._review_revision_allowances: dict[str, int] | None = None
+        self._review_retry_allowances: dict[str, int] | None = None
         self._review_status: dict[str, str] | None = None
         self._raw_responses: dict[str, bytes] = {}
         self._decoded_responses: dict[str, Any] = {}
@@ -858,6 +872,10 @@ class AuthoringOrchestrator:
             "plan": policy.plan_review_revisions,
             "artifact": policy.artifact_review_revisions,
         }
+        self._review_retry_allowances = {
+            "plan": policy.plan_review_retries,
+            "artifact": policy.artifact_review_retries,
+        }
         self._record_allowances()
         self._review_status = {"plan": "not_requested", "artifact": "not_requested"}
         self._journal.append(
@@ -955,8 +973,13 @@ class AuthoringOrchestrator:
             missing=_staged(Finding("call1_failed", "Call 1 did not return a plan", "call1")),
             review_packet=(
                 (
-                    lambda candidate, prior: build_plan_review_packet(
-                        view, candidate, inventory, runtime_contract, prior_round=prior
+                    lambda candidate, prior, rejected: build_plan_review_packet(
+                        view,
+                        candidate,
+                        inventory,
+                        runtime_contract,
+                        prior_round=prior,
+                        rejected=rejected,
                     )
                 )
                 if self.policy.review_plan
@@ -997,8 +1020,8 @@ class AuthoringOrchestrator:
             ),
             review_packet=(
                 (
-                    lambda candidate, _prior: build_artifact_review_packet(
-                        view, plan, candidate, inventory, runtime_contract
+                    lambda candidate, _prior, rejected: build_artifact_review_packet(
+                        view, plan, candidate, inventory, runtime_contract, rejected=rejected
                     )
                 )
                 if self.policy.review_artifact
@@ -1117,7 +1140,9 @@ class AuthoringOrchestrator:
         """Review a checked candidate.
 
         Return the accepted candidate, the stage stop, or the revise findings
-        that send the candidate back through correction.
+        that send the candidate back through correction.  A response that
+        fails its checks asks the same review again, with that response and
+        its findings, while the stage's review-retry allowance lasts.
         """
 
         if stage.may_block and _is_blocked_plan(candidate):
@@ -1126,11 +1151,17 @@ class AuthoringOrchestrator:
         if stage.review_packet is None:
             self._review_status[stage.key] = "not_requested"
             return candidate
-        try:
-            review_packet = stage.review_packet(candidate, prior)
-        except PromptPreflightError as exc:
-            return _preflight_stop(exc, stage.review_stage)
-        outcome = self._semantic_review(stage.key, review_packet)
+        outcome = _ReviewOutcome(decision="")
+        while True:
+            try:
+                review_packet = stage.review_packet(candidate, prior, outcome.rejected)
+            except PromptPreflightError as exc:
+                return _preflight_stop(exc, stage.review_stage)
+            outcome = self._semantic_review(
+                stage.key, review_packet, retries_dispatch=outcome.rejected_dispatch
+            )
+            if outcome.rejected is None:
+                break
         if outcome.stop is not None:
             return outcome.stop
         if outcome.decision == "accept":
@@ -1143,14 +1174,22 @@ class AuthoringOrchestrator:
         self._review_status[stage.key] = "revise"
         return _Revision(findings, outcome.findings)
 
-    def _semantic_review(self, review_key: str, packet: PromptPacket) -> _ReviewOutcome:
-        """Dispatch one semantic review and classify its closed outcome."""
+    def _semantic_review(
+        self, review_key: str, packet: PromptPacket, *, retries_dispatch: int | None = None
+    ) -> _ReviewOutcome:
+        """Dispatch one semantic review and classify its closed outcome.
+
+        ``retries_dispatch`` names the dispatch whose rejected response this
+        review asks again after.
+        """
 
         assert self._review_status is not None
         started = time.monotonic()
         try:
             response = self._dispatch(packet)
         except Exception as exc:
+            if retries_dispatch is not None and self._journal.open_dispatch() is not None:
+                self._journal.append(ReviewRetryRecorded(retries_dispatch))
             finding = self._record_dispatch_failure(exc, packet, started)
             status = (
                 finding.code
@@ -1161,13 +1200,13 @@ class AuthoringOrchestrator:
                 "prompt_overflow" if status == "prompt_overflow" else "unavailable"
             )
             return _ReviewOutcome(decision="", stop=_StageStop(status, (finding,)))
+        if retries_dispatch is not None:
+            self._journal.append(ReviewRetryRecorded(retries_dispatch))
         raw, effective_controls = self._record_review_response(packet, response)
         try:
             review = parse_review_response(raw)
         except ReviewResponseError as exc:
-            stop = self._review_parse_stop(exc, packet, effective_controls)
-            self._review_status[review_key] = "unavailable"
-            return _ReviewOutcome(decision="", stop=stop)
+            return self._reject_review_response(exc, raw, packet, effective_controls, review_key)
         decision_after_scope_filter, in_scope_findings, out_of_scope_findings = (
             _scope_review_response(review, stage=packet.stage)
         )
@@ -1233,31 +1272,73 @@ class AuthoringOrchestrator:
         self._journal.flush()
         return raw, effective_controls
 
-    def _review_parse_stop(
+    def _reject_review_response(
         self,
         exc: ReviewResponseError,
+        raw: bytes,
         packet: PromptPacket,
         effective_controls: dict[str, Any],
-    ) -> _StageStop:
-        """Record a review response that failed to parse and return its stop."""
+        review_key: str,
+    ) -> _ReviewOutcome:
+        """Record a review response that failed its checks; ask again or stop.
+
+        The response's dispatch keeps its exact bytes, every check finding, and
+        the failure.  While the stage's review-retry allowance has room the
+        outcome carries the rejected response for the next request; otherwise
+        the stage stops as ``review_unavailable``, and the dispatch also
+        records that the allowance is exhausted.
+        """
 
         finding = _staged(Finding("review_unavailable", _safe_error(exc), packet.stage))
-        self._findings.append(finding)
         self._journal.append(LedgerFindingsRecorded("review_error", tuple(exc.findings)))
         self._set_review_evidence(
             status="unavailable",
             effective_controls=effective_controls,
             packet=packet,
         )
-        self._record_failures(staged_findings(exc.findings, FINDING_STAGE_KEYS[packet.stage]))
+        retry = self._consume_review_retry(review_key)
+        attempt_findings = staged_findings(exc.findings, FINDING_STAGE_KEYS[packet.stage])
+        if not retry:
+            attempt_findings.append(self._review_retry_exhausted_finding(review_key))
+        self._record_failures(attempt_findings)
         failure = {
             "phase": "post_response",
             "code": finding.code,
             "detail": finding.detail,
         }
         self._journal.append(ReviewFailed(failure), RunFindingRecorded(finding))
+        if retry:
+            self._record_allowances()
+            self._journal.flush()
+            return _ReviewOutcome(
+                decision="",
+                rejected=RejectedReviewResponse(raw, tuple(exc.findings)),
+                rejected_dispatch=self._journal.dispatches()[-1].dispatch_index,
+            )
         self._journal.flush()
-        return _StageStop("review_unavailable", (finding,))
+        self._findings.append(finding)
+        self._review_status[review_key] = "unavailable"
+        stop = _StageStop("review_unavailable", (finding, attempt_findings[-1]))
+        return _ReviewOutcome(decision="", stop=stop)
+
+    def _consume_review_retry(self, stage: str) -> bool:
+        """Spend one retry from the named stage's review-retry allowance, if any is left."""
+
+        assert self._review_retry_allowances is not None
+        if self._review_retry_allowances[stage] <= 0:
+            return False
+        self._review_retry_allowances[stage] -= 1
+        return True
+
+    @staticmethod
+    def _review_retry_exhausted_finding(stage: str) -> Finding:
+        return _staged(
+            Finding(
+                "review_retry_limit_exhausted",
+                f"{stage} review retry allowance is exhausted",
+                f"{stage}_review",
+            )
+        )
 
     def _consume_allowance(self, stage: str, *, review_revision: bool = False) -> bool:
         """Spend one correction from the named stage's independent allowance.
@@ -1287,6 +1368,11 @@ class AuthoringOrchestrator:
                 (
                     dict(self._review_revision_allowances)
                     if self._review_revision_allowances is not None
+                    else None
+                ),
+                (
+                    dict(self._review_retry_allowances)
+                    if self._review_retry_allowances is not None
                     else None
                 ),
             )
@@ -1340,6 +1426,8 @@ class AuthoringOrchestrator:
             "artifact_max_corrections": policy.artifact_max_corrections,
             "plan_max_review_revisions": policy.plan_review_revisions,
             "artifact_max_review_revisions": policy.artifact_review_revisions,
+            "plan_max_review_retries": policy.plan_review_retries,
+            "artifact_max_review_retries": policy.artifact_review_retries,
             "review_plan": policy.review_plan,
             "review_artifact": policy.review_artifact,
             "review_model_profile": self.review_model_profile,
@@ -1417,6 +1505,7 @@ class AuthoringOrchestrator:
         assert self._review_status is not None
         assert self._allowances is not None
         assert self._review_revision_allowances is not None
+        assert self._review_retry_allowances is not None
         self._journal.append(ReviewStatusRecorded(dict(self._review_status)))
         self._record_allowances()
         if any(finding.code == "prompt_overflow" for finding in findings):
@@ -1437,6 +1526,7 @@ class AuthoringOrchestrator:
             review_status=dict(self._review_status),
             allowances=dict(self._allowances),
             review_revision_allowances=dict(self._review_revision_allowances),
+            review_retry_allowances=dict(self._review_retry_allowances),
             budget=self.budget.snapshot(self.task_id),
         )
 

@@ -44,7 +44,7 @@ from .prompt_context import (
     _resolved_supplied_binding_values,
 )
 from .prompt_safety import assert_no_prompt_secrets, prompt_data_urls
-from .response_decode import _decode_stage_response
+from .response_decode import _decode_stage_response, _readable_response
 from .sequential_turns import multi_turn_payload, multi_turn_sections, review_sections
 from .templates import prose, prose_lines
 
@@ -324,6 +324,47 @@ def _prior_review_round_context(
     }
 
 
+@dataclass(frozen=True)
+class RejectedReviewResponse:
+    """A review response that failed its checks, and every finding the checks reported."""
+
+    raw: bytes
+    findings: tuple[Finding, ...]
+
+
+_REJECTED_REVIEW_RESPONSE_MEANING = prose("review/rejected_response_meaning")
+_REJECTED_REVIEW_RESPONSE_INSTRUCTION = prose("review/rejected_response_instruction")
+
+
+def _rejected_review_response_context(rejected: RejectedReviewResponse) -> dict[str, Any]:
+    """Return the rejected response exactly as returned and its findings as reported."""
+
+    text, encoding = _readable_response(rejected.raw)
+    return {
+        "meaning": _REJECTED_REVIEW_RESPONSE_MEANING,
+        "response": text,
+        "response_encoding": encoding,
+        "findings": [finding.to_dict() for finding in rejected.findings],
+        "instruction": _REJECTED_REVIEW_RESPONSE_INSTRUCTION,
+    }
+
+
+def _rejected_review_response_prompt_sections(
+    context: dict[str, Any],
+) -> tuple[tuple[str, Any], ...]:
+    """Return the rejected-response sections when the review asks again; none otherwise."""
+
+    rejected = context.get("rejected_review_response")
+    if rejected is None:
+        return ()
+    return (
+        ("PREVIOUS REVIEW RESPONSE REJECTED", rejected["meaning"]),
+        ("REJECTED REVIEW RESPONSE", rejected["response"]),
+        ("REJECTED REVIEW RESPONSE FINDINGS", rejected["findings"]),
+        ("REVIEW RESPONSE RETRY INSTRUCTION", rejected["instruction"]),
+    )
+
+
 def _prior_review_round_prompt_sections(
     context: dict[str, Any],
 ) -> tuple[tuple[str, Any], ...]:
@@ -340,11 +381,13 @@ def build_plan_reviewer_context(
     runtime_contract: dict[str, Any],
     *,
     prior_round: PriorReviewRound | None = None,
+    rejected: RejectedReviewResponse | None = None,
 ) -> dict[str, Any]:
     """Build a fresh authoritative context for the plan reviewer.
 
     A review that follows a revision also carries the earlier findings and the
-    author's response; a first review carries neither.
+    author's response; a first review carries neither.  A review that asks
+    again after a rejected response also carries that response and its findings.
     """
 
     context = {
@@ -375,6 +418,8 @@ def build_plan_reviewer_context(
     }
     if prior_round is not None:
         context["prior_review_round"] = _prior_review_round_context(prior_round, plan)
+    if rejected is not None:
+        context["rejected_review_response"] = _rejected_review_response_context(rejected)
     return context
 
 
@@ -464,8 +509,14 @@ def build_artifact_reviewer_context(
     metadata: dict[str, Any],
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
+    *,
+    rejected: RejectedReviewResponse | None = None,
 ) -> dict[str, Any]:
-    """Build exact candidate evidence for the artifact reviewer."""
+    """Build exact candidate evidence for the artifact reviewer.
+
+    A review that asks again after a rejected response also carries that
+    response and its findings.
+    """
 
     judge_spec = metadata.get("semantic_judge_spec")
     fact_refs = (
@@ -512,6 +563,8 @@ def build_artifact_reviewer_context(
         },
         "acceptance_examples": _review_acceptance_examples(),
     }
+    if rejected is not None:
+        context["rejected_review_response"] = _rejected_review_response_context(rejected)
     return context
 
 
@@ -605,8 +658,13 @@ def build_plan_review_packet(
     *,
     max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
     prior_round: PriorReviewRound | None = None,
+    rejected: RejectedReviewResponse | None = None,
 ) -> PromptPacket:
-    """Render a source-derived plan-review prompt."""
+    """Render a source-derived plan-review prompt.
+
+    ``rejected`` is the earlier response to this same review that failed its
+    checks; the prompt then adds it and its findings after the usual sections.
+    """
 
     context = build_plan_reviewer_context(
         view,
@@ -614,6 +672,7 @@ def build_plan_review_packet(
         inventory,
         runtime_contract,
         prior_round=prior_round,
+        rejected=rejected,
     )
     record_sections = plan_review_record_sections(view, runtime_contract)
     payload = {
@@ -651,10 +710,15 @@ def build_plan_review_packet(
                 ("REVIEW RESPONSE CONTRACT", context["response_contract"]),
                 ("BOUNDED ACCEPTANCE EXAMPLES", context["acceptance_examples"]),
             )
+            + _rejected_review_response_prompt_sections(context)
         ),
         payload=payload,
     )
-    _enforce_prompt_size(packet, max_prompt_bytes, allowed_urls=prompt_data_urls(view, plan))
+    _enforce_prompt_size(
+        packet,
+        max_prompt_bytes,
+        allowed_urls=prompt_data_urls(view, plan, *_rejected_values(rejected)),
+    )
     return packet
 
 
@@ -666,10 +730,17 @@ def build_artifact_review_packet(
     runtime_contract: dict[str, Any],
     *,
     max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
+    rejected: RejectedReviewResponse | None = None,
 ) -> PromptPacket:
-    """Render an artifact-review prompt with exact candidate evidence."""
+    """Render an artifact-review prompt with exact candidate evidence.
 
-    context = build_artifact_reviewer_context(view, plan, metadata, inventory, runtime_contract)
+    ``rejected`` is the earlier response to this same review that failed its
+    checks; the prompt then adds it and its findings after the usual sections.
+    """
+
+    context = build_artifact_reviewer_context(
+        view, plan, metadata, inventory, runtime_contract, rejected=rejected
+    )
     payload = {
         "interface": AUTHORING_INTERFACE_VERSION_V2,
         "stage": "artifact_review",
@@ -703,6 +774,7 @@ def build_artifact_review_packet(
             ("BOUNDED ACCEPTANCE EXAMPLES", context["acceptance_examples"]),
         )
     )
+    sections.extend(_rejected_review_response_prompt_sections(context))
     packet = PromptPacket(
         stage="artifact_review",
         version=ARTIFACT_REVIEW_PROMPT_VERSION,
@@ -713,9 +785,15 @@ def build_artifact_review_packet(
     _enforce_prompt_size(
         packet,
         max_prompt_bytes,
-        allowed_urls=prompt_data_urls(view, plan, metadata),
+        allowed_urls=prompt_data_urls(view, plan, metadata, *_rejected_values(rejected)),
     )
     return packet
+
+
+def _rejected_values(rejected: RejectedReviewResponse | None) -> tuple[Any, ...]:
+    """Return the rejected response and its findings, whose URLs the prompt may show."""
+
+    return () if rejected is None else (rejected.raw, *rejected.findings)
 
 
 def _review_finding_to_finding(record: dict[str, Any], stage: str) -> Finding:

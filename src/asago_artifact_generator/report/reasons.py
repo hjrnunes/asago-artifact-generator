@@ -37,6 +37,10 @@ _RUN = {
         "The stage used its allowed correction or revision, and the next check or review "
         "still failed."
     ),
+    "review_retry_limit_exhausted": (
+        "The stage used its allowed review retries, and the reviewer's next response still "
+        "did not match the review format."
+    ),
     "prompt_preflight": "A prompt failed its size or safety check, so it was not sent.",
     "response_parse_error": "The response could not be parsed as a candidate.",
     "secret_in_response": "The response contained a value shaped like a secret and was rejected.",

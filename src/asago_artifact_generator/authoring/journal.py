@@ -54,6 +54,7 @@ class ReviewStatusRecorded:
 class AllowancesRecorded:
     allowances: dict[str, int] | None
     review_revision_allowances: dict[str, int] | None
+    review_retry_allowances: dict[str, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,17 @@ class CorrectionRecorded:
     failed_stage: str
     allowance: str
     failed_response: bytes
+
+
+@dataclass(frozen=True)
+class ReviewRetryRecorded:
+    """The open review dispatch asks again after the rejected response of ``rejected_dispatch``.
+
+    The rejected response, its findings, and its failure stay on that
+    dispatch's own record.
+    """
+
+    rejected_dispatch: int
 
 
 @dataclass(frozen=True)
@@ -414,6 +426,11 @@ class _Projections:
             event.failed_response, reason="not_returned" if not event.failed_response else None
         )
 
+    def _on_review_retry(self, event: ReviewRetryRecorded) -> None:
+        for target in self.current():
+            target["allowance"] = "review_retry"
+            target["retries_dispatch"] = event.rejected_dispatch
+
     def _on_review_controls(self, event: ReviewControlsRecorded) -> None:
         record, attempt = self.current()
         record["controls"] = _record_controls(event)
@@ -533,6 +550,8 @@ class _Projections:
             self.document["allowances"] = dict(event.allowances)
         if event.review_revision_allowances is not None:
             self.document["review_revision_allowances"] = dict(event.review_revision_allowances)
+        if event.review_retry_allowances is not None:
+            self.document["review_retry_allowances"] = dict(event.review_retry_allowances)
 
     def _on_run_finding(self, event: RunFindingRecorded) -> None:
         self.document["findings"].append(_evidence_finding(event.finding))
@@ -551,6 +570,7 @@ _HANDLERS: dict[type, Callable[[_Projections, Any], None]] = {
     TransportRetried: _Projections._on_transport_retried,
     ResponseReturned: _Projections._on_response_returned,
     CorrectionRecorded: _Projections._on_correction,
+    ReviewRetryRecorded: _Projections._on_review_retry,
     ReviewControlsRecorded: _Projections._on_review_controls,
     TransformationRecorded: _Projections._on_transformation,
     DecodedOutputRecorded: _Projections._on_decoded_output,
