@@ -39,7 +39,8 @@ _RUN = {
     ),
     "review_retry_limit_exhausted": (
         "The stage used its allowed review retries, and the reviewer's next response still "
-        "did not match the review format."
+        "failed its checks: it did not match the review format, or its decision "
+        "contradicted its findings."
     ),
     "prompt_preflight": "A prompt failed its size or safety check, so it was not sent.",
     "response_parse_error": "The response could not be parsed as a candidate.",
