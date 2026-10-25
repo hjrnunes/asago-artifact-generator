@@ -15,8 +15,8 @@ from asago_artifact_generator.authoring.core import (
     ARTIFACT_REVIEW_PROMPT_VERSION_V22,
     CALL1_PROMPT_VERSION_V26,
     CALL2_PROMPT_VERSION_V27,
-    CORRECTION_PROMPT_VERSION_V40,
-    CORRECTION_PROMPT_VERSION_V41,
+    CORRECTION_PROMPT_VERSION_V42,
+    CORRECTION_PROMPT_VERSION_V43,
     PLAN_REVIEW_PROMPT_VERSION_V23,
     Finding,
     PromptOverflowError,
@@ -78,7 +78,7 @@ def test_five_prompt_roles_have_independent_versions_and_hashes() -> None:
     ]
     correction = PromptPacket(
         stage="correction",
-        version=CORRECTION_PROMPT_VERSION_V40,
+        version=CORRECTION_PROMPT_VERSION_V42,
         system="correction",
         user="correction",
         payload={},
@@ -132,7 +132,7 @@ def test_correction_packets_render_relevant_meanings_once() -> None:
         plan_correction, correction_repair_inputs(view, inventory, runtime)
     )
     assert plan_packet.user.count(PLAN_FIELD_MEANINGS) == 1
-    assert plan_packet.user.count(NEUTRAL_PLAN_OUTCOME_EXAMPLE) == 1
+    assert NEUTRAL_PLAN_OUTCOME_EXAMPLE not in plan_packet.user
 
     artifact_correction = build_correction_context(
         failed_stage="call2",
@@ -312,8 +312,8 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
         PLAN_REVIEW_PROMPT_VERSION_V23,
         CALL2_PROMPT_VERSION_V27,
         ARTIFACT_REVIEW_PROMPT_VERSION_V22,
-        CORRECTION_PROMPT_VERSION_V40,
-        CORRECTION_PROMPT_VERSION_V41,
+        CORRECTION_PROMPT_VERSION_V42,
+        CORRECTION_PROMPT_VERSION_V43,
     ],
 )
 def test_every_dispatched_role_label_gets_the_duplicate_scan(version: str) -> None:

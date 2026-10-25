@@ -2,20 +2,28 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
+from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
+from asago_artifact_generator.authoring.contracts import PLAN_FIELD_MEANINGS
 from asago_artifact_generator.authoring.core import Finding
 from asago_artifact_generator.authoring.correction import (
     _correction_findings_view,
+    _render_correction_packet,
     _scope_correction_authoritative_context,
     build_correction_context,
 )
-from asago_artifact_generator.authoring.prompt_context import build_artifact_author_context
+from asago_artifact_generator.authoring.prompt_context import (
+    build_artifact_author_context,
+    build_plan_author_context,
+)
 
 from .support import world_builders
 
-_inventory, _plan, _runtime_contract, _view = world_builders(
-    "ehr", "inventory", "plan", "runtime_contract", "view"
+_framed, _inventory, _plan, _runtime_contract, _view = world_builders(
+    "ehr", "framed", "inventory", "plan", "runtime_contract", "view"
 )
 
 
@@ -60,7 +68,7 @@ def test_correction_context_rejects_a_stage_other_than_call1_or_call2(failed_sta
         )
 
 
-def test_findings_view_keeps_findings_and_drops_review_details() -> None:
+def test_findings_view_keeps_every_finding_field() -> None:
     findings = [
         "plain text",
         {"code": "semantic_review", "detail": "d", "details": {"k": 1}},
@@ -69,11 +77,106 @@ def test_findings_view_keeps_findings_and_drops_review_details() -> None:
 
     assert _correction_findings_view(findings) == [
         "plain text",
-        {"code": "semantic_review", "detail": "d"},
+        {"code": "semantic_review", "detail": "d", "details": {"k": 1}},
         {"code": "other", "details": {"k": 1}},
     ]
     assert _correction_findings_view("not a list") == "not a list"
     assert findings[1]["details"] == {"k": 1}
+
+
+def test_plan_correction_keeps_repair_inputs_and_drops_unrelated_authoring_material() -> None:
+    view = _view()
+    inventory = _inventory()
+    runtime = _runtime_contract()
+    original_context = build_plan_author_context(view, inventory, runtime)
+    selected_operation = original_context["source_context"]["operations"][0]
+    original_context["source_context"]["operations"].append(
+        {
+            "name": "unrelated_operation_marker",
+            "description": "UNRELATED OPERATION DESCRIPTION",
+        }
+    )
+    original_context["source_context"]["facts"].append(
+        {
+            "ref": "unrelated:fact",
+            "value": "UNRELATED FACT VALUE",
+            "schema": {"type": "string"},
+        }
+    )
+    original_context["neutral_outcome_example"] = "UNRELATED NEUTRAL EXAMPLE"
+    rejected = (
+        '{\n  "candidate_marker": "keep exact spacing",\n'
+        f'  "selected_operation": "{selected_operation["name"]}"\n}}\n'
+    ).encode()
+    finding = Finding(
+        "semantic_review",
+        "Owner correction text must remain verbatim.",
+        "candidate_plan.interpretation.failure",
+        {
+            "review_location": "candidate_plan.interpretation.failure",
+            "review_required_change": "Replace only the rejected failure text.",
+        },
+    )
+
+    packet = _render_correction_packet(
+        build_correction_context(
+            failed_stage="call1",
+            original_context=original_context,
+            current_output=rejected,
+            findings=[finding],
+        ),
+        correction_repair_inputs(view, inventory, runtime),
+    )
+
+    assert PLAN_FIELD_MEANINGS in packet.user
+    assert '"schema"' in packet.user
+    assert rejected.decode() in packet.user
+    assert json.dumps(finding.to_dict(), separators=(",", ":"), sort_keys=True) in packet.user
+    assert view.narrative in packet.user
+    assert "Design one target-free experiment for the supplied scenario." in packet.user
+    assert selected_operation["description"] in packet.user
+    assert "UNRELATED OPERATION DESCRIPTION" not in packet.user
+    assert "UNRELATED FACT VALUE" not in packet.user
+    assert "UNRELATED NEUTRAL EXAMPLE" not in packet.user
+
+
+def test_artifact_correction_keeps_exact_output_and_full_finding() -> None:
+    view = _view()
+    inventory = _inventory()
+    runtime = _runtime_contract()
+    original_context = build_artifact_author_context(view, _plan(), inventory, runtime)
+    original_context["authoritative_context"]["operations"].append(
+        {
+            "name": "unrelated_operation_marker",
+            "description": "UNRELATED ARTIFACT OPERATION",
+        }
+    )
+    finding = Finding(
+        "semantic_review",
+        "Keep this review detail exactly.",
+        "candidate_artifact.explanation",
+        {
+            "review_location": "candidate_artifact.explanation",
+            "review_required_change": "Change the explanation and no sibling field.",
+        },
+    )
+    rejected = _framed()
+
+    packet = _render_correction_packet(
+        build_correction_context(
+            failed_stage="call2",
+            original_context=original_context,
+            current_output=rejected,
+            findings=[finding],
+        ),
+        correction_repair_inputs(view, inventory, runtime),
+    )
+
+    assert '"schema"' in packet.user
+    assert rejected.decode() in packet.user
+    assert json.dumps(finding.to_dict(), separators=(",", ":"), sort_keys=True) in packet.user
+    assert json.dumps(_plan(), separators=(",", ":"), sort_keys=True) in packet.user
+    assert "UNRELATED ARTIFACT OPERATION" not in packet.user
 
 
 def test_correction_scope_keeps_only_operations_the_plan_names() -> None:

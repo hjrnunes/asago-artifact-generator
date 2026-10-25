@@ -524,20 +524,29 @@ def test_private_model_transport_captures_empty_reasoning_and_length_limit(
     }
 
 
-def test_private_model_transport_rejects_context_overflow_before_provider_dispatch(
+@pytest.mark.parametrize(
+    "stage", ("call1", "call2", "plan_review", "artifact_review", "correction")
+)
+def test_private_model_transport_rejects_every_stage_overflow_before_provider_dispatch(
     monkeypatch: pytest.MonkeyPatch,
+    stage: str,
 ) -> None:
     completions = fake_openai(monkeypatch, [])
     transport = private_transport(
         context_window_tokens=AUTHORING_CONTEXT_WINDOW_TOKENS,
         max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
     )
-    # One byte past the largest correction prompt that fits the 24,320-token input budget.
-    fitting_bytes = math.floor(24_320 * _context_guard_ratio("correction"))
-    packet = prompt_packet("correction", user="x" * (fitting_bytes + 1 - len("system") - 128))
+    # One byte past the largest prompt of this kind that fits the input budget.
+    fitting_bytes = math.floor(24_320 * _context_guard_ratio(stage))
+    packet = prompt_packet(stage, user="x" * (fitting_bytes + 1 - len("system") - 128))
 
-    with pytest.raises(PromptOverflowError, match="context window") as overflow:
+    with pytest.raises(PromptOverflowError) as overflow:
         transport.complete(packet)
     assert completions.requests == []
     assert overflow.value.estimated_prompt_tokens == 24_321
     assert overflow.value.remaining_input_budget == 24_320
+    assert str(overflow.value).startswith(
+        f"{stage} prompt exceeds the context window: estimated_prompt_tokens=24321, "
+        "remaining_input_budget_estimate=24320"
+    )
+    assert "in a 32768-token context window" in str(overflow.value)
