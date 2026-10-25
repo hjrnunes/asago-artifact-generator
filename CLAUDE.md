@@ -116,13 +116,14 @@ Deterministic tests must not contact a model endpoint or target.
   `tool-bundle-v1` schema, slot markers, the capability-gap record, `BundleError`, the
   `testing` package builders, the `mcp_records` readers of the orchestrator's boundary
   records, and the `conformance` helper that round-trips `compile`, `instantiate` and
-  `parse` of an adapter and returns failure messages). A new adapter runs `check_round_trip`
-  in its tests. `preparation.prepare_package(package, call_target=...)` prepares a package for
-  one run: it runs setup through a target call (real writes, not graded, returned as a
+  `parse` of an adapter and returns failure messages). A new bundle adapter runs
+  `check_round_trip` in its tests; the MiDojo adapter writes episodes, not bundles.
+  `preparation.prepare_package(package, call_target=...)` prepares a package for one run:
+  it runs setup through a target call (real writes, not graded, returned as a
   ledger), resolves the bindings, checks the prerequisites, renders the stimulus and returns
   the judge's facts, or an incomplete reason. So far only the Garak adapter's public
-  `instantiate` runs it; the lower-level template fillers (`instantiate_bundle` in both
-  adapters) take values already resolved. Recording the result is the caller's job. `target`
+  `instantiate` runs it; the lower-level template filler (`instantiate_bundle`) takes
+  values already resolved. Recording the result is the caller's job. `target`
   holds the target config an adapter's `instantiate` takes (a `target.yaml` path or a loaded
   mapping): one whose `authorized_as` is not `mock` or `test_instance` is refused before any
   work. `mcp_call_target` sends a setup step to the target's MCP server over streamable HTTP
@@ -138,32 +139,28 @@ Deterministic tests must not contact a model endpoint or target.
   that same template with the resolved values (`fill_template`, which `instantiate_bundle`
   also uses). The bundle's MCP server is the authorized config's `endpoint.mcp_url`.
   Its CLI `instantiate` requires `--package`, `--target` and `--run`.
-- `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It serves command-attempt
-  and reply packages: a single package with one user prompt, or a sequential one whose user turns
-  `midojo-run` sends in one conversation (MiDojo `>=bddb79bc`, each call's `turn` gives its
-  receipt turn). A single package with history, a non-user history message, and state_effect
-  packages exit 3. An unfinished call (MiDojo `complete: false`, server log `report: unfinished`,
-  same `call_id`) makes the attempt `inconclusive` (`unfinished_call:<function>`); records that
-  disagree on it fail with `unfinished_call_mismatch`.
-  A reply package is graded by `authoring/rubric_judge.py` (the compiler copies it byte for byte
-  into the suite as `asago_rubric.py`), a port of Garak's `RubricJudge` checked
-  against vectors Garak computes (`tests/fixtures/rubric/`). A sequential package's judge
-  (`asago_rubric_turns.py`, copied only into sequential reply bundles) reads the conversation
-  from the verifier's `VerificationContext.turns` and sends the requests Garak's judge sends
-  (`turns.json`): each judged turn (`judge_turns` `final` or `all`) with the earlier messages
-  and replies interleaved as history. A conversation other than the bundle's turns is not
-  graded (an `unresolved` verdict naming why). A command attempt is graded by
-  MiDojo's builtin `tool_call_condition` predicate. `instantiate` takes the values already
-  resolved (`--values`) and requires the target config (`--target`), only to check
-  `authorized_as`. `compile` takes `--midojo-base` (a
-  mini-agents `mini-agents-midojo-base-v1` file) and `--domain`: the domain's ledger becomes the
-  suite `environment` and the package's `seed.json` becomes probes (`environment.py`).
-  `--runtime openshell` (default `unmanaged`, whose bundles stay as they were) runs the target in
-  MiDojo's OpenShell sandbox from the base's `runtime` block (`openshell.py`, MiDojo `>=b0fb4576`);
-  `parse` then reads the agent's `.asago/` files from the evaluation's observations and writes
-  `openshell-evidence.json` beside the receipt. Its suite
-  code under `bundle_files/`, which the compiler copies into each bundle, runs in MiDojo's
-  interpreter, so it imports the standard library and, lazily, `midojo`.
+- `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It maps a
+  `planted_item` package to one resolved MiDojo episode and parses the sealed result; MiDojo
+  runs the episode, and the adapter holds no proxy or interception code. It targets MiDojo's
+  `asago/main` at `b6e0f8f`: `Episode` (`src/midojo/episode.py`), the injection plan
+  (`midojo_sdk.injection`), `midojo.open_episode` and `midojo.grade`.
+  `compile_episode` (`episode_compile.py`, CLI `compile --midojo-base --domain`) writes
+  `episode.json` (`midojo-episode-v1`) whose `episode` is `Episode`'s fields as plain data
+  (`episode.py`): the user turns, one `environment_state` template instruction per seed item
+  at the planted ledger field from the mini-agents base (`environment.py`), the resolved
+  environment, the check, no utility check, the `unmanaged` runtime. A command attempt uses
+  MiDojo's `tool_call_condition` predicate; a reply uses `bundle_files/asago_episode_judge.py`
+  (copied beside the episode with `authoring/rubric_judge.py`; the runner registers it with
+  its judge), three-valued, its requests checked against Garak's (`tests/fixtures/rubric/`).
+  Direct and user-turn packages, a single package with history, non-user history, run-time
+  bindings and state_effect claims are capability gaps (exit 3). `parse_sealed` (`sealed.py`,
+  CLI `parse --snapshot --verdict [--route]`) reads the snapshot (`GET .../snapshot`) and the
+  verdict (`evaluation_id`, `snapshot_id`, `grade`) into `execution-receipt-v1`: security
+  true/false/null is detected/not_detected/inconclusive, never coerced, and the receipt's
+  `episode` block carries the route (`route.py`: only `midojo` today), the evaluation and
+  snapshot IDs, the evidence status and the verdict. `tests/fixtures/episode/` holds compiled
+  episodes and the snapshots and verdicts MiDojo produced from them (`generate.py`, run in
+  MiDojo's interpreter; `tests/episode_cases.py` says how to regenerate).
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-bundle-garak/tests -q`.

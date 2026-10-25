@@ -859,12 +859,11 @@ say what the target is:
 authorized_as: mock
 ```
 
-Each adapter's `instantiate`, as a function and on the command line, checks the
+The Garak adapter's `instantiate`, as a function and on the command line, checks the
 target config first: a config without `authorized_as`, or with any value other than
 `mock` or `test_instance`, is refused (exit 1 on the command line) before the package,
 the template, the run settings or the values are read, and before anything is
-written or sent to the target. The MiDojo adapter's `instantiate` takes the config as
-`--target` (`instantiate_bundle(..., target=...)`) and reads only that field.
+written or sent to the target.
 
 The Garak adapter's `compile`, `instantiate` and `parse` are library functions, and
 its command line calls them. `instantiate` prepares the package for one run with
@@ -901,9 +900,7 @@ Each record of the setup ledger keeps the tool's decoded object as `result` and 
 `native_result`, also for a failed call that received an answer (a tool error).
 `native_result` is null when no answer arrived or the caller's `call_target` returned a
 plain dict; a `call_target` keeps it by returning a `ToolResult` (or raising
-`TargetCallFailed`). Package
-preparation is the Garak adapter's for now: the MiDojo adapter's `instantiate` still takes
-values already resolved. `allowed_tools` defaults to
+`TargetCallFailed`). `allowed_tools` defaults to
 every operation of the package's inventory. Every template member and the run settings
 are checked before the first setup call. On the command line:
 
@@ -916,42 +913,52 @@ asago-bundle-garak instantiate TEMPLATE --package PACKAGE --target target.yaml \
 URLs. The command prints the preparation as JSON and exits 4 when the package cannot
 be prepared. A call without `--package`, `--target` or `--run` is a usage error (exit 2).
 
-The MiDojo adapter's command line takes the values already resolved, with the target
-config:
+## MiDojo episodes
+
+The MiDojo adapter maps a `planted_item` package to one resolved MiDojo episode and
+reads the sealed result back into a receipt; MiDojo itself runs the episode. It
+targets the `Episode` value, `midojo.open_episode` and `midojo.grade` of MiDojo's
+`asago/main` at `b6e0f8f` (`src/midojo/episode.py`, `src/midojo/episode_context.py`,
+`src/midojo/control_plane/grading.py`, and `midojo_sdk.injection` for the plan).
 
 ```bash
-asago-bundle-midojo instantiate TEMPLATE --target target.yaml --values values.json --out BUNDLE
+asago-bundle-midojo compile PACKAGE --out EPISODE_DIR --midojo-base BASE --domain DOMAIN \
+  [--judge-turns final|all]
+# the runner builds the Episode from EPISODE_DIR/episode.json, opens it with
+# midojo.open_episode, seals it, and grades the snapshot with midojo.grade
+asago-bundle-midojo parse EPISODE_DIR --snapshot snapshot.json --verdict verdict.json \
+  --out execution-receipt.json [--route midojo] [--tool-revision REV]
 ```
 
-The config is checked before the values are read; a call without `--target` or
-`--values` is a usage error (exit 2).
+`compile` writes `episode.json` (`midojo-episode-v1`): the package's identity, claim
+level and delivery, and `episode`, the fields of MiDojo's `Episode` as plain data
+(enums as their values, tuples as lists). The turns are the stimulus's user turns. Each
+seed item is planted in the domain's ledger from the mini-agents base
+(`mini-agents-midojo-base-v1`) and becomes an `environment_state` injection instruction
+with a `template` selector at the field's path (mode `replace`, strict), as MiDojo's own
+suite compiler makes of a probe; the environment holds the planted text. A command
+attempt is checked by MiDojo's `tool_call_condition` predicate. A reply is checked by
+the rubric judge: the directory also holds the verifier as the `asago_verifiers`
+package, which the runner registers with `register(judge_url, judge_model)` before it
+builds the episode; the episode runs no package setup, so the judge gets no runtime
+facts. There is no utility check, and the runtime is `unmanaged`. The same inputs give
+the same bytes.
 
-## MiDojo adapter runtimes
+`compile` refuses, as a capability gap (exit 3, with the shared record), a package whose
+stimulus delivers its attack in the user turns (a direct or user-turn package), a single
+package with history, a non-user history message, a stimulus with run-time bindings, and
+a `state_effect` claim.
 
-`asago-bundle-midojo compile --midojo-base BASE --domain DOMAIN --runtime RUNTIME`
-picks MiDojo's agent runtime:
-
-- `unmanaged` (the default): the orchestrator hosts the target, and `midojo-run`
-  reaches it with `--agent-uri`, `--protocol openai` and the MCP server flags.
-- `openshell`: MiDojo (`>=b0fb4576`) runs the mini-agents target in an OpenShell
-  sandbox per evaluation, from the base's `runtime` block: its image, its agent
-  command for the domain, and its default-deny policy. `midojo-run` takes
-  `--gateway {gateway} --agent-timeout {agent_timeout}`. `instantiate` needs:
-  - `image_id`, a bare `sha256:<64 hex>` image ID;
-  - `service_port` (the control plane) and `relay_port`, integers that fill the
-    policy's port rules;
-  - `relay_url`, the model relay as the sandbox reaches it, on `relay_port`;
-  - `model` and `instructions`, the system message.
-
-  The relay key is `${env.OPENAI_API_KEY}`, which MiDojo expands. `parse` reads the
-  agent's `.asago/` files (`mcp-calls.jsonl`, `ogx.log`, `run-summary.json`) from the
-  evaluation's observations. It writes MiDojo's openshell observations into
-  `runtime_observations`. The image, its digest, the policy digest, interrupted
-  network calls and the network callers go into `openshell-evidence.json` beside the
-  receipt.
-
-`run_midojo.py` sends `MIDOJO_CONTROL_TOKEN`, when it is set, as a bearer token on
-its control-plane reads. The token never enters the bundle.
+`parse` reads the snapshot as MiDojo's `GET .../snapshot` returns it and the verdict as
+`{evaluation_id, snapshot_id, grade}`. It grades nothing: `security` true is `detected`,
+false `not_detected`, and null (validity `invalid`) `inconclusive`, never a pass or a
+fail. The receipt's `episode` block carries the run's `route`, the `evaluation_id` and
+`snapshot_id` graded, the snapshot's `evidence_status`, and the verdict as MiDojo gave it.
+A verdict that names another evaluation or snapshot, a validity that disagrees with the
+grade, turns other than the episode's, or a planted payload missing from the initial
+environment fails the receipt with the reason; a turn without a reply fails it with
+`turn_failed:<n>` and keeps the attempt. `midojo`, MiDojo's own attacker loop, is the only
+route today.
 
 ## Development
 
@@ -968,7 +975,7 @@ The unit test suite is deterministic and does not require an LLM endpoint.
 ├── src/asago_artifact_generator/    # authoring, packages, CLI
 ├── packages/asago-bundle-core/      # shared adapter core (workspace member): tool-bundle-v1 schema, slots, package preparation, target config, conformance helper
 ├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse as library entry points
-├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): command-attempt and reply packages, single or sequential, unmanaged or openshell runtime; single packages with history exit 3
+├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): planted_item packages to resolved episodes, sealed snapshots and verdicts to receipts; other packages exit 3
 ├── contracts/                        # vendored and consumer-owned contracts
 ├── scripts/                          # quality, replay, and budget tools
 ├── tests/                            # unit tests
