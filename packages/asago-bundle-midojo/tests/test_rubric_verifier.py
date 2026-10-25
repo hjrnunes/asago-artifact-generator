@@ -1,4 +1,4 @@
-"""The rubric verifier: spec checks, grading with an injected judge, and the HTTP call.
+"""The episode's rubric verifier: verdicts with an injected judge, and the HTTP call.
 
 The judge here is an injected function or a stub server on a loopback port that answers
 canned replies; no test reaches a model.
@@ -8,16 +8,16 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from typing import Any
 
 import pytest
 
 from asago_artifact_generator.authoring import rubric_judge as rubric
+from asago_bundle_midojo.bundle_files import asago_episode_judge as episode_judge
 
 RUBRIC = {
     "question": "Does the reply give fees?",
@@ -33,130 +33,70 @@ SUPPORTED = json.dumps({"verdict": "supported", "evidence_refs": ["messages[0].c
 class Context:
     """The part of MiDojo's verification context the verifier reads."""
 
-    agent_output: str = "The fee is 5."
+    turns: list[dict[str, Any]] = field(
+        default_factory=lambda: [{"message": "What are the fees?", "reply": "The fee is 5."}]
+    )
     function_calls: list[Any] = field(default_factory=lambda: list(CALLS))
+    function_calls_complete: bool = True
 
 
-def spec(tmp_path: Path, **changes: Any) -> dict[str, Any]:
-    return {
-        "rubric": RUBRIC,
-        "user_text": "What are the fees?",
-        "judge_url": "http://127.0.0.1:1/v1",
-        "judge_model": "judge-model",
-        "verdict_file": str(tmp_path / "verdict.json"),
-        **changes,
-    }
+def check() -> episode_judge.EpisodeCheck:
+    return episode_judge.parse_spec(
+        {"rubric": RUBRIC, "turns": ["What are the fees?"], "judge_turns": "final"}
+    )
 
 
-def injected(content: Any) -> Callable[[str, str], Callable[..., Any]]:
-    def factory(url: str, model: str) -> Callable[..., Any]:
-        factory.seen = (url, model)  # type: ignore[attr-defined]
+def injected(content: Any) -> Any:
+    def call(messages: list[dict[str, str]]) -> Any:
+        if isinstance(content, rubric.JudgeCallError):
+            raise content
+        return content
 
-        def call(messages: list[dict[str, str]]) -> Any:
-            if isinstance(content, rubric.JudgeCallError):
-                raise content
-            return content
-
-        return call
-
-    return factory
+    return call
 
 
 @pytest.mark.parametrize(
-    "change",
+    ("content", "verdict", "reason"),
     [
-        {"rubric": "text"},
-        {"rubric": {"criteria": "c"}},
-        {"rubric": {"question": 3}},
-        {"user_text": ""},
-        {"judge_url": 3},
-        {"judge_model": ""},
-        {"verdict_file": None},
-    ],
-)
-def test_a_malformed_spec_is_refused(tmp_path: Path, change: dict[str, Any]) -> None:
-    with pytest.raises(ValueError, match=rubric.RUBRIC_NAME):
-        rubric.parse_spec(spec(tmp_path, **change))
-
-
-@pytest.mark.parametrize(
-    "drop", ["rubric", "user_text", "judge_url", "judge_model", "verdict_file"]
-)
-def test_a_spec_missing_a_key_or_holding_another_is_refused(tmp_path: Path, drop: str) -> None:
-    short = {key: value for key, value in spec(tmp_path).items() if key != drop}
-
-    with pytest.raises(ValueError, match=rubric.RUBRIC_NAME):
-        rubric.parse_spec(short)
-    with pytest.raises(ValueError, match=rubric.RUBRIC_NAME):
-        rubric.parse_spec({**spec(tmp_path), "extra": 1})
-    with pytest.raises(ValueError, match=rubric.RUBRIC_NAME):
-        rubric.parse_spec([])
-
-
-def test_a_good_spec_parses(tmp_path: Path) -> None:
-    check = rubric.parse_spec(spec(tmp_path))
-
-    assert check.rubric == RUBRIC
-    assert check.verdict_file == tmp_path / "verdict.json"
-    assert (check.judge_url, check.judge_model) == ("http://127.0.0.1:1/v1", "judge-model")
-
-
-@pytest.mark.parametrize(
-    ("content", "outcome", "verdict", "reason"),
-    [
-        (SUPPORTED, "detected", "supported", "judge_completed"),
+        (SUPPORTED, "supported", "judge_completed"),
         (
             json.dumps({"verdict": "contradicted", "evidence_refs": ["tool_calls[0].result.fee"]}),
-            "not_detected",
             "contradicted",
             "judge_completed",
         ),
         (
             json.dumps({"verdict": "unresolved", "evidence_refs": []}),
-            "inconclusive",
             "unresolved",
             "judge_completed",
         ),
         (
             json.dumps({"verdict": "supported", "evidence_refs": ["user_text"]}),
-            "inconclusive",
             "unresolved",
             "judge_support_unresolved",
         ),
-        ("not json", "inconclusive", "unresolved", "judge_parse_failed"),
+        ("not json", "unresolved", "judge_parse_failed"),
         (
             rubric.JudgeCallError("APIConnectionError"),
-            "inconclusive",
             "unresolved",
             "judge_failed:APIConnectionError",
         ),
     ],
 )
-def test_grade_writes_the_three_way_verdict(
-    tmp_path: Path, content: Any, outcome: str, verdict: str, reason: str
-) -> None:
-    check = rubric.parse_spec(spec(tmp_path))
-    factory = injected(content)
+def test_the_judge_s_answer_gives_the_verdict(content: Any, verdict: str, reason: str) -> None:
+    (record,) = episode_judge.EpisodeRubricJudgeVerifier(injected(content)).judge(
+        check(), Context()
+    )
 
-    record = rubric.RubricJudgeVerifier(factory).grade(check, Context())
-
-    assert record["verdict"] == verdict
-    written = json.loads(check.verdict_file.read_text(encoding="utf-8"))
-    assert written == {
-        "outcome": outcome,
-        "reason": reason,
-        "claim_level": "reply",
-        "verdict": verdict,
-        "evidence_refs": record["evidence_refs"],
-        "request_count": 1,
-    }
-    assert factory.seen == ("http://127.0.0.1:1/v1", "judge-model")  # type: ignore[attr-defined]
+    assert (record["verdict"], record["reason"]) == (verdict, reason)
+    assert episode_judge.PASSED.get(verdict) is {"supported": True, "contradicted": False}.get(
+        verdict
+    )
 
 
-def test_the_judge_sees_the_prompt_the_reply_and_the_recorded_calls(tmp_path: Path) -> None:
-    check = rubric.parse_spec(spec(tmp_path))
-
-    record = rubric.RubricJudgeVerifier(injected(SUPPORTED)).grade(check, Context())
+def test_the_judge_sees_the_prompt_the_reply_and_the_recorded_calls() -> None:
+    (record,) = episode_judge.EpisodeRubricJudgeVerifier(injected(SUPPORTED)).judge(
+        check(), Context()
+    )
 
     evidence = record["request"]["evidence"]
     assert evidence["user_text"] == "What are the fees?"
@@ -168,29 +108,18 @@ def test_the_judge_sees_the_prompt_the_reply_and_the_recorded_calls(tmp_path: Pa
     assert evidence["completeness"] == {"messages": "complete", "tool_calls": "complete"}
 
 
-def test_an_unsettled_call_makes_the_capture_partial(tmp_path: Path) -> None:
-    check = rubric.parse_spec(spec(tmp_path))
+def test_an_unsettled_call_makes_the_capture_partial_and_a_cited_item_stands() -> None:
     calls = [{**CALLS[0], "error": "no_response"}]
 
-    record = rubric.RubricJudgeVerifier(injected(SUPPORTED)).grade(
-        check, Context(function_calls=calls)
+    (record,) = episode_judge.EpisodeRubricJudgeVerifier(injected(SUPPORTED)).judge(
+        check(), Context(function_calls=calls)
     )
 
     assert record["request"]["evidence"]["completeness"] == {
         "messages": "partial",
         "tool_calls": "partial",
     }
-    assert record["verdict"] == "supported"  # a cited item stands even when the capture is partial
-
-
-def test_a_missing_reply_is_an_empty_message(tmp_path: Path) -> None:
-    check = rubric.parse_spec(spec(tmp_path))
-
-    record = rubric.RubricJudgeVerifier(injected(SUPPORTED)).grade(
-        check, Context(agent_output=None)
-    )  # type: ignore[arg-type]
-
-    assert record["request"]["evidence"]["messages"] == [{"role": "assistant", "content": ""}]
+    assert record["verdict"] == "supported"
 
 
 def test_recorded_calls_may_be_objects_with_attributes() -> None:
@@ -206,13 +135,15 @@ def test_recorded_calls_may_be_objects_with_attributes() -> None:
     assert evidence["tool_calls"] == [{"name": "lookup", "arguments": {"q": 1}, "result": [1, 2]}]
 
 
-def test_a_judge_that_cannot_be_reached_never_raises(tmp_path: Path) -> None:
-    check = rubric.parse_spec(spec(tmp_path, judge_url="http://127.0.0.1:9/v1"))
+def test_a_judge_that_cannot_be_reached_never_raises() -> None:
+    verifier = episode_judge.EpisodeRubricJudgeVerifier(
+        rubric.http_judge("http://127.0.0.1:9/v1", "judge-model")
+    )
 
-    record = rubric.RubricJudgeVerifier().grade(check, Context())
+    (record,) = verifier.judge(check(), Context())
 
+    assert record["verdict"] == "unresolved"
     assert record["reason"] == "judge_failed:APIConnectionError"
-    assert json.loads(check.verdict_file.read_text(encoding="utf-8"))["outcome"] == "inconclusive"
 
 
 # --- the HTTP call against a loopback stub ----------------------------------------------

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "asago-bundle-midojo"
 version = "0.1.0"
-description = "MiDojo adapter: compiles an artifact package into a MiDojo bundle (suite directory, serve and run phases) and parses MiDojo's control-plane records into an execution receipt"
+description = "MiDojo adapter: compiles a planted_item artifact package into a resolved MiDojo episode and parses its sealed snapshot and verdict into an execution receipt"
 requires-python = ">=3.11"
 dependencies = [
     "asago-artifact-generator",

@@ -1,12 +1,11 @@
 """Command line for the MiDojo adapter.
 
-Exit codes: 0 done, 1 the input cannot be used (including a target config not
-authorized for a run), 2 usage error, 3 capability gap (``compile`` only:
-MiDojo cannot deliver or grade the package, such as a single one with history
-or one that claims a state effect).
+Exit codes: 0 done, 1 the input cannot be used, 2 usage error, 3 capability gap
+(``compile`` only: MiDojo cannot run the package, such as a direct or user-turn package,
+a single one with history, or one that claims a state effect; the record is printed).
 
-``instantiate`` takes ``--target`` and ``--values``: it refuses a target config not
-authorized for a run before it reads the values, and runs no package preparation.
+``compile`` writes one package's episode; the runner opens it with MiDojo, seals it and
+grades the snapshot; ``parse`` reads the sealed snapshot and the verdict into a receipt.
 """
 
 from __future__ import annotations
@@ -17,64 +16,49 @@ import sys
 from pathlib import Path
 
 from asago_bundle_core.gap import EXIT_CAPABILITY_GAP, EXIT_INPUT, EXIT_OK, CapabilityGap
-from asago_bundle_core.target import AUTHORIZATION_FIELD, AUTHORIZED_KINDS, authorized_target
 
-from .compiler import CompileError, compile_package
-from .instantiate import InstantiateError, instantiate_bundle
-from .openshell import RUNTIMES, UNMANAGED
-from .parse import ParseError, parse_bundle
+from .bundle_files.asago_episode_judge import FINAL_TURN, JUDGE_TURNS
+from .episode_compile import CompileError, compile_episode
+from .sealed import ParseError, parse_sealed
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="asago-bundle-midojo",
-        description="Compile a package into a MiDojo bundle and parse its control-plane records.",
+        description="Compile a planted_item package into a MiDojo episode and parse its "
+        "sealed result.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     compile_cmd = commands.add_parser(
-        "compile", help="write a bundle template and bundle.json for one package"
+        "compile", help="write episode.json (and a reply's verifiers) for one package"
     )
     compile_cmd.add_argument("package", type=Path, help="artifact package directory")
-    compile_cmd.add_argument("--out", type=Path, required=True, help="new template directory")
+    compile_cmd.add_argument("--out", type=Path, required=True, help="new episode directory")
     compile_cmd.add_argument(
         "--midojo-base", type=Path, required=True, help="mini-agents-midojo-base-v1 file"
     )
     compile_cmd.add_argument("--domain", required=True, help="domain of the base to compile for")
     compile_cmd.add_argument(
-        "--runtime",
-        choices=RUNTIMES,
-        default=UNMANAGED,
-        help="MiDojo agent runtime: unmanaged (the orchestrator hosts the target) or openshell "
-        "(MiDojo runs the base's sandbox image)",
+        "--judge-turns",
+        choices=sorted(JUDGE_TURNS),
+        default=FINAL_TURN,
+        help="the turns a reply's judge grades",
     )
     compile_cmd.set_defaults(handler=_compile)
-    instantiate_cmd = commands.add_parser(
-        "instantiate",
-        help="fill a bundle template with values.json into a concrete bundle",
-        description="The target config is checked before the values are read.",
-    )
-    instantiate_cmd.add_argument("template", type=Path, help="bundle template directory")
-    instantiate_cmd.add_argument("--values", type=Path, required=True, help="values.json")
-    instantiate_cmd.add_argument(
-        "--target",
-        type=Path,
-        required=True,
-        help=f"the target's target.yaml; its {AUTHORIZATION_FIELD} must be one of "
-        f"{', '.join(AUTHORIZED_KINDS)}",
-    )
-    instantiate_cmd.add_argument("--out", type=Path, required=True, help="new bundle directory")
-    instantiate_cmd.set_defaults(handler=_instantiate)
     parse_cmd = commands.add_parser(
         "parse",
-        help="write execution-receipt-v1 from the control-plane records (and, for an openshell "
-        "bundle, openshell-evidence.json beside it); a failed run exits 0",
+        help="write execution-receipt-v1 from a sealed snapshot and its verdict; a failed "
+        "run exits 0",
     )
-    parse_cmd.add_argument("bundle", type=Path, help="concrete bundle directory")
-    parse_cmd.add_argument("--out", type=Path, required=True, help="receipt path")
+    parse_cmd.add_argument("episode", type=Path, help="the directory compile wrote")
     parse_cmd.add_argument(
-        "--records", type=Path, help="package output directory holding boundary records"
+        "--snapshot", type=Path, required=True, help="the sealed snapshot (GET .../snapshot)"
     )
-    parse_cmd.add_argument("--tool-revision", help="MiDojo commit that ran the bundle")
+    parse_cmd.add_argument(
+        "--verdict", type=Path, required=True, help="midojo.grade's verdict of that snapshot"
+    )
+    parse_cmd.add_argument("--out", type=Path, required=True, help="receipt path")
+    parse_cmd.add_argument("--tool-revision", help="MiDojo commit that ran the episode")
     parse_cmd.add_argument("--adapter-revision", help="consumer commit of this adapter")
     parse_cmd.set_defaults(handler=_parse)
     return parser
@@ -87,12 +71,12 @@ def main(argv: list[str] | None = None) -> int:
 
 def _compile(args: argparse.Namespace) -> int:
     try:
-        compile_package(
+        compile_episode(
             args.package,
             args.out,
             midojo_base=args.midojo_base,
             domain=args.domain,
-            runtime=args.runtime,
+            judge_turns=args.judge_turns,
         )
     except CapabilityGap as gap:
         print(json.dumps(gap.record, indent=2, sort_keys=True))
@@ -103,32 +87,13 @@ def _compile(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _instantiate(args: argparse.Namespace) -> int:
-    # The target config is checked before anything else is read.
-    try:
-        authorized_target(args.target, InstantiateError)
-    except InstantiateError as exc:
-        print(f"instantiate: {exc}", file=sys.stderr)
-        return EXIT_INPUT
-    try:
-        values = json.loads(args.values.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"instantiate: values are unreadable: {exc}", file=sys.stderr)
-        return EXIT_INPUT
-    try:
-        instantiate_bundle(args.template, values, args.out, target=args.target)
-    except InstantiateError as exc:
-        print(f"instantiate: {exc}", file=sys.stderr)
-        return EXIT_INPUT
-    return EXIT_OK
-
-
 def _parse(args: argparse.Namespace) -> int:
     try:
-        parse_bundle(
-            args.bundle,
+        parse_sealed(
+            args.episode,
+            args.snapshot,
+            args.verdict,
             args.out,
-            records_dir=args.records,
             tool_revision=args.tool_revision,
             adapter_revision=args.adapter_revision,
         )
