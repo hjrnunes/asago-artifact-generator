@@ -204,16 +204,26 @@ The stage asks the same review again within its review-retry allowance
 (`plan_max_review_retries`/`artifact_max_review_retries`, default one each
 across all of that stage's reviews, nonnegative integers with the same rules,
 zero while the stage is unreviewed). The retry
-request repeats the review prompt and adds the rejected response exactly as
-returned and every check finding exactly as reported. Each retry is its own
-dispatch: it reserves one review request from the budget, and its ledger and
-failure-evidence record carry `"allowance": "review_retry"` and
-`retries_dispatch`, the dispatch index of the rejected response. That rejected
-response's own record keeps its raw bytes, its check findings (`review_error`
-on the ledger, `findings` in the evidence), and its failure. The evidence
-records the remaining `review_retry_allowances`. When the allowance is spent,
-the stage stops as `review_unavailable`, and the last response's record adds a
-`review_retry_limit_exhausted` finding, which is the terminal reason. The
+request repeats the review prompt and adds the rejected response and every
+check finding exactly as reported. A UTF-8 response is shown exactly as
+returned; a response that is not valid UTF-8 is shown with each invalid byte
+sequence replaced by U+FFFD, and the request payload's
+`rejected_review_response.response_encoding` reads `utf-8-replacement-inexact`
+instead of `utf-8-exact` (the rejected dispatch's record keeps the exact
+bytes). Each retry is its own dispatch: it reserves one review request from the
+budget, and its ledger and failure-evidence record carry `"allowance":
+"review_retry"` and `retries_dispatch`, the dispatch index of the rejected
+response. A retry spends the allowance only once the budget reserved it and its
+dispatch opened; a retry that the budget or a prompt check stops before it is
+sent leaves the allowance unspent. That rejected response's own record keeps
+its raw bytes, its check findings (`review_error` on the ledger, `findings` in
+the evidence), and its failure; while a retry follows it, the run records no
+`review_unavailable` finding. The evidence records the remaining
+`review_retry_allowances`. When the allowance is spent, the stage stops as
+`review_unavailable`, and the last response's evidence attempt adds a
+`review_retry_limit_exhausted` finding to its `findings` (its ledger record's
+`review_error` keeps only the check findings), which is the terminal reason.
+The
 default per-task budget is the policy's closed worst case, which includes each
 review revision and its review and each review retry (16 dispatches, at most 7
 author and 9 review, with default settings); `blocked` at the artifact stage

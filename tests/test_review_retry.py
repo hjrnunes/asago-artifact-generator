@@ -10,11 +10,15 @@ from typing import Any
 
 import pytest
 
+from asago_artifact_generator.authoring.core import PromptPacket
+from asago_artifact_generator.authoring.journal import RunFindingRecorded
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringBudget, AuthoringPolicy
+from asago_artifact_generator.failure_evidence import failure_evidence_path
 
 from .prompt_support import REJECTED_ARTIFACT_REVIEW, REJECTED_PLAN_REVIEW, rejected_review
 from .support import (
+    ScriptedAuthoringTransport,
     chat_completion,
     load_failure_evidence,
     private_transport,
@@ -108,6 +112,23 @@ def test_the_retry_prompt_carries_the_rejected_response_and_its_findings_verbati
         finding.to_dict() for finding in rejected_review(REJECTED_PLAN_REVIEW).findings
     ]
     assert _MISSING_REQUIRED_CHANGE in retry["user"]
+
+
+def test_a_review_that_is_not_utf8_is_shown_with_replacements_and_kept_exactly(
+    tmp_path: Path,
+) -> None:
+    not_utf8 = b'{"decision": "accept", "summary": "ok\xff", "findings": []}'
+    result, transport = _run(
+        tmp_path,
+        [json.dumps(_plan()), not_utf8, review_response(), _framed(), review_response()],
+    )
+
+    assert result.status == "accepted"
+    rejected = transport.requests[2]["payload"]["rejected_review_response"]
+    assert rejected["response"] == not_utf8.decode("utf-8", errors="replace")
+    assert "\ufffd" in rejected["response"]
+    assert rejected["response_encoding"] == "utf-8-replacement-inexact"
+    assert result.raw_responses[result.ledger[1]["raw_response_key"]] == not_utf8
 
 
 def test_an_artifact_review_that_is_not_json_is_asked_again_and_proceeds(tmp_path: Path) -> None:
@@ -250,9 +271,116 @@ def test_an_exhausted_review_budget_stops_the_retry_before_it_is_sent(tmp_path: 
     assert len(client.requests) == 2
     assert [record["stage"] for record in result.ledger] == ["call1", "plan_review"]
     assert result.ledger[1]["review_error"][0]["detail"] == _MISSING_REQUIRED_CHANGE
-    assert result.review_retry_allowances == {"plan": 0, "artifact": 0}
     assert result.budget["review_spent"] == 1
     assert result.findings[-1].code == "budget_exhausted"
     evidence = load_failure_evidence(result.failure_evidence_path)
     assert _raw(evidence["attempts"][1]) == REJECTED_PLAN_REVIEW
     assert evidence["attempts"][1]["failure"]["code"] == "review_unavailable"
+
+
+def test_a_retry_the_budget_refuses_leaves_the_retry_allowance_unspent(tmp_path: Path) -> None:
+    budget = AuthoringBudget(aggregate_limit=10, task_limit=10, author_limit=10, review_limit=1)
+
+    result, client = _private_run(
+        tmp_path,
+        [json.dumps(_plan()).encode(), REJECTED_PLAN_REVIEW, review_response()],
+        budget,
+    )
+
+    assert result.status == "budget_exhausted"
+    assert len(client.requests) == 2
+    assert result.review_retry_allowances == {"plan": 1, "artifact": 0}
+    assert all("allowance" not in record for record in result.ledger)
+    evidence = load_failure_evidence(result.failure_evidence_path)
+    assert evidence["review_retry_allowances"] == {"plan": 1, "artifact": 0}
+    assert [attempt["stage"] for attempt in evidence["attempts"]] == ["call1", "plan_review"]
+    assert all("retries_dispatch" not in attempt for attempt in evidence["attempts"])
+
+
+def test_a_retry_sent_and_failed_in_transport_spends_the_retry_allowance(
+    tmp_path: Path,
+) -> None:
+    result, transport = _run(
+        tmp_path,
+        [json.dumps(_plan()), REJECTED_PLAN_REVIEW, RuntimeError("connection reset")],
+    )
+
+    assert result.status == "review_unavailable"
+    assert [request["stage"] for request in transport.requests] == [
+        "call1",
+        "plan_review",
+        "plan_review",
+    ]
+    assert result.review_retry_allowances == {"plan": 0, "artifact": 1}
+    assert result.ledger[2]["allowance"] == "review_retry"
+    assert result.ledger[2]["retries_dispatch"] == 2
+
+
+class _EvidenceAtRequest(ScriptedAuthoringTransport):
+    """Scripted transport that reads the failure-evidence sidecar as each request is sent."""
+
+    def __init__(self, responses: list[Any], evidence_path: Path) -> None:
+        super().__init__(responses)
+        self.evidence_path = evidence_path
+        self.evidence: list[dict[str, Any] | None] = []
+
+    def complete(self, packet: PromptPacket) -> Any:
+        self.evidence.append(
+            load_failure_evidence(self.evidence_path) if self.evidence_path.exists() else None
+        )
+        return super().complete(packet)
+
+
+def test_a_rejected_review_the_retry_recovers_from_leaves_no_run_finding(
+    tmp_path: Path,
+) -> None:
+    package_dir = tmp_path / "package"
+    transport = _EvidenceAtRequest(
+        [
+            json.dumps(_plan()),
+            REJECTED_PLAN_REVIEW,
+            review_response(),
+            _framed(),
+            review_response(),
+        ],
+        failure_evidence_path(package_dir),
+    )
+    orchestrator = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=package_dir,
+        task_id="review-retry",
+        policy=AuthoringPolicy(),
+    )
+
+    result = orchestrator.run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "accepted"
+    during_retry = transport.evidence[2]
+    assert during_retry is not None
+    assert "review_unavailable" not in [finding["code"] for finding in during_retry["findings"]]
+    rejected = during_retry["attempts"][1]
+    assert rejected["failure"]["code"] == "review_unavailable"
+    assert [finding["code"] for finding in rejected["findings"]] == ["review_schema"]
+    assert not any(
+        isinstance(event, RunFindingRecorded) and event.finding.code == "review_unavailable"
+        for event in orchestrator._journal.events
+    )
+    assert "review_unavailable" not in [finding.code for finding in result.findings]
+
+
+def test_an_exhausted_review_retry_still_records_the_run_finding(tmp_path: Path) -> None:
+    orchestrator, _ = _orchestrator(
+        tmp_path,
+        [json.dumps(_plan()), REJECTED_PLAN_REVIEW, REJECTED_PLAN_REVIEW],
+        policy=AuthoringPolicy(),
+    )
+
+    result = orchestrator.run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "review_unavailable"
+    run_findings = [
+        event.finding.code
+        for event in orchestrator._journal.events
+        if isinstance(event, RunFindingRecorded)
+    ]
+    assert run_findings == ["review_unavailable"]

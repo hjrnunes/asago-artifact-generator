@@ -1180,7 +1180,8 @@ class AuthoringOrchestrator:
         """Dispatch one semantic review and classify its closed outcome.
 
         ``retries_dispatch`` names the dispatch whose rejected response this
-        review asks again after.
+        review asks again after.  The retry spends the stage's review-retry
+        allowance only once the budget reserved it and its dispatch opened.
         """
 
         assert self._review_status is not None
@@ -1189,7 +1190,7 @@ class AuthoringOrchestrator:
             response = self._dispatch(packet)
         except Exception as exc:
             if retries_dispatch is not None and self._journal.open_dispatch() is not None:
-                self._journal.append(ReviewRetryRecorded(retries_dispatch))
+                self._record_review_retry(review_key, retries_dispatch)
             finding = self._record_dispatch_failure(exc, packet, started)
             status = (
                 finding.code
@@ -1201,7 +1202,7 @@ class AuthoringOrchestrator:
             )
             return _ReviewOutcome(decision="", stop=_StageStop(status, (finding,)))
         if retries_dispatch is not None:
-            self._journal.append(ReviewRetryRecorded(retries_dispatch))
+            self._record_review_retry(review_key, retries_dispatch)
         raw, effective_controls = self._record_review_response(packet, response)
         try:
             review = parse_review_response(raw)
@@ -1284,8 +1285,10 @@ class AuthoringOrchestrator:
 
         The response's dispatch keeps its exact bytes, every check finding, and
         the failure.  While the stage's review-retry allowance has room the
-        outcome carries the rejected response for the next request; otherwise
-        the stage stops as ``review_unavailable``, and the dispatch also
+        outcome carries the rejected response for the next request, and the
+        run records no ``review_unavailable`` finding, since the retry may
+        still decide the review; otherwise the stage stops as
+        ``review_unavailable``, and the dispatch's evidence attempt also
         records that the allowance is exhausted.
         """
 
@@ -1296,7 +1299,8 @@ class AuthoringOrchestrator:
             effective_controls=effective_controls,
             packet=packet,
         )
-        retry = self._consume_review_retry(review_key)
+        assert self._review_retry_allowances is not None
+        retry = self._review_retry_allowances[review_key] > 0
         attempt_findings = staged_findings(exc.findings, FINDING_STAGE_KEYS[packet.stage])
         if not retry:
             attempt_findings.append(self._review_retry_exhausted_finding(review_key))
@@ -1306,29 +1310,32 @@ class AuthoringOrchestrator:
             "code": finding.code,
             "detail": finding.detail,
         }
-        self._journal.append(ReviewFailed(failure), RunFindingRecorded(finding))
+        self._journal.append(ReviewFailed(failure))
         if retry:
-            self._record_allowances()
             self._journal.flush()
             return _ReviewOutcome(
                 decision="",
                 rejected=RejectedReviewResponse(raw, tuple(exc.findings)),
                 rejected_dispatch=self._journal.dispatches()[-1].dispatch_index,
             )
+        self._journal.append(RunFindingRecorded(finding))
         self._journal.flush()
         self._findings.append(finding)
         self._review_status[review_key] = "unavailable"
         stop = _StageStop("review_unavailable", (finding, attempt_findings[-1]))
         return _ReviewOutcome(decision="", stop=stop)
 
-    def _consume_review_retry(self, stage: str) -> bool:
-        """Spend one retry from the named stage's review-retry allowance, if any is left."""
+    def _record_review_retry(self, stage: str, rejected_dispatch: int) -> None:
+        """Mark the open dispatch as a review retry and spend one from the stage's allowance.
+
+        ``_reject_review_response`` only asks again while the allowance has room.
+        """
 
         assert self._review_retry_allowances is not None
-        if self._review_retry_allowances[stage] <= 0:
-            return False
+        assert self._review_retry_allowances[stage] > 0
         self._review_retry_allowances[stage] -= 1
-        return True
+        self._journal.append(ReviewRetryRecorded(rejected_dispatch))
+        self._record_allowances()
 
     @staticmethod
     def _review_retry_exhausted_finding(stage: str) -> Finding:
