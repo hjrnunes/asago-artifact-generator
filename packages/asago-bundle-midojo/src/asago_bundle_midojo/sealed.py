@@ -11,8 +11,9 @@ nothing.
 MiDojo's ``security`` grade is three-valued, and so is the receipt: True is
 ``detected``, False ``not_detected``, and None, a check that could not be decided from the
 evidence (``grade_validity`` ``invalid``), ``inconclusive``. An unknown grade is never made
-a pass or a fail. The receipt's ``episode`` block names the evaluation and the snapshot
-graded, the snapshot's evidence status and the verdict as MiDojo gave it.
+a pass or a fail. The receipt's ``episode`` block names the route that drove the run
+(``route.py``), the evaluation and the snapshot graded, the snapshot's evidence status
+and the verdict as MiDojo gave it.
 
 The verdict must name the snapshot's evaluation and the snapshot itself, its validity must
 agree with its grade, and its evidence status must hold the snapshot's. The snapshot's
@@ -36,6 +37,7 @@ from asago_bundle_core.mcp_records import decoded, read_json, text
 from asago_bundle_core.text import canonical_text
 
 from .episode_compile import COMMAND_ATTEMPT, EPISODE_FILE, REPLY, SCHEMA_VERSION, TOOL
+from .route import DEFAULT_ROUTE, ROUTES
 
 RECEIPT_SCHEMA_VERSION = "execution-receipt-v1"
 DETECTORS = {COMMAND_ATTEMPT: "ToolCallCondition", REPLY: "RubricJudge"}
@@ -78,9 +80,15 @@ def parse_sealed(
     *,
     tool_revision: str | None = None,
     adapter_revision: str | None = None,
+    route: str = DEFAULT_ROUTE,
 ) -> dict[str, Any]:
-    """Write the receipt of one sealed episode to ``out_path`` and return it."""
+    """Write the receipt of one sealed episode to ``out_path`` and return it.
 
+    ``route`` names the client that drove this run of the episode (one of ``ROUTES``).
+    """
+
+    if route not in ROUTES:
+        raise ParseError(f"unknown route {route!r}; the routes are {list(ROUTES)}")
     compiled = read_compiled(Path(episode_dir))
     out = Path(out_path)
     snapshot, reason = read_document(Path(snapshot_path), "snapshot", snapshot_shape)
@@ -104,7 +112,7 @@ def parse_sealed(
         "incomplete_reason": reason,
         "attempts": [attempt] if attempt else [],
         "native": native_files((Path(snapshot_path), Path(verdict_path)), out.parent),
-        "episode": episode_block(snapshot, verdict),
+        "episode": episode_block(route, snapshot, verdict),
     }
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(canonical_text(receipt), encoding="utf-8")
@@ -365,12 +373,13 @@ def judge_of(level: str, grade: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def episode_block(
-    snapshot: dict[str, Any] | None, verdict: dict[str, Any] | None
+    route: str, snapshot: dict[str, Any] | None, verdict: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Return what the receipt names of the episode's run; a file that cannot be read is null."""
 
     grade = verdict["grade"] if verdict else None
     return {
+        "route": route,
         "evaluation_id": snapshot["evaluation_id"] if snapshot else None,
         "snapshot_id": snapshot["snapshot_id"] if snapshot else None,
         "evidence_status": snapshot["evidence_status"] if snapshot else None,

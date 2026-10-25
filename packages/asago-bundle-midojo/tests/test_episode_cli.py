@@ -74,12 +74,15 @@ def test_parse_writes_the_receipt(tmp_path: Path) -> None:
             str(run / "receipt.json"),
             "--tool-revision",
             "b6e0f8fb",
+            "--route",
+            "midojo",
         ]
     )
 
     assert code == 0
     receipt = json.loads((run / "receipt.json").read_text(encoding="utf-8"))
     assert receipt["tool"]["revision"] == "b6e0f8fb"
+    assert receipt["episode"]["route"] == "midojo"
     assert receipt["attempts"][0]["result"]["outcome"] == "detected"
 
 
@@ -104,3 +107,11 @@ def test_parse_without_an_episode_exits_1(
 
     assert code == 1
     assert capsys.readouterr().err.startswith("parse: ")
+
+
+def test_parse_offers_only_the_routes_that_exist(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(["parse", "e", "--snapshot", "s", "--verdict", "v", "--out", "o", "--route", "garak"])
+
+    assert raised.value.code == 2
+    assert "invalid choice: 'garak'" in capsys.readouterr().err

@@ -17,6 +17,7 @@ import jsonschema
 import pytest
 from episode_cases import EPISODES, SEQUENTIAL_TURNS, SINGLE_TURNS
 
+from asago_bundle_midojo.route import ROUTES
 from asago_bundle_midojo.sealed import ParseError, compiled_digest, parse_sealed
 from conftest import RECEIPT_SCHEMA
 
@@ -92,6 +93,7 @@ def test_the_receipt_names_the_evaluation_and_the_snapshot_graded(
 
     episode = parsed(tmp_path, case, scenario)["episode"]
 
+    assert episode["route"] == "midojo"
     assert episode["evaluation_id"] == snapshot["evaluation_id"] == verdict["evaluation_id"]
     assert episode["snapshot_id"] == snapshot["snapshot_id"] == verdict["snapshot_id"]
     assert episode["snapshot_id"].startswith("sha256:")
@@ -370,3 +372,32 @@ def test_native_files_outside_the_receipt_directory_are_refused(tmp_path: Path) 
             run / "verdict.json",
             tmp_path / "elsewhere" / "r.json",
         )
+
+
+def test_the_receipt_records_the_route_of_the_run(tmp_path: Path) -> None:
+    run = run_dir(tmp_path, "command-single", "detected")
+
+    receipt = parse_sealed(
+        EPISODES / "command-single",
+        run / "snapshot.json",
+        run / "verdict.json",
+        run / "r.json",
+        route="midojo",
+    )
+
+    assert receipt["episode"]["route"] == "midojo"
+    assert ROUTES == ("midojo",)
+
+
+def test_a_route_that_does_not_exist_yet_is_refused(tmp_path: Path) -> None:
+    run = run_dir(tmp_path, "command-single", "detected")
+
+    with pytest.raises(ParseError, match="unknown route 'pyrit'"):
+        parse_sealed(
+            EPISODES / "command-single",
+            run / "snapshot.json",
+            run / "verdict.json",
+            run / "r.json",
+            route="pyrit",
+        )
+    assert not (run / "r.json").exists()

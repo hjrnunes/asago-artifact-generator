@@ -19,6 +19,7 @@ from asago_bundle_core.gap import EXIT_CAPABILITY_GAP, EXIT_INPUT, EXIT_OK, Capa
 
 from .bundle_files.asago_episode_judge import FINAL_TURN, JUDGE_TURNS
 from .episode_compile import CompileError, compile_episode
+from .route import DEFAULT_ROUTE, ROUTES
 from .sealed import ParseError, parse_sealed
 
 
@@ -58,6 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--verdict", type=Path, required=True, help="midojo.grade's verdict of that snapshot"
     )
     parse_cmd.add_argument("--out", type=Path, required=True, help="receipt path")
+    parse_cmd.add_argument(
+        "--route",
+        choices=ROUTES,
+        default=DEFAULT_ROUTE,
+        help="the client that drove this run: midojo (MiDojo's own attacker loop)",
+    )
     parse_cmd.add_argument("--tool-revision", help="MiDojo commit that ran the episode")
     parse_cmd.add_argument("--adapter-revision", help="consumer commit of this adapter")
     parse_cmd.set_defaults(handler=_parse)
@@ -96,6 +103,7 @@ def _parse(args: argparse.Namespace) -> int:
             args.out,
             tool_revision=args.tool_revision,
             adapter_revision=args.adapter_revision,
+            route=args.route,
         )
     except ParseError as exc:
         print(f"parse: {exc}", file=sys.stderr)

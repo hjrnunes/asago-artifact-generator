@@ -110,6 +110,7 @@
     }
   ],
   "episode": {
+    "route": "midojo",
     "evaluation_id": "3b4b7456ea",
     "snapshot_id": "sha256:d54df1862004b978062e2abf7f0b4279438c6c4c7fdb0d28f82c6d71f1491582",
     "evidence_status": {},

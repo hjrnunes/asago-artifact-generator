@@ -7,6 +7,10 @@
     "path": "/episode/verdict/security",
     "keyword": "type"
   },
+  "invalid/episode-without-route.json": {
+    "path": "/episode",
+    "keyword": "required"
+  },
   "invalid/matched-call-not-an-index.json": {
     "path": "/attempts/0/detections/0/matched_calls/0",
     "keyword": "type"
