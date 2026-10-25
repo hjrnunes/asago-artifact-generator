@@ -6,6 +6,11 @@ domain, the ledger MiDojo serves as the suite ``environment``, the seed slots
 becomes MiDojo probes: each seed item is one probe, and the ledger field the
 item targets holds the probe's placeholder, which MiDojo replaces with the
 probe's payload when it loads the evaluation.
+
+An episode is resolved instead (``planted_environment``): each seed item becomes one
+injection instruction (``episode.template_instruction``) at the path of the ledger field
+its slot names, and that field holds the item's text: ``replace`` swaps the field's text
+for it, ``append`` adds it after the field's text and one space. Items apply in order.
 """
 
 from __future__ import annotations
@@ -15,6 +20,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from asago_bundle_core.errors import BundleError
+
+from .episode import probe_key, template_instruction
 
 BASE_SCHEMA_VERSION = "mini-agents-midojo-base-v1"
 SEED_SCHEMA_VERSIONS = frozenset({"artifact-seed-v1", "mini-agents-seed-v1"})
@@ -55,11 +62,7 @@ def suite_environment(
     probes: dict[str, dict[str, str]] = {}
     if seed is None:
         return environment, probes
-    if not isinstance(seed, Mapping) or seed.get("schema_version") not in SEED_SCHEMA_VERSIONS:
-        raise EnvironmentFault(f"the seed is not one of {sorted(SEED_SCHEMA_VERSIONS)}")
-    items = seed.get("items")
-    if not isinstance(items, list) or not items:
-        raise EnvironmentFault("the seed has no items")
+    items = _seed_items(seed)
     slots = {slot["id"]: slot for slot in target.get("seed_slots", [])}
     for index, item in enumerate(items):
         _plant(environment, slots, item, index)
@@ -70,9 +73,47 @@ def suite_environment(
     return environment, probes
 
 
+def planted_environment(
+    target: Mapping[str, Any], seed: Mapping[str, Any]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Return the environment (a copy, the seed planted) and one instruction per seed item."""
+
+    environment = copy.deepcopy(target["environment"])
+    items = _seed_items(seed)
+    slots = {slot["id"]: slot for slot in target.get("seed_slots", [])}
+    instructions = []
+    for index, item in enumerate(items):
+        path = _plant(
+            environment,
+            slots,
+            item,
+            index,
+            item.get("content") if isinstance(item, dict) else None,
+        )
+        instructions.append(template_instruction(path, probe_key(index), item["content"]))
+    return environment, instructions
+
+
+def _seed_items(seed: Any) -> list[Any]:
+    if not isinstance(seed, Mapping) or seed.get("schema_version") not in SEED_SCHEMA_VERSIONS:
+        raise EnvironmentFault(f"the seed is not one of {sorted(SEED_SCHEMA_VERSIONS)}")
+    items = seed.get("items")
+    if not isinstance(items, list) or not items:
+        raise EnvironmentFault("the seed has no items")
+    return items
+
+
 def _plant(
-    environment: dict[str, Any], slots: Mapping[str, Mapping[str, Any]], item: Any, index: int
-) -> None:
+    environment: dict[str, Any],
+    slots: Mapping[str, Mapping[str, Any]],
+    item: Any,
+    index: int,
+    text: str | None = None,
+) -> list[str]:
+    """Write ``text`` (by default the probe's placeholder) into the item's field.
+
+    Return the field's path in the environment.
+    """
     if not isinstance(item, dict) or not isinstance(item.get("content"), str):
         raise EnvironmentFault(f"seed item {index} has no content text")
     slot = slots.get(item.get("slot"))  # type: ignore[arg-type]
@@ -94,5 +135,12 @@ def _plant(
             f"seed item {index}: the base environment has no {slot['container']}"
             f"[{record_ref!r}][{slot['attribute']!r}]"
         ) from exc
-    text = placeholder(index)
+    if text is None:
+        text = placeholder(index)
+    elif not isinstance(current, str):
+        raise EnvironmentFault(
+            f"seed item {index}: {slot['container']}[{record_ref!r}][{slot['attribute']!r}] "
+            "is not text"
+        )
     record[slot["attribute"]] = text if operation == REPLACE else f"{current} {text}"
+    return [slot["container"], record_ref, slot["attribute"]]
