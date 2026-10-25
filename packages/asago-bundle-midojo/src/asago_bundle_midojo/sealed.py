@@ -53,7 +53,35 @@ UNFINISHED = "unfinished"
 SNAPSHOT_TEXT = ("evaluation_id", "snapshot_id", "agent_output", "sealed_at")
 SNAPSHOT_MAPPINGS = ("pre_environment", "environment", "observations", "evidence_status")
 SNAPSHOT_LISTS = ("function_calls", "turns", "capture_failures")
+SNAPSHOT_OPTIONAL_TEXT = ("run_id", "user_task_id", "injection_task_id")
 SNAPSHOT_FIELDS = frozenset({*CONTENT_FIELDS, "snapshot_id"})
+CALL_FIELDS = frozenset(
+    {
+        "call_id",
+        "function",
+        "args",
+        "result",
+        "error",
+        "blocked",
+        "disposition",
+        "complete",
+        "provenance",
+        "timestamp",
+        "turn",
+        "pre_environment",
+        "post_environment",
+    }
+)
+DISPOSITIONS = frozenset({"forwarded", "denied", "simulated", "blocked", None})
+PROVENANCES = frozenset({"host", "interceptor", "agent", None})
+TURN_FIELDS = frozenset({"index", "message", "reply", "started_at", "ended_at"})
+FAILURE_FIELDS = frozenset({"call_id", "function", "phase", "reason", "stage", "by", "at"})
+CAPTURE_PHASES = frozenset({"start", "finish"})
+VERDICT_FIELDS = frozenset({"evaluation_id", "snapshot_id", "grade"})
+GRADED = ("utility", "security")
+GRADE_FIELDS = frozenset(
+    {*GRADED, "utility_reason", "security_reason", "grade_validity", "evidence_status"}
+)
 EPISODE_KEYS = frozenset({"package_id", "scenario_id", "package_digest", "claim_level", "episode"})
 
 
@@ -146,33 +174,67 @@ def read_document(path: Path, prefix: str, shape: Any) -> tuple[dict[str, Any] |
 
 
 def snapshot_shape(snapshot: dict[str, Any]) -> bool:
-    """The snapshot has exactly ``SnapshotResponse``'s fields; those parse reads, typed."""
+    """The snapshot is MiDojo's ``SnapshotResponse``: exactly its fields, each of its type.
+
+    A call record is ``FunctionCallRecord``, a turn ``TurnResponse`` and a capture failure
+    ``CaptureFailureResponse`` (``control_plane/models.py``, ``types.py``), field for field.
+    """
 
     return (
         set(snapshot) == SNAPSHOT_FIELDS
-        and all(isinstance(snapshot.get(key), str) for key in SNAPSHOT_TEXT)
-        and all(isinstance(snapshot.get(key), dict) for key in SNAPSHOT_MAPPINGS)
-        and all(isinstance(snapshot.get(key), list) for key in SNAPSHOT_LISTS)
+        and all(isinstance(snapshot[key], str) for key in SNAPSHOT_TEXT)
+        and all(_optional_text(snapshot[key]) for key in SNAPSHOT_OPTIONAL_TEXT)
+        and all(isinstance(snapshot[key], dict) for key in SNAPSHOT_MAPPINGS)
+        and all(isinstance(snapshot[key], list) for key in SNAPSHOT_LISTS)
+        and all(isinstance(observed, dict) for observed in snapshot["observations"].values())
         and evidence_shape(snapshot["evidence_status"])
         and all(_call_shape(call) for call in snapshot["function_calls"])
         and all(_turn_shape(turn) for turn in snapshot["turns"])
+        and all(_failure_shape(failure) for failure in snapshot["capture_failures"])
     )
+
+
+def _optional_text(value: Any) -> bool:
+    return value is None or isinstance(value, str)
 
 
 def _call_shape(call: Any) -> bool:
     return (
         isinstance(call, dict)
-        and isinstance(call.get("function"), str)
-        and isinstance(call.get("args"), dict)
+        and set(call) == CALL_FIELDS
+        and all(isinstance(call[key], str) for key in ("call_id", "function", "timestamp"))
+        and isinstance(call["args"], dict)
+        and _optional_text(call["result"])
+        and _optional_text(call["error"])
+        and all(type(call[key]) is bool for key in ("blocked", "complete"))
+        and call["disposition"] in DISPOSITIONS
+        and call["provenance"] in PROVENANCES
+        and (call["turn"] is None or type(call["turn"]) is int)
+        and all(
+            call[key] is None or isinstance(call[key], dict)
+            for key in ("pre_environment", "post_environment")
+        )
     )
 
 
 def _turn_shape(turn: Any) -> bool:
     return (
         isinstance(turn, dict)
-        and type(turn.get("index")) is int
-        and isinstance(turn.get("message"), str)
-        and (turn.get("reply") is None or isinstance(turn.get("reply"), str))
+        and set(turn) == TURN_FIELDS
+        and type(turn["index"]) is int
+        and isinstance(turn["message"], str)
+        and _optional_text(turn["reply"])
+        and isinstance(turn["started_at"], str)
+        and _optional_text(turn["ended_at"])
+    )
+
+
+def _failure_shape(failure: Any) -> bool:
+    return (
+        isinstance(failure, dict)
+        and set(failure) == FAILURE_FIELDS
+        and all(isinstance(failure[key], str) for key in FAILURE_FIELDS)
+        and failure["phase"] in CAPTURE_PHASES
     )
 
 
@@ -183,27 +245,45 @@ def evidence_shape(status: Any) -> bool:
 
 
 def verdict_shape(verdict: dict[str, Any]) -> bool:
-    """The verdict is ``Verdict`` with a ``GradeResponse`` whose security grade agrees with
-    its validity: unknown exactly when ``invalid``."""
+    """The verdict is ``Verdict``, its grade MiDojo's ``GradeResponse``, field for field, and
+    the security grade agrees with its validity: unknown exactly when ``invalid``."""
 
     grade = verdict.get("grade")
     if not (
-        isinstance(verdict.get("evaluation_id"), str)
-        and isinstance(verdict.get("snapshot_id"), str)
+        set(verdict) == VERDICT_FIELDS
+        and isinstance(verdict["evaluation_id"], str)
+        and isinstance(verdict["snapshot_id"], str)
         and isinstance(grade, dict)
-        and evidence_shape(grade.get("evidence_status"))
+        and set(grade) == GRADE_FIELDS
+        and evidence_shape(grade["evidence_status"])
+        and all(grade[key] is None or isinstance(grade[key], bool) for key in GRADED)
+        and all(_optional_text(grade[f"{key}_reason"]) for key in GRADED)
+        and _validity_shape(grade["grade_validity"])
     ):
         return False
-    security = grade.get("security")
-    reason = grade.get("security_reason")
-    validity = grade.get("grade_validity")
-    status = validity.get("security") if isinstance(validity, dict) else None
-    status = status.get("status") if isinstance(status, dict) else None
+    status = grade["grade_validity"]["security"]["status"]
+    return status != "not_applicable" and (status == "invalid") == (grade["security"] is None)
+
+
+def _validity_shape(validity: Any) -> bool:
+    """``GradeValidity``: a ``CheckValidity`` per grade, each reason a ``ValidityReason``."""
+
     return (
-        (security is None or isinstance(security, bool))
-        and (reason is None or isinstance(reason, str))
-        and status in VALIDITIES - {"not_applicable"}
-        and (status == "invalid") == (security is None)
+        isinstance(validity, dict)
+        and set(validity) == set(GRADED)
+        and all(
+            isinstance(check, dict)
+            and set(check) == {"status", "reasons"}
+            and check["status"] in VALIDITIES
+            and isinstance(check["reasons"], list)
+            and all(
+                isinstance(reason, dict)
+                and set(reason) == {"check", "reason"}
+                and all(isinstance(text, str) for text in reason.values())
+                for reason in check["reasons"]
+            )
+            for check in validity.values()
+        )
     )
 
 

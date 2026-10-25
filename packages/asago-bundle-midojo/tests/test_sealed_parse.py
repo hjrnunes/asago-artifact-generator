@@ -508,3 +508,103 @@ def test_a_snapshot_changed_under_its_id_is_refused(tmp_path: Path, edit: str) -
     )
     assert receipt["attempts"] == []
     assert receipt["episode"]["snapshot_id"] == snapshot["snapshot_id"]
+
+
+# --- the published shapes: SnapshotResponse and Verdict with its GradeResponse ---------
+
+
+def _snapshot_variant(name: str) -> dict[str, Any]:
+    snapshot = recorded("command-single", "unfinished", "snapshot.json")
+    call, turn = snapshot["function_calls"][0], snapshot["turns"][0]
+    if name == "extra-field":
+        snapshot["extra"] = 1
+    elif name == "run-id-not-text":
+        snapshot["run_id"] = 3
+    elif name == "call-extra-field":
+        call["note"] = "x"
+    elif name == "call-missing-field":
+        del call["provenance"]
+    elif name == "call-unknown-disposition":
+        call["disposition"] = "teleported"
+    elif name == "call-complete-not-bool":
+        call["complete"] = 1
+    elif name == "turn-missing-started-at":
+        del turn["started_at"]
+    elif name == "capture-failure-phase":
+        snapshot["capture_failures"] = [
+            {
+                "call_id": "c",
+                "function": "f",
+                "phase": "middle",
+                "reason": "r",
+                "stage": "open",
+                "by": "agent",
+                "at": "t",
+            }
+        ]
+    elif name == "observation-not-object":
+        snapshot["observations"] = {"openshell": []}
+    return snapshot
+
+
+SNAPSHOT_VARIANTS = [
+    "extra-field",
+    "run-id-not-text",
+    "call-extra-field",
+    "call-missing-field",
+    "call-unknown-disposition",
+    "call-complete-not-bool",
+    "turn-missing-started-at",
+    "capture-failure-phase",
+    "observation-not-object",
+]
+
+
+@pytest.mark.parametrize("name", SNAPSHOT_VARIANTS)
+def test_a_snapshot_that_is_not_midojo_s_snapshot_response_is_malformed(
+    tmp_path: Path, name: str
+) -> None:
+    receipt = parsed(tmp_path, "command-single", "unfinished", snapshot=_snapshot_variant(name))
+
+    assert receipt["incomplete_reason"] == "snapshot_malformed"
+
+
+def _verdict_variant(name: str) -> dict[str, Any]:
+    verdict = recorded("command-single", "unfinished", "verdict.json")
+    grade = verdict["grade"]
+    if name == "extra-field":
+        verdict["extra"] = 1
+    elif name == "grade-extra-field":
+        grade["extra"] = 1
+    elif name == "grade-missing-utility":
+        del grade["utility"]
+    elif name == "utility-not-bool":
+        grade["utility"] = "no"
+    elif name == "validity-without-reasons":
+        del grade["grade_validity"]["security"]["reasons"]
+    elif name == "validity-unknown-status":
+        grade["grade_validity"]["utility"]["status"] = "maybe"
+    elif name == "reason-not-a-validity-reason":
+        grade["grade_validity"]["security"]["reasons"] = ["capture is incomplete"]
+    elif name == "security-not-applicable":
+        grade["grade_validity"]["security"] = {"status": "not_applicable", "reasons": []}
+    return verdict
+
+
+VERDICT_VARIANTS = [
+    "extra-field",
+    "grade-extra-field",
+    "grade-missing-utility",
+    "utility-not-bool",
+    "validity-without-reasons",
+    "validity-unknown-status",
+    "reason-not-a-validity-reason",
+    "security-not-applicable",
+]
+
+
+@pytest.mark.parametrize("name", VERDICT_VARIANTS)
+def test_a_verdict_that_is_not_midojo_s_verdict_is_malformed(tmp_path: Path, name: str) -> None:
+    receipt = parsed(tmp_path, "command-single", "unfinished", verdict=_verdict_variant(name))
+
+    assert receipt["incomplete_reason"] == "verdict_malformed"
