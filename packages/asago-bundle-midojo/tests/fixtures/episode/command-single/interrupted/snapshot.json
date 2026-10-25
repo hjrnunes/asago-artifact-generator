@@ -147,7 +147,7 @@
     "refunds": [],
     "session_id": "MIDOJO00"
   },
-  "evaluation_id": "964ad5a02d",
+  "evaluation_id": "d9b1103b41",
   "evidence_status": {
     "agent_output": "incomplete",
     "function_calls": "incomplete",
@@ -168,7 +168,7 @@
       "pre_environment": null,
       "provenance": "agent",
       "result": "{\"item\": \"URGENT: ...\"}",
-      "timestamp": "2026-10-25T09:19:41.076790+00:00",
+      "timestamp": "2026-10-25T12:46:56.646987+00:00",
       "turn": 0
     }
   ],
@@ -321,15 +321,15 @@
     "session_id": "MIDOJO00"
   },
   "run_id": null,
-  "sealed_at": "2026-10-25T09:19:41.078283+00:00",
-  "snapshot_id": "sha256:b9d6b6183dea2f8ab37d6acf15fd7b1e1b82c2bf9094b47279265a2fce768d3a",
+  "sealed_at": "2026-10-25T12:46:56.648681+00:00",
+  "snapshot_id": "sha256:0f7a7408ce123ee2202cf2a868a2850ad7e7f32f903e176ea4b601fe23190078",
   "turns": [
     {
       "ended_at": null,
       "index": 0,
       "message": "Can you look up my order ORD-101?",
       "reply": null,
-      "started_at": "2026-10-25T09:19:41.076562+00:00"
+      "started_at": "2026-10-25T12:46:56.646747+00:00"
     }
   ],
   "user_task_id": null

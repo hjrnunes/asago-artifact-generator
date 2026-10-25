@@ -19,10 +19,12 @@ from episode_cases import EPISODES, SEQUENTIAL_TURNS, SINGLE_TURNS
 
 from asago_bundle_midojo.route import ROUTES
 from asago_bundle_midojo.sealed import ParseError, compiled_digest, parse_sealed
+from asago_bundle_midojo.snapshot_digest import canonical, dumps, snapshot_digest
 from conftest import RECEIPT_SCHEMA
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 RECORDING = json.loads((EPISODES / "recording.json").read_text(encoding="utf-8"))
+DIGESTS = json.loads((EPISODES / "digests.json").read_text(encoding="utf-8"))
 SCENARIOS = [
     pytest.param(case, scenario, id=f"{case}/{scenario}")
     for case, scenarios in sorted(RECORDING["security"].items())
@@ -234,6 +236,19 @@ def with_grade(case: str, scenario: str, **grade: Any) -> dict[str, Any]:
     return {**verdict, "grade": {**verdict["grade"], **grade}}
 
 
+def resealed(case: str, scenario: str, **content: Any) -> dict[str, Any]:
+    """A recorded run with its snapshot's content changed, and named by its new digest.
+
+    The verdict names the new snapshot too, so the change reaches the checks after the
+    snapshot's identity.
+    """
+
+    snapshot = recorded(case, scenario, "snapshot.json") | content
+    snapshot["snapshot_id"] = snapshot_digest(snapshot)
+    verdict = recorded(case, scenario, "verdict.json") | {"snapshot_id": snapshot["snapshot_id"]}
+    return {"snapshot": snapshot, "verdict": verdict}
+
+
 def invalid(reason: str) -> dict[str, Any]:
     return {"status": "invalid", "reasons": [{"check": "tool_call_condition", "reason": reason}]}
 
@@ -262,31 +277,26 @@ def invalid(reason: str) -> dict[str, Any]:
             "snapshot_mismatch",
         ),
         (
-            {
-                "snapshot": recorded("command-single", "detected", "snapshot.json")
-                | {"evidence_status": {"function_calls": "incomplete"}}
-            },
+            resealed(
+                "command-single", "detected", evidence_status={"function_calls": "incomplete"}
+            ),
             "evidence_status_mismatch",
         ),
         (
-            {
-                "snapshot": recorded("command-single", "detected", "snapshot.json")
-                | {
-                    "turns": [
-                        {
-                            **recorded("command-single", "detected", "snapshot.json")["turns"][0],
-                            "message": "Something else.",
-                        }
-                    ]
-                }
-            },
+            resealed(
+                "command-single",
+                "detected",
+                turns=[
+                    {
+                        **recorded("command-single", "detected", "snapshot.json")["turns"][0],
+                        "message": "Something else.",
+                    }
+                ],
+            ),
             "turn_input_mismatch",
         ),
         (
-            {
-                "snapshot": recorded("command-single", "detected", "snapshot.json")
-                | {"pre_environment": {"orders": {}}}
-            },
+            resealed("command-single", "detected", pre_environment={"orders": {}}),
             "seed_not_provisioned",
         ),
         (
@@ -329,10 +339,15 @@ def test_a_sealed_result_that_does_not_hold_together_fails_the_receipt(
 
 
 def test_a_call_outside_the_turns_fails_the_receipt(tmp_path: Path) -> None:
-    snapshot = recorded("command-single", "detected", "snapshot.json")
-    snapshot["function_calls"][0]["turn"] = 3
+    calls = recorded("command-single", "detected", "snapshot.json")["function_calls"]
+    calls[0]["turn"] = 3
 
-    receipt = parsed(tmp_path, "command-single", "detected", snapshot=snapshot)
+    receipt = parsed(
+        tmp_path,
+        "command-single",
+        "detected",
+        **resealed("command-single", "detected", function_calls=calls),
+    )
 
     assert receipt["incomplete_reason"] == "call_turn_out_of_range"
 
@@ -401,3 +416,74 @@ def test_a_route_that_does_not_exist_yet_is_refused(tmp_path: Path) -> None:
             route="pyrit",
         )
     assert not (run / "r.json").exists()
+
+
+# --- the snapshot's identity: MiDojo's digest of its content ---------------------------
+
+
+@pytest.mark.parametrize(("case", "scenario"), SCENARIOS)
+def test_the_port_reproduces_the_snapshot_id_midojo_computed(case: str, scenario: str) -> None:
+    snapshot = recorded(case, scenario, "snapshot.json")
+
+    assert DIGESTS["midojo_revision"] == RECORDING["midojo_revision"]
+    assert DIGESTS["snapshot_ids"][case][scenario] == snapshot["snapshot_id"]
+    assert snapshot_digest(snapshot) == snapshot["snapshot_id"]
+
+
+@pytest.mark.parametrize(
+    "vector", DIGESTS["encodings"], ids=lambda vector: json.dumps(vector["value"])[:40]
+)
+def test_the_port_encodes_each_json_value_as_midojo_does(vector: dict[str, Any]) -> None:
+    assert dumps(canonical(vector["value"])) == vector["encoding"]
+
+
+def _edited(snapshot: dict[str, Any], name: str) -> None:
+    """Change one thing in ``snapshot``'s content, in place."""
+
+    if name == "agent_output":
+        snapshot["agent_output"] += " "
+    elif name == "call_arguments":
+        snapshot["function_calls"][1]["args"]["plan_id"] = "PLAN-12"
+    elif name == "call_removed":
+        del snapshot["function_calls"][1]
+    elif name == "planted_text":
+        snapshot["pre_environment"]["orders"]["ORD-101"]["item"] += "!"
+    elif name == "float_bits":
+        snapshot["environment"]["orders"]["ORD-101"]["original_price"] = 40.000000000000007
+    elif name == "int_for_float":
+        snapshot["environment"]["orders"]["ORD-101"]["original_price"] = 40
+    elif name == "reply":
+        snapshot["turns"][0]["reply"] = "Nothing happened."
+    elif name == "evidence_status":
+        snapshot["evidence_status"]["function_calls"] = "complete"
+    elif name == "sealed_at":
+        snapshot["sealed_at"] = "2026-01-01T00:00:00+00:00"
+
+
+EDITS = [
+    "agent_output",
+    "call_arguments",
+    "call_removed",
+    "planted_text",
+    "float_bits",
+    "int_for_float",
+    "reply",
+    "evidence_status",
+    "sealed_at",
+]
+
+
+@pytest.mark.parametrize("edit", EDITS)
+def test_a_snapshot_changed_under_its_id_is_refused(tmp_path: Path, edit: str) -> None:
+    snapshot = recorded("command-single", "detected", "snapshot.json")
+    _edited(snapshot, edit)
+
+    receipt = parsed(tmp_path, "command-single", "detected", snapshot=snapshot)
+
+    assert snapshot_digest(snapshot) != snapshot["snapshot_id"]
+    assert (receipt["execution_status"], receipt["incomplete_reason"]) == (
+        "failed",
+        "snapshot_digest_mismatch",
+    )
+    assert receipt["attempts"] == []
+    assert receipt["episode"]["snapshot_id"] == snapshot["snapshot_id"]

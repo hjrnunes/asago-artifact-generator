@@ -1,0 +1,179 @@
+{
+  "encodings": [
+    {
+      "encoding": "null",
+      "value": null
+    },
+    {
+      "encoding": "true",
+      "value": true
+    },
+    {
+      "encoding": "false",
+      "value": false
+    },
+    {
+      "encoding": "0",
+      "value": 0
+    },
+    {
+      "encoding": "1",
+      "value": 1
+    },
+    {
+      "encoding": "-1",
+      "value": -1
+    },
+    {
+      "encoding": "9223372036854775808",
+      "value": 9223372036854775808
+    },
+    {
+      "encoding": "-1000000000000000000000000000000",
+      "value": -1000000000000000000000000000000
+    },
+    {
+      "encoding": "[\"float\",\"0000000000000000\"]",
+      "value": 0.0
+    },
+    {
+      "encoding": "[\"float\",\"8000000000000000\"]",
+      "value": -0.0
+    },
+    {
+      "encoding": "[\"float\",\"3ff0000000000000\"]",
+      "value": 1.0
+    },
+    {
+      "encoding": "[\"float\",\"3fb999999999999a\"]",
+      "value": 0.1
+    },
+    {
+      "encoding": "[\"float\",\"c004000000000000\"]",
+      "value": -2.5
+    },
+    {
+      "encoding": "[\"float\",\"0000000000000001\"]",
+      "value": 5e-324
+    },
+    {
+      "encoding": "[\"float\",\"7fefffffffffffff\"]",
+      "value": 1.7976931348623157e+308
+    },
+    {
+      "encoding": "\"\"",
+      "value": ""
+    },
+    {
+      "encoding": "\"a\"",
+      "value": "a"
+    },
+    {
+      "encoding": "\"\\u00e9\"",
+      "value": "é"
+    },
+    {
+      "encoding": "\"\\u65e5\\u672c\"",
+      "value": "日本"
+    },
+    {
+      "encoding": "\"\\ud83d\\ude00\"",
+      "value": "😀"
+    },
+    {
+      "encoding": "\"\\u2028\"",
+      "value": " "
+    },
+    {
+      "encoding": "\"quo\\\"te\"",
+      "value": "quo\"te"
+    },
+    {
+      "encoding": "\"back\\\\slash\"",
+      "value": "back\\slash"
+    },
+    {
+      "encoding": "\"line\\nbreak\"",
+      "value": "line\nbreak"
+    },
+    {
+      "encoding": "[\"list\",[]]",
+      "value": []
+    },
+    {
+      "encoding": "[\"list\",[1,[\"float\",\"3ff0000000000000\"],true,null,\"1\"]]",
+      "value": [
+        1,
+        1.0,
+        true,
+        null,
+        "1"
+      ]
+    },
+    {
+      "encoding": "[\"list\",[[\"list\",[[\"list\",[]]]]]]",
+      "value": [
+        [
+          []
+        ]
+      ]
+    },
+    {
+      "encoding": "[\"mapping\",[]]",
+      "value": {}
+    },
+    {
+      "encoding": "[\"mapping\",[[\"a\",2],[\"b\",1]]]",
+      "value": {
+        "a": 2,
+        "b": 1
+      }
+    },
+    {
+      "encoding": "[\"mapping\",[[\"\\u00e9\",[\"mapping\",[[\"z\",[\"list\",[1,[\"float\",\"4004000000000000\"]]]]]]],[\"a\",\"x\"]]]",
+      "value": {
+        "a": "x",
+        "é": {
+          "z": [
+            1,
+            2.5
+          ]
+        }
+      }
+    },
+    {
+      "encoding": "[\"mapping\",[[\"\",0],[\"10\",1],[\"9\",2]]]",
+      "value": {
+        "": 0,
+        "10": 1,
+        "9": 2
+      }
+    },
+    {
+      "encoding": "[\"mapping\",[[\"k\",[\"mapping\",[[\"k\",[\"mapping\",[[\"k\",[\"mapping\",[]]]]]]]]]]]",
+      "value": {
+        "k": {
+          "k": {
+            "k": {}
+          }
+        }
+      }
+    }
+  ],
+  "midojo_revision": "b6e0f8fb2fae1b442da28e65778e171be0ce0cc6",
+  "snapshot_ids": {
+    "command-sequential": {
+      "detected": "sha256:e6d578181e1d7d891841f27a3d1eecd25b58aa30fe84895604b51c9c0b314cbf"
+    },
+    "command-single": {
+      "detected": "sha256:b1de86d7e05f85d0a7f8d377e9bf1cf2361d3f1c40bb225989b95d73fdc0da8b",
+      "interrupted": "sha256:0f7a7408ce123ee2202cf2a868a2850ad7e7f32f903e176ea4b601fe23190078",
+      "not-detected": "sha256:24a4f5863907f3e17af1779e3aa54a79a193f5fd4a362ed0807f9cbd3416a815",
+      "unfinished": "sha256:a89597dc8f5eab06e610478652f75b2380bfc74e8e7c1d88fa5690ad826d0377"
+    },
+    "reply-single": {
+      "supported": "sha256:5b72dcc5b6797ee55c6e760b621fdb7a933bdda3c1ff78d0b0e97171bfa4c82d",
+      "unresolved": "sha256:cf07302a30a1bee8dd4f581f1cf78e8c4489c5dadc12279e7aacbccefe05bdaf"
+    }
+  }
+}

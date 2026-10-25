@@ -15,14 +15,17 @@ a pass or a fail. The receipt's ``episode`` block names the route that drove the
 (``route.py``), the evaluation and the snapshot graded, the snapshot's evidence status
 and the verdict as MiDojo gave it.
 
-The verdict must name the snapshot's evaluation and the snapshot itself, its validity must
-agree with its grade, and its evidence status must hold the snapshot's. The snapshot's
-turns must be the episode's, in order, and each call must name one of them; every planted
-payload must be in the snapshot's initial environment where the plan put it. Anything
-else yields a ``failed`` receipt whose ``incomplete_reason`` names what was wrong, and the
-receipt is still written. A turn the agent did not answer (no reply, or the conversation
-ends early) fails the receipt with ``turn_failed:<position>`` (counted from 1); its
-attempt is kept, with MiDojo's verdict unchanged.
+The snapshot must be the one MiDojo sealed: its ``snapshot_id`` is MiDojo's digest of its
+content, recomputed here (``snapshot_digest.py``), so a snapshot whose content changed
+under its ID is refused. The verdict must name the snapshot's evaluation and the snapshot
+itself, its validity must agree with its grade, and its evidence status must hold the
+snapshot's. The snapshot's turns must be the episode's, in order, and each call must name
+one of them; every planted payload must be in the snapshot's initial environment where
+the plan put it. Anything else yields a ``failed`` receipt whose ``incomplete_reason``
+names what was wrong, and the receipt is still written. A turn the agent did not answer
+(no reply, or the conversation ends early) fails the receipt with
+``turn_failed:<position>`` (counted from 1); its attempt is kept, with MiDojo's verdict
+unchanged.
 """
 
 from __future__ import annotations
@@ -38,6 +41,7 @@ from asago_bundle_core.text import canonical_text
 
 from .episode_compile import COMMAND_ATTEMPT, EPISODE_FILE, REPLY, SCHEMA_VERSION, TOOL
 from .route import DEFAULT_ROUTE, ROUTES
+from .snapshot_digest import CONTENT_FIELDS, snapshot_digest
 
 RECEIPT_SCHEMA_VERSION = "execution-receipt-v1"
 DETECTORS = {COMMAND_ATTEMPT: "ToolCallCondition", REPLY: "RubricJudge"}
@@ -49,6 +53,7 @@ UNFINISHED = "unfinished"
 SNAPSHOT_TEXT = ("evaluation_id", "snapshot_id", "agent_output", "sealed_at")
 SNAPSHOT_MAPPINGS = ("pre_environment", "environment", "observations", "evidence_status")
 SNAPSHOT_LISTS = ("function_calls", "turns", "capture_failures")
+SNAPSHOT_FIELDS = frozenset({*CONTENT_FIELDS, "snapshot_id"})
 EPISODE_KEYS = frozenset({"package_id", "scenario_id", "package_digest", "claim_level", "episode"})
 
 
@@ -141,10 +146,11 @@ def read_document(path: Path, prefix: str, shape: Any) -> tuple[dict[str, Any] |
 
 
 def snapshot_shape(snapshot: dict[str, Any]) -> bool:
-    """The snapshot has the ``SnapshotResponse`` fields parse reads, of their types."""
+    """The snapshot has exactly ``SnapshotResponse``'s fields; those parse reads, typed."""
 
     return (
-        all(isinstance(snapshot.get(key), str) for key in SNAPSHOT_TEXT)
+        set(snapshot) == SNAPSHOT_FIELDS
+        and all(isinstance(snapshot.get(key), str) for key in SNAPSHOT_TEXT)
         and all(isinstance(snapshot.get(key), dict) for key in SNAPSHOT_MAPPINGS)
         and all(isinstance(snapshot.get(key), list) for key in SNAPSHOT_LISTS)
         and evidence_shape(snapshot["evidence_status"])
@@ -209,6 +215,8 @@ def sealed_failure(
 ) -> str | None:
     """Return the first reason the sealed result cannot be graded, or None."""
 
+    if snapshot_digest(snapshot) != snapshot["snapshot_id"]:
+        return "snapshot_digest_mismatch"
     if verdict["evaluation_id"] != snapshot["evaluation_id"]:
         return "evaluation_mismatch"
     if verdict["snapshot_id"] != snapshot["snapshot_id"]:

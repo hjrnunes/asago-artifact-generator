@@ -954,8 +954,11 @@ a `state_effect` claim.
 false `not_detected`, and null (validity `invalid`) `inconclusive`, never a pass or a
 fail. The receipt's `episode` block carries the run's `route`, the `evaluation_id` and
 `snapshot_id` graded, the snapshot's `evidence_status`, and the verdict as MiDojo gave it.
-A verdict that names another evaluation or snapshot, a validity that disagrees with the
-grade, turns other than the episode's, or a planted payload missing from the initial
+`parse` recomputes the snapshot's ID, MiDojo's digest of its content (`state.snapshot_digest`,
+ported in `snapshot_digest.py`), and fails a snapshot whose content changed under its ID
+(`snapshot_digest_mismatch`); a value JSON cannot carry back as MiDojo held it fails the
+same way, as MiDojo's own client refuses that round trip. A verdict that names another
+evaluation or snapshot, a validity that disagrees with the grade, turns other than the episode's, or a planted payload missing from the initial
 environment fails the receipt with the reason; a turn without a reply fails it with
 `turn_failed:<n>` and keeps the attempt. `midojo`, MiDojo's own attacker loop, is the only
 route today.

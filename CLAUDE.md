@@ -155,7 +155,8 @@ Deterministic tests must not contact a model endpoint or target.
   Direct and user-turn packages, a single package with history, non-user history, run-time
   bindings and state_effect claims are capability gaps (exit 3). `parse_sealed` (`sealed.py`,
   CLI `parse --snapshot --verdict [--route]`) reads the snapshot (`GET .../snapshot`) and the
-  verdict (`evaluation_id`, `snapshot_id`, `grade`) into `execution-receipt-v1`: security
+  verdict (`evaluation_id`, `snapshot_id`, `grade`) into `execution-receipt-v1`, after
+  recomputing the snapshot ID, MiDojo's digest of the content (`snapshot_digest.py`): security
   true/false/null is detected/not_detected/inconclusive, never coerced, and the receipt's
   `episode` block carries the route (`route.py`: only `midojo` today), the evaluation and
   snapshot IDs, the evidence status and the verdict. `tests/fixtures/episode/` holds compiled

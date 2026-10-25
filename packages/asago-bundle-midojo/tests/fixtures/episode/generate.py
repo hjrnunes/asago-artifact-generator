@@ -14,6 +14,11 @@ its calls through the evaluation's session, and writes ``<case>/<scenario>/snaps
 ``evaluation_id``, ``snapshot_id`` and the grade). It reads each snapshot back the way
 ``ControlClient.snapshot`` does, which refuses one whose digest differs. A reply case's
 verifier is the one ``compile`` wrote, with a scripted judge. Nothing leaves the process.
+
+It also writes ``digests.json``: MiDojo's snapshot ID of every scenario, recomputed from
+the snapshot read back, and MiDojo's encoding (``state._canonical``, then ``state._dumps``)
+of each value of ``DIGEST_VALUES``, the JSON values a snapshot can hold, so the consumer's
+port of the digest is checked against both.
 """
 
 from __future__ import annotations
@@ -34,6 +39,7 @@ from midojo.control_plane.config import AppConfig
 from midojo.control_plane.models import SnapshotResponse
 from midojo.control_plane.routers.runs import snapshot_response
 from midojo.control_plane.service import ControlPlane
+from midojo.control_plane.state import _canonical, _dumps, snapshot_digest
 from midojo.episode import Episode, thaw
 from midojo.runtimes import UnmanagedRuntime
 from midojo.verifiers import register_verifier
@@ -52,6 +58,42 @@ from midojo_sdk.injection import (
 )
 
 REVISION = "b6e0f8fb2fae1b442da28e65778e171be0ce0cc6"
+# JSON values whose encoding pins the digest's edge cases: int, float and bool apart, a
+# float's sign and range, text escapes, and the order of an object's keys.
+DIGEST_VALUES: list[Any] = [
+    None,
+    True,
+    False,
+    0,
+    1,
+    -1,
+    2**63,
+    -(10**30),
+    0.0,
+    -0.0,
+    1.0,
+    0.1,
+    -2.5,
+    5e-324,
+    1.7976931348623157e308,
+    "",
+    "a",
+    "\u00e9",
+    "\u65e5\u672c",
+    "\U0001f600",
+    "\u2028",
+    'quo"te',
+    "back\\slash",
+    "line\nbreak",
+    [],
+    [1, 1.0, True, None, "1"],
+    [[[]]],
+    {},
+    {"b": 1, "a": 2},
+    {"\u00e9": {"z": [1, 2.5]}, "a": "x"},
+    {"10": 1, "9": 2, "": 0},
+    {"k": {"k": {"k": {}}}},
+]
 SUPPORTED = json.dumps({"verdict": "supported", "evidence_refs": ["messages[0].content"]})
 
 
@@ -261,6 +303,7 @@ def register_judge(case_dir: Path, document: dict[str, Any]) -> None:
 
 def main(root: Path) -> None:
     recorded: dict[str, Any] = {}
+    snapshot_ids: dict[str, Any] = {}
     for case, scenarios in SCENARIOS.items():
         document = json.loads((root / case / "episode.json").read_text())
         register_judge(root / case, document)
@@ -275,7 +318,8 @@ def main(root: Path) -> None:
                 SnapshotResponse.model_validate(json.loads(response.model_dump_json())),
                 built.environment_type,
             )
-            assert again.snapshot_id == snapshot.snapshot_id
+            assert again.snapshot_id == snapshot.snapshot_id == snapshot_digest(again)
+            snapshot_ids.setdefault(case, {})[scenario] = snapshot.snapshot_id
             verdict = midojo.grade(built, snapshot)
             write(root / case / scenario / "snapshot.json", response.model_dump(mode="json"))
             write(
@@ -288,6 +332,13 @@ def main(root: Path) -> None:
             )
             recorded.setdefault(case, {})[scenario] = verdict.grade.security
     write(root / "recording.json", {"midojo_revision": REVISION, "security": recorded})
+    encodings = [
+        {"value": value, "encoding": _dumps(_canonical(value))} for value in DIGEST_VALUES
+    ]
+    write(
+        root / "digests.json",
+        {"midojo_revision": REVISION, "snapshot_ids": snapshot_ids, "encodings": encodings},
+    )
 
 
 if __name__ == "__main__":
