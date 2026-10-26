@@ -3,7 +3,8 @@
   "contract": "runtime-contract",
   "schema_version": "artifact-runtime-contract-v2",
   "files": {
-    "artifact-runtime-contract-v2/expected-violations.json": "c26e8a6fb6c1e3312e7ee6b6a075b93ec567ce0d9c95e4462ecde39e2e2eff80",
+    "artifact-runtime-contract-v2.schema.json": "24ccf03d494c5d6d522d92a0903ca76317b5414c866c919f6b263898047dc28a",
+    "artifact-runtime-contract-v2/expected-violations.json": "58366dea96d12c002c8d747b317bcafb15cc4ff5b41be46bc17500ed2c5ae781",
     "artifact-runtime-contract-v2/invalid/claim-level-unknown.json": "ca1617cbc3c021067dee4c6e445daad164f64da2802f7f3f3f9d54c227a5a9e8",
     "artifact-runtime-contract-v2/invalid/delivery-repeated.json": "e43a7a05a917c11d0f24fd045cc842e5852c87affa83d50d9d52ee40633da848",
     "artifact-runtime-contract-v2/invalid/delivery-unknown.json": "419f4e8d201256a335578b67b1437df8204fde7994129389c4722a4fb3480375",
@@ -21,6 +22,7 @@
     "artifact-runtime-contract-v2/invalid/slot-missing-max-chars.json": "7936203895d276d78354e6870e54710c6b7b084d1ac7447bb6971229837fc363",
     "artifact-runtime-contract-v2/invalid/slot-missing-mode.json": "deb50de9d43a55f7efd204023911def3dd6c6bba1ea40e05f06be1e36990f082",
     "artifact-runtime-contract-v2/invalid/slot-mode-unknown.json": "3d216596f17fbd0e6746b76ebb3603774316b55c6667fb4619cc354b76810312",
+    "artifact-runtime-contract-v2/invalid/slot-record-key-blank.json": "d095158396430144ad0ca9181a6de6b12aa8bc34bcb313339afc0b473edaa0e2",
     "artifact-runtime-contract-v2/invalid/slot-record-not-text.json": "aa7625f2f75f5497660c4594b34a4bd81283a620eacae7fb8e6345ed4618406b",
     "artifact-runtime-contract-v2/invalid/slot-unknown-key.json": "18ee755b9f77cc6eda38df4b84f87cfa7b74222f5feff6fd9faf2270fb26d5a0",
     "artifact-runtime-contract-v2/invalid/target-access-direct.json": "ffe25f29e8b221be527d92b5dc56f6732ab967d37750187b44ae5ea56e034a73",
@@ -29,8 +31,8 @@
     "artifact-runtime-contract-v2/valid/claim-levels.json": "ca31c5c2bf7f5add54b6ba57884016d5b0f9608fbd704c4ff2c09bc9cf3d59f0",
     "artifact-runtime-contract-v2/valid/empty-seed-slots.json": "dfb36130208b77b7b27f73750062fd3ae34e332b22f2118aada0ecd03809f0b4",
     "artifact-runtime-contract-v2/valid/minimal.json": "a2ce182d26f266cd8d8c993f88cf85c225b232ee95292e63c0f99e59fd7710f4",
+    "artifact-runtime-contract-v2/valid/slot-with-record-key.json": "034f274950e3f28087d0c881077b85b74612e42d1d4bb0da523e8577ef865646",
     "artifact-runtime-contract-v2/valid/slot-without-records.json": "dc3e4506a5ced3a1b8fcb818e7488d442b04dd1dcd2ad01012cfdabfafdd4418",
-    "artifact-runtime-contract-v2/valid/writer-complete.json": "313ef317787c49439211e7041fcdac0b58500e27dc37c2d478f7c9433830b60a",
-    "artifact-runtime-contract-v2.schema.json": "895ee9791dc30f0f2c6a6e347fb66231d13737e8d6a14a567bfb3fef18ad1144"
+    "artifact-runtime-contract-v2/valid/writer-complete.json": "313ef317787c49439211e7041fcdac0b58500e27dc37c2d478f7c9433830b60a"
   }
 }
