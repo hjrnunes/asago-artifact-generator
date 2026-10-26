@@ -1,6 +1,6 @@
 """The MiDojo episode as plain data: the fields of ``midojo.episode.Episode``, JSON-able.
 
-MiDojo (asago/main at a5f81e9) describes one run as a frozen ``Episode``
+MiDojo (asago/main at 3824922) describes one run as a frozen ``Episode``
 (``src/midojo/episode.py``): the user ``turns``, the injection ``plan``
 (``midojo_sdk.injection.InjectionPlan``, ``interception/python-sdk/src/midojo_sdk/injection.py``),
 the ``security`` and ``utility`` checks as authored specs, the initial ``environment``
@@ -17,8 +17,11 @@ A planted item becomes a ``tool_output`` instruction: MiDojo's host interceptor
 the payload in the result of the instruction's tool, at its ``structured_content`` path
 (``midojo_sdk.mcp``). A path step is a key, a list index, or a record selector
 (``RecordSelector``), written as MiDojo's plan data writes it: ``{"field": <key>,
-"equals": <value>}``. The interceptor changes the result's ``structuredContent`` only:
-its text blocks, and the call's ``result`` MiDojo records, stay as the target sent them.
+"equals": <value>}``. The interceptor changes the result's ``structuredContent``, and
+copies the change into its text when that text is a JSON mirror of the structured content
+(the fixture target's is); other text stays as the target sent it, and the outcome is
+``partial``. The call record MiDojo seals holds the text the agent got, the structured
+content and the injection outcomes.
 The target keeps its own data, so the episode has no environment; and the plan has no
 ``probe_payloads``, which only template instructions name.
 """

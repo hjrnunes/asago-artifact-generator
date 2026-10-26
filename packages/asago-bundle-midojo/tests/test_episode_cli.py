@@ -105,7 +105,7 @@ def test_parse_writes_the_receipt(tmp_path: Path) -> None:
             "--out",
             str(run / "receipt.json"),
             "--tool-revision",
-            "a5f81e96",
+            "3824922f",
             "--route",
             "midojo",
         ]
@@ -113,7 +113,7 @@ def test_parse_writes_the_receipt(tmp_path: Path) -> None:
 
     assert code == 0
     receipt = json.loads((run / "receipt.json").read_text(encoding="utf-8"))
-    assert receipt["tool"]["revision"] == "a5f81e96"
+    assert receipt["tool"]["revision"] == "3824922f"
     assert receipt["episode"]["route"] == "midojo"
     assert receipt["attempts"][0]["result"]["outcome"] == "detected"
 

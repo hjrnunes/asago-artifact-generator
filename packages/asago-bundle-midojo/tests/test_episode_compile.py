@@ -2,7 +2,7 @@
 
 ``fixtures/episode/<case>/`` holds what compile wrote for each case of
 ``episode_cases.CASES`` with the fixture target's ``target.yaml``; MiDojo built each of
-those episodes from its data at a5f81e9 and wrote it back unchanged
+those episodes from its data at 3824922 and wrote it back unchanged
 (``fixtures/episode/generate.py``), so a compile that still writes those bytes still writes
 MiDojo's ``Episode`` shape. Variants of the fixture target's declaration files
 (``episode_cases.target_variant``) cover what the target itself does not declare.
@@ -160,7 +160,7 @@ def test_the_document_names_the_package_and_holds_an_episode_of_midojo_s_fields(
 
     manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
     assert document["schema_version"] == "midojo-episode-v2"
-    assert (document["tool"], document["tool_revision_range"]) == ("midojo", ">=a5f81e96")
+    assert (document["tool"], document["tool_revision_range"]) == ("midojo", ">=3824922f")
     assert document["package_id"] == "SCN-101-SCN-101"
     assert document["scenario_id"] == "SCN-101"
     assert document["package_digest"] == manifest["manifest_digest"]

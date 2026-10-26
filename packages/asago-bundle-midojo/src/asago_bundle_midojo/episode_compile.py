@@ -74,8 +74,10 @@ SCHEMA_VERSION = "midojo-episode-v2"
 TOOL = "midojo"
 # ``Episode`` with its injection plan, ``midojo.open_episode`` with ``HostInterception``,
 # a structured-content path's record selector, and ``midojo.grade`` over a sealed snapshot
-# are on asago/main at a5f81e9.
-TOOL_REVISION_RANGE = ">=a5f81e96"
+# are on asago/main at a5f81e9. From 3824922 the interceptor also copies a placement into a
+# result's text when that text mirrors its structured content, so an agent that reads only
+# the text gets the planted item, and each sealed call record carries its injection outcomes.
+TOOL_REVISION_RANGE = ">=3824922f"
 EPISODE_FILE = "episode.json"
 SEED_MEMBER = "seed.json"
 CONDITION_MEMBER = "tool_call_condition.json"

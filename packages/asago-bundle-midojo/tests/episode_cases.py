@@ -5,13 +5,20 @@ piggybank``): their runtime contract holds its seed slot, their inventory its to
 case is one package; ``fixtures/episode/<case>/`` holds what ``compile`` writes for it with
 that target's ``target.yaml``, and each scenario directory under it a sealed snapshot and its
 verdict, which MiDojo produced from that episode with its host interceptor in front of the
-fixture target (``fixtures/episode/generate.py``). To regenerate:
+fixture target (``fixtures/episode/generate.py``), at asago/main 3824922: each call record
+carries its ``structured_content`` and ``injection_outcomes``. ``fixtures/episode-a5f81e9/``
+keeps what compile wrote and MiDojo sealed at a5f81e9, before those fields, so a snapshot
+sealed then still parses. To regenerate:
 
     uv run python packages/asago-bundle-midojo/tests/episode_cases.py <empty dir>
-    cd <midojo checkout at a5f81e9> && uv run --frozen python \\
+    cd <midojo checkout at 3824922> && uv sync --frozen --extra dev && \\
+        uv run --frozen --extra dev python \\
         <consumer>/packages/asago-bundle-midojo/tests/fixtures/episode/generate.py <that dir>
 
 then copy ``<that dir>`` over ``fixtures/episode/`` (``generate.py`` stays).
+``fixtures/episode-a5f81e9/`` was made the same way with a MiDojo checkout at a5f81e9,
+when compile wrote ``tool_revision_range`` ``>=a5f81e96``; it is kept as sealed, not
+regenerated.
 """
 
 from __future__ import annotations
@@ -32,6 +39,9 @@ PIGGYBANK = REPO / "tests" / "fixtures" / "targets" / "piggybank"
 TARGET = PIGGYBANK / "target.yaml"
 FIXTURES = Path(__file__).parent / "fixtures"
 EPISODES = FIXTURES / "episode"
+# Sealed by MiDojo at a5f81e9: call records without ``structured_content`` or
+# ``injection_outcomes``.
+EPISODES_A5F81E9 = FIXTURES / "episode-a5f81e9"
 TOOLS = json.loads((PIGGYBANK / "tools-list.json").read_text(encoding="utf-8"))["tools"]
 SPEC = yaml.safe_load((PIGGYBANK / "runtime-spec.yaml").read_text(encoding="utf-8"))
 SLOTS = SPEC["seed_slots"]

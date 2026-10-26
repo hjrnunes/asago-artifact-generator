@@ -1,6 +1,6 @@
 """Run each compiled episode in MiDojo, in front of the fixture target, and record the results.
 
-Run with MiDojo's interpreter at asago/main a5f81e9 (see ``tests/episode_cases.py``)::
+Run with MiDojo's interpreter at the revision to record (see ``tests/episode_cases.py``)::
 
     uv run --frozen python generate.py <dir holding <case>/episode.json>
 
@@ -20,14 +20,17 @@ reads each snapshot back the way ``ControlClient.snapshot`` does, which refuses 
 digest differs. A reply case's verifier is the one ``compile`` wrote, with a scripted
 judge. Nothing leaves the process but localhost connections to the fixture target.
 
-``recording.json`` keeps each scenario's security grade, the interceptor's injection
-outcomes, and what the agent received from each carrier call at each placement's field:
-the value there in ``structuredContent``, and whether the call's text block holds the
-payload. The snapshot holds none of these: MiDojo records a call's text blocks, which the
-interceptor leaves as the target sent them. ``digests.json`` keeps MiDojo's
-snapshot ID of every scenario, recomputed from the snapshot read back, and MiDojo's encoding
-(``state._canonical``, then ``state._dumps``) of each value of ``DIGEST_VALUES``, the JSON
-values a snapshot can hold, so the consumer's port of the digest is checked against both.
+``recording.json`` names the MiDojo revision (its checkout's ``HEAD``) and keeps each
+scenario's security grade, the interceptor's injection outcomes, and what the agent
+received from each carrier call at each placement's field: the value there in
+``structuredContent``, and whether the call's text block holds the payload. From 3824922
+the interceptor copies the placement into a text block that mirrors the structured
+content, and each call record in the snapshot carries its ``structured_content`` and
+``injection_outcomes``; before, the text block stayed as the target sent it and the record
+held neither. ``digests.json`` keeps MiDojo's snapshot ID of every scenario, recomputed
+from the snapshot read back, and MiDojo's encoding (``state._canonical``, then
+``state._dumps``) of each value of ``DIGEST_VALUES``, the JSON values a snapshot can hold,
+so the consumer's port of the digest is checked against both.
 """
 
 from __future__ import annotations
@@ -38,6 +41,7 @@ import dataclasses
 import importlib
 import importlib.util
 import json
+import subprocess
 import sys
 import threading
 from collections.abc import Awaitable, Callable, Iterator
@@ -61,7 +65,13 @@ from midojo.runtimes import UnmanagedRuntime
 from midojo.verifiers import register_verifier
 from midojo_sdk.injection import InjectionPlan
 
-REVISION = "a5f81e969c2ab92dfa86b9661fe5ce92e6fe60f5"
+REVISION = subprocess.run(
+    ["git", "rev-parse", "HEAD"],
+    cwd=Path(midojo.__file__).parent,
+    capture_output=True,
+    text=True,
+    check=True,
+).stdout.strip()
 PIGGYBANK = Path(__file__).resolve().parents[5] / "tests" / "fixtures" / "targets" / "piggybank"
 # How long the agent waits for a call the target holds open before it gives up on it.
 HELD_CALL_SECONDS = 1.0

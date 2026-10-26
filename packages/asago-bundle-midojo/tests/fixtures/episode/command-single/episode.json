@@ -91,7 +91,7 @@
   "scenario_id": "SCN-101",
   "schema_version": "midojo-episode-v2",
   "tool": "midojo",
-  "tool_revision_range": ">=a5f81e96",
+  "tool_revision_range": ">=3824922f",
   "tools": {
     "allowed": [
       "get_balance",
