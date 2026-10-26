@@ -140,28 +140,36 @@ Deterministic tests must not contact a model endpoint or target.
   also uses). The bundle's MCP server is the authorized config's `endpoint.mcp_url`.
   Its CLI `instantiate` requires `--package`, `--target` and `--run`.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It maps a
-  `planted_item` package to one resolved MiDojo episode and parses the sealed result; MiDojo
-  runs the episode, and the adapter holds no proxy or interception code. It targets MiDojo's
-  `asago/main` at `b6e0f8f`: `Episode` (`src/midojo/episode.py`), the injection plan
-  (`midojo_sdk.injection`), `midojo.open_episode` and `midojo.grade`.
-  `compile_episode` (`episode_compile.py`, CLI `compile --midojo-base --domain`) writes
-  `episode.json` (`midojo-episode-v1`) whose `episode` is `Episode`'s fields as plain data
-  (`episode.py`): the user turns, one `environment_state` template instruction per seed item
-  at the planted ledger field from the mini-agents base (`environment.py`), the resolved
-  environment, the check, no utility check, the `unmanaged` runtime. A command attempt uses
-  MiDojo's `tool_call_condition` predicate; a reply uses `bundle_files/asago_episode_judge.py`
-  (copied beside the episode with `authoring/rubric_judge.py`; the runner registers it with
-  its judge), three-valued, its requests checked against Garak's (`tests/fixtures/rubric/`).
-  Direct and user-turn packages, a single package with history, non-user history, run-time
-  bindings and state_effect claims are capability gaps (exit 3). `parse_sealed` (`sealed.py`,
-  CLI `parse --snapshot --verdict [--route]`) reads the snapshot (`GET .../snapshot`) and the
-  verdict (`evaluation_id`, `snapshot_id`, `grade`) into `execution-receipt-v1`, after
-  recomputing the snapshot ID, MiDojo's digest of the content (`snapshot_digest.py`): security
-  true/false/null is detected/not_detected/inconclusive, never coerced, and the receipt's
-  `episode` block carries the route (`route.py`: only `midojo` today), the evaluation and
-  snapshot IDs, the evidence status and the verdict. `tests/fixtures/episode/` holds compiled
-  episodes and the snapshots and verdicts MiDojo produced from them (`generate.py`, run in
-  MiDojo's interpreter; `tests/episode_cases.py` says how to regenerate).
+  `planted_item` package to one MiDojo episode for a target config and parses the sealed
+  result; MiDojo runs the episode, and the adapter holds no proxy or interception code. It
+  targets MiDojo's `asago/main` at `f910063`: `Episode` (`src/midojo/episode.py`), the
+  injection plan (`midojo_sdk.injection`), `midojo.open_episode` with `HostInterception`
+  (`src/midojo/interception_host.py`) and `midojo.grade`. It plants by response injection:
+  `compile_episode` (`episode_compile.py`, CLI `compile --target [--block TOOL]`) reads the
+  target config's `tools-list.json` and `runtime-spec.yaml` (`declared.py`) and writes
+  `episode.json` (`midojo-episode-v2`): host `interception` (the runner gives the
+  interceptor the target's `endpoint.mcp_url`; the target never sees a MiDojo session), the
+  allowed `tools` and their write disposition (`forward` by default), `placements`, and
+  `episode`, `Episode`'s fields as plain data with no environment (`episode.py`). Each seed
+  item becomes one strict `tool_output` instruction from its runtime contract slot
+  (`placement.py`): carrier, field path through the record's id, mode, `max_chars`. A
+  command attempt uses MiDojo's `tool_call_condition` predicate; a reply uses
+  `bundle_files/asago_episode_judge.py` (copied beside the episode with
+  `authoring/rubric_judge.py`; the runner registers it with its judge), three-valued, its
+  requests checked against Garak's (`tests/fixtures/rubric/`). Direct and user-turn
+  packages, a single package with history, non-user history, run-time bindings,
+  state_effect claims and a seed the interceptor cannot place in an MCP tool result are
+  capability gaps (exit 3). `parse_sealed` (`sealed.py`, CLI `parse --snapshot --verdict
+  [--route]`) reads the snapshot (`GET .../snapshot`) and the verdict (`evaluation_id`,
+  `snapshot_id`, `grade`) into `execution-receipt-v1`, after recomputing the snapshot ID,
+  MiDojo's digest of the content (`snapshot_digest.py`), and requiring every call to be the
+  interceptor's record: security true/false/null is detected/not_detected/inconclusive,
+  never coerced, and the receipt's `episode` block carries the route (`route.py`: only
+  `midojo` today), the evaluation and snapshot IDs, the evidence status and the verdict.
+  The tests compile against the fixture target (`tests/fixtures/targets/piggybank/`);
+  `tests/fixtures/episode/` holds compiled episodes and the snapshots and verdicts MiDojo
+  produced from them through its interceptor in front of that target (`generate.py`, run
+  in MiDojo's interpreter; `tests/episode_cases.py` says how to regenerate).
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-bundle-garak/tests -q`.
