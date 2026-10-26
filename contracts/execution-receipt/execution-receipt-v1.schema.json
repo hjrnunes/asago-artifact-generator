@@ -92,6 +92,35 @@
             "reason": {"$ref": "#/$defs/optional_text"},
             "validity": {"enum": ["valid", "invalid"]}
           }
+        },
+        "call_injections": {
+          "description": "Optional; delivery evidence: each call the snapshot records, in the order of the attempt's tool calls, with the injection outcomes the tool sealed in its record. null when the snapshot was unreadable.",
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["call_id", "function", "injection_outcomes"],
+            "properties": {
+              "call_id": {"type": "string"},
+              "function": {"type": "string"},
+              "injection_outcomes": {
+                "description": "Each injection instruction that matched the call and how it fared, as the tool sealed it; empty when none matched; null when the record does not say.",
+                "type": ["array", "null"],
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["instruction_index", "probe_key", "occurrence", "status", "detail"],
+                  "properties": {
+                    "instruction_index": {"$ref": "#/$defs/count"},
+                    "probe_key": {"type": ["string", "null"]},
+                    "occurrence": {"type": "integer", "minimum": 1},
+                    "status": {"$ref": "#/$defs/name"},
+                    "detail": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

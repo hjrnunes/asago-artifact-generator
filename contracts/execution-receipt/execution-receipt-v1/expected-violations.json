@@ -3,6 +3,10 @@
     "path": "/tool/id",
     "keyword": "minLength"
   },
+  "invalid/episode-injection-outcome-without-status.json": {
+    "path": "/episode/call_injections/0/injection_outcomes/0",
+    "keyword": "required"
+  },
   "invalid/episode-security-not-three-valued.json": {
     "path": "/episode/verdict/security",
     "keyword": "type"

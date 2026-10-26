@@ -13,7 +13,14 @@ MiDojo's ``security`` grade is three-valued, and so is the receipt: True is
 evidence (``grade_validity`` ``invalid``), ``inconclusive``. An unknown grade is never made
 a pass or a fail. The receipt's ``episode`` block names the route that drove the run
 (``route.py``), the evaluation and the snapshot graded, the snapshot's evidence status
-and the verdict as MiDojo gave it.
+and the verdict as MiDojo gave it, and, as delivery evidence, each sealed call's injection
+outcomes as MiDojo sealed them (``call_injections``).
+
+From asago/main 3824922 every sealed call record also carries ``structured_content`` (the
+structured content the agent got, or None) and ``injection_outcomes`` (each matching
+instruction's ``CallInjectionOutcome``, an empty list when none matched, or None when the
+interception layer reported the call's text only, as for a blocked or unfinished call);
+a record sealed before has neither field. A record with one of them only is malformed.
 
 The snapshot must be the one MiDojo sealed: its ``snapshot_id`` is MiDojo's digest of its
 content, recomputed here (``snapshot_digest.py``), so a snapshot whose content changed
@@ -71,6 +78,21 @@ CALL_FIELDS = frozenset(
         "turn",
         "pre_environment",
         "post_environment",
+    }
+)
+# What a call record gains from 3824922 (``types.FunctionCallRecord``): both or neither.
+CALL_DETAIL_FIELDS = frozenset({"structured_content", "injection_outcomes"})
+OUTCOME_FIELDS = frozenset({"instruction_index", "probe_key", "occurrence", "status", "detail"})
+# ``types.InjectionStatus``: the values of ``midojo_sdk.injection.OutcomeStatus``.
+INJECTION_STATUSES = frozenset(
+    {
+        "applied",
+        "partial",
+        "fallback",
+        "unmatched",
+        "no_result",
+        "too_large",
+        "skipped_occurrence",
     }
 )
 DISPOSITIONS = frozenset({"forwarded", "denied", "simulated", "blocked", None})
@@ -203,7 +225,7 @@ def _optional_text(value: Any) -> bool:
 def _call_shape(call: Any) -> bool:
     return (
         isinstance(call, dict)
-        and set(call) == CALL_FIELDS
+        and set(call) in (CALL_FIELDS, CALL_FIELDS | CALL_DETAIL_FIELDS)
         and all(isinstance(call[key], str) for key in ("call_id", "function", "timestamp"))
         and isinstance(call["args"], dict)
         and _optional_text(call["result"])
@@ -216,6 +238,37 @@ def _call_shape(call: Any) -> bool:
             call[key] is None or isinstance(call[key], dict)
             for key in ("pre_environment", "post_environment")
         )
+        and _details_shape(call)
+    )
+
+
+def _details_shape(call: dict[str, Any]) -> bool:
+    """A record sealed from 3824922: ``structured_content`` an object or None, and
+    ``injection_outcomes`` a list of ``CallInjectionOutcome`` or None."""
+
+    if not CALL_DETAIL_FIELDS <= call.keys():
+        return True
+    structured, outcomes = call["structured_content"], call["injection_outcomes"]
+    return (structured is None or isinstance(structured, dict)) and (
+        outcomes is None
+        or (isinstance(outcomes, list) and all(_outcome_shape(outcome) for outcome in outcomes))
+    )
+
+
+def _outcome_shape(outcome: Any) -> bool:
+    """``CallInjectionOutcome``: the instruction's index in the plan (from 0), its probe, which
+    matching call of the instruction's this was (from 1), its status and why."""
+
+    return (
+        isinstance(outcome, dict)
+        and set(outcome) == OUTCOME_FIELDS
+        and type(outcome["instruction_index"]) is int
+        and outcome["instruction_index"] >= 0
+        and _optional_text(outcome["probe_key"])
+        and type(outcome["occurrence"]) is int
+        and outcome["occurrence"] >= 1
+        and outcome["status"] in INJECTION_STATUSES
+        and isinstance(outcome["detail"], str)
     )
 
 
@@ -466,7 +519,26 @@ def episode_block(
             "reason": grade["security_reason"],
             "validity": grade["grade_validity"]["security"]["status"],
         },
+        "call_injections": None if snapshot is None else call_injections(snapshot),
     }
+
+
+def call_injections(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return each sealed call's injection outcomes, in the order of the attempt's tool calls.
+
+    ``injection_outcomes`` is the record's own: a list (empty when no instruction matched
+    the call), or None when the record does not say (sealed before 3824922, or the layer
+    reported the call's text only).
+    """
+
+    return [
+        {
+            "call_id": call["call_id"],
+            "function": call["function"],
+            "injection_outcomes": call.get("injection_outcomes"),
+        }
+        for call in snapshot["function_calls"]
+    ]
 
 
 def compiled_digest(root: Path) -> str:
