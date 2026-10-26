@@ -27,7 +27,10 @@
             "content_block_type": null,
             "structured_content_path": [
               "notes",
-              "NOTE-1",
+              {
+                "equals": "NOTE-1",
+                "field": "note_id"
+              },
               "body"
             ],
             "surface": "structured_content",
@@ -81,13 +84,14 @@
       "field": "notes[].body",
       "instruction": 0,
       "record": "NOTE-1",
+      "record_key": "note_id",
       "slot": "piggybank.note.body"
     }
   ],
   "scenario_id": "SCN-104",
   "schema_version": "midojo-episode-v2",
   "tool": "midojo",
-  "tool_revision_range": ">=f9100638",
+  "tool_revision_range": ">=a5f81e96",
   "tools": {
     "allowed": [
       "get_balance",

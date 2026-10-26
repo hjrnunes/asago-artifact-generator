@@ -1,12 +1,13 @@
 """Run each compiled episode in MiDojo, in front of the fixture target, and record the results.
 
-Run with MiDojo's interpreter at asago/main f910063 (see ``tests/episode_cases.py``)::
+Run with MiDojo's interpreter at asago/main a5f81e9 (see ``tests/episode_cases.py``)::
 
     uv run --frozen python generate.py <dir holding <case>/episode.json>
 
-For each case it builds ``midojo.episode.Episode`` from ``episode.json`` field by field and
-checks that the episode written back as data is the document's ``episode`` (so the
-consumer's data has MiDojo's shape). Then it runs each scenario once with
+For each case it builds ``midojo.episode.Episode`` from ``episode.json`` field by field,
+the plan with MiDojo's own ``InjectionPlan.from_data``, and checks that the episode written
+back as data (the plan by ``InjectionPlan.to_data``) is the document's ``episode``, so the
+consumer's data has MiDojo's shape. Then it runs each scenario once with
 ``midojo.open_episode`` on an in-process control plane, as the episode's ``interception``
 says: MiDojo's ``HostInterception`` in front of the fixture target, served in this process
 from its ``server.py`` with a fresh state per scenario, at the ``endpoint.mcp_url`` of its
@@ -19,8 +20,11 @@ reads each snapshot back the way ``ControlClient.snapshot`` does, which refuses 
 digest differs. A reply case's verifier is the one ``compile`` wrote, with a scripted
 judge. Nothing leaves the process but localhost connections to the fixture target.
 
-``recording.json`` keeps each scenario's security grade and the interceptor's injection
-outcomes (the snapshot holds neither placement nor outcome). ``digests.json`` keeps MiDojo's
+``recording.json`` keeps each scenario's security grade, the interceptor's injection
+outcomes, and what the agent received from each carrier call at each placement's field:
+the value there in ``structuredContent``, and whether the call's text block holds the
+payload. The snapshot holds none of these: MiDojo records a call's text blocks, which the
+interceptor leaves as the target sent them. ``digests.json`` keeps MiDojo's
 snapshot ID of every scenario, recomputed from the snapshot read back, and MiDojo's encoding
 (``state._canonical``, then ``state._dumps``) of each value of ``DIGEST_VALUES``, the JSON
 values a snapshot can hold, so the consumer's port of the digest is checked against both.
@@ -31,7 +35,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
-import enum
 import importlib
 import importlib.util
 import json
@@ -56,21 +59,9 @@ from midojo.episode import Episode, thaw
 from midojo.interception_host import HostInterception, HostInterceptor
 from midojo.runtimes import UnmanagedRuntime
 from midojo.verifiers import register_verifier
-from midojo_sdk.injection import (
-    Channel,
-    GeneratorPermissions,
-    InjectionInstruction,
-    InjectionMode,
-    InjectionPlan,
-    InjectionTarget,
-    MismatchPolicy,
-    Occurrence,
-    OccurrenceRule,
-    SelectorSurface,
-    Transformation,
-)
+from midojo_sdk.injection import InjectionPlan
 
-REVISION = "f910063843fccbb66944033484f650c3c98e92a5"
+REVISION = "a5f81e969c2ab92dfa86b9661fe5ce92e6fe60f5"
 PIGGYBANK = Path(__file__).resolve().parents[5] / "tests" / "fixtures" / "targets" / "piggybank"
 # How long the agent waits for a call the target holds open before it gives up on it.
 HELD_CALL_SECONDS = 1.0
@@ -124,47 +115,11 @@ def _load_server() -> Any:
 server = _load_server()
 
 
-def instruction(data: dict[str, Any]) -> InjectionInstruction:
-    target, occurrence = data["target"], data["occurrence"]
-    return InjectionInstruction(
-        channel=Channel(data["channel"]),
-        payload=data["payload"],
-        target=InjectionTarget(
-            tool=target["tool"],
-            surface=SelectorSurface(target["surface"]),
-            content_block_index=target["content_block_index"],
-            content_block_type=target["content_block_type"],
-            structured_content_path=tuple(target["structured_content_path"]),
-            template_path=tuple(target["template_path"]),
-            template_key=target["template_key"],
-        ),
-        occurrence=OccurrenceRule(Occurrence(occurrence["kind"]), occurrence["nth"]),
-        transformation=Transformation(data["transformation"]),
-        size_limit=data["size_limit"],
-        mismatch_policy=MismatchPolicy(data["mismatch_policy"]),
-        mode=InjectionMode(data["mode"]),
-        probe_key=data["probe_key"],
-    )
-
-
-def plan(data: dict[str, Any]) -> InjectionPlan:
-    permissions = data["generator_permissions"]
-    return InjectionPlan(
-        tuple(instruction(item) for item in data["instructions"]),
-        generator_permissions=GeneratorPermissions(
-            tools=frozenset(permissions["tools"]),
-            fields=frozenset(tuple(path) for path in permissions["fields"]),
-            modes=frozenset(InjectionMode(mode) for mode in permissions["modes"]),
-        ),
-        probe_payloads=tuple(tuple(pair) for pair in data["probe_payloads"]),
-    )
-
-
 def episode(data: dict[str, Any]) -> Episode:
     return Episode(
         runtime=data["runtime"],
         turns=data["turns"],
-        plan=plan(data["plan"]),
+        plan=InjectionPlan.from_data(data["plan"]),
         security=data["security"],
         utility=data["utility"],
         environment=data["environment"],
@@ -174,22 +129,6 @@ def episode(data: dict[str, Any]) -> Episode:
     )
 
 
-def plain(value: Any) -> Any:
-    """A plan dataclass as data: enums by value, tuples as lists."""
-
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return {
-            field.name: plain(getattr(value, field.name)) for field in dataclasses.fields(value)
-        }
-    if isinstance(value, enum.Enum):
-        return value.value
-    if isinstance(value, tuple | list):
-        return [plain(item) for item in value]
-    if isinstance(value, frozenset):
-        return sorted(plain(item) for item in value)
-    return value
-
-
 def written_back(built: Episode) -> dict[str, Any]:
     def optional(value: Any) -> Any:
         return None if value is None else thaw(value)
@@ -197,7 +136,7 @@ def written_back(built: Episode) -> dict[str, Any]:
     return {
         "runtime": thaw(built.runtime),
         "turns": None if built.turns is None else list(built.turns),
-        "plan": plain(built.plan),
+        "plan": built.plan.to_data(),
         "security": optional(built.security),
         "utility": optional(built.utility),
         "environment": optional(built.environment),
@@ -270,6 +209,8 @@ class ScriptedJudge:
 
 
 JUDGE = ScriptedJudge()
+# What the agent of the scenario running received: (tool, structuredContent, text blocks).
+RECEIVED: list[tuple[str, Any, str]] = []
 Call = tuple[str, dict[str, Any]]
 Agent = Callable[[Any, int, list[str]], Awaitable[str]]
 
@@ -302,7 +243,9 @@ def agent(
                     with contextlib.suppress(TimeoutError):
                         await asyncio.wait_for(client.call_tool_mcp(name, args), HELD_CALL_SECONDS)
                 else:
-                    await client.call_tool_mcp(name, args)
+                    result = await client.call_tool_mcp(name, args)
+                    text = "\n".join(getattr(block, "text", "") for block in result.content)
+                    RECEIVED.append((name, result.structuredContent, text))
         if fail_after == index:
             raise RuntimeError("the agent client failed")
         return replies[index]
@@ -348,9 +291,10 @@ SCENARIOS: dict[str, dict[str, tuple[tuple[Agent, bool], str]]] = {
 
 async def run(
     built: Episode, document: dict[str, Any], script: tuple[Agent, bool]
-) -> tuple[Any, list[dict[str, Any]]]:
+) -> tuple[Any, dict[str, Any]]:
     send, held = script
     allowed = document["tools"]["allowed"]
+    RECEIVED.clear()
     control = ControlPlane({}, config=AppConfig(closure_wait_seconds=0))
     with fixture_target(held) as mcp_url:
         context = midojo.open_episode(
@@ -372,7 +316,40 @@ async def run(
         {"instruction": item.instruction_index, "tool": item.tool, "status": item.status.value}
         for item in context.result.injection_outcomes
     ]
-    return context.sealed, outcomes
+    return context.sealed, {"injection_outcomes": outcomes, "received": received(built)}
+
+
+def at(value: Any, path: list[Any]) -> Any:
+    """Return what ``path`` names in ``value``: a key, an index, or a record selector."""
+
+    for part in path:
+        if isinstance(part, dict):
+            (value,) = [item for item in value if item.get(part["field"]) == part["equals"]]
+        else:
+            value = value[part]
+    return value
+
+
+def received(built: Episode) -> list[dict[str, Any]]:
+    """Return, per carrier call the agent made, what it got at each instruction's field."""
+
+    found = []
+    plan = built.plan.to_data()
+    for index, item in enumerate(plan["instructions"]):
+        tool, path = item["target"]["tool"], item["target"]["structured_content_path"]
+        for name, structured, text in RECEIVED:
+            if name == tool:
+                field = at(structured, path)
+                found.append(
+                    {
+                        "instruction": index,
+                        "tool": name,
+                        "structured_field": field,
+                        "structured_has_payload": item["payload"] in field,
+                        "text_has_payload": item["payload"] in text,
+                    }
+                )
+    return found
 
 
 def write(path: Path, document: Any) -> None:
@@ -402,7 +379,7 @@ def main(root: Path) -> None:
         assert written_back(built) == document["episode"], f"{case}: the episode differs"
         for scenario, (script, judge_reply) in scenarios.items():
             JUDGE.reply = judge_reply
-            snapshot, outcomes = asyncio.run(run(built, document, script))
+            snapshot, delivery = asyncio.run(run(built, document, script))
             response = snapshot_response(snapshot)
             again = snapshot_from_response(
                 SnapshotResponse.model_validate(json.loads(response.model_dump_json())),
@@ -422,7 +399,7 @@ def main(root: Path) -> None:
             )
             recorded.setdefault(case, {})[scenario] = {
                 "security": verdict.grade.security,
-                "injection_outcomes": outcomes,
+                **delivery,
             }
     write(root / "recording.json", {"midojo_revision": REVISION, "scenarios": recorded})
     encodings = [

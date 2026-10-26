@@ -10,7 +10,8 @@ same bytes.
 - The turns are the stimulus's user turns: its history's, then its user text.
 - Each seed item becomes one ``tool_output`` instruction from the seed slot of the
   package's runtime contract it names (``placement.py``): the carrier's structured
-  result, the field through the item's record, the slot's mode and ``max_chars``.
+  result, the field through a selector of the item's record, the slot's mode and
+  ``max_chars``.
   ``placements`` restates each in the contract's terms. MiDojo's host interceptor places
   the text in the result as it forwards the call; the target's data is not changed.
 - ``interception`` is host-side: the runner opens the episode with MiDojo's
@@ -58,13 +59,21 @@ from asago_bundle_core.text import canonical_text
 from .bundle_files.asago_episode_judge import EPISODE_RUBRIC_NAME, FINAL_TURN, JUDGE_TURNS
 from .declared import DeclarationFault, DeclaredTools, declared_tools
 from .episode import episode, injection_plan
-from .placement import PlacementFault, gap_reason, placements, runtime_contract, seed_slots
+from .placement import (
+    PlacementFault,
+    gap_reason,
+    locate,
+    placements,
+    runtime_contract,
+    seed_slots,
+)
 
 SCHEMA_VERSION = "midojo-episode-v2"
 TOOL = "midojo"
 # ``Episode`` with its injection plan, ``midojo.open_episode`` with ``HostInterception``,
-# and ``midojo.grade`` over a sealed snapshot are on asago/main at f910063.
-TOOL_REVISION_RANGE = ">=f9100638"
+# a structured-content path's record selector, and ``midojo.grade`` over a sealed snapshot
+# are on asago/main at a5f81e9.
+TOOL_REVISION_RANGE = ">=a5f81e96"
 EPISODE_FILE = "episode.json"
 SEED_MEMBER = "seed.json"
 CONDITION_MEMBER = "tool_call_condition.json"
@@ -141,6 +150,7 @@ def compile_episode(
     unplaced = [reason for item in planted if (reason := gap_reason(item, declared))]
     if unplaced:
         raise CapabilityGap(capability_gap_record(TOOL, package, delivery, "; ".join(unplaced)))
+    planted = [locate(item, declared) for item in planted]
     allowed = allowed_tools(package, declared, {item.carrier for item in planted})
     turns = user_turns(stimulus)
     security = _security_check(package, level, turns, judge_turns)

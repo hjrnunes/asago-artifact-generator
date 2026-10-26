@@ -1,6 +1,6 @@
 """MiDojo's snapshot ID, recomputed from the snapshot as ``GET .../snapshot`` returns it.
 
-MiDojo names a sealed snapshot by its own content digest (asago/main f910063,
+MiDojo names a sealed snapshot by its own content digest (asago/main a5f81e9,
 ``src/midojo/control_plane/state.py``: ``snapshot_digest``, ``_canonical`` and
 ``_dumps``): ``sha256:<hex>`` of a lossless JSON encoding of everything in the
 snapshot but its ID. This module ports that encoding for the values a JSON snapshot

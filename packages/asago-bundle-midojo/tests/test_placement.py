@@ -14,6 +14,7 @@ from asago_bundle_midojo.placement import (
     PlacementFault,
     Segment,
     field_segments,
+    single_record,
 )
 from asago_bundle_midojo.placement import runtime_contract as contract_of
 
@@ -31,23 +32,50 @@ def test_a_field_that_is_not_keys_joined_by_dots_is_refused(field: str) -> None:
         field_segments(field)
 
 
-def test_a_list_field_is_reached_through_the_list_by_the_record_on_every_call() -> None:
-    instruction = Placement(0, SLOT, "NOTE-1", "text").instruction()
+def test_a_list_field_is_reached_through_the_list_by_a_record_selector_on_every_call() -> None:
+    instruction = Placement(0, SLOT, "NOTE-1", "text", record_key="note_id").instruction()
 
     assert instruction["target"]["tool"] == "list_notes"
-    assert instruction["target"]["structured_content_path"] == ["notes", "NOTE-1", "body"]
+    assert instruction["target"]["structured_content_path"] == [
+        "notes",
+        {"field": "note_id", "equals": "NOTE-1"},
+        "body",
+    ]
     assert instruction["occurrence"]["kind"] == "every"
     assert (instruction["mode"], instruction["size_limit"]) == ("append", 280)
 
 
-def test_a_field_outside_a_list_is_the_result_s_own_on_the_first_call() -> None:
+def test_a_list_field_without_its_record_key_has_no_path() -> None:
+    with pytest.raises(PlacementFault, match="no record key to select by"):
+        Placement(0, SLOT, "NOTE-1", "text").instruction()
+
+
+def test_a_field_outside_a_list_is_the_result_s_own_on_every_call() -> None:
     slot = {**SLOT, "field": "summary.text", "mode": "replace"}
 
     instruction = Placement(3, slot, "NOTE-1", "text").instruction()
 
     assert instruction["target"]["structured_content_path"] == ["summary", "text"]
-    assert instruction["occurrence"]["kind"] == "first"
+    assert instruction["occurrence"]["kind"] == "every"
     assert (instruction["mode"], instruction["probe_key"]) == ("replace", "planted_item:seed_3")
+
+
+@pytest.mark.parametrize(
+    ("input_schema", "records", "single"),
+    [
+        ({"type": "object", "properties": {}}, ["NOTE-1"], True),
+        ({"type": "object"}, ["NOTE-1"], True),
+        (None, ["NOTE-1"], True),
+        ({"type": "object", "properties": {"note_id": {"type": "string"}}}, ["NOTE-1"], False),
+        ({"type": "object", "properties": {}}, ["NOTE-1", "NOTE-2"], False),
+    ],
+)
+def test_a_carrier_returns_only_the_slot_s_record_when_it_takes_no_arguments_and_one_record(
+    input_schema: dict[str, Any] | None, records: list[str], single: bool
+) -> None:
+    tool = {"name": "read_note"} if input_schema is None else {"inputSchema": input_schema}
+
+    assert single_record(tool, {**SLOT, "records": records}) is single
 
 
 def _package(members: dict[str, object], manifest: dict[str, object] | None = None) -> Any:

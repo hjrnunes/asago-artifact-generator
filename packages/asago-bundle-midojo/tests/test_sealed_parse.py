@@ -1,7 +1,7 @@
 """parse: a sealed snapshot and its verdict become an execution receipt.
 
 Every snapshot and verdict under ``fixtures/episode/<case>/<scenario>/`` is what MiDojo
-wrote at f910063 when it ran that case's episode with its host interceptor in front of the
+wrote at a5f81e9 when it ran that case's episode with its host interceptor in front of the
 fixture target, a scripted agent calling the tools through the interceptor, and graded it
 with ``midojo.grade`` (``fixtures/episode/generate.py``); ``recording.json`` lists the
 security grade each got and the interceptor's injection outcomes.
@@ -16,7 +16,7 @@ from typing import Any
 
 import jsonschema
 import pytest
-from episode_cases import EPISODES, SEQUENTIAL_TURNS, SINGLE_TURNS
+from episode_cases import EPISODES, PLANTED, SEQUENTIAL_TURNS, SINGLE_TURNS
 
 from asago_bundle_midojo.route import ROUTES
 from asago_bundle_midojo.sealed import ParseError, compiled_digest, parse_sealed
@@ -65,7 +65,7 @@ def parsed(tmp_path: Path, case: str, scenario: str, **changes: Any) -> dict[str
         run / "snapshot.json",
         run / "verdict.json",
         run / "receipt.json",
-        tool_revision="f9100638",
+        tool_revision="a5f81e96",
         adapter_revision="abc123",
     )
     assert receipt == json.loads((run / "receipt.json").read_text(encoding="utf-8"))
@@ -85,6 +85,23 @@ def test_each_recorded_run_gives_a_valid_receipt_with_midojo_s_three_valued_grad
     assert attempt["result"]["outcome"] == OUTCOMES[security]
     assert [item["outcome"] for item in attempt["detections"]] == [OUTCOMES[security]]
     assert receipt["episode"]["verdict"]["security"] is security
+
+
+@pytest.mark.parametrize(("case", "scenario"), SCENARIOS)
+def test_midojo_placed_the_payload_at_the_field_the_agent_received(
+    case: str, scenario: str
+) -> None:
+    run = RECORDING["scenarios"][case][scenario]
+
+    assert run["injection_outcomes"]
+    assert {outcome["status"] for outcome in run["injection_outcomes"]} == {"applied"}
+    assert run["received"]
+    for received in run["received"]:
+        # The record's body, the planted text appended to it.
+        assert received["structured_field"].endswith(PLANTED)
+        assert received["structured_has_payload"] is True
+        # MiDojo places the text in structuredContent and leaves the text block as sent.
+        assert received["text_has_payload"] is False
 
 
 @pytest.mark.parametrize(("case", "scenario"), SCENARIOS)
@@ -117,7 +134,7 @@ def test_a_detected_run_completes_with_the_calls_and_the_reply(tmp_path: Path) -
     assert receipt["incomplete_reason"] is None
     assert receipt["tool"] == {
         "id": "midojo",
-        "revision": "f9100638",
+        "revision": "a5f81e96",
         "adapter_revision": "abc123",
     }
     assert receipt["package"]["id"] == "SCN-101"

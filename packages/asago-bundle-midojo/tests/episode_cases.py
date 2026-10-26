@@ -8,7 +8,7 @@ verdict, which MiDojo produced from that episode with its host interceptor in fr
 fixture target (``fixtures/episode/generate.py``). To regenerate:
 
     uv run python packages/asago-bundle-midojo/tests/episode_cases.py <empty dir>
-    cd <midojo checkout at f910063> && uv run --frozen python \\
+    cd <midojo checkout at a5f81e9> && uv run --frozen python \\
         <consumer>/packages/asago-bundle-midojo/tests/fixtures/episode/generate.py <that dir>
 
 then copy ``<that dir>`` over ``fixtures/episode/`` (``generate.py`` stays).
