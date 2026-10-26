@@ -163,20 +163,20 @@
   "midojo_revision": "a5f81e969c2ab92dfa86b9661fe5ce92e6fe60f5",
   "snapshot_ids": {
     "command-blocked": {
-      "blocked": "sha256:5bdcf20fa280bf1d87aff6eddfa8288980dd8c19a087433ae69e3481ab3c6b5a"
+      "blocked": "sha256:fd25fef28e1841784a7a8fe24c77a72af05bbbcc6d0ca0499b2f5a845b9c9e36"
     },
     "command-sequential": {
-      "detected": "sha256:ce15bbcdc8916ea9ae1e3fdd6a06d18ce8d092cf3dc566080cc3d66b6ef45728"
+      "detected": "sha256:ccf93d662a9a5a38140a76c97d977275938867afcc153ec621f82cf4cf709281"
     },
     "command-single": {
-      "detected": "sha256:d4608c30b791638a0a25031ba1d8be480230f96e980b47a9a055e287aef80bd5",
-      "interrupted": "sha256:8088af02959c26890557e86592c7f265360eb963b12cd0f01aed98d0011a3c93",
-      "not-detected": "sha256:cd74026183917a0aff1df53759ca71104da9fc7b70aa914b4eed50b72c03ae67",
-      "unfinished": "sha256:a6dc63ed3341d34b18b0d4f8dfbb97880f14561d97c8942d0175d14d3899450f"
+      "detected": "sha256:2b460ecf435a80fcb2068d2c91175a33ce6a2c0641c71b12420ca8b38c502f69",
+      "interrupted": "sha256:13efba1dbba0c97ce5f4bf9518d641f7fc52658c25362b7dc65c37426fdda43d",
+      "not-detected": "sha256:b8d140819d9ceb507e3e76cf8af57039ec9e3d1a2b59bb159d266925bb014cc1",
+      "unfinished": "sha256:00f577a9adbef633ee15d98a237117f964138eafd7fb09557fb284525510fca1"
     },
     "reply-single": {
-      "supported": "sha256:130d11cc810326fd1ceac8728d0bf6eb0ca904780b0e135fb7fd06a74b3ad0c6",
-      "unresolved": "sha256:fcbb77392fa281733c030b9233f12c407aae8edaf2aed62e3de957815088feba"
+      "supported": "sha256:4e486d1f0adf08daed9016719795b49b6a841af8ec4231a432bb715f04eae141",
+      "unresolved": "sha256:dc429b5c5ce11de45a54b7a4890bd19419298ff53e8170f3c9fc3b2f648e5f64"
     }
   }
 }

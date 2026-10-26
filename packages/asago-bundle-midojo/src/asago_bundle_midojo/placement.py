@@ -4,7 +4,10 @@ The package's runtime contract (``inputs.json``'s ``runtime_contract``, else the
 else the manifest's ``runtime_capabilities``) declares each seed slot: the carrier
 operation whose result returns the field to the agent, the ``field`` in that result, the
 ``records`` whose field may hold planted text, the ``mode`` the target writes it with
-(``append`` or ``replace``), and ``max_chars``. Each item of the package's
+(``append`` or ``replace``), ``max_chars``, and, for a field inside a list of records,
+the optional ``record_key``: the list item property whose value is the record's ID. The
+caller's target config may declare the same slot's ``record_key`` in its
+``runtime-spec.yaml`` (``declared.py``). Each item of the package's
 ``artifact-seed-v1`` seed names a slot, one of its records and that slot's mode, and
 becomes one instruction (``episode.tool_output_instruction``):
 
@@ -14,20 +17,19 @@ becomes one instruction (``episode.tool_output_instruction``):
   (``notes[].body``) is reached through the list by a record selector, MiDojo's
   ``{"field": <key>, "equals": <record>}`` step (``["notes", {"field": "note_id",
   "equals": "NOTE-1"}, "body"]``), which picks the one list item whose key field is the
-  record. The key is the one text property the carrier's declared output schema gives the
-  list's items besides the property the field goes on into (``note_id`` beside ``body``);
+  record. The key is the slot's declared ``record_key``, used as declared; nothing infers
+  it;
 - every call of the carrier gets the instruction: the selector, not the call, picks
   the record;
 - the mode is the slot's, the size limit its ``max_chars``, and the payload the item's
   text as the seed holds it.
 
 MiDojo selects by the result, never by the call's arguments, and only a list item can be
-selected by its key. So a field outside a list is placed only when the declarations
-leave the carrier no other record to return: it takes no arguments (its input schema
-declares no property) and the slot names exactly one record. Any other field outside a
-list, and a list whose record key the schema does not settle, is a capability gap
-(``gap_reason``). Placement is strict: a selector that matches nothing leaves the result
-as it was, and MiDojo reports it unmatched.
+selected by its key. No declaration says that the whole result of a carrier is the named
+record, so a field outside a list is always a capability gap, and so is a list field
+whose slot declares no ``record_key``, or one the carrier's output schema does not give
+the list's items as a text property (``gap_reason``). Placement is strict: a selector
+that matches nothing leaves the result as it was, and MiDojo reports it unmatched.
 """
 
 from __future__ import annotations
@@ -65,8 +67,8 @@ class Segment:
 class Placement:
     """Seed item ``index``: the text it plants, the slot it names and the record.
 
-    ``record_key`` is the field of a list item that names its record (``locate`` sets it
-    from the target's declarations), or None for a field outside a list.
+    ``record_key`` is the list item property that names the record, as the slot declares
+    it (``locate`` sets it), or None when no declaration names one.
     """
 
     index: int
@@ -164,6 +166,11 @@ def seed_slots(contract: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
             raise PlacementFault(f"the runtime contract's {label} has no positive max_chars")
         if slot.get("mode") not in MODES:
             raise PlacementFault(f"the runtime contract's {label} has no mode of {list(MODES)}")
+        key = slot.get("record_key")
+        if key is not None and not (isinstance(key, str) and key):
+            raise PlacementFault(
+                f"the runtime contract's {label} has a record_key that is not text"
+            )
         field_segments(slot["field"])
         found[slot["id"]] = slot
     return found
@@ -218,9 +225,10 @@ def gap_reason(placement: Placement, declared: DeclaredTools) -> str | None:
     over MCP, at a text field the result declares, in the record a selector picks, within
     a size limit counted in UTF-8 bytes. A carrier the target does not list (the agent
     reads it by some other way than an MCP call), a result that is not a JSON object, a
-    field the result does not declare, a list whose items do not declare one key field
-    (``locate``), a field outside a list of a carrier that can return another
-    record (``single_record``), and a text over ``max_chars`` bytes cannot be placed.
+    field outside a list (nothing declares the whole result to be the record), a field
+    the result does not declare, a list field whose slot declares no ``record_key``, a
+    ``record_key`` the list's items do not declare as text, and a text over
+    ``max_chars`` bytes cannot be placed. Call it on a placement ``locate`` returned.
     """
 
     label = f"seed item {placement.index}"
@@ -241,22 +249,30 @@ def gap_reason(placement: Placement, declared: DeclaredTools) -> str | None:
     segments = placement.segments
     if sum(segment.listed for segment in segments) > 1 or segments[-1].listed:
         return f"{label}: the field {field!r} does not name one text field of one record"
+    if not placement.listed:
+        return (
+            f"{label}: MiDojo selects a record only as an item of a list in the result, and "
+            f"{field!r} is outside a list: no declaration says a result of {carrier!r} is "
+            f"record {placement.record!r}"
+        )
     if not _declares_text(schema, segments):
         return f"{label}: {carrier!r}'s result declares no text field {field!r}"
-    if placement.listed:
-        candidates = _key_candidates(schema, segments)
-        if len(candidates) != 1:
-            return (
-                f"{label}: MiDojo selects a list record by the one field that names it, and "
-                f"{carrier!r}'s result declares {len(candidates)} text fields beside the "
-                f"planted one for the items of {field!r} ({', '.join(candidates) or 'none'})"
-            )
-    elif not single_record(tool, placement.slot):
+    key = placement.record_key
+    if key is None:
         return (
-            f"{label}: MiDojo selects by the result, not the call's arguments, and "
-            f"{field!r} is outside a list: a call of {carrier!r} may return another record "
-            f"than {placement.record!r} (the carrier takes arguments, or the slot names more "
-            "than one record)"
+            f"{label}: slot {placement.slot['id']} declares no record_key, the property of "
+            f"the items of {field!r} that names a record, which MiDojo selects the record by"
+        )
+    declared_type = _item_property(schema, segments, key)
+    if declared_type is None:
+        return (
+            f"{label}: {carrier!r}'s result declares no property {key!r} (slot "
+            f"{placement.slot['id']}'s record_key) for the items of {field!r}"
+        )
+    if declared_type != "string":
+        return (
+            f"{label}: {carrier!r}'s result declares {key!r} (slot {placement.slot['id']}'s "
+            f"record_key) for the items of {field!r} as {declared_type!r}, not text"
         )
     size = len(placement.content.encode("utf-8"))
     if size > placement.slot["max_chars"]:
@@ -268,46 +284,43 @@ def gap_reason(placement: Placement, declared: DeclaredTools) -> str | None:
 
 
 def locate(placement: Placement, declared: DeclaredTools) -> Placement:
-    """Return ``placement`` with the record key of its list field, from the carrier's schema.
+    """Return ``placement`` with its slot's ``record_key``, as the declarations state it.
 
-    Call it on a placement ``gap_reason`` accepts; a field outside a list keeps None.
+    The key is the package runtime contract's slot ``record_key``, else the target
+    config's (``DeclaredTools.record_keys``). When both state one they must agree, or
+    ``PlacementFault`` is raised: the package was authored against another declaration.
     """
 
-    if not placement.listed:
-        return placement
-    schema = declared.tools[placement.carrier]["outputSchema"]
-    (key,) = _key_candidates(schema, placement.segments)
-    return replace(placement, record_key=key)
+    slot_id = placement.slot["id"]
+    stated = placement.slot.get("record_key")
+    target = declared.record_keys.get(slot_id)
+    if stated is not None and target is not None and stated != target:
+        raise PlacementFault(
+            f"seed item {placement.index}: slot {slot_id}'s record_key is {stated!r} in the "
+            f"runtime contract and {target!r} in the target config"
+        )
+    return replace(placement, record_key=stated if stated is not None else target)
 
 
-def single_record(tool: Mapping[str, Any], slot: Mapping[str, Any]) -> bool:
-    """Return whether every call of ``tool`` can only return the slot's one record.
+def _item_property(
+    schema: Mapping[str, Any], segments: tuple[Segment, ...], name: str
+) -> str | None:
+    """Return the declared type of property ``name`` of the list's items, or None.
 
-    The declarations prove it when the tool's input schema declares no property (no call
-    can ask for another record) and the slot names exactly one record.
+    ``"untyped"`` when the property is declared with no type. Call it on a field
+    ``_declares_text`` accepts.
     """
-
-    inputs = tool.get("inputSchema")
-    properties = inputs.get("properties") if isinstance(inputs, dict) else None
-    return not properties and len(slot["records"]) == 1
-
-
-def _key_candidates(schema: Mapping[str, Any], segments: tuple[Segment, ...]) -> list[str]:
-    """Return the text properties of the list's items, beside the one the field goes into."""
 
     node: Any = schema
-    for position, segment in enumerate(segments):
+    for segment in segments:
         node = node["properties"][segment.name]
         if segment.listed:
-            items = node["items"]
-            onward = segments[position + 1].name
-            properties = items.get("properties") if isinstance(items, dict) else None
-            return sorted(
-                name
-                for name, value in (properties or {}).items()
-                if name != onward and isinstance(value, dict) and value.get("type") == "string"
-            )
-    return []
+            properties = node["items"].get("properties") or {}
+            value = properties.get(name)
+            if not isinstance(value, dict):
+                return None
+            return value.get("type", "untyped")
+    return None
 
 
 def _declares_text(schema: Mapping[str, Any], segments: tuple[Segment, ...]) -> bool:

@@ -240,6 +240,7 @@ def test_the_declaration_files_are_consistent() -> None:
             "max_chars",
             "mode",
             "records",
+            "record_key",
         }
         text_keys = ("id", "carrier_operation", "field", "controller", "content_kind")
         assert all(isinstance(slot[key], str) and slot[key] for key in text_keys)
@@ -249,6 +250,10 @@ def test_the_declaration_files_are_consistent() -> None:
         carried = tools[slot["carrier_operation"]]["outputSchema"]["properties"][collection]
         assert attribute in carried["items"]["properties"]
         assert set(slot["records"]) <= set(server.INITIAL_STATE[collection])
+        # The record key is a text property of the listed items, and its value is the ID.
+        assert carried["items"]["properties"][slot["record_key"]] == {"type": "string"}
+        for record in slot["records"]:
+            assert server.INITIAL_STATE[collection][record][slot["record_key"]] == record
 
 
 def test_the_bare_variant_serves_the_tools_without_declaration_seed_or_reset(

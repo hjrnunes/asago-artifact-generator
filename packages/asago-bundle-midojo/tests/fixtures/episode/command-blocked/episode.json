@@ -76,7 +76,7 @@
     "mode": "host",
     "upstream": "endpoint.mcp_url"
   },
-  "package_digest": "87ffa30f2dea065ed542071ae6d6ec036f9d35bdf8c7a4b695b0d40d49b3610a",
+  "package_digest": "8fadd9b3c590bef7b867b9d96ef11da0dff76efb5bc55949450c8d11887fe962",
   "package_id": "SCN-104-SCN-104",
   "placements": [
     {

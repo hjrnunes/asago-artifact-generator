@@ -9,16 +9,19 @@ import pytest
 from episode_cases import SLOTS, runtime_contract
 
 from asago_artifact_generator.package_io import build_package
+from asago_bundle_midojo.declared import DeclaredTools
 from asago_bundle_midojo.placement import (
     Placement,
     PlacementFault,
     Segment,
     field_segments,
-    single_record,
+    gap_reason,
+    locate,
 )
 from asago_bundle_midojo.placement import runtime_contract as contract_of
 
 SLOT = SLOTS[0]
+TEXT = {"type": "string"}
 
 
 def test_a_field_splits_into_keys_marking_the_list_of_records() -> None:
@@ -50,32 +53,55 @@ def test_a_list_field_without_its_record_key_has_no_path() -> None:
         Placement(0, SLOT, "NOTE-1", "text").instruction()
 
 
-def test_a_field_outside_a_list_is_the_result_s_own_on_every_call() -> None:
-    slot = {**SLOT, "field": "summary.text", "mode": "replace"}
-
-    instruction = Placement(3, slot, "NOTE-1", "text").instruction()
-
-    assert instruction["target"]["structured_content_path"] == ["summary", "text"]
-    assert instruction["occurrence"]["kind"] == "every"
-    assert (instruction["mode"], instruction["probe_key"]) == ("replace", "planted_item:seed_3")
+NOTE = {"type": "object", "properties": {"note_id": {"type": "string"}, "body": TEXT}}
 
 
 @pytest.mark.parametrize(
-    ("input_schema", "records", "single"),
+    "input_schema",
     [
-        ({"type": "object", "properties": {}}, ["NOTE-1"], True),
-        ({"type": "object"}, ["NOTE-1"], True),
-        (None, ["NOTE-1"], True),
-        ({"type": "object", "properties": {"note_id": {"type": "string"}}}, ["NOTE-1"], False),
-        ({"type": "object", "properties": {}}, ["NOTE-1", "NOTE-2"], False),
+        {"type": "object", "properties": {}},
+        {"type": "object"},
+        None,
+        {"type": "object", "properties": {"note_id": {"type": "string"}}},
     ],
+    ids=["no-properties", "no-properties-key", "no-input-schema", "an-argument"],
 )
-def test_a_carrier_returns_only_the_slot_s_record_when_it_takes_no_arguments_and_one_record(
-    input_schema: dict[str, Any] | None, records: list[str], single: bool
+@pytest.mark.parametrize("records", [["NOTE-1"], ["NOTE-1", "NOTE-2"]], ids=["one", "two"])
+def test_a_field_outside_a_list_is_refused_whatever_the_carrier_takes(
+    input_schema: dict[str, Any] | None, records: list[str]
 ) -> None:
-    tool = {"name": "read_note"} if input_schema is None else {"inputSchema": input_schema}
+    tool: dict[str, Any] = {"name": "pinned_note", "outputSchema": NOTE}
+    if input_schema is not None:
+        tool["inputSchema"] = input_schema
+    slot = {**SLOT, "carrier_operation": "pinned_note", "field": "body", "records": records}
+    declared = DeclaredTools({"pinned_note": tool}, frozenset())
 
-    assert single_record(tool, {**SLOT, "records": records}) is single
+    reason = gap_reason(locate(Placement(0, slot, "NOTE-1", "text"), declared), declared)
+
+    assert reason == (
+        "seed item 0: MiDojo selects a record only as an item of a list in the result, and "
+        "'body' is outside a list: no declaration says a result of 'pinned_note' is record "
+        "'NOTE-1'"
+    )
+
+
+def test_the_record_key_is_the_contract_s_else_the_target_config_s() -> None:
+    bare = {key: value for key, value in SLOT.items() if key != "record_key"}
+    placement = Placement(0, bare, "NOTE-1", "text")
+
+    from_target = locate(placement, DeclaredTools({}, frozenset(), {SLOT["id"]: "note_id"}))
+    from_contract = locate(Placement(0, SLOT, "NOTE-1", "text"), DeclaredTools({}, frozenset()))
+    undeclared = locate(placement, DeclaredTools({}, frozenset()))
+
+    assert (from_target.record_key, from_contract.record_key) == ("note_id", "note_id")
+    assert undeclared.record_key is None
+
+
+def test_a_record_key_the_contract_and_the_target_state_differently_is_refused() -> None:
+    declared = DeclaredTools({}, frozenset(), {SLOT["id"]: "body"})
+
+    with pytest.raises(PlacementFault, match="record_key is 'note_id' in the runtime contract"):
+        locate(Placement(0, SLOT, "NOTE-1", "text"), declared)
 
 
 def _package(members: dict[str, object], manifest: dict[str, object] | None = None) -> Any:

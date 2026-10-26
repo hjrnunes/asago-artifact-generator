@@ -10,8 +10,8 @@ same bytes.
 - The turns are the stimulus's user turns: its history's, then its user text.
 - Each seed item becomes one ``tool_output`` instruction from the seed slot of the
   package's runtime contract it names (``placement.py``): the carrier's structured
-  result, the field through a selector of the item's record, the slot's mode and
-  ``max_chars``.
+  result, the field through a selector of the item's record by the slot's declared
+  ``record_key``, the slot's mode and ``max_chars``.
   ``placements`` restates each in the contract's terms. MiDojo's host interceptor places
   the text in the result as it forwards the call; the target's data is not changed.
 - ``interception`` is host-side: the runner opens the episode with MiDojo's
@@ -144,15 +144,17 @@ def compile_episode(
     if SEED_MEMBER not in package.members:
         raise CompileError(f"a {PLANTED_ITEM} package has no {SEED_MEMBER}")
     try:
-        planted = placements(
-            _json_member(package, SEED_MEMBER), seed_slots(runtime_contract(package))
-        )
+        planted = [
+            locate(item, declared)
+            for item in placements(
+                _json_member(package, SEED_MEMBER), seed_slots(runtime_contract(package))
+            )
+        ]
     except PlacementFault as exc:
         raise CompileError(str(exc)) from exc
     unplaced = [reason for item in planted if (reason := gap_reason(item, declared))]
     if unplaced:
         raise CapabilityGap(capability_gap_record(TOOL, package, delivery, "; ".join(unplaced)))
-    planted = [locate(item, declared) for item in planted]
     allowed = allowed_tools(package, declared, {item.carrier for item in planted})
     turns = user_turns(stimulus)
     security = _security_check(package, level, turns, judge_turns)

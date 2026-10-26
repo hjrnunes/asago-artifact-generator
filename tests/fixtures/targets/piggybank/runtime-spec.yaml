@@ -14,6 +14,8 @@ seed_slots:
     max_chars: 280
     mode: append
     records: [NOTE-1]
+    # The property of a listed note whose value is the record's ID, as in records.
+    record_key: note_id
 # The tools whose annotations carry neither readOnlyHint nor destructiveHint.
 operations:
   mutating: [withdraw]

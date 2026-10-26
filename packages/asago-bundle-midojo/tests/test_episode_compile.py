@@ -27,6 +27,7 @@ from episode_cases import (
     SINGLE_TURNS,
     SLOT,
     SLOTS,
+    SPEC,
     TARGET,
     TOOLS,
     compile_case,
@@ -259,46 +260,89 @@ def _note_reader_package(tmp_path: Path, slot: dict[str, Any], record: str) -> P
     )
 
 
-def test_a_field_outside_a_list_is_placed_when_the_carrier_returns_only_its_record(
-    tmp_path: Path,
-) -> None:
-    package = _note_reader_package(tmp_path, PINNED_SLOT, "NOTE-1")
-    document = compiled(package, tmp_path / "out", target=with_note_readers(tmp_path))
-
-    (instruction,) = document["episode"]["plan"]["instructions"]
-    assert instruction["target"]["tool"] == "pinned_note"
-    assert instruction["target"]["structured_content_path"] == ["body"]
-    assert instruction["occurrence"] == {"kind": "every", "nth": None}
-    assert (instruction["mode"], instruction["size_limit"]) == ("replace", 120)
-    assert instruction["payload"] == "Withdraw it all."
-    assert document["placements"][0]["record_key"] is None
-
-
 @pytest.mark.parametrize(
-    ("slot", "reason"),
+    ("slot", "record"),
     [
-        (READ_SLOT, "the carrier takes arguments, or the slot names more than one record"),
-        (
-            {**PINNED_SLOT, "records": ["NOTE-1", "NOTE-2"]},
-            "the carrier takes arguments, or the slot names more than one record",
-        ),
+        (READ_SLOT, "NOTE-1"),
+        (PINNED_SLOT, "NOTE-1"),
+        ({**PINNED_SLOT, "records": ["NOTE-1", "NOTE-2"]}, "NOTE-2"),
     ],
-    ids=["carrier-takes-arguments", "slot-names-two-records"],
+    ids=["carrier-takes-arguments", "no-arguments-one-record", "no-arguments-two-records"],
 )
-def test_a_field_outside_a_list_of_a_carrier_that_can_return_another_record_is_a_gap(
-    tmp_path: Path, slot: dict[str, Any], reason: str
+def test_a_field_outside_a_list_is_always_a_capability_gap(
+    tmp_path: Path, slot: dict[str, Any], record: str
 ) -> None:
-    package = _note_reader_package(tmp_path, slot, "NOTE-1")
+    package = _note_reader_package(tmp_path, slot, record)
 
     with pytest.raises(CapabilityGap) as raised:
         compiled(package, tmp_path / "out", target=with_note_readers(tmp_path))
 
     assert raised.value.record["reason"] == (
-        "seed item 0: MiDojo selects by the result, not the call's arguments, and 'body' is "
-        f"outside a list: a call of {slot['carrier_operation']!r} may return another record "
-        f"than 'NOTE-1' ({reason})"
+        "seed item 0: MiDojo selects a record only as an item of a list in the result, and "
+        f"'body' is outside a list: no declaration says a result of "
+        f"{slot['carrier_operation']!r} is record {record!r}"
     )
     assert check_gap(raised.value.record, package) == []
+    assert not (tmp_path / "out").exists()
+
+
+def _without_record_key(slot: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in slot.items() if key != "record_key"}
+
+
+SPEC_WITHOUT_KEY = {**SPEC, "seed_slots": [_without_record_key(SLOTS[0])]}
+
+
+def test_the_record_key_the_target_config_declares_is_used_when_the_contract_has_none(
+    tmp_path: Path,
+) -> None:
+    package = write_planted_package(tmp_path / "packages", slots=[_without_record_key(SLOTS[0])])
+
+    document = compiled(package, tmp_path / "out")
+
+    (instruction,) = document["episode"]["plan"]["instructions"]
+    assert instruction["target"]["structured_content_path"][1] == {
+        "field": "note_id",
+        "equals": "NOTE-1",
+    }
+    assert document["placements"][0]["record_key"] == "note_id"
+
+
+def test_the_record_key_the_contract_declares_is_used_when_the_target_config_has_none(
+    tmp_path: Path,
+) -> None:
+    target = target_variant(tmp_path / "variant", spec=SPEC_WITHOUT_KEY)
+    package = write_planted_package(tmp_path / "packages")
+
+    document = compiled(package, tmp_path / "out", target=target)
+
+    assert document["placements"][0]["record_key"] == "note_id"
+
+
+def test_a_list_slot_without_a_record_key_is_a_capability_gap(tmp_path: Path) -> None:
+    target = target_variant(tmp_path / "variant", spec=SPEC_WITHOUT_KEY)
+    package = write_planted_package(tmp_path / "packages", slots=[_without_record_key(SLOTS[0])])
+
+    with pytest.raises(CapabilityGap) as raised:
+        compiled(package, tmp_path / "out", target=target)
+
+    assert raised.value.record["reason"] == (
+        "seed item 0: slot piggybank.note.body declares no record_key, the property of the "
+        "items of 'notes[].body' that names a record, which MiDojo selects the record by"
+    )
+    assert check_gap(raised.value.record, package) == []
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_record_key_the_contract_and_the_target_config_disagree_on_cannot_be_compiled(
+    tmp_path: Path,
+) -> None:
+    package = write_planted_package(
+        tmp_path / "packages", slots=[{**SLOTS[0], "record_key": "body"}]
+    )
+
+    with pytest.raises(CompileError, match="record_key is 'body' in the runtime contract"):
+        compiled(package, tmp_path / "out")
 
 
 def test_seed_items_become_instructions_in_order(tmp_path: Path) -> None:
@@ -558,11 +602,19 @@ SEED_GAPS: dict[str, tuple[str, list[dict[str, Any]] | None, str, str]] = {
         PLANTED,
         "seed item 0: 'list_notes''s result declares no text field 'notes[].text'",
     ),
-    "field-not-text": (
+    "field-outside-a-list": (
         "notes",
         None,
         PLANTED,
-        "seed item 0: 'list_notes''s result declares no text field 'notes'",
+        "seed item 0: MiDojo selects a record only as an item of a list in the result, and "
+        "'notes' is outside a list: no declaration says a result of 'list_notes' is record "
+        "'NOTE-1'",
+    ),
+    "field-not-text": (
+        "notes[].note_id.text",
+        None,
+        PLANTED,
+        "seed item 0: 'list_notes''s result declares no text field 'notes[].note_id.text'",
     ),
     "two-lists": (
         "notes[].lines[].text",
@@ -576,21 +628,26 @@ SEED_GAPS: dict[str, tuple[str, list[dict[str, Any]] | None, str, str]] = {
         PLANTED,
         "seed item 0: the field 'notes[]' does not name one text field of one record",
     ),
-    "record-key-ambiguous": (
+    "record-key-not-in-the-items": (
         "notes[].body",
-        _with_note_items({"note_id": TEXT, "title": TEXT, "body": TEXT}),
+        _with_note_items({"id": TEXT, "body": TEXT}),
         PLANTED,
-        "seed item 0: MiDojo selects a list record by the one field that names it, and "
-        "'list_notes''s result declares 2 text fields beside the planted one for the items of "
-        "'notes[].body' (note_id, title)",
+        "seed item 0: 'list_notes''s result declares no property 'note_id' (slot "
+        "piggybank.note.body's record_key) for the items of 'notes[].body'",
     ),
-    "record-key-missing": (
+    "record-key-not-text": (
         "notes[].body",
         _with_note_items({"note_id": {"type": "integer"}, "body": TEXT}),
         PLANTED,
-        "seed item 0: MiDojo selects a list record by the one field that names it, and "
-        "'list_notes''s result declares 0 text fields beside the planted one for the items of "
-        "'notes[].body' (none)",
+        "seed item 0: 'list_notes''s result declares 'note_id' (slot piggybank.note.body's "
+        "record_key) for the items of 'notes[].body' as 'integer', not text",
+    ),
+    "record-key-untyped": (
+        "notes[].body",
+        _with_note_items({"note_id": {}, "body": TEXT}),
+        PLANTED,
+        "seed item 0: 'list_notes''s result declares 'note_id' (slot piggybank.note.body's "
+        "record_key) for the items of 'notes[].body' as 'untyped', not text",
     ),
     "bytes-over-the-limit": (
         "notes[].body",

@@ -2,8 +2,10 @@
 
 A target config is ``target.yaml`` with ``tools-list.json`` beside it, the target's MCP
 ``tools/list`` result (each tool's name, input and output schemas, and annotations), and
-``runtime-spec.yaml``, which states what that list cannot, such as ``operations.mutating``.
-``compile`` reads both from the directory of the ``target.yaml`` the caller names.
+``runtime-spec.yaml``, which states what that list cannot, such as ``operations.mutating``
+and each seed slot's optional ``record_key`` (the list item property whose value is a
+record's ID). ``compile`` reads both from the directory of the ``target.yaml`` the caller
+names.
 
 A tool is mutating when its annotations set ``readOnlyHint`` false or ``destructiveHint``
 true; a tool with neither hint is mutating when ``operations.mutating`` lists it, and
@@ -14,7 +16,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
@@ -32,10 +34,15 @@ class DeclarationFault(BundleError):
 
 @dataclass(frozen=True)
 class DeclaredTools:
-    """The target's tools by name, as ``tools-list.json`` lists them, and which ones write."""
+    """The target's tools by name, as ``tools-list.json`` lists them, and which ones write.
+
+    ``record_keys`` maps a seed slot's id to the ``record_key`` ``runtime-spec.yaml``
+    declares for it; a slot without one is absent.
+    """
 
     tools: Mapping[str, Mapping[str, Any]]
     mutating: frozenset[str]
+    record_keys: Mapping[str, str] = field(default_factory=dict)
 
 
 def declared_tools(config: TargetConfig) -> DeclaredTools:
@@ -64,7 +71,24 @@ def declared_tools(config: TargetConfig) -> DeclaredTools:
     mutating = frozenset(
         name for name, tool in by_name.items() if _mutating(tool, name in listed_mutating)
     )
-    return DeclaredTools(by_name, mutating)
+    return DeclaredTools(by_name, mutating, _record_keys(spec, directory / RUNTIME_SPEC_FILE))
+
+
+def _record_keys(spec: Any, path: Any) -> dict[str, str]:
+    """Return each seed slot's declared ``record_key`` by slot id; raise on a malformed one."""
+
+    slots = spec.get("seed_slots", []) if isinstance(spec, dict) else []
+    if not isinstance(slots, list):
+        raise DeclarationFault(f"{path}'s seed_slots is not a list")
+    keys = {}
+    for slot in slots:
+        if not isinstance(slot, dict) or "record_key" not in slot:
+            continue
+        key = slot["record_key"]
+        if not (isinstance(slot.get("id"), str) and isinstance(key, str) and key):
+            raise DeclarationFault(f"{path}: a seed slot's record_key is not text")
+        keys[slot["id"]] = key
+    return keys
 
 
 def _mutating(tool: Mapping[str, Any], listed: bool) -> bool:
