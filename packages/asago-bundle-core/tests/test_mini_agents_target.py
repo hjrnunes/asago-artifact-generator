@@ -126,5 +126,6 @@ def test_a_setup_call_reaches_mini_agents_over_sse(mini_agents_sse: str) -> None
     (block,) = native["content"]
     assert block["type"] == "text"
     assert value == json.loads(block["text"])
-    # FastMCP reports the tool's JSON string both as text and wrapped as structured content.
-    assert native["structuredContent"] == {"result": block["text"]}
+    # FastMCP reports the result as text and as structured content: the object itself for a
+    # tool that declares an output schema, else the JSON string wrapped as {"result": ...}.
+    assert native["structuredContent"] in (dict(value), {"result": block["text"]})
