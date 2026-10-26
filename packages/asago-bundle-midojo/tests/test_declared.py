@@ -19,9 +19,13 @@ def declared(target: Path) -> Any:
 def test_the_fixture_target_declares_its_tools_and_its_one_write() -> None:
     tools = declared(TARGET)
 
-    assert sorted(tools.tools) == ["get_balance", "list_notes", "withdraw"]
+    assert sorted(tools.tools) == ["get_balance", "list_notes", "read_note", "withdraw"]
     assert tools.tools["list_notes"] == next(t for t in TOOLS if t["name"] == "list_notes")
     assert tools.mutating == frozenset({"withdraw"})
+    assert tools.record_keys == {
+        "piggybank.note.body": "note_id",
+        "piggybank.note.read": "note_id",
+    }
 
 
 @pytest.mark.parametrize(

@@ -1,4 +1,4 @@
-"""A tiny MCP target for the adapter tests: three tools over a dictionary of state.
+"""A tiny MCP target for the adapter tests: four tools over a dictionary of state.
 
 ``serve`` answers MCP's ``initialize``, ``tools/list`` and ``tools/call`` as JSON-RPC sent by
 HTTP POST to ``/mcp`` on localhost, one JSON response per request, and ``GET /health``.
@@ -8,7 +8,9 @@ the seed slots of ``runtime-spec.yaml``) and ``POST /reset`` (back to the initia
 ``serve --bare`` is the same target without declaration files, seed or reset.
 
 A seed slot's ``field`` is ``<collection>[].<attribute>``: the carrier's result lists the
-records of that state collection, and the planted text goes into the record's attribute.
+records of that state collection, and the planted text goes into the record's attribute. A
+carrier that returns one record, the one its argument names (``read_note``), has a plain
+``<attribute>`` field: the record is in the collection ``LOOKUPS`` gives for the carrier.
 
 The workspace members' pytest sessions share no import path, so each loads this file by path
 (``Path(__file__).resolve().parents[3] / "tests/fixtures/targets/piggybank"`` from a member's
@@ -48,6 +50,12 @@ _ACCOUNT = {
     "type": "object",
     "properties": {"account_id": {"type": "string"}, "balance": {"type": "number"}},
 }
+_NOTE = {
+    "type": "object",
+    "properties": {"note_id": {"type": "string"}, "body": {"type": "string"}},
+}
+# The state collection of each tool that returns the one record its argument names.
+LOOKUPS = {"read_note": "notes"}
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "get_balance",
@@ -67,15 +75,20 @@ TOOLS: list[dict[str, Any]] = [
         "outputSchema": {
             "type": "object",
             "properties": {
-                "notes": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {"note_id": {"type": "string"}, "body": {"type": "string"}},
-                    },
-                }
+                "notes": {"type": "array", "items": _NOTE},
             },
         },
+        "annotations": {"readOnlyHint": True},
+    },
+    {
+        "name": "read_note",
+        "description": "Read one note by its ID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"note_id": {"type": "string"}},
+            "required": ["note_id"],
+        },
+        "outputSchema": _NOTE,
         "annotations": {"readOnlyHint": True},
     },
     {
@@ -108,6 +121,15 @@ def declared_slots() -> list[dict[str, Any]]:
     return spec["seed_slots"]
 
 
+def slot_place(slot: dict[str, Any]) -> tuple[str, str]:
+    """Return the state collection a seed slot's records are in, and their planted attribute."""
+
+    collection, listed, attribute = slot["field"].partition("[].")
+    if listed:
+        return collection, attribute
+    return LOOKUPS[slot["carrier_operation"]], slot["field"]
+
+
 class Target:
     """The tools over a copy of ``INITIAL_STATE``; ``slots`` is None for the bare variant."""
 
@@ -118,6 +140,11 @@ class Target:
     def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name == "list_notes":
             return {"notes": [dict(note) for note in self.state["notes"].values()]}
+        if name == "read_note":
+            note = self.state["notes"].get(arguments.get("note_id"))
+            if note is None:
+                raise ToolError(f"no note {arguments.get('note_id')!r}")
+            return dict(note)
         account = self.state["accounts"].get(arguments.get("account_id"))
         if account is None:
             raise ToolError(f"no account {arguments.get('account_id')!r}")
@@ -193,7 +220,7 @@ class Target:
             content = item.get("content")
             if not isinstance(content, str) or not 0 < len(content) <= slot["max_chars"]:
                 raise SeedError(f"item {index}: content must be 1 to {slot['max_chars']} chars")
-            collection, _, attribute = slot["field"].partition("[].")
+            collection, attribute = slot_place(slot)
             record = self.state[collection][item["record_ref"]]
             writes.append((record, attribute, item["mode"], content))
         for record, attribute, mode, content in writes:
