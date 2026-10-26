@@ -32,6 +32,7 @@ from typing import Any
 from asago_artifact_generator.package_io import ArtifactPackage
 from asago_bundle_core.errors import BundleError
 
+from .declared import DeclaredTools
 from .episode import EVERY, FIRST, probe_key, tool_output_instruction
 
 SEED_SCHEMA_VERSION = "artifact-seed-v1"
@@ -189,6 +190,59 @@ def placements(seed: Any, slots: Mapping[str, Mapping[str, Any]]) -> list[Placem
             )
         found.append(Placement(index, slot, item["record_ref"], content))
     return found
+
+
+def gap_reason(placement: Placement, declared: DeclaredTools) -> str | None:
+    """Return why MiDojo cannot place the item in the carrier's MCP result, or None.
+
+    MiDojo's interceptor places text in the structured result of a tool the target lists
+    over MCP, at a text field the result declares, within a size limit counted in UTF-8
+    bytes. A carrier the target does not list (the agent reads it by some other way than
+    an MCP call), a result that is not a JSON object, a field the result does not declare,
+    and a text over ``max_chars`` bytes cannot be placed.
+    """
+
+    label = f"seed item {placement.index}"
+    carrier = placement.carrier
+    tool = declared.tools.get(carrier)
+    if tool is None:
+        return (
+            f"{label}: the carrier {carrier!r} is not an MCP tool of the target; MiDojo "
+            "places planted text only in an MCP tool result"
+        )
+    schema = tool.get("outputSchema")
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        return (
+            f"{label}: {carrier!r} declares no JSON object result; MiDojo places planted "
+            "text at a field of a structured tool result"
+        )
+    field = placement.slot["field"]
+    segments = placement.segments
+    if sum(segment.listed for segment in segments) > 1 or segments[-1].listed:
+        return f"{label}: the field {field!r} does not name one text field of one record"
+    if not _declares_text(schema, segments):
+        return f"{label}: {carrier!r}'s result declares no text field {field!r}"
+    size = len(placement.content.encode("utf-8"))
+    if size > placement.slot["max_chars"]:
+        return (
+            f"{label}: the text is {size} UTF-8 bytes; MiDojo's size limit counts bytes, and "
+            f"slot {placement.slot['id']} holds {placement.slot['max_chars']}"
+        )
+    return None
+
+
+def _declares_text(schema: Mapping[str, Any], segments: tuple[Segment, ...]) -> bool:
+    """Return whether ``schema`` declares a text value at ``segments``, through any list."""
+
+    node: Any = schema
+    for segment in segments:
+        properties = node.get("properties") if isinstance(node, dict) else None
+        node = properties.get(segment.name) if isinstance(properties, dict) else None
+        if segment.listed:
+            if not isinstance(node, dict) or node.get("type") != "array":
+                return False
+            node = node.get("items")
+    return isinstance(node, dict) and node.get("type") == "string"
 
 
 def field_segments(field: str) -> tuple[Segment, ...]:

@@ -33,9 +33,10 @@ same bytes.
 
 MiDojo runs planted_item packages only. A package whose stimulus delivers its attack in
 the user turns (a direct or user-turn package), a single package with history, a
-history message that is not the user's, a stimulus with run-time bindings, and a
-state_effect claim are capability gaps: ``compile`` raises ``CapabilityGap`` with the
-shared record and writes nothing.
+history message that is not the user's, a stimulus with run-time bindings, a
+state_effect claim, and a seed item the interceptor cannot place in an MCP tool result
+(``placement.gap_reason``) are capability gaps: ``compile`` raises ``CapabilityGap`` with
+the shared record and writes nothing.
 """
 
 from __future__ import annotations
@@ -57,7 +58,7 @@ from asago_bundle_core.text import canonical_text
 from .bundle_files.asago_episode_judge import EPISODE_RUBRIC_NAME, FINAL_TURN, JUDGE_TURNS
 from .declared import DeclarationFault, DeclaredTools, declared_tools
 from .episode import episode, injection_plan
-from .placement import PlacementFault, placements, runtime_contract, seed_slots
+from .placement import PlacementFault, gap_reason, placements, runtime_contract, seed_slots
 
 SCHEMA_VERSION = "midojo-episode-v2"
 TOOL = "midojo"
@@ -137,6 +138,9 @@ def compile_episode(
         )
     except PlacementFault as exc:
         raise CompileError(str(exc)) from exc
+    unplaced = [reason for item in planted if (reason := gap_reason(item, declared))]
+    if unplaced:
+        raise CapabilityGap(capability_gap_record(TOOL, package, delivery, "; ".join(unplaced)))
     allowed = allowed_tools(package, declared, {item.carrier for item in planted})
     turns = user_turns(stimulus)
     security = _security_check(package, level, turns, judge_turns)

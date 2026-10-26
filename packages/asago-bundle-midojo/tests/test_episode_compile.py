@@ -10,6 +10,7 @@ MiDojo's ``Episode`` shape. Variants of the fixture target's declaration files
 
 from __future__ import annotations
 
+import copy
 import json
 from importlib.resources import files
 from pathlib import Path
@@ -465,6 +466,103 @@ def test_a_gap_names_every_cause(tmp_path: Path) -> None:
         [GAPS["direct-single"][1], GAPS["state-effect"][1]]
     )
     assert raised.value.record["delivery"] == "single"
+
+
+def _without_list_notes_schema() -> list[dict[str, Any]]:
+    tools = copy.deepcopy(TOOLS)
+    for tool in tools:
+        if tool["name"] == "list_notes":
+            del tool["outputSchema"]
+    return tools
+
+
+# Name -> (the slot's field, the target's tools, the item's text, the gap's reason).
+SEED_GAPS: dict[str, tuple[str, list[dict[str, Any]] | None, str, str]] = {
+    "carrier-outside-mcp": (
+        "notes[].body",
+        [tool for tool in TOOLS if tool["name"] != "list_notes"],
+        PLANTED,
+        "seed item 0: the carrier 'list_notes' is not an MCP tool of the target; MiDojo "
+        "places planted text only in an MCP tool result",
+    ),
+    "result-not-json": (
+        "notes[].body",
+        _without_list_notes_schema(),
+        PLANTED,
+        "seed item 0: 'list_notes' declares no JSON object result; MiDojo places planted "
+        "text at a field of a structured tool result",
+    ),
+    "missing-field": (
+        "notes[].text",
+        None,
+        PLANTED,
+        "seed item 0: 'list_notes''s result declares no text field 'notes[].text'",
+    ),
+    "field-not-text": (
+        "notes",
+        None,
+        PLANTED,
+        "seed item 0: 'list_notes''s result declares no text field 'notes'",
+    ),
+    "two-lists": (
+        "notes[].lines[].text",
+        None,
+        PLANTED,
+        "seed item 0: the field 'notes[].lines[].text' does not name one text field of one record",
+    ),
+    "a-record-not-a-field": (
+        "notes[]",
+        None,
+        PLANTED,
+        "seed item 0: the field 'notes[]' does not name one text field of one record",
+    ),
+    "bytes-over-the-limit": (
+        "notes[].body",
+        None,
+        "é" * 200,
+        "seed item 0: the text is 400 UTF-8 bytes; MiDojo's size limit counts bytes, and "
+        "slot piggybank.note.body holds 280",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(SEED_GAPS))
+def test_a_seed_midojo_cannot_place_in_an_mcp_result_is_a_capability_gap(
+    tmp_path: Path, name: str
+) -> None:
+    field, tools, content, reason = SEED_GAPS[name]
+    target = target_variant(tmp_path / "variant", tools=tools)
+    package = write_planted_package(
+        tmp_path / "packages",
+        slots=[{**SLOTS[0], "field": field}],
+        seed=seed_document(seed_item(content)),
+    )
+
+    with pytest.raises(CapabilityGap) as raised:
+        compiled(package, tmp_path / "out", target=target)
+
+    assert raised.value.record["reason"] == reason
+    assert check_gap(raised.value.record, package) == []
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_seed_gap_names_every_item_that_cannot_be_placed(tmp_path: Path) -> None:
+    slots = [{**SLOTS[0], "field": "notes[].text"}, READ_SLOT]
+    seed = seed_document(
+        seed_item(),
+        seed_item("x", slot=READ_SLOT["id"], mode="replace"),
+        carrier="list_notes",
+    )
+    slots[1] = {**READ_SLOT, "carrier_operation": "list_notes", "field": "notes[].title"}
+    package = write_planted_package(tmp_path / "packages", slots=slots, seed=seed)
+
+    with pytest.raises(CapabilityGap) as raised:
+        compiled(package, tmp_path / "out")
+
+    assert raised.value.record["reason"] == (
+        "seed item 0: 'list_notes''s result declares no text field 'notes[].text'; "
+        "seed item 1: 'list_notes''s result declares no text field 'notes[].title'"
+    )
 
 
 def test_a_planted_package_without_a_seed_cannot_be_compiled(tmp_path: Path) -> None:
