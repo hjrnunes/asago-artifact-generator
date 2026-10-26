@@ -27,6 +27,9 @@ from collections.abc import Sequence
 from typing import Any
 
 # ``midojo_sdk.injection`` enum values.
+TOOL_OUTPUT = "tool_output"
+STRUCTURED_CONTENT = "structured_content"
+EVERY = "every"
 ENVIRONMENT_STATE = "environment_state"
 TEMPLATE = "template"
 REPLACE = "replace"
@@ -79,6 +82,44 @@ def template_instruction(path: Sequence[str | int], key: str, payload: str) -> d
         "size_limit": None,
         "mismatch_policy": STRICT,
         "mode": REPLACE,
+        "probe_key": key,
+    }
+
+
+def tool_output_instruction(
+    *,
+    tool: str,
+    path: Sequence[str | int],
+    payload: str,
+    mode: str,
+    size_limit: int,
+    occurrence: str,
+    key: str,
+) -> dict[str, Any]:
+    """Return an ``InjectionInstruction`` that places ``payload`` at ``path`` in ``tool``'s result.
+
+    Every field is written, defaults included, so the data names the whole placement: the
+    calls ``occurrence`` selects, no transformation, the size limit in UTF-8 bytes, and
+    strict on a mismatch (MiDojo reports a path it cannot match and leaves the result).
+    """
+
+    return {
+        "channel": TOOL_OUTPUT,
+        "payload": payload,
+        "target": {
+            "tool": tool,
+            "surface": STRUCTURED_CONTENT,
+            "content_block_index": None,
+            "content_block_type": None,
+            "structured_content_path": list(path),
+            "template_path": [],
+            "template_key": None,
+        },
+        "occurrence": {"kind": occurrence, "nth": None},
+        "transformation": IDENTITY,
+        "size_limit": size_limit,
+        "mismatch_policy": STRICT,
+        "mode": mode,
         "probe_key": key,
     }
 
