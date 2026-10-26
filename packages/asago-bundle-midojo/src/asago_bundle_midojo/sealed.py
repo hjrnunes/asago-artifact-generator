@@ -183,7 +183,7 @@ def read_compiled(root: Path) -> Compiled:
     missing = EPISODE_KEYS - document.keys()
     if missing:
         raise ParseError(f"the episode document lacks {sorted(missing)}")
-    if document["claim_level"] not in DETECTORS:
+    if not _one_of(document["claim_level"], DETECTORS):
         raise ParseError(f"the episode's claim level is not graded: {document['claim_level']!r}")
     return Compiled(root, document)
 
@@ -222,6 +222,13 @@ def _optional_text(value: Any) -> bool:
     return value is None or isinstance(value, str)
 
 
+def _one_of(value: Any, allowed: Any) -> bool:
+    """Whether ``value`` is text or None and one of ``allowed``; a list or an object is not,
+    and never reaches the membership test, which cannot hash it."""
+
+    return _optional_text(value) and value in allowed
+
+
 def _call_shape(call: Any) -> bool:
     return (
         isinstance(call, dict)
@@ -231,8 +238,8 @@ def _call_shape(call: Any) -> bool:
         and _optional_text(call["result"])
         and _optional_text(call["error"])
         and all(type(call[key]) is bool for key in ("blocked", "complete"))
-        and call["disposition"] in DISPOSITIONS
-        and call["provenance"] in PROVENANCES
+        and _one_of(call["disposition"], DISPOSITIONS)
+        and _one_of(call["provenance"], PROVENANCES)
         and (call["turn"] is None or type(call["turn"]) is int)
         and all(
             call[key] is None or isinstance(call[key], dict)
@@ -267,7 +274,7 @@ def _outcome_shape(outcome: Any) -> bool:
         and _optional_text(outcome["probe_key"])
         and type(outcome["occurrence"]) is int
         and outcome["occurrence"] >= 1
-        and outcome["status"] in INJECTION_STATUSES
+        and _one_of(outcome["status"], INJECTION_STATUSES)
         and isinstance(outcome["detail"], str)
     )
 
@@ -295,7 +302,7 @@ def _failure_shape(failure: Any) -> bool:
 
 def evidence_shape(status: Any) -> bool:
     return isinstance(status, dict) and all(
-        isinstance(key, str) and value in EVIDENCE_STATUSES for key, value in status.items()
+        isinstance(key, str) and _one_of(value, EVIDENCE_STATUSES) for key, value in status.items()
     )
 
 
@@ -329,7 +336,7 @@ def _validity_shape(validity: Any) -> bool:
         and all(
             isinstance(check, dict)
             and set(check) == {"status", "reasons"}
-            and check["status"] in VALIDITIES
+            and _one_of(check["status"], VALIDITIES)
             and isinstance(check["reasons"], list)
             and all(
                 isinstance(reason, dict)

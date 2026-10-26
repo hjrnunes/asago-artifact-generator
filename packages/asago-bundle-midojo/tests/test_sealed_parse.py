@@ -540,6 +540,20 @@ def test_an_episode_directory_without_an_episode_cannot_be_parsed(tmp_path: Path
         parse_sealed(tmp_path, run / "snapshot.json", run / "verdict.json", run / "r.json")
 
 
+@pytest.mark.parametrize("claim_level", [["reply"], {"reply": True}])
+def test_an_episode_whose_claim_level_is_not_text_cannot_be_parsed(
+    tmp_path: Path, claim_level: Any
+) -> None:
+    episode = tmp_path / "episode"
+    shutil.copytree(EPISODES / "command-single", episode)
+    document = _read(episode / "episode.json") | {"claim_level": claim_level}
+    (episode / "episode.json").write_text(json.dumps(document), encoding="utf-8")
+    run = run_dir(tmp_path, "command-single", "detected")
+
+    with pytest.raises(ParseError, match="claim level is not graded"):
+        parse_sealed(episode, run / "snapshot.json", run / "verdict.json", run / "r.json")
+
+
 def test_native_files_outside_the_receipt_directory_are_refused(tmp_path: Path) -> None:
     run = run_dir(tmp_path, "command-single", "detected")
 
@@ -687,6 +701,12 @@ def _snapshot_variant(name: str) -> dict[str, Any]:
         call["disposition"] = "teleported"
     elif name == "call-complete-not-bool":
         call["complete"] = 1
+    elif name == "call-disposition-a-list":
+        call["disposition"] = ["forwarded"]
+    elif name == "call-provenance-an-object":
+        call["provenance"] = {"interceptor": True}
+    elif name == "evidence-status-a-list":
+        snapshot["evidence_status"] = {"function_calls": ["complete"]}
     elif name == "turn-missing-started-at":
         del turn["started_at"]
     elif name == "capture-failure-phase":
@@ -713,6 +733,9 @@ SNAPSHOT_VARIANTS = [
     "call-missing-field",
     "call-unknown-disposition",
     "call-complete-not-bool",
+    "call-disposition-a-list",
+    "call-provenance-an-object",
+    "evidence-status-a-list",
     "turn-missing-started-at",
     "capture-failure-phase",
     "observation-not-object",
@@ -765,6 +788,10 @@ def _detailed_call(name: str) -> dict[str, Any]:
         outcome["detail"] = None
     elif name == "outcome-status-null":
         outcome["status"] = None
+    elif name == "outcome-status-a-list":
+        outcome["status"] = ["applied"]
+    elif name == "outcome-status-an-object":
+        outcome["status"] = {"applied": True}
     # Shapes MiDojo's types allow.
     elif name == "no-structured-content":
         call["structured_content"] = None
@@ -798,6 +825,8 @@ MALFORMED_DETAILS = [
     "outcome-probe-not-text",
     "outcome-detail-null",
     "outcome-status-null",
+    "outcome-status-a-list",
+    "outcome-status-an-object",
 ]
 ACCEPTED_DETAILS = [
     "no-structured-content",
@@ -855,6 +884,10 @@ def _verdict_variant(name: str) -> dict[str, Any]:
         grade["grade_validity"]["security"]["reasons"] = ["capture is incomplete"]
     elif name == "security-not-applicable":
         grade["grade_validity"]["security"] = {"status": "not_applicable", "reasons": []}
+    elif name == "validity-status-a-list":
+        grade["grade_validity"]["utility"]["status"] = ["valid"]
+    elif name == "evidence-status-an-object":
+        grade["evidence_status"] = {"function_calls": {"status": "complete"}}
     return verdict
 
 
@@ -867,6 +900,8 @@ VERDICT_VARIANTS = [
     "validity-unknown-status",
     "reason-not-a-validity-reason",
     "security-not-applicable",
+    "validity-status-a-list",
+    "evidence-status-an-object",
 ]
 
 
