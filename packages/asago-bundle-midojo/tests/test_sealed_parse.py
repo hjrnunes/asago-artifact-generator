@@ -782,6 +782,8 @@ def _detailed_call(name: str) -> dict[str, Any]:
         outcome["instruction_index"] = "0"
     elif name == "outcome-occurrence-zero":
         outcome["occurrence"] = 0
+    elif name == "outcome-unmatched-occurrence-negative":
+        outcome["status"], outcome["occurrence"] = "unmatched", -1
     elif name == "outcome-probe-not-text":
         outcome["probe_key"] = 3
     elif name == "outcome-detail-null":
@@ -805,6 +807,11 @@ def _detailed_call(name: str) -> dict[str, Any]:
         outcome["status"] = name
     elif name == "outcome-later-occurrence":
         outcome["instruction_index"], outcome["occurrence"] = 4, 3
+    elif name == "outcome-call-arguments-unmatched":
+        # From b5b8c75: a call whose arguments do not match the instruction's
+        # call_arguments is left unchanged and not counted.
+        outcome["status"], outcome["occurrence"] = "unmatched", 0
+        outcome["detail"] = "call argument 'note_id' is 'NOTE-1', not 'NOTE-2'; result unchanged"
     return call
 
 
@@ -822,6 +829,7 @@ MALFORMED_DETAILS = [
     "outcome-index-a-bool",
     "outcome-index-text",
     "outcome-occurrence-zero",
+    "outcome-unmatched-occurrence-negative",
     "outcome-probe-not-text",
     "outcome-detail-null",
     "outcome-status-null",
@@ -834,6 +842,7 @@ ACCEPTED_DETAILS = [
     "no-outcomes",
     "outcome-without-probe",
     "outcome-later-occurrence",
+    "outcome-call-arguments-unmatched",
     *sorted(INJECTION_STATUSES),
 ]
 

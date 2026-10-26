@@ -21,6 +21,8 @@ structured content the agent got, or None) and ``injection_outcomes`` (each matc
 instruction's ``CallInjectionOutcome``, an empty list when none matched, or None when the
 interception layer reported the call's text only, as for a blocked or unfinished call);
 a record sealed before has neither field. A record with one of them only is malformed.
+From b5b8c75 an outcome may also be a call whose arguments did not match its instruction's
+``call_arguments``: ``unmatched`` at occurrence 0, a call the instruction does not count.
 
 The snapshot must be the one MiDojo sealed: its ``snapshot_id`` is MiDojo's digest of its
 content, recomputed here (``snapshot_digest.py``), so a snapshot whose content changed
@@ -83,6 +85,8 @@ CALL_FIELDS = frozenset(
 # What a call record gains from 3824922 (``types.FunctionCallRecord``): both or neither.
 CALL_DETAIL_FIELDS = frozenset({"structured_content", "injection_outcomes"})
 OUTCOME_FIELDS = frozenset({"instruction_index", "probe_key", "occurrence", "status", "detail"})
+# The status of a call whose arguments did not match an instruction's, at occurrence 0.
+UNMATCHED = "unmatched"
 # ``types.InjectionStatus``: the values of ``midojo_sdk.injection.OutcomeStatus``.
 INJECTION_STATUSES = frozenset(
     {
@@ -264,7 +268,8 @@ def _details_shape(call: dict[str, Any]) -> bool:
 
 def _outcome_shape(outcome: Any) -> bool:
     """``CallInjectionOutcome``: the instruction's index in the plan (from 0), its probe, which
-    matching call of the instruction's this was (from 1), its status and why."""
+    matching call of the instruction's this was (from 1, or 0 for an ``unmatched`` call whose
+    arguments did not match the instruction's ``call_arguments``), its status and why."""
 
     return (
         isinstance(outcome, dict)
@@ -273,8 +278,11 @@ def _outcome_shape(outcome: Any) -> bool:
         and outcome["instruction_index"] >= 0
         and _optional_text(outcome["probe_key"])
         and type(outcome["occurrence"]) is int
-        and outcome["occurrence"] >= 1
         and _one_of(outcome["status"], INJECTION_STATUSES)
+        and (
+            outcome["occurrence"] >= 1
+            or (outcome["occurrence"] == 0 and outcome["status"] == UNMATCHED)
+        )
         and isinstance(outcome["detail"], str)
     )
 

@@ -113,7 +113,11 @@
                   "properties": {
                     "instruction_index": {"$ref": "#/$defs/count"},
                     "probe_key": {"type": ["string", "null"]},
-                    "occurrence": {"type": "integer", "minimum": 1},
+                    "occurrence": {
+                      "description": "Which matching call of the instruction's this was, from 1; 0 for an unmatched call whose arguments did not match the instruction's call arguments, which the instruction does not count.",
+                      "type": "integer",
+                      "minimum": 0
+                    },
                     "status": {"$ref": "#/$defs/name"},
                     "detail": {"type": "string"}
                   }
