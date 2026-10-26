@@ -1,0 +1,182 @@
+{
+  "encodings": [
+    {
+      "encoding": "null",
+      "value": null
+    },
+    {
+      "encoding": "true",
+      "value": true
+    },
+    {
+      "encoding": "false",
+      "value": false
+    },
+    {
+      "encoding": "0",
+      "value": 0
+    },
+    {
+      "encoding": "1",
+      "value": 1
+    },
+    {
+      "encoding": "-1",
+      "value": -1
+    },
+    {
+      "encoding": "9223372036854775808",
+      "value": 9223372036854775808
+    },
+    {
+      "encoding": "-1000000000000000000000000000000",
+      "value": -1000000000000000000000000000000
+    },
+    {
+      "encoding": "[\"float\",\"0000000000000000\"]",
+      "value": 0.0
+    },
+    {
+      "encoding": "[\"float\",\"8000000000000000\"]",
+      "value": -0.0
+    },
+    {
+      "encoding": "[\"float\",\"3ff0000000000000\"]",
+      "value": 1.0
+    },
+    {
+      "encoding": "[\"float\",\"3fb999999999999a\"]",
+      "value": 0.1
+    },
+    {
+      "encoding": "[\"float\",\"c004000000000000\"]",
+      "value": -2.5
+    },
+    {
+      "encoding": "[\"float\",\"0000000000000001\"]",
+      "value": 5e-324
+    },
+    {
+      "encoding": "[\"float\",\"7fefffffffffffff\"]",
+      "value": 1.7976931348623157e+308
+    },
+    {
+      "encoding": "\"\"",
+      "value": ""
+    },
+    {
+      "encoding": "\"a\"",
+      "value": "a"
+    },
+    {
+      "encoding": "\"\\u00e9\"",
+      "value": "é"
+    },
+    {
+      "encoding": "\"\\u65e5\\u672c\"",
+      "value": "日本"
+    },
+    {
+      "encoding": "\"\\ud83d\\ude00\"",
+      "value": "😀"
+    },
+    {
+      "encoding": "\"\\u2028\"",
+      "value": " "
+    },
+    {
+      "encoding": "\"quo\\\"te\"",
+      "value": "quo\"te"
+    },
+    {
+      "encoding": "\"back\\\\slash\"",
+      "value": "back\\slash"
+    },
+    {
+      "encoding": "\"line\\nbreak\"",
+      "value": "line\nbreak"
+    },
+    {
+      "encoding": "[\"list\",[]]",
+      "value": []
+    },
+    {
+      "encoding": "[\"list\",[1,[\"float\",\"3ff0000000000000\"],true,null,\"1\"]]",
+      "value": [
+        1,
+        1.0,
+        true,
+        null,
+        "1"
+      ]
+    },
+    {
+      "encoding": "[\"list\",[[\"list\",[[\"list\",[]]]]]]",
+      "value": [
+        [
+          []
+        ]
+      ]
+    },
+    {
+      "encoding": "[\"mapping\",[]]",
+      "value": {}
+    },
+    {
+      "encoding": "[\"mapping\",[[\"a\",2],[\"b\",1]]]",
+      "value": {
+        "a": 2,
+        "b": 1
+      }
+    },
+    {
+      "encoding": "[\"mapping\",[[\"\\u00e9\",[\"mapping\",[[\"z\",[\"list\",[1,[\"float\",\"4004000000000000\"]]]]]]],[\"a\",\"x\"]]]",
+      "value": {
+        "a": "x",
+        "é": {
+          "z": [
+            1,
+            2.5
+          ]
+        }
+      }
+    },
+    {
+      "encoding": "[\"mapping\",[[\"\",0],[\"10\",1],[\"9\",2]]]",
+      "value": {
+        "": 0,
+        "10": 1,
+        "9": 2
+      }
+    },
+    {
+      "encoding": "[\"mapping\",[[\"k\",[\"mapping\",[[\"k\",[\"mapping\",[[\"k\",[\"mapping\",[]]]]]]]]]]]",
+      "value": {
+        "k": {
+          "k": {
+            "k": {}
+          }
+        }
+      }
+    }
+  ],
+  "midojo_revision": "a5f81e969c2ab92dfa86b9661fe5ce92e6fe60f5",
+  "snapshot_ids": {
+    "command-blocked": {
+      "blocked": "sha256:fd25fef28e1841784a7a8fe24c77a72af05bbbcc6d0ca0499b2f5a845b9c9e36"
+    },
+    "command-sequential": {
+      "detected": "sha256:ccf93d662a9a5a38140a76c97d977275938867afcc153ec621f82cf4cf709281"
+    },
+    "command-single": {
+      "detected": "sha256:2b460ecf435a80fcb2068d2c91175a33ce6a2c0641c71b12420ca8b38c502f69",
+      "interrupted": "sha256:13efba1dbba0c97ce5f4bf9518d641f7fc52658c25362b7dc65c37426fdda43d",
+      "not-detected": "sha256:b8d140819d9ceb507e3e76cf8af57039ec9e3d1a2b59bb159d266925bb014cc1",
+      "unfinished": "sha256:00f577a9adbef633ee15d98a237117f964138eafd7fb09557fb284525510fca1"
+    },
+    "reply-single": {
+      "supported": "sha256:4e486d1f0adf08daed9016719795b49b6a841af8ec4231a432bb715f04eae141",
+      "unresolved": "sha256:dc429b5c5ce11de45a54b7a4890bd19419298ff53e8170f3c9fc3b2f648e5f64"
+    }
+  }
+}

@@ -7,7 +7,17 @@ import shutil
 from pathlib import Path
 
 import pytest
-from episode_cases import BASE, DOMAIN, EPISODES, write_case_package, write_planted_package
+from episode_cases import (
+    EPISODES,
+    READ_SLOT,
+    SPEC,
+    TARGET,
+    seed_document,
+    seed_item,
+    target_variant,
+    write_case_package,
+    write_planted_package,
+)
 
 from asago_bundle_core.testing import single_stimulus
 from asago_bundle_midojo.cli import main
@@ -19,10 +29,8 @@ def compile_args(package: Path, out: Path, *extra: str) -> list[str]:
         str(package),
         "--out",
         str(out),
-        "--midojo-base",
-        str(BASE),
-        "--domain",
-        DOMAIN,
+        "--target",
+        str(TARGET),
         *extra,
     ]
 
@@ -37,6 +45,40 @@ def test_compile_writes_the_episode(tmp_path: Path) -> None:
     assert spec["judge_turns"] == "all"
 
 
+def test_compile_blocks_each_tool_block_names(tmp_path: Path) -> None:
+    package = write_case_package(tmp_path / "packages", "command-single")
+
+    assert main(compile_args(package, tmp_path / "out", "--block", "withdraw")) == 0
+
+    document = json.loads((tmp_path / "out/episode.json").read_text(encoding="utf-8"))
+    assert document["tools"]["write_disposition"] == {
+        "default": "forward",
+        "tools": {"withdraw": "block"},
+    }
+
+
+def test_compile_requires_the_target_config(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(["compile", "p", "--out", "o"])
+
+    assert raised.value.code == 2
+    assert "--target" in capsys.readouterr().err
+
+
+def test_a_target_config_not_authorized_for_a_run_exits_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    package = write_case_package(tmp_path / "packages", "command-single")
+    target = tmp_path / "target" / "target.yaml"
+    target.parent.mkdir()
+    target.write_text("target: piggybank\n", encoding="utf-8")
+
+    code = main(["compile", str(package), "--out", str(tmp_path / "out"), "--target", str(target)])
+
+    assert code == 1
+    assert "not authorized for a run" in capsys.readouterr().err
+
+
 def test_a_package_midojo_cannot_run_exits_3_with_the_gap_record(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -47,6 +89,34 @@ def test_a_package_midojo_cannot_run_exits_3_with_the_gap_record(
     record = json.loads(capsys.readouterr().out)
     assert record["kind"] == "capability_gap"
     assert record["reason"].startswith("MiDojo runs planted_item packages only")
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_field_outside_a_list_no_call_argument_names_exits_3(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    slot = {key: value for key, value in READ_SLOT.items() if key != "record_key"}
+    spec = {
+        **SPEC,
+        "seed_slots": [item for item in SPEC["seed_slots"] if item["id"] != slot["id"]],
+    }
+    target = target_variant(tmp_path / "variant", spec=spec)
+    package = write_planted_package(
+        tmp_path / "packages",
+        slots=[slot],
+        operations=["read_note"],
+        seed=seed_document(
+            seed_item(slot=slot["id"], record="NOTE-2", mode="replace"), carrier="read_note"
+        ),
+    )
+    args = compile_args(package, tmp_path / "out")
+    args[args.index("--target") + 1] = str(target)
+
+    assert main(args) == 3
+
+    record = json.loads(capsys.readouterr().out)
+    assert record["kind"] == "capability_gap"
+    assert "slot piggybank.note.read declares no record_key" in record["reason"]
     assert not (tmp_path / "out").exists()
 
 
@@ -73,7 +143,7 @@ def test_parse_writes_the_receipt(tmp_path: Path) -> None:
             "--out",
             str(run / "receipt.json"),
             "--tool-revision",
-            "b6e0f8fb",
+            "3824922f",
             "--route",
             "midojo",
         ]
@@ -81,7 +151,7 @@ def test_parse_writes_the_receipt(tmp_path: Path) -> None:
 
     assert code == 0
     receipt = json.loads((run / "receipt.json").read_text(encoding="utf-8"))
-    assert receipt["tool"]["revision"] == "b6e0f8fb"
+    assert receipt["tool"]["revision"] == "3824922f"
     assert receipt["episode"]["route"] == "midojo"
     assert receipt["attempts"][0]["result"]["outcome"] == "detected"
 

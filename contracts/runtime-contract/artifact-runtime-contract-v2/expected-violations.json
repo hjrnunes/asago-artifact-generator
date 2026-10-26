@@ -67,6 +67,10 @@
     "path": "/seed_slots/0/mode",
     "keyword": "enum"
   },
+  "invalid/slot-record-key-blank.json": {
+    "path": "/seed_slots/0/record_key",
+    "keyword": "minLength"
+  },
   "invalid/slot-record-not-text.json": {
     "path": "/seed_slots/0/records/0",
     "keyword": "type"

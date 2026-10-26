@@ -915,53 +915,125 @@ be prepared. A call without `--package`, `--target` or `--run` is a usage error 
 
 ## MiDojo episodes
 
-The MiDojo adapter maps a `planted_item` package to one resolved MiDojo episode and
-reads the sealed result back into a receipt; MiDojo itself runs the episode. It
-targets the `Episode` value, `midojo.open_episode` and `midojo.grade` of MiDojo's
-`asago/main` at `b6e0f8f` (`src/midojo/episode.py`, `src/midojo/episode_context.py`,
+The MiDojo adapter maps a `planted_item` package to one MiDojo episode for one target
+and reads the sealed result back into a receipt; MiDojo itself runs the episode. It
+plants by response injection: MiDojo's host interceptor sits between the agent and the
+target's MCP server, forwards each call (except a write the episode blocks, which it
+refuses and records as blocked), and places the planted text in the structured result
+of the carrier tool. The target's own data is not changed (the Garak adapter plants the
+same text by writing `seed.json` into the target before the run). It targets the
+`Episode` value, `midojo.open_episode` with `HostInterception`, and `midojo.grade` of
+MiDojo's `asago/main` at `b5b8c75` (`src/midojo/episode.py`,
+`src/midojo/episode_context.py`, `src/midojo/interception_host.py`,
 `src/midojo/control_plane/grading.py`, and `midojo_sdk.injection` for the plan).
 
 ```bash
-asago-bundle-midojo compile PACKAGE --out EPISODE_DIR --midojo-base BASE --domain DOMAIN \
-  [--judge-turns final|all]
-# the runner builds the Episode from EPISODE_DIR/episode.json, opens it with
-# midojo.open_episode, seals it, and grades the snapshot with midojo.grade
+asago-bundle-midojo compile PACKAGE --out EPISODE_DIR --target target.yaml \
+  [--block TOOL ...] [--judge-turns final|all]
+# the runner builds the Episode from EPISODE_DIR/episode.json and opens it with
+# midojo.open_episode(..., interception=HostInterception(upstream=<the target's
+# endpoint.mcp_url>)), seals it, and grades the snapshot with midojo.grade
 asago-bundle-midojo parse EPISODE_DIR --snapshot snapshot.json --verdict verdict.json \
   --out execution-receipt.json [--route midojo] [--tool-revision REV]
 ```
 
-`compile` writes `episode.json` (`midojo-episode-v1`): the package's identity, claim
-level and delivery, and `episode`, the fields of MiDojo's `Episode` as plain data
-(enums as their values, tuples as lists). The turns are the stimulus's user turns. Each
-seed item is planted in the domain's ledger from the mini-agents base
-(`mini-agents-midojo-base-v1`) and becomes an `environment_state` injection instruction
-with a `template` selector at the field's path (mode `replace`, strict), as MiDojo's own
-suite compiler makes of a probe; the environment holds the planted text. A command
-attempt is checked by MiDojo's `tool_call_condition` predicate. A reply is checked by
-the rubric judge: the directory also holds the verifier as the `asago_verifiers`
-package, which the runner registers with `register(judge_url, judge_model)` before it
-builds the episode; the episode runs no package setup, so the judge gets no runtime
-facts. There is no utility check, and the runtime is `unmanaged`. The same inputs give
-the same bytes.
+`--target` is the target config: `target.yaml` with `tools-list.json` and
+`runtime-spec.yaml` beside it. One that is not `authorized_as` `mock` or `test_instance`
+is refused (exit 1). `compile` writes `episode.json` (`midojo-episode-v2`):
+
+- the package's identity, claim level and delivery;
+- `interception`: `{"mode": "host", "upstream": "endpoint.mcp_url"}`. The runner gives
+  the interceptor the target config's MCP endpoint at run time; the episode holds no
+  URL. The agent holds the interceptor's URL and bearer token and nothing else of
+  MiDojo's: no evaluation session, and no address or credential of its control plane.
+  The target is only where the interceptor forwards the calls, and gets no MiDojo
+  credential or session either;
+- `tools`: `allowed`, the operations of the package's inventory, which must include the
+  carrier and be tools the target lists; and `write_disposition`, `forward` by default
+  for each allowed tool the target declares mutating (by its annotations, else
+  `runtime-spec.yaml`'s `operations.mutating`), or `block` for each `--block` tool;
+- `placements`: each instruction's seed slot, record, carrier and field, in the runtime
+  contract's terms, and the slot's record key: the list item property it selects by, or,
+  outside a list, the call argument it matches;
+- `episode`, the fields of MiDojo's `Episode` as plain data (enums as their values,
+  tuples as lists). The turns are the stimulus's user turns. Each seed item becomes one
+  `tool_output` instruction from the seed slot of the package's runtime contract that it
+  names: the carrier operation as the tool, the slot's field as the `structured_content`
+  path, the slot's `mode` (`append` or `replace`), its `max_chars` as the size limit, the
+  item's text as the payload, strict on a mismatch, on every carrier call. A field
+  inside a list of records (`notes[].body`) is reached through the list by MiDojo's
+  record selector (`["notes", {"field": "note_id", "equals": "NOTE-1"}, "body"]`), which
+  picks the one item whose key field is the record. The key is the slot's `record_key`,
+  used as declared: the name whose value is the record's ID, here a list item property.
+  A slot declares it in the target's `runtime-spec.yaml` (`record_key: note_id`), in the
+  package's runtime contract (`artifact-runtime-contract-v2` allows the optional field),
+  or both, and the two must agree. Compile checks that the carrier's output schema
+  declares the key as a text property of the list's items. A field outside any list
+  (`body`) is placed only when the carrier returns one record, the one its call names:
+  the carrier's output schema declares the result and every key above the field exactly
+  as an object (`"type": "object"`: not an array, a scalar, an untyped node or a union
+  such as `["object", "null"]`, which a call may return without the key), and its input
+  schema declares the slot's `record_key` as a required text argument. Its record
+  is matched by the call's arguments rather than selected in the result: the
+  instruction's target names `call_arguments` `{<record_key>: <record>}` and the plain
+  path, as MiDojo's plan data writes it from `b5b8c75`:
+  `{"tool": "read_note", "surface": "structured_content", "structured_content_path":
+  ["body"], "call_arguments": {"note_id": "NOTE-2"}, ...}`. A call of the carrier that
+  names another record is left unchanged; MiDojo records it `unmatched` at occurrence 0
+  and does not count it. A list slot's target has no `call_arguments`. A selector that
+  matches nothing leaves the result as it was, and MiDojo reports it unmatched. The
+  interceptor places the text in the result's `structuredContent` and, from `3824922`,
+  copies it into the text block when that block is a JSON mirror of the structured
+  content, so an agent that reads only text sees it too; other text stays as the target
+  sent it, and the outcome is `partial`. Each call record MiDojo seals holds the text the
+  agent got, its `structured_content` and its `injection_outcomes`. A target that matches
+  the call's arguments needs `b5b8c75`, so the episode names `>=b5b8c752` as its MiDojo
+  revision range. There is no environment (the target holds its state), no utility
+  check, and the runtime is `unmanaged`.
+
+A command attempt is checked by MiDojo's `tool_call_condition` predicate. A reply is
+checked by the rubric judge: the directory also holds the verifier as the
+`asago_verifiers` package, which the runner registers with `register(judge_url,
+judge_model)` before it builds the episode; the episode runs no package setup, so the
+judge gets no runtime facts. The same inputs give the same bytes.
 
 `compile` refuses, as a capability gap (exit 3, with the shared record), a package whose
 stimulus delivers its attack in the user turns (a direct or user-turn package), a single
-package with history, a non-user history message, a stimulus with run-time bindings, and
-a `state_effect` claim.
+package with history, a non-user history message, a stimulus with run-time bindings, a
+`state_effect` claim, and a seed item the interceptor cannot place in an MCP tool result:
+a carrier the target does not list over MCP, a carrier without a JSON object result, a
+field the result does not declare as text (or one through more than one list), a slot
+that declares no `record_key`, a list slot's `record_key` the carrier's output schema
+does not declare as a text property of the list's items, a field outside a list below a
+key the output schema does not declare exactly as an object, a field outside a list whose
+`record_key` the carrier's input schema does not declare as a required text argument
+(so no call names the one record it returns), and a text over `max_chars` UTF-8 bytes,
+which is how MiDojo counts its size limit. A seed that disagrees
+with its slot (an unknown slot, a record or mode the slot does not have, a text over
+`max_chars` characters), or a `record_key` the runtime contract and the target config
+state differently, cannot be compiled (exit 1).
 
 `parse` reads the snapshot as MiDojo's `GET .../snapshot` returns it and the verdict as
 `{evaluation_id, snapshot_id, grade}`. It grades nothing: `security` true is `detected`,
 false `not_detected`, and null (validity `invalid`) `inconclusive`, never a pass or a
 fail. The receipt's `episode` block carries the run's `route`, the `evaluation_id` and
-`snapshot_id` graded, the snapshot's `evidence_status`, and the verdict as MiDojo gave it.
+`snapshot_id` graded, the snapshot's `evidence_status`, the verdict as MiDojo gave it,
+and `call_injections`: each sealed call's `call_id`, `function` and `injection_outcomes`
+as MiDojo sealed them (`instruction_index`, `probe_key`, `occurrence`, `status`,
+`detail`; from `b5b8c75` a call whose arguments did not match an instruction's
+`call_arguments` is `unmatched` at occurrence 0), null for a record that does not say (a blocked or unfinished call, or one
+sealed before `3824922`). A call record is checked field for field against MiDojo's
+`FunctionCallRecord`: sealed from `3824922` it has both `structured_content` and
+`injection_outcomes`, before it has neither, and one with only one of them is
+malformed.
 `parse` recomputes the snapshot's ID, MiDojo's digest of its content (`state.snapshot_digest`,
 ported in `snapshot_digest.py`), and fails a snapshot whose content changed under its ID
 (`snapshot_digest_mismatch`); a value JSON cannot carry back as MiDojo held it fails the
 same way, as MiDojo's own client refuses that round trip. A verdict that names another
-evaluation or snapshot, a validity that disagrees with the grade, turns other than the episode's, or a planted payload missing from the initial
-environment fails the receipt with the reason; a turn without a reply fails it with
-`turn_failed:<n>` and keeps the attempt. `midojo`, MiDojo's own attacker loop, is the only
-route today.
+evaluation or snapshot, a validity that disagrees with the grade, turns other than the
+episode's, or a call the host interceptor did not record (`call_not_intercepted`) fails
+the receipt with the reason; a turn without a reply fails it with `turn_failed:<n>` and
+keeps the attempt. `midojo`, MiDojo's own attacker loop, is the only route today.
 
 ## Development
 
@@ -978,7 +1050,7 @@ The unit test suite is deterministic and does not require an LLM endpoint.
 ├── src/asago_artifact_generator/    # authoring, packages, CLI
 ├── packages/asago-bundle-core/      # shared adapter core (workspace member): tool-bundle-v1 schema, slots, package preparation, target config, conformance helper
 ├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse as library entry points
-├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): planted_item packages to resolved episodes, sealed snapshots and verdicts to receipts; other packages exit 3
+├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): planted_item packages to response-injection episodes for a target config, sealed snapshots and verdicts to receipts; other packages exit 3
 ├── contracts/                        # vendored and consumer-owned contracts
 ├── scripts/                          # quality, replay, and budget tools
 ├── tests/                            # unit tests

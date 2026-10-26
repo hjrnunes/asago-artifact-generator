@@ -133,6 +133,11 @@
         "mode": {
           "description": "How the target writes the planted text: replace swaps the field's text for it; append adds it after the field's text, which keeps a record that is found by words in its text findable.",
           "enum": ["replace", "append"]
+        },
+        "record_key": {
+          "description": "Optional. When the field lies inside a list of records (such as notes[].body), the name of the list item property whose value is the record's ID, one of records. Omitted when the target declares none.",
+          "type": "string",
+          "minLength": 1
         }
       }
     }

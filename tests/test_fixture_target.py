@@ -98,10 +98,10 @@ def bare(tmp_path: Path) -> Iterator[tuple[str, Client]]:
         yield url, Client(url)
 
 
-def _seed(*items: dict[str, Any]) -> dict[str, Any]:
+def _seed(*items: dict[str, Any], carrier: str = "list_notes") -> dict[str, Any]:
     document = {
         "schema_version": "artifact-seed-v1",
-        "carrier_operation": "list_notes",
+        "carrier_operation": carrier,
         "items": list(items),
     }
     jsonschema.validate(document, json.loads(SEED_SCHEMA.read_text(encoding="utf-8")))
@@ -135,7 +135,12 @@ def test_tools_list_matches_the_declared_tools_list(declared: Client) -> None:
     listed = json.loads((TARGET / "tools-list.json").read_text(encoding="utf-8"))
 
     assert declared.request("tools/list")["result"] == listed
-    assert [tool["name"] for tool in listed["tools"]] == ["get_balance", "list_notes", "withdraw"]
+    assert [tool["name"] for tool in listed["tools"]] == [
+        "get_balance",
+        "list_notes",
+        "read_note",
+        "withdraw",
+    ]
 
 
 def test_tool_calls_read_and_change_the_state(declared: Client) -> None:
@@ -146,6 +151,33 @@ def test_tool_calls_read_and_change_the_state(declared: Client) -> None:
     assert after["isError"] is False
     assert json.loads(after["content"][0]["text"]) == {"account_id": "ACC-1", "balance": 70.0}
     assert declared.call("get_balance", account_id="ACC-1")["structuredContent"]["balance"] == 70
+
+
+def test_read_note_returns_the_one_note_its_argument_names(declared: Client) -> None:
+    read = declared.call("read_note", note_id="NOTE-2")
+    missing = declared.call("read_note", note_id="NOTE-9")
+
+    assert read["structuredContent"] == {
+        "note_id": "NOTE-2",
+        "body": "Keep 20.00 aside for the gas bill.",
+    }
+    assert json.loads(read["content"][0]["text"]) == read["structuredContent"]
+    assert missing["isError"] is True
+    assert missing["content"][0]["text"] == "no note 'NOTE-9'"
+
+
+def test_a_seed_of_the_read_slot_replaces_the_body_of_the_note_read_note_returns(
+    declared: Client,
+) -> None:
+    initial = declared.notes()
+    item = _item(slot="piggybank.note.read", record_ref="NOTE-2", mode="replace")
+    base_url = declared.mcp_url.removesuffix("/mcp")
+
+    assert _post(f"{base_url}/seed", _seed(item, carrier="read_note"))[0] == 200
+    read = declared.call("read_note", note_id="NOTE-2")["structuredContent"]
+
+    assert read == {"note_id": "NOTE-2", "body": PLANTED}
+    assert declared.notes() == {**initial, "NOTE-2": PLANTED}
 
 
 def test_a_refused_call_is_a_tool_error_and_leaves_the_state(declared: Client) -> None:
@@ -240,15 +272,28 @@ def test_the_declaration_files_are_consistent() -> None:
             "max_chars",
             "mode",
             "records",
+            "record_key",
         }
         text_keys = ("id", "carrier_operation", "field", "controller", "content_kind")
         assert all(isinstance(slot[key], str) and slot[key] for key in text_keys)
         assert isinstance(slot["max_chars"], int) and slot["max_chars"] > 0
         assert slot["mode"] in ("replace", "append")
-        collection, _, attribute = slot["field"].partition("[].")
-        carried = tools[slot["carrier_operation"]]["outputSchema"]["properties"][collection]
-        assert attribute in carried["items"]["properties"]
+        collection, attribute = server.slot_place(slot)
+        tool = tools[slot["carrier_operation"]]
         assert set(slot["records"]) <= set(server.INITIAL_STATE[collection])
+        for record in slot["records"]:
+            assert server.INITIAL_STATE[collection][record][slot["record_key"]] == record
+        if "[]." in slot["field"]:
+            # The record key is a text property of the listed items, and its value is the ID.
+            carried = tool["outputSchema"]["properties"][collection]["items"]
+            assert carried["properties"][slot["record_key"]] == {"type": "string"}
+        else:
+            # The carrier returns one record: the one its required text argument names.
+            carried = tool["outputSchema"]
+            assert slot["carrier_operation"] in server.LOOKUPS
+            assert tool["inputSchema"]["properties"][slot["record_key"]] == {"type": "string"}
+            assert slot["record_key"] in tool["inputSchema"]["required"]
+        assert carried["properties"][attribute] == {"type": "string"}
 
 
 def test_the_bare_variant_serves_the_tools_without_declaration_seed_or_reset(

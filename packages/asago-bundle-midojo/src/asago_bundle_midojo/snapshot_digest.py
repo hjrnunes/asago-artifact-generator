@@ -1,6 +1,6 @@
 """MiDojo's snapshot ID, recomputed from the snapshot as ``GET .../snapshot`` returns it.
 
-MiDojo names a sealed snapshot by its own content digest (asago/main b6e0f8f,
+MiDojo names a sealed snapshot by its own content digest (asago/main a5f81e9 and 3824922,
 ``src/midojo/control_plane/state.py``: ``snapshot_digest``, ``_canonical`` and
 ``_dumps``): ``sha256:<hex>`` of a lossless JSON encoding of everything in the
 snapshot but its ID. This module ports that encoding for the values a JSON snapshot
@@ -10,7 +10,8 @@ an object is ``["mapping", [[key, value], ...]]`` with its items sorted by their
 encoding, written compactly (``separators=(",", ":")``, ASCII escapes). MiDojo encodes
 the environments, call records and observations as their Python ``model_dump()``, the
 turns and capture failures as their dataclass fields, and those are the objects of the
-same names in the JSON form, field for field.
+same names in the JSON form, field for field: a call record sealed from 3824922 with its
+``structured_content`` and ``injection_outcomes``, one sealed before without them.
 
 A value JSON does not carry back as the type MiDojo encoded (bytes, a date, a tuple or
 set, a non-finite float, a mapping with keys that are not text, in a field MiDojo does

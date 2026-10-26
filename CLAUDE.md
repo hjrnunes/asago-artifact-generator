@@ -140,28 +140,53 @@ Deterministic tests must not contact a model endpoint or target.
   also uses). The bundle's MCP server is the authorized config's `endpoint.mcp_url`.
   Its CLI `instantiate` requires `--package`, `--target` and `--run`.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It maps a
-  `planted_item` package to one resolved MiDojo episode and parses the sealed result; MiDojo
-  runs the episode, and the adapter holds no proxy or interception code. It targets MiDojo's
-  `asago/main` at `b6e0f8f`: `Episode` (`src/midojo/episode.py`), the injection plan
-  (`midojo_sdk.injection`), `midojo.open_episode` and `midojo.grade`.
-  `compile_episode` (`episode_compile.py`, CLI `compile --midojo-base --domain`) writes
-  `episode.json` (`midojo-episode-v1`) whose `episode` is `Episode`'s fields as plain data
-  (`episode.py`): the user turns, one `environment_state` template instruction per seed item
-  at the planted ledger field from the mini-agents base (`environment.py`), the resolved
-  environment, the check, no utility check, the `unmanaged` runtime. A command attempt uses
-  MiDojo's `tool_call_condition` predicate; a reply uses `bundle_files/asago_episode_judge.py`
-  (copied beside the episode with `authoring/rubric_judge.py`; the runner registers it with
-  its judge), three-valued, its requests checked against Garak's (`tests/fixtures/rubric/`).
-  Direct and user-turn packages, a single package with history, non-user history, run-time
-  bindings and state_effect claims are capability gaps (exit 3). `parse_sealed` (`sealed.py`,
-  CLI `parse --snapshot --verdict [--route]`) reads the snapshot (`GET .../snapshot`) and the
-  verdict (`evaluation_id`, `snapshot_id`, `grade`) into `execution-receipt-v1`, after
-  recomputing the snapshot ID, MiDojo's digest of the content (`snapshot_digest.py`): security
-  true/false/null is detected/not_detected/inconclusive, never coerced, and the receipt's
-  `episode` block carries the route (`route.py`: only `midojo` today), the evaluation and
-  snapshot IDs, the evidence status and the verdict. `tests/fixtures/episode/` holds compiled
-  episodes and the snapshots and verdicts MiDojo produced from them (`generate.py`, run in
-  MiDojo's interpreter; `tests/episode_cases.py` says how to regenerate).
+  `planted_item` package to one MiDojo episode for a target config and parses the sealed
+  result; MiDojo runs the episode, and the adapter holds no proxy or interception code. It
+  targets MiDojo's `asago/main` at `b5b8c75` (range `>=b5b8c752`: a target can match the
+  call's arguments; from `3824922` the interceptor copies a placement into a text block
+  that mirrors the structured content): `Episode`
+  (`src/midojo/episode.py`), the injection plan (`midojo_sdk.injection`),
+  `midojo.open_episode` with `HostInterception` (`src/midojo/interception_host.py`) and
+  `midojo.grade`. It plants by response injection:
+  `compile_episode` (`episode_compile.py`, CLI `compile --target [--block TOOL]`) reads the
+  target config's `tools-list.json` and `runtime-spec.yaml` (`declared.py`) and writes
+  `episode.json` (`midojo-episode-v2`): host `interception` (the runner gives the
+  interceptor the target's `endpoint.mcp_url`; the agent gets only the interceptor's
+  endpoint and token, and neither it nor the target sees a MiDojo session), the
+  allowed `tools` and their write disposition (`forward` by default), `placements`, and
+  `episode`, `Episode`'s fields as plain data with no environment (`episode.py`). Each seed
+  item becomes one strict `tool_output` instruction from its runtime contract slot
+  (`placement.py`): carrier, field path, mode, `max_chars`, and the record by the slot's
+  declared `record_key` (from the target's `runtime-spec.yaml` or the runtime contract,
+  never inferred): a field inside a list through a record selector on that item property;
+  a field outside any list, of a carrier whose output schema declares the result and every
+  key above the field exactly `"type": "object"` (no array, scalar, union or nullable
+  object) and whose input schema requires `record_key` as a text argument, by `call_arguments`
+  `{record_key: record}` with the plain path. Any other field, or a slot without a
+  `record_key`, is a gap. A
+  command attempt uses MiDojo's `tool_call_condition` predicate; a reply uses
+  `bundle_files/asago_episode_judge.py` (copied beside the episode with
+  `authoring/rubric_judge.py`; the runner registers it with its judge), three-valued, its
+  requests checked against Garak's (`tests/fixtures/rubric/`). Direct and user-turn
+  packages, a single package with history, non-user history, run-time bindings,
+  state_effect claims and a seed the interceptor cannot place in an MCP tool result are
+  capability gaps (exit 3). `parse_sealed` (`sealed.py`, CLI `parse --snapshot --verdict
+  [--route]`) reads the snapshot (`GET .../snapshot`) and the verdict (`evaluation_id`,
+  `snapshot_id`, `grade`) into `execution-receipt-v1`, after recomputing the snapshot ID,
+  MiDojo's digest of the content (`snapshot_digest.py`), and requiring every call to be the
+  interceptor's record: security true/false/null is detected/not_detected/inconclusive,
+  never coerced, and the receipt's `episode` block carries the route (`route.py`: only
+  `midojo` today), the evaluation and snapshot IDs, the evidence status, the verdict and
+  `call_injections` (each call's `injection_outcomes` as sealed, null when the record does
+  not say). A call record sealed from 3824922 has `structured_content` and
+  `injection_outcomes`, one sealed before neither; both are shape-checked (occurrence 0
+  only for `unmatched`, a call whose arguments did not match).
+  The tests compile against the fixture target (`tests/fixtures/targets/piggybank/`);
+  `tests/fixtures/episode/` holds compiled episodes and the snapshots and verdicts MiDojo
+  produced from them at 3824922 through its interceptor in front of that target
+  (`generate.py`, run in MiDojo's interpreter; `tests/episode_cases.py` says how to
+  regenerate; the episodes were recompiled offline since, changing only
+  `tool_revision_range`), and `tests/fixtures/episode-a5f81e9/` the same runs sealed at a5f81e9.
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-bundle-garak/tests -q`.

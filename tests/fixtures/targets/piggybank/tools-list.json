@@ -60,6 +60,35 @@
       }
     },
     {
+      "name": "read_note",
+      "description": "Read one note by its ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "note_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "note_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
       "name": "withdraw",
       "description": "Withdraw an amount from an account, up to its balance.",
       "inputSchema": {

@@ -13,15 +13,25 @@ MiDojo's ``security`` grade is three-valued, and so is the receipt: True is
 evidence (``grade_validity`` ``invalid``), ``inconclusive``. An unknown grade is never made
 a pass or a fail. The receipt's ``episode`` block names the route that drove the run
 (``route.py``), the evaluation and the snapshot graded, the snapshot's evidence status
-and the verdict as MiDojo gave it.
+and the verdict as MiDojo gave it, and, as delivery evidence, each sealed call's injection
+outcomes as MiDojo sealed them (``call_injections``).
+
+From asago/main 3824922 every sealed call record also carries ``structured_content`` (the
+structured content the agent got, or None) and ``injection_outcomes`` (each matching
+instruction's ``CallInjectionOutcome``, an empty list when none matched, or None when the
+interception layer reported the call's text only, as for a blocked or unfinished call);
+a record sealed before has neither field. A record with one of them only is malformed.
+From b5b8c75 an outcome may also be a call whose arguments did not match its instruction's
+``call_arguments``: ``unmatched`` at occurrence 0, a call the instruction does not count.
 
 The snapshot must be the one MiDojo sealed: its ``snapshot_id`` is MiDojo's digest of its
 content, recomputed here (``snapshot_digest.py``), so a snapshot whose content changed
 under its ID is refused. The verdict must name the snapshot's evaluation and the snapshot
 itself, its validity must agree with its grade, and its evidence status must be exactly
 the snapshot's (``grading.grade`` keeps the snapshot's). The snapshot's turns must be the
-episode's, in order, and each call must name one of them; every planted payload must be
-in the snapshot's initial environment where the plan put it. Anything else yields a
+episode's, in order, and each call must name one of them and be the host interceptor's
+record (provenance ``interceptor``): the episode intercepts on the host, so a call the
+agent's side recorded means the target held a session it never should. Anything else yields a
 ``failed`` receipt whose ``incomplete_reason`` names what was wrong, and the receipt is
 still written. A turn the agent did not answer (no reply, or the conversation ends early)
 fails the receipt with ``turn_failed:<position>`` (counted from 1); its attempt is kept,
@@ -72,8 +82,26 @@ CALL_FIELDS = frozenset(
         "post_environment",
     }
 )
+# What a call record gains from 3824922 (``types.FunctionCallRecord``): both or neither.
+CALL_DETAIL_FIELDS = frozenset({"structured_content", "injection_outcomes"})
+OUTCOME_FIELDS = frozenset({"instruction_index", "probe_key", "occurrence", "status", "detail"})
+# The status of a call whose arguments did not match an instruction's, at occurrence 0.
+UNMATCHED = "unmatched"
+# ``types.InjectionStatus``: the values of ``midojo_sdk.injection.OutcomeStatus``.
+INJECTION_STATUSES = frozenset(
+    {
+        "applied",
+        "partial",
+        "fallback",
+        "unmatched",
+        "no_result",
+        "too_large",
+        "skipped_occurrence",
+    }
+)
 DISPOSITIONS = frozenset({"forwarded", "denied", "simulated", "blocked", None})
-PROVENANCES = frozenset({"host", "interceptor", "agent", None})
+INTERCEPTOR = "interceptor"
+PROVENANCES = frozenset({"host", INTERCEPTOR, "agent", None})
 TURN_FIELDS = frozenset({"index", "message", "reply", "started_at", "ended_at"})
 FAILURE_FIELDS = frozenset({"call_id", "function", "phase", "reason", "stage", "by", "at"})
 CAPTURE_PHASES = frozenset({"start", "finish"})
@@ -159,7 +187,7 @@ def read_compiled(root: Path) -> Compiled:
     missing = EPISODE_KEYS - document.keys()
     if missing:
         raise ParseError(f"the episode document lacks {sorted(missing)}")
-    if document["claim_level"] not in DETECTORS:
+    if not _one_of(document["claim_level"], DETECTORS):
         raise ParseError(f"the episode's claim level is not graded: {document['claim_level']!r}")
     return Compiled(root, document)
 
@@ -198,22 +226,64 @@ def _optional_text(value: Any) -> bool:
     return value is None or isinstance(value, str)
 
 
+def _one_of(value: Any, allowed: Any) -> bool:
+    """Whether ``value`` is text or None and one of ``allowed``; a list or an object is not,
+    and never reaches the membership test, which cannot hash it."""
+
+    return _optional_text(value) and value in allowed
+
+
 def _call_shape(call: Any) -> bool:
     return (
         isinstance(call, dict)
-        and set(call) == CALL_FIELDS
+        and set(call) in (CALL_FIELDS, CALL_FIELDS | CALL_DETAIL_FIELDS)
         and all(isinstance(call[key], str) for key in ("call_id", "function", "timestamp"))
         and isinstance(call["args"], dict)
         and _optional_text(call["result"])
         and _optional_text(call["error"])
         and all(type(call[key]) is bool for key in ("blocked", "complete"))
-        and call["disposition"] in DISPOSITIONS
-        and call["provenance"] in PROVENANCES
+        and _one_of(call["disposition"], DISPOSITIONS)
+        and _one_of(call["provenance"], PROVENANCES)
         and (call["turn"] is None or type(call["turn"]) is int)
         and all(
             call[key] is None or isinstance(call[key], dict)
             for key in ("pre_environment", "post_environment")
         )
+        and _details_shape(call)
+    )
+
+
+def _details_shape(call: dict[str, Any]) -> bool:
+    """A record sealed from 3824922: ``structured_content`` an object or None, and
+    ``injection_outcomes`` a list of ``CallInjectionOutcome`` or None."""
+
+    if not CALL_DETAIL_FIELDS <= call.keys():
+        return True
+    structured, outcomes = call["structured_content"], call["injection_outcomes"]
+    return (structured is None or isinstance(structured, dict)) and (
+        outcomes is None
+        or (isinstance(outcomes, list) and all(_outcome_shape(outcome) for outcome in outcomes))
+    )
+
+
+def _outcome_shape(outcome: Any) -> bool:
+    """``CallInjectionOutcome``: the instruction's index in the plan (from 0), its probe, which
+    matching call of the instruction's this was (from 1, or 0 for an ``unmatched`` call whose
+    arguments did not match the instruction's ``call_arguments``), its status and why."""
+
+    return (
+        isinstance(outcome, dict)
+        and set(outcome) == OUTCOME_FIELDS
+        and type(outcome["instruction_index"]) is int
+        and outcome["instruction_index"] >= 0
+        and _optional_text(outcome["probe_key"])
+        and type(outcome["occurrence"]) is int
+        and _one_of(outcome["status"], INJECTION_STATUSES)
+        and (
+            outcome["occurrence"] >= 1
+            or (outcome["occurrence"] == 0 and outcome["status"] == UNMATCHED)
+        )
+        and isinstance(outcome["detail"], str)
     )
 
 
@@ -240,7 +310,7 @@ def _failure_shape(failure: Any) -> bool:
 
 def evidence_shape(status: Any) -> bool:
     return isinstance(status, dict) and all(
-        isinstance(key, str) and value in EVIDENCE_STATUSES for key, value in status.items()
+        isinstance(key, str) and _one_of(value, EVIDENCE_STATUSES) for key, value in status.items()
     )
 
 
@@ -274,7 +344,7 @@ def _validity_shape(validity: Any) -> bool:
         and all(
             isinstance(check, dict)
             and set(check) == {"status", "reasons"}
-            and check["status"] in VALIDITIES
+            and _one_of(check["status"], VALIDITIES)
             and isinstance(check["reasons"], list)
             and all(
                 isinstance(reason, dict)
@@ -314,24 +384,9 @@ def sealed_failure(
             return "call_turn_missing"
         if type(turn) is not int or not 0 <= turn < len(sent):
             return "call_turn_out_of_range"
-    if not seed_provisioned(compiled, snapshot):
-        return "seed_not_provisioned"
+        if call.get("provenance") != INTERCEPTOR:
+            return "call_not_intercepted"
     return turn_failure(snapshot["turns"], len(compiled.turns))
-
-
-def seed_provisioned(compiled: Compiled, snapshot: dict[str, Any]) -> bool:
-    """Every planted payload is in the initial environment where its instruction put it."""
-
-    for instruction in compiled.document["episode"]["plan"]["instructions"]:
-        node: Any = snapshot["pre_environment"]
-        for part in instruction["target"]["template_path"]:
-            try:
-                node = node[part]
-            except (KeyError, IndexError, TypeError):
-                return False
-        if not (isinstance(node, str) and instruction["payload"] in node):
-            return False
-    return True
 
 
 def turn_failure(turns: list[dict[str, Any]], planned: int) -> str | None:
@@ -479,7 +534,26 @@ def episode_block(
             "reason": grade["security_reason"],
             "validity": grade["grade_validity"]["security"]["status"],
         },
+        "call_injections": None if snapshot is None else call_injections(snapshot),
     }
+
+
+def call_injections(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return each sealed call's injection outcomes, in the order of the attempt's tool calls.
+
+    ``injection_outcomes`` is the record's own: a list (empty when no instruction matched
+    the call), or None when the record does not say (sealed before 3824922, or the layer
+    reported the call's text only).
+    """
+
+    return [
+        {
+            "call_id": call["call_id"],
+            "function": call["function"],
+            "injection_outcomes": call.get("injection_outcomes"),
+        }
+        for call in snapshot["function_calls"]
+    ]
 
 
 def compiled_digest(root: Path) -> str:
