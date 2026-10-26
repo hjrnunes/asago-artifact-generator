@@ -142,17 +142,20 @@ Deterministic tests must not contact a model endpoint or target.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It maps a
   `planted_item` package to one MiDojo episode for a target config and parses the sealed
   result; MiDojo runs the episode, and the adapter holds no proxy or interception code. It
-  targets MiDojo's `asago/main` at `f910063`: `Episode` (`src/midojo/episode.py`), the
+  targets MiDojo's `asago/main` at `a5f81e9`: `Episode` (`src/midojo/episode.py`), the
   injection plan (`midojo_sdk.injection`), `midojo.open_episode` with `HostInterception`
   (`src/midojo/interception_host.py`) and `midojo.grade`. It plants by response injection:
   `compile_episode` (`episode_compile.py`, CLI `compile --target [--block TOOL]`) reads the
   target config's `tools-list.json` and `runtime-spec.yaml` (`declared.py`) and writes
   `episode.json` (`midojo-episode-v2`): host `interception` (the runner gives the
-  interceptor the target's `endpoint.mcp_url`; the target never sees a MiDojo session), the
+  interceptor the target's `endpoint.mcp_url`; the agent gets only the interceptor's
+  endpoint and token, and neither it nor the target sees a MiDojo session), the
   allowed `tools` and their write disposition (`forward` by default), `placements`, and
   `episode`, `Episode`'s fields as plain data with no environment (`episode.py`). Each seed
   item becomes one strict `tool_output` instruction from its runtime contract slot
-  (`placement.py`): carrier, field path through the record's id, mode, `max_chars`. A
+  (`placement.py`): carrier, field path through a record selector on the list item's key
+  (a field outside a list only when the carrier can return no other record), mode,
+  `max_chars`. A
   command attempt uses MiDojo's `tool_call_condition` predicate; a reply uses
   `bundle_files/asago_episode_judge.py` (copied beside the episode with
   `authoring/rubric_judge.py`; the runner registers it with its judge), three-valued, its

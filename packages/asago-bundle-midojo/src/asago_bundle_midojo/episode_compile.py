@@ -16,13 +16,15 @@ same bytes.
   the text in the result as it forwards the call; the target's data is not changed.
 - ``interception`` is host-side: the runner opens the episode with MiDojo's
   ``HostInterception`` whose upstream is the target config's ``endpoint.mcp_url`` at run
-  time. The target holds the interceptor's URL and bearer token and nothing else of
+  time. The agent holds the interceptor's URL and bearer token and nothing else of
   MiDojo's: no evaluation session, and no address or credential of its control plane.
-  The episode holds no URL.
+  The target is only where the interceptor forwards calls, and gets no MiDojo credential
+  or session either. The episode holds no URL.
 - ``tools.allowed`` are the operations of the package's inventory; the agent is given no
   other. ``tools.write_disposition`` names, for each allowed tool the target config
   declares mutating (``declared.py``), ``forward`` (the target performs the write; the
-  default) or ``block`` (nothing runs; MiDojo records the call as blocked).
+  default) or ``block`` (nothing runs; MiDojo records the call as blocked). Every other
+  call is forwarded.
 - A command attempt is checked with MiDojo's builtin ``tool_call_condition`` predicate,
   whose value is the package's condition. A reply is checked with the rubric judge
   (``bundle_files/asago_episode_judge.py``): the episode names the check and its spec,

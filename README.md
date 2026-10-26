@@ -918,11 +918,12 @@ be prepared. A call without `--package`, `--target` or `--run` is a usage error 
 The MiDojo adapter maps a `planted_item` package to one MiDojo episode for one target
 and reads the sealed result back into a receipt; MiDojo itself runs the episode. It
 plants by response injection: MiDojo's host interceptor sits between the agent and the
-target's MCP server, forwards each call, and places the planted text in the result of
-the carrier tool. The target's own data is not changed (the Garak adapter plants the
+target's MCP server, forwards each call (except a write the episode blocks, which it
+refuses and records as blocked), and places the planted text in the structured result
+of the carrier tool. The target's own data is not changed (the Garak adapter plants the
 same text by writing `seed.json` into the target before the run). It targets the
 `Episode` value, `midojo.open_episode` with `HostInterception`, and `midojo.grade` of
-MiDojo's `asago/main` at `f910063` (`src/midojo/episode.py`,
+MiDojo's `asago/main` at `a5f81e9` (`src/midojo/episode.py`,
 `src/midojo/episode_context.py`, `src/midojo/interception_host.py`,
 `src/midojo/control_plane/grading.py`, and `midojo_sdk.injection` for the plan).
 
@@ -944,26 +945,34 @@ is refused (exit 1). `compile` writes `episode.json` (`midojo-episode-v2`):
 - `interception`: `{"mode": "host", "upstream": "endpoint.mcp_url"}`. The runner gives
   the interceptor the target config's MCP endpoint at run time; the episode holds no
   URL. The agent holds the interceptor's URL and bearer token and nothing else of
-  MiDojo's: no evaluation session, and no address or credential of its control plane;
+  MiDojo's: no evaluation session, and no address or credential of its control plane.
+  The target is only where the interceptor forwards the calls, and gets no MiDojo
+  credential or session either;
 - `tools`: `allowed`, the operations of the package's inventory, which must include the
   carrier and be tools the target lists; and `write_disposition`, `forward` by default
   for each allowed tool the target declares mutating (by its annotations, else
   `runtime-spec.yaml`'s `operations.mutating`), or `block` for each `--block` tool;
 - `placements`: each instruction's seed slot, record, carrier and field, in the runtime
-  contract's terms;
+  contract's terms, and the record key it selects by (null outside a list);
 - `episode`, the fields of MiDojo's `Episode` as plain data (enums as their values,
   tuples as lists). The turns are the stimulus's user turns. Each seed item becomes one
   `tool_output` instruction from the seed slot of the package's runtime contract that it
   names: the carrier operation as the tool, the slot's field as the `structured_content`
   path, the slot's `mode` (`append` or `replace`), its `max_chars` as the size limit, the
-  item's text as the payload, strict on a mismatch. A field inside a list of records
-  (`notes[].body`) is reached through the list by the record's id (`["notes", "NOTE-1",
-  "body"]`) on every carrier call; a field outside a list (`body`) is the result's own,
-  on the carrier's first call. MiDojo's selector has no match by record id at
-  `f910063`, so it reports a path through a list as unmatched and leaves the result
-  unchanged: the text lands where the slot declares it or nowhere. There is no
-  environment (the target holds its state), no utility check, and the runtime is
-  `unmanaged`.
+  item's text as the payload, strict on a mismatch, on every carrier call. A field
+  inside a list of records (`notes[].body`) is reached through the list by MiDojo's
+  record selector (`["notes", {"field": "note_id", "equals": "NOTE-1"}, "body"]`), which
+  picks the one item whose key field is the record. The key is the one text property
+  the carrier's declared output schema gives the list's items besides the planted one.
+  MiDojo selects by the result, not by the call's arguments, so a field outside a list
+  (`body`) is placed only when the carrier can return no other record: its input schema
+  declares no property and the slot names one record. A selector that matches nothing
+  leaves the result as it was, and MiDojo reports it unmatched. The interceptor places
+  the text in the result's `structuredContent`; the text blocks, and the call `result`
+  MiDojo records in the snapshot, stay as the target sent them, so an agent that reads
+  only text blocks does not see it, and the delivery is in the interceptor's injection
+  outcomes, not the snapshot. There is no environment (the target holds its state), no
+  utility check, and the runtime is `unmanaged`.
 
 A command attempt is checked by MiDojo's `tool_call_condition` predicate. A reply is
 checked by the rubric judge: the directory also holds the verifier as the
@@ -976,8 +985,11 @@ stimulus delivers its attack in the user turns (a direct or user-turn package), 
 package with history, a non-user history message, a stimulus with run-time bindings, a
 `state_effect` claim, and a seed item the interceptor cannot place in an MCP tool result:
 a carrier the target does not list over MCP, a carrier without a JSON object result, a
-field the result does not declare as text (or one through more than one list), and a text
-over `max_chars` UTF-8 bytes, which is how MiDojo counts its size limit. A seed that
+field the result does not declare as text (or one through more than one list), a list whose
+items do not declare exactly one text property besides the planted one to select the
+record by, a field outside a list of a carrier that takes arguments or a slot with more
+than one record, and a text over `max_chars` UTF-8 bytes, which is how MiDojo counts its
+size limit. A seed that
 disagrees with its slot (an unknown slot, a record or mode the slot does not have, a text
 over `max_chars` characters) cannot be compiled (exit 1).
 
