@@ -159,8 +159,9 @@ Deterministic tests must not contact a model endpoint or target.
   (`placement.py`): carrier, field path, mode, `max_chars`, and the record by the slot's
   declared `record_key` (from the target's `runtime-spec.yaml` or the runtime contract,
   never inferred): a field inside a list through a record selector on that item property;
-  a field outside any list, of a carrier whose output schema has no array on the path and
-  whose input schema requires `record_key` as a text argument, by `call_arguments`
+  a field outside any list, of a carrier whose output schema declares the result and every
+  key above the field exactly `"type": "object"` (no array, scalar, union or nullable
+  object) and whose input schema requires `record_key` as a text argument, by `call_arguments`
   `{record_key: record}` with the plain path. Any other field, or a slot without a
   `record_key`, is a gap. A
   command attempt uses MiDojo's `tool_call_condition` predicate; a reply uses

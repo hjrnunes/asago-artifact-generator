@@ -154,6 +154,35 @@ def test_a_field_outside_a_list_the_result_does_not_declare_as_text_is_a_gap() -
     )
 
 
+@pytest.mark.parametrize(
+    "parent",
+    [
+        {"type": "array", "properties": {"body": TEXT}},
+        {"type": "string", "properties": {"body": TEXT}},
+        {"type": ["object", "null"], "properties": {"body": TEXT}},
+        {"properties": {"body": TEXT}},
+    ],
+    ids=["array", "scalar", "nullable-object", "untyped"],
+)
+def test_a_field_outside_a_list_below_a_key_not_exactly_an_object_is_a_gap(
+    parent: dict[str, Any],
+) -> None:
+    tool = {
+        "name": "read_note",
+        "inputSchema": LOOKUP,
+        "outputSchema": {"type": "object", "properties": {"note": parent}},
+    }
+    declared = DeclaredTools({"read_note": tool}, frozenset())
+    slot = {**ONE_NOTE, "field": "note.body"}
+
+    reason = gap_reason(locate(Placement(0, slot, "NOTE-2", "text"), declared), declared)
+
+    assert reason == (
+        "seed item 0: 'read_note''s result does not declare every key above 'note.body' as "
+        'an object ("type": "object"), so its path is not sure to reach the field'
+    )
+
+
 def test_the_record_key_is_the_contract_s_else_the_target_config_s() -> None:
     bare = {key: value for key, value in SLOT.items() if key != "record_key"}
     placement = Placement(0, bare, "NOTE-1", "text")

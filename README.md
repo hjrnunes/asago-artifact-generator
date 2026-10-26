@@ -970,8 +970,10 @@ is refused (exit 1). `compile` writes `episode.json` (`midojo-episode-v2`):
   or both, and the two must agree. Compile checks that the carrier's output schema
   declares the key as a text property of the list's items. A field outside any list
   (`body`) is placed only when the carrier returns one record, the one its call names:
-  the carrier's output schema reaches the field through objects only, no array, and its
-  input schema declares the slot's `record_key` as a required text argument. Its record
+  the carrier's output schema declares the result and every key above the field exactly
+  as an object (`"type": "object"`: not an array, a scalar, an untyped node or a union
+  such as `["object", "null"]`, which a call may return without the key), and its input
+  schema declares the slot's `record_key` as a required text argument. Its record
   is matched by the call's arguments rather than selected in the result: the
   instruction's target names `call_arguments` `{<record_key>: <record>}` and the plain
   path, as MiDojo's plan data writes it from `b5b8c75`:
@@ -1002,9 +1004,11 @@ package with history, a non-user history message, a stimulus with run-time bindi
 a carrier the target does not list over MCP, a carrier without a JSON object result, a
 field the result does not declare as text (or one through more than one list), a slot
 that declares no `record_key`, a list slot's `record_key` the carrier's output schema
-does not declare as a text property of the list's items, a field outside a list whose
+does not declare as a text property of the list's items, a field outside a list below a
+key the output schema does not declare exactly as an object, a field outside a list whose
 `record_key` the carrier's input schema does not declare as a required text argument
-(so no call names the one record it returns), and a text over `max_chars` UTF-8 bytes, which is how MiDojo counts its size limit. A seed that disagrees
+(so no call names the one record it returns), and a text over `max_chars` UTF-8 bytes,
+which is how MiDojo counts its size limit. A seed that disagrees
 with its slot (an unknown slot, a record or mode the slot does not have, a text over
 `max_chars` characters), or a `record_key` the runtime contract and the target config
 state differently, cannot be compiled (exit 1).

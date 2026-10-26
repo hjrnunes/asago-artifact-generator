@@ -23,10 +23,12 @@ becomes one instruction (``episode.tool_output_instruction``):
     of the carrier, and the instruction's target matches the call's arguments,
     ``call_arguments`` ``{<key>: <record>}`` (``{"note_id": "NOTE-2"}``), with the plain
     path into the result (``["body"]``). A carrier returns one record when the target
-    config declares both halves: its output schema reaches the field through objects only,
-    no array, and its input schema declares the ``record_key`` as a required text
-    argument. A call naming another record, or none, is left unchanged; MiDojo reports it
-    ``unmatched`` and does not count it;
+    config declares both halves: its output schema declares the result and every key on
+    the field's path above the field exactly as an object (``"type": "object"``; an array,
+    a scalar, a union such as ``["object", "null"]``, or no type at all does not
+    guarantee the path reaches the field), and its input schema declares the
+    ``record_key`` as a required text argument. A call naming another record, or none, is
+    left unchanged; MiDojo reports it ``unmatched`` and does not count it;
 
   the key is the slot's declared ``record_key``, used as declared; nothing infers it;
 - every call of the carrier gets the instruction: the selector, or the call's arguments,
@@ -254,7 +256,8 @@ def gap_reason(placement: Placement, declared: DeclaredTools) -> str | None:
     not list (the agent reads it by some other way than an MCP call), a result that is not
     a JSON object, a field the result does not declare as text, a slot that declares no
     ``record_key``, a list field whose ``record_key`` the list's items do not declare as
-    text, a field outside a list whose ``record_key`` the carrier does not declare as a
+    text, a field outside a list below a key the result does not declare exactly as an
+    object, a field outside a list whose ``record_key`` the carrier does not declare as a
     required text argument, and a text over ``max_chars`` bytes cannot be placed. Call it
     on a placement ``locate`` returned.
     """
@@ -279,6 +282,11 @@ def gap_reason(placement: Placement, declared: DeclaredTools) -> str | None:
         return f"{label}: the field {field!r} does not name one text field of one record"
     if not _declares_text(schema, segments):
         return f"{label}: {carrier!r}'s result declares no text field {field!r}"
+    if not placement.listed and not _through_objects(schema, segments):
+        return (
+            f"{label}: {carrier!r}'s result does not declare every key above {field!r} as "
+            'an object ("type": "object"), so its path is not sure to reach the field'
+        )
     reason = (
         _list_key_reason(placement, schema)
         if placement.listed
@@ -395,6 +403,22 @@ def _item_property(
                 return None
             return value.get("type", "untyped")
     return None
+
+
+def _through_objects(schema: Mapping[str, Any], segments: tuple[Segment, ...]) -> bool:
+    """Return whether the result and each key above the field are declared exactly objects.
+
+    Only ``"type": "object"`` counts: an array, a scalar, a union of types (a nullable
+    object included) or an untyped node may hold no such key when the call returns. Call it
+    on a field outside any list that ``_declares_text`` accepts.
+    """
+
+    node: Any = schema
+    for segment in segments:
+        if not isinstance(node, dict) or node.get("type") != "object":
+            return False
+        node = node["properties"][segment.name]
+    return True
 
 
 def _declares_text(schema: Mapping[str, Any], segments: tuple[Segment, ...]) -> bool:

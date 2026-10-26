@@ -47,6 +47,7 @@ from asago_bundle_core.gap import CapabilityGap
 from asago_bundle_core.target import load_target_config
 from asago_bundle_core.testing import sequential_stimulus, single_stimulus
 from asago_bundle_midojo.bundle_files.asago_episode_judge import EPISODE_RUBRIC_NAME
+from asago_bundle_midojo.cli import main
 from asago_bundle_midojo.episode import EPISODE_FIELDS
 from asago_bundle_midojo.episode_compile import CompileError, compile_episode
 
@@ -426,6 +427,82 @@ def test_a_field_outside_a_list_no_call_argument_names_the_record_of_is_a_capabi
     assert raised.value.record["reason"] == reason
     assert check_gap(raised.value.record, package) == []
     assert not (tmp_path / "out").exists()
+
+
+def _read_note_returning(note: dict[str, Any]) -> list[dict[str, Any]]:
+    """The target's tools, with read_note's result declaring ``{"note": note}``."""
+
+    result = {"type": "object", "properties": {"note": note}}
+    return [
+        {**tool, "outputSchema": result} if tool["name"] == "read_note" else tool for tool in TOOLS
+    ]
+
+
+NESTED_BODY = {"body": {"type": "string"}}
+# Name -> the declaration of ``note``, the key above the field ``note.body``.
+NOT_OBJECTS: dict[str, dict[str, Any]] = {
+    "array": {"type": "array", "properties": NESTED_BODY},
+    "scalar": {"type": "string", "properties": NESTED_BODY},
+    "nullable-object": {"type": ["object", "null"], "properties": NESTED_BODY},
+    "object-or-array": {"type": ["object", "array"], "properties": NESTED_BODY},
+    "untyped": {"properties": NESTED_BODY},
+}
+
+
+def test_a_field_below_keys_declared_as_objects_is_placed_by_the_plain_path(
+    tmp_path: Path,
+) -> None:
+    target = target_variant(
+        tmp_path / "variant",
+        tools=_read_note_returning({"type": "object", "properties": NESTED_BODY}),
+    )
+    package = _read_package(tmp_path, {**READ_SLOT, "field": "note.body"})
+
+    (instruction,) = compiled(package, tmp_path / "out", target=target)["episode"]["plan"][
+        "instructions"
+    ]
+
+    assert instruction["target"]["structured_content_path"] == ["note", "body"]
+    assert instruction["target"]["call_arguments"] == {"note_id": "NOTE-2"}
+
+
+@pytest.mark.parametrize("name", sorted(NOT_OBJECTS))
+def test_a_field_outside_a_list_below_a_key_not_declared_exactly_an_object_is_a_gap(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], name: str
+) -> None:
+    target = target_variant(tmp_path / "variant", tools=_read_note_returning(NOT_OBJECTS[name]))
+    package = _read_package(tmp_path, {**READ_SLOT, "field": "note.body"})
+    reason = (
+        f"{READ}'s result does not declare every key above 'note.body' as an object "
+        '("type": "object"), so its path is not sure to reach the field'
+    )
+
+    with pytest.raises(CapabilityGap) as raised:
+        compiled(package, tmp_path / "out", target=target)
+
+    assert raised.value.record["reason"] == reason
+    assert check_gap(raised.value.record, package) == []
+    out = tmp_path / "cli-out"
+    assert main(["compile", str(package), "--out", str(out), "--target", str(target)]) == 3
+    assert json.loads(capsys.readouterr().out)["reason"] == reason
+    assert not (tmp_path / "out").exists() and not out.exists()
+
+
+def test_a_list_slot_s_instruction_is_unchanged_by_the_object_rule(tmp_path: Path) -> None:
+    """The rule is for fields outside a list: the list case compiles to the bytes MiDojo built."""
+
+    compile_case(tmp_path / "packages", "command-single", tmp_path / "out")
+
+    assert written(tmp_path / "out") == written(EPISODES / "command-single")
+    (instruction,) = json.loads((tmp_path / "out/episode.json").read_text(encoding="utf-8"))[
+        "episode"
+    ]["plan"]["instructions"]
+    assert "call_arguments" not in instruction["target"]
+    assert instruction["target"]["structured_content_path"] == [
+        "notes",
+        {"field": "note_id", "equals": "NOTE-1"},
+        "body",
+    ]
 
 
 def test_seed_items_become_instructions_in_order(tmp_path: Path) -> None:
