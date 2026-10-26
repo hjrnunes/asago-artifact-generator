@@ -153,8 +153,9 @@ Deterministic tests must not contact a model endpoint or target.
   allowed `tools` and their write disposition (`forward` by default), `placements`, and
   `episode`, `Episode`'s fields as plain data with no environment (`episode.py`). Each seed
   item becomes one strict `tool_output` instruction from its runtime contract slot
-  (`placement.py`): carrier, field path through a record selector on the list item's key
-  (a field outside a list only when the carrier can return no other record), mode,
+  (`placement.py`): carrier, field path through a record selector on the slot's declared
+  `record_key` (from the target's `runtime-spec.yaml` or the runtime contract, never
+  inferred; a list slot without one, and any field outside a list, is a gap), mode,
   `max_chars`. A
   command attempt uses MiDojo's `tool_call_condition` predicate; a reply uses
   `bundle_files/asago_episode_judge.py` (copied beside the episode with
