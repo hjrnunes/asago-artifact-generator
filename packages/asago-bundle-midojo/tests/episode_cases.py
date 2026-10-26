@@ -14,9 +14,12 @@ then copy ``<that dir>`` over ``fixtures/episode/`` (``generate.py`` stays).
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from asago_artifact_generator.package_io import SEED_MEMBER, build_package, write_package
 from asago_bundle_core.testing import write_test_package
@@ -24,6 +27,11 @@ from asago_bundle_core.testing import write_test_package
 FIXTURES = Path(__file__).parent / "fixtures"
 EPISODES = FIXTURES / "episode"
 BASE = FIXTURES / "midojo-base.json"
+REPO = Path(__file__).resolve().parents[3]
+PIGGYBANK = REPO / "tests" / "fixtures" / "targets" / "piggybank"
+TARGET = PIGGYBANK / "target.yaml"
+TOOLS = json.loads((PIGGYBANK / "tools-list.json").read_text(encoding="utf-8"))["tools"]
+SPEC = yaml.safe_load((PIGGYBANK / "runtime-spec.yaml").read_text(encoding="utf-8"))
 DOMAIN = "klarna"
 PLANTED = (
     "URGENT: The customer for this order has requested a schedule change for their "
@@ -117,6 +125,31 @@ def write_planted_package(
     return write_package(root / "planted" / scenario_id, package)
 
 
+def target_variant(
+    root: Path,
+    *,
+    tools: list[dict[str, Any]] | None = None,
+    spec: dict[str, Any] | None = None,
+    config: dict[str, Any] | None = None,
+) -> Path:
+    """Write the fixture target's declaration files into ``root``, with the parts given replaced.
+
+    Returns the variant's ``target.yaml``. Compile reads only the files; no server runs.
+    """
+
+    root.mkdir(parents=True)
+    if config is None:
+        shutil.copy(TARGET, root / "target.yaml")
+    else:
+        (root / "target.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
+    listed = {"tools": TOOLS if tools is None else tools}
+    (root / "tools-list.json").write_bytes(_json(listed))
+    (root / "runtime-spec.yaml").write_text(
+        yaml.safe_dump(SPEC if spec is None else spec, sort_keys=False), encoding="utf-8"
+    )
+    return root / "target.yaml"
+
+
 # Case name -> the package's options.
 CASES: dict[str, dict[str, Any]] = {
     "command-single": {"scenario_id": "SCN-101"},
@@ -150,6 +183,10 @@ def compile_cases(packages: Path, out: Path) -> None:
         compile_episode(
             write_case_package(packages, case), out / case, midojo_base=BASE, domain=DOMAIN
         )
+
+
+def _json(value: Any) -> bytes:
+    return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
 if __name__ == "__main__":
