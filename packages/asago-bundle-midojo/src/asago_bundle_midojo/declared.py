@@ -3,9 +3,10 @@
 A target config is ``target.yaml`` with ``tools-list.json`` beside it, the target's MCP
 ``tools/list`` result (each tool's name, input and output schemas, and annotations), and
 ``runtime-spec.yaml``, which states what that list cannot, such as ``operations.mutating``
-and each seed slot's optional ``record_key`` (the list item property whose value is a
-record's ID). ``compile`` reads both from the directory of the ``target.yaml`` the caller
-names.
+and each seed slot's optional ``record_key``: the name whose value is a record's ID, a
+property of a list's items for a field inside the list, and the carrier's argument for a
+field outside any list (``placement.py``). ``compile`` reads both from the directory of the
+``target.yaml`` the caller names.
 
 A tool is mutating when its annotations set ``readOnlyHint`` false or ``destructiveHint``
 true; a tool with neither hint is mutating when ``operations.mutating`` lists it, and

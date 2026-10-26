@@ -54,34 +54,103 @@ def test_a_list_field_without_its_record_key_has_no_path() -> None:
 
 
 NOTE = {"type": "object", "properties": {"note_id": {"type": "string"}, "body": TEXT}}
+# A single-record carrier: it returns the one note its required note_id argument names.
+LOOKUP = {
+    "type": "object",
+    "properties": {"note_id": {"type": "string"}},
+    "required": ["note_id"],
+}
+ONE_NOTE = {**SLOT, "carrier_operation": "read_note", "field": "body", "records": ["NOTE-2"]}
+
+
+def _reason(input_schema: Any, slot: dict[str, Any] = ONE_NOTE) -> str | None:
+    tool: dict[str, Any] = {"name": "read_note", "outputSchema": NOTE}
+    if input_schema is not None:
+        tool["inputSchema"] = input_schema
+    declared = DeclaredTools({"read_note": tool}, frozenset())
+    return gap_reason(locate(Placement(0, slot, "NOTE-2", "text"), declared), declared)
+
+
+def test_a_list_field_matches_no_call_argument() -> None:
+    instruction = Placement(0, SLOT, "NOTE-1", "text", record_key="note_id").instruction()
+
+    assert "call_arguments" not in instruction["target"]
+
+
+def test_a_field_outside_a_list_is_the_plain_path_on_the_calls_naming_the_record() -> None:
+    instruction = Placement(0, ONE_NOTE, "NOTE-2", "text", record_key="note_id").instruction()
+
+    assert instruction["target"]["tool"] == "read_note"
+    assert instruction["target"]["structured_content_path"] == ["body"]
+    assert instruction["target"]["call_arguments"] == {"note_id": "NOTE-2"}
+    assert instruction["occurrence"]["kind"] == "every"
+
+
+def test_a_field_outside_a_list_without_its_record_key_has_no_call_arguments() -> None:
+    with pytest.raises(PlacementFault, match="no record key to match the call by"):
+        Placement(0, ONE_NOTE, "NOTE-2", "text").instruction()
+
+
+def test_a_single_record_carrier_whose_required_text_argument_is_the_record_key_is_placed() -> (
+    None
+):
+    assert _reason(LOOKUP) is None
+    assert _reason({**LOOKUP, "required": ["note_id", "other"]}) is None
+
+
+ONE = "seed item 0: 'read_note'"
 
 
 @pytest.mark.parametrize(
-    "input_schema",
+    ("input_schema", "reason"),
     [
-        {"type": "object", "properties": {}},
-        {"type": "object"},
-        None,
-        {"type": "object", "properties": {"note_id": {"type": "string"}}},
+        (
+            {"type": "object", "properties": {}},
+            f"{ONE} declares no argument 'note_id' (slot piggybank.note.body's record_key), "
+            "so no call names the record whose 'body' it returns",
+        ),
+        (
+            None,
+            f"{ONE} declares no argument 'note_id' (slot piggybank.note.body's record_key), "
+            "so no call names the record whose 'body' it returns",
+        ),
+        (
+            {**LOOKUP, "properties": {"note_id": {"type": "integer"}}},
+            f"{ONE} declares its argument 'note_id' (slot piggybank.note.body's record_key) "
+            "as 'integer', not text",
+        ),
+        (
+            {**LOOKUP, "properties": {"note_id": {}}},
+            f"{ONE} declares its argument 'note_id' (slot piggybank.note.body's record_key) "
+            "as 'untyped', not text",
+        ),
+        (
+            {"type": "object", "properties": {"note_id": {"type": "string"}}},
+            f"{ONE} does not require its argument 'note_id' (slot piggybank.note.body's "
+            "record_key), so a call need not name the record whose 'body' it returns",
+        ),
     ],
-    ids=["no-properties", "no-properties-key", "no-input-schema", "an-argument"],
+    ids=["no-arguments", "no-input-schema", "not-text", "untyped", "not-required"],
 )
-@pytest.mark.parametrize("records", [["NOTE-1"], ["NOTE-1", "NOTE-2"]], ids=["one", "two"])
-def test_a_field_outside_a_list_is_refused_whatever_the_carrier_takes(
-    input_schema: dict[str, Any] | None, records: list[str]
+def test_a_field_outside_a_list_whose_record_key_is_no_required_text_argument_is_a_gap(
+    input_schema: Any, reason: str
 ) -> None:
-    tool: dict[str, Any] = {"name": "pinned_note", "outputSchema": NOTE}
-    if input_schema is not None:
-        tool["inputSchema"] = input_schema
-    slot = {**SLOT, "carrier_operation": "pinned_note", "field": "body", "records": records}
-    declared = DeclaredTools({"pinned_note": tool}, frozenset())
+    assert _reason(input_schema) == reason
 
-    reason = gap_reason(locate(Placement(0, slot, "NOTE-1", "text"), declared), declared)
 
-    assert reason == (
-        "seed item 0: MiDojo selects a record only as an item of a list in the result, and "
-        "'body' is outside a list: no declaration says a result of 'pinned_note' is record "
-        "'NOTE-1'"
+def test_a_field_outside_a_list_without_a_record_key_is_a_gap() -> None:
+    bare = {key: value for key, value in ONE_NOTE.items() if key != "record_key"}
+
+    assert _reason(LOOKUP, bare) == (
+        "seed item 0: 'body' is outside a list, and slot piggybank.note.body declares no "
+        "record_key, the argument of 'read_note' that names the one record its result "
+        "holds, which MiDojo matches the call by"
+    )
+
+
+def test_a_field_outside_a_list_the_result_does_not_declare_as_text_is_a_gap() -> None:
+    assert _reason(LOOKUP, {**ONE_NOTE, "field": "title"}) == (
+        "seed item 0: 'read_note''s result declares no text field 'title'"
     )
 
 

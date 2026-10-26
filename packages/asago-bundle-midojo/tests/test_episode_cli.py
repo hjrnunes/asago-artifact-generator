@@ -7,7 +7,17 @@ import shutil
 from pathlib import Path
 
 import pytest
-from episode_cases import EPISODES, TARGET, write_case_package, write_planted_package
+from episode_cases import (
+    EPISODES,
+    READ_SLOT,
+    SPEC,
+    TARGET,
+    seed_document,
+    seed_item,
+    target_variant,
+    write_case_package,
+    write_planted_package,
+)
 
 from asago_bundle_core.testing import single_stimulus
 from asago_bundle_midojo.cli import main
@@ -79,6 +89,34 @@ def test_a_package_midojo_cannot_run_exits_3_with_the_gap_record(
     record = json.loads(capsys.readouterr().out)
     assert record["kind"] == "capability_gap"
     assert record["reason"].startswith("MiDojo runs planted_item packages only")
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_field_outside_a_list_no_call_argument_names_exits_3(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    slot = {key: value for key, value in READ_SLOT.items() if key != "record_key"}
+    spec = {
+        **SPEC,
+        "seed_slots": [item for item in SPEC["seed_slots"] if item["id"] != slot["id"]],
+    }
+    target = target_variant(tmp_path / "variant", spec=spec)
+    package = write_planted_package(
+        tmp_path / "packages",
+        slots=[slot],
+        operations=["read_note"],
+        seed=seed_document(
+            seed_item(slot=slot["id"], record="NOTE-2", mode="replace"), carrier="read_note"
+        ),
+    )
+    args = compile_args(package, tmp_path / "out")
+    args[args.index("--target") + 1] = str(target)
+
+    assert main(args) == 3
+
+    record = json.loads(capsys.readouterr().out)
+    assert record["kind"] == "capability_gap"
+    assert "slot piggybank.note.read declares no record_key" in record["reason"]
     assert not (tmp_path / "out").exists()
 
 

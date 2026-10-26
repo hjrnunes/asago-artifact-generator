@@ -4,32 +4,42 @@ The package's runtime contract (``inputs.json``'s ``runtime_contract``, else the
 else the manifest's ``runtime_capabilities``) declares each seed slot: the carrier
 operation whose result returns the field to the agent, the ``field`` in that result, the
 ``records`` whose field may hold planted text, the ``mode`` the target writes it with
-(``append`` or ``replace``), ``max_chars``, and, for a field inside a list of records,
-the optional ``record_key``: the list item property whose value is the record's ID. The
-caller's target config may declare the same slot's ``record_key`` in its
-``runtime-spec.yaml`` (``declared.py``). Each item of the package's
+(``append`` or ``replace``), ``max_chars``, and the optional ``record_key``: the name
+whose value is a record's ID. The caller's target config may declare the same slot's
+``record_key`` in its ``runtime-spec.yaml`` (``declared.py``). Each item of the package's
 ``artifact-seed-v1`` seed names a slot, one of its records and that slot's mode, and
 becomes one instruction (``episode.tool_output_instruction``):
 
 - the tool is the slot's carrier operation, and the path is the slot's field in the
   tool's structured result;
-- the record selects the place in that result. A field inside a list of records
-  (``notes[].body``) is reached through the list by a record selector, MiDojo's
-  ``{"field": <key>, "equals": <record>}`` step (``["notes", {"field": "note_id",
-  "equals": "NOTE-1"}, "body"]``), which picks the one list item whose key field is the
-  record. The key is the slot's declared ``record_key``, used as declared; nothing infers
-  it;
-- every call of the carrier gets the instruction: the selector, not the call, picks
-  the record;
+- the record selects the place in that result, in one of two ways:
+
+  - a field inside a list of records (``notes[].body``) is reached through the list by a
+    record selector, MiDojo's ``{"field": <key>, "equals": <record>}`` step (``["notes",
+    {"field": "note_id", "equals": "NOTE-1"}, "body"]``), which picks the one list item
+    whose key field is the record. The ``record_key`` is a property of the list's items;
+  - a field outside any list (``body``) belongs to the one record a single-record carrier
+    returns, and that record is the one the call names. The ``record_key`` is an argument
+    of the carrier, and the instruction's target matches the call's arguments,
+    ``call_arguments`` ``{<key>: <record>}`` (``{"note_id": "NOTE-2"}``), with the plain
+    path into the result (``["body"]``). A carrier returns one record when the target
+    config declares both halves: its output schema reaches the field through objects only,
+    no array, and its input schema declares the ``record_key`` as a required text
+    argument. A call naming another record, or none, is left unchanged; MiDojo reports it
+    ``unmatched`` and does not count it;
+
+  the key is the slot's declared ``record_key``, used as declared; nothing infers it;
+- every call of the carrier gets the instruction: the selector, or the call's arguments,
+  picks the record;
 - the mode is the slot's, the size limit its ``max_chars``, and the payload the item's
   text as the seed holds it.
 
-MiDojo selects by the result, never by the call's arguments, and only a list item can be
-selected by its key. No declaration says that the whole result of a carrier is the named
-record, so a field outside a list is always a capability gap, and so is a list field
-whose slot declares no ``record_key``, or one the carrier's output schema does not give
-the list's items as a text property (``gap_reason``). Placement is strict: a selector
-that matches nothing leaves the result as it was, and MiDojo reports it unmatched.
+A field the declarations do not make addressable either way is a capability gap
+(``gap_reason``): a slot that declares no ``record_key``, a list field whose key the
+carrier's output schema does not give the list's items as a text property, and a field
+outside a list whose key the carrier's input schema does not declare as a required text
+argument. Placement is strict: a selector that matches nothing leaves the result as it
+was, and MiDojo reports it unmatched.
 """
 
 from __future__ import annotations
@@ -67,8 +77,9 @@ class Segment:
 class Placement:
     """Seed item ``index``: the text it plants, the slot it names and the record.
 
-    ``record_key`` is the list item property that names the record, as the slot declares
-    it (``locate`` sets it), or None when no declaration names one.
+    ``record_key`` names the record, as the slot declares it (``locate`` sets it): the list
+    item property for a field inside a list, the carrier's argument for one outside, or
+    None when no declaration names one.
     """
 
     index: int
@@ -105,10 +116,26 @@ class Placement:
                 path.append({"field": self.record_key, "equals": self.record})
         return path
 
+    @property
+    def call_arguments(self) -> dict[str, str]:
+        """Return the arguments a call must have for its result to be the record.
+
+        Empty for a list field, whose path selects the record; ``{record_key: record}`` for
+        a field outside a list. Raises ``PlacementFault`` for one whose record key is not
+        set.
+        """
+
+        if self.listed:
+            return {}
+        if self.record_key is None:
+            raise PlacementFault(f"seed item {self.index}: no record key to match the call by")
+        return {self.record_key: self.record}
+
     def instruction(self) -> dict[str, Any]:
         return tool_output_instruction(
             tool=self.carrier,
             path=self.path,
+            call_arguments=self.call_arguments,
             payload=self.content,
             mode=self.slot["mode"],
             size_limit=self.slot["max_chars"],
@@ -222,13 +249,14 @@ def gap_reason(placement: Placement, declared: DeclaredTools) -> str | None:
     """Return why MiDojo cannot place the item in the carrier's MCP result, or None.
 
     MiDojo's interceptor places text in the structured result of a tool the target lists
-    over MCP, at a text field the result declares, in the record a selector picks, within
-    a size limit counted in UTF-8 bytes. A carrier the target does not list (the agent
-    reads it by some other way than an MCP call), a result that is not a JSON object, a
-    field outside a list (nothing declares the whole result to be the record), a field
-    the result does not declare, a list field whose slot declares no ``record_key``, a
-    ``record_key`` the list's items do not declare as text, and a text over
-    ``max_chars`` bytes cannot be placed. Call it on a placement ``locate`` returned.
+    over MCP, at a text field the result declares, in the record a selector or the call's
+    arguments pick, within a size limit counted in UTF-8 bytes. A carrier the target does
+    not list (the agent reads it by some other way than an MCP call), a result that is not
+    a JSON object, a field the result does not declare as text, a slot that declares no
+    ``record_key``, a list field whose ``record_key`` the list's items do not declare as
+    text, a field outside a list whose ``record_key`` the carrier does not declare as a
+    required text argument, and a text over ``max_chars`` bytes cannot be placed. Call it
+    on a placement ``locate`` returned.
     """
 
     label = f"seed item {placement.index}"
@@ -249,36 +277,82 @@ def gap_reason(placement: Placement, declared: DeclaredTools) -> str | None:
     segments = placement.segments
     if sum(segment.listed for segment in segments) > 1 or segments[-1].listed:
         return f"{label}: the field {field!r} does not name one text field of one record"
-    if not placement.listed:
-        return (
-            f"{label}: MiDojo selects a record only as an item of a list in the result, and "
-            f"{field!r} is outside a list: no declaration says a result of {carrier!r} is "
-            f"record {placement.record!r}"
-        )
     if not _declares_text(schema, segments):
         return f"{label}: {carrier!r}'s result declares no text field {field!r}"
-    key = placement.record_key
-    if key is None:
-        return (
-            f"{label}: slot {placement.slot['id']} declares no record_key, the property of "
-            f"the items of {field!r} that names a record, which MiDojo selects the record by"
-        )
-    declared_type = _item_property(schema, segments, key)
-    if declared_type is None:
-        return (
-            f"{label}: {carrier!r}'s result declares no property {key!r} (slot "
-            f"{placement.slot['id']}'s record_key) for the items of {field!r}"
-        )
-    if declared_type != "string":
-        return (
-            f"{label}: {carrier!r}'s result declares {key!r} (slot {placement.slot['id']}'s "
-            f"record_key) for the items of {field!r} as {declared_type!r}, not text"
-        )
+    reason = (
+        _list_key_reason(placement, schema)
+        if placement.listed
+        else _argument_key_reason(placement, tool)
+    )
+    if reason:
+        return f"{label}: {reason}"
     size = len(placement.content.encode("utf-8"))
     if size > placement.slot["max_chars"]:
         return (
             f"{label}: the text is {size} UTF-8 bytes; MiDojo's size limit counts bytes, and "
             f"slot {placement.slot['id']} holds {placement.slot['max_chars']}"
+        )
+    return None
+
+
+def _list_key_reason(placement: Placement, schema: Mapping[str, Any]) -> str | None:
+    """Why the list's items do not name the record by the slot's ``record_key``, or None."""
+
+    slot, field, carrier = placement.slot["id"], placement.slot["field"], placement.carrier
+    key = placement.record_key
+    if key is None:
+        return (
+            f"slot {slot} declares no record_key, the property of the items of {field!r} "
+            "that names a record, which MiDojo selects the record by"
+        )
+    declared_type = _item_property(schema, placement.segments, key)
+    if declared_type is None:
+        return (
+            f"{carrier!r}'s result declares no property {key!r} (slot {slot}'s record_key) "
+            f"for the items of {field!r}"
+        )
+    if declared_type != "string":
+        return (
+            f"{carrier!r}'s result declares {key!r} (slot {slot}'s record_key) for the items "
+            f"of {field!r} as {declared_type!r}, not text"
+        )
+    return None
+
+
+def _argument_key_reason(placement: Placement, tool: Mapping[str, Any]) -> str | None:
+    """Why a call of the carrier does not name the one record it returns, or None.
+
+    The slot's ``record_key`` must be a text argument the carrier's input schema declares
+    and requires: MiDojo matches the call by that argument's value, type for type.
+    """
+
+    slot, field, carrier = placement.slot["id"], placement.slot["field"], placement.carrier
+    key = placement.record_key
+    if key is None:
+        return (
+            f"{field!r} is outside a list, and slot {slot} declares no record_key, the "
+            f"argument of {carrier!r} that names the one record its result holds, which "
+            "MiDojo matches the call by"
+        )
+    inputs = tool.get("inputSchema")
+    properties = inputs.get("properties") if isinstance(inputs, dict) else None
+    argument = properties.get(key) if isinstance(properties, dict) else None
+    if not isinstance(argument, dict):
+        return (
+            f"{carrier!r} declares no argument {key!r} (slot {slot}'s record_key), so no "
+            f"call names the record whose {field!r} it returns"
+        )
+    declared_type = argument.get("type", "untyped")
+    if declared_type != "string":
+        return (
+            f"{carrier!r} declares its argument {key!r} (slot {slot}'s record_key) as "
+            f"{declared_type!r}, not text"
+        )
+    required = inputs.get("required") if isinstance(inputs, dict) else None
+    if not isinstance(required, list) or key not in required:
+        return (
+            f"{carrier!r} does not require its argument {key!r} (slot {slot}'s record_key), "
+            f"so a call need not name the record whose {field!r} it returns"
         )
     return None
 

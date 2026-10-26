@@ -1,6 +1,6 @@
 """The MiDojo episode as plain data: the fields of ``midojo.episode.Episode``, JSON-able.
 
-MiDojo (asago/main at 3824922) describes one run as a frozen ``Episode``
+MiDojo (asago/main at b5b8c75) describes one run as a frozen ``Episode``
 (``src/midojo/episode.py``): the user ``turns``, the injection ``plan``
 (``midojo_sdk.injection.InjectionPlan``, ``interception/python-sdk/src/midojo_sdk/injection.py``),
 the ``security`` and ``utility`` checks as authored specs, the initial ``environment``
@@ -17,18 +17,22 @@ A planted item becomes a ``tool_output`` instruction: MiDojo's host interceptor
 the payload in the result of the instruction's tool, at its ``structured_content`` path
 (``midojo_sdk.mcp``). A path step is a key, a list index, or a record selector
 (``RecordSelector``), written as MiDojo's plan data writes it: ``{"field": <key>,
-"equals": <value>}``. The interceptor changes the result's ``structuredContent``, and
-copies the change into its text when that text is a JSON mirror of the structured content
-(the fixture target's is); other text stays as the target sent it, and the outcome is
-``partial``. The call record MiDojo seals holds the text the agent got, the structured
-content and the injection outcomes.
+"equals": <value>}``. A target may also name ``call_arguments``, an object of the call's
+top-level arguments and their values: only a call whose arguments match gets the
+instruction, and MiDojo leaves any other call of the tool unchanged and records it
+``unmatched``, at occurrence 0, without counting it. MiDojo's plan data leaves the key out
+when there are none, and so does this module. The interceptor changes the result's
+``structuredContent``, and copies the change into its text when that text is a JSON
+mirror of the structured content (the fixture target's is); other text stays as the target
+sent it, and the outcome is ``partial``. The call record MiDojo seals holds the text the
+agent got, the structured content and the injection outcomes.
 The target keeps its own data, so the episode has no environment; and the plan has no
 ``probe_payloads``, which only template instructions name.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 # ``midojo_sdk.injection`` enum values.
@@ -64,6 +68,7 @@ def tool_output_instruction(
     *,
     tool: str,
     path: Sequence[str | int | dict[str, str]],
+    call_arguments: Mapping[str, str] | None = None,
     payload: str,
     mode: str,
     size_limit: int,
@@ -75,20 +80,25 @@ def tool_output_instruction(
     Every field is written, defaults included, so the data names the whole placement: the
     calls ``occurrence`` selects, no transformation, the size limit in UTF-8 bytes, and
     strict on a mismatch (MiDojo reports a path it cannot match and leaves the result).
+    The target's ``call_arguments`` are written only when there are some, as MiDojo's
+    codec writes them.
     """
 
+    target: dict[str, Any] = {
+        "tool": tool,
+        "surface": STRUCTURED_CONTENT,
+        "content_block_index": None,
+        "content_block_type": None,
+        "structured_content_path": list(path),
+        "template_path": [],
+        "template_key": None,
+    }
+    if call_arguments:
+        target["call_arguments"] = dict(call_arguments)
     return {
         "channel": TOOL_OUTPUT,
         "payload": payload,
-        "target": {
-            "tool": tool,
-            "surface": STRUCTURED_CONTENT,
-            "content_block_index": None,
-            "content_block_type": None,
-            "structured_content_path": list(path),
-            "template_path": [],
-            "template_key": None,
-        },
+        "target": target,
         "occurrence": {"kind": occurrence, "nth": None},
         "transformation": IDENTITY,
         "size_limit": size_limit,

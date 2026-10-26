@@ -8,7 +8,10 @@ verdict, which MiDojo produced from that episode with its host interceptor in fr
 fixture target (``fixtures/episode/generate.py``), at asago/main 3824922: each call record
 carries its ``structured_content`` and ``injection_outcomes``. ``fixtures/episode-a5f81e9/``
 keeps what compile wrote and MiDojo sealed at a5f81e9, before those fields, so a snapshot
-sealed then still parses. The packages hold the list slot and the three tools they were sealed with,
+sealed then still parses. When the range moved to ``>=b5b8c752`` the episodes were
+recompiled offline (``episode_cases.py`` alone): only their ``tool_revision_range`` changed,
+and the snapshots and verdicts are those MiDojo sealed at 3824922 from the same
+``episode``. The packages hold the list slot and the three tools they were sealed with,
 not the fixture target's ``read_note`` and its slot. To regenerate:
 
     uv run python packages/asago-bundle-midojo/tests/episode_cases.py <empty dir>

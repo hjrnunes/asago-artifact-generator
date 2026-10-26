@@ -11,7 +11,9 @@ same bytes.
 - Each seed item becomes one ``tool_output`` instruction from the seed slot of the
   package's runtime contract it names (``placement.py``): the carrier's structured
   result, the field through a selector of the item's record by the slot's declared
-  ``record_key``, the slot's mode and ``max_chars``.
+  ``record_key`` (a field inside a list), or the plain field on the calls whose
+  ``record_key`` argument is the record (a single-record carrier), the slot's mode and
+  ``max_chars``.
   ``placements`` restates each in the contract's terms. MiDojo's host interceptor places
   the text in the result as it forwards the call; the target's data is not changed.
 - ``interception`` is host-side: the runner opens the episode with MiDojo's
@@ -77,7 +79,9 @@ TOOL = "midojo"
 # are on asago/main at a5f81e9. From 3824922 the interceptor also copies a placement into a
 # result's text when that text mirrors its structured content, so an agent that reads only
 # the text gets the planted item, and each sealed call record carries its injection outcomes.
-TOOL_REVISION_RANGE = ">=3824922f"
+# From b5b8c75 a target can match the call's arguments (``call_arguments``), which places an
+# item in the result of a single-record carrier.
+TOOL_REVISION_RANGE = ">=b5b8c752"
 EPISODE_FILE = "episode.json"
 SEED_MEMBER = "seed.json"
 CONDITION_MEMBER = "tool_call_condition.json"
