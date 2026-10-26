@@ -1,6 +1,6 @@
 """The MiDojo episode as plain data: the fields of ``midojo.episode.Episode``, JSON-able.
 
-MiDojo (asago/main at b6e0f8f) describes one run as a frozen ``Episode``
+MiDojo (asago/main at f910063) describes one run as a frozen ``Episode``
 (``src/midojo/episode.py``): the user ``turns``, the injection ``plan``
 (``midojo_sdk.injection.InjectionPlan``, ``interception/python-sdk/src/midojo_sdk/injection.py``),
 the ``security`` and ``utility`` checks as authored specs, the initial ``environment``
@@ -10,15 +10,13 @@ as its fields), and the provenance IDs ``suite_name``, ``user_task_id`` and
 an episode, so this module writes each dataclass as a mapping of its fields, in MiDojo's
 field names, with every enum as its string value and every tuple as a list. A runner
 builds the MiDojo types from it field by field (``tests/fixtures/episode/generate.py``
-does, in MiDojo's interpreter). The environment type is code, not data: MiDojo infers it
-from the environment.
+does, in MiDojo's interpreter).
 
-A planted item becomes what ``YAMLTaskSuite.episode`` makes of a probe in a suite's
-environment: an ``environment_state`` instruction with a ``template`` selector whose
-``template_path`` is the field's path in the environment and whose ``template_key`` names
-the probe, mode ``replace`` (the probe's placeholder is replaced), and an entry of the
-plan's ``probe_payloads``. The episode is resolved: its environment holds the payload, as
-the suite's episode holds the substituted environment.
+A planted item becomes a ``tool_output`` instruction: MiDojo's host interceptor
+(``midojo.interception_host``) forwards each call to the target's MCP server and places
+the payload in the result of the instruction's tool, at its ``structured_content`` path
+(``midojo_sdk.mcp``). The target keeps its own data, so the episode has no environment;
+and the plan has no ``probe_payloads``, which only template instructions name.
 """
 
 from __future__ import annotations
@@ -29,15 +27,12 @@ from typing import Any
 # ``midojo_sdk.injection`` enum values.
 TOOL_OUTPUT = "tool_output"
 STRUCTURED_CONTENT = "structured_content"
-EVERY = "every"
-ENVIRONMENT_STATE = "environment_state"
-TEMPLATE = "template"
-REPLACE = "replace"
 FIRST = "first"
+EVERY = "every"
 IDENTITY = "identity"
 STRICT = "strict"
 UNMANAGED_RUNTIME = {"type": "unmanaged"}
-# The provenance of a probe key, ``<task>:<probe>`` as MiDojo names probes.
+# The provenance of an instruction, ``<task>:<probe>`` as MiDojo names probes.
 PROBE_TASK = "planted_item"
 EPISODE_FIELDS = (
     "runtime",
@@ -53,37 +48,9 @@ EPISODE_FIELDS = (
 
 
 def probe_key(index: int) -> str:
-    """Return the key of the probe that places seed item ``index``."""
+    """Return the provenance key of the instruction that places seed item ``index``."""
 
     return f"{PROBE_TASK}:seed_{index}"
-
-
-def template_instruction(path: Sequence[str | int], key: str, payload: str) -> dict[str, Any]:
-    """Return an ``InjectionInstruction`` that places ``payload`` at ``path`` in the environment.
-
-    Every field is written, defaults included, so the data names the whole placement:
-    the first occurrence, no transformation, no size limit, strict on a mismatch.
-    """
-
-    return {
-        "channel": ENVIRONMENT_STATE,
-        "payload": payload,
-        "target": {
-            "tool": None,
-            "surface": TEMPLATE,
-            "content_block_index": None,
-            "content_block_type": None,
-            "structured_content_path": [],
-            "template_path": list(path),
-            "template_key": key,
-        },
-        "occurrence": {"kind": FIRST, "nth": None},
-        "transformation": IDENTITY,
-        "size_limit": None,
-        "mismatch_policy": STRICT,
-        "mode": REPLACE,
-        "probe_key": key,
-    }
 
 
 def tool_output_instruction(
@@ -125,27 +92,19 @@ def tool_output_instruction(
 
 
 def injection_plan(instructions: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    """Return an ``InjectionPlan``: the instructions, no generator permissions, the payloads.
+    """Return an ``InjectionPlan``: the instructions, no generator permissions, no payload map."""
 
-    ``probe_payloads`` are sorted by key, as ``InjectionPlan`` keeps them.
-    """
-
-    payloads = sorted((item["target"]["template_key"], item["payload"]) for item in instructions)
     return {
         "instructions": list(instructions),
         "generator_permissions": {"tools": [], "fields": [], "modes": []},
-        "probe_payloads": [list(pair) for pair in payloads],
+        "probe_payloads": [],
     }
 
 
 def episode(
-    *,
-    turns: Sequence[str],
-    plan: dict[str, Any],
-    security: dict[str, Any],
-    environment: dict[str, Any],
+    *, turns: Sequence[str], plan: dict[str, Any], security: dict[str, Any]
 ) -> dict[str, Any]:
-    """Return an ``Episode``: no utility check, the ``unmanaged`` runtime, no suite provenance."""
+    """Return an ``Episode``: no utility check, no environment, the ``unmanaged`` runtime."""
 
     return {
         "runtime": dict(UNMANAGED_RUNTIME),
@@ -153,7 +112,7 @@ def episode(
         "plan": plan,
         "security": security,
         "utility": None,
-        "environment": environment,
+        "environment": None,
         "suite_name": None,
         "user_task_id": None,
         "injection_task_id": None,

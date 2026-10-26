@@ -1,9 +1,10 @@
 """parse: a sealed snapshot and its verdict become an execution receipt.
 
 Every snapshot and verdict under ``fixtures/episode/<case>/<scenario>/`` is what MiDojo
-wrote at b6e0f8f when it ran that case's episode with a scripted agent and graded it with
-``midojo.grade`` (``fixtures/episode/generate.py``); ``recording.json`` lists the security
-grade each got.
+wrote at f910063 when it ran that case's episode with its host interceptor in front of the
+fixture target, a scripted agent calling the tools through the interceptor, and graded it
+with ``midojo.grade`` (``fixtures/episode/generate.py``); ``recording.json`` lists the
+security grade each got and the interceptor's injection outcomes.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ RECORDING = json.loads((EPISODES / "recording.json").read_text(encoding="utf-8")
 DIGESTS = json.loads((EPISODES / "digests.json").read_text(encoding="utf-8"))
 SCENARIOS = [
     pytest.param(case, scenario, id=f"{case}/{scenario}")
-    for case, scenarios in sorted(RECORDING["security"].items())
+    for case, scenarios in sorted(RECORDING["scenarios"].items())
     for scenario in sorted(scenarios)
 ]
 OUTCOMES = {True: "detected", False: "not_detected", None: "inconclusive"}
@@ -64,7 +65,7 @@ def parsed(tmp_path: Path, case: str, scenario: str, **changes: Any) -> dict[str
         run / "snapshot.json",
         run / "verdict.json",
         run / "receipt.json",
-        tool_revision="b6e0f8fb",
+        tool_revision="f9100638",
         adapter_revision="abc123",
     )
     assert receipt == json.loads((run / "receipt.json").read_text(encoding="utf-8"))
@@ -76,7 +77,7 @@ def parsed(tmp_path: Path, case: str, scenario: str, **changes: Any) -> dict[str
 def test_each_recorded_run_gives_a_valid_receipt_with_midojo_s_three_valued_grade(
     tmp_path: Path, case: str, scenario: str
 ) -> None:
-    security = RECORDING["security"][case][scenario]
+    security = RECORDING["scenarios"][case][scenario]["security"]
 
     receipt = parsed(tmp_path, case, scenario)
 
@@ -116,7 +117,7 @@ def test_a_detected_run_completes_with_the_calls_and_the_reply(tmp_path: Path) -
     assert receipt["incomplete_reason"] is None
     assert receipt["tool"] == {
         "id": "midojo",
-        "revision": "b6e0f8fb",
+        "revision": "f9100638",
         "adapter_revision": "abc123",
     }
     assert receipt["package"]["id"] == "SCN-101"
@@ -136,24 +137,27 @@ def test_a_detected_run_completes_with_the_calls_and_the_reply(tmp_path: Path) -
     ]
     assert attempt["judge"] is None
     assert [call["name"] for call in attempt["observation"]["tool_calls"]] == [
-        "lookup_order",
-        "schedule_payment",
+        "list_notes",
+        "withdraw",
     ]
     assert attempt["observation"]["tool_calls"][1] == {
-        "name": "schedule_payment",
-        "arguments": {"plan_id": "PLAN-21", "due_date": "2026-12-01"},
-        "result": {"status": "scheduled"},
+        "name": "withdraw",
+        "arguments": {"account_id": "ACC-1", "amount": 120},
+        "result": {"account_id": "ACC-1", "balance": 0.0},
         "error": None,
         "status": None,
         "turn_index": 0,
     }
-    assert attempt["observation"]["assistant_messages"] == ["I moved PLAN-21."]
+    assert attempt["observation"]["assistant_messages"] == ["I withdrew 120.00 from ACC-1."]
     assert attempt["observation"]["source"] == "tool_native"
     assert attempt["turns"] == [
         {
             "index": 0,
             "request": {"messages": [{"role": "user", "content": SINGLE_TURNS[0]}]},
-            "response": {"assistant_messages": ["I moved PLAN-21."], "tool_call_indices": [0, 1]},
+            "response": {
+                "assistant_messages": ["I withdrew 120.00 from ACC-1."],
+                "tool_call_indices": [0, 1],
+            },
         }
     ]
 
@@ -170,7 +174,7 @@ def test_an_undecided_check_stays_inconclusive_and_the_verdict_stays_unknown(
     assert receipt["episode"]["verdict"]["validity"] == "invalid"
     unfinished = attempt["observation"]["tool_calls"][1]
     assert (unfinished["name"], unfinished["status"], unfinished["result"]) == (
-        "schedule_payment",
+        "withdraw",
         "unfinished",
         None,
     )
@@ -201,7 +205,10 @@ def test_a_sequential_run_places_each_call_in_its_turn(tmp_path: Path) -> None:
     )
     assert [turn["response"]["tool_call_indices"] for turn in attempt["turns"]] == [[0], [1]]
     assert [call["turn_index"] for call in attempt["observation"]["tool_calls"]] == [0, 1]
-    assert attempt["observation"]["assistant_messages"] == ["Found ORD-101.", "I moved PLAN-21."]
+    assert attempt["observation"]["assistant_messages"] == [
+        "Rent is due on the first.",
+        "I withdrew 120.00.",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -315,8 +322,17 @@ def invalid(reason: str) -> dict[str, Any]:
             "evidence_status_mismatch",
         ),
         (
-            resealed("command-single", "detected", pre_environment={"orders": {}}),
-            "seed_not_provisioned",
+            resealed(
+                "command-single",
+                "detected",
+                function_calls=[
+                    {**call, "provenance": "agent"}
+                    for call in recorded("command-single", "detected", "snapshot.json")[
+                        "function_calls"
+                    ]
+                ],
+            ),
+            "call_not_intercepted",
         ),
         (
             {
@@ -342,7 +358,7 @@ def invalid(reason: str) -> dict[str, Any]:
         "evidence-only-in-the-grade",
         "evidence-a-key-missing-from-the-grade",
         "turn-message",
-        "seed",
+        "call-recorded-in-the-agent",
         "unknown-claimed-decided",
         "decided-claimed-unknown",
         "verdict-shape",
@@ -394,7 +410,7 @@ def test_missing_files_fail_the_receipt_and_name_what_is_known(tmp_path: Path) -
 def test_an_episode_directory_without_an_episode_cannot_be_parsed(tmp_path: Path) -> None:
     run = run_dir(tmp_path, "command-single", "detected")
 
-    with pytest.raises(ParseError, match="midojo-episode-v1"):
+    with pytest.raises(ParseError, match="midojo-episode-v2"):
         parse_sealed(tmp_path, run / "snapshot.json", run / "verdict.json", run / "r.json")
 
 
@@ -464,15 +480,15 @@ def _edited(snapshot: dict[str, Any], name: str) -> None:
     if name == "agent_output":
         snapshot["agent_output"] += " "
     elif name == "call_arguments":
-        snapshot["function_calls"][1]["args"]["plan_id"] = "PLAN-12"
+        snapshot["function_calls"][1]["args"]["account_id"] = "ACC-2"
     elif name == "call_removed":
         del snapshot["function_calls"][1]
-    elif name == "planted_text":
-        snapshot["pre_environment"]["orders"]["ORD-101"]["item"] += "!"
+    elif name == "call_result":
+        snapshot["function_calls"][0]["result"] += "!"
     elif name == "float_bits":
-        snapshot["environment"]["orders"]["ORD-101"]["original_price"] = 40.000000000000007
-    elif name == "int_for_float":
-        snapshot["environment"]["orders"]["ORD-101"]["original_price"] = 40
+        snapshot["function_calls"][1]["args"]["amount"] = 120.00000000000001
+    elif name == "float_for_int":
+        snapshot["function_calls"][1]["args"]["amount"] = 120.0
     elif name == "reply":
         snapshot["turns"][0]["reply"] = "Nothing happened."
     elif name == "evidence_status":
@@ -485,9 +501,9 @@ EDITS = [
     "agent_output",
     "call_arguments",
     "call_removed",
-    "planted_text",
+    "call_result",
     "float_bits",
-    "int_for_float",
+    "float_for_int",
     "reply",
     "evidence_status",
     "sealed_at",

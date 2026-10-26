@@ -2,10 +2,12 @@
 
 Exit codes: 0 done, 1 the input cannot be used, 2 usage error, 3 capability gap
 (``compile`` only: MiDojo cannot run the package, such as a direct or user-turn package,
-a single one with history, or one that claims a state effect; the record is printed).
+a single one with history, one that claims a state effect, or a seed its interceptor
+cannot place in an MCP tool result; the record is printed).
 
-``compile`` writes one package's episode; the runner opens it with MiDojo, seals it and
-grades the snapshot; ``parse`` reads the sealed snapshot and the verdict into a receipt.
+``compile`` writes one package's episode for a target config; the runner opens it with
+MiDojo's host interception in front of that target's MCP endpoint, seals it and grades the
+snapshot; ``parse`` reads the sealed snapshot and the verdict into a receipt.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from pathlib import Path
 from asago_bundle_core.gap import EXIT_CAPABILITY_GAP, EXIT_INPUT, EXIT_OK, CapabilityGap
 
 from .bundle_files.asago_episode_judge import FINAL_TURN, JUDGE_TURNS
-from .episode_compile import CompileError, compile_episode
+from .episode_compile import BLOCK, CompileError, compile_episode
 from .route import DEFAULT_ROUTE, ROUTES
 from .sealed import ParseError, parse_sealed
 
@@ -36,9 +38,18 @@ def build_parser() -> argparse.ArgumentParser:
     compile_cmd.add_argument("package", type=Path, help="artifact package directory")
     compile_cmd.add_argument("--out", type=Path, required=True, help="new episode directory")
     compile_cmd.add_argument(
-        "--midojo-base", type=Path, required=True, help="mini-agents-midojo-base-v1 file"
+        "--target",
+        type=Path,
+        required=True,
+        help="the target's target.yaml, with tools-list.json and runtime-spec.yaml beside it",
     )
-    compile_cmd.add_argument("--domain", required=True, help="domain of the base to compile for")
+    compile_cmd.add_argument(
+        "--block",
+        action="append",
+        default=[],
+        metavar="TOOL",
+        help="block this mutating tool instead of forwarding its writes (repeatable)",
+    )
     compile_cmd.add_argument(
         "--judge-turns",
         choices=sorted(JUDGE_TURNS),
@@ -81,8 +92,8 @@ def _compile(args: argparse.Namespace) -> int:
         compile_episode(
             args.package,
             args.out,
-            midojo_base=args.midojo_base,
-            domain=args.domain,
+            target=args.target,
+            write_disposition={tool: BLOCK for tool in args.block},
             judge_turns=args.judge_turns,
         )
     except CapabilityGap as gap:

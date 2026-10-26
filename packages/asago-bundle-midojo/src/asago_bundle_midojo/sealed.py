@@ -20,8 +20,9 @@ content, recomputed here (``snapshot_digest.py``), so a snapshot whose content c
 under its ID is refused. The verdict must name the snapshot's evaluation and the snapshot
 itself, its validity must agree with its grade, and its evidence status must be exactly
 the snapshot's (``grading.grade`` keeps the snapshot's). The snapshot's turns must be the
-episode's, in order, and each call must name one of them; every planted payload must be
-in the snapshot's initial environment where the plan put it. Anything else yields a
+episode's, in order, and each call must name one of them and be the host interceptor's
+record (provenance ``interceptor``): the episode intercepts on the host, so a call the
+agent's side recorded means the target held a session it never should. Anything else yields a
 ``failed`` receipt whose ``incomplete_reason`` names what was wrong, and the receipt is
 still written. A turn the agent did not answer (no reply, or the conversation ends early)
 fails the receipt with ``turn_failed:<position>`` (counted from 1); its attempt is kept,
@@ -73,7 +74,8 @@ CALL_FIELDS = frozenset(
     }
 )
 DISPOSITIONS = frozenset({"forwarded", "denied", "simulated", "blocked", None})
-PROVENANCES = frozenset({"host", "interceptor", "agent", None})
+INTERCEPTOR = "interceptor"
+PROVENANCES = frozenset({"host", INTERCEPTOR, "agent", None})
 TURN_FIELDS = frozenset({"index", "message", "reply", "started_at", "ended_at"})
 FAILURE_FIELDS = frozenset({"call_id", "function", "phase", "reason", "stage", "by", "at"})
 CAPTURE_PHASES = frozenset({"start", "finish"})
@@ -314,24 +316,9 @@ def sealed_failure(
             return "call_turn_missing"
         if type(turn) is not int or not 0 <= turn < len(sent):
             return "call_turn_out_of_range"
-    if not seed_provisioned(compiled, snapshot):
-        return "seed_not_provisioned"
+        if call.get("provenance") != INTERCEPTOR:
+            return "call_not_intercepted"
     return turn_failure(snapshot["turns"], len(compiled.turns))
-
-
-def seed_provisioned(compiled: Compiled, snapshot: dict[str, Any]) -> bool:
-    """Every planted payload is in the initial environment where its instruction put it."""
-
-    for instruction in compiled.document["episode"]["plan"]["instructions"]:
-        node: Any = snapshot["pre_environment"]
-        for part in instruction["target"]["template_path"]:
-            try:
-                node = node[part]
-            except (KeyError, IndexError, TypeError):
-                return False
-        if not (isinstance(node, str) and instruction["payload"] in node):
-            return False
-    return True
 
 
 def turn_failure(turns: list[dict[str, Any]], planned: int) -> str | None:
