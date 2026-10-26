@@ -923,7 +923,7 @@ refuses and records as blocked), and places the planted text in the structured r
 of the carrier tool. The target's own data is not changed (the Garak adapter plants the
 same text by writing `seed.json` into the target before the run). It targets the
 `Episode` value, `midojo.open_episode` with `HostInterception`, and `midojo.grade` of
-MiDojo's `asago/main` at `a5f81e9` (`src/midojo/episode.py`,
+MiDojo's `asago/main` at `3824922` (`src/midojo/episode.py`,
 `src/midojo/episode_context.py`, `src/midojo/interception_host.py`,
 `src/midojo/control_plane/grading.py`, and `midojo_sdk.injection` for the plan).
 
@@ -971,11 +971,14 @@ is refused (exit 1). `compile` writes `episode.json` (`midojo-episode-v2`):
   not by the call's arguments, and no declaration says a carrier's whole result is the
   named record, so a field outside a list (`body`) is never placed. A selector that matches nothing
   leaves the result as it was, and MiDojo reports it unmatched. The interceptor places
-  the text in the result's `structuredContent`; the text blocks, and the call `result`
-  MiDojo records in the snapshot, stay as the target sent them, so an agent that reads
-  only text blocks does not see it, and the delivery is in the interceptor's injection
-  outcomes, not the snapshot. There is no environment (the target holds its state), no
-  utility check, and the runtime is `unmanaged`.
+  the text in the result's `structuredContent` and, from `3824922`, copies it into the
+  text block when that block is a JSON mirror of the structured content, so an agent
+  that reads only text sees it too; other text stays as the target sent it, and the
+  outcome is `partial`. Each call record MiDojo seals holds the text the agent got, its
+  `structured_content` and its `injection_outcomes`. Before `3824922` the text block
+  never carried the planted text, so the episode names `>=3824922f` as its MiDojo
+  revision range. There is no environment (the target holds its state), no utility
+  check, and the runtime is `unmanaged`.
 
 A command attempt is checked by MiDojo's `tool_call_condition` predicate. A reply is
 checked by the rubric judge: the directory also holds the verifier as the
@@ -1000,7 +1003,14 @@ state differently, cannot be compiled (exit 1).
 `{evaluation_id, snapshot_id, grade}`. It grades nothing: `security` true is `detected`,
 false `not_detected`, and null (validity `invalid`) `inconclusive`, never a pass or a
 fail. The receipt's `episode` block carries the run's `route`, the `evaluation_id` and
-`snapshot_id` graded, the snapshot's `evidence_status`, and the verdict as MiDojo gave it.
+`snapshot_id` graded, the snapshot's `evidence_status`, the verdict as MiDojo gave it,
+and `call_injections`: each sealed call's `call_id`, `function` and `injection_outcomes`
+as MiDojo sealed them (`instruction_index`, `probe_key`, `occurrence`, `status`,
+`detail`), null for a record that does not say (a blocked or unfinished call, or one
+sealed before `3824922`). A call record is checked field for field against MiDojo's
+`FunctionCallRecord`: sealed from `3824922` it has both `structured_content` and
+`injection_outcomes`, before it has neither, and one with only one of them is
+malformed.
 `parse` recomputes the snapshot's ID, MiDojo's digest of its content (`state.snapshot_digest`,
 ported in `snapshot_digest.py`), and fails a snapshot whose content changed under its ID
 (`snapshot_digest_mismatch`); a value JSON cannot carry back as MiDojo held it fails the
