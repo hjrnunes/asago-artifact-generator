@@ -14,7 +14,13 @@ from asago_artifact_generator.authoring.contracts import (
     neutral_artifact_response_without_source,
 )
 
-from .example_capture_support import artifact_findings, call, capture, neutral_metadata
+from .example_capture_support import (
+    artifact_findings,
+    call,
+    capture,
+    neutral_metadata,
+    neutral_reply_metadata,
+)
 from .support import assemble_refund_package, world_builders
 
 _metadata, _plan = world_builders("refund", "metadata", "plan")
@@ -125,8 +131,9 @@ def test_inconclusive_example_cannot_carry_a_capture() -> None:
 
 @pytest.mark.parametrize("label", ["unsafe", "safe"])
 def test_reply_example_cannot_carry_a_capture(label: str) -> None:
-    metadata = neutral_metadata()
-    metadata["semantic_judge_spec"] = {"question": "Is it?", "criteria": "c", "fact_refs": []}
+    metadata = neutral_reply_metadata()
+    for item in ("unsafe", "safe"):
+        metadata["examples"][item]["capture"] = capture(call(id="neutral-1", value=4))
 
     findings = artifact_findings(metadata, _reply_plan())
 
@@ -195,10 +202,7 @@ def test_call2_prompt_says_a_reply_claim_carries_no_capture() -> None:
 
 
 def test_reply_example_without_a_capture_is_unchanged() -> None:
-    metadata = neutral_metadata(unsafe=None, safe=None)
-    metadata["semantic_judge_spec"] = {"question": "Is it?", "criteria": "c", "fact_refs": []}
-
-    assert artifact_findings(metadata, _reply_plan()) == []
+    assert artifact_findings(neutral_reply_metadata(), _reply_plan()) == []
 
 
 @pytest.mark.parametrize(

@@ -12,11 +12,11 @@ from asago_artifact_generator.authoring.contracts import (
     PLAN_FIELD_MEANINGS,
 )
 from asago_artifact_generator.authoring.core import (
-    ARTIFACT_REVIEW_PROMPT_VERSION_V23,
+    ARTIFACT_REVIEW_PROMPT_VERSION_V24,
     CALL1_PROMPT_VERSION_V26,
-    CALL2_PROMPT_VERSION_V27,
+    CALL2_PROMPT_VERSION_V28,
     CORRECTION_PROMPT_VERSION_V42,
-    CORRECTION_PROMPT_VERSION_V43,
+    CORRECTION_PROMPT_VERSION_V44,
     PLAN_REVIEW_PROMPT_VERSION_V24,
     Finding,
     PromptOverflowError,
@@ -310,10 +310,10 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
     [
         CALL1_PROMPT_VERSION_V26,
         PLAN_REVIEW_PROMPT_VERSION_V24,
-        CALL2_PROMPT_VERSION_V27,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V23,
+        CALL2_PROMPT_VERSION_V28,
+        ARTIFACT_REVIEW_PROMPT_VERSION_V24,
         CORRECTION_PROMPT_VERSION_V42,
-        CORRECTION_PROMPT_VERSION_V43,
+        CORRECTION_PROMPT_VERSION_V44,
     ],
 )
 def test_every_dispatched_role_label_gets_the_duplicate_scan(version: str) -> None:

@@ -39,14 +39,30 @@ JSON object with exactly `stimulus`, `semantic_judge_spec`, `examples`, and
 `explanation`. It returns no detector code.
 For a `command_attempt` claim, the `unsafe` and `safe` examples each carry a
 `capture`: `tool_calls` (each with an `operation` from the supplied inventory
-and its decoded `arguments`, in call order) and `complete`. The `inconclusive`
-example and every reply example stay prose. The Call 2 prompt says so. When the
+and its decoded `arguments`, in call order) and `complete`. For a `reply` claim,
+the `unsafe` and `safe` examples each carry a `reply` instead: the message the
+target assistant sends to the user in that outcome, verbatim and in its own
+voice, which the semantic judge decides as unsafe and as safe; `description`
+stays a one-sentence summary. The `inconclusive` example stays prose under every
+claim level. The Call 2 contract of a reply plan explains `reply` as
+`example_reply_meaning` and shows a neutral pair as
+`example_reply_neutral_example`. A reply example without a `reply` gets a
+`missing_field` finding; an empty one `example_reply_empty`; one that opens with
+"The assistant", "The model", or "The agent" (case-insensitive, after any
+leading punctuation), and so describes the reply instead of being one,
+`example_reply_third_person`. A `reply` under any other claim level is an
+`unexpected_field`. These findings go to the artifact correction within its
+usual allowance. When the
 plan claims `reply` and an `unsafe` or `safe` example carries a capture, the
 correction gets one `unexpected_field` finding at `examples.<label>.capture`
 that says a reply claim carries no capture, ahead of any other finding; shape
 findings about that same capture are dropped, because the author removes the
-field. `examples.json` holds the examples
-as written; `artifact-package-v5` constrains only its manifest entry.
+field. `examples.json` holds the examples as written, except that in a reply
+package the `unsafe` and `safe` `description` is the example's `reply`, the
+text downstream tooling hands the judge as the assistant's reply, and the
+author's summary moves to `summary`; the package has no `reply` field.
+`artifact-package-v5` constrains only the member's manifest entry, so a package
+written before, whose reply examples hold only a description, still loads.
 Each v2 prompt carries the selected case meaning once under `case_meaning`;
 the input projection retains scenario/reference identities and narrative/Gherkin
 SHA-256 digests without repeating those texts.
@@ -275,7 +291,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `value.<record_key>.record_key` selector that bind the record key itself. A
   required change that replaces a binding path names the complete source and
   selector pair.
-- `authoring-call2-v27` renders the immutable accepted plan and the runtime
+- `authoring-call2-v28` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
   question whose yes answer is the violation, that the criteria are a
@@ -283,10 +299,12 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   or refusing content does not assert it. The validator rejects a question that
   does not end with a question mark. A plan that claims `reply` must return a
   `semantic_judge_spec` object; a missing one gets a
-  `semantic_judge_spec_required` correction.
-- `authoring-artifact-review-v23` reviews the exact artifact object and the
-  binding and judge declarations.
-- A review retry of either role (plan review v24, artifact review v23) sends
+  `semantic_judge_spec_required` correction. Its `unsafe` and `safe` examples
+  each carry a `reply` written as the target's message (see above).
+- `authoring-artifact-review-v24` reviews the exact artifact object and the
+  binding and judge declarations; for a reply claim it reads each example's
+  `reply` as the target's own message.
+- A review retry of either role (plan review v24, artifact review v24) sends
   the same prompt followed by PREVIOUS REVIEW RESPONSE REJECTED, the rejected
   response verbatim, its check findings, and an instruction to return one
   complete response that corrects every finding.
@@ -297,7 +315,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   lists the binding's documented selectors, the selected record's sources, and
   `review_selector_checks`: each selector path the required change names,
   checked against the sources that document it. Artifact corrections use
-  `authoring-correction-v41`.
+  `authoring-correction-v44`; a reply plan's carries the Call 2 reply contract.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
 operations, schemas, provenance, and runtime capabilities. Reviewers do not

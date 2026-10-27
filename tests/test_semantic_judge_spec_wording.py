@@ -104,6 +104,7 @@ def test_command_attempt_artifact_without_a_judge_spec_needs_none() -> None:
         "operations": [{"name": "answer", "arguments": {"type": "object"}}]
     }
     for label in ("unsafe", "safe"):
+        metadata["examples"][label].pop("reply")
         metadata["examples"][label]["capture"] = {
             "tool_calls": [{"operation": "answer", "arguments": {}}],
             "complete": True,

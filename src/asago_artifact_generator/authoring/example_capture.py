@@ -3,9 +3,9 @@
 A command_attempt claim is scored by the producer's tool-call condition over the
 calls a target made. The unsafe and safe examples therefore carry the calls they
 describe, as data, so that the authoring run can read them. A reply claim is
-scored by the semantic judge, so its examples stay prose. The inconclusive
-example stays prose under both claim levels: it describes a missing capture,
-which has no calls to list.
+scored by the semantic judge, so its examples carry a reply instead (see
+``reply_examples``). The inconclusive example stays prose under both claim
+levels: it describes a missing capture, which has no calls to list.
 """
 
 from __future__ import annotations
@@ -136,7 +136,8 @@ def reply_capture_findings(examples: Any) -> list[Finding]:
             "unexpected_field",
             f"example {label} cannot carry a capture: the accepted plan claims a reply, "
             "which only the semantic judge scores, so a reply claim carries no capture. "
-            f"Remove examples.{label}.capture and describe the example in its description.",
+            f"Remove examples.{label}.capture; the example's reply goes in "
+            f"examples.{label}.reply.",
             f"examples.{label}.capture",
         )
         for label in CAPTURED_EXAMPLES

@@ -9,7 +9,7 @@ from ..input_adapter import InputView
 from .context_budget import _enforce_prompt_size
 from .core import (
     CALL1_PROMPT_VERSION_V26,
-    CALL2_PROMPT_VERSION_V27,
+    CALL2_PROMPT_VERSION_V28,
     MAX_RENDERED_PROMPT_BYTES,
     PromptPacket,
 )
@@ -166,7 +166,7 @@ def build_call2_packet_v2(
     assert_no_prompt_secrets(dict(sections))
     packet = PromptPacket(
         stage="call2",
-        version=CALL2_PROMPT_VERSION_V27,
+        version=CALL2_PROMPT_VERSION_V28,
         system=_CALL2_SYSTEM,
         # Same fit as call1's SOURCE CONTEXT: compact JSON keeps every value and
         # drops only indentation, which otherwise pushes large inventories past

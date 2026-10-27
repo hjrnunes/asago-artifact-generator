@@ -92,6 +92,11 @@ _CHECKS = {
     "example_capture_unknown_operation": (
         "An example captures a call to an operation the inventory does not list."
     ),
+    "example_reply_empty": "A reply example's reply is empty.",
+    "example_reply_third_person": (
+        "A reply example's reply describes the assistant in the third person instead of being"
+        " its message."
+    ),
     "example_shape": "An example is not shaped as the contract requires.",
     "invalid_slot_name": (
         "A stimulus slot's name is not an identifier, so execution cannot fill it."
