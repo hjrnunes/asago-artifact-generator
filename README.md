@@ -526,6 +526,23 @@ slot's first record), and the artifact review judges whether the benign turns
 lead the agent to read the record instead of asking to move the planted text. A
 reused plan without the field still plants the slot's first record.
 
+A handoff may carry `semantic_failure_call` alongside its semantic failure
+criterion: an exact `operation_name` and a `kind` of `incorrect_call` or
+`missing_call`. The reader rejects a blank operation name and preserves the
+object in the handoff view and every authoring stage's scenario context. An
+absent or null field adds no context. This is producer scenario meaning;
+detection still uses the bound tool-call condition for a command-attempt claim.
+
+Target profiles may carry `value_facts`: declared record kinds and date formats
+for operation arguments, state fields, and state mapping keys. Each entry must
+declare a non-null `record_kind`, `format`, or both, and each argument or state
+path may be declared only once in its group. Argument facts must name a declared
+profile operation and one of its arguments (falling back to the resource's
+arguments when the operation lists none). State paths are declarations, not
+assertions that a captured state value exists. These facts remain producer
+inputs to its condition checks; the consumer does not infer kinds from names or
+change condition evaluation.
+
 A handoff carries two optional condition fields and two tool-call fields, all
 validated against the vendored schema of its version:
 

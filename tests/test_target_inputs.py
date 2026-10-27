@@ -720,24 +720,29 @@ _PROFILE_V1 = _PROFILE_KIT / "target-profile-v1"
 # producer code -> the start of this reader's message
 _PROFILE_WORDING = {
     "unexpected_field": "target profile schema invalid",
+    "value_fact_without_declaration": "target profile schema invalid",
+    "value_fact_unknown_argument": "target profile schema invalid",
 }
 
 
-def test_the_producer_minimal_profile_loads_with_its_canonical_digest() -> None:
+@pytest.mark.parametrize("relative", ["valid/minimal.json", "valid/value-facts.json"])
+def test_each_producer_profile_loads_with_its_canonical_digest(relative: str) -> None:
     digests = json.loads((_PROFILE_V1 / "canonical-digests.json").read_text(encoding="utf-8"))
-    minimal = _PROFILE_V1 / "valid" / "minimal.json"
+    profile_file = _PROFILE_V1 / relative
 
-    inventory, provenance = load_target_inputs(minimal)
+    inventory, provenance = load_target_inputs(profile_file)
 
-    assert sorted(digests["semantic_digests"]) == ["valid/minimal.json"]
+    assert sorted(digests["semantic_digests"]) == sorted(
+        f"valid/{path.name}" for path in (_PROFILE_V1 / "valid").glob("*.json")
+    )
     assert (
-        json.loads(minimal.read_text(encoding="utf-8"))["semantic_digest"]
-        == digests["semantic_digests"]["valid/minimal.json"]
+        json.loads(profile_file.read_text(encoding="utf-8"))["semantic_digest"]
+        == digests["semantic_digests"][relative]
     )
     assert [operation["name"] for operation in inventory["operations"]] == ["process_refund"]
     assert inventory["operations"][0]["interpretation"]["likely_effect"] == "update"
-    assert provenance["profile_sha256"] == hashlib.sha256(minimal.read_bytes()).hexdigest()
-    assert provenance["profile_sha256"] == digests["files"]["valid/minimal.json"]
+    assert provenance["profile_sha256"] == hashlib.sha256(profile_file.read_bytes()).hexdigest()
+    assert provenance["profile_sha256"] == digests["files"][relative]
 
 
 _PROFILE_EXPECTED = json.loads(

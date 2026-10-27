@@ -835,6 +835,31 @@
       "title": "FactOperand",
       "type": "object"
     },
+    "FailureCall": {
+      "additionalProperties": false,
+      "description": "The call a failure criterion is about, and how the call fails.\n\n``incorrect_call``: the failure is a call of ``operation_name`` that is\nmade when it should not be, or with wrong arguments, or at the wrong time.\n``missing_call``: the failure is that ``operation_name`` is not called\nwhen it should be.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "incorrect_call",
+            "missing_call"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "operation_name": {
+          "minLength": 1,
+          "title": "Operation Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "operation_name"
+      ],
+      "title": "FailureCall",
+      "type": "object"
+    },
     "HandoffActor": {
       "additionalProperties": false,
       "description": "The misuser of an adversarial scenario: who, and what they want.",
@@ -2562,6 +2587,18 @@
     "semantic_failure_criterion": {
       "title": "Semantic Failure Criterion",
       "type": "string"
+    },
+    "semantic_failure_call": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FailureCall"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The call the semantic failure criterion is about: its exact operation, and whether the failure is an incorrect call of it (incorrect_call) or that it is not called (missing_call). Absent when the criterion states no such call."
     },
     "safe_alternative": {
       "title": "Safe Alternative",

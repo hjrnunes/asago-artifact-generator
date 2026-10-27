@@ -3,11 +3,16 @@
   "contract": "target-profile",
   "digest_domain": "execution-target-profile-v1",
   "files": {
-    "target-profile-v1/canonical-digests.json": "a113ca890da09b1303f9ab6d5209fe154758b7a4d6a3a2c377b854809aa7856b",
-    "target-profile-v1/expected-violations.json": "fca6290c25a069424caf4a1370eea868505bb35502a1e85aff6c3cd44e9b75c1",
+    "target-profile-v1/canonical-digests.json": "b9df11932e7d66132553cef4db5105b6a31024131d7c633c3cc7b31c852d2784",
+    "target-profile-v1/expected-violations.json": "725c76681eb50ea3215d024dc7f39dfb03baf6dfe1284bf0559f6eecbe8da488",
     "target-profile-v1/invalid/unknown-field.json": "8a006e84f36f3f6ab19075b76febf37201dd9547db4531cc6673fe181a91b4b0",
-    "target-profile-v1/schema.json": "b26528d27bbb3725f8bfedea9ca55c4ebae6b73f2d9050648009b06104bf1bb7",
-    "target-profile-v1/valid/minimal.json": "4f900d86ad3573de9b3a67ba0f04e3a228876fe64aa875a64803e34e46b3d033"
+    "target-profile-v1/invalid/value-fact-null-declaration.json": "fbb7715e1c4ac27d56b2845990db8a619be93559425a74174d39504f8c0c3a27",
+    "target-profile-v1/invalid/value-fact-unknown-argument.json": "58465fd8a99710869703d6e91e4835fa67318d9ab5df26b6a6df3a0c5331fcd7",
+    "target-profile-v1/invalid/value-fact-unknown-operation.json": "ff6a71d1a41d2aba93996089e2fff6d4e1587cea1cffc5209c0cf32c48cafc7b",
+    "target-profile-v1/invalid/value-fact-without-declaration.json": "4331a8f1e56a81ac7e3f5d7fe0fb07f3178d9f2953e093637cc82d281736ad4f",
+    "target-profile-v1/schema.json": "a43f547648583ade0339b17f53f39fb804e1661ae75ee0a55948ed9f8c7716df",
+    "target-profile-v1/valid/minimal.json": "4f900d86ad3573de9b3a67ba0f04e3a228876fe64aa875a64803e34e46b3d033",
+    "target-profile-v1/valid/value-facts.json": "114788a559441c4eb24f74fafd2f8d9bcb200ce84875bcc09d7c41a61c14c8d4"
   },
   "schema_version": "execution-target-profile-v1"
 }

@@ -1,5 +1,73 @@
 {
   "$defs": {
+    "ArgumentValueFact": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "properties": {
+            "record_kind": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "record_kind"
+          ]
+        },
+        {
+          "properties": {
+            "format": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "format"
+          ]
+        }
+      ],
+      "description": "The values one argument of one operation takes.",
+      "properties": {
+        "argument": {
+          "minLength": 1,
+          "title": "Argument",
+          "type": "string"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValueFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "operation_id": {
+          "minLength": 1,
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "record_kind": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Record Kind"
+        }
+      },
+      "required": [
+        "operation_id",
+        "argument"
+      ],
+      "title": "ArgumentValueFact",
+      "type": "object"
+    },
     "AttackerInfluence": {
       "description": "Whether an adversary can influence a target resource.",
       "enum": [
@@ -362,6 +430,68 @@
       ],
       "title": "SourceProtocol",
       "type": "string"
+    },
+    "StateValueFact": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "properties": {
+            "record_kind": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "record_kind"
+          ]
+        },
+        {
+          "properties": {
+            "format": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "format"
+          ]
+        }
+      ],
+      "description": "The values at a state path, or the keys of the mapping at it.",
+      "properties": {
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValueFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "path": {
+          "pattern": "^[^.]+(?:\\.[^.]+)*$",
+          "title": "Path",
+          "type": "string"
+        },
+        "record_kind": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Record Kind"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "StateValueFact",
+      "type": "object"
     },
     "TargetDiscoveryDiagnostic": {
       "additionalProperties": false,
@@ -746,6 +876,47 @@
       ],
       "title": "TargetStateEffect",
       "type": "string"
+    },
+    "TargetValueFacts": {
+      "additionalProperties": false,
+      "description": "Every value fact one target declares, each target value at most once.",
+      "properties": {
+        "arguments": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArgumentValueFact"
+          },
+          "title": "Arguments",
+          "type": "array"
+        },
+        "state_fields": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/StateValueFact"
+          },
+          "title": "State Fields",
+          "type": "array"
+        },
+        "state_keys": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/StateValueFact"
+          },
+          "title": "State Keys",
+          "type": "array"
+        }
+      },
+      "title": "TargetValueFacts",
+      "type": "object"
+    },
+    "ValueFormat": {
+      "description": "A declared text form of every value: an RFC 3339 date or date-time.",
+      "enum": [
+        "date",
+        "date-time"
+      ],
+      "title": "ValueFormat",
+      "type": "string"
     }
   },
   "$id": "execution-target-profile-v1",
@@ -865,6 +1036,17 @@
       "minLength": 1,
       "title": "Target Id",
       "type": "string"
+    },
+    "value_facts": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TargetValueFacts"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [
