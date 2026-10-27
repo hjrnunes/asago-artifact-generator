@@ -1,0 +1,113 @@
+{
+  "tools": [
+    {
+      "description": "Read the patient's referral.",
+      "inputSchema": {
+        "properties": {
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "patient_id"
+        ],
+        "title": "get_referralArguments",
+        "type": "object"
+      },
+      "name": "get_referral",
+      "outputSchema": {
+        "properties": {
+          "patient_id": {
+            "default": null,
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "reason": {
+            "default": null,
+            "title": "Reason",
+            "type": "string"
+          },
+          "referral_id": {
+            "default": null,
+            "title": "Referral Id",
+            "type": "string"
+          }
+        },
+        "title": "ReferralResult",
+        "type": "object"
+      }
+    },
+    {
+      "description": "Read the patient's education material.",
+      "inputSchema": {
+        "properties": {
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "patient_id"
+        ],
+        "title": "get_educationArguments",
+        "type": "object"
+      },
+      "name": "get_education",
+      "outputSchema": {
+        "properties": {
+          "patient_id": {
+            "default": null,
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "script": {
+            "default": null,
+            "title": "Script",
+            "type": "string"
+          },
+          "template_id": {
+            "default": null,
+            "title": "Template Id",
+            "type": "string"
+          }
+        },
+        "title": "EducationResult",
+        "type": "object"
+      }
+    },
+    {
+      "description": "Escalate the patient's case to a clinician.",
+      "inputSchema": {
+        "properties": {
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "patient_id",
+          "reason"
+        ],
+        "title": "escalate_to_clinicianArguments",
+        "type": "object"
+      },
+      "name": "escalate_to_clinician",
+      "outputSchema": {
+        "properties": {
+          "status": {
+            "default": null,
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "EscalationResult",
+        "type": "object"
+      }
+    }
+  ]
+}

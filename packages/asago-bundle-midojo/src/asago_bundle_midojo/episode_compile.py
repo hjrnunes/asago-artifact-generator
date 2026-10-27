@@ -11,9 +11,9 @@ same bytes.
 - Each seed item becomes one ``tool_output`` instruction from the seed slot of the
   package's runtime contract it names (``placement.py``): the carrier's structured
   result, the field through a selector of the item's record by the slot's declared
-  ``record_key`` (a field inside a list), or the plain field on the calls whose
-  ``record_key`` argument is the record (a single-record carrier), the slot's mode and
-  ``max_chars``.
+  ``record_key`` (a field inside a list), or the plain field of a single-record carrier
+  on the calls whose ``record_key`` argument is the record, else on the calls whose
+  result's ``record_key`` property is the record, the slot's mode and ``max_chars``.
   ``placements`` restates each in the contract's terms. MiDojo's host interceptor places
   the text in the result as it forwards the call; the target's data is not changed.
 - ``interception`` is host-side: the runner opens the episode with MiDojo's
@@ -64,6 +64,7 @@ from .bundle_files.asago_episode_judge import EPISODE_RUBRIC_NAME, FINAL_TURN, J
 from .declared import DeclarationFault, DeclaredTools, declared_tools
 from .episode import episode, injection_plan
 from .placement import (
+    Placement,
     PlacementFault,
     gap_reason,
     locate,
@@ -82,6 +83,12 @@ TOOL = "midojo"
 # From b5b8c75 a target can match the call's arguments (``call_arguments``), which places an
 # item in the result of a single-record carrier.
 TOOL_REVISION_RANGE = ">=b5b8c752"
+# From c0bee12 (the merge of result-record matching into asago/main) a target can match the
+# call's result instead (``result_record``), which places an item in the result of a
+# single-record carrier whose record ID is in the result only, and the host interceptor
+# declares that capability. An earlier MiDojo refuses the key, so an episode with such a
+# target names this range; every other episode keeps the one above, which still runs it.
+RESULT_RECORD_REVISION_RANGE = ">=c0bee126"
 EPISODE_FILE = "episode.json"
 SEED_MEMBER = "seed.json"
 CONDITION_MEMBER = "tool_call_condition.json"
@@ -93,7 +100,9 @@ REPLY = "reply"
 CLAIM_LEVELS = ("command_attempt", "reply", "state_effect")
 SINGLE = "single"
 SEQUENTIAL = "sequential"
-# The interceptor runs on the host and forwards to the target config's MCP endpoint.
+# The interceptor runs on the host and forwards to the target config's MCP endpoint. It is
+# MiDojo's ``MidojoMCP``, which declares every capability a compiled target needs
+# (``call_arguments`` and, from c0bee12, ``result_record``), so compile models no other.
 HOST_INTERCEPTION = {"mode": "host", "upstream": "endpoint.mcp_url"}
 FORWARD = "forward"
 BLOCK = "block"
@@ -167,7 +176,7 @@ def compile_episode(
     document = {
         "schema_version": SCHEMA_VERSION,
         "tool": TOOL,
-        "tool_revision_range": TOOL_REVISION_RANGE,
+        "tool_revision_range": revision_range(planted),
         "package_id": package.manifest.package_id,
         "scenario_id": package.manifest.scenario_id,
         "package_digest": package.manifest.manifest_digest,
@@ -188,6 +197,15 @@ def compile_episode(
     }
     _write(out, document, VERIFIER_CODE if level == REPLY else {})
     return document
+
+
+def revision_range(planted: list[Placement]) -> str:
+    """Return the MiDojo revisions the episode needs: from c0bee12 when a target matches a
+    result, else from b5b8c75."""
+
+    if any(item.by_result for item in planted):
+        return RESULT_RECORD_REVISION_RANGE
+    return TOOL_REVISION_RANGE
 
 
 def allowed_tools(

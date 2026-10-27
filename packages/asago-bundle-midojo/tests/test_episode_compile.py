@@ -343,13 +343,28 @@ def test_the_argument_record_key_the_target_config_declares_is_used_when_the_con
     assert instruction["target"]["call_arguments"] == {"note_id": "NOTE-2"}
 
 
-def _read_note_with(input_schema: dict[str, Any]) -> list[dict[str, Any]]:
-    """The target's tools, with read_note taking ``input_schema``."""
+# A note result that does not name its record: only a call's argument can.
+BODY_ONLY = {"type": "object", "properties": {"body": {"type": "string"}}}
 
-    return [
-        {**tool, "inputSchema": input_schema} if tool["name"] == "read_note" else tool
-        for tool in TOOLS
-    ]
+
+def _read_note_with(
+    input_schema: dict[str, Any], output_schema: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    """The target's tools, with read_note taking ``input_schema`` (and returning
+    ``output_schema`` when given)."""
+
+    changed: dict[str, Any] = {"inputSchema": input_schema}
+    if output_schema is not None:
+        changed["outputSchema"] = output_schema
+    return [{**tool, **changed} if tool["name"] == "read_note" else tool for tool in TOOLS]
+
+
+INTEGER_NOTE_ID = {
+    "type": "object",
+    "properties": {"note_id": {"type": "integer"}},
+    "required": ["note_id"],
+}
+OPTIONAL_NOTE_ID = {"type": "object", "properties": {"note_id": {"type": "string"}}}
 
 
 READ_SPEC_WITHOUT_KEY = {
@@ -360,14 +375,23 @@ READ_SPEC_WITHOUT_KEY = {
     ],
 }
 READ = "seed item 0: 'read_note'"
+
+
+def _no_result_key(carrier: str, slot: str, key: str = "note_id") -> str:
+    return (
+        f"; '{carrier}''s result object declares no property '{key}' (slot {slot}'s "
+        "record_key) either, by which MiDojo would match the result"
+    )
+
+
 # Name -> (the slot, the target variant's tools and runtime spec, the gap's reason).
 SINGLE_RECORD_GAPS: dict[str, tuple[dict[str, Any], dict[str, Any], str]] = {
     "no-arguments": (
         PINNED_SLOT,
-        {"tools": [*TOOLS, PINNED_NOTE]},
+        {"tools": [*TOOLS, {**PINNED_NOTE, "outputSchema": BODY_ONLY}]},
         "seed item 0: 'pinned_note' declares no argument 'note_id' (slot "
         "piggybank.note.pinned's record_key), so no call names the record whose 'body' it "
-        "returns",
+        "returns" + _no_result_key("pinned_note", "piggybank.note.pinned"),
     ),
     "no-record-key": (
         _without_record_key(READ_SLOT),
@@ -380,31 +404,21 @@ SINGLE_RECORD_GAPS: dict[str, tuple[dict[str, Any], dict[str, Any], str]] = {
         {**READ_SLOT, "record_key": "title"},
         {"spec": READ_SPEC_WITHOUT_KEY},
         f"{READ} declares no argument 'title' (slot piggybank.note.read's record_key), so "
-        "no call names the record whose 'body' it returns",
+        "no call names the record whose 'body' it returns"
+        + _no_result_key("read_note", "piggybank.note.read", "title"),
     ),
     "argument-not-text": (
         READ_SLOT,
-        {
-            "tools": _read_note_with(
-                {
-                    "type": "object",
-                    "properties": {"note_id": {"type": "integer"}},
-                    "required": ["note_id"],
-                }
-            )
-        },
+        {"tools": _read_note_with(INTEGER_NOTE_ID, BODY_ONLY)},
         f"{READ} declares its argument 'note_id' (slot piggybank.note.read's record_key) as "
-        "'integer', not text",
+        "'integer', not text" + _no_result_key("read_note", "piggybank.note.read"),
     ),
     "argument-not-required": (
         READ_SLOT,
-        {
-            "tools": _read_note_with(
-                {"type": "object", "properties": {"note_id": {"type": "string"}}}
-            )
-        },
+        {"tools": _read_note_with(OPTIONAL_NOTE_ID, BODY_ONLY)},
         f"{READ} does not require its argument 'note_id' (slot piggybank.note.read's "
-        "record_key), so a call need not name the record whose 'body' it returns",
+        "record_key), so a call need not name the record whose 'body' it returns"
+        + _no_result_key("read_note", "piggybank.note.read"),
     ),
     "field-not-in-the-result": (
         {**READ_SLOT, "field": "title"},
@@ -415,7 +429,7 @@ SINGLE_RECORD_GAPS: dict[str, tuple[dict[str, Any], dict[str, Any], str]] = {
 
 
 @pytest.mark.parametrize("name", sorted(SINGLE_RECORD_GAPS))
-def test_a_field_outside_a_list_no_call_argument_names_the_record_of_is_a_capability_gap(
+def test_a_field_outside_a_list_neither_the_call_nor_the_result_names_the_record_of_is_a_gap(
     tmp_path: Path, name: str
 ) -> None:
     slot, variant, reason = SINGLE_RECORD_GAPS[name]
@@ -427,6 +441,32 @@ def test_a_field_outside_a_list_no_call_argument_names_the_record_of_is_a_capabi
     assert raised.value.record["reason"] == reason
     assert check_gap(raised.value.record, package) == []
     assert not (tmp_path / "out").exists()
+
+
+# Name -> (the slot, the target variant's tools): no call argument names the record, and
+# the result's note_id does.
+SINGLE_RECORD_BY_RESULT: dict[str, tuple[dict[str, Any], list[dict[str, Any]]]] = {
+    "no-arguments": (PINNED_SLOT, [*TOOLS, PINNED_NOTE]),
+    "argument-not-text": (READ_SLOT, _read_note_with(INTEGER_NOTE_ID)),
+    "argument-not-required": (READ_SLOT, _read_note_with(OPTIONAL_NOTE_ID)),
+}
+
+
+@pytest.mark.parametrize("name", sorted(SINGLE_RECORD_BY_RESULT))
+def test_a_field_outside_a_list_whose_result_names_the_record_is_placed_on_that_result(
+    tmp_path: Path, name: str
+) -> None:
+    slot, tools = SINGLE_RECORD_BY_RESULT[name]
+    target = target_variant(tmp_path / "variant", tools=tools)
+
+    document = compiled(_read_package(tmp_path, slot), tmp_path / "out", target=target)
+
+    (instruction,) = document["episode"]["plan"]["instructions"]
+    assert set(instruction["target"]) == TARGET_FIELDS | {"result_record"}
+    assert instruction["target"]["result_record"] == {"field": "note_id", "equals": "NOTE-2"}
+    assert instruction["target"]["structured_content_path"] == ["body"]
+    assert instruction["target"]["tool"] == slot["carrier_operation"]
+    assert document["tool_revision_range"] == ">=c0bee126"
 
 
 def _read_note_returning(note: dict[str, Any]) -> list[dict[str, Any]]:

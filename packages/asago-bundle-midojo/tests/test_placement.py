@@ -54,6 +54,8 @@ def test_a_list_field_without_its_record_key_has_no_path() -> None:
 
 
 NOTE = {"type": "object", "properties": {"note_id": {"type": "string"}, "body": TEXT}}
+# A result that does not name its record: only a call's argument can.
+BODY_ONLY = {"type": "object", "properties": {"body": TEXT}}
 # A single-record carrier: it returns the one note its required note_id argument names.
 LOOKUP = {
     "type": "object",
@@ -63,12 +65,20 @@ LOOKUP = {
 ONE_NOTE = {**SLOT, "carrier_operation": "read_note", "field": "body", "records": ["NOTE-2"]}
 
 
-def _reason(input_schema: Any, slot: dict[str, Any] = ONE_NOTE) -> str | None:
-    tool: dict[str, Any] = {"name": "read_note", "outputSchema": NOTE}
+def _located(
+    input_schema: Any, slot: dict[str, Any] = ONE_NOTE, output_schema: Any = NOTE
+) -> tuple[Placement, DeclaredTools]:
+    tool: dict[str, Any] = {"name": "read_note", "outputSchema": output_schema}
     if input_schema is not None:
         tool["inputSchema"] = input_schema
     declared = DeclaredTools({"read_note": tool}, frozenset())
-    return gap_reason(locate(Placement(0, slot, "NOTE-2", "text"), declared), declared)
+    return locate(Placement(0, slot, "NOTE-2", "text"), declared), declared
+
+
+def _reason(
+    input_schema: Any, slot: dict[str, Any] = ONE_NOTE, output_schema: Any = NOTE
+) -> str | None:
+    return gap_reason(*_located(input_schema, slot, output_schema))
 
 
 def test_a_list_field_matches_no_call_argument() -> None:
@@ -96,46 +106,159 @@ def test_a_single_record_carrier_whose_required_text_argument_is_the_record_key_
 ):
     assert _reason(LOOKUP) is None
     assert _reason({**LOOKUP, "required": ["note_id", "other"]}) is None
+    placement, _ = _located(LOOKUP)
+    target = placement.instruction()["target"]
+    assert not placement.by_result
+    assert target["call_arguments"] == {"note_id": "NOTE-2"}
+    assert "result_record" not in target
 
 
 ONE = "seed item 0: 'read_note'"
+NO_RESULT_KEY = (
+    "; 'read_note''s result object declares no property 'note_id' (slot "
+    "piggybank.note.body's record_key) either, by which MiDojo would match the result"
+)
+# Input schemas whose record_key is not a required text argument, and why.
+NOT_A_REQUIRED_TEXT_ARGUMENT = [
+    (
+        {"type": "object", "properties": {}},
+        f"{ONE} declares no argument 'note_id' (slot piggybank.note.body's record_key), "
+        "so no call names the record whose 'body' it returns",
+    ),
+    (
+        None,
+        f"{ONE} declares no argument 'note_id' (slot piggybank.note.body's record_key), "
+        "so no call names the record whose 'body' it returns",
+    ),
+    (
+        {**LOOKUP, "properties": {"note_id": {"type": "integer"}}},
+        f"{ONE} declares its argument 'note_id' (slot piggybank.note.body's record_key) "
+        "as 'integer', not text",
+    ),
+    (
+        {**LOOKUP, "properties": {"note_id": {}}},
+        f"{ONE} declares its argument 'note_id' (slot piggybank.note.body's record_key) "
+        "as 'untyped', not text",
+    ),
+    (
+        {"type": "object", "properties": {"note_id": {"type": "string"}}},
+        f"{ONE} does not require its argument 'note_id' (slot piggybank.note.body's "
+        "record_key), so a call need not name the record whose 'body' it returns",
+    ),
+]
+NOT_A_REQUIRED_TEXT_ARGUMENT_IDS = [
+    "no-arguments",
+    "no-input-schema",
+    "not-text",
+    "untyped",
+    "not-required",
+]
 
 
 @pytest.mark.parametrize(
     ("input_schema", "reason"),
-    [
-        (
-            {"type": "object", "properties": {}},
-            f"{ONE} declares no argument 'note_id' (slot piggybank.note.body's record_key), "
-            "so no call names the record whose 'body' it returns",
-        ),
-        (
-            None,
-            f"{ONE} declares no argument 'note_id' (slot piggybank.note.body's record_key), "
-            "so no call names the record whose 'body' it returns",
-        ),
-        (
-            {**LOOKUP, "properties": {"note_id": {"type": "integer"}}},
-            f"{ONE} declares its argument 'note_id' (slot piggybank.note.body's record_key) "
-            "as 'integer', not text",
-        ),
-        (
-            {**LOOKUP, "properties": {"note_id": {}}},
-            f"{ONE} declares its argument 'note_id' (slot piggybank.note.body's record_key) "
-            "as 'untyped', not text",
-        ),
-        (
-            {"type": "object", "properties": {"note_id": {"type": "string"}}},
-            f"{ONE} does not require its argument 'note_id' (slot piggybank.note.body's "
-            "record_key), so a call need not name the record whose 'body' it returns",
-        ),
-    ],
-    ids=["no-arguments", "no-input-schema", "not-text", "untyped", "not-required"],
+    NOT_A_REQUIRED_TEXT_ARGUMENT,
+    ids=NOT_A_REQUIRED_TEXT_ARGUMENT_IDS,
 )
-def test_a_field_outside_a_list_whose_record_key_is_no_required_text_argument_is_a_gap(
+def test_a_field_outside_a_list_whose_record_key_neither_the_call_nor_the_result_names_is_a_gap(
     input_schema: Any, reason: str
 ) -> None:
-    assert _reason(input_schema) == reason
+    placement, declared = _located(input_schema, output_schema=BODY_ONLY)
+
+    assert not placement.by_result
+    assert gap_reason(placement, declared) == reason + NO_RESULT_KEY
+
+
+@pytest.mark.parametrize(
+    "input_schema",
+    [schema for schema, _ in NOT_A_REQUIRED_TEXT_ARGUMENT],
+    ids=NOT_A_REQUIRED_TEXT_ARGUMENT_IDS,
+)
+def test_a_field_outside_a_list_whose_result_names_its_record_is_matched_by_the_result(
+    input_schema: Any,
+) -> None:
+    placement, declared = _located(input_schema)
+
+    assert placement.by_result
+    assert gap_reason(placement, declared) is None
+    target = placement.instruction()["target"]
+    assert target["result_record"] == {"field": "note_id", "equals": "NOTE-2"}
+    assert target["structured_content_path"] == ["body"]
+    assert "call_arguments" not in target
+
+
+@pytest.mark.parametrize(
+    ("declared_key", "named"),
+    [
+        ({"type": "integer"}, "'integer'"),
+        ({}, "'untyped'"),
+        ({"type": ["string", "null"]}, "['string', 'null']"),
+    ],
+    ids=["integer", "untyped", "nullable"],
+)
+def test_a_result_property_not_declared_text_does_not_name_the_record(
+    declared_key: dict[str, Any], named: str
+) -> None:
+    output = {"type": "object", "properties": {"note_id": declared_key, "body": TEXT}}
+    placement, declared = _located({"type": "object", "properties": {}}, output_schema=output)
+
+    assert not placement.by_result
+    assert gap_reason(placement, declared) == (
+        f"{ONE} declares no argument 'note_id' (slot piggybank.note.body's record_key), "
+        "so no call names the record whose 'body' it returns; 'read_note''s result declares "
+        f"'note_id' (slot piggybank.note.body's record_key) as {named}, not text"
+    )
+
+
+def test_a_record_key_below_the_result_object_does_not_name_the_record() -> None:
+    """MiDojo matches the result object's own property, not one of a nested object."""
+
+    output = {
+        "type": "object",
+        "properties": {"note": {"type": "object", "properties": {"note_id": TEXT, "body": TEXT}}},
+    }
+    slot = {**ONE_NOTE, "field": "note.body"}
+    placement, declared = _located({"type": "object", "properties": {}}, slot, output)
+
+    assert not placement.by_result
+    assert gap_reason(placement, declared) == (
+        f"{ONE} declares no argument 'note_id' (slot piggybank.note.body's record_key), "
+        "so no call names the record whose 'note.body' it returns" + NO_RESULT_KEY
+    )
+
+
+def test_a_record_key_beside_a_nested_field_matches_the_result_by_the_plain_path() -> None:
+    output = {
+        "type": "object",
+        "properties": {"note_id": TEXT, "note": {"type": "object", "properties": {"body": TEXT}}},
+    }
+    slot = {**ONE_NOTE, "field": "note.body"}
+    placement, declared = _located({"type": "object", "properties": {}}, slot, output)
+
+    assert gap_reason(placement, declared) is None
+    target = placement.instruction()["target"]
+    assert target["structured_content_path"] == ["note", "body"]
+    assert target["result_record"] == {"field": "note_id", "equals": "NOTE-2"}
+
+
+def test_a_list_field_is_never_matched_by_the_result() -> None:
+    tool = {
+        "name": "list_notes",
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "note_id": TEXT,
+                "notes": {"type": "array", "items": NOTE},
+            },
+        },
+    }
+    declared = DeclaredTools({"list_notes": tool}, frozenset())
+
+    placement = locate(Placement(0, SLOT, "NOTE-1", "text"), declared)
+
+    assert not placement.by_result
+    assert placement.result_record is None
+    assert "result_record" not in placement.instruction()["target"]
 
 
 def test_a_field_outside_a_list_without_a_record_key_is_a_gap() -> None:

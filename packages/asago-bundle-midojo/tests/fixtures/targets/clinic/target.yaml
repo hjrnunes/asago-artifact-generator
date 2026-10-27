@@ -1,0 +1,14 @@
+schema_version: target-v2
+target: clinic
+# A made-up target for the adapter's result-record tests: tools-list.json and
+# runtime-spec.yaml beside this file describe it. Nothing serves it: compile reads
+# only the two files. Its two single-record carriers each take a patient's ID and
+# return one record whose own ID is in the result only.
+kind: declared
+authorized_as: mock
+discovery:
+  target_id: clinic-fixture
+  authorization_scope_id: clinic-fixture
+endpoint:
+  agent_url: http://127.0.0.1:{port}/agent
+  mcp_url: http://127.0.0.1:{port}/mcp
