@@ -200,12 +200,12 @@ def _call2_examples_findings(examples: Any) -> list[Finding]:
 
 def _call2_example_findings(label: str, item: Any) -> list[Finding]:
     findings = _example_item_findings(label, item)
-    if findings:
-        return findings
-    if REPLY_FIELD in item:
+    if not findings and "capture" in item:
+        findings = capture_shape_findings(label, item["capture"])
+    # A reply's type is checked even beside other findings about its example, so
+    # that the plan-dependent reply checks never need to report it.
+    if isinstance(item, dict) and REPLY_FIELD in item:
         findings.extend(reply_shape_findings(label, item[REPLY_FIELD]))
-    if "capture" in item:
-        findings.extend(capture_shape_findings(label, item["capture"]))
     return findings
 
 
@@ -513,13 +513,25 @@ def _reply_led_shape_findings(metadata: Any, plan: dict[str, Any]) -> list[Findi
 
     A capture that a reply claim must not carry gets that one finding; the shape
     findings about the same capture would only describe a field the author removes.
+    The example reply findings need no valid shape, so they join the shape
+    findings and one correction carries them all; a reply finding at a path a
+    shape finding already reports is left out.
     """
 
     findings = _validate_call2_metadata_shape(metadata)
-    reply = _plan_claim_level(plan) == ClaimLevel.REPLY
-    if not findings or not reply or not isinstance(metadata, dict):
+    if not findings or not isinstance(metadata, dict):
         return findings
-    claim = reply_capture_findings(metadata.get("examples"))
+    examples = metadata.get("examples")
+    reply = _plan_claim_level(plan) == ClaimLevel.REPLY
+    reported = {finding.path for finding in findings}
+    findings += [
+        finding
+        for finding in reply_example_findings(examples, reply_claim=reply)
+        if finding.path not in reported
+    ]
+    if not reply:
+        return findings
+    claim = reply_capture_findings(examples)
     owned = tuple(finding.path for finding in claim)
     return claim + [
         finding

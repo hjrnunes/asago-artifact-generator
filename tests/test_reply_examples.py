@@ -82,6 +82,11 @@ def test_replies_written_in_the_targets_voice_are_accepted() -> None:
         "the model confirms eligibility.",
         "The   Agent's reply grants the refund.",
         "**The assistant** offers a refund.",
+        "_The assistant approves it._",
+        "__The assistant__ approves it.",
+        "*The* assistant approves it.",
+        "The _model_ says yes.",
+        "> The agent: the refund is approved.",
     ],
 )
 def test_a_reply_opening_by_naming_the_assistant_is_rejected(reply: str) -> None:
@@ -99,6 +104,8 @@ def test_a_reply_opening_by_naming_the_assistant_is_rejected(reply: str) -> None
         "Thanks for waiting. The assistant team has approved it.",
         "These models are not covered by the refund policy.",
         "Theagent field is empty.",
+        "The modeling of refunds takes a day.",
+        "_The agency_ handles that request.",
     ],
 )
 def test_a_reply_that_does_not_open_by_naming_the_assistant_is_accepted(reply: str) -> None:
@@ -287,3 +294,159 @@ def test_reply_examples_store_the_reply_as_the_description() -> None:
     assert "reply" not in stored["unsafe"]
     assert stored["inconclusive"] == examples["inconclusive"]
     assert examples["unsafe"]["description"] == "unsafe"
+
+
+_SHAPE_ERROR = ("type_error", "explanation")
+
+
+@pytest.mark.parametrize(
+    ("change", "reply_finding"),
+    [
+        (
+            lambda examples: examples["unsafe"].update(reply="The assistant approves it."),
+            ("example_reply_third_person", "examples.unsafe.reply"),
+        ),
+        (
+            lambda examples: examples["unsafe"].pop("reply"),
+            ("missing_field", "examples.unsafe.reply"),
+        ),
+        (
+            lambda examples: examples["safe"].update(reply="  "),
+            ("example_reply_empty", "examples.safe.reply"),
+        ),
+    ],
+    ids=["third_person", "missing", "blank"],
+)
+def test_a_reply_finding_is_reported_beside_a_shape_error(
+    change: Any, reply_finding: tuple[str, str]
+) -> None:
+    metadata = _metadata_with_replies(_WRITTEN) | {"explanation": 17}
+    change(metadata["examples"])
+
+    findings = _findings(metadata)
+
+    assert [(f.code, f.path) for f in findings] == [_SHAPE_ERROR, reply_finding]
+    assert {f.stage for f in findings} == {"artifact"}
+
+
+def test_a_reply_that_is_not_a_string_is_reported_once_beside_other_shape_errors() -> None:
+    metadata = _metadata_with_replies({"unsafe": ["Yes."]}) | {"explanation": 17}
+    metadata["examples"]["unsafe"]["note"] = "extra"
+
+    findings = _findings(metadata)
+
+    assert [(f.code, f.path) for f in findings] == [
+        ("unexpected_field", "examples.unsafe.note"),
+        ("type_error", "examples.unsafe.reply"),
+        _SHAPE_ERROR,
+    ]
+
+
+def test_a_command_attempt_reply_is_reported_beside_a_shape_error() -> None:
+    metadata = neutral_metadata() | {"explanation": 17}
+    metadata["examples"]["safe"]["reply"] = "Done."
+
+    findings = collect_artifact_findings_v2(
+        metadata,
+        neutral_artifact_plan_v2(),
+        {"facts": [], "operations": [{"name": "inspect_record"}], "source_handles": []},
+        {"delivery": ["direct_user_message"], "setup_permissions": []},
+    )
+
+    assert [(f.code, f.path) for f in findings] == [
+        _SHAPE_ERROR,
+        ("unexpected_field", "examples.safe.reply"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "examples",
+    [None, "text", [], {"unsafe": "text", "safe": None}, {"unsafe": ["x"], "safe": 3}],
+)
+def test_malformed_examples_leave_the_reply_checks_to_the_shape_checks(examples: Any) -> None:
+    metadata = reply_metadata("Does the reply assert it?") | {"examples": examples}
+
+    findings = _findings(metadata)
+
+    assert findings
+    assert not any(f.code.startswith("example_reply") for f in findings)
+
+
+def test_a_shape_error_and_a_third_person_reply_go_to_one_correction(tmp_path: Path) -> None:
+    first = _recorded_metadata() | {"explanation": 17}
+    responses = [
+        json.dumps(reply_plan()).encode(),
+        json.dumps(first).encode(),
+        json.dumps(_metadata_with_replies(_WRITTEN)).encode(),
+    ]
+
+    result, transport = _run(tmp_path, responses)
+
+    assert [request["stage"] for request in transport.requests] == [
+        "call1",
+        "call2",
+        "correction",
+    ]
+    payload = transport.requests[-1]["payload"]
+    assert [(f["code"], f["path"]) for f in payload["findings"]] == [
+        _SHAPE_ERROR,
+        ("example_reply_third_person", "examples.unsafe.reply"),
+        ("example_reply_third_person", "examples.safe.reply"),
+    ]
+    assert result.status == "accepted", result.findings
+
+
+@pytest.mark.parametrize(
+    ("change", "reply_finding"),
+    [
+        (
+            lambda examples: examples["unsafe"].pop("reply"),
+            ("missing_field", "examples.unsafe.reply"),
+        ),
+        (
+            lambda examples: examples["safe"].update(reply=""),
+            ("example_reply_empty", "examples.safe.reply"),
+        ),
+    ],
+    ids=["missing", "blank"],
+)
+def test_a_shape_error_and_a_missing_or_blank_reply_go_to_one_correction(
+    tmp_path: Path, change: Any, reply_finding: tuple[str, str]
+) -> None:
+    first = _metadata_with_replies(_WRITTEN) | {"explanation": 17}
+    change(first["examples"])
+    responses = [
+        json.dumps(reply_plan()).encode(),
+        json.dumps(first).encode(),
+        json.dumps(_metadata_with_replies(_WRITTEN)).encode(),
+    ]
+
+    result, transport = _run(tmp_path, responses)
+
+    payload = transport.requests[-1]["payload"]
+    assert transport.requests[-1]["stage"] == "correction"
+    assert [(f["code"], f["path"]) for f in payload["findings"]] == [_SHAPE_ERROR, reply_finding]
+    assert result.status == "accepted", result.findings
+
+
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        (lambda examples: examples["unsafe"].pop("reply"), "missing_field"),
+        (lambda examples: examples["safe"].update(reply=" "), "example_reply_empty"),
+    ],
+    ids=["missing", "blank"],
+)
+def test_a_missing_or_blank_reply_without_allowance_stops_unresolved(
+    tmp_path: Path, change: Any, code: str
+) -> None:
+    first = _metadata_with_replies(_WRITTEN)
+    change(first["examples"])
+    responses = [json.dumps(reply_plan()).encode(), json.dumps(first).encode()]
+
+    result, transport = _run(tmp_path, responses, artifact_max_corrections=0)
+
+    assert [request["stage"] for request in transport.requests] == ["call1", "call2"]
+    assert result.status == "unresolved"
+    assert result.package_path is None
+    assert code in {finding.code for finding in result.findings}

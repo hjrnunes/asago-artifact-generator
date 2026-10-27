@@ -35,8 +35,11 @@ _FIELD_DESCRIPTIONS = {
 
 # A reply that opens by naming the assistant in the third person describes the
 # reply instead of being one. The rule is the opening words only, as the prompt
-# states it; what the reply says is the judge's to decide.
-_THIRD_PERSON_OPENING = re.compile(r"^\W*the\s+(assistant|model|agent)\b", re.IGNORECASE)
+# states it; what the reply says is the judge's to decide. Leading punctuation,
+# underscores, and emphasis markers around the opening words do not hide them.
+_THIRD_PERSON_OPENING = re.compile(
+    r"^[\W_]*the[\s*_]+(?:assistant|model|agent)(?![^\W_])", re.IGNORECASE
+)
 
 
 def reply_example_schema() -> dict[str, Any]:
@@ -90,15 +93,18 @@ def reply_shape_findings(label: str, reply: Any) -> list[Finding]:
     ]
 
 
-def reply_example_findings(examples: Mapping[str, Any], *, reply_claim: bool) -> list[Finding]:
+def reply_example_findings(examples: Any, *, reply_claim: bool) -> list[Finding]:
     """Return the reply findings that depend on the accepted plan's claim level.
 
     Under a reply claim, the unsafe and safe examples each need a non-empty
     reply that does not open by naming the assistant in the third person.
-    Under any other claim, no example carries a reply.
+    Under any other claim, no example carries a reply. Examples that are not
+    objects are left to the shape checks.
     """
 
     findings: list[Finding] = []
+    if not isinstance(examples, Mapping):
+        return findings
     for label in CAPTURED_EXAMPLES:
         example = examples.get(label)
         if not isinstance(example, Mapping):

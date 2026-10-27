@@ -144,8 +144,8 @@ def test_reply_example_cannot_carry_a_capture(label: str) -> None:
 
 
 def _reply_metadata_with_capture(capture_value: Any) -> dict[str, Any]:
-    metadata = neutral_metadata(unsafe=capture_value, safe=None)
-    metadata["semantic_judge_spec"] = {"question": "Is it?", "criteria": "c", "fact_refs": []}
+    metadata = neutral_reply_metadata()
+    metadata["examples"]["unsafe"]["capture"] = capture_value
     return metadata
 
 

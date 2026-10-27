@@ -49,10 +49,12 @@ claim level. The Call 2 contract of a reply plan explains `reply` as
 `example_reply_neutral_example`. A reply example without a `reply` gets a
 `missing_field` finding; an empty one `example_reply_empty`; one that opens with
 "The assistant", "The model", or "The agent" (case-insensitive, after any
-leading punctuation), and so describes the reply instead of being one,
+leading punctuation or underscores and through emphasis markers around those
+words), and so describes the reply instead of being one,
 `example_reply_third_person`. A `reply` under any other claim level is an
-`unexpected_field`. These findings go to the artifact correction within its
-usual allowance. When the
+`unexpected_field`. These findings need no valid shape, so they are reported
+beside any shape findings and go to the artifact correction together, within
+its usual allowance. When the
 plan claims `reply` and an `unsafe` or `safe` example carries a capture, the
 correction gets one `unexpected_field` finding at `examples.<label>.capture`
 that says a reply claim carries no capture, ahead of any other finding; shape
