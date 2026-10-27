@@ -203,8 +203,9 @@ def _call2_example_findings(label: str, item: Any) -> list[Finding]:
     if not findings and "capture" in item:
         findings = capture_shape_findings(label, item["capture"])
     # A reply's type is checked even beside other findings about its example, so
-    # that the plan-dependent reply checks never need to report it.
-    if isinstance(item, dict) and REPLY_FIELD in item:
+    # that the plan-dependent reply checks never need to report it. The
+    # inconclusive example's reply gets only its unexpected_field finding.
+    if label in CAPTURED_EXAMPLES and isinstance(item, dict) and REPLY_FIELD in item:
         findings.extend(reply_shape_findings(label, item[REPLY_FIELD]))
     return findings
 
@@ -515,7 +516,9 @@ def _reply_led_shape_findings(metadata: Any, plan: dict[str, Any]) -> list[Findi
     findings about the same capture would only describe a field the author removes.
     The example reply findings need no valid shape, so they join the shape
     findings and one correction carries them all; a reply finding at a path a
-    shape finding already reports is left out.
+    shape finding already reports is left out. A reply the claim level forbids
+    gets only its unexpected_field finding, whatever its value: the shape
+    finding about that value would describe a field the author removes.
     """
 
     findings = _validate_call2_metadata_shape(metadata)
@@ -523,12 +526,11 @@ def _reply_led_shape_findings(metadata: Any, plan: dict[str, Any]) -> list[Findi
         return findings
     examples = metadata.get("examples")
     reply = _plan_claim_level(plan) == ClaimLevel.REPLY
+    reply_findings = reply_example_findings(examples, reply_claim=reply)
+    forbidden = {finding.path for finding in reply_findings if finding.code == "unexpected_field"}
+    findings = [finding for finding in findings if finding.path not in forbidden]
     reported = {finding.path for finding in findings}
-    findings += [
-        finding
-        for finding in reply_example_findings(examples, reply_claim=reply)
-        if finding.path not in reported
-    ]
+    findings += [finding for finding in reply_findings if finding.path not in reported]
     if not reply:
         return findings
     claim = reply_capture_findings(examples)

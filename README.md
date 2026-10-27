@@ -51,8 +51,8 @@ claim level. The Call 2 contract of a reply plan explains `reply` as
 "The assistant", "The model", or "The agent" (case-insensitive, after any
 leading punctuation or underscores and through emphasis markers around those
 words), and so describes the reply instead of being one,
-`example_reply_third_person`. A `reply` under any other claim level is an
-`unexpected_field`. These findings need no valid shape, so they are reported
+`example_reply_third_person`. A `reply` under any other claim level, or on the
+`inconclusive` example, is one `unexpected_field`, whatever its value. These findings need no valid shape, so they are reported
 beside any shape findings and go to the artifact correction together, within
 its usual allowance. When the
 plan claims `reply` and an `unsafe` or `safe` example carries a capture, the

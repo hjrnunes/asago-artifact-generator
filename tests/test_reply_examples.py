@@ -30,7 +30,12 @@ from .reply_support import (
     reply_runtime_contract,
     reply_view,
 )
-from .support import ScriptedAuthoringTransport, stage_local_orchestrator, unreviewed_policy
+from .support import (
+    ScriptedAuthoringTransport,
+    stage_local_orchestrator,
+    unreviewed_policy,
+    world_builders,
+)
 
 _LIVE = json.loads(
     (Path(__file__).parent / "fixtures" / "reply_examples" / "live_examples.json").read_text(
@@ -450,3 +455,109 @@ def test_a_missing_or_blank_reply_without_allowance_stops_unresolved(
     assert result.status == "unresolved"
     assert result.package_path is None
     assert code in {finding.code for finding in result.findings}
+
+
+_NON_STRINGS = [None, [], ["The assistant approves it."], 3]
+_NEUTRAL_INVENTORY = {
+    "facts": [],
+    "operations": [{"name": "inspect_record"}],
+    "source_handles": [],
+}
+_NEUTRAL_RUNTIME = {"delivery": ["direct_user_message"], "setup_permissions": []}
+
+
+def _command_attempt_findings(metadata: dict[str, Any]) -> list[Any]:
+    return collect_artifact_findings_v2(
+        metadata, neutral_artifact_plan_v2(), _NEUTRAL_INVENTORY, _NEUTRAL_RUNTIME
+    )
+
+
+@pytest.mark.parametrize("value", _NON_STRINGS)
+@pytest.mark.parametrize("label", ["unsafe", "safe"])
+def test_a_non_string_command_attempt_reply_is_only_an_unexpected_field(
+    label: str, value: Any
+) -> None:
+    metadata = neutral_metadata()
+    metadata["examples"][label]["reply"] = value
+
+    findings = _command_attempt_findings(metadata)
+
+    assert [(f.code, f.path) for f in findings] == [
+        ("unexpected_field", f"examples.{label}.reply")
+    ]
+
+
+@pytest.mark.parametrize("value", _NON_STRINGS)
+def test_a_non_string_command_attempt_reply_beside_a_shape_error_is_only_unexpected(
+    value: Any,
+) -> None:
+    metadata = neutral_metadata() | {"explanation": 17}
+    for label in ("unsafe", "safe"):
+        metadata["examples"][label]["reply"] = value
+
+    findings = _command_attempt_findings(metadata)
+
+    assert [(f.code, f.path) for f in findings] == [
+        _SHAPE_ERROR,
+        ("unexpected_field", "examples.unsafe.reply"),
+        ("unexpected_field", "examples.safe.reply"),
+    ]
+
+
+@pytest.mark.parametrize("value", [*_NON_STRINGS, "I can't tell."])
+@pytest.mark.parametrize("plan", [reply_plan, neutral_artifact_plan_v2], ids=["reply", "command"])
+def test_an_inconclusive_reply_is_only_an_unexpected_field(value: Any, plan: Any) -> None:
+    metadata = _metadata_with_replies(_WRITTEN) if plan is reply_plan else neutral_metadata()
+    metadata["examples"]["inconclusive"]["reply"] = value
+
+    findings = collect_artifact_findings_v2(
+        metadata,
+        plan(),
+        reply_inventory() if plan is reply_plan else _NEUTRAL_INVENTORY,
+        reply_runtime_contract() if plan is reply_plan else _NEUTRAL_RUNTIME,
+    )
+
+    assert [(f.code, f.path) for f in findings] == [
+        ("unexpected_field", "examples.inconclusive.reply")
+    ]
+
+
+def test_a_required_non_string_reply_stays_one_type_error() -> None:
+    metadata = _metadata_with_replies({"unsafe": None, "safe": 3}) | {"explanation": 17}
+
+    findings = _findings(metadata)
+
+    assert [(f.code, f.path) for f in findings] == [
+        ("type_error", "examples.unsafe.reply"),
+        ("type_error", "examples.safe.reply"),
+        _SHAPE_ERROR,
+    ]
+
+
+def test_one_correction_removes_a_non_string_command_attempt_reply(tmp_path: Path) -> None:
+    view, inventory, runtime, plan, metadata, framed = world_builders(
+        "refund", "view", "inventory", "runtime_contract", "plan", "metadata", "framed"
+    )
+    first = metadata()
+    first["examples"]["unsafe"]["reply"] = None
+    first["examples"]["safe"]["reply"] = []
+    transport = ScriptedAuthoringTransport([json.dumps(plan()), framed(first), framed(metadata())])
+
+    result = stage_local_orchestrator(
+        transport=transport, package_dir=tmp_path / "package", task_id="task"
+    ).run(view(), inventory(), runtime())
+
+    assert [request["stage"] for request in transport.requests] == [
+        "call1",
+        "call2",
+        "correction",
+    ]
+    payload = transport.requests[-1]["payload"]
+    assert [(f["code"], f["path"]) for f in payload["findings"]] == [
+        ("unexpected_field", "examples.unsafe.reply"),
+        ("unexpected_field", "examples.safe.reply"),
+    ]
+    assert all("Remove examples." in f["detail"] for f in payload["findings"])
+    assert result.status == "accepted", result.findings
+    stored = json.loads(result.package.members["examples.json"])
+    assert stored == metadata()["examples"]
