@@ -3,6 +3,14 @@
     "path": "/tool/id",
     "keyword": "minLength"
   },
+  "invalid/episode-attempted-not-three-valued.json": {
+    "path": "/episode/verdict/attempted",
+    "keyword": "type"
+  },
+  "invalid/episode-exposure-unknown-status.json": {
+    "path": "/episode/exposure/emitted",
+    "keyword": "enum"
+  },
   "invalid/episode-injection-outcome-without-status.json": {
     "path": "/episode/call_injections/0/injection_outcomes/0",
     "keyword": "required"

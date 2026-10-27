@@ -6,3 +6,4 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v1.schema.json"
+DELIVERY_CONTRACT = REPO / "contracts/midojo-delivery"

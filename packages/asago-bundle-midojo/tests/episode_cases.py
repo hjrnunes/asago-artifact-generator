@@ -23,6 +23,16 @@ then copy ``<that dir>`` over ``fixtures/episode/`` (``generate.py`` stays).
 ``fixtures/episode-a5f81e9/`` was made the same way with a MiDojo checkout at a5f81e9,
 when compile wrote ``tool_revision_range`` ``>=a5f81e96``; it is kept as sealed, not
 regenerated.
+
+``fixtures/regraded-13d5487/`` runs no episode: MiDojo at 13d5487 reads each run of
+``fixtures/episode/`` in its own snapshot form, grades it and computes its delivery facts
+(``regrade.py`` says what each file is). To regenerate, with a MiDojo export or checkout at
+13d5487 (``uv sync --frozen --extra dev`` there first)::
+
+    cd <that MiDojo tree> && uv run --frozen --extra dev python \\
+        <consumer>/packages/asago-bundle-midojo/tests/fixtures/regraded-13d5487/regrade.py \\
+        <the full 13d5487 SHA> <consumer>/packages/asago-bundle-midojo/tests/fixtures/episode \\
+        <consumer>/packages/asago-bundle-midojo/tests/fixtures/regraded-13d5487
 """
 
 from __future__ import annotations
@@ -46,6 +56,11 @@ EPISODES = FIXTURES / "episode"
 # Sealed by MiDojo at a5f81e9: call records without ``structured_content`` or
 # ``injection_outcomes``.
 EPISODES_A5F81E9 = FIXTURES / "episode-a5f81e9"
+# The runs of ``fixtures/episode/`` as MiDojo at 13d5487 reads them: the snapshot in its form
+# (each outcome with its delivery facts, unreported), its verdict with the attack outcome
+# fields, and the delivery document a runner writes; ``reported/`` one run whose facts are
+# reported (``regrade.py`` says how each was made).
+REGRADED = FIXTURES / "regraded-13d5487"
 TOOLS = json.loads((PIGGYBANK / "tools-list.json").read_text(encoding="utf-8"))["tools"]
 SPEC = yaml.safe_load((PIGGYBANK / "runtime-spec.yaml").read_text(encoding="utf-8"))
 SLOTS_BY_ID = {slot["id"]: slot for slot in SPEC["seed_slots"]}

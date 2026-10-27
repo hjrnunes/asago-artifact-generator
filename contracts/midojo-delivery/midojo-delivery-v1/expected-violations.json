@@ -1,0 +1,30 @@
+{
+  "invalid/exposure-unknown-status.json": {
+    "path": "/exposure/emitted",
+    "keyword": "enum"
+  },
+  "invalid/fact-extra-field.json": {
+    "path": "/delivery/0",
+    "keyword": "additionalProperties"
+  },
+  "invalid/fact-transformation-unknown.json": {
+    "path": "/delivery/0/transformation",
+    "keyword": "enum"
+  },
+  "invalid/fact-uncounted-emitted.json": {
+    "path": "/delivery/0/emitted",
+    "keyword": "anyOf"
+  },
+  "invalid/instruction-unknown-placer.json": {
+    "path": "/exposure/instructions/0/placed_by",
+    "keyword": "enum"
+  },
+  "invalid/missing-snapshot-id.json": {
+    "path": "/",
+    "keyword": "required"
+  },
+  "invalid/other-version.json": {
+    "path": "/schema_version",
+    "keyword": "const"
+  }
+}

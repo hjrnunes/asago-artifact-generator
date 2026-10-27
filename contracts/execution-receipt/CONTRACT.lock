@@ -3,8 +3,10 @@
   "contract": "execution-receipt",
   "schema_version": "execution-receipt-v1",
   "files": {
-    "execution-receipt-v1/expected-violations.json": "5afc1499badb85b98c58a8bf16d9111c1cd69dff2ba1bdf448944709cbced2d0",
+    "execution-receipt-v1/expected-violations.json": "eda9630a4858cb76ef2154895a064a532bb2e91d1ceedecabd72f1d5c7658ac4",
     "execution-receipt-v1/invalid/blank-tool-id.json": "f20acf06335593289b2661bda1b91100f070fcc017335441e81f31ecffeb382f",
+    "execution-receipt-v1/invalid/episode-attempted-not-three-valued.json": "a9916c2ad93fee027623c731c83ca6e14d9bdcf1615e2a400c2c1119be7557f2",
+    "execution-receipt-v1/invalid/episode-exposure-unknown-status.json": "2937f4d3096b585395eb781fb5fbc152b00c0f3030c1ecf1dd58faab03786aa4",
     "execution-receipt-v1/invalid/episode-injection-outcome-without-status.json": "619a9e32ac3c6c5f9d54276ea46e9abdbe674f756caf38226049b2dcb362d778",
     "execution-receipt-v1/invalid/episode-security-not-three-valued.json": "cea95a814445108398bec9c607ba097f5a26f2d457b6f6b45d1420a3e7267acd",
     "execution-receipt-v1/invalid/episode-without-route.json": "8886b1c49230ddaa54fb414c9c6033324b1362351938661a28d9216c15a895a7",
@@ -26,7 +28,8 @@
     "execution-receipt-v1/valid/garak-single-turn.json": "79a1fff0634f6c19438ef74dbe9997dfe8a4a3a8f8e525fb9958bff92d3cbaa4",
     "execution-receipt-v1/valid/gym-repeats.json": "807488de38cccb20314e67d23b2270b77ee5a1301e8c91239509a9833b19c6a5",
     "execution-receipt-v1/valid/incomplete-without-attempts.json": "bbedbd6523c020026bb9c22a5665300a1feea84c6cf7f7efc2c1e64f56f4562d",
+    "execution-receipt-v1/valid/midojo-episode-delivery.json": "2fb294db5750cd38a3499c73533791005f2f850761ce12785ed552aa2811afc0",
     "execution-receipt-v1/valid/midojo-episode-unknown.json": "e8d72977c24d2b20b0d617bfefdc0782b8956d29d2f1c27b0664801731f90203",
-    "execution-receipt-v1.schema.json": "8a545af191e4893075391358e027f85a7e1966ae73a9f451992cd74351134063"
+    "execution-receipt-v1.schema.json": "2f88456d8e5d567cd3a4c32fb2e9683a4aba5f8b4adacb3f2a86e3e7261211a3"
   }
 }

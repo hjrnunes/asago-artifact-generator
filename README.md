@@ -932,9 +932,11 @@ asago-bundle-midojo compile PACKAGE --out EPISODE_DIR --target target.yaml \
   [--block TOOL ...] [--judge-turns final|all]
 # the runner builds the Episode from EPISODE_DIR/episode.json and opens it with
 # midojo.open_episode(..., interception=HostInterception(upstream=<the target's
-# endpoint.mcp_url>)), seals it, and grades the snapshot with midojo.grade
+# endpoint.mcp_url>)), seals it, grades the snapshot with midojo.grade, and may write
+# delivery.json from midojo.delivery
 asago-bundle-midojo parse EPISODE_DIR --snapshot snapshot.json --verdict verdict.json \
-  --out execution-receipt.json [--route midojo] [--tool-revision REV]
+  [--delivery delivery.json] --out execution-receipt.json [--route midojo] \
+  [--tool-revision REV]
 ```
 
 `--target` is the target config: `target.yaml` with `tools-list.json` and
@@ -1025,7 +1027,43 @@ as MiDojo sealed them (`instruction_index`, `probe_key`, `occurrence`, `status`,
 sealed before `3824922`). A call record is checked field for field against MiDojo's
 `FunctionCallRecord`: sealed from `3824922` it has both `structured_content` and
 `injection_outcomes`, before it has neither, and one with only one of them is
-malformed.
+malformed. Sealed from `13d5487` each outcome also carries its delivery facts,
+`selected`, `transformation` and `emitted` (null when the interceptor did not report
+them), all three or none; an outcome at occurrence 0 placed nothing, so its facts are
+empty.
+
+From `13d5487` MiDojo's grade also says apart what `security` folds together:
+`attempted`, `blocked`, `effect_observed` and `injection_delivered`, each true, false or
+null (unknown). They are optional: a grade has all four or none, a verdict sealed before
+`13d5487` lacks them and the receipt's `episode.verdict` records each as null (unknown,
+never false). They never change the attempt's outcome, and any other unknown grade key is
+still `verdict_malformed`. The episode's tool revision range stays `>=b5b8c752`.
+
+Delivery and exposure are not in the snapshot or the verdict: the runner computes them in
+MiDojo's interpreter and writes `delivery.json` beside the snapshot, a
+`midojo-delivery-v1` document (`contracts/midojo-delivery/`):
+
+```json
+{
+  "schema_version": "midojo-delivery-v1",
+  "evaluation_id": "<the snapshot's evaluation_id>",
+  "snapshot_id": "<the snapshot's snapshot_id>",
+  "delivery": "<midojo.delivery.delivery_facts(plan, snapshot.function_calls), each fact's model_dump(mode='json')>",
+  "exposure": "<midojo.delivery.exposure(plan, snapshot.function_calls, turns=len(snapshot.turns), evidence_status=snapshot.evidence_status).model_dump(mode='json')>"
+}
+```
+
+`parse` reads it only when `--delivery` names it. The receipt's `episode` block then
+carries its `delivery` (each fact: call, `interceptor_instruction_index`,
+`plan_instruction_index`, probe, occurrence, status and the three facts) and its
+`exposure` (`emitted`, `agent_tool_result` and `model_input`, each `exposed`,
+`not_exposed` or `unknown`, and each plan instruction's own), and `native` lists it.
+Without `--delivery` both are null: unknown, never undelivered. A named document that is
+missing (`delivery_missing`), does not match the contract (`delivery_malformed`) or names
+another evaluation or snapshot than the snapshot's (`delivery_mismatch`) fails the
+receipt. A payload the host placed in the environment has no delivery fact, so its
+exposure, and `injection_delivered`, stay unknown; a response-injection placement gives
+real facts.
 `parse` recomputes the snapshot's ID, MiDojo's digest of its content (`state.snapshot_digest`,
 ported in `snapshot_digest.py`), and fails a snapshot whose content changed under its ID
 (`snapshot_digest_mismatch`); a value JSON cannot carry back as MiDojo held it fails the
