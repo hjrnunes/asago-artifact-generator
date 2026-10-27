@@ -267,6 +267,86 @@ def test_a_repeat_the_judging_round_reported_but_code_set_aside_is_not_a_met_dec
     assert kept == (_SCOPE_FINDING,)
 
 
+def _rounds(*specs: tuple[dict, list[dict]]) -> PriorReviewRound:
+    """Return the latest of rounds given oldest first as ``(reviewed plan, findings)``."""
+
+    prior: PriorReviewRound | None = None
+    for plan, findings in specs:
+        prior = _round(
+            plan,
+            findings,
+            earlier_rounds=() if prior is None else (*prior.earlier_rounds, prior),
+        )
+    assert prior is not None
+    return prior
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        pytest.param("candidate_plan.semantic_judge", id="same-path"),
+        pytest.param("plan.semantic_judge.scope", id="path-under"),
+        pytest.param("candidate_plan", id="path-above"),
+        pytest.param("the judge scope wording", id="location-in-prose"),
+    ],
+)
+def test_a_judging_round_that_reported_near_the_path_in_other_words_judged_nothing_met(
+    location: str,
+) -> None:
+    # Round 2 reports the same defect at the path, or above, under or maybe at it, in other
+    # words; round 3 asks again in round 1's words on the value round 2 reviewed.
+    restated = {
+        **_SCOPE_FINDING,
+        "location": location,
+        "required_change": "Make the judge scope a decision task, not a statement of the outcome.",
+    }
+    prior = _rounds((_REVIEWED, [_SCOPE_FINDING]), (_REVISED, [restated]))
+
+    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING,), _REVISED, prior)
+
+    assert (kept, set_aside) == ((_SCOPE_FINDING,), ())
+
+
+def test_a_later_round_that_raised_the_request_again_voids_the_older_judgment() -> None:
+    # Round 2 left the request unreported on value B, round 3 raised it again on value C, and
+    # round 4 reviews value B again.
+    value_c = _plan_with(_SCOPE_PATH, {"needed": True, "scope": "Judge PII exposure."})
+    prior = _rounds(
+        (_REVIEWED, [_SCOPE_FINDING]),
+        (_REVISED, [_OTHER_FINDING]),
+        (value_c, [_SCOPE_FINDING]),
+    )
+
+    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING,), _REVISED, prior)
+
+    assert (kept, set_aside) == ((_SCOPE_FINDING,), ())
+
+
+def test_a_judgment_no_later_round_contradicted_still_holds_rounds_later() -> None:
+    prior = _rounds(
+        (_REVIEWED, [_SCOPE_FINDING]),
+        (_REVISED, [_OTHER_FINDING]),
+        (_REVISED, [{**_OTHER_FINDING, "required_change": "Name the captured command."}]),
+    )
+
+    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING,), _REVISED, prior)
+
+    assert kept == ()
+    assert set_aside == ({"finding": _SCOPE_FINDING, "reason": _SCOPE_REASON},)
+
+
+def test_a_repeat_of_the_round_just_before_is_kept_whatever_came_earlier() -> None:
+    prior = _rounds(
+        (_REVIEWED, [_SCOPE_FINDING]),
+        (_REVISED, [_OTHER_FINDING]),
+        (_REVISED, [_SCOPE_FINDING]),
+    )
+
+    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING,), _REVISED, prior)
+
+    assert (kept, set_aside) == ((_SCOPE_FINDING,), ())
+
+
 # Orchestrator runs over the refund world: round 1 asks for a benign request (the recorded
 # finding), round 2 reports only another finding, and round 3 asks for the request change again.
 _REQUEST_PATH, _REQUEST_ROUNDS = _recorded_rounds("benign-follow-up")
@@ -375,6 +455,35 @@ def test_a_met_repeat_set_aside_beside_another_finding_leaves_the_review_a_revis
     details = [finding.detail for finding in result.findings if finding.code == "semantic_review"]
     assert any(_NEW_FINDING["required_change"] in detail for detail in details)
     assert not any(_REQUEST_FINDING["required_change"] in detail for detail in details)
+
+
+def test_a_blocked_review_keeps_a_repeat_of_a_met_change(tmp_path: Path) -> None:
+    first, second, third = _three_plans()
+    orchestrator, _transport = _orchestrator(
+        tmp_path,
+        [
+            json.dumps(first),
+            _review([_REQUEST_FINDING]),
+            json.dumps(second),
+            _review([_OTHER_FINDING]),
+            json.dumps(third),
+            review_response("blocked", [_REQUEST_FINDING]),
+        ],
+        policy=AuthoringPolicy(),
+    )
+
+    result = orchestrator.run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "blocked"
+    assert result.review_status["plan"] == "blocked"
+    decided = [entry for entry in result.ledger if entry["stage"] == "plan_review"][-1]["review"]
+    assert decided["findings"] == [_REQUEST_FINDING]
+    assert "repeated_met_findings" not in decided
+    assert "decision_after_repeat_filter" not in decided
+    assert not any(
+        isinstance(item, dict) and item.get("transformation") == REVIEW_FINDING_REPEATS_MET_CHANGE
+        for item in result.transformations
+    )
 
 
 def test_the_artifact_review_never_sets_findings_aside(tmp_path: Path) -> None:

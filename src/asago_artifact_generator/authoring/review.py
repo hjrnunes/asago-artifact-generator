@@ -490,6 +490,25 @@ def _same_request(first: dict[str, Any], second: dict[str, Any]) -> bool:
     )
 
 
+def _reports_near(round_: PriorReviewRound, path: tuple[str | int, ...]) -> bool:
+    """Whether a round reported any finding at ``path``, above it, or under it.
+
+    A finding whose location is not one path into a top-level field of that
+    round's plan (prose, or ``candidate_plan`` alone) may concern ``path``, so it counts.
+    """
+
+    for reported in (*round_.findings, *round_.repeated_findings):
+        other = finding_plan_path(reported.get("location"))
+        if (
+            other is None
+            or other[0] not in round_.reviewed_plan
+            or other[: len(path)] == path
+            or path[: len(other)] == other
+        ):
+            return True
+    return False
+
+
 def _met_repeat(
     finding: dict[str, Any], plan: dict[str, Any], rounds: tuple[PriorReviewRound, ...]
 ) -> dict[str, Any] | None:
@@ -501,23 +520,21 @@ def _met_repeat(
     current = _plan_value_at(plan, path)
     if current is _ABSENT:
         return None
-    # Round ``raised`` reported the request; the next round was shown it as an
-    # earlier finding, reviewed this same value at the path, and did not report it.
-    for raised in range(len(rounds) - 1):
-        judging = rounds[raised + 1]
-        if (
-            any(_same_request(finding, earlier) for earlier in rounds[raised].findings)
-            and _plan_value_at(judging.reviewed_plan, path) == current
-            and not any(
-                _same_request(finding, reported)
-                for reported in (*judging.findings, *judging.repeated_findings)
-            )
-        ):
+    # Walk back from the latest round.  A round that reported anything near the
+    # path ends the walk: no judgment before it still stands.  A round that did
+    # not, and was shown the identical request by the round before it, judged the
+    # request met on the value it reviewed.
+    for judging in range(len(rounds) - 1, 0, -1):
+        if _reports_near(rounds[judging], path):
+            return None
+        if any(_same_request(finding, earlier) for earlier in rounds[judging - 1].findings):
+            if _plan_value_at(rounds[judging].reviewed_plan, path) != current:
+                return None
             return {
                 "transformation": REVIEW_FINDING_REPEATS_MET_CHANGE,
                 "plan_path": _plan_path_text(path),
-                "raised_in_review_round": raised + 1,
-                "met_in_review_round": raised + 2,
+                "raised_in_review_round": judging,
+                "met_in_review_round": judging + 1,
             }
     return None
 
@@ -534,11 +551,14 @@ def set_aside_met_repeats(
     earlier round reported a finding with the same path and the byte-identical
     required_change; the round after that one was shown it as an earlier
     finding, reviewed the same value at that path as ``plan`` holds now, and
-    reported no finding with that path and required change, so it judged the
-    change met on this value.  Everything else is kept, including every
-    finding that repeats the round just before (no review has judged its
-    change on the current value) and every finding whose location is prose.
-    Each set-aside entry keeps the finding as written beside the reason.
+    reported no finding at that path, above it, or under it, so it judged the
+    change met on this value; and no later round reported anything there
+    either, so that judgment is the latest one.  A reported finding whose
+    location is not one path into a top-level field of that round's plan counts
+    as reported at every path.  Everything else is
+    kept, including every finding that repeats the round just before and every
+    finding whose location is prose.  Each set-aside entry keeps the finding as
+    written beside the reason.  The caller applies this to a ``revise`` only.
     """
 
     if prior_round is None:

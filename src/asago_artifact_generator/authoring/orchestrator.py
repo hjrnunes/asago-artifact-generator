@@ -1201,8 +1201,11 @@ class AuthoringOrchestrator:
         review asks again after.  The retry spends the stage's review-retry
         allowance only once the budget reserved it and its dispatch opened.
         ``prior`` is the plan review round the candidate answers, with the
-        rounds before it; a plan-review finding that repeats a change one of
-        them judged met is set aside (``set_aside_met_repeats``) and recorded.
+        rounds before it; in a plan review that decides ``revise``, a finding
+        that repeats a change the latest of them to judge it found met is set
+        aside (``set_aside_met_repeats``) and recorded.  A ``blocked`` review
+        keeps every finding: its claim that the experiment cannot be completed
+        is not overridden by an earlier round's silence.
         """
 
         assert self._review_status is not None
@@ -1241,7 +1244,7 @@ class AuthoringOrchestrator:
         )
         decision = decision_after_scope_filter
         repeated: tuple[dict[str, Any], ...] = ()
-        if packet.stage == "plan_review":
+        if packet.stage == "plan_review" and decision == "revise":
             in_scope_findings, repeated = set_aside_met_repeats(
                 in_scope_findings, review_packet_candidate(packet), prior
             )

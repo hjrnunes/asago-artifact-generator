@@ -189,19 +189,24 @@ counts as an empty findings list, and the run records the
 `review_findings_omitted_defaulted_empty` transformation (with the review
 stage) in its transformations and on that review's ledger entry; `findings`
 set to `null` or any non-list value, and an omitted `findings` on `revise` or
-`blocked`, stay invalid. A plan-review finding is set aside, and does not
-reach the correction, only when an earlier review already judged its exact
-request met on the current value: an earlier round reported a finding at the
-same plan path (its `location` is exactly one path) with the byte-identical
-`required_change`, the next round was shown it, reviewed the value the plan
-still holds at that path, and did not report it. Every other finding is kept,
-including a repeat of the round just before and one whose location is prose.
-The review record then adds `repeated_met_findings` (each finding as written
-beside its reason: `plan_path`, `raised_in_review_round`,
-`met_in_review_round`) and `decision_after_repeat_filter`, and the run records
-one `review_finding_repeats_met_change` transformation per finding. Other
+`blocked`, stay invalid. In a plan review that decides `revise`, a finding is
+set aside, and does not reach the correction, only when the latest review to
+judge its exact request found it met on the current value: an earlier round
+reported a finding at the same plan path (its `location` is exactly one path)
+with the byte-identical `required_change`; the next round was shown it,
+reviewed the value the plan still holds at that path, and reported no finding
+at that path, above it, or under it; and no later round reported anything
+there either. A reported finding whose location is prose, or is not a path
+into a top-level plan field, counts as reported at every path. Every other
+finding is kept, including a repeat of the round just before, one restated in
+other words, and one whose location is prose. The review record then adds
+`repeated_met_findings` (each finding as written beside its reason:
+`plan_path`, `raised_in_review_round`, `met_in_review_round`) and
+`decision_after_repeat_filter`, and the run records one
+`review_finding_repeats_met_change` transformation per finding. Other
 findings keep the decision; a review whose findings were all set aside
-accepts the candidate, which has already passed the stage's checks.
+accepts the candidate, which has already passed the stage's checks. A
+`blocked` review keeps every finding.
 `revise` feeds a stage correction that repeats
 all checks and the review. Each reviewed stage has a review-revision
 allowance that is separate from its correction allowance (two for the plan
@@ -295,6 +300,15 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   (`candidate_plan.observation_claim.violation`, `runtime_bindings[0].selector`)
   existing in either plan is `{"state": "location_not_resolved"}`. The reviewer
   is told to compare each required change with `current_value`.
+  Replay: the version change alters `prompt_version`, `prompt_sha256` and
+  `reviewed_input_sha256` in every plan-review record. A first review's system
+  and user text is byte-identical to v24, so a recorded first-round response
+  still replays; every later-round user message differs, so replaying a
+  recording made before v25 stops at its first later-round plan review.
+  Recorded later rounds that repeat the round just before are kept by the
+  set-aside rule, which acts only after an intervening round left the path
+  unreported. A replay serves recorded responses and does not test how a model
+  answers the changed prompt.
 - `authoring-call2-v27` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
