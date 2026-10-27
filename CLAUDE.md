@@ -144,7 +144,8 @@ Deterministic tests must not contact a model endpoint or target.
   result; MiDojo runs the episode, and the adapter holds no proxy or interception code. It
   targets MiDojo's `asago/main` at `b5b8c75` (range `>=b5b8c752`: a target can match the
   call's arguments; from `3824922` the interceptor copies a placement into a text block
-  that mirrors the structured content): `Episode`
+  that mirrors the structured content), or `c0bee12` (range `>=c0bee126`) for an episode
+  with a `result_record` target: `Episode`
   (`src/midojo/episode.py`), the injection plan (`midojo_sdk.injection`),
   `midojo.open_episode` with `HostInterception` (`src/midojo/interception_host.py`) and
   `midojo.grade`. It plants by response injection:
@@ -161,9 +162,11 @@ Deterministic tests must not contact a model endpoint or target.
   never inferred): a field inside a list through a record selector on that item property;
   a field outside any list, of a carrier whose output schema declares the result and every
   key above the field exactly `"type": "object"` (no array, scalar, union or nullable
-  object) and whose input schema requires `record_key` as a text argument, by `call_arguments`
-  `{record_key: record}` with the plain path. Any other field, or a slot without a
-  `record_key`, is a gap. A
+  object), by the plain path and `call_arguments` `{record_key: record}` when its input
+  schema requires `record_key` as a text argument, else `result_record` `{"field":
+  record_key, "equals": record}` when its result object declares `record_key` as a text
+  property (the host interceptor declares that capability). Any other field, or a slot
+  without a `record_key`, is a gap. A
   command attempt uses MiDojo's `tool_call_condition` predicate; a reply uses
   `bundle_files/asago_episode_judge.py` (copied beside the episode with
   `authoring/rubric_judge.py`; the runner registers it with its judge), three-valued, its
@@ -180,8 +183,8 @@ Deterministic tests must not contact a model endpoint or target.
   `call_injections` (each call's `injection_outcomes` as sealed, null when the record does
   not say). A call record sealed from 3824922 has `structured_content` and
   `injection_outcomes`, one sealed before neither; both are shape-checked (occurrence 0
-  only for `unmatched`, a call whose arguments did not match). From 13d5487 an outcome
-  also has `selected`/`transformation`/`emitted` and the grade `attempted`/`blocked`/
+  only for `unmatched`, a call whose arguments, or from c0bee12 result, did not match).
+  From 13d5487 an outcome also has `selected`/`transformation`/`emitted` and the grade `attempted`/`blocked`/
   `effect_observed`/`injection_delivered` (each all or none, optional, so the range stays
   `>=b5b8c752`); a missing one is null in `episode.verdict`, never false. `--delivery`
   names the runner's `delivery.json` (`contracts/midojo-delivery/`, `midojo-delivery-v1`:
@@ -196,6 +199,9 @@ Deterministic tests must not contact a model endpoint or target.
   `tool_revision_range`), `tests/fixtures/episode-a5f81e9/` the same runs sealed at a5f81e9,
   and `tests/fixtures/regraded-13d5487/` those runs as MiDojo 13d5487 reads, grades and
   reports them (`regrade.py`, offline, no episode run; `reported/` derives reported facts).
+  `tests/fixtures/result-record/` holds episodes compiled for this package's clinic fixture
+  target (its `tests/fixtures/targets/clinic/`, record IDs in the result only) and what MiDojo
+  c0bee12 sealed from them in front of a scripted upstream (`tests/result_record_cases.py`).
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-bundle-garak/tests -q`.

@@ -21,7 +21,13 @@ the payload in the result of the instruction's tool, at its ``structured_content
 top-level arguments and their values: only a call whose arguments match gets the
 instruction, and MiDojo leaves any other call of the tool unchanged and records it
 ``unmatched``, at occurrence 0, without counting it. MiDojo's plan data leaves the key out
-when there are none, and so does this module. The interceptor changes the result's
+when there are none, and so does this module. From c0bee12 a target may instead (or also)
+name ``result_record``, a record selector on the result's structured content object
+itself, ``{"field": <key>, "equals": <value>}``: only a call whose result has that field
+equal to the value, type for type, gets the instruction, and any other call of the tool,
+one with no result included, is left unchanged and recorded ``unmatched`` at occurrence 0,
+as for an argument miss. MiDojo's plan data leaves it out when there is none, and so does
+this module. The interceptor changes the result's
 ``structuredContent``, and copies the change into its text when that text is a JSON
 mirror of the structured content (the fixture target's is); other text stays as the target
 sent it, and the outcome is ``partial``. The call record MiDojo seals holds the text the
@@ -69,6 +75,7 @@ def tool_output_instruction(
     tool: str,
     path: Sequence[str | int | dict[str, str]],
     call_arguments: Mapping[str, str] | None = None,
+    result_record: Mapping[str, str] | None = None,
     payload: str,
     mode: str,
     size_limit: int,
@@ -80,8 +87,8 @@ def tool_output_instruction(
     Every field is written, defaults included, so the data names the whole placement: the
     calls ``occurrence`` selects, no transformation, the size limit in UTF-8 bytes, and
     strict on a mismatch (MiDojo reports a path it cannot match and leaves the result).
-    The target's ``call_arguments`` are written only when there are some, as MiDojo's
-    codec writes them.
+    The target's ``call_arguments`` are written only when there are some, and its
+    ``result_record`` only when there is one, as MiDojo's codec writes them.
     """
 
     target: dict[str, Any] = {
@@ -95,6 +102,8 @@ def tool_output_instruction(
     }
     if call_arguments:
         target["call_arguments"] = dict(call_arguments)
+    if result_record is not None:
+        target["result_record"] = dict(result_record)
     return {
         "channel": TOOL_OUTPUT,
         "payload": payload,

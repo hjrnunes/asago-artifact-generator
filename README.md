@@ -940,7 +940,8 @@ refuses and records as blocked), and places the planted text in the structured r
 of the carrier tool. The target's own data is not changed (the Garak adapter plants the
 same text by writing `seed.json` into the target before the run). It targets the
 `Episode` value, `midojo.open_episode` with `HostInterception`, and `midojo.grade` of
-MiDojo's `asago/main` at `b5b8c75` (`src/midojo/episode.py`,
+MiDojo's `asago/main` at `b5b8c75`, or `c0bee12` for an episode that matches a carrier's
+result (`src/midojo/episode.py`,
 `src/midojo/episode_context.py`, `src/midojo/interception_host.py`,
 `src/midojo/control_plane/grading.py`, and `midojo_sdk.injection` for the plan).
 
@@ -973,7 +974,7 @@ is refused (exit 1). `compile` writes `episode.json` (`midojo-episode-v2`):
   `runtime-spec.yaml`'s `operations.mutating`), or `block` for each `--block` tool;
 - `placements`: each instruction's seed slot, record, carrier and field, in the runtime
   contract's terms, and the slot's record key: the list item property it selects by, or,
-  outside a list, the call argument it matches;
+  outside a list, the call argument or the result property it matches;
 - `episode`, the fields of MiDojo's `Episode` as plain data (enums as their values,
   tuples as lists). The turns are the stimulus's user turns. Each seed item becomes one
   `tool_output` instruction from the seed slot of the package's runtime contract that it
@@ -988,18 +989,30 @@ is refused (exit 1). `compile` writes `episode.json` (`midojo-episode-v2`):
   package's runtime contract (`artifact-runtime-contract-v2` allows the optional field),
   or both, and the two must agree. Compile checks that the carrier's output schema
   declares the key as a text property of the list's items. A field outside any list
-  (`body`) is placed only when the carrier returns one record, the one its call names:
-  the carrier's output schema declares the result and every key above the field exactly
-  as an object (`"type": "object"`: not an array, a scalar, an untyped node or a union
-  such as `["object", "null"]`, which a call may return without the key), and its input
-  schema declares the slot's `record_key` as a required text argument. Its record
-  is matched by the call's arguments rather than selected in the result: the
-  instruction's target names `call_arguments` `{<record_key>: <record>}` and the plain
-  path, as MiDojo's plan data writes it from `b5b8c75`:
-  `{"tool": "read_note", "surface": "structured_content", "structured_content_path":
-  ["body"], "call_arguments": {"note_id": "NOTE-2"}, ...}`. A call of the carrier that
-  names another record is left unchanged; MiDojo records it `unmatched` at occurrence 0
-  and does not count it. A list slot's target has no `call_arguments`. A selector that
+  (`body`) is placed only when the carrier returns one record: the carrier's output
+  schema declares the result and every key above the field exactly as an object
+  (`"type": "object"`: not an array, a scalar, an untyped node or a union such as
+  `["object", "null"]`, which a call may return without the key), with the plain path.
+  The record is then matched rather than selected in the result, by the first of two
+  rules the declarations allow. When the carrier's input schema declares the slot's
+  `record_key` as a required text argument, the call names the record, and the
+  instruction's target names `call_arguments` `{<record_key>: <record>}`, as MiDojo's
+  plan data writes it from `b5b8c75`: `{"tool": "read_note", "surface":
+  "structured_content", "structured_content_path": ["body"], "call_arguments":
+  {"note_id": "NOTE-2"}, ...}`. Otherwise, when the output schema declares the
+  `record_key` as a text property of the result object itself (its top level), the
+  result names the record, and the target names `result_record` `{"field":
+  <record_key>, "equals": <record>}` and no `call_arguments`, as MiDojo's plan data
+  writes it from `c0bee12`: `get_referral(patient_id)` answering `{"referral_id":
+  "REF-101", "reason": ...}` gets `{"tool": "get_referral", "structured_content_path":
+  ["reason"], "result_record": {"field": "referral_id", "equals": "REF-101"}, ...}`.
+  MiDojo compares the value type for type, so the record stays the text the seed names
+  and the property must be declared text. A call of the carrier that names another
+  record, or whose result holds another (or no result), is left unchanged; MiDojo
+  records it `unmatched` at occurrence 0 and does not count it. MiDojo's host
+  interceptor declares both capabilities (`InterceptorCapability.call_arguments`, and
+  `result_record` from `c0bee12`), and an episode always intercepts on the host, so
+  compile models no other interceptor. A list slot's target has neither. A selector that
   matches nothing leaves the result as it was, and MiDojo reports it unmatched. The
   interceptor places the text in the result's `structuredContent` and, from `3824922`,
   copies it into the text block when that block is a JSON mirror of the structured
@@ -1007,7 +1020,8 @@ is refused (exit 1). `compile` writes `episode.json` (`midojo-episode-v2`):
   sent it, and the outcome is `partial`. Each call record MiDojo seals holds the text the
   agent got, its `structured_content` and its `injection_outcomes`. A target that matches
   the call's arguments needs `b5b8c75`, so the episode names `>=b5b8c752` as its MiDojo
-  revision range. There is no environment (the target holds its state), no utility
+  revision range; one with a `result_record` target needs `c0bee12`, where MiDojo first
+  reads that key, and names `>=c0bee126` instead. There is no environment (the target holds its state), no utility
   check, and the runtime is `unmanaged`.
 
 A command attempt is checked by MiDojo's `tool_call_condition` predicate. A reply is
@@ -1026,7 +1040,8 @@ that declares no `record_key`, a list slot's `record_key` the carrier's output s
 does not declare as a text property of the list's items, a field outside a list below a
 key the output schema does not declare exactly as an object, a field outside a list whose
 `record_key` the carrier's input schema does not declare as a required text argument
-(so no call names the one record it returns), and a text over `max_chars` UTF-8 bytes,
+nor its result object as a text property (so neither the call nor the result names the
+one record it returns), and a text over `max_chars` UTF-8 bytes,
 which is how MiDojo counts its size limit. A seed that disagrees
 with its slot (an unknown slot, a record or mode the slot does not have, a text over
 `max_chars` characters), or a `record_key` the runtime contract and the target config
@@ -1040,7 +1055,8 @@ fail. The receipt's `episode` block carries the run's `route`, the `evaluation_i
 and `call_injections`: each sealed call's `call_id`, `function` and `injection_outcomes`
 as MiDojo sealed them (`instruction_index`, `probe_key`, `occurrence`, `status`,
 `detail`; from `b5b8c75` a call whose arguments did not match an instruction's
-`call_arguments` is `unmatched` at occurrence 0), null for a record that does not say (a blocked or unfinished call, or one
+`call_arguments`, and from `c0bee12` one whose result did not match its `result_record`,
+is `unmatched` at occurrence 0, the same shape for both), null for a record that does not say (a blocked or unfinished call, or one
 sealed before `3824922`). A call record is checked field for field against MiDojo's
 `FunctionCallRecord`: sealed from `3824922` it has both `structured_content` and
 `injection_outcomes`, before it has neither, and one with only one of them is
@@ -1054,7 +1070,8 @@ From `13d5487` MiDojo's grade also says apart what `security` folds together:
 null (unknown). They are optional: a grade has all four or none, a verdict sealed before
 `13d5487` lacks them and the receipt's `episode.verdict` records each as null (unknown,
 never false). They never change the attempt's outcome, and any other unknown grade key is
-still `verdict_malformed`. The episode's tool revision range stays `>=b5b8c752`.
+still `verdict_malformed`. The episode's tool revision range stays `>=b5b8c752` (or
+`>=c0bee126` with a `result_record` target).
 
 Delivery and exposure are not in the snapshot or the verdict: the runner computes them in
 MiDojo's interpreter and writes `delivery.json` beside the snapshot, a

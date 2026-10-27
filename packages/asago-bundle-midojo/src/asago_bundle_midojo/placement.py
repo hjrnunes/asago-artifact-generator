@@ -19,16 +19,26 @@ becomes one instruction (``episode.tool_output_instruction``):
     {"field": "note_id", "equals": "NOTE-1"}, "body"]``), which picks the one list item
     whose key field is the record. The ``record_key`` is a property of the list's items;
   - a field outside any list (``body``) belongs to the one record a single-record carrier
-    returns, and that record is the one the call names. The ``record_key`` is an argument
-    of the carrier, and the instruction's target matches the call's arguments,
-    ``call_arguments`` ``{<key>: <record>}`` (``{"note_id": "NOTE-2"}``), with the plain
-    path into the result (``["body"]``). A carrier returns one record when the target
-    config declares both halves: its output schema declares the result and every key on
-    the field's path above the field exactly as an object (``"type": "object"``; an array,
-    a scalar, a union such as ``["object", "null"]``, or no type at all does not
-    guarantee the path reaches the field), and its input schema declares the
-    ``record_key`` as a required text argument. A call naming another record, or none, is
-    left unchanged; MiDojo reports it ``unmatched`` and does not count it;
+    returns, reached by the plain path into the result (``["body"]``). The carrier's
+    output schema must declare the result and every key on the field's path above the
+    field exactly as an object (``"type": "object"``; an array, a scalar, a union such as
+    ``["object", "null"]``, or no type at all does not guarantee the path reaches the
+    field). The instruction's target then names the record in one of two ways, the first
+    the declarations allow:
+
+    - when the carrier's input schema declares the ``record_key`` as a required text
+      argument, the call names the record, and the target matches the call's arguments,
+      ``call_arguments`` ``{<key>: <record>}`` (``{"note_id": "NOTE-2"}``);
+    - otherwise, when the output schema declares the ``record_key`` as a text property of
+      the result object itself (its top level, where MiDojo looks), the result names the
+      record, and the target matches the result, ``result_record`` ``{"field": <key>,
+      "equals": <record>}`` (``get_referral(patient_id)`` answering ``{"referral_id":
+      "REF-1", ...}``: ``{"field": "referral_id", "equals": "REF-1"}``), with no
+      ``call_arguments``. MiDojo compares the value type for type, so the record stays the
+      text the seed names and the property must be declared text.
+
+    A call naming another record, or none, or whose result holds another record, is left
+    unchanged; MiDojo reports it ``unmatched`` at occurrence 0 and does not count it;
 
   the key is the slot's declared ``record_key``, used as declared; nothing infers it;
 - every call of the carrier gets the instruction: the selector, or the call's arguments,
@@ -40,8 +50,14 @@ A field the declarations do not make addressable either way is a capability gap
 (``gap_reason``): a slot that declares no ``record_key``, a list field whose key the
 carrier's output schema does not give the list's items as a text property, and a field
 outside a list whose key the carrier's input schema does not declare as a required text
-argument. Placement is strict: a selector that matches nothing leaves the result as it
-was, and MiDojo reports it unmatched.
+argument nor its result object as a text property. Placement is strict: a selector that
+matches nothing leaves the result as it was, and MiDojo reports it unmatched.
+
+A ``result_record`` target needs an interceptor that declares MiDojo's
+``InterceptorCapability.result_record`` (asago/main from c0bee12). The episode intercepts
+on the host only (``episode_compile.HOST_INTERCEPTION``), and MiDojo's host interceptor
+(``MidojoMCP``) declares it, so the compiler models no other interceptor; the episode's
+``tool_revision_range`` names the revision instead (``episode_compile``).
 """
 
 from __future__ import annotations
@@ -80,8 +96,10 @@ class Placement:
     """Seed item ``index``: the text it plants, the slot it names and the record.
 
     ``record_key`` names the record, as the slot declares it (``locate`` sets it): the list
-    item property for a field inside a list, the carrier's argument for one outside, or
-    None when no declaration names one.
+    item property for a field inside a list, the carrier's argument or its result's
+    property for one outside, or None when no declaration names one. ``by_result`` is True
+    when the result's property names the record (``locate`` sets it too): the target then
+    matches the call's result, not its arguments.
     """
 
     index: int
@@ -89,6 +107,7 @@ class Placement:
     record: str
     content: str
     record_key: str | None = None
+    by_result: bool = False
 
     @property
     def carrier(self) -> str:
@@ -122,22 +141,37 @@ class Placement:
     def call_arguments(self) -> dict[str, str]:
         """Return the arguments a call must have for its result to be the record.
 
-        Empty for a list field, whose path selects the record; ``{record_key: record}`` for
-        a field outside a list. Raises ``PlacementFault`` for one whose record key is not
-        set.
+        Empty for a list field, whose path selects the record, and for one the result
+        names; ``{record_key: record}`` for any other field outside a list. Raises
+        ``PlacementFault`` for one whose record key is not set.
         """
 
-        if self.listed:
+        if self.listed or self.by_result:
             return {}
         if self.record_key is None:
             raise PlacementFault(f"seed item {self.index}: no record key to match the call by")
         return {self.record_key: self.record}
+
+    @property
+    def result_record(self) -> dict[str, str] | None:
+        """Return the record selector a call's result must match, or None.
+
+        ``{"field": record_key, "equals": record}`` for a field the result names the record
+        of (``by_result``); None for any other.
+        """
+
+        if not self.by_result:
+            return None
+        if self.record_key is None:
+            raise PlacementFault(f"seed item {self.index}: no record key to match the result by")
+        return {"field": self.record_key, "equals": self.record}
 
     def instruction(self) -> dict[str, Any]:
         return tool_output_instruction(
             tool=self.carrier,
             path=self.path,
             call_arguments=self.call_arguments,
+            result_record=self.result_record,
             payload=self.content,
             mode=self.slot["mode"],
             size_limit=self.slot["max_chars"],
@@ -257,9 +291,9 @@ def gap_reason(placement: Placement, declared: DeclaredTools) -> str | None:
     a JSON object, a field the result does not declare as text, a slot that declares no
     ``record_key``, a list field whose ``record_key`` the list's items do not declare as
     text, a field outside a list below a key the result does not declare exactly as an
-    object, a field outside a list whose ``record_key`` the carrier does not declare as a
-    required text argument, and a text over ``max_chars`` bytes cannot be placed. Call it
-    on a placement ``locate`` returned.
+    object, a field outside a list whose ``record_key`` the carrier declares neither as a
+    required text argument nor as a text property of its result, and a text over
+    ``max_chars`` bytes cannot be placed. Call it on a placement ``locate`` returned.
     """
 
     label = f"seed item {placement.index}"
@@ -290,7 +324,7 @@ def gap_reason(placement: Placement, declared: DeclaredTools) -> str | None:
     reason = (
         _list_key_reason(placement, schema)
         if placement.listed
-        else _argument_key_reason(placement, tool)
+        else _single_record_reason(placement, tool, schema)
     )
     if reason:
         return f"{label}: {reason}"
@@ -323,6 +357,49 @@ def _list_key_reason(placement: Placement, schema: Mapping[str, Any]) -> str | N
         return (
             f"{carrier!r}'s result declares {key!r} (slot {slot}'s record_key) for the items "
             f"of {field!r} as {declared_type!r}, not text"
+        )
+    return None
+
+
+def _single_record_reason(
+    placement: Placement, tool: Mapping[str, Any], schema: Mapping[str, Any]
+) -> str | None:
+    """Why neither the call nor the result of the carrier names the one record, or None.
+
+    The call's argument comes first; when it does not name the record, the result's
+    property may. Both reasons are given when neither does.
+    """
+
+    if placement.by_result:
+        return _result_key_reason(placement, schema)
+    argument = _argument_key_reason(placement, tool)
+    if argument is None or placement.record_key is None:
+        return argument
+    result = _result_key_reason(placement, schema)
+    return f"{argument}; {result}" if result else None
+
+
+def _result_key_reason(placement: Placement, schema: Mapping[str, Any]) -> str | None:
+    """Why the carrier's result object does not name its record by ``record_key``, or None.
+
+    MiDojo matches a ``result_record`` on the result's structured content object itself, by
+    the property's value, type for type: the output schema must declare ``record_key`` a
+    text property at its top level.
+    """
+
+    slot, carrier, key = placement.slot["id"], placement.carrier, placement.record_key
+    properties = schema.get("properties")
+    value = properties.get(key) if isinstance(properties, dict) and key is not None else None
+    if not isinstance(value, dict):
+        return (
+            f"{carrier!r}'s result object declares no property {key!r} (slot {slot}'s "
+            "record_key) either, by which MiDojo would match the result"
+        )
+    declared_type = value.get("type", "untyped")
+    if declared_type != "string":
+        return (
+            f"{carrier!r}'s result declares {key!r} (slot {slot}'s record_key) as "
+            f"{declared_type!r}, not text"
         )
     return None
 
@@ -371,6 +448,9 @@ def locate(placement: Placement, declared: DeclaredTools) -> Placement:
     The key is the package runtime contract's slot ``record_key``, else the target
     config's (``DeclaredTools.record_keys``). When both state one they must agree, or
     ``PlacementFault`` is raised: the package was authored against another declaration.
+    A field outside a list is matched by the call's result (``by_result``) when the
+    carrier does not take the key as a required text argument and its result object
+    declares it a text property; ``gap_reason`` says why when neither holds.
     """
 
     slot_id = placement.slot["id"]
@@ -381,7 +461,18 @@ def locate(placement: Placement, declared: DeclaredTools) -> Placement:
             f"seed item {placement.index}: slot {slot_id}'s record_key is {stated!r} in the "
             f"runtime contract and {target!r} in the target config"
         )
-    return replace(placement, record_key=stated if stated is not None else target)
+    located = replace(placement, record_key=stated if stated is not None else target)
+    tool = declared.tools.get(located.carrier)
+    if located.listed or located.record_key is None or tool is None:
+        return located
+    schema = tool.get("outputSchema")
+    if (
+        not isinstance(schema, dict)
+        or _argument_key_reason(located, tool) is None
+        or _result_key_reason(located, schema) is not None
+    ):
+        return located
+    return replace(located, by_result=True)
 
 
 def _item_property(

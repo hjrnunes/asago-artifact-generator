@@ -139,11 +139,13 @@ def write_planted_package(
     judge: dict[str, Any] | None = None,
     slots: list[dict[str, Any]] | None = None,
     operations: list[str] | None = None,
+    condition: dict[str, Any] | None = None,
 ) -> Path:
     """A package for the fixture target with ``seed.json``, written with the package writer.
 
     Its runtime contract holds ``slots`` (the list slot by default) and its inventory the
-    ``operations`` named (``CASE_OPERATIONS`` by default); the seed has one item by default.
+    ``operations`` named (``CASE_OPERATIONS`` by default); the seed has one item by default,
+    and the condition is ``CONDITION`` by default.
     """
 
     plain = write_test_package(
@@ -151,7 +153,7 @@ def write_planted_package(
         claim_level=claim_level,
         stimulus=planted_stimulus() if stimulus is None else stimulus,
         scenario_id=scenario_id,
-        condition=CONDITION,
+        condition=CONDITION if condition is None else condition,
         judge=JUDGE if judge is None else judge,
     )
     members = {

@@ -23,6 +23,10 @@ interception layer reported the call's text only, as for a blocked or unfinished
 a record sealed before has neither field. A record with one of them only is malformed.
 From b5b8c75 an outcome may also be a call whose arguments did not match its instruction's
 ``call_arguments``: ``unmatched`` at occurrence 0, a call the instruction does not count.
+From c0bee12 a call whose result did not match the instruction's ``result_record`` (the
+field missing or another value, no structured object, or no result at all) is sealed the
+same way, ``unmatched`` at occurrence 0 with empty delivery facts; only its ``detail``
+says which, so the record's shape and these checks are unchanged.
 From 13d5487 each outcome also carries its delivery facts, ``selected``, ``transformation``
 and ``emitted`` (each None when the layer did not report it; an outcome at occurrence 0
 placed nothing, so its facts are empty), and the grade says apart what ``security`` folds
@@ -108,7 +112,8 @@ FACT_FIELDS = frozenset({"selected", "transformation", "emitted"})
 # ``types.InjectionTransformation`` and ``types.ResultPart``.
 TRANSFORMATIONS = frozenset({"identity", "json_string", None})
 RESULT_PARTS = frozenset({"content_block", "structured_content"})
-# The status of a call whose arguments did not match an instruction's, at occurrence 0.
+# The status of a call whose arguments, or from c0bee12 whose result, did not match an
+# instruction's, at occurrence 0.
 UNMATCHED = "unmatched"
 # ``types.InjectionStatus``: the values of ``midojo_sdk.injection.OutcomeStatus``.
 INJECTION_STATUSES = frozenset(
@@ -326,8 +331,9 @@ def _details_shape(call: dict[str, Any]) -> bool:
 def _outcome_shape(outcome: Any) -> bool:
     """``CallInjectionOutcome``: the instruction's index in the plan (from 0), its probe, which
     matching call of the instruction's this was (from 1, or 0 for an ``unmatched`` call whose
-    arguments did not match the instruction's ``call_arguments``), its status and why, and,
-    sealed from 13d5487, its delivery facts."""
+    arguments did not match the instruction's ``call_arguments`` or whose result did not
+    match its ``result_record``), its status and why, and, sealed from 13d5487, its delivery
+    facts."""
 
     return (
         isinstance(outcome, dict)
