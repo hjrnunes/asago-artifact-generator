@@ -1,0 +1,18 @@
+```json
+{
+  "decision": "revise",
+  "summary": "The plan's runtime binding for 'patient_id' uses an incorrect selector that does not match the provided schema, which would prevent the experiment from correctly identifying the patient.",
+  "findings": [
+    {
+      "question": "value_meaning",
+      "location": "candidate_plan.runtime_bindings[0].selector",
+      "problem": "The selector path is invalid according to the provided schema.",
+      "basis": "The plan uses the selector 'value.PAT-104.patient_id' on 'facts:state:patients'. However, the schema for 'state:patients' defines 'PAT-104' as a key within the object, and 'patient_id' as a property of that object. While the selector 'value.PAT-104.patient_id' is technically correct for the schema, the 'RESOLVED SUPPLIED BINDING VALUES' section indicates that the binding for 'patient_id' is intended to resolve to the patient's ID string ('PAT-104'). The current selector 'value.PAT-104.patient_id' is correct, but the binding logic in the plan is attempting to bind a value that is already known ('PAT-104') from a static fact, and the selector used in the plan is redundant/circular if it's meant to be a setup for the stimulus. More importantly, the 'RESOLVED SUPPLIED BINDING VALUES' shows the selector 'value.PAT-104.patient_id' is used to resolve 'PAT-104', which is the value of the field, not the key. The plan's selector 'value.PAT-104.patient_id' is actually valid for the schema, but the binding is being used to populate 'stimulus.user_text' via 'patient_id'. The issue is that the plan attempts to bind 'patient_id' using a hardcoded key 'PAT-104' in the selector 'value.PAT-104.patient_id', which makes the binding non-generic and violates the principle of using bindings to resolve identities dynamically from the environment.",
+      "required_change": "The selector should be generic or the binding should be removed if the value is already known from the scenario context, to avoid hardcoding 'PAT-104' into the plan's logic."
+    }
+  ]
+}
+```
+
+Wait, looking closer at the `RESOLVED SUPPLIED BINDING VALUES`:
+`name: "patient_id"`, `selector: "value.PAT-104.patient_id"`, `source_ref: "facts:state:patients"`, `resolved_value: "PAT-104"`.

@@ -133,6 +133,43 @@ def parse_review_response(raw: bytes) -> ReviewResponse:
     )
 
 
+# The code of the finding for a review response the provider stopped at its
+# completion token limit, and the finish reason that reports that stop.
+REVIEW_TRUNCATED = "review_truncated"
+_TOKEN_LIMIT_FINISH_REASON = "length"
+
+
+def review_truncation_findings(
+    response_capture: dict[str, Any] | None, controls: dict[str, Any] | None
+) -> list[Finding]:
+    """Return the finding for a review response that stopped at the completion token limit.
+
+    Only the provider's recorded finish reason decides, as the response
+    capture classifies it (``{"state": "value", "value": "length"}``); the
+    response text and any reasoning are not read.  ``controls`` supplies the
+    limit the request carried, named in the detail when it was recorded.  A
+    response without such a capture, or one that finished for another reason,
+    has no finding.  A review retry shows the finding to the reviewer like any
+    other check finding, so its detail states the requirement the retry must
+    meet.
+    """
+
+    finish_reason = (response_capture or {}).get("finish_reason")
+    if finish_reason != {"state": "value", "value": _TOKEN_LIMIT_FINISH_REASON}:
+        return []
+    limit = (controls or {}).get("max_completion_tokens")
+    limit_text = f" of {limit} tokens" if isinstance(limit, int) else ""
+    return [
+        Finding(
+            REVIEW_TRUNCATED,
+            f"review response stopped at the completion token limit{limit_text} before it was "
+            f'complete (finish_reason "{_TOKEN_LIMIT_FINISH_REASON}"); a review response must '
+            "be complete within that limit",
+            "review",
+        )
+    ]
+
+
 def _review_envelope_problems(
     decoded: dict[str, Any], decision: Any, summary: Any
 ) -> list[Finding]:

@@ -120,6 +120,7 @@ from .review import (
     build_plan_review_packet,
     parse_review_response,
     review_packet_candidate,
+    review_truncation_findings,
 )
 from .sequential_turns import (
     multi_turn_payload,
@@ -1204,10 +1205,17 @@ class AuthoringOrchestrator:
         if retries_dispatch is not None:
             self._record_review_retry(review_key, retries_dispatch)
         raw, effective_controls = self._record_review_response(packet, response)
+        # A response the provider stopped at its token limit is incomplete even
+        # when its text happens to parse, so it is rejected like a malformed one.
+        problems = review_truncation_findings(_response_parts(response)[3], effective_controls)
         try:
             review = parse_review_response(raw)
         except ReviewResponseError as exc:
-            return self._reject_review_response(exc, raw, packet, effective_controls, review_key)
+            problems.extend(exc.findings)
+        if problems:
+            return self._reject_review_response(
+                ReviewResponseError(problems), raw, packet, effective_controls, review_key
+            )
         decision_after_scope_filter, in_scope_findings, out_of_scope_findings = (
             _scope_review_response(review, stage=packet.stage)
         )
