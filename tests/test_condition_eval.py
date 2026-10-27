@@ -1,7 +1,8 @@
-"""The consumer's tool-call condition evaluator reproduces the tool-call-condition-v1 vectors."""
+"""The consumer's tool-call condition evaluator reproduces the tool-call-condition-v2 vectors."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -13,18 +14,46 @@ from asago_artifact_generator.authoring.condition_eval import (
     validate_condition,
 )
 
-_VECTORS = (
-    Path(__file__).resolve().parents[1]
-    / "contracts/tool-call-condition/tool-call-condition-v1/vectors"
-)
+_KIT = Path(__file__).resolve().parents[1] / "contracts/tool-call-condition"
+_V1 = "tool-call-condition-v1"
+_V2 = "tool-call-condition-v2"
+# The v1 evaluate vectors whose result v2 changes; the v2 README names them.
+_CHANGED_IN_V2 = {
+    "completeness.order-clean.complete-false",
+    "order.same-argument-bool-int",
+    "order.same-argument-null-both-missing-on-prior",
+}
 
 
-def _vectors(name: str) -> list[dict[str, Any]]:
-    return json.loads((_VECTORS / name).read_text(encoding="utf-8"))["vectors"]
+def _vectors(version: str, name: str) -> list[dict[str, Any]]:
+    path = _KIT / version / "vectors" / name
+    return json.loads(path.read_text(encoding="utf-8"))["vectors"]
 
 
-_EVALUATE = _vectors("evaluate.json")
-_VALIDATE = _vectors("validate.json")
+_EVALUATE = _vectors(_V2, "evaluate.json")
+_VALIDATE = _vectors(_V2, "validate.json")
+
+
+def test_the_lock_pins_every_kit_file_and_names_v2() -> None:
+    lock = json.loads((_KIT / "CONTRACT.lock").read_text(encoding="utf-8"))
+    files = {
+        str(path.relative_to(_KIT)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for version in (_V1, _V2)
+        for path in sorted((_KIT / version).rglob("*"))
+        if path.is_file()
+    }
+
+    assert lock["version"] == _V2
+    assert lock["files"] == files
+
+
+def test_v2_changes_only_the_named_v1_evaluate_results() -> None:
+    v2 = {vector["id"]: vector for vector in _EVALUATE}
+    v1 = _vectors(_V1, "evaluate.json")
+    changed = {vector["id"] for vector in v1 if v2[vector["id"]] != vector}
+
+    assert changed == _CHANGED_IN_V2
+    assert _vectors(_V1, "validate.json") == _VALIDATE
 
 
 @pytest.mark.parametrize("vector", _EVALUATE, ids=[v["id"] for v in _EVALUATE])

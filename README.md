@@ -564,7 +564,9 @@ validated against the vendored schema of its version:
   it false. An `order` comparison holds when the call to `operation` has no
   earlier call to `requires_prior`; with `same_argument`, only an earlier call
   with the same value for that argument counts. The authoritative semantics are
-  in `contracts/tool-call-condition/tool-call-condition-v1/README.md`. The
+  in `contracts/tool-call-condition/tool-call-condition-v2/README.md`, which the
+  consumer's evaluator (`authoring/condition_eval.py`) implements; the v1 kit
+  stays mirrored beside it. The
   `record_selection` is `observed`, with a `record_path` and optional
   `argument_values` paths, or `unavailable`, with a `reason`.
 - `condition_check` is the producer's code-owned pre-execution evaluation:
