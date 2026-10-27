@@ -200,6 +200,13 @@ remaining `allowances` and `review_revision_allowances`, and the effective
 `plan_max_review_revisions`/`artifact_max_review_revisions`. A reviewer
 response that fails its checks (invalid JSON or framing, a missing or unknown
 field, or a decision that contradicts its findings) is never a silent pass.
+A response the provider stopped at its completion token limit (finish reason
+`length`, read from the response capture, never from the text or the
+reasoning) fails its checks too, even when its text parses: a
+`review_truncated` finding names the request's `max_completion_tokens` and
+states that a review response must be complete within it, ahead of any
+framing or shape finding of the same text. It is a rejected response, not a
+transport retry, and the request's token limits stay as configured.
 The stage asks the same review again within its review-retry allowance
 (`plan_max_review_retries`/`artifact_max_review_retries`, default one each
 across all of that stage's reviews, nonnegative integers with the same rules,

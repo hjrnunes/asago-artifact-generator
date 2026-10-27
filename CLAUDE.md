@@ -89,8 +89,9 @@ Deterministic tests must not contact a model endpoint or target.
   a 429: it appears in `transport_retries` with `"reason":
   "service_tier_fallback"` (a transport retry carries no reason). The replay
   gate replays both from a recording. A review response that fails its checks
-  is not a transport retry: the review stage asks again as a new dispatch,
-  bounded by the stage's review-retry allowance (`allowance: "review_retry"`).
+  (one stopped at the token limit included) is not a transport retry: the
+  review stage asks again as a new dispatch, bounded by the stage's
+  review-retry allowance (`allowance: "review_retry"`).
 - Reuse intact accepted plans or artifacts when authorized. Verify their exact
   hashes and provenance; do not regenerate them merely because a later stage
   failed. A new task name does not reset historical spend.

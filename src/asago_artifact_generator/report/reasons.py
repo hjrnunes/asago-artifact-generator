@@ -69,6 +69,9 @@ _REVIEW = {
         "The reviewer's response did not match the review format, so the review has no decision."
     ),
     "review_contradiction": "The reviewer accepted the candidate and also listed findings.",
+    "review_truncated": (
+        "The reviewer's response stopped at its completion token limit, so it was incomplete."
+    ),
     "semantic_review": "The reviewer asked for a change to the candidate.",
 }
 
