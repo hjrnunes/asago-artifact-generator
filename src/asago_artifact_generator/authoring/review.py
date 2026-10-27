@@ -515,26 +515,28 @@ def _met_repeat(
     """Return why ``finding`` repeats a change an earlier review judged met, or None."""
 
     path = finding_plan_path(finding.get("location"))
-    if path is None:
-        return None
-    current = _plan_value_at(plan, path)
-    if current is _ABSENT:
+    if path is None or _plan_value_at(plan, path) is _ABSENT:
         return None
     # Walk back from the latest round.  A round that reported anything near the
     # path ends the walk: no judgment before it still stands.  A round that did
     # not, and was shown the identical request by the round before it, judged the
-    # request met on the value it reviewed.
+    # request met on the plan it reviewed.  That judgment covers only that exact
+    # plan: whether a request is met can depend on any other field, so an
+    # unchanged value at the path is not enough.
     for judging in range(len(rounds) - 1, 0, -1):
         if _reports_near(rounds[judging], path):
             return None
         if any(_same_request(finding, earlier) for earlier in rounds[judging - 1].findings):
-            if _plan_value_at(rounds[judging].reviewed_plan, path) != current:
+            judged = _canonical_json(rounds[judging].reviewed_plan)
+            if judged != _canonical_json(plan):
                 return None
             return {
                 "transformation": REVIEW_FINDING_REPEATS_MET_CHANGE,
                 "plan_path": _plan_path_text(path),
                 "raised_in_review_round": judging,
                 "met_in_review_round": judging + 1,
+                # The candidate is this same plan, unchanged since the judging round.
+                "judged_plan_sha256": _sha256(judged.encode("utf-8")),
             }
     return None
 
@@ -550,10 +552,12 @@ def set_aside_met_repeats(
     alone: its location is exactly one plan path (``finding_plan_path``); an
     earlier round reported a finding with the same path and the byte-identical
     required_change; the round after that one was shown it as an earlier
-    finding, reviewed the same value at that path as ``plan`` holds now, and
+    finding, reviewed a plan whose canonical JSON is identical to ``plan``, and
     reported no finding at that path, above it, or under it, so it judged the
-    change met on this value; and no later round reported anything there
-    either, so that judgment is the latest one.  A reported finding whose
+    change met on this exact plan; and no later round reported anything there
+    either, so that judgment is the latest one.  A plan that differs in any
+    field is never covered, because whether a request is met can depend on
+    fields other than the one at its path.  A reported finding whose
     location is not one path into a top-level field of that round's plan counts
     as reported at every path.  Everything else is
     kept, including every finding that repeats the round just before and every

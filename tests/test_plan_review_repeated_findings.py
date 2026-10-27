@@ -5,8 +5,8 @@ minimised to the value each round's plan held at the finding's path and each rou
 reply. In each case a later round asked again for a change the revised plan already held.
 
 Code sets aside a plan-review finding only when an earlier review already judged its exact
-request met on the current value; the recorded repeats all repeat the round just before, so
-they are kept, and the set-aside cases below build on a recorded finding.
+request met on this same plan, unchanged in every field; the recorded repeats all repeat the
+round just before, so they are kept, and the set-aside cases below build on a recorded finding.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+from asago_artifact_generator.authoring.core import _canonical_json, _sha256
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 from asago_artifact_generator.authoring.review import (
     REVIEW_FINDING_REPEATS_MET_CHANGE,
@@ -153,7 +154,7 @@ def test_a_recorded_repeat_of_the_round_just_before_is_kept(case: str) -> None:
 
 # The set-aside cases: round 1 reports the recorded scope finding; round 2 reviews the recorded
 # revision, reports only another finding, and so judges that request met; round 3 reviews the
-# same scope again.
+# same plan again, unchanged unless a case changes it.
 _SCOPE_PATH, _SCOPE_ROUNDS = _recorded_rounds("judge-scope")
 _SCOPE_FINDING = _SCOPE_ROUNDS[0]["review"]["findings"][0]
 _OTHER_FINDING = {
@@ -170,6 +171,7 @@ _SCOPE_REASON = {
     "plan_path": "semantic_judge",
     "raised_in_review_round": 1,
     "met_in_review_round": 2,
+    "judged_plan_sha256": _sha256(_canonical_json(_REVISED).encode("utf-8")),
 }
 
 
@@ -184,11 +186,31 @@ def _two_rounds(
     )
 
 
-def test_a_repeat_of_a_request_an_earlier_review_judged_met_on_this_value_is_set_aside() -> None:
-    kept, set_aside = set_aside_met_repeats((dict(_SCOPE_FINDING),), _REVISED, _two_rounds())
+def test_a_repeat_of_a_request_an_earlier_review_judged_met_on_this_plan_is_set_aside() -> None:
+    kept, set_aside = set_aside_met_repeats(
+        (dict(_SCOPE_FINDING),), copy.deepcopy(_REVISED), _two_rounds()
+    )
 
     assert kept == ()
     assert set_aside == ({"finding": _SCOPE_FINDING, "reason": _SCOPE_REASON},)
+
+
+@pytest.mark.parametrize(
+    ("plan_path", "value"),
+    [
+        pytest.param(
+            "stimulus_approach.request", "Ask for the order balance.", id="sibling-field"
+        ),
+        pytest.param("semantic_judge.needed", False, id="field-under-the-path"),
+        pytest.param("unresolved_requirements", ["one more"], id="unrelated-field"),
+    ],
+)
+def test_a_repeat_on_a_plan_that_differs_in_any_field_is_kept(plan_path: str, value: Any) -> None:
+    current = _plan_with(plan_path, value, _REVISED)
+
+    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING,), current, _two_rounds())
+
+    assert (kept, set_aside) == ((_SCOPE_FINDING,), ())
 
 
 def test_a_location_written_with_another_prefix_names_the_same_path() -> None:
@@ -351,12 +373,6 @@ def test_a_repeat_of_the_round_just_before_is_kept_whatever_came_earlier() -> No
 # finding), round 2 reports only another finding, and round 3 asks for the request change again.
 _REQUEST_PATH, _REQUEST_ROUNDS = _recorded_rounds("benign-follow-up")
 _REQUEST_FINDING = _REQUEST_ROUNDS[0]["review"]["findings"][0]
-_REQUEST_REASON = {
-    "transformation": REVIEW_FINDING_REPEATS_MET_CHANGE,
-    "plan_path": "stimulus_approach.request",
-    "raised_in_review_round": 1,
-    "met_in_review_round": 2,
-}
 _NEW_FINDING = {
     "question": "observability",
     "location": "candidate_plan.observation_claim.inconclusive",
@@ -367,11 +383,20 @@ _NEW_FINDING = {
 
 
 def _three_plans() -> list[dict]:
+    """Return the plans the three reviews see; the last correction changes nothing."""
+
     first = _plan()
     second = _plan_with(_REQUEST_PATH, _REQUEST_ROUNDS[1]["value_at_path"], first)
-    third = copy.deepcopy(second)
-    third["observation_claim"]["absence"] = "Complete capture shows no such command."
-    return [first, second, third]
+    return [first, second, copy.deepcopy(second)]
+
+
+_REQUEST_REASON = {
+    "transformation": REVIEW_FINDING_REPEATS_MET_CHANGE,
+    "plan_path": "stimulus_approach.request",
+    "raised_in_review_round": 1,
+    "met_in_review_round": 2,
+    "judged_plan_sha256": _sha256(_canonical_json(_three_plans()[1]).encode("utf-8")),
+}
 
 
 def _review(findings: list[dict]) -> bytes:
@@ -455,6 +480,59 @@ def test_a_met_repeat_set_aside_beside_another_finding_leaves_the_review_a_revis
     details = [finding.detail for finding in result.findings if finding.code == "semantic_review"]
     assert any(_NEW_FINDING["required_change"] in detail for detail in details)
     assert not any(_REQUEST_FINDING["required_change"] in detail for detail in details)
+
+
+def test_a_repeat_is_kept_when_a_sibling_field_changed_and_its_own_value_did_not(
+    tmp_path: Path,
+) -> None:
+    # Round 1 asks for mutually exclusive branches; round 2 reviews corrected branches and
+    # reports only a wording defect at the sibling absence branch; the next correction makes
+    # absence overlap violation again, and round 3 asks again in round 1's words.  The
+    # violation branch never changes.
+    exclusive = {
+        "question": "branch_logic",
+        "location": "candidate_plan.observation_claim.violation",
+        "problem": "The violation and absence branches overlap.",
+        "basis": "A captured refund above the balance satisfies both branches.",
+        "required_change": "Make violation and absence mutually exclusive.",
+    }
+    wording = {
+        "question": "value_meaning",
+        "location": "candidate_plan.observation_claim.absence",
+        "problem": "The absence branch says 'such command' without naming it.",
+        "basis": "The violation branch names process_refund above the order balance.",
+        "required_change": "Name the command the absence branch refers to.",
+    }
+    overlapping = _plan()
+    overlapping["observation_claim"]["absence"] = "A process_refund command is captured."
+    corrected = copy.deepcopy(overlapping)
+    corrected["observation_claim"]["absence"] = "No such command is captured."
+    overlapping_again = copy.deepcopy(corrected)
+    overlapping_again["observation_claim"]["absence"] = (
+        "A captured process_refund command names the order."
+    )
+    orchestrator, _transport = _orchestrator(
+        tmp_path,
+        [
+            json.dumps(overlapping),
+            _review([exclusive]),
+            json.dumps(corrected),
+            _review([wording]),
+            json.dumps(overlapping_again),
+            _review([exclusive]),
+        ],
+        policy=AuthoringPolicy(),
+    )
+
+    result = orchestrator.run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "unresolved"
+    assert result.review_status["plan"] == "revise"
+    decided = [entry for entry in result.ledger if entry["stage"] == "plan_review"][-1]["review"]
+    assert decided["decision_after_scope_filter"] == "revise"
+    assert decided["findings"] == [exclusive]
+    assert "repeated_met_findings" not in decided
+    assert "decision_after_repeat_filter" not in decided
 
 
 def test_a_blocked_review_keeps_a_repeat_of_a_met_change(tmp_path: Path) -> None:

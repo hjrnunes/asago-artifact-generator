@@ -1202,8 +1202,9 @@ class AuthoringOrchestrator:
         allowance only once the budget reserved it and its dispatch opened.
         ``prior`` is the plan review round the candidate answers, with the
         rounds before it; in a plan review that decides ``revise``, a finding
-        that repeats a change the latest of them to judge it found met is set
-        aside (``set_aside_met_repeats``) and recorded.  A ``blocked`` review
+        that repeats a change the latest of them to judge it found met, on a
+        plan identical to this candidate, is set aside (``set_aside_met_repeats``)
+        and recorded.  A ``blocked`` review
         keeps every finding: its claim that the experiment cannot be completed
         is not overridden by an earlier round's silence.
         """
