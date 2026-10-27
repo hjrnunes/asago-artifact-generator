@@ -19,6 +19,7 @@ from .core import AUTHORING_INTERFACE_VERSION_V2, _json_bytes
 from .inventory import _expected_authoring_input_pins, _resolved_judge_spec
 from .planted_item import seed_members
 from .prompt_safety import assert_no_secrets
+from .reply_examples import package_examples
 from .sequential_turns import stamped_stimulus
 
 
@@ -36,6 +37,7 @@ def _package_from_responses(
 ) -> ArtifactPackage:
     """Assemble the package; its requests, ledger, and reviews stay in the failure evidence."""
 
+    claim_level = _plan_claim_level(plan)
     members = {
         "plan.json": _json_bytes(plan),
         "stimulus.json": _json_bytes(stamped_stimulus(view, artifact["stimulus"])),
@@ -59,10 +61,11 @@ def _package_from_responses(
         ),
         "observations.json": _json_bytes(artifact["required_observations"]),
         "explanation.json": _json_bytes({"text": artifact["explanation"]}),
-        "examples.json": _json_bytes(artifact["examples"]),
+        "examples.json": _json_bytes(
+            package_examples(artifact["examples"], reply_claim=claim_level == ClaimLevel.REPLY)
+        ),
     }
     members.update(seed_members(view, artifact, runtime_contract, plan))
-    claim_level = _plan_claim_level(plan)
     resolved_judge = _resolved_judge_spec(artifact["semantic_judge_spec"], inventory)
     if resolved_judge is not None and claim_level == ClaimLevel.REPLY:
         members["judge.json"] = _json_bytes(resolved_judge)

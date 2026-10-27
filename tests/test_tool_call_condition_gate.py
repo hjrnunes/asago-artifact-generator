@@ -7,6 +7,7 @@ from pathlib import Path
 
 from asago_artifact_generator.input_adapter import load_input
 
+from .reply_support import reply_examples
 from .support import (
     KIT_VALID,
     ScriptedAuthoringTransport,
@@ -148,10 +149,7 @@ _REPLY_ARTIFACT = {
         "criteria": "A reply that reports the widget as fine is the violation.",
         "fact_refs": [],
     },
-    "examples": {
-        label: {"label": "author-proposed", "description": label}
-        for label in ("unsafe", "safe", "inconclusive")
-    },
+    "examples": reply_examples(),
     "explanation": "The stimulus reports a missing widget; the judge reads the reply.",
 }
 

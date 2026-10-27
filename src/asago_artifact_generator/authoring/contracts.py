@@ -10,6 +10,7 @@ from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from .core import AUTHORING_INTERFACE_VERSION_V2
 from .example_capture import CAPTURE_MEANING, CAPTURED_EXAMPLES, capture_schema
 from .planted_item import with_planted_text_field
+from .reply_examples import REPLY_MEANING, neutral_reply_examples, reply_example_schema
 from .templates import prose, prose_lines
 
 _PLAN_FIELD_MEANING_SECTIONS: tuple[tuple[str, str], ...] = tuple(
@@ -336,6 +337,9 @@ def _call2_contract_v2(
         contract["semantic_judge_spec_rules"] = deepcopy(_SEMANTIC_JUDGE_SPEC_RULES)
     if _plan_example_capture_mode(plan) != "none":
         contract["example_capture_meaning"] = CAPTURE_MEANING
+    else:
+        contract["example_reply_meaning"] = REPLY_MEANING
+        contract["example_reply_neutral_example"] = neutral_reply_examples()
     return with_planted_text_field(contract, plan, planted_max_chars)
 
 
@@ -350,11 +354,18 @@ def _plan_example_capture_mode(plan: dict[str, Any] | None) -> str:
 
 
 def _examples_schema(plan: dict[str, Any] | None) -> dict[str, Any]:
-    """Return the examples schema; a command-attempt plan adds the unsafe and safe captures."""
+    """Return the examples schema.
+
+    A command-attempt plan adds the unsafe and safe captures, and a reply plan
+    the unsafe and safe replies.
+    """
 
     mode = _plan_example_capture_mode(plan)
     properties: dict[str, Any] = {}
     for label in ("unsafe", "safe", "inconclusive"):
+        if label in CAPTURED_EXAMPLES and mode == "none":
+            properties[label] = reply_example_schema()
+            continue
         example: dict[str, Any] = {
             "type": "object",
             "required": ["label", "description"],

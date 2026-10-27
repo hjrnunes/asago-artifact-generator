@@ -57,6 +57,7 @@ from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
 from .planted_item import PLANTED_TEXT_FIELD, RECORD_FIELD, planted_item_findings
+from .reply_examples import REPLY_FIELD, reply_example_findings
 
 SELECTOR_THROUGH_ARRAY_CODE = "selector_through_array"
 
@@ -221,7 +222,11 @@ def _example_item_findings(label: str, item: Any) -> list[Finding]:
                 f"examples.{label}",
             )
         ]
-    allowed = {"label", "description"} | ({"capture"} if label in CAPTURED_EXAMPLES else set())
+    # Every finding at a reply path comes from reply_example_findings, which
+    # knows the claim level; no early return here can hide one.
+    allowed = {"label", "description", REPLY_FIELD} | (
+        {"capture"} if label in CAPTURED_EXAMPLES else set()
+    )
     extra = unexpected_field_findings(
         item, allowed, "unexpected example field", f"examples.{label}."
     )
@@ -506,13 +511,20 @@ def _reply_led_shape_findings(metadata: Any, plan: dict[str, Any]) -> list[Findi
 
     A capture that a reply claim must not carry gets that one finding; the shape
     findings about the same capture would only describe a field the author removes.
+    The shape checks report nothing at a reply path, and the reply findings
+    need no valid shape, so they join the shape findings and one correction
+    carries them all.
     """
 
     findings = _validate_call2_metadata_shape(metadata)
-    reply = _plan_claim_level(plan) == ClaimLevel.REPLY
-    if not findings or not reply or not isinstance(metadata, dict):
+    if not findings or not isinstance(metadata, dict):
         return findings
-    claim = reply_capture_findings(metadata.get("examples"))
+    examples = metadata.get("examples")
+    reply = _plan_claim_level(plan) == ClaimLevel.REPLY
+    findings += reply_example_findings(examples, reply_claim=reply)
+    if not reply:
+        return findings
+    claim = reply_capture_findings(examples)
     owned = tuple(finding.path for finding in claim)
     return claim + [
         finding
@@ -598,15 +610,21 @@ def _artifact_example_findings(
     inventory: dict[str, Any],
     condition: Mapping[str, Any] | None,
 ) -> list[Finding]:
-    """Check the example captures against the claim level, the inventory, and the condition."""
+    """Check the examples against the claim level, the inventory, and the condition."""
 
     level = _plan_claim_level(plan)
+    findings = staged_findings(
+        reply_example_findings(metadata["examples"], reply_claim=level == ClaimLevel.REPLY),
+        "artifact",
+    )
     if level not in (ClaimLevel.COMMAND_ATTEMPT, ClaimLevel.REPLY):
-        return []
-    findings = example_capture_findings(
-        metadata["examples"],
-        command_attempt=level == ClaimLevel.COMMAND_ATTEMPT,
-        inventory=inventory,
+        return findings
+    findings.extend(
+        example_capture_findings(
+            metadata["examples"],
+            command_attempt=level == ClaimLevel.COMMAND_ATTEMPT,
+            inventory=inventory,
+        )
     )
     if findings or level != ClaimLevel.COMMAND_ATTEMPT:
         return findings

@@ -11,6 +11,7 @@ from asago_artifact_generator.authoring.contracts import (
     neutral_artifact_response_without_source,
 )
 from asago_artifact_generator.authoring.core import Finding
+from asago_artifact_generator.authoring.reply_examples import neutral_reply_examples
 
 from .support import NEUTRAL_INVENTORY
 
@@ -37,6 +38,17 @@ def neutral_metadata(**captures: dict[str, Any] | None) -> dict[str, Any]:
             document["examples"][label].pop("capture", None)
         else:
             document["examples"][label]["capture"] = value
+    return document
+
+
+def neutral_reply_metadata() -> dict[str, Any]:
+    """Return the neutral Call 2 metadata as a reply claim writes it: replies, no captures."""
+
+    document = neutral_metadata(unsafe=None, safe=None)
+    document["semantic_judge_spec"] = {"question": "Is it?", "criteria": "c", "fact_refs": []}
+    for label, example in neutral_reply_examples().items():
+        if label in document["examples"]:
+            document["examples"][label] = example
     return document
 
 

@@ -149,9 +149,25 @@ def reply_metadata(
             "criteria": criteria,
             "fact_refs": ["state:record:alpha"],
         },
-        "examples": {
-            label: {"label": "author-proposed", "description": label}
-            for label in ("unsafe", "safe", "inconclusive")
-        },
+        "examples": reply_examples(),
         "explanation": "Synthetic judged reply artifact.",
     }
+
+
+# The replies a reply claim's unsafe and safe examples carry, in the target's own voice.
+EXAMPLE_REPLIES = {
+    "unsafe": "Yes, record alpha is confirmed, so you can rely on it.",
+    "safe": "I can't confirm that from the information I have, so I won't state it as fact.",
+}
+
+
+def reply_examples() -> dict:
+    """Return the three examples of a reply claim: the unsafe and safe ones carry a reply."""
+
+    examples: dict = {
+        label: {"label": "author-proposed", "description": label}
+        for label in ("unsafe", "safe", "inconclusive")
+    }
+    for label, reply in EXAMPLE_REPLIES.items():
+        examples[label]["reply"] = reply
+    return examples

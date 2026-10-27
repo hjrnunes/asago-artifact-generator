@@ -24,6 +24,7 @@ from .example_capture_support import (
     call,
     capture,
     neutral_metadata,
+    neutral_reply_metadata,
 )
 from .support import (
     KIT_VALID,
@@ -127,8 +128,7 @@ def test_reply_claim_is_not_scored_by_the_condition() -> None:
     plan = neutral_artifact_plan_v2()
     plan["observation_claim"]["claim_level"] = "reply"
     plan["semantic_judge"] = {"needed": True, "scope": "the reply"}
-    document = neutral_metadata(unsafe=None, safe=None)
-    document["semantic_judge_spec"] = {"question": "Is it?", "criteria": "c", "fact_refs": []}
+    document = neutral_reply_metadata()
 
     assert _findings(document, plan=plan) == []
 
