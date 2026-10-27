@@ -174,6 +174,8 @@ def build_scenario_handoff_view(view: InputView) -> dict[str, Any]:
     }
     if view.payload.get("observation") is not None:
         result["observation"] = deepcopy(view.payload["observation"])
+    if view.payload.get("semantic_failure_call") is not None:
+        result["semantic_failure_call"] = deepcopy(view.payload["semantic_failure_call"])
     # The tool-call fields stay out of model context: code alone decides
     # executability and passes the bound condition through.
     for key in _HANDOFF_CONDITION_FIELDS:
@@ -437,6 +439,10 @@ def _nonblank_text(value: str, path: str) -> _Break:
     return None if value.strip() else (path, "must not be blank")
 
 
+def _semantic_failure_call(value: dict[str, Any], path: str) -> _Break:
+    return _nonblank_text(value["operation_name"], f"{path}.operation_name")
+
+
 def _observation_contract(value: dict[str, Any], path: str) -> _Break:
     for key in ("contract_schema", "contract_id", "contract_digest"):
         if not value[key].strip():
@@ -618,6 +624,7 @@ _HAND_RULES: tuple[tuple[str, tuple[Any, ...]], ...] = (
         )
     ),
     ("observation", (_observation_contract, _observation_criteria, _observation_assessment)),
+    ("semantic_failure_call", (_semantic_failure_call,)),
     ("safe_observable_outcome", (_safe_outcome_claim, _safe_outcome_refs)),
     ("deduplication", (_deduplication,)),
     ("tool_call_condition_status", (_tool_call_status_reason,)),

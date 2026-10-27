@@ -796,6 +796,9 @@ def _case_meaning(view: InputView) -> dict[str, Any]:
 
     if observation is not None:
         result["observation"] = observation
+    if "semantic_failure_call" in handoff:
+        result["semantic_failure_call"] = handoff["semantic_failure_call"]
+        result["semantic_failure_call_note"] = prose("prompt_context/semantic_failure_call_note")
     if "discriminating_condition" in handoff:
         result["discriminating_condition"] = _discriminating_condition_prompt_view(
             handoff["discriminating_condition"], view.gherkin_text

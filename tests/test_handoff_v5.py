@@ -195,6 +195,52 @@ def test_a_shape_that_breaks_the_contract_is_a_typed_malformed_shape(relative: s
     assert isinstance(raised.value, InputSourceError)
 
 
+@pytest.mark.parametrize("kind", ["incorrect_call", "missing_call"])
+def test_the_failure_call_reaches_every_stage_without_changing_the_condition(
+    tmp_path: Path, kind: str
+) -> None:
+    payload = _valid("failure-call.json")
+    payload["semantic_failure_call"]["kind"] = kind
+    failure_call = dict(payload["semantic_failure_call"])
+    view = load_input(_signed(tmp_path, payload))
+
+    assert view.payload["semantic_failure_call"] == failure_call
+    assert view.tool_call_condition == payload.get("tool_call_condition")
+    handoff = build_scenario_handoff_view(view)
+    meaning = _case_meaning(view)
+    assert handoff["semantic_failure_call"] == meaning["semantic_failure_call"] == failure_call
+    assert handoff["semantic_failure_condition"] == payload["semantic_failure_criterion"]
+    assert meaning["semantic_failure"] == payload["semantic_failure_criterion"]
+
+    for stage, packet in render_stage_packets("ehr", view=view).items():
+        marker = '"semantic_failure_call":'
+        assert packet.user.count(marker) == 1, stage
+        rendered, _ = json.JSONDecoder().raw_decode(packet.user.split(marker)[1].lstrip())
+        assert rendered == failure_call, stage
+        note = json.dumps(prose("prompt_context/semantic_failure_call_note"))[1:-1]
+        assert note in packet.user, stage
+
+    handoff["semantic_failure_call"]["operation_name"] = "changed"
+    meaning["semantic_failure_call"]["kind"] = "changed"
+    assert view.payload["semantic_failure_call"] == failure_call
+
+
+@pytest.mark.parametrize("explicit_null", [False, True])
+def test_an_absent_or_null_failure_call_adds_no_scenario_context(
+    tmp_path: Path, explicit_null: bool
+) -> None:
+    payload = _valid("failure-call.json")
+    del payload["semantic_failure_call"]
+    if explicit_null:
+        payload["semantic_failure_call"] = None
+    view = load_input(_signed(tmp_path, payload))
+
+    assert "semantic_failure_call" not in build_scenario_handoff_view(view)
+    assert "semantic_failure_call" not in _case_meaning(view)
+    for stage, packet in render_stage_packets("ehr", view=view).items():
+        assert "semantic_failure_call" not in packet.user, stage
+
+
 def test_the_taxonomy_block_is_accepted_but_stays_out_of_the_model_view() -> None:
     view = load_input(_KIT / "valid" / "taxonomy-block.json")
 

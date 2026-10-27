@@ -1,4 +1,10 @@
 {
+  "invalid/failure-call-blank-operation.json": [
+    "schema_violation:semantic_failure_call"
+  ],
+  "invalid/failure-call-kind-not-enumerated.json": [
+    "schema_violation:semantic_failure_call"
+  ],
   "invalid/narrative-role-serialization.json": [
     "prose_hiding:role_serialization"
   ],

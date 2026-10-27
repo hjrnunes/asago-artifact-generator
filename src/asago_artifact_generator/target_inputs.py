@@ -445,8 +445,70 @@ def _validate_profile_contract(profile: Any) -> None:
         error = first_schema_error(schema, profile)
     except Exception as exc:  # noqa: BLE001 - normalize validator failures
         raise TargetInputError(f"cannot validate target profile contract: {exc}") from exc
+    _validate_value_fact_declarations(profile)
     if error is not None:
         raise TargetInputError(f"target profile schema invalid {error}")
+    _validate_value_fact_references(profile)
+
+
+def _validate_value_fact_declarations(profile: dict[str, Any]) -> None:
+    """Give missing declarations the producer's code, including explicit nulls.
+
+    The schema also rejects these entries. Inspect only their structure here
+    so malformed containers still receive the ordinary schema diagnostic.
+    """
+
+    facts = profile.get("value_facts")
+    if not isinstance(facts, dict):
+        return
+    for group in ("arguments", "state_fields", "state_keys"):
+        entries = facts.get(group, [])
+        if not isinstance(entries, list):
+            continue
+        for index, entry in enumerate(entries):
+            if (
+                isinstance(entry, dict)
+                and entry.get("record_kind") is None
+                and entry.get("format") is None
+            ):
+                raise TargetInputError(
+                    f"target profile schema invalid at value_facts.{group}.{index}: "
+                    "value_fact_without_declaration: declare a record_kind, a format, or both"
+                )
+
+
+def _validate_value_fact_references(profile: dict[str, Any]) -> None:
+    """Check references and uniqueness after the schema has checked the shapes."""
+
+    facts = profile.get("value_facts")
+    if facts is None:
+        return
+    exposed = {
+        (operation["operation_id"], name)
+        for resource in profile.get("resources", [])
+        for operation in resource.get("operations", [])
+        for name in (operation.get("argument_names") or resource.get("argument_names", []))
+    }
+    for group in ("arguments", "state_fields", "state_keys"):
+        seen: set[tuple[str, ...]] = set()
+        for index, entry in enumerate(facts.get(group, [])):
+            key = (
+                (entry["operation_id"], entry["argument"])
+                if group == "arguments"
+                else (entry["path"],)
+            )
+            location = f"value_facts.{group}.{index}"
+            if group == "arguments" and key not in exposed:
+                raise TargetInputError(
+                    f"target profile schema invalid at {location}: "
+                    "value_fact_unknown_argument: must name an argument of a profile operation"
+                )
+            if key in seen:
+                raise TargetInputError(
+                    f"target profile schema invalid at {location}: "
+                    "value facts must declare each target value once"
+                )
+            seen.add(key)
 
 
 def _validate_contract_lock() -> Path:

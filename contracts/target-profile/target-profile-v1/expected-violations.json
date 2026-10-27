@@ -1,5 +1,17 @@
 {
   "invalid/unknown-field.json": [
     "unexpected_field"
+  ],
+  "invalid/value-fact-null-declaration.json": [
+    "value_fact_without_declaration"
+  ],
+  "invalid/value-fact-unknown-argument.json": [
+    "value_fact_unknown_argument"
+  ],
+  "invalid/value-fact-unknown-operation.json": [
+    "value_fact_unknown_argument"
+  ],
+  "invalid/value-fact-without-declaration.json": [
+    "value_fact_without_declaration"
   ]
 }
