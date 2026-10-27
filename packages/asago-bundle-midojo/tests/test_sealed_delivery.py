@@ -551,3 +551,70 @@ def test_parse_reads_the_delivery_document_it_is_given(tmp_path: Path) -> None:
 )
 def test_parse_accepts_exactly_the_contract_s_valid_cases(case: Path, accepted: bool) -> None:
     assert delivery_shape(_read(case)) is accepted
+
+
+# --- a named file whose bytes are not UTF-8 is malformed, not a crash ------------------
+
+
+def _undecodable_run(tmp_path: Path, name: str) -> Path:
+    """The reported run copied into ``tmp_path/run``, ``name`` replaced by a byte that is not
+    UTF-8."""
+
+    run = tmp_path / "run"
+    shutil.copytree(REPORTED / "command-single" / "detected", run)
+    (run / name).write_bytes(b"\xff")
+    return run
+
+
+@pytest.mark.parametrize(
+    ("name", "reason"),
+    [
+        ("delivery.json", "delivery_malformed"),
+        ("snapshot.json", "snapshot_malformed"),
+        ("verdict.json", "verdict_malformed"),
+    ],
+)
+def test_a_file_that_is_not_utf_8_fails_the_receipt_as_malformed(
+    tmp_path: Path, name: str, reason: str
+) -> None:
+    run = _undecodable_run(tmp_path, name)
+
+    receipt = parse_sealed(
+        EPISODES / "command-single",
+        run / "snapshot.json",
+        run / "verdict.json",
+        run / "receipt.json",
+        delivery_path=run / "delivery.json",
+    )
+
+    jsonschema.validate(receipt, SCHEMA)
+    assert (receipt["execution_status"], receipt["incomplete_reason"]) == ("failed", reason)
+    assert receipt["attempts"] == []
+
+
+def test_parse_writes_a_failed_receipt_for_a_delivery_document_that_is_not_utf_8(
+    tmp_path: Path,
+) -> None:
+    run = _undecodable_run(tmp_path, "delivery.json")
+
+    code = main(
+        [
+            "parse",
+            str(EPISODES / "command-single"),
+            "--snapshot",
+            str(run / "snapshot.json"),
+            "--verdict",
+            str(run / "verdict.json"),
+            "--delivery",
+            str(run / "delivery.json"),
+            "--out",
+            str(run / "receipt.json"),
+        ]
+    )
+
+    assert code == 0
+    receipt = _read(run / "receipt.json")
+    assert (receipt["execution_status"], receipt["incomplete_reason"]) == (
+        "failed",
+        "delivery_malformed",
+    )

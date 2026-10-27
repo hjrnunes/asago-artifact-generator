@@ -108,3 +108,10 @@ def test_read_json_returns_none_for_a_missing_or_malformed_file(tmp_path: Path) 
     assert read_json(good) == {"n": 1}
     assert read_json(bad) is None
     assert read_json(tmp_path / "missing.json") is None
+
+
+def test_read_json_returns_none_for_a_file_that_is_not_utf_8(tmp_path: Path) -> None:
+    undecodable = tmp_path / "undecodable.json"
+    undecodable.write_bytes(b"\xff")
+
+    assert read_json(undecodable) is None
