@@ -79,65 +79,70 @@ def neutral_reply_examples() -> dict[str, Any]:
     }
 
 
-def reply_shape_findings(label: str, reply: Any) -> list[Finding]:
-    """Return the shape finding of one example's reply."""
-
-    if isinstance(reply, str):
-        return []
-    return [
-        Finding(
-            "type_error",
-            f"example {label} reply must be a string",
-            f"examples.{label}.{REPLY_FIELD}",
-        )
-    ]
-
-
 def reply_example_findings(examples: Any, *, reply_claim: bool) -> list[Finding]:
-    """Return the reply findings that depend on the accepted plan's claim level.
+    """Return every finding at an example's reply path.
 
-    Under a reply claim, the unsafe and safe examples each need a non-empty
-    reply that does not open by naming the assistant in the third person.
-    Under any other claim, no example carries a reply. Examples that are not
-    objects are left to the shape checks.
+    The findings depend only on the claim level, the example key, and the
+    example's reply, so no other defect of the example or of the artifact hides
+    them: the Call 2 shape checks leave every reply path to this function.
+    Under a reply claim, the unsafe and safe examples each need a reply that is
+    a non-empty string and does not open by naming the assistant in the third
+    person. Everywhere else a reply is one unexpected_field, whatever its value.
+    Examples that are not objects are left to the shape checks.
     """
 
     findings: list[Finding] = []
     if not isinstance(examples, Mapping):
         return findings
-    for label in CAPTURED_EXAMPLES:
+    for label in _EXAMPLE_LABELS:
         example = examples.get(label)
         if not isinstance(example, Mapping):
             continue
         path = f"examples.{label}.{REPLY_FIELD}"
-        if not reply_claim:
-            if REPLY_FIELD in example:
-                findings.append(
-                    Finding(
-                        "unexpected_field",
-                        f"example {label} cannot carry a reply: the accepted plan does not "
-                        f"claim a reply. Remove examples.{label}.{REPLY_FIELD}.",
-                        path,
-                    )
-                )
-            continue
-        findings.extend(_reply_claim_findings(label, example.get(REPLY_FIELD), path))
+        if reply_claim and label in CAPTURED_EXAMPLES:
+            findings.extend(_required_reply_findings(label, example, path))
+        elif REPLY_FIELD in example:
+            findings.append(_forbidden_reply_finding(label, path))
     return findings
 
 
-def _reply_claim_findings(label: str, reply: Any, path: str) -> list[Finding]:
-    if reply is None:
+_EXAMPLE_LABELS = (*CAPTURED_EXAMPLES, "inconclusive")
+
+
+def _forbidden_reply_finding(label: str, path: str) -> Finding:
+    reason = (
+        "it describes a reply that is unavailable or cannot be judged"
+        if label not in CAPTURED_EXAMPLES
+        else "the accepted plan does not claim a reply"
+    )
+    return Finding(
+        "unexpected_field",
+        f"example {label} cannot carry a reply: {reason}. Remove {path}.",
+        path,
+    )
+
+
+def _required_reply_findings(label: str, example: Mapping[str, Any], path: str) -> list[Finding]:
+    if REPLY_FIELD not in example:
         return [
             Finding(
                 "missing_field",
                 f"example {label} needs a reply: the accepted plan claims a reply, which the "
                 "semantic judge decides on the message the target assistant sends. Write that "
-                f"message in examples.{label}.{REPLY_FIELD}, in the assistant's own voice.",
+                f"message in {path}, in the assistant's own voice.",
                 path,
             )
         ]
+    reply = example[REPLY_FIELD]
     if not isinstance(reply, str):
-        return []
+        return [
+            Finding(
+                "type_error",
+                f"example {label} reply must be a string: the message the target assistant "
+                "sends to the user in this outcome.",
+                path,
+            )
+        ]
     if not reply.strip():
         return [
             Finding(
@@ -154,7 +159,7 @@ def _reply_claim_findings(label: str, reply: Any, path: str) -> list[Finding]:
                 f"example {label} reply describes the assistant in the third person instead "
                 "of being the assistant's message: a reply never begins with "
                 '"The assistant", "The model", or "The agent". Rewrite '
-                f"examples.{label}.{REPLY_FIELD} as the message the target assistant sends to "
+                f"{path} as the message the target assistant sends to "
                 "the user in this outcome, in its own voice, and keep the summary in "
                 f"examples.{label}.description.",
                 path,
@@ -196,5 +201,4 @@ __all__ = [
     "package_examples",
     "reply_example_findings",
     "reply_example_schema",
-    "reply_shape_findings",
 ]

@@ -57,7 +57,7 @@ from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
 from .planted_item import PLANTED_TEXT_FIELD, RECORD_FIELD, planted_item_findings
-from .reply_examples import REPLY_FIELD, reply_example_findings, reply_shape_findings
+from .reply_examples import REPLY_FIELD, reply_example_findings
 
 SELECTOR_THROUGH_ARRAY_CODE = "selector_through_array"
 
@@ -200,14 +200,9 @@ def _call2_examples_findings(examples: Any) -> list[Finding]:
 
 def _call2_example_findings(label: str, item: Any) -> list[Finding]:
     findings = _example_item_findings(label, item)
-    if not findings and "capture" in item:
-        findings = capture_shape_findings(label, item["capture"])
-    # A reply's type is checked even beside other findings about its example, so
-    # that the plan-dependent reply checks never need to report it. The
-    # inconclusive example's reply gets only its unexpected_field finding.
-    if label in CAPTURED_EXAMPLES and isinstance(item, dict) and REPLY_FIELD in item:
-        findings.extend(reply_shape_findings(label, item[REPLY_FIELD]))
-    return findings
+    if findings or "capture" not in item:
+        return findings
+    return capture_shape_findings(label, item["capture"])
 
 
 def _example_item_findings(label: str, item: Any) -> list[Finding]:
@@ -227,8 +222,10 @@ def _example_item_findings(label: str, item: Any) -> list[Finding]:
                 f"examples.{label}",
             )
         ]
-    allowed = {"label", "description"} | (
-        {"capture", REPLY_FIELD} if label in CAPTURED_EXAMPLES else set()
+    # Every finding at a reply path comes from reply_example_findings, which
+    # knows the claim level; no early return here can hide one.
+    allowed = {"label", "description", REPLY_FIELD} | (
+        {"capture"} if label in CAPTURED_EXAMPLES else set()
     )
     extra = unexpected_field_findings(
         item, allowed, "unexpected example field", f"examples.{label}."
@@ -514,11 +511,9 @@ def _reply_led_shape_findings(metadata: Any, plan: dict[str, Any]) -> list[Findi
 
     A capture that a reply claim must not carry gets that one finding; the shape
     findings about the same capture would only describe a field the author removes.
-    The example reply findings need no valid shape, so they join the shape
-    findings and one correction carries them all; a reply finding at a path a
-    shape finding already reports is left out. A reply the claim level forbids
-    gets only its unexpected_field finding, whatever its value: the shape
-    finding about that value would describe a field the author removes.
+    The shape checks report nothing at a reply path, and the reply findings
+    need no valid shape, so they join the shape findings and one correction
+    carries them all.
     """
 
     findings = _validate_call2_metadata_shape(metadata)
@@ -526,11 +521,7 @@ def _reply_led_shape_findings(metadata: Any, plan: dict[str, Any]) -> list[Findi
         return findings
     examples = metadata.get("examples")
     reply = _plan_claim_level(plan) == ClaimLevel.REPLY
-    reply_findings = reply_example_findings(examples, reply_claim=reply)
-    forbidden = {finding.path for finding in reply_findings if finding.code == "unexpected_field"}
-    findings = [finding for finding in findings if finding.path not in forbidden]
-    reported = {finding.path for finding in findings}
-    findings += [finding for finding in reply_findings if finding.path not in reported]
+    findings += reply_example_findings(examples, reply_claim=reply)
     if not reply:
         return findings
     claim = reply_capture_findings(examples)

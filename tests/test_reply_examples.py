@@ -342,8 +342,8 @@ def test_a_reply_that_is_not_a_string_is_reported_once_beside_other_shape_errors
 
     assert [(f.code, f.path) for f in findings] == [
         ("unexpected_field", "examples.unsafe.note"),
-        ("type_error", "examples.unsafe.reply"),
         _SHAPE_ERROR,
+        ("type_error", "examples.unsafe.reply"),
     ]
 
 
@@ -528,9 +528,9 @@ def test_a_required_non_string_reply_stays_one_type_error() -> None:
     findings = _findings(metadata)
 
     assert [(f.code, f.path) for f in findings] == [
+        _SHAPE_ERROR,
         ("type_error", "examples.unsafe.reply"),
         ("type_error", "examples.safe.reply"),
-        _SHAPE_ERROR,
     ]
 
 
@@ -561,3 +561,105 @@ def test_one_correction_removes_a_non_string_command_attempt_reply(tmp_path: Pat
     assert result.status == "accepted", result.findings
     stored = json.loads(result.package.members["examples.json"])
     assert stored == metadata()["examples"]
+
+
+_ABSENT = object()
+_REPLY_STATES = {
+    "absent": _ABSENT,
+    "null": None,
+    "list": ["Yes."],
+    "number": 3,
+    "blank": "  ",
+    "third_person": "The assistant approves the refund.",
+    "valid": "Your refund is on its way.",
+}
+_REQUIRED_FINDING = {
+    "absent": "missing_field",
+    "null": "type_error",
+    "list": "type_error",
+    "number": "type_error",
+    "blank": "example_reply_empty",
+    "third_person": "example_reply_third_person",
+    "valid": None,
+}
+# Each defect changes the example under test (or the artifact) and names the finding it causes.
+_DEFECTS = {
+    "none": (lambda metadata, key: None, None),
+    "missing_label": (
+        lambda metadata, key: metadata["examples"][key].pop("label"),
+        ("example_shape", "examples.{key}"),
+    ),
+    "wrong_label": (
+        lambda metadata, key: metadata["examples"][key].update(label="recorded"),
+        ("example_shape", "examples.{key}"),
+    ),
+    "description_not_a_string": (
+        lambda metadata, key: metadata["examples"][key].update(description=3),
+        ("type_error", "examples.{key}.description"),
+    ),
+    "explanation_not_a_string": (
+        lambda metadata, key: metadata.update(explanation=17),
+        ("type_error", "explanation"),
+    ),
+}
+
+
+@pytest.mark.parametrize("defect", list(_DEFECTS))
+@pytest.mark.parametrize("state", list(_REPLY_STATES))
+@pytest.mark.parametrize("key", ["unsafe", "safe", "inconclusive"])
+@pytest.mark.parametrize("claim", ["reply", "command_attempt"])
+def test_the_reply_finding_depends_only_on_claim_key_and_reply(
+    claim: str, key: str, state: str, defect: str
+) -> None:
+    reply_claim = claim == "reply"
+    metadata = _metadata_with_replies(_WRITTEN) if reply_claim else neutral_metadata()
+    example = metadata["examples"][key]
+    example.pop("reply", None)
+    if _REPLY_STATES[state] is not _ABSENT:
+        example["reply"] = _REPLY_STATES[state]
+    change, caused = _DEFECTS[defect]
+    change(metadata, key)
+
+    findings = collect_artifact_findings_v2(
+        metadata,
+        reply_plan() if reply_claim else neutral_artifact_plan_v2(),
+        reply_inventory() if reply_claim else _NEUTRAL_INVENTORY,
+        reply_runtime_contract() if reply_claim else _NEUTRAL_RUNTIME,
+    )
+
+    path = f"examples.{key}.reply"
+    if reply_claim and key != "inconclusive":
+        expected = _REQUIRED_FINDING[state]
+    else:
+        expected = None if state == "absent" else "unexpected_field"
+    reply_findings = [(f.code, f.path) for f in findings if f.path.endswith(".reply")]
+    assert reply_findings == ([] if expected is None else [(expected, path)])
+    if caused is not None:
+        code, where = caused
+        assert (code, where.format(key=key)) in {(f.code, f.path) for f in findings}
+
+
+def test_a_malformed_inconclusive_label_and_its_reply_go_to_one_correction(
+    tmp_path: Path,
+) -> None:
+    first = _metadata_with_replies(_WRITTEN)
+    first["examples"]["inconclusive"] = {"description": "Unavailable", "reply": None}
+    responses = [
+        json.dumps(reply_plan()).encode(),
+        json.dumps(first).encode(),
+        json.dumps(_metadata_with_replies(_WRITTEN)).encode(),
+    ]
+
+    result, transport = _run(tmp_path, responses)
+
+    assert [request["stage"] for request in transport.requests] == [
+        "call1",
+        "call2",
+        "correction",
+    ]
+    payload = transport.requests[-1]["payload"]
+    assert [(f["code"], f["path"]) for f in payload["findings"]] == [
+        ("example_shape", "examples.inconclusive"),
+        ("unexpected_field", "examples.inconclusive.reply"),
+    ]
+    assert result.status == "accepted", result.findings
