@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection, Iterator
 from copy import deepcopy
 from dataclasses import dataclass
@@ -324,10 +325,19 @@ _ARTIFACT_REVIEW_GUIDANCE = prose("review/artifact_review_guidance")
 
 @dataclass(frozen=True)
 class PriorReviewRound:
-    """What the plan reviewer said about the plan before the author revised it."""
+    """What the plan reviewer said about the plan before the author revised it.
+
+    ``findings`` are the in-scope findings the author answered;
+    ``repeated_findings`` are the ones this round's reviewer also reported but
+    code set aside as repeats of a met change (see ``set_aside_met_repeats``).
+    ``earlier_rounds`` are the review rounds of the same stage before this one,
+    oldest first; only the set-aside rule reads them, never the prompt.
+    """
 
     findings: tuple[dict[str, str], ...]
     reviewed_plan: dict[str, Any]
+    repeated_findings: tuple[dict[str, str], ...] = ()
+    earlier_rounds: tuple[PriorReviewRound, ...] = ()
 
 
 _PRIOR_REVIEW_ROUND_MEANING = prose("review/prior_review_round_meaning")
@@ -336,11 +346,107 @@ _PRIOR_REVIEW_ROUND_INSTRUCTION = prose("review/prior_review_round_instruction")
 
 _ABSENT = object()
 
+# A finding location that is exactly one field path inside the candidate plan:
+# dotted keys and ``[index]`` steps, after an optional ``candidate_plan.`` or
+# ``plan.`` prefix (the prefixes plan corrections already read).
+_PLAN_PATH = re.compile(
+    r"(?:candidate_plan\.|plan\.)?([A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\[\d+\])*)", re.ASCII
+)
+_PLAN_PATH_STEP = re.compile(r"[A-Za-z_]\w*|\[(\d+)\]", re.ASCII)
+
+
+def finding_plan_path(location: Any) -> tuple[str | int, ...] | None:
+    """Return the candidate-plan field path a finding location names exactly, or None.
+
+    Only a location that is one path in the documented form reads as a path:
+    ``candidate_plan.observation_claim.violation``, ``runtime_bindings[0].selector``.
+    A location in prose, or naming several places, is not a path; nothing is
+    guessed from its words.
+    """
+
+    match = _PLAN_PATH.fullmatch(location.strip()) if isinstance(location, str) else None
+    if match is None:
+        return None
+    return tuple(
+        int(step.group(1)) if step.group(1) is not None else step.group(0)
+        for step in _PLAN_PATH_STEP.finditer(match.group(1))
+    )
+
+
+def _plan_value_at(plan: Any, path: tuple[str | int, ...]) -> Any:
+    """Return the value at ``path`` in ``plan``, or ``_ABSENT`` when the plan has none there."""
+
+    value = plan
+    for step in path:
+        if isinstance(step, int):
+            if not isinstance(value, list) or step >= len(value):
+                return _ABSENT
+            value = value[step]
+        elif isinstance(value, dict) and step in value:
+            value = value[step]
+        else:
+            return _ABSENT
+    return value
+
+
+def _plan_path_text(path: tuple[str | int, ...]) -> str:
+    return "".join(
+        f"[{step}]" if isinstance(step, int) else ("." if index else "") + step
+        for index, step in enumerate(path)
+    )
+
+
+def _stated_value(value: Any) -> dict[str, Any]:
+    if value is _ABSENT:
+        return {"state": "absent"}
+    return {"state": "value", "value": deepcopy(value)}
+
+
+def _values_at_location(
+    finding: dict[str, Any], reviewed: dict[str, Any], plan: dict[str, Any]
+) -> dict[str, Any]:
+    """Return the reviewed and current plan values at the place one earlier finding names."""
+
+    path = finding_plan_path(finding.get("location"))
+    if path is None:
+        return {"state": "location_not_resolved"}
+    reviewed_value = _plan_value_at(reviewed, path)
+    current_value = _plan_value_at(plan, path)
+    if reviewed_value is _ABSENT and current_value is _ABSENT:
+        return {"state": "location_not_resolved"}
+    return {
+        "plan_path": _plan_path_text(path),
+        "reviewed_value": _stated_value(reviewed_value),
+        "current_value": _stated_value(current_value),
+    }
+
+
+# A neutral finding and its values, in the form values_at_location takes; it
+# matches the response contract's example_finding.
+_VALUES_AT_LOCATION_EXAMPLE = {
+    "finding_location": "candidate_plan.observation_claim.violation",
+    "finding_required_change": "Use the supplied record identity in the condition.",
+    "values_at_location": {
+        "plan_path": "observation_claim.violation",
+        "reviewed_value": {
+            "state": "value",
+            "value": "Complete tool-call capture shows a read of record neutral-2.",
+        },
+        "current_value": {
+            "state": "value",
+            "value": "Complete tool-call capture shows a read of record neutral-1.",
+        },
+    },
+}
+
 
 def _prior_review_round_context(
     prior_round: PriorReviewRound, plan: dict[str, Any]
 ) -> dict[str, Any]:
-    """Return the earlier findings and the plan fields the author changed in answer."""
+    """Return the earlier findings, the plan values they name, and the fields the author changed.
+
+    Each finding is shown as the author received it beside ``values_at_location``.
+    """
 
     reviewed = prior_round.reviewed_plan
     changed = [
@@ -350,7 +456,14 @@ def _prior_review_round_context(
     ]
     return {
         "meaning": _PRIOR_REVIEW_ROUND_MEANING,
-        "findings": [dict(finding) for finding in prior_round.findings],
+        "findings": [
+            {
+                "finding": dict(finding),
+                "values_at_location": _values_at_location(finding, reviewed, plan),
+            }
+            for finding in prior_round.findings
+        ],
+        "values_at_location_example": deepcopy(_VALUES_AT_LOCATION_EXAMPLE),
         "author_response": {
             "changed_fields": changed,
             "reviewed_values": {
@@ -359,6 +472,87 @@ def _prior_review_round_context(
         },
         "reviewer_instruction": _PRIOR_REVIEW_ROUND_INSTRUCTION,
     }
+
+
+# The transformation recorded for each finding code sets aside as a repeat of a
+# change an earlier review already judged met.
+REVIEW_FINDING_REPEATS_MET_CHANGE = "review_finding_repeats_met_change"
+
+
+def _same_request(first: dict[str, Any], second: dict[str, Any]) -> bool:
+    """Whether two findings name the same plan path and the identical required change."""
+
+    path = finding_plan_path(first.get("location"))
+    return (
+        path is not None
+        and path == finding_plan_path(second.get("location"))
+        and first.get("required_change") == second.get("required_change")
+    )
+
+
+def _met_repeat(
+    finding: dict[str, Any], plan: dict[str, Any], rounds: tuple[PriorReviewRound, ...]
+) -> dict[str, Any] | None:
+    """Return why ``finding`` repeats a change an earlier review judged met, or None."""
+
+    path = finding_plan_path(finding.get("location"))
+    if path is None:
+        return None
+    current = _plan_value_at(plan, path)
+    if current is _ABSENT:
+        return None
+    # Round ``raised`` reported the request; the next round was shown it as an
+    # earlier finding, reviewed this same value at the path, and did not report it.
+    for raised in range(len(rounds) - 1):
+        judging = rounds[raised + 1]
+        if (
+            any(_same_request(finding, earlier) for earlier in rounds[raised].findings)
+            and _plan_value_at(judging.reviewed_plan, path) == current
+            and not any(
+                _same_request(finding, reported)
+                for reported in (*judging.findings, *judging.repeated_findings)
+            )
+        ):
+            return {
+                "transformation": REVIEW_FINDING_REPEATS_MET_CHANGE,
+                "plan_path": _plan_path_text(path),
+                "raised_in_review_round": raised + 1,
+                "met_in_review_round": raised + 2,
+            }
+    return None
+
+
+def set_aside_met_repeats(
+    findings: tuple[dict[str, Any], ...],
+    plan: dict[str, Any],
+    prior_round: PriorReviewRound | None,
+) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
+    """Split plan-review findings into those kept and those set aside as met repeats.
+
+    A finding is set aside only when all of this holds, decided from structure
+    alone: its location is exactly one plan path (``finding_plan_path``); an
+    earlier round reported a finding with the same path and the byte-identical
+    required_change; the round after that one was shown it as an earlier
+    finding, reviewed the same value at that path as ``plan`` holds now, and
+    reported no finding with that path and required change, so it judged the
+    change met on this value.  Everything else is kept, including every
+    finding that repeats the round just before (no review has judged its
+    change on the current value) and every finding whose location is prose.
+    Each set-aside entry keeps the finding as written beside the reason.
+    """
+
+    if prior_round is None:
+        return findings, ()
+    rounds = (*prior_round.earlier_rounds, prior_round)
+    kept: list[dict[str, Any]] = []
+    set_aside: list[dict[str, Any]] = []
+    for finding in findings:
+        reason = _met_repeat(finding, plan, rounds)
+        if reason is None:
+            kept.append(finding)
+        else:
+            set_aside.append({"finding": dict(finding), "reason": reason})
+    return tuple(kept), tuple(set_aside)
 
 
 @dataclass(frozen=True)

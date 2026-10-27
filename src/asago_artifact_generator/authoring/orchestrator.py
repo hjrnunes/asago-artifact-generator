@@ -121,6 +121,7 @@ from .review import (
     parse_review_response,
     review_packet_candidate,
     review_truncation_findings,
+    set_aside_met_repeats,
 )
 from .sequential_turns import (
     multi_turn_payload,
@@ -290,6 +291,8 @@ class _Revision:
     findings: tuple[Finding, ...]
     # The in-scope findings as the reviewer wrote them.
     records: tuple[dict[str, Any], ...] = ()
+    # The in-scope findings set aside as repeats of a met change, as written.
+    repeated: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -298,6 +301,8 @@ class _ReviewOutcome:
 
     decision: str
     findings: tuple[dict[str, Any], ...] = ()
+    # In-scope findings set aside as repeats of a change an earlier review judged met.
+    repeated: tuple[dict[str, Any], ...] = ()
     stop: _StageStop | None = None
     raw: bytes = b""
     # A response that failed its checks while the stage's review-retry allowance
@@ -1073,7 +1078,14 @@ class AuthoringOrchestrator:
             # Semantic revise findings join the stage correction path but spend
             # the stage's separate review-revision allowance.
             pending = list(reviewed.findings)
-            prior_round = PriorReviewRound(reviewed.records, candidate)
+            prior_round = PriorReviewRound(
+                reviewed.records,
+                candidate,
+                repeated_findings=reviewed.repeated,
+                earlier_rounds=(
+                    () if prior_round is None else (*prior_round.earlier_rounds, prior_round)
+                ),
+            )
             review_driven = True
             candidate = None
 
@@ -1159,7 +1171,7 @@ class AuthoringOrchestrator:
             except PromptPreflightError as exc:
                 return _preflight_stop(exc, stage.review_stage)
             outcome = self._semantic_review(
-                stage.key, review_packet, retries_dispatch=outcome.rejected_dispatch
+                stage.key, review_packet, retries_dispatch=outcome.rejected_dispatch, prior=prior
             )
             if outcome.rejected is None:
                 break
@@ -1173,16 +1185,24 @@ class AuthoringOrchestrator:
             self._review_status[stage.key] = "blocked"
             return _StageStop(stage.review_blocked_status, findings)
         self._review_status[stage.key] = "revise"
-        return _Revision(findings, outcome.findings)
+        return _Revision(findings, outcome.findings, outcome.repeated)
 
     def _semantic_review(
-        self, review_key: str, packet: PromptPacket, *, retries_dispatch: int | None = None
+        self,
+        review_key: str,
+        packet: PromptPacket,
+        *,
+        retries_dispatch: int | None = None,
+        prior: PriorReviewRound | None = None,
     ) -> _ReviewOutcome:
         """Dispatch one semantic review and classify its closed outcome.
 
         ``retries_dispatch`` names the dispatch whose rejected response this
         review asks again after.  The retry spends the stage's review-retry
         allowance only once the budget reserved it and its dispatch opened.
+        ``prior`` is the plan review round the candidate answers, with the
+        rounds before it; a plan-review finding that repeats a change one of
+        them judged met is set aside (``set_aside_met_repeats``) and recorded.
         """
 
         assert self._review_status is not None
@@ -1219,6 +1239,14 @@ class AuthoringOrchestrator:
         decision_after_scope_filter, in_scope_findings, out_of_scope_findings = (
             _scope_review_response(review, stage=packet.stage)
         )
+        decision = decision_after_scope_filter
+        repeated: tuple[dict[str, Any], ...] = ()
+        if packet.stage == "plan_review":
+            in_scope_findings, repeated = set_aside_met_repeats(
+                in_scope_findings, review_packet_candidate(packet), prior
+            )
+            if repeated and not in_scope_findings:
+                decision = "accept"
         review_record = {
             "decision": review.decision,
             "original_decision": review.decision,
@@ -1228,14 +1256,17 @@ class AuthoringOrchestrator:
             "out_of_scope_findings": [dict(item) for item in out_of_scope_findings],
             "question_ids": list(_review_question_ids(packet.stage)),
         }
-        self._record_review_transformations(review, packet.stage)
+        if repeated:
+            review_record["repeated_met_findings"] = [deepcopy(item) for item in repeated]
+            review_record["decision_after_repeat_filter"] = decision
+        self._record_review_transformations(review, packet.stage, repeated)
         self._journal.append(ReviewDecided(review_record))
         self._set_review_evidence(
             status={
                 "accept": "accepted",
                 "revise": "revise",
                 "blocked": "blocked",
-            }[decision_after_scope_filter],
+            }[decision],
             effective_controls=effective_controls,
             packet=packet,
             review=review_record,
@@ -1243,8 +1274,9 @@ class AuthoringOrchestrator:
         self._decoded_responses[packet.stage] = self._journal.reviews[review_key]
         self._journal.flush()
         return _ReviewOutcome(
-            decision=decision_after_scope_filter,
+            decision=decision,
             findings=in_scope_findings,
+            repeated=tuple(item["finding"] for item in repeated),
             raw=raw,
         )
 
@@ -1561,18 +1593,24 @@ class AuthoringOrchestrator:
         self._transformations.append(transformation)
         self._journal.append(TransformationRecorded(transformation, tuple(self._transformations)))
 
-    def _record_review_transformations(self, review: ReviewResponse, stage: str) -> None:
-        """Record the fence removal and any defaulted ``findings`` of one parsed review.
+    def _record_review_transformations(
+        self,
+        review: ReviewResponse,
+        stage: str,
+        repeated: tuple[dict[str, Any], ...] = (),
+    ) -> None:
+        """Record the fence removal, any defaulted ``findings``, and set-aside repeats.
 
         The fence name takes the attempt's single ``transformation`` slot; the
-        defaulted field is a detailed record, so it goes to the attempt's
-        ``transformations`` list beside the other deterministic rewrites.
+        defaulted field and each finding set aside as a repeat of a met change
+        are detailed records, so they go to the attempt's ``transformations``
+        list beside the other deterministic rewrites.
         """
 
         if review.transformation:
             self._record_transformation(review.transformation)
+        start = len(self._transformations)
         if review.findings_omitted:
-            start = len(self._transformations)
             self._transformations.append(
                 {
                     "transformation": REVIEW_FINDINGS_OMITTED,
@@ -1581,7 +1619,18 @@ class AuthoringOrchestrator:
                     "default": [],
                 }
             )
-            self._record_validation_transformations(start)
+        for item in repeated:
+            finding = item["finding"]
+            self._transformations.append(
+                {
+                    **item["reason"],
+                    "stage": stage,
+                    "field": "findings",
+                    "location": finding.get("location"),
+                    "required_change": finding.get("required_change"),
+                }
+            )
+        self._record_validation_transformations(start)
 
     def _record_validation_transformations(self, start: int) -> None:
         """Persist deterministic binding rewrites made during validation."""

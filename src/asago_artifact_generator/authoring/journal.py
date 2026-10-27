@@ -32,6 +32,9 @@ _REVIEW_EVIDENCE_KEYS = (
     "findings",
     "out_of_scope_findings",
     "question_ids",
+    # Present only when a plan review's findings were set aside as met repeats.
+    "repeated_met_findings",
+    "decision_after_repeat_filter",
 )
 
 

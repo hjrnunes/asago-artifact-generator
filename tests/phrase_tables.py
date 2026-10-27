@@ -25,7 +25,7 @@ import yaml
 from asago_artifact_generator.authoring.core import PromptPacket
 from asago_artifact_generator.input_adapter import load_input
 
-from .prompt_support import STAGES, render_stage_packets
+from .prompt_support import STAGES, render_prior_round_packets, render_stage_packets
 from .support import (
     NO_CONDITION_HANDOFF,
     NOT_CALLED_HANDOFF,
@@ -51,7 +51,11 @@ CASES: dict[str, Callable[[Path], Any]] = {
     "no-condition": _from_handoff(NO_CONDITION_HANDOFF),
     "omission": signed_omission_view,
     "v5": _from_handoff(V5_HANDOFF),
+    "prior-round": lambda _scratch: None,
 }
+# Cases whose plan review follows a revision (``render_prior_round_packets``); their other
+# stages render as in ``ehr``.
+PRIOR_ROUND_CASES = frozenset({"prior-round"})
 
 
 def table_path(template: str) -> Path:
@@ -78,7 +82,10 @@ def entries() -> list[tuple[str, str, str, str]]:
 
 @cache
 def _render(case: str, scratch: Path) -> dict[str, PromptPacket]:
-    return render_stage_packets("ehr", view=CASES[case](scratch))
+    packets = render_stage_packets("ehr", view=CASES[case](scratch))
+    if case in PRIOR_ROUND_CASES:
+        packets = {**packets, **render_prior_round_packets("ehr")}
+    return packets
 
 
 def rendered_part(template: str, case: str, part: str, scratch: Path) -> str:

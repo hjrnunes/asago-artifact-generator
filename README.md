@@ -189,7 +189,20 @@ counts as an empty findings list, and the run records the
 `review_findings_omitted_defaulted_empty` transformation (with the review
 stage) in its transformations and on that review's ledger entry; `findings`
 set to `null` or any non-list value, and an omitted `findings` on `revise` or
-`blocked`, stay invalid. `revise` feeds a stage correction that repeats
+`blocked`, stay invalid. A plan-review finding is set aside, and does not
+reach the correction, only when an earlier review already judged its exact
+request met on the current value: an earlier round reported a finding at the
+same plan path (its `location` is exactly one path) with the byte-identical
+`required_change`, the next round was shown it, reviewed the value the plan
+still holds at that path, and did not report it. Every other finding is kept,
+including a repeat of the round just before and one whose location is prose.
+The review record then adds `repeated_met_findings` (each finding as written
+beside its reason: `plan_path`, `raised_in_review_round`,
+`met_in_review_round`) and `decision_after_repeat_filter`, and the run records
+one `review_finding_repeats_met_change` transformation per finding. Other
+findings keep the decision; a review whose findings were all set aside
+accepts the candidate, which has already passed the stage's checks.
+`revise` feeds a stage correction that repeats
 all checks and the review. Each reviewed stage has a review-revision
 allowance that is separate from its correction allowance (two for the plan
 stage, one for the artifact stage): a `revise` spends a review
@@ -267,14 +280,21 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   contract descriptions, and the correction texts name the attack path, and the
   path's node and source IDs are citable provenance. The plan correction
   (`authoring-correction-v40`) shows the same outline.
-- `authoring-plan-review-v24` reviews a fresh source-derived plan context. It
+- `authoring-plan-review-v25` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
   binding selects inside one record of a keyed fact, the value also carries
   `record_key_source`: the documented `facts:<ref>:records` source and
   `value.<record_key>.record_key` selector that bind the record key itself. A
   required change that replaces a binding path names the complete source and
-  selector pair.
+  selector pair. A review that follows a revision adds PRIOR REVIEW ROUND: each
+  earlier finding beside `values_at_location`, the value at the plan path its
+  `location` names in the plan reviewed before (`reviewed_value`) and in the
+  revision (`current_value`), each `{"state": "value", "value": ...}` or
+  `{"state": "absent"}`; a location that is not exactly one plan path
+  (`candidate_plan.observation_claim.violation`, `runtime_bindings[0].selector`)
+  existing in either plan is `{"state": "location_not_resolved"}`. The reviewer
+  is told to compare each required change with `current_value`.
 - `authoring-call2-v27` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
@@ -286,7 +306,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `semantic_judge_spec_required` correction.
 - `authoring-artifact-review-v23` reviews the exact artifact object and the
   binding and judge declarations.
-- A review retry of either role (plan review v24, artifact review v23) sends
+- A review retry of either role (plan review v25, artifact review v23) sends
   the same prompt followed by PREVIOUS REVIEW RESPONSE REJECTED, the rejected
   response verbatim, its check findings, and an instruction to return one
   complete response that corrects every finding.

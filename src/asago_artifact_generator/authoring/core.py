@@ -29,9 +29,9 @@ CORRECTION_PROMPT_VERSION_V42 = "authoring-correction-v42"
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
-PLAN_REVIEW_PROMPT_VERSION_V24 = "authoring-plan-review-v24"
+PLAN_REVIEW_PROMPT_VERSION_V25 = "authoring-plan-review-v25"
 ARTIFACT_REVIEW_PROMPT_VERSION_V23 = "authoring-artifact-review-v23"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V24
+PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V25
 ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V23
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 

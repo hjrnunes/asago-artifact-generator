@@ -110,4 +110,4 @@ def test_each_reviewer_prompt_carries_its_bumped_version(stage: str) -> None:
 
     packet = {"plan_review": plan, "artifact_review": artifact}[stage]
 
-    assert packet.version.endswith({"plan_review": "-v24", "artifact_review": "-v23"}[stage])
+    assert packet.version.endswith({"plan_review": "-v25", "artifact_review": "-v23"}[stage])

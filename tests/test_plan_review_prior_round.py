@@ -7,11 +7,14 @@ import json
 from functools import partial
 from pathlib import Path
 
+import pytest
+
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 from asago_artifact_generator.authoring.review import (
     PriorReviewRound,
     build_plan_review_packet,
     build_plan_reviewer_context,
+    finding_plan_path,
 )
 from asago_artifact_generator.input_adapter import load_input
 
@@ -69,8 +72,104 @@ def test_a_second_round_review_prompt_carries_the_first_round_findings() -> None
     section = packet.user[packet.user.index("PRIOR REVIEW ROUND") :]
     for field in _FINDING.values():
         assert field in section
-    assert packet.payload["prior_review_round"]["findings"] == [_FINDING]
+    assert [entry["finding"] for entry in packet.payload["prior_review_round"]["findings"]] == [
+        _FINDING
+    ]
     assert packet.user.index("CANDIDATE PLAN") < packet.user.index("PRIOR REVIEW ROUND")
+
+
+def test_each_earlier_finding_carries_the_reviewed_and_current_value_at_its_location() -> None:
+    context = build_plan_reviewer_context(
+        _view(), _revised_plan(), _inventory(), _runtime_contract(), prior_round=_prior()
+    )
+
+    (entry,) = context["prior_review_round"]["findings"]
+    assert entry["values_at_location"] == {
+        "plan_path": "observation_claim.violation",
+        "reviewed_value": {"state": "value", "value": _plan()["observation_claim"]["violation"]},
+        "current_value": {
+            "state": "value",
+            "value": "Complete capture shows the bound identity mismatch.",
+        },
+    }
+
+
+def test_a_value_the_revision_removed_is_marked_absent() -> None:
+    finding = {**_FINDING, "location": "candidate_plan.stimulus_approach.history"}
+    revised = _revised_plan()
+    del revised["stimulus_approach"]["history"]
+
+    context = build_plan_reviewer_context(
+        _view(),
+        revised,
+        _inventory(),
+        _runtime_contract(),
+        prior_round=PriorReviewRound(findings=(finding,), reviewed_plan=_plan()),
+    )
+
+    values = context["prior_review_round"]["findings"][0]["values_at_location"]
+    assert values["plan_path"] == "stimulus_approach.history"
+    assert values["reviewed_value"] == {"state": "value", "value": []}
+    assert values["current_value"] == {"state": "absent"}
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "the violation and the absence branches",
+        "candidate_plan.observation_claim.violation and absence",
+        "candidate_plan",
+        "candidate_plan.no_such_field",
+        "observation_claim.violation[0]",
+    ],
+)
+def test_a_location_that_is_not_one_existing_plan_path_is_marked_unresolved(
+    location: str,
+) -> None:
+    finding = {**_FINDING, "location": location}
+
+    context = build_plan_reviewer_context(
+        _view(),
+        _revised_plan(),
+        _inventory(),
+        _runtime_contract(),
+        prior_round=PriorReviewRound(findings=(finding,), reviewed_plan=_plan()),
+    )
+
+    entry = context["prior_review_round"]["findings"][0]
+    assert entry["finding"] == finding
+    assert entry["values_at_location"] == {"state": "location_not_resolved"}
+
+
+@pytest.mark.parametrize(
+    ("location", "path"),
+    [
+        ("candidate_plan.observation_claim.violation", ("observation_claim", "violation")),
+        ("plan.prerequisites[0]", ("prerequisites", 0)),
+        (" runtime_bindings[1].selector ", ("runtime_bindings", 1, "selector")),
+        ("semantic_judge", ("semantic_judge",)),
+        ("observation_claim.violation (second branch)", None),
+        ("observation_claim..violation", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_a_finding_location_reads_as_a_plan_path_only_in_the_documented_form(
+    location: object, path: tuple | None
+) -> None:
+    assert finding_plan_path(location) == path
+
+
+def test_the_values_example_matches_the_example_finding_of_the_response_contract() -> None:
+    context = build_plan_reviewer_context(
+        _view(), _revised_plan(), _inventory(), _runtime_contract(), prior_round=_prior()
+    )
+
+    example = context["prior_review_round"]["values_at_location_example"]
+    example_finding = context["response_contract"]["example_finding"]
+    assert example["finding_location"] == example_finding["location"]
+    assert example["finding_required_change"] == example_finding["required_change"]
+    assert finding_plan_path(example["finding_location"]) == ("observation_claim", "violation")
 
 
 def test_a_second_round_review_prompt_shows_what_the_author_changed() -> None:
@@ -92,6 +191,9 @@ def test_a_second_round_review_judges_the_first_requests_before_raising_new_ones
 
     instruction = context["prior_review_round"]["reviewer_instruction"]
     assert "whether the candidate_plan now meets its required_change" in instruction
+    assert "Compare the required_change with its current_value, not its reviewed_value" in (
+        instruction
+    )
     assert "do not report a finding that asks the author to undo" in instruction
 
 
