@@ -23,6 +23,23 @@ interception layer reported the call's text only, as for a blocked or unfinished
 a record sealed before has neither field. A record with one of them only is malformed.
 From b5b8c75 an outcome may also be a call whose arguments did not match its instruction's
 ``call_arguments``: ``unmatched`` at occurrence 0, a call the instruction does not count.
+From 13d5487 each outcome also carries its delivery facts, ``selected``, ``transformation``
+and ``emitted`` (each None when the layer did not report it; an outcome at occurrence 0
+placed nothing, so its facts are empty), and the grade says apart what ``security`` folds
+together: ``attempted``, ``blocked``, ``effect_observed`` and ``injection_delivered``, each
+True, False or None (unknown). An outcome or a grade has all of its new fields or none; a
+verdict sealed before them is read as unknown on each (null in the receipt), never as False,
+and none of them changes the receipt's outcome.
+
+The runner may also write ``delivery.json`` (``midojo-delivery-v1``) beside the snapshot:
+the evaluation and snapshot it describes, ``midojo.delivery.delivery_facts`` of the
+episode's plan and the snapshot's calls, and ``midojo.delivery.exposure`` of them, as
+MiDojo's run report holds them. ``parse`` reads it only when it is named
+(``delivery_path``): the receipt's ``episode`` block then carries its ``delivery`` and
+``exposure``, and lists it among the native files. Without one both are null (unknown).
+A named document that is missing (``delivery_missing``), is not that shape
+(``delivery_malformed``) or names another evaluation or snapshot (``delivery_mismatch``)
+fails the receipt.
 
 The snapshot must be the one MiDojo sealed: its ``snapshot_id`` is MiDojo's digest of its
 content, recomputed here (``snapshot_digest.py``), so a snapshot whose content changed
@@ -85,6 +102,12 @@ CALL_FIELDS = frozenset(
 # What a call record gains from 3824922 (``types.FunctionCallRecord``): both or neither.
 CALL_DETAIL_FIELDS = frozenset({"structured_content", "injection_outcomes"})
 OUTCOME_FIELDS = frozenset({"instruction_index", "probe_key", "occurrence", "status", "detail"})
+# What an outcome gains from 13d5487 (``types.CallInjectionOutcome``): its delivery facts, all or
+# none.
+FACT_FIELDS = frozenset({"selected", "transformation", "emitted"})
+# ``types.InjectionTransformation`` and ``types.ResultPart``.
+TRANSFORMATIONS = frozenset({"identity", "json_string", None})
+RESULT_PARTS = frozenset({"content_block", "structured_content"})
 # The status of a call whose arguments did not match an instruction's, at occurrence 0.
 UNMATCHED = "unmatched"
 # ``types.InjectionStatus``: the values of ``midojo_sdk.injection.OutcomeStatus``.
@@ -110,6 +133,33 @@ GRADED = ("utility", "security")
 GRADE_FIELDS = frozenset(
     {*GRADED, "utility_reason", "security_reason", "grade_validity", "evidence_status"}
 )
+# What a grade gains from 13d5487 (``GradeResponse``): the attack outcome, all four or none.
+ATTACK_OUTCOME = ("attempted", "blocked", "effect_observed", "injection_delivered")
+DELIVERY_SCHEMA_VERSION = "midojo-delivery-v1"
+DELIVERY_FIELDS = frozenset(
+    {"schema_version", "evaluation_id", "snapshot_id", "delivery", "exposure"}
+)
+# ``delivery.DeliveryFact``, ``delivery.Exposure`` and ``delivery.InstructionExposure``.
+DELIVERY_FACT_FIELDS = frozenset(
+    {
+        "call_id",
+        "function",
+        "disposition",
+        "turn",
+        "interceptor_instruction_index",
+        "plan_instruction_index",
+        "probe_key",
+        "occurrence",
+        "status",
+        *FACT_FIELDS,
+    }
+)
+BOUNDARIES = ("emitted", "agent_tool_result", "model_input")
+EXPOSURE_STATUSES = frozenset({"exposed", "not_exposed", "unknown"})
+INSTRUCTION_EXPOSURE_FIELDS = frozenset(
+    {"plan_instruction_index", "channel", "probe_key", "placed_by", "exposure", "reason"}
+)
+PLACERS = frozenset({"interceptor", "host"})
 EPISODE_KEYS = frozenset({"package_id", "scenario_id", "package_digest", "claim_level", "episode"})
 
 
@@ -142,10 +192,12 @@ def parse_sealed(
     tool_revision: str | None = None,
     adapter_revision: str | None = None,
     route: str = DEFAULT_ROUTE,
+    delivery_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Write the receipt of one sealed episode to ``out_path`` and return it.
 
-    ``route`` names the client that drove this run of the episode (one of ``ROUTES``).
+    ``route`` names the client that drove this run of the episode (one of ``ROUTES``), and
+    ``delivery_path`` the runner's ``delivery.json`` of the snapshot, if it wrote one.
     """
 
     if route not in ROUTES:
@@ -154,10 +206,15 @@ def parse_sealed(
     out = Path(out_path)
     snapshot, reason = read_document(Path(snapshot_path), "snapshot", snapshot_shape)
     verdict, verdict_reason = read_document(Path(verdict_path), "verdict", verdict_shape)
-    reason = reason or verdict_reason
+    native = [Path(snapshot_path), Path(verdict_path)]
+    delivery, delivery_reason = None, None
+    if delivery_path is not None:
+        native.append(Path(delivery_path))
+        delivery, delivery_reason = read_document(Path(delivery_path), "delivery", delivery_shape)
+    reason = reason or verdict_reason or delivery_reason
     attempt = None
     if reason is None:
-        reason = sealed_failure(compiled, snapshot, verdict)  # type: ignore[arg-type]
+        reason = sealed_failure(compiled, snapshot, verdict, delivery)  # type: ignore[arg-type]
     if reason is None or reason.startswith(TURN_FAILED):
         attempt = attempt_of(compiled, snapshot, verdict)  # type: ignore[arg-type]
     receipt = {
@@ -172,8 +229,8 @@ def parse_sealed(
         "runtime_status": runtime_status(reason),
         "incomplete_reason": reason,
         "attempts": [attempt] if attempt else [],
-        "native": native_files((Path(snapshot_path), Path(verdict_path)), out.parent),
-        "episode": episode_block(route, snapshot, verdict),
+        "native": native_files(tuple(native), out.parent),
+        "episode": episode_block(route, snapshot, verdict, delivery),
     }
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(canonical_text(receipt), encoding="utf-8")
@@ -269,21 +326,45 @@ def _details_shape(call: dict[str, Any]) -> bool:
 def _outcome_shape(outcome: Any) -> bool:
     """``CallInjectionOutcome``: the instruction's index in the plan (from 0), its probe, which
     matching call of the instruction's this was (from 1, or 0 for an ``unmatched`` call whose
-    arguments did not match the instruction's ``call_arguments``), its status and why."""
+    arguments did not match the instruction's ``call_arguments``), its status and why, and,
+    sealed from 13d5487, its delivery facts."""
 
     return (
         isinstance(outcome, dict)
-        and set(outcome) == OUTCOME_FIELDS
+        and set(outcome) in (OUTCOME_FIELDS, OUTCOME_FIELDS | FACT_FIELDS)
         and type(outcome["instruction_index"]) is int
         and outcome["instruction_index"] >= 0
         and _optional_text(outcome["probe_key"])
-        and type(outcome["occurrence"]) is int
-        and _one_of(outcome["status"], INJECTION_STATUSES)
-        and (
-            outcome["occurrence"] >= 1
-            or (outcome["occurrence"] == 0 and outcome["status"] == UNMATCHED)
-        )
         and isinstance(outcome["detail"], str)
+        and _facts_shape(outcome)
+    )
+
+
+def _facts_shape(item: dict[str, Any]) -> bool:
+    """An outcome's occurrence, status and the delivery facts it has: ``selected`` a bool,
+    ``transformation`` one of ``TRANSFORMATIONS`` and ``emitted`` a list of ``RESULT_PARTS``,
+    each or None (not reported). Occurrence 0 is only for ``unmatched``, which placed nothing:
+    its facts are empty (``selected`` not True, no ``transformation``, nothing ``emitted``)."""
+
+    occurrence, facts = item["occurrence"], {key: item.get(key) for key in FACT_FIELDS}
+    emitted = facts["emitted"]
+    if not (
+        type(occurrence) is int
+        and occurrence >= 0
+        and _one_of(item["status"], INJECTION_STATUSES)
+        and (facts["selected"] is None or type(facts["selected"]) is bool)
+        and _one_of(facts["transformation"], TRANSFORMATIONS)
+        and (
+            emitted is None
+            or (isinstance(emitted, list) and all(_one_of(part, RESULT_PARTS) for part in emitted))
+        )
+    ):
+        return False
+    return occurrence >= 1 or (
+        item["status"] == UNMATCHED
+        and not facts["selected"]
+        and facts["transformation"] is None
+        and not emitted
     )
 
 
@@ -315,8 +396,9 @@ def evidence_shape(status: Any) -> bool:
 
 
 def verdict_shape(verdict: dict[str, Any]) -> bool:
-    """The verdict is ``Verdict``, its grade MiDojo's ``GradeResponse``, field for field, and
-    the security grade agrees with its validity: unknown exactly when ``invalid``."""
+    """The verdict is ``Verdict``, its grade MiDojo's ``GradeResponse``, field for field (the
+    attack outcome all or none), and the security grade agrees with its validity: unknown
+    exactly when ``invalid``."""
 
     grade = verdict.get("grade")
     if not (
@@ -324,15 +406,75 @@ def verdict_shape(verdict: dict[str, Any]) -> bool:
         and isinstance(verdict["evaluation_id"], str)
         and isinstance(verdict["snapshot_id"], str)
         and isinstance(grade, dict)
-        and set(grade) == GRADE_FIELDS
+        and set(grade) in (GRADE_FIELDS, GRADE_FIELDS | set(ATTACK_OUTCOME))
         and evidence_shape(grade["evidence_status"])
-        and all(grade[key] is None or isinstance(grade[key], bool) for key in GRADED)
+        and all(_three_valued(grade.get(key)) for key in (*GRADED, *ATTACK_OUTCOME))
         and all(_optional_text(grade[f"{key}_reason"]) for key in GRADED)
         and _validity_shape(grade["grade_validity"])
     ):
         return False
     status = grade["grade_validity"]["security"]["status"]
     return status != "not_applicable" and (status == "invalid") == (grade["security"] is None)
+
+
+def _three_valued(value: Any) -> bool:
+    return value is None or type(value) is bool
+
+
+def delivery_shape(document: dict[str, Any]) -> bool:
+    """The runner's ``delivery.json``: ``midojo-delivery-v1``, the evaluation and snapshot it
+    describes, MiDojo's ``DeliveryFact`` list and its ``Exposure``, field for field."""
+
+    exposure = document.get("exposure")
+    return (
+        set(document) == DELIVERY_FIELDS
+        and document["schema_version"] == DELIVERY_SCHEMA_VERSION
+        and isinstance(document["evaluation_id"], str)
+        and isinstance(document["snapshot_id"], str)
+        and isinstance(document["delivery"], list)
+        and all(_delivery_fact_shape(fact) for fact in document["delivery"])
+        and isinstance(exposure, dict)
+        and set(exposure) == {*BOUNDARIES, "instructions"}
+        and all(_one_of(exposure[boundary], EXPOSURE_STATUSES) for boundary in BOUNDARIES)
+        and isinstance(exposure["instructions"], list)
+        and all(_instruction_exposure_shape(item) for item in exposure["instructions"])
+    )
+
+
+def _index(value: Any) -> bool:
+    return type(value) is int and value >= 0
+
+
+def _delivery_fact_shape(fact: Any) -> bool:
+    return (
+        isinstance(fact, dict)
+        and set(fact) == DELIVERY_FACT_FIELDS
+        and isinstance(fact["call_id"], str)
+        and isinstance(fact["function"], str)
+        and _one_of(fact["disposition"], DISPOSITIONS)
+        and (fact["turn"] is None or type(fact["turn"]) is int)
+        and _index(fact["interceptor_instruction_index"])
+        and (fact["plan_instruction_index"] is None or _index(fact["plan_instruction_index"]))
+        and _optional_text(fact["probe_key"])
+        and _facts_shape(fact)
+    )
+
+
+def _instruction_exposure_shape(item: Any) -> bool:
+    return (
+        isinstance(item, dict)
+        and set(item) == INSTRUCTION_EXPOSURE_FIELDS
+        and _index(item["plan_instruction_index"])
+        and isinstance(item["channel"], str)
+        and _optional_text(item["probe_key"])
+        and _one_of(item["placed_by"], PLACERS)
+        and isinstance(item["exposure"], dict)
+        and all(
+            _one_of(boundary, BOUNDARIES) and _one_of(status, EXPOSURE_STATUSES)
+            for boundary, status in item["exposure"].items()
+        )
+        and isinstance(item["reason"], str)
+    )
 
 
 def _validity_shape(validity: Any) -> bool:
@@ -361,7 +503,10 @@ TURN_FAILED = "turn_failed:"
 
 
 def sealed_failure(
-    compiled: Compiled, snapshot: dict[str, Any], verdict: dict[str, Any]
+    compiled: Compiled,
+    snapshot: dict[str, Any],
+    verdict: dict[str, Any],
+    delivery: dict[str, Any] | None = None,
 ) -> str | None:
     """Return the first reason the sealed result cannot be graded, or None."""
 
@@ -371,6 +516,10 @@ def sealed_failure(
         return "evaluation_mismatch"
     if verdict["snapshot_id"] != snapshot["snapshot_id"]:
         return "snapshot_mismatch"
+    if delivery is not None and any(
+        delivery[key] != snapshot[key] for key in ("evaluation_id", "snapshot_id")
+    ):
+        return "delivery_mismatch"
     if verdict["grade"]["evidence_status"] != snapshot["evidence_status"]:
         return "evidence_status_mismatch"
     sent = [turn["message"] for turn in snapshot["turns"]]
@@ -515,9 +664,16 @@ def judge_of(level: str, grade: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def episode_block(
-    route: str, snapshot: dict[str, Any] | None, verdict: dict[str, Any] | None
+    route: str,
+    snapshot: dict[str, Any] | None,
+    verdict: dict[str, Any] | None,
+    delivery: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Return what the receipt names of the episode's run; a file that cannot be read is null."""
+    """Return what the receipt names of the episode's run; a file that cannot be read is null.
+
+    An attack outcome field the grade lacks (sealed before 13d5487) is null, as are
+    ``delivery`` and ``exposure`` without a delivery document: unknown, never False.
+    """
 
     grade = verdict["grade"] if verdict else None
     return {
@@ -533,8 +689,11 @@ def episode_block(
             "security": grade["security"],
             "reason": grade["security_reason"],
             "validity": grade["grade_validity"]["security"]["status"],
+            **{name: grade.get(name) for name in ATTACK_OUTCOME},
         },
         "call_injections": None if snapshot is None else call_injections(snapshot),
+        "delivery": None if delivery is None else delivery["delivery"],
+        "exposure": None if delivery is None else delivery["exposure"],
     }
 
 
@@ -568,7 +727,8 @@ def compiled_digest(root: Path) -> str:
 
 
 def native_files(paths: tuple[Path, ...], receipt_dir: Path) -> list[dict[str, str]]:
-    """List the snapshot and verdict files that exist, relative to the receipt's directory."""
+    """List the snapshot, verdict and delivery files that exist, relative to the receipt's
+    directory."""
 
     found = []
     for path in paths:
@@ -578,7 +738,7 @@ def native_files(paths: tuple[Path, ...], receipt_dir: Path) -> list[dict[str, s
             relative = path.resolve().relative_to(receipt_dir.resolve())
         except ValueError as exc:
             raise ParseError(
-                "the snapshot and verdict must lie inside the receipt's directory"
+                "the snapshot, verdict and delivery must lie inside the receipt's directory"
             ) from exc
         found.append(
             {"path": relative.as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}

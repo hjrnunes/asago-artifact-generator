@@ -158,7 +158,14 @@ def test_the_receipt_names_the_evaluation_and_the_snapshot_graded(
         "security": verdict["grade"]["security"],
         "reason": verdict["grade"]["security_reason"],
         "validity": verdict["grade"]["grade_validity"]["security"]["status"],
+        # Sealed before 13d5487, the grade does not say: unknown, never false.
+        "attempted": None,
+        "blocked": None,
+        "effect_observed": None,
+        "injection_delivered": None,
     }
+    # Parsed without a delivery document: unknown.
+    assert (episode["delivery"], episode["exposure"]) == (None, None)
     assert [(call["call_id"], call["function"]) for call in episode["call_injections"]] == [
         (call["call_id"], call["function"]) for call in snapshot["function_calls"]
     ]

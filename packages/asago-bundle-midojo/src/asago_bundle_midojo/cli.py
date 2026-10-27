@@ -7,7 +7,8 @@ cannot place in an MCP tool result; the record is printed).
 
 ``compile`` writes one package's episode for a target config; the runner opens it with
 MiDojo's host interception in front of that target's MCP endpoint, seals it and grades the
-snapshot; ``parse`` reads the sealed snapshot and the verdict into a receipt.
+snapshot; ``parse`` reads the sealed snapshot, the verdict and, when named, the runner's
+delivery facts into a receipt.
 """
 
 from __future__ import annotations
@@ -69,6 +70,12 @@ def build_parser() -> argparse.ArgumentParser:
     parse_cmd.add_argument(
         "--verdict", type=Path, required=True, help="midojo.grade's verdict of that snapshot"
     )
+    parse_cmd.add_argument(
+        "--delivery",
+        type=Path,
+        help="the runner's delivery.json of that snapshot (midojo-delivery-v1); without it "
+        "the receipt's delivery and exposure are null (unknown)",
+    )
     parse_cmd.add_argument("--out", type=Path, required=True, help="receipt path")
     parse_cmd.add_argument(
         "--route",
@@ -115,6 +122,7 @@ def _parse(args: argparse.Namespace) -> int:
             tool_revision=args.tool_revision,
             adapter_revision=args.adapter_revision,
             route=args.route,
+            delivery_path=args.delivery,
         )
     except ParseError as exc:
         print(f"parse: {exc}", file=sys.stderr)

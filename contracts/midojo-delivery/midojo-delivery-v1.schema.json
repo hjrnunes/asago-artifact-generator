@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asago.local/contracts/midojo-delivery/midojo-delivery-v1.schema.json",
+  "title": "midojo-delivery-v1",
+  "description": "The delivery facts of one sealed MiDojo episode run and the exposure they derive, as MiDojo's run report holds them (midojo.delivery: DeliveryFact, Exposure, InstructionExposure). The runner computes it in MiDojo's interpreter from the episode's plan and the sealed snapshot it graded, and writes it beside the snapshot; the MiDojo adapter's parse reads it into the receipt's episode block. It names the evaluation and the snapshot it describes, which must be the snapshot's. The rule that an outcome at occurrence 0 is an unmatched one with empty facts is checked here and in code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evaluation_id", "snapshot_id", "delivery", "exposure"],
+  "properties": {
+    "schema_version": {"const": "midojo-delivery-v1"},
+    "evaluation_id": {"description": "The sealed snapshot's evaluation_id.", "type": "string"},
+    "snapshot_id": {"description": "The sealed snapshot's snapshot_id, MiDojo's digest of its content.", "type": "string"},
+    "delivery": {
+      "description": "midojo.delivery.delivery_facts(plan, snapshot.function_calls): each recorded call's injection outcomes, in call then instruction order, with the instruction's index in the episode's plan.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/delivery_fact"}
+    },
+    "exposure": {
+      "description": "midojo.delivery.exposure(plan, snapshot.function_calls, turns=len(snapshot.turns), evidence_status=snapshot.evidence_status): each boundary combined over the plan's instructions, and each instruction's own.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["emitted", "agent_tool_result", "model_input", "instructions"],
+      "properties": {
+        "emitted": {"$ref": "#/$defs/exposure_status"},
+        "agent_tool_result": {"$ref": "#/$defs/exposure_status"},
+        "model_input": {"$ref": "#/$defs/exposure_status"},
+        "instructions": {"type": "array", "items": {"$ref": "#/$defs/instruction_exposure"}}
+      }
+    }
+  },
+  "$defs": {
+    "index": {"type": "integer", "minimum": 0},
+    "optional_text": {"type": ["string", "null"]},
+    "exposure_status": {"enum": ["exposed", "not_exposed", "unknown"]},
+    "delivery_fact": {
+      "description": "What the interceptor did with one instruction on one recorded call, at its own boundary. selected, transformation and emitted are null when the interceptor did not report them.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "call_id",
+        "function",
+        "disposition",
+        "turn",
+        "interceptor_instruction_index",
+        "plan_instruction_index",
+        "probe_key",
+        "occurrence",
+        "status",
+        "selected",
+        "transformation",
+        "emitted"
+      ],
+      "properties": {
+        "call_id": {"type": "string"},
+        "function": {"type": "string"},
+        "disposition": {"enum": ["forwarded", "denied", "simulated", "blocked", null]},
+        "turn": {"type": ["integer", "null"]},
+        "interceptor_instruction_index": {
+          "description": "The instruction's index in the plan the interceptor was given, as the call recorded it.",
+          "$ref": "#/$defs/index"
+        },
+        "plan_instruction_index": {
+          "description": "The same instruction's index in the episode's plan; null when no tool-output instruction of the plan has that place and probe key and targets the call's tool.",
+          "anyOf": [{"$ref": "#/$defs/index"}, {"type": "null"}]
+        },
+        "probe_key": {"$ref": "#/$defs/optional_text"},
+        "occurrence": {
+          "description": "Which matching call of the instruction's this was, from 1; 0 for an unmatched call whose arguments did not match the instruction's call arguments.",
+          "$ref": "#/$defs/index"
+        },
+        "status": {
+          "enum": ["applied", "partial", "fallback", "unmatched", "no_result", "too_large", "skipped_occurrence"]
+        },
+        "selected": {"type": ["boolean", "null"]},
+        "transformation": {"enum": ["identity", "json_string", null]},
+        "emitted": {
+          "description": "The parts of the returned result that carry the payload where the interceptor placed it; empty when none does.",
+          "type": ["array", "null"],
+          "items": {"enum": ["content_block", "structured_content"]}
+        }
+      },
+      "if": {"properties": {"occurrence": {"const": 0}}},
+      "then": {
+        "properties": {
+          "status": {"const": "unmatched"},
+          "selected": {"enum": [false, null]},
+          "transformation": {"const": null},
+          "emitted": {"anyOf": [{"type": "null"}, {"maxItems": 0}]}
+        }
+      }
+    },
+    "instruction_exposure": {
+      "description": "One instruction of the episode's plan: who placed it, and its exposure at each boundary its channel has; reason says why the first boundary that is not exposed is what it is.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_instruction_index", "channel", "probe_key", "placed_by", "exposure", "reason"],
+      "properties": {
+        "plan_instruction_index": {"$ref": "#/$defs/index"},
+        "channel": {"type": "string"},
+        "probe_key": {"$ref": "#/$defs/optional_text"},
+        "placed_by": {"enum": ["interceptor", "host"]},
+        "exposure": {
+          "type": "object",
+          "propertyNames": {"enum": ["emitted", "agent_tool_result", "model_input"]},
+          "additionalProperties": {"$ref": "#/$defs/exposure_status"}
+        },
+        "reason": {"type": "string"}
+      }
+    }
+  }
+}

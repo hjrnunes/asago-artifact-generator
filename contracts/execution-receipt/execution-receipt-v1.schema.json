@@ -90,7 +90,23 @@
               "type": ["boolean", "null"]
             },
             "reason": {"$ref": "#/$defs/optional_text"},
-            "validity": {"enum": ["valid", "invalid"]}
+            "validity": {"enum": ["valid", "invalid"]},
+            "attempted": {
+              "description": "Optional; whether the agent attempted what the security check looks for, a blocked call included. True, false, or null when unknown, as for a verdict whose grade does not say.",
+              "type": ["boolean", "null"]
+            },
+            "blocked": {
+              "description": "Optional; whether a refusal stopped the attempt. True, false, or null when unknown (whenever attempted is).",
+              "type": ["boolean", "null"]
+            },
+            "effect_observed": {
+              "description": "Optional; whether the security check holds on the calls that ran to their end and the observed state. True, false, or null when unknown.",
+              "type": ["boolean", "null"]
+            },
+            "injection_delivered": {
+              "description": "Optional; whether a payload of the episode's plan was emitted at its boundary, from the delivery facts; not proof the agent saw it. True, false, or null when unknown.",
+              "type": ["boolean", "null"]
+            }
           }
         },
         "call_injections": {
@@ -119,11 +135,41 @@
                       "minimum": 0
                     },
                     "status": {"$ref": "#/$defs/name"},
-                    "detail": {"type": "string"}
+                    "detail": {"type": "string"},
+                    "selected": {
+                      "description": "Optional, sealed with the outcome's delivery facts; whether the instruction's selector matched a place in the call's result. null when not reported.",
+                      "type": ["boolean", "null"]
+                    },
+                    "transformation": {
+                      "description": "Optional, sealed with the outcome's delivery facts; the transformation applied to the payload, null when none was or it was not reported.",
+                      "enum": ["identity", "json_string", null]
+                    },
+                    "emitted": {
+                      "description": "Optional, sealed with the outcome's delivery facts; the parts of the returned result that carry the payload where it was placed, empty when none does, null when not reported.",
+                      "type": ["array", "null"],
+                      "items": {"enum": ["content_block", "structured_content"]}
+                    }
                   }
                 }
               }
             }
+          }
+        },
+        "delivery": {
+          "description": "Optional; the delivery facts of the snapshot's calls as the runner's delivery document gave them (MiDojo's DeliveryFact list), in call then instruction order. null when no delivery document was read: unknown, not undelivered.",
+          "type": ["array", "null"],
+          "items": {"$ref": "#/$defs/delivery_fact"}
+        },
+        "exposure": {
+          "description": "Optional; the exposure the delivery facts derive, at each boundary (emitted, agent_tool_result, model_input) and per instruction of the episode's plan, as the runner's delivery document gave it. null when no delivery document was read: unknown, not unexposed.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["emitted", "agent_tool_result", "model_input", "instructions"],
+          "properties": {
+            "emitted": {"$ref": "#/$defs/exposure_status"},
+            "agent_tool_result": {"$ref": "#/$defs/exposure_status"},
+            "model_input": {"$ref": "#/$defs/exposure_status"},
+            "instructions": {"type": "array", "items": {"$ref": "#/$defs/instruction_exposure"}}
           }
         }
       }
@@ -266,6 +312,60 @@
             "request_count": {"$ref": "#/$defs/optional_count"}
           }
         }
+      }
+    },
+    "exposure_status": {"enum": ["exposed", "not_exposed", "unknown"]},
+    "delivery_fact": {
+      "description": "What the interceptor did with one instruction on one recorded call, at its own boundary (contracts/midojo-delivery). selected, transformation and emitted are null when the interceptor did not report them.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "call_id",
+        "function",
+        "disposition",
+        "turn",
+        "interceptor_instruction_index",
+        "plan_instruction_index",
+        "probe_key",
+        "occurrence",
+        "status",
+        "selected",
+        "transformation",
+        "emitted"
+      ],
+      "properties": {
+        "call_id": {"type": "string"},
+        "function": {"type": "string"},
+        "disposition": {"enum": ["forwarded", "denied", "simulated", "blocked", null]},
+        "turn": {"type": ["integer", "null"]},
+        "interceptor_instruction_index": {"$ref": "#/$defs/count"},
+        "plan_instruction_index": {"$ref": "#/$defs/optional_count"},
+        "probe_key": {"type": ["string", "null"]},
+        "occurrence": {"$ref": "#/$defs/count"},
+        "status": {
+          "enum": ["applied", "partial", "fallback", "unmatched", "no_result", "too_large", "skipped_occurrence"]
+        },
+        "selected": {"type": ["boolean", "null"]},
+        "transformation": {"enum": ["identity", "json_string", null]},
+        "emitted": {"type": ["array", "null"], "items": {"enum": ["content_block", "structured_content"]}}
+      }
+    },
+    "instruction_exposure": {
+      "description": "One instruction of the episode's plan: who placed it, its exposure at each boundary its channel has, and why the first boundary that is not exposed is what it is.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_instruction_index", "channel", "probe_key", "placed_by", "exposure", "reason"],
+      "properties": {
+        "plan_instruction_index": {"$ref": "#/$defs/count"},
+        "channel": {"type": "string"},
+        "probe_key": {"type": ["string", "null"]},
+        "placed_by": {"enum": ["interceptor", "host"]},
+        "exposure": {
+          "type": "object",
+          "propertyNames": {"enum": ["emitted", "agent_tool_result", "model_input"]},
+          "additionalProperties": {"$ref": "#/$defs/exposure_status"}
+        },
+        "reason": {"type": "string"}
       }
     },
     "turn": {

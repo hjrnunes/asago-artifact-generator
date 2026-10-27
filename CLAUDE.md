@@ -171,7 +171,7 @@ Deterministic tests must not contact a model endpoint or target.
   packages, a single package with history, non-user history, run-time bindings,
   state_effect claims and a seed the interceptor cannot place in an MCP tool result are
   capability gaps (exit 3). `parse_sealed` (`sealed.py`, CLI `parse --snapshot --verdict
-  [--route]`) reads the snapshot (`GET .../snapshot`) and the verdict (`evaluation_id`,
+  [--delivery] [--route]`) reads the snapshot (`GET .../snapshot`) and the verdict (`evaluation_id`,
   `snapshot_id`, `grade`) into `execution-receipt-v1`, after recomputing the snapshot ID,
   MiDojo's digest of the content (`snapshot_digest.py`), and requiring every call to be the
   interceptor's record: security true/false/null is detected/not_detected/inconclusive,
@@ -180,13 +180,22 @@ Deterministic tests must not contact a model endpoint or target.
   `call_injections` (each call's `injection_outcomes` as sealed, null when the record does
   not say). A call record sealed from 3824922 has `structured_content` and
   `injection_outcomes`, one sealed before neither; both are shape-checked (occurrence 0
-  only for `unmatched`, a call whose arguments did not match).
+  only for `unmatched`, a call whose arguments did not match). From 13d5487 an outcome
+  also has `selected`/`transformation`/`emitted` and the grade `attempted`/`blocked`/
+  `effect_observed`/`injection_delivered` (each all or none, optional, so the range stays
+  `>=b5b8c752`); a missing one is null in `episode.verdict`, never false. `--delivery`
+  names the runner's `delivery.json` (`contracts/midojo-delivery/`, `midojo-delivery-v1`:
+  the evaluation and snapshot IDs and `midojo.delivery`'s facts and exposure), carried into
+  `episode.delivery`/`exposure` (null without it); missing, malformed or another snapshot's
+  fails the receipt.
   The tests compile against the fixture target (`tests/fixtures/targets/piggybank/`);
   `tests/fixtures/episode/` holds compiled episodes and the snapshots and verdicts MiDojo
   produced from them at 3824922 through its interceptor in front of that target
   (`generate.py`, run in MiDojo's interpreter; `tests/episode_cases.py` says how to
   regenerate; the episodes were recompiled offline since, changing only
-  `tool_revision_range`), and `tests/fixtures/episode-a5f81e9/` the same runs sealed at a5f81e9.
+  `tool_revision_range`), `tests/fixtures/episode-a5f81e9/` the same runs sealed at a5f81e9,
+  and `tests/fixtures/regraded-13d5487/` those runs as MiDojo 13d5487 reads, grades and
+  reports them (`regrade.py`, offline, no episode run; `reported/` derives reported facts).
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-bundle-garak/tests -q`.
