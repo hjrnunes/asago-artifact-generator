@@ -24,7 +24,7 @@ from episode_cases import EPISODES, REGRADED
 from asago_bundle_midojo.cli import main
 from asago_bundle_midojo.sealed import ATTACK_OUTCOME, delivery_shape, parse_sealed
 from asago_bundle_midojo.snapshot_digest import snapshot_digest
-from conftest import DELIVERY_CONTRACT, RECEIPT_SCHEMA
+from conftest import DELIVERY_CONTRACT, RECEIPT_SCHEMA, as_sealed
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 DELIVERY_SCHEMA = json.loads(
@@ -285,7 +285,7 @@ def test_an_outcome_with_delivery_facts_of_midojo_s_types_is_kept(
 
     assert (receipt["execution_status"], receipt["incomplete_reason"]) == ("completed", None)
     sealed = snapshot["function_calls"][0]["injection_outcomes"]
-    assert receipt["episode"]["call_injections"][0]["injection_outcomes"] == sealed
+    assert as_sealed(receipt["episode"]["call_injections"][0]["injection_outcomes"]) == sealed
 
 
 @pytest.mark.parametrize(

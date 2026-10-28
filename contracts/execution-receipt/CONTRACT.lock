@@ -29,7 +29,8 @@
     "execution-receipt-v1/valid/gym-repeats.json": "807488de38cccb20314e67d23b2270b77ee5a1301e8c91239509a9833b19c6a5",
     "execution-receipt-v1/valid/incomplete-without-attempts.json": "bbedbd6523c020026bb9c22a5665300a1feea84c6cf7f7efc2c1e64f56f4562d",
     "execution-receipt-v1/valid/midojo-episode-delivery.json": "2fb294db5750cd38a3499c73533791005f2f850761ce12785ed552aa2811afc0",
+    "execution-receipt-v1/valid/midojo-episode-placement.json": "c40dc5b572ac268b64abbe610904d0829b6728c1ef9d9afaf9c7cd9d2f5e86d5",
     "execution-receipt-v1/valid/midojo-episode-unknown.json": "e8d72977c24d2b20b0d617bfefdc0782b8956d29d2f1c27b0664801731f90203",
-    "execution-receipt-v1.schema.json": "2f88456d8e5d567cd3a4c32fb2e9683a4aba5f8b4adacb3f2a86e3e7261211a3"
+    "execution-receipt-v1.schema.json": "64b433c142afb6d8104e53928ac16ec02adabe9bdf59f1ab5e0a84684a4bbe10"
   }
 }
