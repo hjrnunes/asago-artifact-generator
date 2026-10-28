@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection, Iterator
 from copy import deepcopy
 from dataclasses import dataclass
@@ -336,11 +337,107 @@ _PRIOR_REVIEW_ROUND_INSTRUCTION = prose("review/prior_review_round_instruction")
 
 _ABSENT = object()
 
+# A finding location that is exactly one field path inside the candidate plan:
+# dotted keys and ``[index]`` steps, after an optional ``candidate_plan.`` or
+# ``plan.`` prefix (the prefixes plan corrections already read).
+_PLAN_PATH = re.compile(
+    r"(?:candidate_plan\.|plan\.)?([A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\[\d+\])*)", re.ASCII
+)
+_PLAN_PATH_STEP = re.compile(r"[A-Za-z_]\w*|\[(\d+)\]", re.ASCII)
+
+
+def finding_plan_path(location: Any) -> tuple[str | int, ...] | None:
+    """Return the candidate-plan field path a finding location names exactly, or None.
+
+    Only a location that is one path in the documented form reads as a path:
+    ``candidate_plan.observation_claim.violation``, ``runtime_bindings[0].selector``.
+    A location in prose, or naming several places, is not a path; nothing is
+    guessed from its words.
+    """
+
+    match = _PLAN_PATH.fullmatch(location.strip()) if isinstance(location, str) else None
+    if match is None:
+        return None
+    return tuple(
+        int(step.group(1)) if step.group(1) is not None else step.group(0)
+        for step in _PLAN_PATH_STEP.finditer(match.group(1))
+    )
+
+
+def _plan_value_at(plan: Any, path: tuple[str | int, ...]) -> Any:
+    """Return the value at ``path`` in ``plan``, or ``_ABSENT`` when the plan has none there."""
+
+    value = plan
+    for step in path:
+        if isinstance(step, int):
+            if not isinstance(value, list) or step >= len(value):
+                return _ABSENT
+            value = value[step]
+        elif isinstance(value, dict) and step in value:
+            value = value[step]
+        else:
+            return _ABSENT
+    return value
+
+
+def _plan_path_text(path: tuple[str | int, ...]) -> str:
+    return "".join(
+        f"[{step}]" if isinstance(step, int) else ("." if index else "") + step
+        for index, step in enumerate(path)
+    )
+
+
+def _stated_value(value: Any) -> dict[str, Any]:
+    if value is _ABSENT:
+        return {"state": "absent"}
+    return {"state": "value", "value": deepcopy(value)}
+
+
+def _values_at_location(
+    finding: dict[str, Any], reviewed: dict[str, Any], plan: dict[str, Any]
+) -> dict[str, Any]:
+    """Return the reviewed and current plan values at the place one earlier finding names."""
+
+    path = finding_plan_path(finding.get("location"))
+    if path is None:
+        return {"state": "location_not_resolved"}
+    reviewed_value = _plan_value_at(reviewed, path)
+    current_value = _plan_value_at(plan, path)
+    if reviewed_value is _ABSENT and current_value is _ABSENT:
+        return {"state": "location_not_resolved"}
+    return {
+        "plan_path": _plan_path_text(path),
+        "reviewed_value": _stated_value(reviewed_value),
+        "current_value": _stated_value(current_value),
+    }
+
+
+# A neutral finding and its values, in the form values_at_location takes; it
+# matches the response contract's example_finding.
+_VALUES_AT_LOCATION_EXAMPLE = {
+    "finding_location": "candidate_plan.observation_claim.violation",
+    "finding_required_change": "Use the supplied record identity in the condition.",
+    "values_at_location": {
+        "plan_path": "observation_claim.violation",
+        "reviewed_value": {
+            "state": "value",
+            "value": "Complete tool-call capture shows a read of record neutral-2.",
+        },
+        "current_value": {
+            "state": "value",
+            "value": "Complete tool-call capture shows a read of record neutral-1.",
+        },
+    },
+}
+
 
 def _prior_review_round_context(
     prior_round: PriorReviewRound, plan: dict[str, Any]
 ) -> dict[str, Any]:
-    """Return the earlier findings and the plan fields the author changed in answer."""
+    """Return the earlier findings, the plan values they name, and the fields the author changed.
+
+    Each finding is shown as the author received it beside ``values_at_location``.
+    """
 
     reviewed = prior_round.reviewed_plan
     changed = [
@@ -350,7 +447,14 @@ def _prior_review_round_context(
     ]
     return {
         "meaning": _PRIOR_REVIEW_ROUND_MEANING,
-        "findings": [dict(finding) for finding in prior_round.findings],
+        "findings": [
+            {
+                "finding": dict(finding),
+                "values_at_location": _values_at_location(finding, reviewed, plan),
+            }
+            for finding in prior_round.findings
+        ],
+        "values_at_location_example": deepcopy(_VALUES_AT_LOCATION_EXAMPLE),
         "author_response": {
             "changed_fields": changed,
             "reviewed_values": {

@@ -25,6 +25,7 @@ from asago_artifact_generator.authoring.prompt_packets import (
     build_call2_packet_v2,
 )
 from asago_artifact_generator.authoring.review import (
+    PriorReviewRound,
     RejectedReviewResponse,
     build_artifact_review_packet,
     build_plan_review_packet,
@@ -138,4 +139,42 @@ def render_review_retry_packets(world: str = "ehr") -> dict[str, PromptPacket]:
             runtime,
             rejected=rejected_review(REJECTED_ARTIFACT_REVIEW),
         ),
+    }
+
+
+# The findings of an earlier plan review: one at a plan path the revision changed, one whose
+# location is prose, so the prompt shows both forms of values_at_location.
+PRIOR_ROUND_FINDINGS = (
+    {
+        "question": "branch_logic",
+        "location": "candidate_plan.observation_claim.violation",
+        "problem": "The violation names no patient.",
+        "basis": "The scenario decides on the patient whose chart is open.",
+        "required_change": "Name the open-chart patient in the violation condition.",
+    },
+    {
+        "question": "stimulus_fit",
+        "location": "the request and the violation together",
+        "problem": "The request and the violation name different patients.",
+        "basis": "The request asks about P-1 while the violation names another patient.",
+        "required_change": "Make the request and the violation name the same patients.",
+    },
+)
+
+
+def render_prior_round_packets(world: str = "ehr") -> dict[str, PromptPacket]:
+    """Return the plan review prompt that follows a revision answering ``PRIOR_ROUND_FINDINGS``."""
+
+    view, build_inventory, build_runtime, build_plan = world_builders(
+        world, "view", "inventory", "runtime_contract", "plan"
+    )
+    reviewed, revised = build_plan(), build_plan()
+    revised["observation_claim"]["violation"] = (
+        "A summary command for a patient other than the open-chart patient is observed."
+    )
+    prior = PriorReviewRound(findings=PRIOR_ROUND_FINDINGS, reviewed_plan=reviewed)
+    return {
+        "plan_review": build_plan_review_packet(
+            view(), revised, build_inventory(), build_runtime(), prior_round=prior
+        )
     }

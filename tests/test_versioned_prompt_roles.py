@@ -17,7 +17,7 @@ from asago_artifact_generator.authoring.core import (
     CALL2_PROMPT_VERSION_V28,
     CORRECTION_PROMPT_VERSION_V42,
     CORRECTION_PROMPT_VERSION_V44,
-    PLAN_REVIEW_PROMPT_VERSION_V24,
+    PLAN_REVIEW_PROMPT_VERSION_V25,
     Finding,
     PromptOverflowError,
     PromptPacket,
@@ -309,7 +309,7 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
     "version",
     [
         CALL1_PROMPT_VERSION_V26,
-        PLAN_REVIEW_PROMPT_VERSION_V24,
+        PLAN_REVIEW_PROMPT_VERSION_V25,
         CALL2_PROMPT_VERSION_V28,
         ARTIFACT_REVIEW_PROMPT_VERSION_V24,
         CORRECTION_PROMPT_VERSION_V42,

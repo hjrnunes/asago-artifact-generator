@@ -285,14 +285,30 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   contract descriptions, and the correction texts name the attack path, and the
   path's node and source IDs are citable provenance. The plan correction
   (`authoring-correction-v40`) shows the same outline.
-- `authoring-plan-review-v24` reviews a fresh source-derived plan context. It
+- `authoring-plan-review-v25` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
   binding selects inside one record of a keyed fact, the value also carries
   `record_key_source`: the documented `facts:<ref>:records` source and
   `value.<record_key>.record_key` selector that bind the record key itself. A
   required change that replaces a binding path names the complete source and
-  selector pair.
+  selector pair. A review that follows a revision adds PRIOR REVIEW ROUND: each
+  earlier finding beside `values_at_location`, the value at the plan path its
+  `location` names in the plan reviewed before (`reviewed_value`) and in the
+  revision (`current_value`), each `{"state": "value", "value": ...}` or
+  `{"state": "absent"}`; a location that is not exactly one plan path
+  (`candidate_plan.observation_claim.violation`, `runtime_bindings[0].selector`)
+  existing in either plan is `{"state": "location_not_resolved"}`. The reviewer
+  is told to compare each required change with `current_value`.
+  Whether reviewers stop asking again for changes the plan already holds is
+  unmeasured: the change was made and tested offline, with no model requests.
+  Replay: the version change alters `prompt_version`, `prompt_sha256` and
+  `reviewed_input_sha256` in every plan-review record. A first review's system
+  and user text is byte-identical to v24, so a recorded first-round response
+  still replays; every later-round user message differs, so replaying a
+  recording made before v25 stops at its first later-round plan review. A
+  replay serves recorded responses and does not test how a model answers the
+  changed prompt.
 - `authoring-call2-v28` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
@@ -306,7 +322,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
 - `authoring-artifact-review-v24` reviews the exact artifact object and the
   binding and judge declarations; for a reply claim it reads each example's
   `reply` as the target's own message.
-- A review retry of either role (plan review v24, artifact review v24) sends
+- A review retry of either role (plan review v25, artifact review v24) sends
   the same prompt followed by PREVIOUS REVIEW RESPONSE REJECTED, the rejected
   response verbatim, its check findings, and an instruction to return one
   complete response that corrects every finding.

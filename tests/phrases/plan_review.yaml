@@ -29,6 +29,7 @@ cases:
         - mechanical_check_summary
         - PRIOR REVIEW ROUND
         - prior_review_round
+        - values_at_location
         - 'An omission plan cites no stimulus trigger'
         - 'A not_called comparison is an omission'
   observed-condition:
@@ -76,3 +77,25 @@ cases:
       once:
         - 'The producer''s analysis of this scenario as structured fields.'
         - 'forged_history is an invented earlier turn of the conversation.'
+  prior-round:
+    user:
+      once:
+        - PRIOR REVIEW ROUND
+        - 'findings holds one entry per earlier finding: finding is that finding as the author received it, and values_at_location holds the plan values at the place its location names.'
+        - 'values_at_location.plan_path is that location read as a field path inside candidate_plan; reviewed_value is the value at that path in the plan you reviewed before, and current_value is the value at the same path in candidate_plan.'
+        - 'when that plan has no value at that path.'
+        - 'When a location is not one field path that exists in either plan, values_at_location is'
+        - 'and holds no values; read candidate_plan for that finding yourself.'
+        - 'values_at_location_example shows the form for an example finding.'
+        - 'Decide first, for each earlier finding, whether the candidate_plan now meets its required_change.'
+        - 'Compare the required_change with its current_value, not its reviewed_value: when current_value already makes the requested change, the finding is met, and you must not report it again, in the same words or in others.'
+        - '"values_at_location_example": {'
+      required:
+        - '"values_at_location": {'
+        - '"current_value": {'
+        - '"reviewed_value": {'
+        - '"state": "location_not_resolved"'
+      ordered:
+        - - CANDIDATE PLAN
+          - PRIOR REVIEW ROUND
+          - RESOLVED SUPPLIED BINDING VALUES
