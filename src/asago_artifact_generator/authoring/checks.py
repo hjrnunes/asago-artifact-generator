@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Collection, Iterator, Mapping
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -250,9 +251,8 @@ def collect_plan_findings_v2(
     *,
     provenance_ids: Collection[str] = frozenset(),
     condition: Mapping[str, Any] | None = None,
-    transformations: list[dict[str, Any]] | None = None,
 ) -> list[Finding]:
-    """Return every structural finding for a v2 plan and normalize valid bindings.
+    """Return every structural finding for a v2 plan that ``normalize_plan_v2`` returned.
 
     The v2 root fields (``assumptions`` and ``required_observations``) are
     checked here; the remaining fields go through the shared field validator,
@@ -287,12 +287,8 @@ def collect_plan_findings_v2(
     shared_plan.pop("assumptions", None)
     shared_plan.pop("required_observations", None)
     findings.extend(
-        _normalized_plan_findings(
-            shared_plan,
-            inventory,
-            runtime_contract,
-            provenance_ids,
-            transformations,
+        staged_findings(
+            _plan_field_findings(shared_plan, inventory, runtime_contract, provenance_ids), "plan"
         )
     )
     findings.extend(_unobtainable_requirement_findings(plan))
@@ -481,11 +477,10 @@ def collect_artifact_findings_v2(
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
     *,
-    transformations: list[dict[str, Any]] | None = None,
     condition: Mapping[str, Any] | None = None,
     planted_max_chars: int | None = None,
 ) -> list[Finding]:
-    """Normalize the plan-owned context and the stimulus slots, then validate v2 metadata.
+    """Validate v2 metadata that ``normalize_artifact_v2`` returned against the accepted plan.
 
     ``condition`` is the handoff's bound tool-call condition. A command-attempt
     artifact whose example captures pass the structural checks is also scored
@@ -497,7 +492,6 @@ def collect_artifact_findings_v2(
     findings = _reply_led_shape_findings(metadata, plan)
     if findings or not isinstance(metadata, dict):
         return staged_findings(findings, "artifact")
-    _normalize_artifact_context(metadata, plan, inventory, transformations=transformations)
     findings.extend(
         _artifact_findings(
             metadata, plan, inventory, runtime_contract, condition, planted_max_chars
@@ -531,36 +525,6 @@ def _reply_led_shape_findings(metadata: Any, plan: dict[str, Any]) -> list[Findi
         for finding in findings
         if not any(finding.path == path or finding.path.startswith(f"{path}.") for path in owned)
     ]
-
-
-def _normalize_artifact_context(
-    metadata: dict[str, Any],
-    plan: dict[str, Any],
-    inventory: dict[str, Any],
-    *,
-    transformations: list[dict[str, Any]] | None,
-) -> None:
-    """Canonicalize the plan bindings and their consumers, then derive the stimulus slots."""
-
-    runtime_bindings = plan.get("runtime_bindings")
-    if isinstance(runtime_bindings, list):
-        normalize_binding_declarations(
-            runtime_bindings,
-            inventory=inventory,
-            transformations=transformations,
-        )
-        _normalize_prerequisite_binding_consumers(
-            plan.get("prerequisites"),
-            runtime_bindings,
-            transformations=transformations,
-        )
-    stimulus = metadata.get("stimulus")
-    if isinstance(stimulus, dict):
-        _normalize_stimulus_slots(
-            stimulus,
-            _declared_binding_names(runtime_bindings),
-            transformations=transformations,
-        )
 
 
 def _artifact_findings(
@@ -1060,28 +1024,6 @@ def _value_excerpt(value: Any) -> str:
     return text if len(text) <= _VALUE_DETAIL_LIMIT else f"{text[:_VALUE_DETAIL_LIMIT]}..."
 
 
-def _normalized_plan_findings(
-    plan: dict[str, Any],
-    inventory: dict[str, Any],
-    runtime_contract: dict[str, Any],
-    provenance_ids: Collection[str],
-    transformations: list[dict[str, Any]] | None,
-) -> list[Finding]:
-    """Normalize the bindings and prerequisite consumers, then check the shared fields."""
-
-    runtime_bindings = plan.get("runtime_bindings")
-    if isinstance(runtime_bindings, list):
-        normalize_binding_declarations(
-            runtime_bindings, inventory=inventory, transformations=transformations
-        )
-    _normalize_prerequisite_binding_consumers(
-        plan.get("prerequisites"), runtime_bindings, transformations=transformations
-    )
-    return staged_findings(
-        _plan_field_findings(plan, inventory, runtime_contract, provenance_ids), "plan"
-    )
-
-
 def _plan_field_findings(
     plan: dict[str, Any],
     inventory: dict[str, Any],
@@ -1519,7 +1461,7 @@ def _collect_binding_findings(
     *,
     finding_code: str = "artifact_validation",
 ) -> list[Finding]:
-    """Check declarations that ``normalize_binding_declarations`` already canonicalized.
+    """Check declarations that ``normalize_plan_v2`` already canonicalized.
 
     The binding engine reports every fault of each declaration under
     ``_FINDINGS_POLICY``; a declaration with none of its own is then checked by
@@ -1527,9 +1469,6 @@ def _collect_binding_findings(
     """
 
     declarations = list(declarations)
-    for raw in declarations:
-        if isinstance(raw, dict):
-            _canonicalize_binding_source(raw, raw.get("source_kind"), inventory)
     checked = check_declarations(
         declarations,
         inventory=inventory,
@@ -1666,32 +1605,19 @@ def _binding_detail(violation: Violation) -> str:
     }[violation.kind]
 
 
-def _canonicalize_binding_source(
-    raw: dict[str, Any],
-    source_kind: Any,
-    inventory: dict[str, Any],
-) -> tuple[Any, Any]:
-    """Rewrite ``source_ref`` and ``selector`` in place to their canonical paths.
+def _canonicalize_binding_source(raw: dict[str, Any], inventory: dict[str, Any]) -> None:
+    """Rewrite ``source_ref`` and ``selector`` in place to their canonical paths."""
 
-    Returns the (possibly rewritten) source reference and selector.
-    """
-
+    source_kind = raw.get("source_kind")
     source_ref = raw.get("source_ref")
     selector = raw.get("selector")
     if not (
         isinstance(source_kind, str) and isinstance(source_ref, str) and isinstance(selector, str)
     ):
-        return source_ref, selector
-    canonical_source_ref, canonical_selector = canonical_binding_paths(
-        source_kind,
-        source_ref,
-        selector,
-        inventory,
+        return
+    raw["source_ref"], raw["selector"] = canonical_binding_paths(
+        source_kind, source_ref, selector, inventory
     )
-    if (canonical_source_ref, canonical_selector) != (source_ref, selector):
-        raw["source_ref"] = canonical_source_ref
-        raw["selector"] = canonical_selector
-    return canonical_source_ref, canonical_selector
 
 
 def _judge_consumer_findings(plan: dict[str, Any], *, finding_code: str) -> list[Finding]:
@@ -1748,31 +1674,6 @@ def _binding_source_schema(
     if violation is None:
         return schema, None
     return None, _binding_detail(replace(violation, name=name))
-
-
-def _collect_canonical_prerequisite_findings(
-    prerequisites: list[Any],
-    references: set[str],
-    declared_bindings: set[str],
-    runtime_bindings: Any,
-    *,
-    safe_behavior: str | None = None,
-    transformations: list[dict[str, Any]] | None = None,
-) -> list[Finding]:
-    """Add the prerequisite binding consumers, then validate the closed prerequisite form."""
-
-    _normalize_prerequisite_binding_consumers(
-        prerequisites,
-        runtime_bindings,
-        transformations=transformations,
-    )
-    return _canonical_prerequisite_findings(
-        prerequisites,
-        references,
-        declared_bindings,
-        runtime_bindings,
-        safe_behavior=safe_behavior,
-    )
 
 
 def _canonical_prerequisite_findings(
@@ -2036,6 +1937,58 @@ def _consumer_declarations_by_name(runtime_bindings: list[Any]) -> dict[str, dic
             and isinstance(item.get("consumers"), list)
         )
     }
+
+
+def normalize_plan_v2(plan: Any, inventory: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:
+    """Return a normalized copy of a v2 plan and the deterministic rewrites that made it.
+
+    The bindings are canonicalized and exact duplicates dropped, then each
+    prerequisite's binding gets its closed consumer.  A declaration the binding
+    reader rejects keeps its place, with its source paths canonicalized so that
+    its findings name the documented paths; that rewrite is not recorded.  The
+    plan passed in is not changed; one that is not an object is returned as
+    written.  The plan checks read the returned plan.
+    """
+
+    if not isinstance(plan, dict):
+        return plan, []
+    normalized = deepcopy(plan)
+    transformations: list[dict[str, Any]] = []
+    runtime_bindings = normalized.get("runtime_bindings")
+    if isinstance(runtime_bindings, list):
+        normalize_binding_declarations(
+            runtime_bindings, inventory=inventory, transformations=transformations
+        )
+        for raw in runtime_bindings:
+            if isinstance(raw, dict):
+                _canonicalize_binding_source(raw, inventory)
+    _normalize_prerequisite_binding_consumers(
+        normalized.get("prerequisites"), runtime_bindings, transformations=transformations
+    )
+    return normalized, transformations
+
+
+def normalize_artifact_v2(metadata: Any, plan: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:
+    """Return a copy of v2 metadata with its stimulus slots derived, and the rewrites.
+
+    ``plan`` is the accepted plan ``normalize_plan_v2`` returned; its declared
+    bindings name the slots.  The metadata passed in is not changed.  Metadata
+    with shape findings is returned as written: those findings describe the
+    response the author sent.
+    """
+
+    if not isinstance(metadata, dict) or _reply_led_shape_findings(metadata, plan):
+        return metadata, []
+    normalized = deepcopy(metadata)
+    transformations: list[dict[str, Any]] = []
+    stimulus = normalized.get("stimulus")
+    if isinstance(stimulus, dict):
+        _normalize_stimulus_slots(
+            stimulus,
+            _declared_binding_names(plan.get("runtime_bindings")),
+            transformations=transformations,
+        )
+    return normalized, transformations
 
 
 def _normalize_prerequisite_binding_consumers(

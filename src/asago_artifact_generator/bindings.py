@@ -499,7 +499,8 @@ def supplied_binding_values(
     Authoring can inspect supplied facts, but it cannot run setup operations.
     This helper therefore resolves only ``supplied_input`` declarations.  An
     invalid or unavailable source is skipped; the normal binding validator
-    reports that structural error separately.
+    reports that structural error separately.  The declarations passed in are
+    not changed.
     """
 
     fact_by_ref = _supplied_facts_by_ref(declarations, inventory)
@@ -507,7 +508,7 @@ def supplied_binding_values(
         return {}
     values: dict[str, Any] = {}
     normalized_declarations = normalize_binding_declarations(
-        declarations,
+        tuple(declarations),
         inventory=dict(inventory),
     )
     for raw in normalized_declarations:

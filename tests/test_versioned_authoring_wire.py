@@ -8,6 +8,8 @@ import pytest
 from asago_artifact_generator.authoring.checks import (
     collect_artifact_findings_v2,
     collect_plan_findings_v2,
+    normalize_artifact_v2,
+    normalize_plan_v2,
 )
 from asago_artifact_generator.authoring.contracts import neutral_artifact_response_without_source
 from asago_artifact_generator.authoring.core import (
@@ -105,7 +107,7 @@ def test_call1_v2_has_closed_root_and_reports_all_root_faults() -> None:
     }
 
 
-def test_v2_artifact_derives_slots_and_prerequisite_consumers() -> None:
+def test_v2_plan_adds_prerequisite_consumers_then_artifact_derives_slots() -> None:
     inventory = _inventory()
     inventory["facts"].append(
         {
@@ -165,15 +167,10 @@ def test_v2_artifact_derives_slots_and_prerequisite_consumers() -> None:
         "history": [],
         "slots": [],
     }
-    transformations: list[dict] = []
+    plan, plan_transformations = normalize_plan_v2(plan, inventory)
+    metadata, artifact_transformations = normalize_artifact_v2(metadata, plan)
 
-    findings = collect_artifact_findings_v2(
-        metadata,
-        plan,
-        inventory,
-        _runtime_contract(),
-        transformations=transformations,
-    )
+    findings = collect_artifact_findings_v2(metadata, plan, inventory, _runtime_contract())
 
     assert findings == []
     assert metadata["stimulus"]["slots"] == ["other", "owner"]
@@ -182,9 +179,9 @@ def test_v2_artifact_derives_slots_and_prerequisite_consumers() -> None:
         "judge.owner",
         "prerequisites.owner",
     ]
-    assert [item["transformation"] for item in transformations] == [
-        "binding_consumer_added",
-        "stimulus_slots_derived",
+    assert [item["transformation"] for item in plan_transformations] == ["binding_consumer_added"]
+    assert [item["transformation"] for item in artifact_transformations] == [
+        "stimulus_slots_derived"
     ]
 
 

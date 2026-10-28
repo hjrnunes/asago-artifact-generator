@@ -444,8 +444,8 @@ class _Projections:
         self.document["transformations"] = list(event.transformations)
 
     def _on_decoded_output(self, event: DecodedOutputRecorded) -> None:
-        # Both views keep the decoded dict itself: the stage checks rewrite it in
-        # place afterwards, and the recorded output is the rewritten candidate.
+        # The orchestrator records the response as decoded, then its normalized
+        # candidate; the later record replaces the earlier one in both views.
         record, attempt = self.current()
         if event.on_ledger:
             record["decoded_output"] = event.output

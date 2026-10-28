@@ -5,6 +5,7 @@ from __future__ import annotations
 from asago_artifact_generator.authoring.checks import (
     collect_artifact_findings_v2,
     collect_plan_findings_v2,
+    normalize_plan_v2,
 )
 
 from .support import (
@@ -111,14 +112,9 @@ def test_plan_validation_carries_canonical_deduplicated_bindings_into_prerequisi
             }
         ],
     )
-    transformations: list[dict] = []
+    plan, transformations = normalize_plan_v2(plan, inventory)
 
-    findings = collect_plan_findings_v2(
-        plan,
-        inventory,
-        _contract(),
-        transformations=transformations,
-    )
+    findings = collect_plan_findings_v2(plan, inventory, _contract())
 
     assert findings == []
     assert len(plan["runtime_bindings"]) == 1
@@ -187,6 +183,7 @@ def test_plan_validation_accepts_a_record_shorthand_whose_selector_repeats_the_k
         ],
         prerequisites=[],
     )
+    plan, _ = normalize_plan_v2(plan, inventory)
 
     findings = collect_plan_findings_v2(plan, inventory, _contract())
 
@@ -230,14 +227,9 @@ def test_plan_validation_adds_missing_prerequisite_consumer_and_records_rewrite(
             }
         ],
     )
-    transformations: list[dict] = []
+    plan, transformations = normalize_plan_v2(plan, inventory)
 
-    findings = collect_plan_findings_v2(
-        plan,
-        inventory,
-        _contract(),
-        transformations=transformations,
-    )
+    findings = collect_plan_findings_v2(plan, inventory, _contract())
 
     assert findings == []
     assert plan["runtime_bindings"][0]["consumers"] == [
