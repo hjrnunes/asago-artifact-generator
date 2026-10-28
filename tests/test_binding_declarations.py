@@ -587,8 +587,9 @@ def test_supplied_binding_values_use_canonicalized_deduplicated_declarations() -
     assert supplied_binding_values(declarations, _companion_inventory()) == {
         "item_owner": "OWNER-A"
     }
-    assert declarations == [declaration, declaration]
-    assert declaration["source_ref"] == "facts:catalog:items:records:ITEM-A:owner"
+    assert len(declarations) == 1
+    assert declarations[0]["source_ref"] == "facts:catalog:items"
+    assert declarations[0]["selector"] == "value.ITEM-A.owner"
 
 
 _FACT_INVENTORY = {

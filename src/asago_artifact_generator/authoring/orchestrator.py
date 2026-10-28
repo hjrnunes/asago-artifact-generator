@@ -983,6 +983,7 @@ class AuthoringOrchestrator:
                 provenance_ids=scenario_provenance_ids(view),
                 condition=view.payload.get("discriminating_condition"),
                 declarations=normalized.declarations,
+                source_refs=normalized.source_refs,
             ) + sequential_plan_findings(view, normalized.plan, runtime_contract)
 
         return _Stage(
