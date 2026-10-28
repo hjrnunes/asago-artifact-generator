@@ -32,8 +32,20 @@
     "index": {"type": "integer", "minimum": 0},
     "optional_text": {"type": ["string", "null"]},
     "exposure_status": {"enum": ["exposed", "not_exposed", "unknown"]},
+    "optional_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "slot": {
+      "description": "midojo.types.CallInjectionSlot: where an instruction placed its payload. target is the instruction's tool-output target in the plan codec's form (InjectionPlan.to_data's instruction target), mode its mode, and id sha256:<hex> of the target's JSON with sorted keys, compact separators and no ASCII escaping, in UTF-8; that the id is its target's is checked in code.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "target", "mode"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "target": {"type": "object"},
+        "mode": {"enum": ["append", "replace"]}
+      }
+    },
     "delivery_fact": {
-      "description": "What the interceptor did with one instruction on one recorded call, at its own boundary. selected, transformation and emitted are null when the interceptor did not report them.",
+      "description": "What the interceptor did with one instruction on one recorded call, at its own boundary. selected, transformation and emitted are null when the interceptor did not report them. payload_digest, placed_digest and slot are optional (MiDojo from a19562e): what a placement (applied, partial, fallback) placed and where, null or absent when not reported, and null for any other status.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -77,8 +89,32 @@
           "description": "The parts of the returned result that carry the payload where the interceptor placed it; empty when none does.",
           "type": ["array", "null"],
           "items": {"enum": ["content_block", "structured_content"]}
+        },
+        "payload_digest": {
+          "description": "Optional; sha256:<hex> of the UTF-8 bytes of the instruction's payload, before its transformation.",
+          "$ref": "#/$defs/optional_digest"
+        },
+        "placed_digest": {
+          "description": "Optional; sha256:<hex> of the UTF-8 bytes of the transformed payload the instruction wrote into the result.",
+          "$ref": "#/$defs/optional_digest"
+        },
+        "slot": {
+          "description": "Optional; where the instruction placed its payload: its target and mode as planned.",
+          "anyOf": [{"$ref": "#/$defs/slot"}, {"type": "null"}]
         }
       },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"not": {"enum": ["applied", "partial", "fallback"]}}}},
+          "then": {
+            "properties": {
+              "payload_digest": {"const": null},
+              "placed_digest": {"const": null},
+              "slot": {"const": null}
+            }
+          }
+        }
+      ],
       "if": {"properties": {"occurrence": {"const": 0}}},
       "then": {
         "properties": {

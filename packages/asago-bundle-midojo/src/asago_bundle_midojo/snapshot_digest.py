@@ -13,6 +13,12 @@ turns and capture failures as their dataclass fields, and those are the objects 
 same names in the JSON form, field for field: a call record sealed from 3824922 with its
 ``structured_content`` and ``injection_outcomes``, one sealed before without them.
 
+From a19562e an injection outcome may say what it placed and where (``payload_digest``,
+``placed_digest``, ``slot``), and MiDojo encodes each of those only when it is set
+(``state._call_content``): a None one is left out, so a snapshot without them keeps the ID
+it had before they existed. The JSON form holds each as null, or not at all when sealed
+before; both encode the same.
+
 A value JSON does not carry back as the type MiDojo encoded (bytes, a date, a tuple or
 set, a non-finite float, a mapping with keys that are not text, in a field MiDojo does
 not type) gives a different digest, so the snapshot is refused rather than renamed:
@@ -47,6 +53,11 @@ CONTENT_FIELDS = (
 )
 
 
+# The fields an injection outcome gained after snapshots were first digested
+# (``state._LATER_OUTCOME_FIELDS``): each is encoded only when set.
+LATER_OUTCOME_FIELDS = ("payload_digest", "placed_digest", "slot")
+
+
 class DigestFault(ValueError):
     """A value no JSON document holds: the snapshot was not read from JSON."""
 
@@ -58,7 +69,28 @@ def snapshot_digest(snapshot: dict[str, Any]) -> str:
     """
 
     content = {name: snapshot[name] for name in CONTENT_FIELDS}
+    content["function_calls"] = [call_content(call) for call in content["function_calls"]]
     return f"sha256:{hashlib.sha256(dumps(canonical(content)).encode()).hexdigest()}"
+
+
+def call_content(call: Any) -> Any:
+    """Return a call record as the digest encodes it (``state._call_content``): each injection
+    outcome without a later field (``LATER_OUTCOME_FIELDS``) that is None. ``call`` itself is
+    left as it is."""
+
+    if not isinstance(call, dict) or not isinstance(call.get("injection_outcomes"), list):
+        return call
+    outcomes = [
+        {
+            key: value
+            for key, value in outcome.items()
+            if not (key in LATER_OUTCOME_FIELDS and value is None)
+        }
+        if isinstance(outcome, dict)
+        else outcome
+        for outcome in call["injection_outcomes"]
+    ]
+    return {**call, "injection_outcomes": outcomes}
 
 
 def canonical(value: Any) -> Any:

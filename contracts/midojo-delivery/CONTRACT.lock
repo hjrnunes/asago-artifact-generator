@@ -3,16 +3,20 @@
   "contract": "midojo-delivery",
   "schema_version": "midojo-delivery-v1",
   "files": {
-    "midojo-delivery-v1/expected-violations.json": "7d063a5419d706cd27b49e785de6e05ed021cc8caa4ea75b862181ea0dc88be4",
+    "midojo-delivery-v1/expected-violations.json": "d099869bcffac7e7fdb3777236a344d5fe60f07df6db43e0c34e62cf9afa55cf",
     "midojo-delivery-v1/invalid/exposure-unknown-status.json": "15bb1a0f4685797aa68a7fc87d39a399640f4ef5e8da81df2927c60eade1a7c0",
+    "midojo-delivery-v1/invalid/fact-digest-malformed.json": "f8a60161a3c85a1250733e9de05ae07a62cc577bb05e0d5f6df249c53c35caa5",
     "midojo-delivery-v1/invalid/fact-extra-field.json": "fda60982677b9d06e89fe2580beb47376f890034958a7a0d196d9ad5836471ef",
+    "midojo-delivery-v1/invalid/fact-placement-unmatched.json": "dbcf5b86a9c8b8ae41505799b067e62cf45f8deeac3a4ab1d43eddec7fd616f2",
+    "midojo-delivery-v1/invalid/fact-slot-extra-field.json": "5ea5115677dd04075a933502d64ce944801571fa5769ecc234e2e3c943bc133f",
     "midojo-delivery-v1/invalid/fact-transformation-unknown.json": "7c0181fbebb69d78fb89f8be6c46b540f8507b9a7a52e923e4564840bdca8560",
     "midojo-delivery-v1/invalid/fact-uncounted-emitted.json": "3342c6ca78a7d94229f112323e08d7c93b6fd39c12db2ffd12fe94719bb78b6d",
     "midojo-delivery-v1/invalid/instruction-unknown-placer.json": "5ae08d40cdf0aba217dd2a57e3d8e75607da6f9d2059c2b1d5c65f8f525ab1d3",
     "midojo-delivery-v1/invalid/missing-snapshot-id.json": "df4f14a14ef14fbe4c8ab4d1e88d8e9261b36e7b9020a615b284b8cd58c2515e",
     "midojo-delivery-v1/invalid/other-version.json": "de4da8e530e5460fcf02c469cec7bdc7d3c4b3cf8c0230bacd2d36fae6417627",
     "midojo-delivery-v1/valid/emitted.json": "a012bee1a868c9bf1b23a693ce4e79e2573d6fd1708573df97ac61af63486452",
+    "midojo-delivery-v1/valid/placed.json": "c0fb15351ece17f290f467f846580945a9c6e89850ccccd958f42290b6d769c6",
     "midojo-delivery-v1/valid/unreported-facts.json": "63c6d881502e546e0192739553b57bb9f26b24e2a1877b351dfaf1eba62e9906",
-    "midojo-delivery-v1.schema.json": "36cef95b5286886711822229151d7ba6ed4d895acc00faeeac4fc1b55ccea831"
+    "midojo-delivery-v1.schema.json": "75866260dca88f1b13833e888823068d2d40cb5b8a4cd2ebe0a054cc9419dc8e"
   }
 }

@@ -1,11 +1,12 @@
-"""parse: each injection outcome's ``payload_sha256`` and ``slot``.
+"""parse: each injection outcome's ``payload_sha256`` and ``slot`` from the plan.
 
-MiDojo seals neither the payload text it placed nor its digest nor the seed slot, so parse
+A snapshot sealed before a19562e holds neither the payload's digest nor its slot, so parse
 reads both from the episode's plan when the plan is static (no generator permissions): the
 outcome's instruction is the plan's tool-output instruction MiDojo's ``delivery_facts`` maps
 it to, ``payload_sha256`` its payload's digest when the outcome emitted it, and ``slot`` its
 ``placements`` entry with its mode when the outcome also selected its place. Anything that
-does not establish them leaves them null.
+does not establish them leaves them null. What a snapshot sealed from a19562e says of a
+placement comes first (``test_sealed_placed.py``).
 """
 
 from __future__ import annotations
@@ -324,7 +325,7 @@ def test_an_outcome_sealed_before_its_delivery_facts_has_neither(tmp_path: Path)
     ],
     ids=["tools", "fields-and-modes", "not-an-object"],
 )
-def test_a_plan_that_may_generate_payloads_establishes_neither(
+def test_a_plan_that_may_generate_payloads_establishes_neither_from_itself(
     tmp_path: Path, permissions: Any
 ) -> None:
     def generative(document: dict[str, Any]) -> None:

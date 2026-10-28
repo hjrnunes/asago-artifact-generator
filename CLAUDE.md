@@ -188,10 +188,16 @@ Deterministic tests must not contact a model endpoint or target.
   only for `unmatched`, a call whose arguments, or from c0bee12 result, did not match).
   From 13d5487 an outcome also has `selected`/`transformation`/`emitted` and the grade `attempted`/`blocked`/
   `effect_observed`/`injection_delivered` (each all or none, optional, so the range stays
-  `>=b5b8c752`); a missing one is null in `episode.verdict`, never false. Each receipt
-  outcome also gets `payload_sha256` and `slot` (`{id, record, mode}`), read from the
-  episode's plan and `placements` (MiDojo seals neither) only for a static plan and an
-  outcome that emitted (the slot also `selected`), else null. `--delivery`
+  `>=b5b8c752`); a missing one is null in `episode.verdict`, never false. From a19562e a
+  placement (applied/partial/fallback) may also seal `payload_digest`, `placed_digest` and
+  `slot` (`{id, target, mode}`, `id` the target's digest), each optional, also on
+  `delivery.json` facts; shape-checked, left out of the snapshot ID when null, and not
+  carried into the receipt as sealed. Each receipt outcome that emitted gets
+  `payload_sha256` and `slot` (`{id, record, mode}`, the slot also `selected`): snapshot
+  first (the sealed digest's hex; the sealed slot's mode and target record, its `id` named
+  by the `placements` of the plan instructions with that target), for static and generated
+  plans alike; a key not sealed falls back to a static plan's payload and `placements`; a
+  static plan that disagrees with the sealed digest nulls both; else null. `--delivery`
   names the runner's `delivery.json` (`contracts/midojo-delivery/`, `midojo-delivery-v1`:
   the evaluation and snapshot IDs and `midojo.delivery`'s facts and exposure), carried into
   `episode.delivery`/`exposure` (null without it); missing, malformed or another snapshot's
@@ -204,6 +210,9 @@ Deterministic tests must not contact a model endpoint or target.
   `tool_revision_range`), `tests/fixtures/episode-a5f81e9/` the same runs sealed at a5f81e9,
   and `tests/fixtures/regraded-13d5487/` those runs as MiDojo 13d5487 reads, grades and
   reports them (`regrade.py`, offline, no episode run; `reported/` derives reported facts).
+  `tests/fixtures/placed-a19562e/` holds static and generated-payload runs of a list slot
+  and a `result_record` slot, sealed by MiDojo a19562e in front of a scripted upstream, with
+  their `delivery.json` (`tests/placed_cases.py`).
   `tests/fixtures/result-record/` holds episodes compiled for this package's clinic fixture
   target (its `tests/fixtures/targets/clinic/`, record IDs in the result only) and what MiDojo
   c0bee12 sealed from them in front of a scripted upstream (`tests/result_record_cases.py`).

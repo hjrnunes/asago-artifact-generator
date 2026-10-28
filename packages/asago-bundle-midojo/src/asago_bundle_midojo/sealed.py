@@ -46,20 +46,34 @@ A named document that is missing (``delivery_missing``), is not that shape
 (``delivery_malformed``) or names another evaluation or snapshot (``delivery_mismatch``)
 fails the receipt.
 
-Each outcome in ``call_injections`` also gets ``payload_sha256``, the SHA-256 of the payload
-text placed before its transformation, and ``slot``, the seed slot it was placed in (``id``,
-``record``, ``mode``). MiDojo seals neither the placed text nor its digest nor the slot, so
-both are read from the episode's plan, and only where the plan is what the interceptor
-placed: a plan without generator permissions, so no payload was generated at run time. The
-outcome's instruction is the plan's tool-output instruction MiDojo's ``delivery_facts`` maps
-it to (the same probe key, a target tool that is the call's or none) and, with a delivery
-document, the one instruction its facts for the outcome name. ``payload_sha256`` is that
-instruction's payload digest when the outcome ``emitted`` it; ``slot`` is its one
-``placements`` entry's slot and record with its mode when it also ``selected`` the
-instruction's place. Anything else is null: nothing emitted, facts not reported, a plan
-that may generate payloads, an instruction that does not resolve, delivery facts that name
-different instructions for the outcome (no slot for placements that name different slots
-for the instruction), or a sealed result that does not hold together.
+From a19562e a placement (``applied``, ``partial``, ``fallback``) may also say what it placed
+and where: ``payload_digest`` (``sha256:<hex>`` of the payload's UTF-8 bytes before its
+transformation), ``placed_digest`` (the same of the transformed text written) and ``slot``
+(``{id, target, mode}``: the instruction's target in the plan codec's form, its mode, and
+``id`` the target's digest, ``slot_id``). Each is optional, null or absent when not
+reported, and only a placement has any; the snapshot ID leaves a null one out
+(``snapshot_digest.py``). ``delivery.json`` facts may carry the same three keys.
+
+Each outcome in ``call_injections`` gets ``payload_sha256``, the SHA-256 of the payload text
+placed before its transformation, and ``slot``, the seed slot it was placed in (``id``,
+``record``, ``mode``), in place of what MiDojo sealed of the placement; the receipt's
+``delivery`` facts leave those keys out too. Both need an outcome that ``emitted`` its
+payload. The snapshot comes first: ``payload_sha256`` is the sealed ``payload_digest``'s
+hex, and ``slot``, when the outcome also ``selected`` its place, the sealed slot's mode and
+record (its target's record selector or ``result_record``) with the seed slot the
+``placements`` entries of the plan's instructions with that target name. A generated
+payload changes no target, so this holds for a plan that may generate payloads too. A key
+the outcome does not seal falls back to the plan, and only to a static one (no generator
+permissions, so its text is what was placed): the outcome's instruction is the plan's
+tool-output instruction MiDojo's ``delivery_facts`` maps it to (the same probe key, a target
+tool that is the call's or none) and, with a delivery document, the one instruction its
+facts for the outcome name; ``payload_sha256`` is that instruction's payload digest and
+``slot`` its one ``placements`` entry's slot and record with its mode. Anything else is
+null: nothing emitted, facts not reported, a plan that may generate payloads and a key not
+sealed, an instruction that does not resolve, delivery facts that name different
+instructions for the outcome, a sealed slot no plan instruction targets or whose entries
+name more than one (slot, record) or another record, a static plan whose payload digest is
+not the sealed one (neither then), or a sealed result that does not hold together.
 
 The snapshot must be the one MiDojo sealed: its ``snapshot_id`` is MiDojo's digest of its
 content, recomputed here (``snapshot_digest.py``), so a snapshot whose content changed
@@ -78,6 +92,8 @@ with MiDojo's verdict unchanged.
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -125,6 +141,14 @@ OUTCOME_FIELDS = frozenset({"instruction_index", "probe_key", "occurrence", "sta
 # What an outcome gains from 13d5487 (``types.CallInjectionOutcome``): its delivery facts, all or
 # none.
 FACT_FIELDS = frozenset({"selected", "transformation", "emitted"})
+# What a placement (``PLACED_STATUSES``) may also say from a19562e: what it placed and where, each
+# key optional, absent or None when not reported (``types.CallInjectionOutcome``).
+PLACEMENT_FIELDS = frozenset({"payload_digest", "placed_digest", "slot"})
+PLACED_STATUSES = frozenset({"applied", "partial", "fallback"})
+# ``types.PayloadDigest``: ``sha256:`` and the SHA-256 in lowercase hex.
+SEALED_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+# ``types.CallInjectionSlot``.
+SEALED_SLOT_FIELDS = frozenset({"id", "target", "mode"})
 # ``types.InjectionTransformation`` and ``types.ResultPart``.
 TRANSFORMATIONS = frozenset({"identity", "json_string", None})
 RESULT_PARTS = frozenset({"content_block", "structured_content"})
@@ -211,15 +235,31 @@ class Compiled:
 
 @dataclass(frozen=True)
 class Placed:
-    """One tool-output instruction of a plan the interceptor placed as written: its index in
-    the episode's plan, its probe key and target tool, its payload's digest, and its seed slot
-    (None when ``placements`` names none)."""
+    """One tool-output instruction of the episode's plan: its index in the plan, its probe key
+    and target tool, its payload's digest, its seed slot (None when ``placements`` names none
+    or names more than one), MiDojo's ID of its target (``slot_id``), and the distinct
+    (slot, record) pairs its ``placements`` entries name."""
 
     plan_index: int
     probe_key: str | None
     tool: str | None
     payload_sha256: str | None
     slot: dict[str, str] | None
+    target_id: str | None
+    named: tuple[tuple[Any, Any], ...]
+
+
+@dataclass(frozen=True)
+class Plan:
+    """The plan's tool-output part as the interceptor numbers it, and whether it is static
+    (no generator permissions), so that its payloads are the text the interceptor placed."""
+
+    instructions: tuple[Placed | None, ...]
+    static: bool
+
+
+# A plan that cannot be read: no instruction resolves, and none is known to be static.
+UNREAD = Plan((), static=False)
 
 
 def parse_sealed(
@@ -256,7 +296,7 @@ def parse_sealed(
         reason = sealed_failure(compiled, snapshot, verdict, delivery)  # type: ignore[arg-type]
     if reason is None or reason.startswith(TURN_FAILED):
         attempt = attempt_of(compiled, snapshot, verdict)  # type: ignore[arg-type]
-        plan = static_plan(compiled)
+        plan = read_plan(compiled)
     receipt = {
         "schema_version": RECEIPT_SCHEMA_VERSION,
         "tool": {"id": TOOL, "revision": tool_revision, "adapter_revision": adapter_revision},
@@ -372,13 +412,63 @@ def _outcome_shape(outcome: Any) -> bool:
 
     return (
         isinstance(outcome, dict)
-        and set(outcome) in (OUTCOME_FIELDS, OUTCOME_FIELDS | FACT_FIELDS)
+        and set(outcome) - PLACEMENT_FIELDS in (OUTCOME_FIELDS, OUTCOME_FIELDS | FACT_FIELDS)
         and type(outcome["instruction_index"]) is int
         and outcome["instruction_index"] >= 0
         and _optional_text(outcome["probe_key"])
         and isinstance(outcome["detail"], str)
         and _facts_shape(outcome)
+        and _placement_shape(outcome)
     )
+
+
+def _placement_shape(outcome: dict[str, Any]) -> bool:
+    """What an outcome sealed from a19562e says it placed and where, each key optional and None
+    when not reported: ``payload_digest`` and ``placed_digest`` a ``sha256:<hex>`` digest, and
+    ``slot`` a ``CallInjectionSlot`` (``_sealed_slot_shape``). Only a placement (``applied``,
+    ``partial``, ``fallback``) has any of them."""
+
+    reported = [outcome.get(key) for key in sorted(PLACEMENT_FIELDS)]
+    if all(value is None for value in reported):
+        return True
+    slot = outcome.get("slot")
+    return (
+        all(
+            value is None or (isinstance(value, str) and SEALED_DIGEST.fullmatch(value))
+            for value in (outcome.get("payload_digest"), outcome.get("placed_digest"))
+        )
+        and (slot is None or _sealed_slot_shape(slot))
+        and _one_of(outcome["status"], PLACED_STATUSES)
+    )
+
+
+def _sealed_slot_shape(slot: Any) -> bool:
+    """``CallInjectionSlot``: exactly ``id``, ``target`` and ``mode``, the target an object, the
+    mode one of ``PLACEMENT_MODES``, and the ID the target's own (``slot_id``)."""
+
+    return (
+        isinstance(slot, dict)
+        and set(slot) == SEALED_SLOT_FIELDS
+        and isinstance(slot["id"], str)
+        and isinstance(slot["target"], dict)
+        and _one_of(slot["mode"], PLACEMENT_MODES)
+        and slot["id"] == slot_id(slot["target"])
+    )
+
+
+def slot_id(target: Any) -> str | None:
+    """MiDojo's ID of a tool-output place (``midojo_sdk.injection.InjectionSlot.id``):
+    ``sha256:<hex>`` of the target's JSON with sorted keys, compact, not ASCII-escaped, in
+    UTF-8. None for a target that is not an object or has no such encoding (a lone surrogate).
+    """
+
+    if not isinstance(target, dict):
+        return None
+    try:
+        encoded = json.dumps(target, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return f"sha256:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
+    except (TypeError, ValueError):
+        return None
 
 
 def _facts_shape(item: dict[str, Any]) -> bool:
@@ -494,7 +584,7 @@ def _index(value: Any) -> bool:
 def _delivery_fact_shape(fact: Any) -> bool:
     return (
         isinstance(fact, dict)
-        and set(fact) == DELIVERY_FACT_FIELDS
+        and set(fact) - PLACEMENT_FIELDS == DELIVERY_FACT_FIELDS
         and isinstance(fact["call_id"], str)
         and isinstance(fact["function"], str)
         and _one_of(fact["disposition"], DISPOSITIONS)
@@ -503,6 +593,7 @@ def _delivery_fact_shape(fact: Any) -> bool:
         and (fact["plan_instruction_index"] is None or _index(fact["plan_instruction_index"]))
         and _optional_text(fact["probe_key"])
         and _facts_shape(fact)
+        and _placement_shape(fact)
     )
 
 
@@ -714,14 +805,14 @@ def episode_block(
     snapshot: dict[str, Any] | None,
     verdict: dict[str, Any] | None,
     delivery: dict[str, Any] | None = None,
-    plan: list[Placed | None] | None = None,
+    plan: Plan | None = None,
 ) -> dict[str, Any]:
     """Return what the receipt names of the episode's run; a file that cannot be read is null.
 
     An attack outcome field the grade lacks (sealed before 13d5487) is null, as are
     ``delivery`` and ``exposure`` without a delivery document: unknown, never False. ``plan``
-    is the static plan's tool-output part (``static_plan``), or None when the outcomes'
-    placements cannot be established.
+    is the episode's plan (``read_plan``), or None when the sealed result does not hold
+    together, so the outcomes' placements cannot be established.
     """
 
     grade = verdict["grade"] if verdict else None
@@ -741,21 +832,32 @@ def episode_block(
             **{name: grade.get(name) for name in ATTACK_OUTCOME},
         },
         "call_injections": None if snapshot is None else call_injections(snapshot, plan, delivery),
-        "delivery": None if delivery is None else delivery["delivery"],
+        "delivery": None
+        if delivery is None
+        else [_unplaced(fact) for fact in delivery["delivery"]],
         "exposure": None if delivery is None else delivery["exposure"],
     }
 
 
+def _unplaced(item: dict[str, Any]) -> dict[str, Any]:
+    """``item`` without what MiDojo sealed of its placement (``PLACEMENT_FIELDS``): the receipt
+    carries an outcome's placement as ``payload_sha256`` and ``slot`` (``placed_fields``)."""
+
+    return {key: value for key, value in item.items() if key not in PLACEMENT_FIELDS}
+
+
 def call_injections(
     snapshot: dict[str, Any],
-    plan: list[Placed | None] | None = None,
+    plan: Plan | None = None,
     delivery: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Return each sealed call's injection outcomes, in the order of the attempt's tool calls.
 
     ``injection_outcomes`` is the record's own: a list (empty when no instruction matched
     the call), or None when the record does not say (sealed before 3824922, or the layer
-    reported the call's text only). Each outcome gains its placement (``placed_fields``).
+    reported the call's text only). Each outcome gains its placement (``placed_fields``) in
+    place of what MiDojo sealed of it (``PLACEMENT_FIELDS``), which the receipt does not carry
+    as sealed.
     """
 
     facts: dict[tuple[str, int, int], set[int | None]] | None = None
@@ -774,7 +876,7 @@ def call_injections(
                 "injection_outcomes": None
                 if outcomes is None
                 else [
-                    {**outcome, **placed_fields(outcome, call, plan, facts)}
+                    {**_unplaced(outcome), **placed_fields(outcome, call, plan, facts)}
                     for outcome in outcomes
                 ],
             }
@@ -785,23 +887,59 @@ def call_injections(
 def placed_fields(
     outcome: dict[str, Any],
     call: dict[str, Any],
-    plan: list[Placed | None] | None,
+    plan: Plan | None,
     facts: dict[tuple[str, int, int], set[int | None]] | None,
 ) -> dict[str, Any]:
     """Return an outcome's ``payload_sha256`` and ``slot``, each None when not established.
 
-    The outcome's ``instruction_index`` counts the plan's tool-output instructions; it names
-    an instruction of ``plan`` as MiDojo's ``delivery_facts`` maps it, and with a delivery
-    document (``facts``: the plan indexes its facts for each call, instruction and occurrence
-    name) only when its facts for the outcome all name that instruction. Facts that name
-    different instructions for one outcome are ambiguous, and so is the placement.
+    Both need an outcome that ``emitted`` its payload. The snapshot comes first: the digest is
+    the outcome's sealed ``payload_digest`` (its hex), and the slot, when the outcome also
+    ``selected`` its place, is its sealed ``slot`` named after the plan (``sealed_slot``).
+    Either one absent falls back to the outcome's instruction (``_instruction``) of a static
+    plan: its payload's digest, and its ``placements`` slot with its mode. A static plan whose
+    payload digest is not the sealed one does not hold together with it: neither is
+    established. A plan that may generate payloads has no plan-derived digest or slot, but a
+    generated payload changes no target, so its sealed slot is named as a static one's is.
     """
 
-    emitted = outcome.get("emitted")
-    index = outcome["instruction_index"]
-    if plan is None or not emitted or index >= len(plan):
+    if plan is None or not outcome.get("emitted"):
         return UNPLACED
-    placed = plan[index]
+    placed = _instruction(outcome, call, plan, facts)
+    planned = placed if plan.static else None
+    planned_digest = None if planned is None else planned.payload_sha256
+    sealed_digest = outcome.get("payload_digest")
+    digest = planned_digest if sealed_digest is None else sealed_digest.removeprefix("sha256:")
+    if planned_digest is not None and digest != planned_digest:
+        return UNPLACED
+    slot = None
+    if outcome.get("selected") is True:
+        if outcome.get("slot") is not None:
+            slot = sealed_slot(outcome["slot"], plan)
+        elif planned is not None:
+            slot = planned.slot
+    return {"payload_sha256": digest, "slot": slot}
+
+
+def _instruction(
+    outcome: dict[str, Any],
+    call: dict[str, Any],
+    plan: Plan,
+    facts: dict[tuple[str, int, int], set[int | None]] | None,
+) -> Placed | None:
+    """Return the plan's instruction an outcome names, or None when it does not resolve.
+
+    The outcome's ``instruction_index`` counts the plan's tool-output instructions; it names
+    an instruction of ``plan`` as MiDojo's ``delivery_facts`` maps it (the same probe key, a
+    target tool that is the call's or none), and with a delivery document (``facts``: the plan
+    indexes its facts for each call, instruction and occurrence name) only when its facts for
+    the outcome all name that instruction. Facts that name different instructions for one
+    outcome are ambiguous, and so is the instruction.
+    """
+
+    index = outcome["instruction_index"]
+    if index >= len(plan.instructions):
+        return None
+    placed = plan.instructions[index]
     if (
         placed is None
         or placed.probe_key != outcome["probe_key"]
@@ -811,28 +949,62 @@ def placed_fields(
             and facts.get((call["call_id"], index, outcome["occurrence"])) != {placed.plan_index}
         )
     ):
-        return UNPLACED
-    return {
-        "payload_sha256": placed.payload_sha256,
-        "slot": placed.slot if outcome.get("selected") is True else None,
-    }
+        return None
+    return placed
 
 
-def static_plan(compiled: Compiled) -> list[Placed | None] | None:
-    """Return the plan's tool-output part as the interceptor numbers it, or None when the plan
-    may generate payloads at run time (or cannot be read), so its text is not what was placed.
+def sealed_slot(slot: dict[str, Any], plan: Plan) -> dict[str, str] | None:
+    """Return the receipt's slot of a sealed one, or None when the plan does not name it.
+
+    The sealed slot says where MiDojo placed the payload (its target, by ``id``) and how
+    (``mode``); the record is its target's: the ``equals`` of the record selector in its
+    ``structured_content_path``, else of its ``result_record``. The plan names it: the
+    ``placements`` entries of every tool-output instruction whose target has the sealed ID
+    name one slot and that record. No such instruction, entries that name more than one
+    (slot, record), or one whose record is not the target's leave no slot.
+    """
+
+    record = _target_record(slot["target"])
+    named: list[tuple[Any, Any]] = []
+    for placed in plan.instructions:
+        if placed is not None and placed.target_id == slot["id"]:
+            named.extend(pair for pair in placed.named if pair not in named)
+    if len(named) != 1 or named[0][1] != record:
+        return None
+    return _slot(named[0][0], record, slot["mode"])
+
+
+def _target_record(target: dict[str, Any]) -> Any:
+    """The record a sealed target selects: its one record selector's ``equals``, else its
+    ``result_record``'s; None when it selects none, or more than one."""
+
+    path = target.get("structured_content_path")
+    selectors = (
+        [part for part in path if isinstance(part, dict) and "equals" in part]
+        if isinstance(path, list)
+        else []
+    )
+    if selectors:
+        return selectors[0]["equals"] if len(selectors) == 1 else None
+    result_record = target.get("result_record")
+    return result_record.get("equals") if isinstance(result_record, dict) else None
+
+
+def read_plan(compiled: Compiled) -> Plan:
+    """Return the plan's tool-output part as the interceptor numbers it, and whether the plan
+    is static: without generator permissions, so its payloads are the text placed. A plan
+    that cannot be read is ``UNREAD``.
 
     An instruction is None when it cannot be read; its payload digest None when it has no text.
     """
 
     plan = compiled.document["episode"].get("plan")
     if not isinstance(plan, dict) or not isinstance(plan.get("instructions"), list):
-        return None
+        return UNREAD
     permissions = plan.get("generator_permissions")
-    if permissions is not None and (
-        not isinstance(permissions, dict) or any(permissions.values())
-    ):
-        return None
+    static = permissions is None or (
+        isinstance(permissions, dict) and not any(permissions.values())
+    )
     # Each instruction's distinct (slot, record) entries: more than one is ambiguous, no slot.
     slots: dict[int, list[tuple[Any, Any]]] = {}
     for entry in compiled.document.get("placements") or ():
@@ -843,7 +1015,7 @@ def static_plan(compiled: Compiled) -> list[Placed | None] | None:
     found: list[Placed | None] = []
     for index, instruction in enumerate(plan["instructions"]):
         if not isinstance(instruction, dict):
-            return None
+            return UNREAD
         if instruction.get("channel") != TOOL_OUTPUT:
             continue
         target, payload = instruction.get("target"), instruction.get("payload")
@@ -861,9 +1033,11 @@ def static_plan(compiled: Compiled) -> list[Placed | None] | None:
                 tool=tool,
                 payload_sha256=_payload_sha256(payload),
                 slot=_slot(slot, record, instruction.get("mode")),
+                target_id=slot_id(target),
+                named=tuple(pairs),
             )
         )
-    return found
+    return Plan(tuple(found), static)
 
 
 def _payload_sha256(payload: Any) -> str | None:

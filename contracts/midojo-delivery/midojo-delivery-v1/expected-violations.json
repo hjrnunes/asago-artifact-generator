@@ -3,9 +3,21 @@
     "path": "/exposure/emitted",
     "keyword": "enum"
   },
+  "invalid/fact-digest-malformed.json": {
+    "path": "/delivery/0/payload_digest",
+    "keyword": "pattern"
+  },
   "invalid/fact-extra-field.json": {
     "path": "/delivery/0",
     "keyword": "additionalProperties"
+  },
+  "invalid/fact-placement-unmatched.json": {
+    "path": "/delivery/0/payload_digest",
+    "keyword": "const"
+  },
+  "invalid/fact-slot-extra-field.json": {
+    "path": "/delivery/0/slot",
+    "keyword": "anyOf"
   },
   "invalid/fact-transformation-unknown.json": {
     "path": "/delivery/0/transformation",

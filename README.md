@@ -1114,21 +1114,41 @@ malformed. Sealed from `13d5487` each outcome also carries its delivery facts,
 them), all three or none; an outcome at occurrence 0 placed nothing, so its facts are
 empty.
 
-Each outcome in the receipt also gets `payload_sha256` and `slot`. `payload_sha256` is the
-SHA-256 (lowercase hex) of the exact UTF-8 bytes of the payload text placed, before the
-outcome's `transformation`; `slot` is `{id, record, mode}`, the seed slot, the record and
-the mode it was placed with. MiDojo seals neither the placed text, its digest nor the slot,
-so `parse` reads both from the episode's plan, and only from a static plan (empty
-`generator_permissions`, so no payload was generated at run time): the outcome's
-instruction is the plan's tool-output instruction MiDojo's `delivery_facts` maps it to (the
-same probe key, a target tool that is the call's or none), and with `--delivery` the one its
-delivery fact names. `payload_sha256` is that instruction's payload digest when the outcome
-`emitted` it; `slot` is the instruction's `placements` entry (slot and record) with its
-`mode` when the outcome also `selected` the instruction's place (a fallback placement has a
-digest and no slot). Each is null otherwise: nothing emitted, delivery facts not reported
-(sealed before `13d5487`), a plan that may generate payloads, an instruction that does not
-resolve, or a receipt failed for anything but an unanswered turn. A receipt written before
-the fields lacks both.
+From `a19562e` a placement (`applied`, `partial` or `fallback`) may also say what it placed
+and where: `payload_digest` (`sha256:<hex>` of the payload's UTF-8 bytes before its
+transformation), `placed_digest` (the same of the transformed text written) and `slot`
+(`{id, target, mode}`: the instruction's target in MiDojo's plan form, its mode, and `id`
+`sha256:<hex>` of the target's JSON with sorted keys, compact, not ASCII-escaped, in
+UTF-8). Each key is optional and null or absent when not reported; any other status has
+none of them. `parse` shape-checks them like the other outcome keys (a malformed one is
+`snapshot_malformed`), and the snapshot ID leaves a null one out, as MiDojo does, so a
+snapshot sealed before them keeps its ID.
+
+Each outcome in the receipt also gets `payload_sha256` and `slot`, in place of what MiDojo
+sealed of the placement. `payload_sha256` is the SHA-256 (lowercase hex) of the exact UTF-8
+bytes of the payload text placed, before the outcome's `transformation`; `slot` is `{id,
+record, mode}`, the seed slot, the record and the mode it was placed with. Both need an
+outcome that `emitted` its payload, and `slot` one that also `selected` its place (a
+fallback placement has a digest and no slot). `parse` reads the snapshot first:
+`payload_sha256` is the sealed `payload_digest` without its `sha256:` prefix, and `slot` the
+sealed slot's `mode`, its target's record (the record selector's `equals` in its
+`structured_content_path`, else its `result_record`'s) and the seed slot the `placements`
+entries of the plan's tool-output instructions with that same target (by `id`) name. A
+generated payload changes no target, so a plan with generator permissions gets both too.
+When a key is not sealed (a snapshot sealed before `a19562e`), `parse` reads it from the
+episode's plan, and only from a static plan (empty `generator_permissions`, so no payload
+was generated at run time): the outcome's instruction is the plan's tool-output instruction
+MiDojo's `delivery_facts` maps it to (the same probe key, a target tool that is the call's
+or none), and with `--delivery` the one its delivery fact names; `payload_sha256` is that
+instruction's payload digest, and `slot` its `placements` entry (slot and record) with its
+`mode`. Each is null otherwise: nothing emitted, delivery facts not reported (sealed before
+`13d5487`), a plan that may generate payloads and a key not sealed, an instruction that does
+not resolve, a sealed slot no plan instruction targets or whose `placements` name more than
+one slot or another record, a static plan whose payload digest is not the sealed one (both
+null: the sealed result does not hold together), or a receipt failed for anything but an
+unanswered turn. A receipt written before the fields lacks both. The episode's tool revision
+range does not change for these keys: they are optional, and a snapshot without them reads
+as before.
 
 From `13d5487` MiDojo's grade also says apart what `security` folds together:
 `attempted`, `blocked`, `effect_observed` and `injection_delivered`, each true, false or
@@ -1152,9 +1172,14 @@ MiDojo's interpreter and writes `delivery.json` beside the snapshot, a
 }
 ```
 
+From `a19562e` each fact may also carry the outcome's `payload_digest`, `placed_digest`
+and `slot`, optional and null when not reported, as the snapshot does; the contract accepts
+them, shape-checked the same way.
+
 `parse` reads it only when `--delivery` names it. The receipt's `episode` block then
 carries its `delivery` (each fact: call, `interceptor_instruction_index`,
-`plan_instruction_index`, probe, occurrence, status and the three facts) and its
+`plan_instruction_index`, probe, occurrence, status and the three facts, without the
+placement keys, which the receipt carries as each outcome's `payload_sha256` and `slot`) and its
 `exposure` (`emitted`, `agent_tool_result` and `model_input`, each `exposed`,
 `not_exposed` or `unknown`, and each plan instruction's own), and `native` lists it.
 Without `--delivery` both are null: unknown, never undelivered. A named document that is
