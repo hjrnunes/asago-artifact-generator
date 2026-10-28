@@ -34,9 +34,13 @@ Three things differ from Garak, each by what MiDojo sends the judge service:
 
 from __future__ import annotations
 
+import functools
+import http.client
 import json
 import os
 import re
+import socket
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -514,8 +518,9 @@ def http_judge(
     The key comes from ``OPENAICOMPATIBLE_API_KEY`` in this process's environment. The
     request is sent once, through no proxy from the environment, and a redirect is not
     followed. ``timeout`` bounds each wait on the socket; with ``deadline`` (a
-    ``time.monotonic`` value) the answer's body is read in chunks and a body still
-    arriving at the deadline is a timeout (``APITimeoutError``).
+    ``time.monotonic`` value) the connection's socket is shut down when it passes, so no
+    wait outlasts it (the status line and headers, the body, a chunk's framing and the
+    trailers alike), and an exchange cut off there is a timeout (``APITimeoutError``).
     """
 
     url = judge_url.rstrip("/") + "/chat/completions"
@@ -567,16 +572,122 @@ class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _RefuseRedirects())
 
 
-# How much of an answer's body one read takes when a deadline bounds it.
-_CHUNK = 65536
+class _Watchdog:
+    """Shuts the sockets of an exchange's connections down at ``deadline``.
+
+    A shut-down socket ends every wait on it at once: ``http.client`` then sees the
+    connection closed, and the exchange is a timeout because the watchdog ``fired``. Its
+    ``opener`` is ``_OPENER``'s (no proxy, no redirect) with connections it watches.
+    """
+
+    def __init__(self, deadline: float) -> None:
+        self.fired = False
+        self._lock = threading.Lock()
+        self._sockets: list[socket.socket] = []
+        self.opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            _RefuseRedirects(),
+            _WatchedHTTPHandler(self),
+            _WatchedHTTPSHandler(self),
+        )
+        self._timer = threading.Timer(max(deadline - time.monotonic(), 0.0), self._fire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def watch(self, sock: socket.socket) -> None:
+        with self._lock:
+            self._sockets.append(sock)
+            if not self.fired:
+                return
+        _shut(sock)
+
+    def _fire(self) -> None:
+        with self._lock:
+            self.fired = True
+            sockets = list(self._sockets)
+        for sock in sockets:
+            _shut(sock)
+
+    def cancel(self) -> None:
+        self._timer.cancel()
+
+
+def _shut(sock: socket.socket) -> None:
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:  # already closed
+        pass
+
+
+class _Watched:
+    """A connection that hands its socket to a watchdog once connected."""
+
+    def __init__(self, *args: Any, watchdog: _Watchdog, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._watchdog = watchdog
+
+    def connect(self) -> None:
+        super().connect()  # type: ignore[misc]
+        self._watchdog.watch(self.sock)  # type: ignore[attr-defined]
+
+
+class _WatchedHTTPConnection(_Watched, http.client.HTTPConnection):
+    pass
+
+
+class _WatchedHTTPSConnection(_Watched, http.client.HTTPSConnection):
+    pass
+
+
+class _WatchedHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, watchdog: _Watchdog) -> None:
+        super().__init__()
+        self._watchdog = watchdog
+
+    def http_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(
+            functools.partial(_WatchedHTTPConnection, watchdog=self._watchdog), req
+        )
+
+
+class _WatchedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, watchdog: _Watchdog) -> None:
+        super().__init__()
+        self._watchdog = watchdog
+
+    def https_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(
+            functools.partial(_WatchedHTTPSConnection, watchdog=self._watchdog),
+            req,
+            context=self._context,  # type: ignore[attr-defined]
+        )
 
 
 def _exchange(
     request: urllib.request.Request, timeout: float, deadline: float | None = None
 ) -> bytes:
+    if deadline is None:
+        return _send(_OPENER, request, timeout)
+    watchdog = _Watchdog(deadline)
     try:
-        with _OPENER.open(request, timeout=timeout) as response:
-            return response.read() if deadline is None else _read_by(response, deadline)
+        body = _send(watchdog.opener, request, timeout)
+    except JudgeCallError as exc:
+        if watchdog.fired:
+            raise JudgeCallError("APITimeoutError") from exc
+        raise
+    finally:
+        watchdog.cancel()
+    if watchdog.fired:  # the answer may have ended where the socket was shut down
+        raise JudgeCallError("APITimeoutError")
+    return body
+
+
+def _send(
+    opener: urllib.request.OpenerDirector, request: urllib.request.Request, timeout: float
+) -> bytes:
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            return response.read()
     except urllib.error.HTTPError as exc:
         if exc.code == 400:
             raise _Rejected from exc
@@ -586,29 +697,9 @@ def _exchange(
     except urllib.error.URLError as exc:
         label = "APITimeoutError" if isinstance(exc.reason, TimeoutError) else "APIConnectionError"
         raise JudgeCallError(label) from exc
-    except OSError as exc:
+    except (OSError, http.client.HTTPException) as exc:
+        # An answer cut short (``IncompleteRead``) or malformed is a connection failure.
         raise JudgeCallError("APIConnectionError") from exc
-
-
-def _read_by(response: Any, deadline: float) -> bytes:
-    """Read ``response``'s body, raising ``TimeoutError`` once ``deadline`` passes.
-
-    Each read takes what has arrived (``read1``), its socket wait bounded by the time left.
-    """
-
-    sock = getattr(getattr(response.fp, "raw", None), "_sock", None)
-    body = bytearray()
-    while not response.isclosed():  # http.client closes it once the whole body is read
-        left = deadline - time.monotonic()
-        if left <= 0:
-            raise TimeoutError("the judge's answer did not arrive by the deadline")
-        if sock is not None and sock.fileno() != -1:
-            sock.settimeout(left)
-        chunk = response.read1(_CHUNK)
-        if not chunk:
-            break
-        body += chunk
-    return bytes(body)
 
 
 def _reply_content(body: bytes) -> Any:

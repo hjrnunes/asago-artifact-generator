@@ -28,9 +28,16 @@ never ``contradicted``. The response's ``rationale`` is the last judged turn's r
 evidence references and reason, and the SHA-256 of the judge request sent and of the
 model's answer (``summary``). Neither the request's evidence nor the model's text is
 echoed back, so a nested tool argument cannot take ``details`` past MiDojo's nesting limit
-for a response (64) and a model that repeats its key returns nothing of it. Before the
-answer is written, the model key and the service token are replaced by ``[redacted]``
-wherever its ``rationale``, ``model`` or ``details`` hold them (keys and values).
+for a response (64) and a model that repeats its key returns nothing of it. The answer
+holds two strings from outside the service: ``model``, from its environment, and each
+evidence reference, the model's. Before the answer is written, the model key and the
+service token are replaced by ``[redacted]`` in ``model``, and an evidence reference that
+holds either, as written or as the path it names (a JSON Pointer's components decoded), is
+replaced by ``[redacted]`` whole. Everything else is the service's own vocabulary (field
+names, verdicts, reason codes, the prompt version, ``judge_turns``, counts and hex
+digests), which redaction never touches, as MiDojo's own never touches a field name or
+the verdict: a credential that happens to equal one of those words leaves the answer's
+shape as it is.
 
 The service reads its model from its own environment only: ``JUDGE_MODEL_URL`` (the
 OpenAI-compatible base URL; the judge posts to ``<url>/chat/completions``), ``JUDGE_MODEL``
@@ -45,9 +52,9 @@ Each judged turn is one model request, sent once, as the rubric judge's ``http_j
 sends it. A model request may take up to 180 seconds (``TIMEOUT_SECONDS``, the old
 judge's), and one ``midojo.judge.v1`` request's model requests share 180 seconds per
 judged turn (``budget_seconds``): the check's ``timeout_seconds`` is that and a margin
-(``episode_compile.judge_timeout_seconds``). The time left bounds each wait for the
-model's connection and headers (a socket timeout) and the whole of its answer's body,
-read in chunks against the deadline, so a body that trickles in is cut off
+(``episode_compile.judge_timeout_seconds``). The time left bounds the connect (a socket
+timeout); from then on the connection's socket is shut down at the deadline, so an answer
+whose status line, headers, body, chunk framing or trailers trickle in is cut off there
 (``judge_failed:APITimeoutError``). The service keeps no state between
 requests: MiDojo may ask twice in one grading, the second time without the blocked and
 unfinished calls, and each request is judged on its own.
@@ -337,15 +344,17 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
 
 
-def summary(record: Mapping[str, Any]) -> dict[str, Any]:
+def summary(record: Mapping[str, Any], secrets: Sequence[str] = ()) -> dict[str, Any]:
     """Return what the answer keeps of one judged turn's record: its verdict, references and
     reason, and the digests of the judge request sent and of the model's text (null when
-    none was sent or none came back)."""
+    none was sent or none came back). A reference that holds a secret is ``[redacted]``."""
 
     request, raw = record["request"], record["raw_response"]
     return {
         "verdict": record["verdict"],
-        "evidence_refs": list(record["evidence_refs"]),
+        "evidence_refs": [
+            REDACTED if reference_holds(ref, secrets) else ref for ref in record["evidence_refs"]
+        ],
         "reason": record["reason"],
         "prompt_version": record["prompt_version"],
         "request_sha256": None if request is None else sha256_text(request_text(request)),
@@ -353,19 +362,27 @@ def summary(record: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def redacted(value: Any, secrets: Sequence[str]) -> Any:
-    """Return ``value`` with each secret replaced by ``[redacted]`` in every string it holds,
-    keys included."""
+def redacted(text: str | None, secrets: Sequence[str]) -> str | None:
+    """Return ``text`` with each secret replaced by ``[redacted]``."""
 
-    if isinstance(value, str):
-        for secret in secrets:
-            value = value.replace(secret, REDACTED)
-        return value
-    if isinstance(value, dict):
-        return {redacted(key, secrets): redacted(item, secrets) for key, item in value.items()}
-    if isinstance(value, list):
-        return [redacted(item, secrets) for item in value]
-    return value
+    if text is None:
+        return None
+    for secret in secrets:
+        text = text.replace(secret, REDACTED)
+    return text
+
+
+def reference_holds(reference: str, secrets: Sequence[str]) -> bool:
+    """Say whether an evidence reference holds a secret: in its text, in a JSON Pointer
+    component decoded (``~1`` is ``/``, ``~0`` is ``~``, as the rubric judge resolves it),
+    or across the decoded components joined by ``/``. A dotted or ``$.`` path's names are
+    letters, digits and underscores, with no escape, so its text is the path."""
+
+    forms = [reference]
+    if reference.startswith("/"):
+        parts = [part.replace("~1", "/").replace("~0", "~") for part in reference.split("/")]
+        forms += [*parts, "/".join(parts)]
+    return any(secret in form for secret in secrets if secret for form in forms)
 
 
 def judge(
@@ -386,21 +403,19 @@ def judge(
         records = judge_records(rubric, request, calls(budget_seconds(rubric)))
         judge_turns = rubric.judge_turns
     final = records[-1]
-    described = {
-        "rationale": final["reason"],
-        "model": model,
-        "details": {
-            "prompt_version": PROMPT_VERSION,
-            "judge_turns": judge_turns,
-            "request_count": sum(request_count(record) for record in records),
-            "records": [summary(record) for record in records],
-        },
-    }
+    secrets = [secret for secret in secrets if secret]
     return {
         "schema": SCHEMA,
         "id": request["id"],
         "verdict": final["verdict"] if final["verdict"] in VERDICTS else "unresolved",
-        **redacted(described, [secret for secret in secrets if secret]),
+        "rationale": final["reason"],
+        "model": redacted(model, secrets),
+        "details": {
+            "prompt_version": PROMPT_VERSION,
+            "judge_turns": judge_turns,
+            "request_count": sum(request_count(record) for record in records),
+            "records": [summary(record, secrets) for record in records],
+        },
     }
 
 

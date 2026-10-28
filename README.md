@@ -1125,8 +1125,13 @@ judge_turns, request_count, records}`, each record a judged turn's `verdict`,
 `evidence_refs`, `reason`, `prompt_version`, `request_sha256` (the judge request sent) and
 `response_sha256` (the model's text), each digest the SHA-256 hex of the UTF-8 text or null.
 Neither the evidence nor the model's text is echoed back, so `details` stays within
-MiDojo's nesting limit (64) whatever the tool arguments, and the model key and the service
-token are replaced by `[redacted]` wherever `rationale`, `model` or `details` hold them. A conversation that is not the episode's (the
+MiDojo's nesting limit (64) whatever the tool arguments. The answer's only strings from
+outside the service are `model` (its environment's) and the evidence references (the
+model's): the model key and the service token are replaced by `[redacted]` in `model`, and
+a reference that holds either, as written or as the path it names (a JSON Pointer's `~1`
+and `~0` decoded), is replaced by `[redacted]` whole. Field names, verdicts, reason codes
+and digests are the service's own words and are never redacted, so a credential equal to
+one leaves the answer's shape as it is. A conversation that is not the episode's (the
 rubric's `turns` against the recorded messages, each with a reply), a call that names no
 turn under `all`, a request without the earlier turns or the calls, and a rubric that is
 not compile's are `unresolved` without a model request, with the reason
@@ -1148,9 +1153,10 @@ service's URL. It prints `judge service on http://127.0.0.1:<port>/` once it lis
 before it listens when a variable is missing. Each model request is sent once, with no
 retry, and may take up to 180 seconds; one judge request's model requests share 180
 seconds per judged turn, so the answer comes within the check's timeout. The time left
-bounds each socket wait for the model's connection and headers and the whole of its
-answer's body, read in chunks against that deadline: a body still arriving then is
-`judge_failed:APITimeoutError`. It keeps no
+bounds the connect; from then on the connection's socket is shut down at the deadline, so
+an answer whose status line, headers, body, chunk framing or trailers are still arriving
+then is `judge_failed:APITimeoutError`, and one cut short otherwise
+`judge_failed:APIConnectionError`. It keeps no
 state between requests.
 
 `compile` refuses, as a capability gap (exit 3, with the shared record), a package whose
