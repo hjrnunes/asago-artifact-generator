@@ -19,7 +19,7 @@ from ..bindings import (
 )
 from ..input_adapter import V5_FIELDS, InputView, build_scenario_handoff_view
 from .attack_path_outline import ATTACK_PATH_FORMAT, attack_path_outline, attack_path_provenance
-from .checks import _collect_canonical_prerequisite_findings
+from .checks import _canonical_prerequisite_findings
 from .contracts import (
     NEUTRAL_ESTABLISHED_OMISSION_OUTCOME_EXAMPLE,
     NEUTRAL_OMISSION_OUTCOME_EXAMPLE,
@@ -282,7 +282,7 @@ def _supplied_fact_binding_example(
             validate_bindings([binding], inventory=inventory, runtime_contract=runtime_contract)
         except BindingValidationError:
             continue
-        if _collect_canonical_prerequisite_findings([prerequisite], references, {name}, [binding]):
+        if _canonical_prerequisite_findings([prerequisite], references, {name}, [binding]):
             continue
         return {
             "runtime_bindings": [binding],

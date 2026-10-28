@@ -19,10 +19,13 @@ from ..input_adapter import InputView
 from ..package_io import write_package
 from .binding_repair import correction_repair_inputs
 from .checks import (
+    NormalizedPlan,
     _is_blocked_plan,
     _plan_claim_level,
     collect_artifact_findings_v2,
     collect_plan_findings_v2,
+    normalize_artifact_v2,
+    normalize_plan_v2,
 )
 from .condition_types import operand_type_findings
 from .context_budget import _enforce_prompt_size
@@ -260,6 +263,10 @@ class _Stage:
     key: str
     author: str
     author_packet: Callable[[], PromptPacket]
+    # Returns a normalized copy of a decoded response, the rewrites that made it,
+    # and what ``checks`` reads.
+    normalize: Callable[[Any], tuple[Any, list[Any], Any]]
+    # Checks the normalized response.
     checks: Callable[[Any], list[Finding]]
     # Stands in for the findings when the author request left none.
     missing: Finding
@@ -398,14 +405,13 @@ class AuthoringOrchestrator:
         return finding
 
     def _author(
-        self, packet: PromptPacket, checks: Callable[[Any], list[Finding]]
+        self, packet: PromptPacket, stage: _Stage
     ) -> tuple[dict[str, Any] | None, list[Finding], bytes]:
         """Dispatch one stage author request and check its response.
 
         The returned candidate is None while findings remain.
         """
 
-        stage = packet.stage
         started = time.monotonic()
         try:
             response = self._dispatch(packet)
@@ -413,28 +419,24 @@ class AuthoringOrchestrator:
             return None, [self._record_dispatch_failure(exc, packet, started)], b""
         # ``_dispatch`` already journaled the response on its dispatch.
         raw = _response_parts(response)[0]
-        self._raw_responses[stage] = raw
+        self._raw_responses[packet.stage] = raw
         self._journal.flush()
-        checked = self._decode_and_check(raw, stage, checks, correction=False)
+        checked = self._decode_and_check(raw, stage, correction=False)
         assert checked is not None
         return (*checked, raw)
 
     def _decode_and_check(
-        self,
-        raw: bytes,
-        author_stage: str,
-        checks: Callable[[Any], list[Finding]],
-        *,
-        correction: bool,
+        self, raw: bytes, stage: _Stage, *, correction: bool
     ) -> tuple[dict[str, Any] | None, list[Finding]] | None:
-        """Decode one author or correction response of ``author_stage`` and run its checks.
+        """Decode one author or correction response of ``stage``, normalize it once, and check it.
 
-        Return the candidate (None while findings remain) and the recorded
-        findings.  A correction that fails to decode or carries a secret
-        returns None: its stage stops.  The two paths differ in finding codes
-        and journal events; both are part of the failure evidence.
+        Return the normalized candidate (None while findings remain) and the
+        recorded findings.  A correction that fails to decode or carries a
+        secret returns None: its stage stops.  The two paths differ in finding
+        codes and journal events; both are part of the failure evidence.
         """
 
+        author_stage = stage.author
         try:
             decoded, transformation = _decode_stage_response(author_stage, raw)
         except (FramingError, UnicodeDecodeError) as exc:
@@ -445,15 +447,16 @@ class AuthoringOrchestrator:
         secret = self._record_decoded(decoded, author_stage, correction=correction)
         if secret is not None:
             return None if correction else (None, [secret])
-        transformation_count = len(self._transformations)
-        findings = checks(decoded)
-        self._record_validation_transformations(transformation_count)
+        candidate, changes, checked = stage.normalize(decoded)
+        self._record_normalized(candidate, author_stage, correction=correction)
+        self._record_validation_transformations(changes)
+        findings = stage.checks(checked)
         if findings:
             self._reject(findings, LedgerFindingsRecorded("findings", tuple(findings)))
             return None, findings
         self._journal.append(ValidationPassed())
         self._journal.flush()
-        return decoded, []
+        return candidate, []
 
     def _reject_undecodable(
         self, exc: FramingError | UnicodeDecodeError, author_stage: str, *, correction: bool
@@ -510,6 +513,18 @@ class AuthoringOrchestrator:
         finding = _staged(Finding("secret_in_response", secret, author_stage))
         self._reject([finding])
         return finding
+
+    def _record_normalized(
+        self, candidate: dict[str, Any], author_stage: str, *, correction: bool
+    ) -> None:
+        """Record the normalized candidate as the decoded output of the current dispatch.
+
+        The candidate digest stays the digest of the response as decoded.
+        """
+
+        key = f"correction-{author_stage}" if correction else author_stage
+        self._decoded_responses[key] = candidate
+        self._journal.append(DecodedOutputRecorded(candidate, on_ledger=not correction))
 
     def _reject(self, findings: list[Finding], *events: Any) -> None:
         """Record the findings that reject a response, after the events that explain them."""
@@ -747,7 +762,7 @@ class AuthoringOrchestrator:
             failed_response=failed_response,
             allowance_kind=allowance_kind,
         )
-        checked = self._decode_and_check(raw, failed_stage, stage.checks, correction=True)
+        checked = self._decode_and_check(raw, stage, correction=True)
         if checked is None:
             return None
         candidate, findings = checked
@@ -956,20 +971,26 @@ class AuthoringOrchestrator:
     def _plan_stage(
         self, view: InputView, inventory: dict[str, Any], runtime_contract: dict[str, Any]
     ) -> _Stage:
-        def checks(decoded: Any) -> list[Finding]:
+        def normalize(decoded: Any) -> tuple[Any, list[Any], NormalizedPlan]:
+            normalized = normalize_plan_v2(decoded, inventory)
+            return normalized.plan, normalized.transformations, normalized
+
+        def checks(normalized: NormalizedPlan) -> list[Finding]:
             return collect_plan_findings_v2(
-                decoded,
+                normalized.plan,
                 inventory,
                 runtime_contract,
                 provenance_ids=scenario_provenance_ids(view),
                 condition=view.payload.get("discriminating_condition"),
-                transformations=self._transformations,
-            ) + sequential_plan_findings(view, decoded, runtime_contract)
+                declarations=normalized.declarations,
+                source_refs=normalized.source_refs,
+            ) + sequential_plan_findings(view, normalized.plan, runtime_contract)
 
         return _Stage(
             key="plan",
             author="call1",
             author_packet=lambda: build_call1_packet_v2(view, inventory, runtime_contract),
+            normalize=normalize,
             checks=checks,
             missing=_staged(Finding("call1_failed", "Call 1 did not return a plan", "call1")),
             review_packet=(
@@ -999,13 +1020,16 @@ class AuthoringOrchestrator:
     ) -> _Stage:
         planted_max_chars = planted_text_limit(view, runtime_contract, plan)
 
+        def normalize(decoded: Any) -> tuple[Any, list[Any], Any]:
+            candidate, changes = normalize_artifact_v2(decoded, plan)
+            return candidate, changes, candidate
+
         def checks(decoded: Any) -> list[Finding]:
             findings = collect_artifact_findings_v2(
                 decoded,
                 plan,
                 inventory,
                 runtime_contract,
-                transformations=self._transformations,
                 condition=view.tool_call_condition,
                 planted_max_chars=planted_max_chars,
             ) + sequential_artifact_findings(view, decoded)
@@ -1015,6 +1039,7 @@ class AuthoringOrchestrator:
             key="artifact",
             author="call2",
             author_packet=lambda: build_call2_packet_v2(view, plan, inventory, runtime_contract),
+            normalize=normalize,
             checks=checks,
             missing=_staged(
                 Finding("call2_failed", "Call 2 did not return a valid artifact", "call2")
@@ -1047,7 +1072,7 @@ class AuthoringOrchestrator:
             packet = stage.author_packet()
         except PromptPreflightError as exc:
             return _preflight_stop(exc, stage.author)
-        candidate, pending, raw = self._author(packet, stage.checks)
+        candidate, pending, raw = self._author(packet, stage)
         if any(finding.code == "prompt_preflight" for finding in pending):
             return _StageStop("failed", tuple(pending))
         review_driven = False
@@ -1572,23 +1597,23 @@ class AuthoringOrchestrator:
         if review.transformation:
             self._record_transformation(review.transformation)
         if review.findings_omitted:
-            start = len(self._transformations)
-            self._transformations.append(
-                {
-                    "transformation": REVIEW_FINDINGS_OMITTED,
-                    "stage": stage,
-                    "field": "findings",
-                    "default": [],
-                }
+            self._record_validation_transformations(
+                [
+                    {
+                        "transformation": REVIEW_FINDINGS_OMITTED,
+                        "stage": stage,
+                        "field": "findings",
+                        "default": [],
+                    }
+                ]
             )
-            self._record_validation_transformations(start)
 
-    def _record_validation_transformations(self, start: int) -> None:
-        """Persist deterministic binding rewrites made during validation."""
+    def _record_validation_transformations(self, changes: list[Any]) -> None:
+        """Record the deterministic rewrites of the current attempt's response."""
 
-        changes = self._transformations[start:]
         if not changes:
             return
+        self._transformations.extend(changes)
         self._journal.append(ValidationTransformed(tuple(changes), tuple(self._transformations)))
         self._journal.flush()
 

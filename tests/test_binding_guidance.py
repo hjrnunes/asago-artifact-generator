@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 
-from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+from asago_artifact_generator.authoring.checks import collect_plan_findings_v2, normalize_plan_v2
 from asago_artifact_generator.authoring.contracts import _binding_contract
 from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
 
@@ -111,6 +111,8 @@ def test_wildcard_prerequisite_consumer_gets_exact_binding_consumer() -> None:
         }
     ]
 
+    plan, _, _, _ = normalize_plan_v2(plan, _inventory())
+
     assert collect_plan_findings_v2(plan, _inventory(), _no_setup_runtime()) == []
     assert plan["runtime_bindings"][0]["consumers"] == [
         "prerequisites.*",
@@ -118,7 +120,7 @@ def test_wildcard_prerequisite_consumer_gets_exact_binding_consumer() -> None:
     ]
 
 
-def test_plan_validation_persists_canonical_keyed_binding_paths() -> None:
+def test_plan_normalization_persists_canonical_keyed_binding_paths() -> None:
     inventory = _inventory()
     inventory["facts"].extend(
         [
@@ -163,6 +165,7 @@ def test_plan_validation_persists_canonical_keyed_binding_paths() -> None:
         }
     ]
     plan["stimulus_approach"]["request"] = "Show the orders for customer {{customer_id}}."
+    plan, _, _, _ = normalize_plan_v2(plan, inventory)
 
     assert collect_plan_findings_v2(plan, inventory, _runtime_contract()) == []
     assert plan["runtime_bindings"][0]["source_ref"] == "facts:state:orders"

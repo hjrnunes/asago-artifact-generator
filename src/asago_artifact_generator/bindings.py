@@ -21,6 +21,7 @@ from .binding_rules import (
     SLOT_PATTERN,
     BindingPolicy,
     BindingSpec,
+    CanonicalPaths,
     ConsumerPrefix,
     RuntimeBinding,
     Violation,
@@ -55,11 +56,38 @@ def validate_bindings(
         inventory=inventory,
         transformations=transformations,
     )
+    return _checked_bindings(
+        normalized_declarations, inventory, runtime_contract, AUTHORING_POLICY
+    )
+
+
+def check_bindings(
+    declarations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> tuple[RuntimeBinding, ...]:
+    """Validate declarations that ``normalize_binding_declarations`` already returned.
+
+    The paths are read as written (``NORMALIZED_POLICY``) and nothing is
+    de-duplicated; ``validate_bindings`` normalizes first, then checks the same
+    way.  The authoring checks use this form.
+    """
+
+    return _checked_bindings(declarations, inventory, runtime_contract, NORMALIZED_POLICY)
+
+
+def _checked_bindings(
+    declarations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    policy: BindingPolicy,
+) -> tuple[RuntimeBinding, ...]:
     checked = check_declarations(
-        normalized_declarations,
+        declarations,
         inventory=inventory,
         runtime_contract=runtime_contract,
-        policy=AUTHORING_POLICY,
+        policy=policy,
     )
     if checked.violations:
         raise BindingValidationError(authoring_message(checked.violations[0]))
@@ -115,6 +143,47 @@ def canonical_binding_paths(
         resolved_ref, resolved_selector = next(iter(fallback_targets))
         return f"facts:{resolved_ref}", resolved_selector
     return source_ref, selector
+
+
+def paths_as_declared(
+    source_kind: str,
+    source_ref: str,
+    selector: str,
+    inventory: dict[str, Any],
+) -> tuple[str, str]:
+    """Return a source's paths as written: the paths of a normalized declaration.
+
+    ``canonical_binding_paths`` returns its own result unchanged, so a
+    declaration ``normalize_binding_declarations`` returned is already at its
+    canonical paths.
+    """
+
+    return source_ref, selector
+
+
+def root_source_refs(declarations: Any, inventory: dict[str, Any]) -> dict[tuple[str, str], str]:
+    """Map each declared source a root-selector lookup reads elsewhere to the source it reads.
+
+    The findings checks look a source up with its source kind's root selector
+    rather than the declared one.  A keyed-map shorthand whose declared
+    selector does not resolve keeps its paths, yet that lookup still finds the
+    fact it names, so its findings report the selector rather than an unknown
+    fact.  Keys are ``(source_kind, source_ref)``; a source the lookup reads as
+    written is left out.
+    """
+
+    found: dict[tuple[str, str], str] = {}
+    for raw in declarations if isinstance(declarations, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        source_kind, source_ref = raw.get("source_kind"), raw.get("source_ref")
+        if not isinstance(source_kind, str) or not isinstance(source_ref, str):
+            continue
+        root = "value" if source_kind == "supplied_input" else "result"
+        looked_up, _ = canonical_binding_paths(source_kind, source_ref, root, inventory)
+        if looked_up != source_ref:
+            found[(source_kind, source_ref)] = looked_up
+    return found
 
 
 def _facts_by_ref(inventory: dict[str, Any]) -> dict[str, Any]:
@@ -505,17 +574,45 @@ def supplied_binding_values(
     fact_by_ref = _supplied_facts_by_ref(declarations, inventory)
     if fact_by_ref is None:
         return {}
-    values: dict[str, Any] = {}
     normalized_declarations = normalize_binding_declarations(
         declarations,
         inventory=dict(inventory),
     )
-    for raw in normalized_declarations:
+    return _supplied_values(
+        normalized_declarations, fact_by_ref, inventory, canonical_binding_paths
+    )
+
+
+def supplied_values_as_declared(
+    declarations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    inventory: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resolve supplied values of normalized declarations, reading their paths as written.
+
+    The authoring checks read declarations the normalization step already
+    rewrote; ``supplied_binding_values`` normalizes first, then resolves the
+    same way.
+    """
+
+    fact_by_ref = _supplied_facts_by_ref(declarations, inventory)
+    if fact_by_ref is None:
+        return {}
+    return _supplied_values(declarations, fact_by_ref, inventory, paths_as_declared)
+
+
+def _supplied_values(
+    declarations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    fact_by_ref: dict[str, Any],
+    inventory: Mapping[str, Any],
+    paths: CanonicalPaths,
+) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    for raw in declarations:
         declared = _supplied_declaration_paths(raw)
         if declared is None:
             continue
         name, source_ref, selector = declared
-        canonical_source_ref, canonical_selector = canonical_binding_paths(
+        canonical_source_ref, canonical_selector = paths(
             "supplied_input", source_ref, selector, dict(inventory)
         )
         reference = canonical_source_ref.removeprefix("facts:")
@@ -684,6 +781,9 @@ AUTHORING_POLICY = BindingPolicy(
     permissions_must_be_list=False,
     empty_selector_parts_undocumented=True,
 )
+# The same checks over declarations already at their canonical paths: the paths
+# are read as written, and the record-key companion rule still applies.
+NORMALIZED_POLICY = replace(AUTHORING_POLICY, canonical_paths=paths_as_declared)
 
 
 def authoring_message(violation: Violation) -> str:
@@ -739,13 +839,18 @@ __all__ = [
     "BindingValidationError",
     "CLOSED_TYPES",
     "ConsumerPrefix",
+    "NORMALIZED_POLICY",
     "RuntimeBinding",
     "authoring_message",
     "binding_from_dict",
     "canonical_binding_paths",
+    "check_bindings",
     "find_stimulus_user_text_consumer_mismatches",
     "named_record_facts",
     "normalize_binding_declarations",
+    "paths_as_declared",
+    "root_source_refs",
     "supplied_binding_values",
+    "supplied_values_as_declared",
     "validate_bindings",
 ]
