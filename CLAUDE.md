@@ -176,7 +176,8 @@ Deterministic tests must not contact a model endpoint or target.
   `JUDGE_MODEL`, `OPENAICOMPATIBLE_API_KEY`; token `JUDGE_SERVICE_TOKEN`), which runs
   `authoring/rubric_judge.py` per judged turn, three-valued, its model requests checked
   against Garak's (`tests/fixtures/rubric/`); a conversation that is not the rubric's
-  turns is `unresolved`. `verifiers` is `[]`; compile writes `episode.json` alone. Direct
+  turns is `unresolved`. Its `details` summarize each turn (no evidence or model text),
+  the model key and token are redacted, and its log is method and status only. `verifiers` is `[]`; compile writes `episode.json` alone. Direct
   and user-turn packages, a single package with history, non-user history, run-time bindings,
   state_effect claims and a seed the interceptor cannot place in an MCP tool result are
   capability gaps (exit 3). `parse_sealed` (`sealed.py`, CLI `parse --snapshot --verdict

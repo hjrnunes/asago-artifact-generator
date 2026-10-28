@@ -24,26 +24,38 @@ the ``rationale``. Calls MiDojo holds as incomplete make the evidence ``partial`
 
 A model that fails or cannot be reached gives ``unresolved`` (``judge_failed:<label>``),
 never ``contradicted``. The response's ``rationale`` is the last judged turn's reason,
-``model`` the model asked, and ``details`` the rubric judge's record of each judged turn.
+``model`` the model asked, and ``details`` a summary of each judged turn: its verdict,
+evidence references and reason, and the SHA-256 of the judge request sent and of the
+model's answer (``summary``). Neither the request's evidence nor the model's text is
+echoed back, so a nested tool argument cannot take ``details`` past MiDojo's nesting limit
+for a response (64) and a model that repeats its key returns nothing of it. Before the
+answer is written, the model key and the service token are replaced by ``[redacted]``
+wherever its ``rationale``, ``model`` or ``details`` hold them (keys and values).
 
 The service reads its model from its own environment only: ``JUDGE_MODEL_URL`` (the
 OpenAI-compatible base URL; the judge posts to ``<url>/chat/completions``), ``JUDGE_MODEL``
 and the key in ``OPENAICOMPATIBLE_API_KEY``, which goes only to that URL (no redirect is
 followed and no proxy is read from the environment) and never into a response or a log
 line. It requires the bearer token in ``JUDGE_SERVICE_TOKEN`` on every request, and
-listens on 127.0.0.1 only.
+listens on 127.0.0.1 only. Its access log names each request's method (``POST``, else
+``-``) and status, never the path, a header or the request line, and an error answer
+carries the status's standard text only.
 
 Each judged turn is one model request, sent once, as the rubric judge's ``http_judge``
 sends it. A model request may take up to 180 seconds (``TIMEOUT_SECONDS``, the old
 judge's), and one ``midojo.judge.v1`` request's model requests share 180 seconds per
 judged turn (``budget_seconds``): the check's ``timeout_seconds`` is that and a margin
-(``episode_compile.judge_timeout_seconds``). The service keeps no state between
+(``episode_compile.judge_timeout_seconds``). The time left bounds each wait for the
+model's connection and headers (a socket timeout) and the whole of its answer's body,
+read in chunks against the deadline, so a body that trickles in is cut off
+(``judge_failed:APITimeoutError``). The service keeps no state between
 requests: MiDojo may ask twice in one grading, the second time without the blocked and
 unfinished calls, and each request is judged on its own.
 """
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import os
@@ -56,6 +68,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, TextIO
 
 from asago_artifact_generator.authoring.rubric_judge import (
+    KEY_NAME,
     PROMPT_VERSION,
     TIMEOUT_SECONDS,
     JudgeCallError,
@@ -65,6 +78,7 @@ from asago_artifact_generator.authoring.rubric_judge import (
     is_complete,
     judge_output,
     request_count,
+    request_text,
 )
 
 SCHEMA = "midojo.judge.v1"
@@ -105,6 +119,7 @@ SERVICE_TOKEN_ENV = "JUDGE_SERVICE_TOKEN"
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8780
 READY = "judge service on"
+REDACTED = "[redacted]"
 
 JudgeCall = Callable[[list[dict[str, str]]], Any]
 # Makes the call that asks the model, given the seconds it may take.
@@ -316,9 +331,52 @@ def budget_seconds(rubric: Rubric) -> float:
     return TIMEOUT_SECONDS * judged_count(rubric.judge_turns, len(rubric.turns))
 
 
-def judge(request: Mapping[str, Any], calls: CallFactory, model: str | None) -> dict[str, Any]:
+def sha256_text(text: str) -> str:
+    """Return the SHA-256 (lowercase hex) of ``text``'s UTF-8 bytes."""
+
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def summary(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Return what the answer keeps of one judged turn's record: its verdict, references and
+    reason, and the digests of the judge request sent and of the model's text (null when
+    none was sent or none came back)."""
+
+    request, raw = record["request"], record["raw_response"]
+    return {
+        "verdict": record["verdict"],
+        "evidence_refs": list(record["evidence_refs"]),
+        "reason": record["reason"],
+        "prompt_version": record["prompt_version"],
+        "request_sha256": None if request is None else sha256_text(request_text(request)),
+        "response_sha256": raw if raw is None else sha256_text(raw),
+    }
+
+
+def redacted(value: Any, secrets: Sequence[str]) -> Any:
+    """Return ``value`` with each secret replaced by ``[redacted]`` in every string it holds,
+    keys included."""
+
+    if isinstance(value, str):
+        for secret in secrets:
+            value = value.replace(secret, REDACTED)
+        return value
+    if isinstance(value, dict):
+        return {redacted(key, secrets): redacted(item, secrets) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redacted(item, secrets) for item in value]
+    return value
+
+
+def judge(
+    request: Mapping[str, Any],
+    calls: CallFactory,
+    model: str | None,
+    secrets: Sequence[str] = (),
+) -> dict[str, Any]:
     """Return the ``midojo.judge.v1`` response to a valid request, asking the model by a call
-    from ``calls`` given the request's budget."""
+    from ``calls`` given the request's budget, with ``secrets`` redacted from what it
+    describes."""
 
     rubric = parse_rubric(request["claim"], request["rubric"])
     if rubric is None:
@@ -328,18 +386,21 @@ def judge(request: Mapping[str, Any], calls: CallFactory, model: str | None) -> 
         records = judge_records(rubric, request, calls(budget_seconds(rubric)))
         judge_turns = rubric.judge_turns
     final = records[-1]
-    return {
-        "schema": SCHEMA,
-        "id": request["id"],
-        "verdict": final["verdict"] if final["verdict"] in VERDICTS else "unresolved",
+    described = {
         "rationale": final["reason"],
         "model": model,
         "details": {
             "prompt_version": PROMPT_VERSION,
             "judge_turns": judge_turns,
             "request_count": sum(request_count(record) for record in records),
-            "records": records,
+            "records": [summary(record) for record in records],
         },
+    }
+    return {
+        "schema": SCHEMA,
+        "id": request["id"],
+        "verdict": final["verdict"] if final["verdict"] in VERDICTS else "unresolved",
+        **redacted(described, [secret for secret in secrets if secret]),
     }
 
 
@@ -360,7 +421,8 @@ def model_calls(model_url: str, model: str) -> CallFactory:
             left = min(deadline - time.monotonic(), TIMEOUT_SECONDS)
             if left <= 0:
                 raise JudgeCallError("APITimeoutError")
-            return http_judge(model_url, model, timeout=left)(messages)
+            ends = time.monotonic() + left
+            return http_judge(model_url, model, timeout=left, deadline=ends)(messages)
 
         return call
 
@@ -371,14 +433,20 @@ def model_calls(model_url: str, model: str) -> CallFactory:
 
 
 def make_server(
-    port: int, calls: CallFactory, model: str | None, token: str
+    port: int,
+    calls: CallFactory,
+    model: str | None,
+    token: str,
+    model_key: str | None = None,
 ) -> ThreadingHTTPServer:
     """Return a server on 127.0.0.1 answering ``POST`` on any path with :func:`judge`, to
-    ``token`` only; ``port`` 0 takes a free port."""
+    ``token`` only, redacting ``token`` and ``model_key`` from its answers; ``port`` 0
+    takes a free port."""
 
     if not token:
         raise ServiceConfigError("the judge service needs a bearer token")
     expected = f"Bearer {token}".encode()
+    secrets = [token, *([model_key] if model_key else [])]
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:  # noqa: N802 -- http.server's name
@@ -393,9 +461,24 @@ def make_server(
             if (problem := request_problem(request)) is not None:
                 return self._send(400, {"error": problem})
             try:
-                return self._send(200, judge(request, calls, model))
+                return self._send(200, judge(request, calls, model, secrets))
             except Exception as exc:  # the type only: a message may quote a header
                 return self._send(500, {"error": f"the judge failed ({type(exc).__name__})"})
+
+        def send_error(
+            self, code: int, message: str | None = None, explain: str | None = None
+        ) -> None:
+            # The status's standard text only: http.server's messages quote the request line.
+            super().send_error(code)
+
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            # The method and the status only: a client may put a secret in the path.
+            method = self.command if self.command == "POST" else "-"
+            sys.stderr.write(f"{method} {getattr(code, 'value', code)}\n")
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 -- its name
+            # http.server's other lines (errors) quote the request line: none is written.
+            return
 
         def _send(self, status: int, body: dict[str, Any]) -> None:
             content = json.dumps(body).encode()
@@ -429,7 +512,8 @@ def serve(port: int = DEFAULT_PORT, out: TextIO = sys.stdout) -> None:
     """Serve until SIGINT or SIGTERM; print ``judge service on <url>`` once it listens."""
 
     model_url, model, token = environment_config(os.environ)
-    server = make_server(port, model_calls(model_url, model), model, token)
+    calls = model_calls(model_url, model)
+    server = make_server(port, calls, model, token, os.environ.get(KEY_NAME))
 
     def stop(_signum: int, _frame: Any) -> None:
         raise KeyboardInterrupt

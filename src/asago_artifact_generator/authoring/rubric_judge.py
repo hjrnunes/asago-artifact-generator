@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
@@ -502,12 +503,19 @@ def judge_output(
 # --- the judge call ---------------------------------------------------------------------
 
 
-def http_judge(judge_url: str, model: str, timeout: float = TIMEOUT_SECONDS) -> Callable[..., Any]:
+def http_judge(
+    judge_url: str,
+    model: str,
+    timeout: float = TIMEOUT_SECONDS,
+    deadline: float | None = None,
+) -> Callable[..., Any]:
     """Return the call that posts the judge request to ``<judge_url>/chat/completions``.
 
     The key comes from ``OPENAICOMPATIBLE_API_KEY`` in this process's environment. The
     request is sent once, through no proxy from the environment, and a redirect is not
-    followed.
+    followed. ``timeout`` bounds each wait on the socket; with ``deadline`` (a
+    ``time.monotonic`` value) the answer's body is read in chunks and a body still
+    arriving at the deadline is a timeout (``APITimeoutError``).
     """
 
     url = judge_url.rstrip("/") + "/chat/completions"
@@ -520,7 +528,7 @@ def http_judge(judge_url: str, model: str, timeout: float = TIMEOUT_SECONDS) -> 
             headers["Authorization"] = f"Bearer {key}"
         request = urllib.request.Request(url, data=data, headers=headers, method="POST")
         try:
-            return _reply_content(_exchange(request, timeout))
+            return _reply_content(_exchange(request, timeout, deadline))
         except _Rejected:
             return None
 
@@ -559,10 +567,16 @@ class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _RefuseRedirects())
 
 
-def _exchange(request: urllib.request.Request, timeout: float) -> bytes:
+# How much of an answer's body one read takes when a deadline bounds it.
+_CHUNK = 65536
+
+
+def _exchange(
+    request: urllib.request.Request, timeout: float, deadline: float | None = None
+) -> bytes:
     try:
         with _OPENER.open(request, timeout=timeout) as response:
-            return response.read()
+            return response.read() if deadline is None else _read_by(response, deadline)
     except urllib.error.HTTPError as exc:
         if exc.code == 400:
             raise _Rejected from exc
@@ -574,6 +588,27 @@ def _exchange(request: urllib.request.Request, timeout: float) -> bytes:
         raise JudgeCallError(label) from exc
     except OSError as exc:
         raise JudgeCallError("APIConnectionError") from exc
+
+
+def _read_by(response: Any, deadline: float) -> bytes:
+    """Read ``response``'s body, raising ``TimeoutError`` once ``deadline`` passes.
+
+    Each read takes what has arrived (``read1``), its socket wait bounded by the time left.
+    """
+
+    sock = getattr(getattr(response.fp, "raw", None), "_sock", None)
+    body = bytearray()
+    while not response.isclosed():  # http.client closes it once the whole body is read
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("the judge's answer did not arrive by the deadline")
+        if sock is not None and sock.fileno() != -1:
+            sock.settimeout(left)
+        chunk = response.read1(_CHUNK)
+        if not chunk:
+            break
+        body += chunk
+    return bytes(body)
 
 
 def _reply_content(body: bytes) -> Any:

@@ -183,7 +183,7 @@ def test_judge_serve_answers_on_loopback_and_keeps_the_key_to_the_model() -> Non
             assert process.stdout is not None
             ready = process.stdout.readline()
             assert ready.startswith("judge service on http://127.0.0.1:"), ready
-            service_url = ready.split(" on ", 1)[1].strip() + "judge"
+            service_url = ready.split(" on ", 1)[1].strip() + f"judge?token={TOKEN}"
             request = midojo_request(
                 "Does the reply give fees?",
                 rubric(["What are the fees?"]),
@@ -204,6 +204,7 @@ def test_judge_serve_answers_on_loopback_and_keeps_the_key_to_the_model() -> Non
     assert [seen["auth"] for seen in model.seen] == [f"Bearer {KEY}"]
     assert KEY not in json.dumps(answers) + out + err
     assert TOKEN not in out + err
+    assert err.splitlines() == ["POST 200", "POST 401", "POST 400"]
 
 
 def test_judge_serve_without_its_environment_exits_before_listening() -> None:

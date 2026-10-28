@@ -13,7 +13,7 @@ import json
 import threading
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -36,6 +36,10 @@ class Model:
     delay: float = 0.0
     headers: dict[str, str] = field(default_factory=dict)
     seen: list[dict[str, Any]] = field(default_factory=list)
+    # Answers from what it got (the request's headers and body) in place of ``body``.
+    respond: Callable[[Any, dict[str, Any]], bytes] | None = None
+    # Seconds between the body's bytes: the answer trickles in.
+    trickle: float = 0.0
 
     def bodies(self) -> list[dict[str, Any]]:
         return [request["body"] for request in self.seen]
@@ -71,21 +75,25 @@ def model_server(model: Model) -> Iterator[str]:
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:  # noqa: N802
             length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
             model.seen.append(
-                {
-                    "path": self.path,
-                    "auth": self.headers.get("Authorization"),
-                    "body": json.loads(self.rfile.read(length)),
-                }
+                {"path": self.path, "auth": self.headers.get("Authorization"), "body": body}
             )
             if model.delay:
                 threading.Event().wait(model.delay)
+            answer = model.respond(self.headers, body) if model.respond else model.body
             self.send_response(model.status)
             for name, value in model.headers.items():
                 self.send_header(name, value)
-            self.send_header("Content-Length", str(len(model.body)))
+            self.send_header("Content-Length", str(len(answer)))
             self.end_headers()
-            self.wfile.write(model.body)
+            if not model.trickle:
+                self.wfile.write(answer)
+                return
+            for index in range(len(answer)):
+                self.wfile.write(answer[index : index + 1])
+                self.wfile.flush()
+                threading.Event().wait(model.trickle)
 
         def log_message(self, *args: Any) -> None:
             return
@@ -95,11 +103,15 @@ def model_server(model: Model) -> Iterator[str]:
 
 
 @contextmanager
-def judge_service(model_url: str, token: str = TOKEN) -> Iterator[str]:
-    """Run the judge service in this process in front of ``model_url``; yield its URL."""
+def judge_service(
+    model_url: str, token: str = TOKEN, model_key: str | None = None
+) -> Iterator[str]:
+    """Run the judge service in this process in front of ``model_url``; yield its URL.
 
-    server = make_server(0, model_calls(model_url, MODEL), MODEL, token)
-    server.RequestHandlerClass.log_message = lambda *args: None  # type: ignore[method-assign]
+    It logs as it does in production; ``model_key`` is the key it keeps out of answers.
+    """
+
+    server = make_server(0, model_calls(model_url, MODEL), MODEL, token, model_key)
     thread = threading.Thread(
         target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
     )

@@ -40,6 +40,7 @@ SCENARIOS = {
     "contradicted": (False, CONTRADICTED),
     "unresolved": (None, "not json"),
     "blocked-call": (True, SUPPORTED),
+    "deep-args": (True, SUPPORTED),
 }
 OUTCOMES = {True: "detected", False: "not_detected", None: "inconclusive"}
 VERDICTS = {True: "supported", False: "contradicted", None: "unresolved"}
@@ -140,6 +141,21 @@ def test_the_service_answers_midojo_s_request_as_it_did(scenario: str) -> None:
         assert answer["id"] == item["request_id"]
         assert (answer["verdict"], answer["rationale"]) == (item["verdict"], item["rationale"])
         assert answer["details"] == item["details"]
+
+
+def test_midojo_accepts_the_answer_to_a_request_with_deeply_nested_arguments() -> None:
+    """The deep-args run's list_notes arguments nest 80 objects deep; the service's answer
+    stays within MiDojo's nesting limit for details (64), so MiDojo keeps its verdict."""
+
+    (item,) = judgements("deep-args")
+    (call, *_) = item["request"]["tool_calls"]
+
+    def depth(value: Any) -> int:
+        return 1 + max(map(depth, value.values()), default=0) if isinstance(value, dict) else 0
+
+    assert depth(call["args"]) > 64
+    assert (item["failure"], item["verdict"]) == (None, "supported")
+    assert _read(GRADED / "deep-args" / "verdict.json")["grade"]["security"] is True
 
 
 def test_a_blocked_call_makes_midojo_ask_twice_and_the_service_answers_each() -> None:

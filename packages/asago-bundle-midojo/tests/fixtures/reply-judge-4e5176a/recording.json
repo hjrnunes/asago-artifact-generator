@@ -25,6 +25,16 @@
       "model_requests": 1,
       "security": false
     },
+    "deep-args": {
+      "judgements": [
+        {
+          "request_id": "sha256:8bbbf86a6d4fb92ff9e522187c9a3475dbae3a5d2f5d6ad64126db29e86330f7",
+          "verdict": "supported"
+        }
+      ],
+      "model_requests": 1,
+      "security": true
+    },
     "supported": {
       "judgements": [
         {

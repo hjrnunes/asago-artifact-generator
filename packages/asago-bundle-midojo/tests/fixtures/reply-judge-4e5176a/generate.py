@@ -28,7 +28,10 @@ service's answer) and ``model-requests.json`` (the bodies the fake model got, in
 - ``unresolved``: the sealed ``unresolved`` run, the model answering text that is not JSON;
 - ``blocked-call``: the ``supported`` run with its ``withdraw`` call blocked (no result),
   named by MiDojo's encoding of its content. MiDojo reads the security check again without
-  the blocked call, so it sends two requests and the service answers each.
+  the blocked call, so it sends two requests and the service answers each;
+- ``deep-args``: the ``supported`` run with its ``list_notes`` call's arguments nested 80
+  objects deep, named the same way. The model sees them all, and MiDojo accepts the
+  service's answer, whose ``details`` stay within its nesting limit of 64.
 
 No target or real model is involved; nothing leaves the process but loopback connections.
 ``recording.json`` names the revision given and, per scenario, the security grade, the
@@ -61,12 +64,15 @@ from midojo_sdk.injection import InjectionPlan
 
 SUPPORTED = json.dumps({"verdict": "supported", "evidence_refs": ["messages[0].content"]})
 CONTRADICTED = json.dumps({"verdict": "contradicted", "evidence_refs": ["messages[0].content"]})
-# scenario -> (sealed run, the model's reply, blocks the withdraw call)
+# How deep the deep-args scenario nests a call's arguments: past MiDojo's 64 for details.
+DEEP = 80
+# scenario -> (sealed run, the model's reply, the change made to the run, if any)
 SCENARIOS = {
-    "supported": ("supported", SUPPORTED, False),
-    "contradicted": ("supported", CONTRADICTED, False),
-    "unresolved": ("unresolved", "not json", False),
-    "blocked-call": ("supported", SUPPORTED, True),
+    "supported": ("supported", SUPPORTED, None),
+    "contradicted": ("supported", CONTRADICTED, None),
+    "unresolved": ("unresolved", "not json", None),
+    "blocked-call": ("supported", SUPPORTED, "blocked"),
+    "deep-args": ("supported", SUPPORTED, "deep"),
 }
 MODEL = "fixture-judge"
 KEY = "fixture-model-key"
@@ -147,13 +153,19 @@ def episode(data: dict[str, Any]) -> Episode:
     )
 
 
-def blocked(response: dict[str, Any]) -> dict[str, Any]:
-    """``response`` with its withdraw call blocked, named by its content."""
+def changed_run(response: dict[str, Any], change: str) -> dict[str, Any]:
+    """``response`` with its withdraw call blocked, or its list_notes call's arguments
+    nested ``DEEP`` objects deep, named by its content."""
 
     changed = copy.deepcopy(response)
     for call in changed["function_calls"]:
-        if call["function"] == "withdraw":
+        if change == "blocked" and call["function"] == "withdraw":
             call.update(blocked=True, disposition="blocked", result=None)
+        if change == "deep" and call["function"] == "list_notes":
+            nested: Any = "bottom"
+            for _ in range(DEEP):
+                nested = {"next": nested}
+            call["args"] = {"filter": nested}
     content = {key: value for key, value in changed.items() if key != "snapshot_id"}
     changed["snapshot_id"] = (
         "sha256:" + hashlib.sha256(_dumps(_canonical(content)).encode()).hexdigest()
@@ -176,10 +188,10 @@ def main(revision: str, compiled: Path, sealed: Path, command: str, out: Path) -
     with model_server(model) as model_url, judge_service(command, model_url) as url:
         os.environ["JUDGE_URL"] = url
         os.environ["JUDGE_TOKEN"] = TOKEN
-        for scenario, (run, reply, block) in SCENARIOS.items():
+        for scenario, (run, reply, change) in SCENARIOS.items():
             response = json.loads((sealed / run / "snapshot.json").read_text())
-            if block:
-                response = blocked(response)
+            if change:
+                response = changed_run(response, change)
             snapshot = snapshot_from_response(
                 SnapshotResponse.model_validate(response), built.environment_type
             )

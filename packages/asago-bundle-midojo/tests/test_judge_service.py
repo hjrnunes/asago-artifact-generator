@@ -97,7 +97,7 @@ def test_the_service_sends_garak_s_requests(case: dict[str, Any], judge_turns: s
     assert [m for body in bodies for m in body["messages"]] == [
         m for body in garak["http_bodies"] for m in body["messages"]
     ]
-    assert answer["details"]["records"][-1] == garak["final"]
+    assert answer["details"]["records"][-1] == service.summary(garak["final"])
     assert answer["details"]["request_count"] == garak["request_count"] == len(bodies)
     assert answer["verdict"] == garak["final"]["verdict"]
 

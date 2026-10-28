@@ -1120,8 +1120,13 @@ turn for `final`, each in order for `all`, whose last verdict is the answer), ch
 against Garak's (`packages/asago-bundle-midojo/tests/fixtures/rubric/`). It answers
 `supported`, `contradicted` or `unresolved`, which MiDojo grades true, false and unknown;
 `rationale` is the judge's reason (`judge_completed`, `judge_parse_failed`,
-`judge_failed:<label>`, ...), `model` the model asked and `details` the judge's record of
-each judged turn and its `request_count`. A conversation that is not the episode's (the
+`judge_failed:<label>`, ...), `model` the model asked, and `details` `{prompt_version,
+judge_turns, request_count, records}`, each record a judged turn's `verdict`,
+`evidence_refs`, `reason`, `prompt_version`, `request_sha256` (the judge request sent) and
+`response_sha256` (the model's text), each digest the SHA-256 hex of the UTF-8 text or null.
+Neither the evidence nor the model's text is echoed back, so `details` stays within
+MiDojo's nesting limit (64) whatever the tool arguments, and the model key and the service
+token are replaced by `[redacted]` wherever `rationale`, `model` or `details` hold them. A conversation that is not the episode's (the
 rubric's `turns` against the recorded messages, each with a reply), a call that names no
 turn under `all`, a request without the earlier turns or the calls, and a rubric that is
 not compile's are `unresolved` without a model request, with the reason
@@ -1134,13 +1139,18 @@ The service listens on 127.0.0.1 only and reads its model from its own environme
 `JUDGE_MODEL_URL` (an OpenAI-compatible base URL; the judge posts to
 `<url>/chat/completions`), `JUDGE_MODEL`, and the key in `OPENAICOMPATIBLE_API_KEY`, which
 goes only to that URL (no proxy from the environment, no redirect followed) and never
-into an answer or a log line. It requires `JUDGE_SERVICE_TOKEN` and that bearer token on
+into an answer or a log line. Its access log is one line per request, the method (`POST`,
+else `-`) and the status, never the path or a header, and an error answer carries the
+status's standard text only. It requires `JUDGE_SERVICE_TOKEN` and that bearer token on
 every request; the grading process sets `JUDGE_TOKEN` to it and `JUDGE_URL` to the
 service's URL. It prints `judge service on http://127.0.0.1:<port>/` once it listens
 (`--port 0` takes a free port), stops on SIGINT or SIGTERM with exit 0, and exits 1
 before it listens when a variable is missing. Each model request is sent once, with no
 retry, and may take up to 180 seconds; one judge request's model requests share 180
-seconds per judged turn, so the answer comes within the check's timeout. It keeps no
+seconds per judged turn, so the answer comes within the check's timeout. The time left
+bounds each socket wait for the model's connection and headers and the whole of its
+answer's body, read in chunks against that deadline: a body still arriving then is
+`judge_failed:APITimeoutError`. It keeps no
 state between requests.
 
 `compile` refuses, as a capability gap (exit 3, with the shared record), a package whose
