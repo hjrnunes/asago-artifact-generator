@@ -11,10 +11,11 @@ nothing.
 MiDojo's ``security`` grade is three-valued, and so is the receipt: True is
 ``detected``, False ``not_detected``, and None, a check that could not be decided from the
 evidence (``grade_validity`` ``invalid``), ``inconclusive``. An unknown grade is never made
-a pass or a fail. The receipt's ``episode`` block names the route that drove the run
-(``route.py``), the evaluation and the snapshot graded, the snapshot's evidence status
-and the verdict as MiDojo gave it, and, as delivery evidence, each sealed call's injection
-outcomes as MiDojo sealed them (``call_injections``).
+a pass or a fail. The receipt explains the outcome with the grade's ``security_reason``; a
+True or False grade without one is malformed. The receipt's ``episode`` block names the
+route that drove the run (``route.py``), the evaluation and the snapshot graded, the
+snapshot's evidence status and the verdict as MiDojo gave it, and, as delivery evidence,
+each sealed call's injection outcomes as MiDojo sealed them (``call_injections``).
 
 From asago/main 3824922 every sealed call record also carries ``structured_content`` (the
 structured content the agent got, or None) and ``injection_outcomes`` (each matching
@@ -404,7 +405,8 @@ def evidence_shape(status: Any) -> bool:
 def verdict_shape(verdict: dict[str, Any]) -> bool:
     """The verdict is ``Verdict``, its grade MiDojo's ``GradeResponse``, field for field (the
     attack outcome all or none), and the security grade agrees with its validity: unknown
-    exactly when ``invalid``."""
+    exactly when ``invalid``. A decided security grade carries its ``security_reason``,
+    the receipt's explanation of the outcome."""
 
     grade = verdict.get("grade")
     if not (
@@ -420,7 +422,11 @@ def verdict_shape(verdict: dict[str, Any]) -> bool:
     ):
         return False
     status = grade["grade_validity"]["security"]["status"]
-    return status != "not_applicable" and (status == "invalid") == (grade["security"] is None)
+    return (
+        status != "not_applicable"
+        and (status == "invalid") == (grade["security"] is None)
+        and (grade["security"] is None or isinstance(grade["security_reason"], str))
+    )
 
 
 def _three_valued(value: Any) -> bool:

@@ -179,10 +179,11 @@ Deterministic tests must not contact a model endpoint or target.
   `snapshot_id`, `grade`) into `execution-receipt-v1`, after recomputing the snapshot ID,
   MiDojo's digest of the content (`snapshot_digest.py`), and requiring every call to be the
   interceptor's record: security true/false/null is detected/not_detected/inconclusive,
-  never coerced, and the receipt's `episode` block carries the route (`route.py`: only
-  `midojo` today), the evaluation and snapshot IDs, the evidence status, the verdict and
-  `call_injections` (each call's `injection_outcomes` as sealed, null when the record does
-  not say). A call record sealed from 3824922 has `structured_content` and
+  never coerced, explained by the grade's `security_reason` (a true or false grade without
+  one is `verdict_malformed`), and the receipt's `episode` block carries the route
+  (`route.py`: only `midojo` today), the evaluation and snapshot IDs, the evidence status,
+  the verdict and `call_injections` (each call's `injection_outcomes` as sealed, null when
+  the record does not say). A call record sealed from 3824922 has `structured_content` and
   `injection_outcomes`, one sealed before neither; both are shape-checked (occurrence 0
   only for `unmatched`, a call whose arguments, or from c0bee12 result, did not match).
   From 13d5487 an outcome also has `selected`/`transformation`/`emitted` and the grade `attempted`/`blocked`/
