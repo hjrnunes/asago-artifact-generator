@@ -23,12 +23,13 @@ from episode_cases import EPISODES, EPISODES_A5F81E9, PLANTED, SEQUENTIAL_TURNS,
 from asago_bundle_midojo.route import ROUTES
 from asago_bundle_midojo.sealed import (
     INJECTION_STATUSES,
+    UNPLACED,
     ParseError,
     compiled_digest,
     parse_sealed,
 )
 from asago_bundle_midojo.snapshot_digest import canonical, dumps, snapshot_digest
-from conftest import RECEIPT_SCHEMA
+from conftest import RECEIPT_SCHEMA, as_sealed
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 
@@ -203,8 +204,15 @@ def test_the_episode_block_carries_each_call_s_injection_outcomes_as_midojo_seal
     receipt = parsed(tmp_path, case, scenario)
 
     assert receipt["execution_status"] == "completed"
+    # Sealed before 13d5487, an outcome does not say what it emitted: its placement is unknown.
     assert receipt["episode"]["call_injections"] == [
-        {"call_id": call["call_id"], "function": name, "injection_outcomes": outcomes}
+        {
+            "call_id": call["call_id"],
+            "function": name,
+            "injection_outcomes": None
+            if outcomes is None
+            else [{**outcome, **UNPLACED} for outcome in outcomes],
+        }
         for call, (name, outcomes) in zip(snapshot["function_calls"], expected, strict=True)
     ]
 
@@ -917,7 +925,10 @@ def test_a_call_with_details_of_midojo_s_types_is_accepted_and_its_outcomes_kept
 
     assert (receipt["execution_status"], receipt["incomplete_reason"]) == ("completed", None)
     sealed = changed["snapshot"]["function_calls"][0]["injection_outcomes"]
-    assert receipt["episode"]["call_injections"][0]["injection_outcomes"] == sealed
+    kept = receipt["episode"]["call_injections"][0]["injection_outcomes"]
+    assert as_sealed(kept) == sealed
+    # None of these outcomes says what it emitted: no placement is established.
+    assert all({key: outcome[key] for key in UNPLACED} == UNPLACED for outcome in kept or [])
 
 
 def _verdict_variant(name: str) -> dict[str, Any]:

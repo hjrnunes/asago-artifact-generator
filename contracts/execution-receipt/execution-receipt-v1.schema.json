@@ -148,6 +148,21 @@
                       "description": "Optional, sealed with the outcome's delivery facts; the parts of the returned result that carry the payload where it was placed, empty when none does, null when not reported.",
                       "type": ["array", "null"],
                       "items": {"enum": ["content_block", "structured_content"]}
+                    },
+                    "payload_sha256": {
+                      "description": "Optional; the SHA-256 (lowercase hex) of the exact UTF-8 bytes of the payload text placed for this outcome, before its transformation. null when the outcome emitted nothing or the tool cannot say what it placed. Absent in a receipt written before the field.",
+                      "$ref": "#/$defs/optional_sha256"
+                    },
+                    "slot": {
+                      "description": "Optional; the seed slot the payload emitted for this outcome was placed in: the slot's id, the record and the mode it was placed with. null when the outcome emitted nothing, did not place it where the instruction's selector points, or the tool cannot say where it placed it. Absent in a receipt written before the field.",
+                      "type": ["object", "null"],
+                      "additionalProperties": false,
+                      "required": ["id", "record", "mode"],
+                      "properties": {
+                        "id": {"$ref": "#/$defs/name"},
+                        "record": {"$ref": "#/$defs/name"},
+                        "mode": {"enum": ["append", "replace"]}
+                      }
                     }
                   }
                 }

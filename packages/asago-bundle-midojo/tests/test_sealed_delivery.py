@@ -24,7 +24,7 @@ from episode_cases import EPISODES, REGRADED
 from asago_bundle_midojo.cli import main
 from asago_bundle_midojo.sealed import ATTACK_OUTCOME, delivery_shape, parse_sealed
 from asago_bundle_midojo.snapshot_digest import snapshot_digest
-from conftest import DELIVERY_CONTRACT, RECEIPT_SCHEMA
+from conftest import DELIVERY_CONTRACT, RECEIPT_SCHEMA, as_sealed
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 DELIVERY_SCHEMA = json.loads(
@@ -285,7 +285,7 @@ def test_an_outcome_with_delivery_facts_of_midojo_s_types_is_kept(
 
     assert (receipt["execution_status"], receipt["incomplete_reason"]) == ("completed", None)
     sealed = snapshot["function_calls"][0]["injection_outcomes"]
-    assert receipt["episode"]["call_injections"][0]["injection_outcomes"] == sealed
+    assert as_sealed(receipt["episode"]["call_injections"][0]["injection_outcomes"]) == sealed
 
 
 @pytest.mark.parametrize(
@@ -502,6 +502,29 @@ def test_a_delivery_document_of_another_snapshot_fails_the_receipt(
     assert receipt["attempts"] == []
     # What the document says is kept as evidence, as a mismatched verdict is.
     assert receipt["episode"]["delivery"] == document["delivery"]
+
+
+@pytest.mark.parametrize("field", ["evaluation_id", "snapshot_id"])
+def test_a_delivery_document_of_another_snapshot_leaves_every_placement_unknown(
+    tmp_path: Path, field: str
+) -> None:
+    document = recorded(REPORTED, "command-single", "detected", "delivery.json")
+    for name in ("matched", "mismatched"):
+        (tmp_path / name).mkdir()
+    matched = parsed(tmp_path / "matched", "command-single", "detected", root=REPORTED)
+    (outcome,) = matched["episode"]["call_injections"][0]["injection_outcomes"]
+    # With its own delivery document the outcome emitted, and both fields are established.
+    assert outcome["emitted"] and outcome["payload_sha256"] and outcome["slot"]
+    document[field] = "sha256:" + "0" * 64 if field == "snapshot_id" else "another"
+
+    receipt = parsed(
+        tmp_path / "mismatched", "command-single", "detected", root=REPORTED, delivery=document
+    )
+
+    assert receipt["incomplete_reason"] == "delivery_mismatch"
+    (outcome,) = receipt["episode"]["call_injections"][0]["injection_outcomes"]
+    assert outcome["emitted"]
+    assert (outcome["payload_sha256"], outcome["slot"]) == (None, None)
 
 
 def test_a_delivery_mismatch_outranks_an_unanswered_turn(tmp_path: Path) -> None:

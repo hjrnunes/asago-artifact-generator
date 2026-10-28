@@ -188,7 +188,10 @@ Deterministic tests must not contact a model endpoint or target.
   only for `unmatched`, a call whose arguments, or from c0bee12 result, did not match).
   From 13d5487 an outcome also has `selected`/`transformation`/`emitted` and the grade `attempted`/`blocked`/
   `effect_observed`/`injection_delivered` (each all or none, optional, so the range stays
-  `>=b5b8c752`); a missing one is null in `episode.verdict`, never false. `--delivery`
+  `>=b5b8c752`); a missing one is null in `episode.verdict`, never false. Each receipt
+  outcome also gets `payload_sha256` and `slot` (`{id, record, mode}`), read from the
+  episode's plan and `placements` (MiDojo seals neither) only for a static plan and an
+  outcome that emitted (the slot also `selected`), else null. `--delivery`
   names the runner's `delivery.json` (`contracts/midojo-delivery/`, `midojo-delivery-v1`:
   the evaluation and snapshot IDs and `midojo.delivery`'s facts and exposure), carried into
   `episode.delivery`/`exposure` (null without it); missing, malformed or another snapshot's

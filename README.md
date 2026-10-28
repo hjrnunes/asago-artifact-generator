@@ -1114,6 +1114,22 @@ malformed. Sealed from `13d5487` each outcome also carries its delivery facts,
 them), all three or none; an outcome at occurrence 0 placed nothing, so its facts are
 empty.
 
+Each outcome in the receipt also gets `payload_sha256` and `slot`. `payload_sha256` is the
+SHA-256 (lowercase hex) of the exact UTF-8 bytes of the payload text placed, before the
+outcome's `transformation`; `slot` is `{id, record, mode}`, the seed slot, the record and
+the mode it was placed with. MiDojo seals neither the placed text, its digest nor the slot,
+so `parse` reads both from the episode's plan, and only from a static plan (empty
+`generator_permissions`, so no payload was generated at run time): the outcome's
+instruction is the plan's tool-output instruction MiDojo's `delivery_facts` maps it to (the
+same probe key, a target tool that is the call's or none), and with `--delivery` the one its
+delivery fact names. `payload_sha256` is that instruction's payload digest when the outcome
+`emitted` it; `slot` is the instruction's `placements` entry (slot and record) with its
+`mode` when the outcome also `selected` the instruction's place (a fallback placement has a
+digest and no slot). Each is null otherwise: nothing emitted, delivery facts not reported
+(sealed before `13d5487`), a plan that may generate payloads, an instruction that does not
+resolve, or a receipt failed for anything but an unanswered turn. A receipt written before
+the fields lacks both.
+
 From `13d5487` MiDojo's grade also says apart what `security` folds together:
 `attempted`, `blocked`, `effect_observed` and `injection_delivered`, each true, false or
 null (unknown). They are optional: a grade has all four or none, a verdict sealed before
