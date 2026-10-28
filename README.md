@@ -988,9 +988,11 @@ of the carrier tool. The target's own data is not changed (the Garak adapter pla
 same text by writing `seed.json` into the target before the run). It targets the
 `Episode` value, `midojo.open_episode` with `HostInterception`, and `midojo.grade` of
 MiDojo's `asago/main` at `b5b8c75`, or `c0bee12` for an episode that matches a carrier's
-result (`src/midojo/episode.py`,
+result, or `cab2a35` for a reply episode, whose check is MiDojo's `reply_judge`
+(`src/midojo/episode.py`,
 `src/midojo/episode_context.py`, `src/midojo/interception_host.py`,
-`src/midojo/control_plane/grading.py`, and `midojo_sdk.injection` for the plan).
+`src/midojo/control_plane/grading.py`, `src/midojo/verifiers/judge.py`, and
+`midojo_sdk.injection` for the plan).
 
 ```bash
 asago-bundle-midojo compile PACKAGE --out EPISODE_DIR --target target.yaml \
@@ -998,7 +1000,9 @@ asago-bundle-midojo compile PACKAGE --out EPISODE_DIR --target target.yaml \
 # the runner builds the Episode from EPISODE_DIR/episode.json and opens it with
 # midojo.open_episode(..., interception=HostInterception(upstream=<the target's
 # endpoint.mcp_url>)), seals it, grades the snapshot with midojo.grade, and may write
-# delivery.json from midojo.delivery
+# delivery.json from midojo.delivery; a reply episode's grade asks the judge service
+JUDGE_MODEL_URL=http://127.0.0.1:8001/v1 JUDGE_MODEL=judge-name OPENAICOMPATIBLE_API_KEY=... \
+JUDGE_SERVICE_TOKEN=... asago-bundle-midojo judge-serve [--port 8780]
 asago-bundle-midojo parse EPISODE_DIR --snapshot snapshot.json --verdict verdict.json \
   [--delivery delivery.json] --out execution-receipt.json [--route midojo] \
   [--tool-revision REV]
@@ -1068,14 +1072,76 @@ is refused (exit 1). `compile` writes `episode.json` (`midojo-episode-v2`):
   agent got, its `structured_content` and its `injection_outcomes`. A target that matches
   the call's arguments needs `b5b8c75`, so the episode names `>=b5b8c752` as its MiDojo
   revision range; one with a `result_record` target needs `c0bee12`, where MiDojo first
-  reads that key, and names `>=c0bee126` instead. There is no environment (the target holds its state), no utility
-  check, and the runtime is `unmanaged`.
+  reads that key, and names `>=c0bee126` instead. A reply episode names `>=cab2a35e`, where
+  MiDojo first has `reply_judge` (it follows `c0bee12`, so it covers either target). There
+  is no environment (the target holds its state), no utility check, and the runtime is
+  `unmanaged`;
+- `verifiers`: always `[]`. MiDojo's built-in checks grade every episode, so the runner
+  registers no verifier, and the directory holds `episode.json` alone.
 
 A command attempt is checked by MiDojo's `tool_call_condition` predicate. A reply is
-checked by the rubric judge: the directory also holds the verifier as the
-`asago_verifiers` package, which the runner registers with `register(judge_url,
-judge_model)` before it builds the episode; the episode runs no package setup, so the
-judge gets no runtime facts. The same inputs give the same bytes.
+checked by MiDojo's `reply_judge` predicate, at `episode.security.reply_judge`:
+
+```json
+{
+  "claim": "<judge.json question>",
+  "rubric": {
+    "criteria": "<judge.json criteria>",
+    "facts": ["<judge.json facts>"],
+    "runtime_facts": {},
+    "turns": ["<the episode's user turns, in order>"],
+    "judge_turns": "final"
+  },
+  "url_env": "JUDGE_URL",
+  "token_env": "JUDGE_TOKEN",
+  "prior_turns": true,
+  "tool_calls": true,
+  "timeout_seconds": 190
+}
+```
+
+`judge_turns` is `--judge-turns` (`final` or `all`). The episode runs no package setup,
+so the judge gets no runtime facts. When MiDojo grades the sealed run it posts one
+`midojo.judge.v1` request (MiDojo's `docs/judge-service.md`) to the URL in `JUDGE_URL`
+with the bearer token in `JUDGE_TOKEN`, both read from the grading process's environment:
+the claim and rubric, the last turn's message and the reply, the earlier turns and every
+recorded call with the turn it was made in. `timeout_seconds` is 180 for each turn the
+judge grades (1 for `final`, every turn for `all`) and 10 more: the old rubric judge's
+180-second model timeout per request, one request per judged turn. MiDojo sends once,
+with no retry, no proxy from the environment and no redirect followed. With
+`tool_calls: true` MiDojo reads the check again without blocked and unfinished calls, so
+a run with one sends a second, different request in the same grading. The same inputs
+give the same bytes.
+
+`asago-bundle-midojo judge-serve` answers that request with the rubric judge
+(`authoring/rubric_judge.py`, Garak's port): for the conversation the request holds it
+sends the model the requests Garak's `RubricJudge` sends, one per judged turn (the last
+turn for `final`, each in order for `all`, whose last verdict is the answer), checked
+against Garak's (`packages/asago-bundle-midojo/tests/fixtures/rubric/`). It answers
+`supported`, `contradicted` or `unresolved`, which MiDojo grades true, false and unknown;
+`rationale` is the judge's reason (`judge_completed`, `judge_parse_failed`,
+`judge_failed:<label>`, ...), `model` the model asked and `details` the judge's record of
+each judged turn and its `request_count`. A conversation that is not the episode's (the
+rubric's `turns` against the recorded messages, each with a reply), a call that names no
+turn under `all`, a request without the earlier turns or the calls, and a rubric that is
+not compile's are `unresolved` without a model request, with the reason
+(`judge_turn_message_mismatch` and the others) as the rationale. A model that fails or
+cannot be reached is `unresolved`, never `contradicted`. A request that is not
+`midojo.judge.v1` is HTTP 400, one without the service's token 401; MiDojo grades both
+unknown.
+
+The service listens on 127.0.0.1 only and reads its model from its own environment:
+`JUDGE_MODEL_URL` (an OpenAI-compatible base URL; the judge posts to
+`<url>/chat/completions`), `JUDGE_MODEL`, and the key in `OPENAICOMPATIBLE_API_KEY`, which
+goes only to that URL (no proxy from the environment, no redirect followed) and never
+into an answer or a log line. It requires `JUDGE_SERVICE_TOKEN` and that bearer token on
+every request; the grading process sets `JUDGE_TOKEN` to it and `JUDGE_URL` to the
+service's URL. It prints `judge service on http://127.0.0.1:<port>/` once it listens
+(`--port 0` takes a free port), stops on SIGINT or SIGTERM with exit 0, and exits 1
+before it listens when a variable is missing. Each model request is sent once, with no
+retry, and may take up to 180 seconds; one judge request's model requests share 180
+seconds per judged turn, so the answer comes within the check's timeout. It keeps no
+state between requests.
 
 `compile` refuses, as a capability gap (exit 3, with the shared record), a package whose
 stimulus delivers its attack in the user turns (a direct or user-turn package), a single
@@ -1095,7 +1161,10 @@ with its slot (an unknown slot, a record or mode the slot does not have, a text 
 state differently, cannot be compiled (exit 1).
 
 `parse` reads the snapshot as MiDojo's `GET .../snapshot` returns it and the verdict as
-`{evaluation_id, snapshot_id, grade}`. It grades nothing: `security` true is `detected`,
+`{evaluation_id, snapshot_id, grade}`. A reply episode's grade (from `cab2a35`) also carries
+`judgements`, MiDojo's record of each judge request and answer, a list of objects; `parse`
+accepts it and does not carry it into the receipt, whose judge verdict and reason are the
+grade's `security` and `security_reason`. It grades nothing: `security` true is `detected`,
 false `not_detected`, and null (validity `invalid`) `inconclusive`, never a pass or a
 fail. The attempt's reason is the grade's `security_reason`; a true or false `security`
 without one is `verdict_malformed`. The receipt's `episode` block carries the run's

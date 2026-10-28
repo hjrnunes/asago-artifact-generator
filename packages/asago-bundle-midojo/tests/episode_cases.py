@@ -20,6 +20,11 @@ not the fixture target's ``read_note`` and its slot. To regenerate:
         <consumer>/packages/asago-bundle-midojo/tests/fixtures/episode/generate.py <that dir>
 
 then copy ``<that dir>`` over ``fixtures/episode/`` (``generate.py`` stays).
+``fixtures/episode/reply-single/`` keeps the reply episode as compile wrote it then, with the
+rubric verifier it copied beside it; compile now writes a ``reply_judge`` check instead, and
+``fixtures/reply-judge-4e5176a/`` holds that episode and MiDojo 4e5176a's grades of the same
+reply runs (its ``generate.py`` says how to regenerate). Regenerating ``fixtures/episode/``
+needs a MiDojo that has ``reply_judge`` and the judge service running for the reply case.
 ``fixtures/episode-a5f81e9/`` was made the same way with a MiDojo checkout at a5f81e9,
 when compile wrote ``tool_revision_range`` ``>=a5f81e96``; it is kept as sealed, not
 regenerated.

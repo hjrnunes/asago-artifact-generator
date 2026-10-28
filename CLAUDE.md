@@ -146,7 +146,7 @@ Deterministic tests must not contact a model endpoint or target.
   targets MiDojo's `asago/main` at `b5b8c75` (range `>=b5b8c752`: a target can match the
   call's arguments; from `3824922` the interceptor copies a placement into a text block
   that mirrors the structured content), or `c0bee12` (range `>=c0bee126`) for an episode
-  with a `result_record` target: `Episode`
+  with a `result_record` target, or `cab2a35` (range `>=cab2a35e`) for a reply: `Episode`
   (`src/midojo/episode.py`), the injection plan (`midojo_sdk.injection`),
   `midojo.open_episode` with `HostInterception` (`src/midojo/interception_host.py`) and
   `midojo.grade`. It plants by response injection:
@@ -168,11 +168,16 @@ Deterministic tests must not contact a model endpoint or target.
   record_key, "equals": record}` when its result object declares `record_key` as a text
   property (the host interceptor declares that capability). Any other field, or a slot
   without a `record_key`, is a gap. A
-  command attempt uses MiDojo's `tool_call_condition` predicate; a reply uses
-  `bundle_files/asago_episode_judge.py` (copied beside the episode with
-  `authoring/rubric_judge.py`; the runner registers it with its judge), three-valued, its
-  requests checked against Garak's (`tests/fixtures/rubric/`). Direct and user-turn
-  packages, a single package with history, non-user history, run-time bindings,
+  command attempt uses MiDojo's `tool_call_condition` predicate; a reply MiDojo's
+  `reply_judge` (`security.reply_judge`: the judge's question as `claim`, a `rubric` of
+  criteria, facts, `runtime_facts`, the user `turns` and `judge_turns`, `JUDGE_URL`/
+  `JUDGE_TOKEN`, earlier turns and calls sent, 180 s per judged turn + 10), answered by
+  `judge_service.py` (CLI `judge-serve`, 127.0.0.1; model from `JUDGE_MODEL_URL`,
+  `JUDGE_MODEL`, `OPENAICOMPATIBLE_API_KEY`; token `JUDGE_SERVICE_TOKEN`), which runs
+  `authoring/rubric_judge.py` per judged turn, three-valued, its model requests checked
+  against Garak's (`tests/fixtures/rubric/`); a conversation that is not the rubric's
+  turns is `unresolved`. `verifiers` is `[]`; compile writes `episode.json` alone. Direct
+  and user-turn packages, a single package with history, non-user history, run-time bindings,
   state_effect claims and a seed the interceptor cannot place in an MCP tool result are
   capability gaps (exit 3). `parse_sealed` (`sealed.py`, CLI `parse --snapshot --verdict
   [--delivery] [--route]`) reads the snapshot (`GET .../snapshot`) and the verdict (`evaluation_id`,
@@ -218,6 +223,9 @@ Deterministic tests must not contact a model endpoint or target.
   c0bee12 sealed from them in front of a scripted upstream (`tests/result_record_cases.py`).
   `tests/fixtures/openshell-4e5176a/` holds its referral run sealed by MiDojo 4e5176a with
   OpenShell observations, whose `http_requests` the snapshot ID leaves out while empty.
+  `tests/fixtures/reply-judge-4e5176a/` holds the reply episode as compiled now and the
+  reply runs MiDojo 4e5176a graded through `judge-serve` and a fake model, verdicts with
+  `judgements` (which `parse` accepts and does not carry).
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-bundle-garak/tests -q`.

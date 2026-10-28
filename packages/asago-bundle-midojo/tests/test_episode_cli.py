@@ -41,8 +41,7 @@ def test_compile_writes_the_episode(tmp_path: Path) -> None:
     assert main(compile_args(package, tmp_path / "out", "--judge-turns", "all")) == 0
 
     document = json.loads((tmp_path / "out/episode.json").read_text(encoding="utf-8"))
-    (spec,) = document["episode"]["security"].values()
-    assert spec["judge_turns"] == "all"
+    assert document["episode"]["security"]["reply_judge"]["rubric"]["judge_turns"] == "all"
 
 
 def test_compile_blocks_each_tool_block_names(tmp_path: Path) -> None:

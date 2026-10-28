@@ -1,9 +1,7 @@
 """The rubric judge: a strict yes/no semantic judge that evaluates a reply oracle.
 
-The MiDojo adapter copies this file byte for byte beside each reply episode, where the
-episode's verifier (``asago_episode_judge.py`` in the adapter) imports it in MiDojo's
-interpreter, which has none of the consumer's packages, so it imports the standard
-library only.
+The MiDojo adapter's judge service (``asago_bundle_midojo.judge_service``) imports it to
+answer the ``reply_judge`` check of a reply episode. It imports the standard library only.
 
 The evidence, request and response checks are a port of Garak's
 ``garak/detectors/rubric_judge.py`` at revision 968cc22 (``build_evidence``,
@@ -12,14 +10,14 @@ The evidence, request and response checks are a port of Garak's
 functions in Garak's interpreter, and a test requires this port to give the same output
 on every vector. Garak's own file is Apache-2.0 licensed (NVIDIA CORPORATION).
 
-Three things differ from Garak, each by what MiDojo hands a verifier:
+Three things differ from Garak, each by what MiDojo sends the judge service:
 
-- A MiDojo verifier gets the conversation (each user message and reply) and the calls
-  MiDojo recorded (``function``, ``args``, ``result``, ``error``); the episode's verifier
+- MiDojo's judge request holds the conversation (each user message and reply) and the
+  calls MiDojo recorded (``function``, ``args``, ``result``, ``error``); the judge service
   builds each judged turn's ``user_text`` and ``history`` from the conversation. Evidence
   ``completeness`` is ``complete`` unless a recorded call's ``error`` is the text
-  ``no_response`` (``UNSETTLED``), where Garak uses the response status; the episode's
-  verifier also makes it partial for a call MiDojo holds as unfinished or a capture
+  ``no_response`` (``UNSETTLED``), where Garak uses the response status; the judge
+  service also makes it partial for a call MiDojo holds as unfinished or a capture
   MiDojo marks incomplete.
 - A recorded call's ``result`` is the text the target reported to MiDojo's control plane
   when it finished the call, and ``error`` its error text when the call failed; the port
@@ -27,9 +25,11 @@ Three things differ from Garak, each by what MiDojo hands a verifier:
   ``None`` when the text is not JSON or the call failed (Garak captures no output for a
   failed call).
 - The judge request goes over ``urllib`` to ``<judge_url>/chat/completions`` with the body
-  Garak's OpenAI-compatible client sends (``request_body``), and a failed call gives
-  ``judge_failed:<label>`` with the label of the OpenAI SDK error Garak would name; a 400
-  answer gives no content (``judge_parse_failed``), as in Garak.
+  Garak's OpenAI-compatible client sends (``request_body``), once: no retry, no redirect
+  followed (a 3xx is a failed call) and no proxy read from the environment, so the key
+  goes only to that URL. A failed call gives ``judge_failed:<label>`` with the label of
+  the OpenAI SDK error Garak would name; a 400 answer gives no content
+  (``judge_parse_failed``), as in Garak.
 """
 
 from __future__ import annotations
@@ -505,8 +505,9 @@ def judge_output(
 def http_judge(judge_url: str, model: str, timeout: float = TIMEOUT_SECONDS) -> Callable[..., Any]:
     """Return the call that posts the judge request to ``<judge_url>/chat/completions``.
 
-    The key comes from ``OPENAICOMPATIBLE_API_KEY`` in this process's environment; the
-    boundary judge replaces the placeholder the bundle's environment carries.
+    The key comes from ``OPENAICOMPATIBLE_API_KEY`` in this process's environment. The
+    request is sent once, through no proxy from the environment, and a redirect is not
+    followed.
     """
 
     url = judge_url.rstrip("/") + "/chat/completions"
@@ -547,9 +548,20 @@ def status_label(status: int) -> str:
     return STATUS_LABELS.get(status, "APIStatusError")
 
 
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow no redirect: the key goes only to the URL configured, so a 3xx is an error."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201
+        return None
+
+
+# No proxy from the environment (an empty ``ProxyHandler``) and no redirect.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _RefuseRedirects())
+
+
 def _exchange(request: urllib.request.Request, timeout: float) -> bytes:
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+        with _OPENER.open(request, timeout=timeout) as response:
             return response.read()
     except urllib.error.HTTPError as exc:
         if exc.code == 400:

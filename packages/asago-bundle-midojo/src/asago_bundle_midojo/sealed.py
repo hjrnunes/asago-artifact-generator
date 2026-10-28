@@ -34,7 +34,11 @@ placed nothing, so its facts are empty), and the grade says apart what ``securit
 together: ``attempted``, ``blocked``, ``effect_observed`` and ``injection_delivered``, each
 True, False or None (unknown). An outcome or a grade has all of its new fields or none; a
 verdict sealed before them is read as unknown on each (null in the receipt), never as False,
-and none of them changes the receipt's outcome.
+and none of them changes the receipt's outcome. From cab2a35 the grade of a reply episode,
+whose ``reply_judge`` check asks a judge service, also carries ``judgements`` (a list of
+``JudgeRecord`` objects); a grade without it is what it was. It must be a list of objects,
+and the receipt does not carry it: the judge's verdict is the grade's ``security`` and its
+reason ``security_reason``.
 
 The runner may also write ``delivery.json`` (``midojo-delivery-v1``) beside the snapshot:
 the evaluation and snapshot it describes, ``midojo.delivery.delivery_facts`` of the
@@ -180,6 +184,9 @@ GRADE_FIELDS = frozenset(
 )
 # What a grade gains from 13d5487 (``GradeResponse``): the attack outcome, all four or none.
 ATTACK_OUTCOME = ("attempted", "blocked", "effect_observed", "injection_delivered")
+# What a grade a judge service took part in also has (from cab2a35): each request MiDojo
+# sent or would have sent and the answer, a ``JudgeRecord``. The receipt does not carry it.
+JUDGEMENTS = "judgements"
 DELIVERY_SCHEMA_VERSION = "midojo-delivery-v1"
 DELIVERY_FIELDS = frozenset(
     {"schema_version", "evaluation_id", "snapshot_id", "delivery", "exposure"}
@@ -528,9 +535,9 @@ def evidence_shape(status: Any) -> bool:
 
 def verdict_shape(verdict: dict[str, Any]) -> bool:
     """The verdict is ``Verdict``, its grade MiDojo's ``GradeResponse``, field for field (the
-    attack outcome all or none), and the security grade agrees with its validity: unknown
-    exactly when ``invalid``. A decided security grade carries its ``security_reason``,
-    the receipt's explanation of the outcome."""
+    attack outcome all or none, ``judgements`` optional), and the security grade agrees with
+    its validity: unknown exactly when ``invalid``. A decided security grade carries its
+    ``security_reason``, the receipt's explanation of the outcome."""
 
     grade = verdict.get("grade")
     if not (
@@ -538,7 +545,8 @@ def verdict_shape(verdict: dict[str, Any]) -> bool:
         and isinstance(verdict["evaluation_id"], str)
         and isinstance(verdict["snapshot_id"], str)
         and isinstance(grade, dict)
-        and set(grade) in (GRADE_FIELDS, GRADE_FIELDS | set(ATTACK_OUTCOME))
+        and set(grade) - {JUDGEMENTS} in (GRADE_FIELDS, GRADE_FIELDS | set(ATTACK_OUTCOME))
+        and _judgements_shape(grade.get(JUDGEMENTS, []))
         and evidence_shape(grade["evidence_status"])
         and all(_three_valued(grade.get(key)) for key in (*GRADED, *ATTACK_OUTCOME))
         and all(_optional_text(grade[f"{key}_reason"]) for key in GRADED)
@@ -551,6 +559,10 @@ def verdict_shape(verdict: dict[str, Any]) -> bool:
         and (status == "invalid") == (grade["security"] is None)
         and (grade["security"] is None or isinstance(grade["security_reason"], str))
     )
+
+
+def _judgements_shape(judgements: Any) -> bool:
+    return isinstance(judgements, list) and all(isinstance(item, dict) for item in judgements)
 
 
 def _three_valued(value: Any) -> bool:
