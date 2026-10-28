@@ -199,13 +199,16 @@ def _call2_examples_findings(examples: Any) -> list[Finding]:
 
 
 def _call2_example_findings(label: str, item: Any) -> list[Finding]:
-    findings = _example_item_findings(label, item)
-    if findings or "capture" not in item:
-        return findings
-    return capture_shape_findings(label, item["capture"])
+    """Return every shape finding of one example, none hiding another.
 
+    A missing or non-object example is one finding; there is nothing else to
+    inspect. An object gets, in this order: its label finding, its unexpected
+    field findings, its description type finding, and the shape findings of a
+    capture its key allows. A capture its key does not allow is one unexpected
+    field finding, so its shape is not checked as well. Every finding at a reply
+    path comes from reply_example_findings, which knows the claim level.
+    """
 
-def _example_item_findings(label: str, item: Any) -> list[Finding]:
     if item is None:
         return [
             Finding(
@@ -214,33 +217,30 @@ def _example_item_findings(label: str, item: Any) -> list[Finding]:
                 f"examples.{label}",
             )
         ]
-    if not isinstance(item, dict) or item.get("label") != "author-proposed":
-        return [
-            Finding(
-                "example_shape",
-                f"example {label} must be author-proposed",
-                f"examples.{label}",
-            )
-        ]
-    # Every finding at a reply path comes from reply_example_findings, which
-    # knows the claim level; no early return here can hide one.
-    allowed = {"label", "description", REPLY_FIELD} | (
-        {"capture"} if label in CAPTURED_EXAMPLES else set()
+    shape = Finding(
+        "example_shape",
+        f"example {label} must be author-proposed",
+        f"examples.{label}",
     )
-    extra = unexpected_field_findings(
-        item, allowed, "unexpected example field", f"examples.{label}."
+    if not isinstance(item, dict):
+        return [shape]
+    findings = [] if item.get("label") == "author-proposed" else [shape]
+    captured = label in CAPTURED_EXAMPLES
+    allowed = {"label", "description", REPLY_FIELD} | ({"capture"} if captured else set())
+    findings.extend(
+        unexpected_field_findings(item, allowed, "unexpected example field", f"examples.{label}.")
     )
-    if extra:
-        return extra
     if not isinstance(item.get("description"), str):
-        return [
+        findings.append(
             Finding(
                 "type_error",
                 f"example {label} description must be a string",
                 f"examples.{label}.description",
             )
-        ]
-    return []
+        )
+    if captured and "capture" in item:
+        findings.extend(capture_shape_findings(label, item["capture"]))
+    return findings
 
 
 def collect_plan_findings_v2(
