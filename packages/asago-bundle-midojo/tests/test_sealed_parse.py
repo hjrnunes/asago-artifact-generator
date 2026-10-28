@@ -508,6 +508,45 @@ def test_a_sealed_result_that_does_not_hold_together_fails_the_receipt(
     assert receipt["runtime_status"] is None
 
 
+@pytest.mark.parametrize(
+    ("scenario", "outcome"),
+    [("detected", "detected"), ("not-detected", "not_detected"), ("unfinished", "inconclusive")],
+)
+def test_the_receipt_explains_each_outcome_with_the_grade_s_security_reason(
+    tmp_path: Path, scenario: str, outcome: str
+) -> None:
+    reason = f"{scenario}: the reason of the deciding check"
+    verdict = with_grade("command-single", scenario, security_reason=reason)
+
+    receipt = parsed(tmp_path, "command-single", scenario, verdict=verdict)
+
+    assert receipt["execution_status"] == "completed"
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"] == {
+        "outcome": outcome,
+        "claim_level": "command_attempt",
+        "reason": reason,
+    }
+    assert [item["reason"] for item in attempt["detections"]] == [reason]
+    assert receipt["episode"]["verdict"]["reason"] == reason
+
+
+@pytest.mark.parametrize("scenario", ["detected", "not-detected"])
+def test_a_decided_grade_without_its_security_reason_is_malformed(
+    tmp_path: Path, scenario: str
+) -> None:
+    verdict = with_grade("command-single", scenario, security_reason=None)
+
+    receipt = parsed(tmp_path, "command-single", scenario, verdict=verdict)
+
+    assert (receipt["execution_status"], receipt["incomplete_reason"]) == (
+        "failed",
+        "verdict_malformed",
+    )
+    assert receipt["attempts"] == []
+    assert receipt["episode"]["verdict"] is None
+
+
 def test_a_call_outside_the_turns_fails_the_receipt(tmp_path: Path) -> None:
     calls = recorded("command-single", "detected", "snapshot.json")["function_calls"]
     calls[0]["turn"] = 3
@@ -900,6 +939,11 @@ def _verdict_variant(name: str) -> dict[str, Any]:
         grade["grade_validity"]["security"]["reasons"] = ["capture is incomplete"]
     elif name == "security-not-applicable":
         grade["grade_validity"]["security"] = {"status": "not_applicable", "reasons": []}
+    elif name == "security-not-applicable-without-reason":
+        # MiDojo's grade of an episode without a security check. Every episode compiled
+        # here has one, so the grade is refused for its validity, whatever its reason.
+        grade["grade_validity"]["security"] = {"status": "not_applicable", "reasons": []}
+        grade["security_reason"] = None
     elif name == "validity-status-a-list":
         grade["grade_validity"]["utility"]["status"] = ["valid"]
     elif name == "evidence-status-an-object":
@@ -916,6 +960,7 @@ VERDICT_VARIANTS = [
     "validity-unknown-status",
     "reason-not-a-validity-reason",
     "security-not-applicable",
+    "security-not-applicable-without-reason",
     "validity-status-a-list",
     "evidence-status-an-object",
 ]

@@ -1097,7 +1097,9 @@ state differently, cannot be compiled (exit 1).
 `parse` reads the snapshot as MiDojo's `GET .../snapshot` returns it and the verdict as
 `{evaluation_id, snapshot_id, grade}`. It grades nothing: `security` true is `detected`,
 false `not_detected`, and null (validity `invalid`) `inconclusive`, never a pass or a
-fail. The receipt's `episode` block carries the run's `route`, the `evaluation_id` and
+fail. The attempt's reason is the grade's `security_reason`; a true or false `security`
+without one is `verdict_malformed`. The receipt's `episode` block carries the run's
+`route`, the `evaluation_id` and
 `snapshot_id` graded, the snapshot's `evidence_status`, the verdict as MiDojo gave it,
 and `call_injections`: each sealed call's `call_id`, `function` and `injection_outcomes`
 as MiDojo sealed them (`instruction_index`, `probe_key`, `occurrence`, `status`,
