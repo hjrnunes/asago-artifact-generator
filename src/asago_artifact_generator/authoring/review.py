@@ -509,6 +509,16 @@ def _reports_near(round_: PriorReviewRound, path: tuple[str | int, ...]) -> bool
     return False
 
 
+def _restated_since(finding: dict[str, Any], rounds: tuple[PriorReviewRound, ...]) -> bool:
+    """Whether any of ``rounds`` reported the byte-identical required_change, at any location."""
+
+    return any(
+        reported.get("required_change") == finding.get("required_change")
+        for round_ in rounds
+        for reported in (*round_.findings, *round_.repeated_findings)
+    )
+
+
 def _met_repeat(
     finding: dict[str, Any], plan: dict[str, Any], rounds: tuple[PriorReviewRound, ...]
 ) -> dict[str, Any] | None:
@@ -522,13 +532,14 @@ def _met_repeat(
     # not, and was shown the identical request by the round before it, judged the
     # request met on the plan it reviewed.  That judgment covers only that exact
     # plan: whether a request is met can depend on any other field, so an
-    # unchanged value at the path is not enough.
+    # unchanged value at the path is not enough.  A round from the judging round
+    # on that reported the identical required_change anywhere vetoes it.
     for judging in range(len(rounds) - 1, 0, -1):
         if _reports_near(rounds[judging], path):
             return None
         if any(_same_request(finding, earlier) for earlier in rounds[judging - 1].findings):
             judged = _canonical_json(rounds[judging].reviewed_plan)
-            if judged != _canonical_json(plan):
+            if judged != _canonical_json(plan) or _restated_since(finding, rounds[judging:]):
                 return None
             return {
                 "transformation": REVIEW_FINDING_REPEATS_MET_CHANGE,
@@ -548,6 +559,12 @@ def set_aside_met_repeats(
 ) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
     """Split plan-review findings into those kept and those set aside as met repeats.
 
+    A set-aside only trims a duplicate from a review that still asks for
+    revision; it never decides the outcome.  When every finding would be set
+    aside, all are kept and none is set aside, so the review's decision stands.
+    Code cannot recognise a semantic restatement of a request at another
+    location, which is why the rule may not decide whether a plan is accepted.
+
     A finding is set aside only when all of this holds, decided from structure
     alone: its location is exactly one plan path (``finding_plan_path``); an
     earlier round reported a finding with the same path and the byte-identical
@@ -555,7 +572,9 @@ def set_aside_met_repeats(
     finding, reviewed a plan whose canonical JSON is identical to ``plan``, and
     reported no finding at that path, above it, or under it, so it judged the
     change met on this exact plan; and no later round reported anything there
-    either, so that judgment is the latest one.  A plan that differs in any
+    either, so that judgment is the latest one; and no round from the judging
+    round on reported the byte-identical required_change at any location.  A
+    plan that differs in any
     field is never covered, because whether a request is met can depend on
     fields other than the one at its path.  A reported finding whose
     location is not one path into a top-level field of that round's plan counts
@@ -576,6 +595,8 @@ def set_aside_met_repeats(
             kept.append(finding)
         else:
             set_aside.append({"finding": dict(finding), "reason": reason})
+    if not kept:
+        return findings, ()
     return tuple(kept), tuple(set_aside)
 
 

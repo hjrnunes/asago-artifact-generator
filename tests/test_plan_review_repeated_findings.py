@@ -5,8 +5,9 @@ minimised to the value each round's plan held at the finding's path and each rou
 reply. In each case a later round asked again for a change the revised plan already held.
 
 Code sets aside a plan-review finding only when an earlier review already judged its exact
-request met on this same plan, unchanged in every field; the recorded repeats all repeat the
-round just before, so they are kept, and the set-aside cases below build on a recorded finding.
+request met on this same plan, unchanged in every field, and only beside a finding it keeps, so
+a set-aside never changes the decision. The recorded repeats all repeat the round just before,
+so they are kept, and the set-aside cases below build on a recorded finding.
 """
 
 from __future__ import annotations
@@ -154,7 +155,9 @@ def test_a_recorded_repeat_of_the_round_just_before_is_kept(case: str) -> None:
 
 # The set-aside cases: round 1 reports the recorded scope finding; round 2 reviews the recorded
 # revision, reports only another finding, and so judges that request met; round 3 reviews the
-# same plan again, unchanged unless a case changes it.
+# same plan again, unchanged unless a case changes it.  Each round-3 review also reports
+# _COMPANION, a finding no earlier round decided, so the rule itself decides each case: with
+# every finding set aside, all are kept instead.
 _SCOPE_PATH, _SCOPE_ROUNDS = _recorded_rounds("judge-scope")
 _SCOPE_FINDING = _SCOPE_ROUNDS[0]["review"]["findings"][0]
 _OTHER_FINDING = {
@@ -163,6 +166,13 @@ _OTHER_FINDING = {
     "problem": "The absence branch does not state the captured evidence.",
     "basis": "The violation branch names a captured command; absence names none.",
     "required_change": "State the captured evidence the absence branch requires.",
+}
+_COMPANION = {
+    "question": "observability",
+    "location": "candidate_plan.required_observations",
+    "problem": "The plan does not say which capture decides inconclusive.",
+    "basis": "The inconclusive branch names unavailable capture without saying which.",
+    "required_change": "Name the capture whose absence makes the outcome inconclusive.",
 }
 _REVIEWED = _plan_with(_SCOPE_PATH, _SCOPE_ROUNDS[0]["value_at_path"])
 _REVISED = _plan_with(_SCOPE_PATH, _SCOPE_ROUNDS[1]["value_at_path"])
@@ -188,11 +198,17 @@ def _two_rounds(
 
 def test_a_repeat_of_a_request_an_earlier_review_judged_met_on_this_plan_is_set_aside() -> None:
     kept, set_aside = set_aside_met_repeats(
-        (dict(_SCOPE_FINDING),), copy.deepcopy(_REVISED), _two_rounds()
+        (dict(_SCOPE_FINDING), _COMPANION), copy.deepcopy(_REVISED), _two_rounds()
     )
 
-    assert kept == ()
+    assert kept == (_COMPANION,)
     assert set_aside == ({"finding": _SCOPE_FINDING, "reason": _SCOPE_REASON},)
+
+
+def test_a_review_whose_findings_would_all_be_set_aside_keeps_them_all() -> None:
+    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING,), _REVISED, _two_rounds())
+
+    assert (kept, set_aside) == ((_SCOPE_FINDING,), ())
 
 
 @pytest.mark.parametrize(
@@ -208,17 +224,17 @@ def test_a_repeat_of_a_request_an_earlier_review_judged_met_on_this_plan_is_set_
 def test_a_repeat_on_a_plan_that_differs_in_any_field_is_kept(plan_path: str, value: Any) -> None:
     current = _plan_with(plan_path, value, _REVISED)
 
-    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING,), current, _two_rounds())
+    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING, _COMPANION), current, _two_rounds())
 
-    assert (kept, set_aside) == ((_SCOPE_FINDING,), ())
+    assert (kept, set_aside) == ((_SCOPE_FINDING, _COMPANION), ())
 
 
 def test_a_location_written_with_another_prefix_names_the_same_path() -> None:
     finding = {**_SCOPE_FINDING, "location": "plan.semantic_judge"}
 
-    kept, set_aside = set_aside_met_repeats((finding,), _REVISED, _two_rounds())
+    kept, set_aside = set_aside_met_repeats((finding, _COMPANION), _REVISED, _two_rounds())
 
-    assert kept == ()
+    assert kept == (_COMPANION,)
     assert [item["finding"] for item in set_aside] == [finding]
 
 
@@ -270,9 +286,9 @@ def _scope_value_changed() -> dict:
 def test_a_finding_without_a_structural_met_decision_is_kept(
     finding: dict, current: dict, prior: PriorReviewRound
 ) -> None:
-    kept, set_aside = set_aside_met_repeats((finding,), current, prior)
+    kept, set_aside = set_aside_met_repeats((finding, _COMPANION), current, prior)
 
-    assert (kept, set_aside) == ((finding,), ())
+    assert (kept, set_aside) == ((finding, _COMPANION), ())
 
 
 def test_a_repeat_the_judging_round_reported_but_code_set_aside_is_not_a_met_decision() -> None:
@@ -284,9 +300,9 @@ def test_a_repeat_the_judging_round_reported_but_code_set_aside_is_not_a_met_dec
         earlier_rounds=(first,),
     )
 
-    kept, _ = set_aside_met_repeats((_SCOPE_FINDING,), _REVISED, second)
+    kept, _ = set_aside_met_repeats((_SCOPE_FINDING, _COMPANION), _REVISED, second)
 
-    assert kept == (_SCOPE_FINDING,)
+    assert kept == (_SCOPE_FINDING, _COMPANION)
 
 
 def _rounds(*specs: tuple[dict, list[dict]]) -> PriorReviewRound:
@@ -324,9 +340,9 @@ def test_a_judging_round_that_reported_near_the_path_in_other_words_judged_nothi
     }
     prior = _rounds((_REVIEWED, [_SCOPE_FINDING]), (_REVISED, [restated]))
 
-    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING,), _REVISED, prior)
+    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING, _COMPANION), _REVISED, prior)
 
-    assert (kept, set_aside) == ((_SCOPE_FINDING,), ())
+    assert (kept, set_aside) == ((_SCOPE_FINDING, _COMPANION), ())
 
 
 def test_a_later_round_that_raised_the_request_again_voids_the_older_judgment() -> None:
@@ -339,9 +355,9 @@ def test_a_later_round_that_raised_the_request_again_voids_the_older_judgment() 
         (value_c, [_SCOPE_FINDING]),
     )
 
-    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING,), _REVISED, prior)
+    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING, _COMPANION), _REVISED, prior)
 
-    assert (kept, set_aside) == ((_SCOPE_FINDING,), ())
+    assert (kept, set_aside) == ((_SCOPE_FINDING, _COMPANION), ())
 
 
 def test_a_judgment_no_later_round_contradicted_still_holds_rounds_later() -> None:
@@ -351,9 +367,9 @@ def test_a_judgment_no_later_round_contradicted_still_holds_rounds_later() -> No
         (_REVISED, [{**_OTHER_FINDING, "required_change": "Name the captured command."}]),
     )
 
-    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING,), _REVISED, prior)
+    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING, _COMPANION), _REVISED, prior)
 
-    assert kept == ()
+    assert kept == (_COMPANION,)
     assert set_aside == ({"finding": _SCOPE_FINDING, "reason": _SCOPE_REASON},)
 
 
@@ -364,9 +380,39 @@ def test_a_repeat_of_the_round_just_before_is_kept_whatever_came_earlier() -> No
         (_REVISED, [_SCOPE_FINDING]),
     )
 
-    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING,), _REVISED, prior)
+    kept, set_aside = set_aside_met_repeats((_SCOPE_FINDING, _COMPANION), _REVISED, prior)
 
-    assert (kept, set_aside) == ((_SCOPE_FINDING,), ())
+    assert (kept, set_aside) == ((_SCOPE_FINDING, _COMPANION), ())
+
+
+_EXCLUSIVE = {
+    "question": "branch_logic",
+    "location": "candidate_plan.observation_claim.violation",
+    "problem": "The violation and absence branches overlap.",
+    "basis": "A captured refund above the balance satisfies both branches.",
+    "required_change": "Make violation and absence mutually exclusive.",
+}
+_EXCLUSIVE_ELSEWHERE = {**_EXCLUSIVE, "location": "candidate_plan.observation_claim.absence"}
+
+
+@pytest.mark.parametrize(
+    "later_rounds",
+    [
+        pytest.param([[_EXCLUSIVE_ELSEWHERE]], id="in-the-judging-round"),
+        pytest.param([[_OTHER_FINDING], [_EXCLUSIVE_ELSEWHERE]], id="after-the-judging-round"),
+    ],
+)
+def test_a_round_that_restated_the_identical_request_elsewhere_vetoes_the_set_aside(
+    later_rounds: list[list[dict]],
+) -> None:
+    # The plan never changes.  Round 1 asks at the violation branch; a later round reports the
+    # identical required_change at the sibling absence branch, which is not near the path; the
+    # review under test repeats round 1.
+    prior = _rounds((_REVISED, [_EXCLUSIVE]), *((_REVISED, findings) for findings in later_rounds))
+
+    kept, set_aside = set_aside_met_repeats((_EXCLUSIVE, _COMPANION), _REVISED, prior)
+
+    assert (kept, set_aside) == ((_EXCLUSIVE, _COMPANION), ())
 
 
 # Orchestrator runs over the refund world: round 1 asks for a benign request (the recorded
@@ -403,11 +449,11 @@ def _review(findings: list[dict]) -> bytes:
     return review_response("revise" if findings else "accept", findings)
 
 
-def test_the_run_sets_aside_a_met_repeat_records_it_and_accepts_the_plan(
+def test_a_review_whose_only_finding_is_a_met_repeat_stays_a_revise_and_keeps_it(
     tmp_path: Path,
 ) -> None:
     first, second, third = _three_plans()
-    orchestrator, transport = _orchestrator(
+    orchestrator, _transport = _orchestrator(
         tmp_path,
         [
             json.dumps(first),
@@ -416,47 +462,31 @@ def test_the_run_sets_aside_a_met_repeat_records_it_and_accepts_the_plan(
             _review([_OTHER_FINDING]),
             json.dumps(third),
             _review([_REQUEST_FINDING]),
-            _framed(),
-            _review([]),
         ],
         policy=AuthoringPolicy(),
     )
 
     result = orchestrator.run(_view(), _inventory(), _runtime_contract())
 
-    assert result.status == "accepted"
-    assert result.review_status["plan"] == "accepted"
+    assert result.status == "unresolved"
+    assert result.review_status["plan"] == "revise"
     reviews = [entry for entry in result.ledger if entry["stage"] == "plan_review"]
-    assert len(reviews) == 3
     decided = reviews[-1]["review"]
-    assert decided["decision"] == "revise"
     assert decided["decision_after_scope_filter"] == "revise"
-    assert decided["decision_after_repeat_filter"] == "accept"
-    assert decided["findings"] == []
-    assert decided["repeated_met_findings"] == [
-        {"finding": _REQUEST_FINDING, "reason": _REQUEST_REASON}
-    ]
-    record = {
-        **_REQUEST_REASON,
-        "stage": "plan_review",
-        "field": "findings",
-        "location": _REQUEST_FINDING["location"],
-        "required_change": _REQUEST_FINDING["required_change"],
-    }
-    assert reviews[-1]["transformations"] == [record]
-    assert record in result.transformations
-    assert all("repeated_met_findings" not in entry["review"] for entry in reviews[:-1])
-    # The third review saw the revision beside the second round's finding only.
-    third_prompt = [item for item in transport.requests if item["stage"] == "plan_review"][2]
-    assert _OTHER_FINDING["required_change"] in third_prompt["user"]
-    assert _REQUEST_FINDING["required_change"] not in third_prompt["user"]
+    assert decided["findings"] == [_REQUEST_FINDING]
+    assert all("repeated_met_findings" not in entry["review"] for entry in reviews)
+    assert "transformations" not in reviews[-1]
+    assert not any(
+        isinstance(item, dict) and item.get("transformation") == REVIEW_FINDING_REPEATS_MET_CHANGE
+        for item in result.transformations
+    )
 
 
 def test_a_met_repeat_set_aside_beside_another_finding_leaves_the_review_a_revise(
     tmp_path: Path,
 ) -> None:
     first, second, third = _three_plans()
-    orchestrator, _transport = _orchestrator(
+    orchestrator, transport = _orchestrator(
         tmp_path,
         [
             json.dumps(first),
@@ -473,13 +503,30 @@ def test_a_met_repeat_set_aside_beside_another_finding_leaves_the_review_a_revis
 
     assert result.status == "unresolved"
     assert result.review_status["plan"] == "revise"
-    decided = [entry for entry in result.ledger if entry["stage"] == "plan_review"][-1]["review"]
-    assert decided["decision_after_repeat_filter"] == "revise"
+    reviews = [entry for entry in result.ledger if entry["stage"] == "plan_review"]
+    decided = reviews[-1]["review"]
+    assert decided["decision_after_scope_filter"] == "revise"
     assert decided["findings"] == [_NEW_FINDING]
-    assert [item["finding"] for item in decided["repeated_met_findings"]] == [_REQUEST_FINDING]
+    assert decided["repeated_met_findings"] == [
+        {"finding": _REQUEST_FINDING, "reason": _REQUEST_REASON}
+    ]
+    record = {
+        **_REQUEST_REASON,
+        "stage": "plan_review",
+        "field": "findings",
+        "location": _REQUEST_FINDING["location"],
+        "required_change": _REQUEST_FINDING["required_change"],
+    }
+    assert reviews[-1]["transformations"] == [record]
+    assert record in result.transformations
+    assert all("repeated_met_findings" not in entry["review"] for entry in reviews[:-1])
     details = [finding.detail for finding in result.findings if finding.code == "semantic_review"]
     assert any(_NEW_FINDING["required_change"] in detail for detail in details)
     assert not any(_REQUEST_FINDING["required_change"] in detail for detail in details)
+    # The third review saw the revision beside the second round's finding only.
+    third_prompt = [item for item in transport.requests if item["stage"] == "plan_review"][2]
+    assert _OTHER_FINDING["required_change"] in third_prompt["user"]
+    assert _REQUEST_FINDING["required_change"] not in third_prompt["user"]
 
 
 def test_a_repeat_is_kept_when_a_sibling_field_changed_and_its_own_value_did_not(
@@ -532,7 +579,6 @@ def test_a_repeat_is_kept_when_a_sibling_field_changed_and_its_own_value_did_not
     assert decided["decision_after_scope_filter"] == "revise"
     assert decided["findings"] == [exclusive]
     assert "repeated_met_findings" not in decided
-    assert "decision_after_repeat_filter" not in decided
 
 
 def test_a_blocked_review_keeps_a_repeat_of_a_met_change(tmp_path: Path) -> None:
@@ -557,7 +603,6 @@ def test_a_blocked_review_keeps_a_repeat_of_a_met_change(tmp_path: Path) -> None
     decided = [entry for entry in result.ledger if entry["stage"] == "plan_review"][-1]["review"]
     assert decided["findings"] == [_REQUEST_FINDING]
     assert "repeated_met_findings" not in decided
-    assert "decision_after_repeat_filter" not in decided
     assert not any(
         isinstance(item, dict) and item.get("transformation") == REVIEW_FINDING_REPEATS_MET_CHANGE
         for item in result.transformations

@@ -1204,7 +1204,8 @@ class AuthoringOrchestrator:
         rounds before it; in a plan review that decides ``revise``, a finding
         that repeats a change the latest of them to judge it found met, on a
         plan identical to this candidate, is set aside (``set_aside_met_repeats``)
-        and recorded.  A ``blocked`` review
+        and recorded.  A set-aside only trims a duplicate beside a finding that is
+        kept, so it never changes the decision.  A ``blocked`` review
         keeps every finding: its claim that the experiment cannot be completed
         is not overridden by an earlier round's silence.
         """
@@ -1243,14 +1244,11 @@ class AuthoringOrchestrator:
         decision_after_scope_filter, in_scope_findings, out_of_scope_findings = (
             _scope_review_response(review, stage=packet.stage)
         )
-        decision = decision_after_scope_filter
         repeated: tuple[dict[str, Any], ...] = ()
-        if packet.stage == "plan_review" and decision == "revise":
+        if packet.stage == "plan_review" and decision_after_scope_filter == "revise":
             in_scope_findings, repeated = set_aside_met_repeats(
                 in_scope_findings, review_packet_candidate(packet), prior
             )
-            if repeated and not in_scope_findings:
-                decision = "accept"
         review_record = {
             "decision": review.decision,
             "original_decision": review.decision,
@@ -1262,7 +1260,6 @@ class AuthoringOrchestrator:
         }
         if repeated:
             review_record["repeated_met_findings"] = [deepcopy(item) for item in repeated]
-            review_record["decision_after_repeat_filter"] = decision
         self._record_review_transformations(review, packet.stage, repeated)
         self._journal.append(ReviewDecided(review_record))
         self._set_review_evidence(
@@ -1270,7 +1267,7 @@ class AuthoringOrchestrator:
                 "accept": "accepted",
                 "revise": "revise",
                 "blocked": "blocked",
-            }[decision],
+            }[decision_after_scope_filter],
             effective_controls=effective_controls,
             packet=packet,
             review=review_record,
@@ -1278,7 +1275,7 @@ class AuthoringOrchestrator:
         self._decoded_responses[packet.stage] = self._journal.reviews[review_key]
         self._journal.flush()
         return _ReviewOutcome(
-            decision=decision,
+            decision=decision_after_scope_filter,
             findings=in_scope_findings,
             repeated=tuple(item["finding"] for item in repeated),
             raw=raw,
