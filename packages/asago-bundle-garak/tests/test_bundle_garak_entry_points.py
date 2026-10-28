@@ -316,7 +316,7 @@ def _move_run(template: Path, name: str) -> None:
 # Package data holding one-key objects with a dollar-prefixed key, which are not slot
 # markers: a refusal of unknown "$" keys would reject them.
 DOLLAR_LITERAL = {"$schema": {"$id": "https://example.invalid/literal"}}
-CONDITION_SCHEMA = REPO / "contracts/tool-call-condition/tool-call-condition-v1/schema.json"
+CONDITION_SCHEMA = REPO / "contracts/tool-call-condition/tool-call-condition-v2/schema.json"
 
 
 @pytest.mark.parametrize("sequential", [False, True], ids=["single", "sequential"])

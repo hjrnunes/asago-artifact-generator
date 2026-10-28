@@ -1,17 +1,21 @@
-"""Validate and evaluate a tool-call condition as tool-call-condition-v1 states it.
+"""Validate and evaluate a tool-call condition as tool-call-condition-v2 states it.
 
-``contracts/tool-call-condition/tool-call-condition-v1/README.md`` is the shared
-semantics; the producer owns it and Garak executes it. This module follows the
-README and passes every vector, so the consumer can check an authored example
-capture against the condition before the package ships. Packages carry no
-detector code. A MiDojo episode is checked by MiDojo's own ``tool_call_condition``
-predicate instead. The module imports the standard library only.
+``contracts/tool-call-condition/tool-call-condition-v2/README.md`` is the shared
+semantics; the producer owns it. This module follows the README and passes every
+v2 vector, so the consumer can check an authored example capture against the
+condition before the package ships. Packages carry no detector code. A MiDojo
+episode is checked by MiDojo's own ``tool_call_condition`` predicate instead.
+The module imports the standard library only.
 
-Every comparison is true, false, or unknown (``None``). The vectors pin Garak's
-behavior where it is surprising, and this module keeps that behavior. It differs
-from Garak in one respect: input Garak cannot handle returns a result here. A
-``kind``, ``source``, or ``op`` that is a list or an object is an unknown value
-problem, and an integer beyond float range saturates to an infinity.
+Every comparison is true, false, or unknown (``None``). Validation is v1's,
+which Garak executes, and the vectors pin Garak's behavior where it is
+surprising. Evaluation differs from v1 in ``order``: a missing prior call is
+true only on a complete capture, ``same_argument`` uses contract equality and a
+prior call that lacks the argument never matches, and a ``blocked`` call never
+satisfies ``requires_prior``. This module also differs from Garak in one
+respect: input Garak cannot handle returns a result here. A ``kind``,
+``source``, or ``op`` that is a list or an object is an unknown value problem,
+and an integer beyond float range saturates to an infinity.
 """
 
 from __future__ import annotations
@@ -218,7 +222,7 @@ def _assignment(
     ]
     if not all(candidates):
         return (False if complete else None), ()
-    picks, seen_unknown = _first_true_picks(comparisons, calls, operations, candidates)
+    picks, seen_unknown = _first_true_picks(comparisons, calls, complete, operations, candidates)
     if picks is not None:
         return True, picks
     return (None if seen_unknown or not complete else False), ()
@@ -227,6 +231,7 @@ def _assignment(
 def _first_true_picks(
     comparisons: Sequence[Mapping[str, Any]],
     calls: Sequence[Call],
+    complete: bool,
     operations: Sequence[str],
     candidates: Sequence[Sequence[int]],
 ) -> tuple[tuple[int, ...] | None, bool]:
@@ -235,7 +240,9 @@ def _first_true_picks(
     seen_unknown = False
     for picks in itertools.product(*candidates):
         choice = dict(zip(operations, picks, strict=True))
-        truth = _all(_call_level_truth(comparison, calls, choice) for comparison in comparisons)
+        truth = _all(
+            _call_level_truth(comparison, calls, complete, choice) for comparison in comparisons
+        )
         if truth:
             return picks, seen_unknown
         seen_unknown = seen_unknown or truth is None
@@ -259,10 +266,13 @@ def _operations(comparisons: Sequence[Mapping[str, Any]]) -> list[str]:
 
 
 def _call_level_truth(
-    comparison: Mapping[str, Any], calls: Sequence[Call], choice: Mapping[str, int]
+    comparison: Mapping[str, Any],
+    calls: Sequence[Call],
+    complete: bool,
+    choice: Mapping[str, int],
 ) -> Truth:
     if comparison["kind"] == "order":
-        return _order_truth(comparison, calls, choice[comparison["operation"]])
+        return _order_truth(comparison, calls, choice[comparison["operation"]], complete)
     left = _operand_value(comparison["left"], calls, choice)
     right = _operand_value(comparison["right"], calls, choice)
     if left is _NO_VALUE or right is _NO_VALUE:
@@ -339,22 +349,26 @@ def _to_number(value: Any) -> float | None:
     return None
 
 
-def _order_truth(comparison: Mapping[str, Any], calls: Sequence[Call], assigned: int) -> Truth:
-    required = comparison["requires_prior"]
-    earlier = [call for call in calls[:assigned] if call.get("name") == required]
+def _order_truth(
+    comparison: Mapping[str, Any], calls: Sequence[Call], assigned: int, complete: bool
+) -> Truth:
+    """False on a matching unblocked prior call; no prior call is true only when complete."""
+
     same = comparison.get("same_argument")
-    if not same:
-        return not earlier
-    wanted = _argument_value(calls[assigned], same)
+    wanted = _argument_value(calls[assigned], same) if same else None
     if wanted is _NO_VALUE:
         return None
-    for call in earlier:
-        arguments = call.get("arguments")
-        if not isinstance(arguments, dict):
-            return None
-        if arguments.get(same) == wanted:
+    for call in calls[:assigned]:
+        if call.get("name") != comparison["requires_prior"] or call.get("blocked"):
+            continue
+        if not same:
             return False
-    return True
+        if not isinstance(call.get("arguments"), dict):
+            return None
+        prior = _argument_value(call, same)
+        if prior is not _NO_VALUE and _equal(prior, wanted):
+            return False
+    return True if complete else None
 
 
 def _not_called_truth(
