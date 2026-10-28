@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import copy
 import json
+import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from asago_artifact_generator import bindings
 from asago_artifact_generator.authoring import checks
 from asago_artifact_generator.authoring.checks import (
     collect_artifact_findings_v2,
@@ -18,7 +21,7 @@ from asago_artifact_generator.authoring.checks import (
 from asago_artifact_generator.authoring.core import _canonical_json, _sha256
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 
-from .policy_support import NO_REVIEW
+from .policy_support import NO_REVIEW, ONE_PLAN_CORRECTION
 from .support import ScriptedAuthoringTransport, world_builders
 
 _framed, _inventory, _metadata, _plan, _runtime_contract, _view = world_builders(
@@ -97,7 +100,7 @@ def test_plan_normalization_is_pure() -> None:
 
     assert plan == written
     assert first == second
-    normalized, transformations = first
+    normalized, transformations, _ = first
     assert normalized is not plan
     assert normalized["runtime_bindings"] is not plan["runtime_bindings"]
     assert _kinds(transformations) == [
@@ -116,11 +119,11 @@ def test_plan_normalization_is_pure() -> None:
 
 
 def test_plan_normalization_keeps_a_plan_that_is_not_an_object() -> None:
-    assert normalize_plan_v2(["plan"], _orders_inventory()) == (["plan"], [])
+    assert normalize_plan_v2(["plan"], _orders_inventory()) == (["plan"], [], None)
 
 
 def test_artifact_normalization_is_pure() -> None:
-    plan, _ = normalize_plan_v2(_plan_needing_every_rewrite(), _orders_inventory())
+    plan, _, _ = normalize_plan_v2(_plan_needing_every_rewrite(), _orders_inventory())
     metadata = _metadata_needing_slots()
     written = copy.deepcopy((metadata, plan))
 
@@ -136,7 +139,7 @@ def test_artifact_normalization_is_pure() -> None:
 
 
 def test_artifact_normalization_keeps_metadata_with_shape_findings_as_written() -> None:
-    plan, _ = normalize_plan_v2(_plan_needing_every_rewrite(), _orders_inventory())
+    plan, _, _ = normalize_plan_v2(_plan_needing_every_rewrite(), _orders_inventory())
     metadata = {**_metadata_needing_slots(), "junk": "x"}
 
     normalized, transformations = normalize_artifact_v2(metadata, plan)
@@ -146,37 +149,144 @@ def test_artifact_normalization_keeps_metadata_with_shape_findings_as_written() 
     assert transformations == []
 
 
+def _count_normalizing_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace every normalizing rewrite, wherever a module binds it, with a call counter."""
+
+    calls: list[str] = []
+    rewrites = {
+        name: getattr(module, name)
+        for module, name in (
+            (bindings, "normalize_binding_declarations"),
+            (checks, "_normalize_prerequisite_binding_consumers"),
+            (checks, "_normalize_stimulus_slots"),
+            (checks, "_canonicalize_binding_source"),
+        )
+    }
+    for module in list(sys.modules.values()):
+        if not getattr(module, "__name__", "").startswith("asago_artifact_generator"):
+            continue
+        for name, rewrite in rewrites.items():
+            if getattr(module, name, None) is rewrite:
+
+                def counted(*_: object, _name: str = name, **__: object) -> list[Any]:
+                    calls.append(_name)
+                    return []
+
+                monkeypatch.setattr(module, name, counted)
+    return calls
+
+
 def test_the_checks_read_the_normalized_candidates_without_normalizing_them(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     inventory = _orders_inventory()
-    plan, _ = normalize_plan_v2(_plan_needing_every_rewrite(), inventory)
+    plan, _, declarations = normalize_plan_v2(_plan_needing_every_rewrite(), inventory)
     metadata, _ = normalize_artifact_v2(_metadata_needing_slots(), plan)
     raw_plan = _plan_needing_every_rewrite()
     checked = copy.deepcopy((plan, metadata, raw_plan))
+    calls = _count_normalizing_calls(monkeypatch)
 
-    def normalizing(*_: object, **__: object) -> None:
-        raise AssertionError("a check normalized its input")
-
-    for name in (
-        "normalize_binding_declarations",
-        "_normalize_prerequisite_binding_consumers",
-        "_normalize_stimulus_slots",
-    ):
-        monkeypatch.setattr(checks, name, normalizing)
-
-    assert collect_plan_findings_v2(plan, inventory, _runtime_contract()) == []
+    assert (
+        collect_plan_findings_v2(plan, inventory, _runtime_contract(), declarations=declarations)
+        == []
+    )
     assert collect_artifact_findings_v2(metadata, plan, inventory, _runtime_contract()) == []
     # A plan that skipped normalization is reported, not repaired.
     assert collect_plan_findings_v2(raw_plan, inventory, _runtime_contract())
+    assert calls == []
     assert (plan, metadata, raw_plan) == checked
+
+
+def test_the_counter_sees_the_helpers_that_normalize_for_other_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    declarations = _plan_needing_every_rewrite()["runtime_bindings"]
+    calls = _count_normalizing_calls(monkeypatch)
+
+    bindings.supplied_binding_values(declarations, _orders_inventory())
+    bindings.validate_bindings(
+        declarations, inventory=_orders_inventory(), runtime_contract=_runtime_contract()
+    )
+
+    assert calls == ["normalize_binding_declarations", "normalize_binding_declarations"]
+
+
+def _closure_duplicate_plan() -> dict:
+    """Two owned_order declarations that differ only in the consumer the closure adds."""
+
+    plan = copy.deepcopy(_plan())
+    owned = plan["runtime_bindings"][0]
+    plan["runtime_bindings"] = [
+        {**copy.deepcopy(owned), "consumers": ["stimulus.user_text", "prerequisites.owned_order"]},
+        {**copy.deepcopy(owned), "consumers": ["stimulus.user_text"]},
+    ]
+    return plan
+
+
+def test_a_declaration_the_consumer_closure_made_a_duplicate_is_reported_once() -> None:
+    inventory = _inventory()
+    normalized = normalize_plan_v2(_closure_duplicate_plan(), inventory)
+
+    assert normalized.plan["runtime_bindings"] == [
+        {
+            **_plan()["runtime_bindings"][0],
+            "consumers": ["stimulus.user_text", "prerequisites.owned_order"],
+        }
+    ]
+    assert _kinds(normalized.transformations) == ["binding_consumer_added"]
+    assert len(normalized.declarations) == 2
+    findings = collect_plan_findings_v2(
+        normalized.plan, inventory, _runtime_contract(), declarations=normalized.declarations
+    )
+    assert [(finding.code, finding.path, finding.detail) for finding in findings] == [
+        ("plan_binding_validation", "runtime_bindings[1]", "duplicate binding: owned_order"),
+        (
+            "consumer_mismatch",
+            "runtime_bindings[0].consumers[0]",
+            findings[1].detail,
+        ),
+    ]
+    # Normalizing the normalized plan again changes and records nothing.
+    again = normalize_plan_v2(normalized.plan, inventory)
+    assert again.plan == normalized.plan
+    assert again.transformations == []
+    assert again.declarations == normalized.plan["runtime_bindings"]
+
+
+def test_the_orchestrator_records_one_binding_and_one_mismatch_for_a_closure_duplicate(
+    tmp_path: Path,
+) -> None:
+    plan = _closure_duplicate_plan()
+    transport = ScriptedAuthoringTransport([json.dumps(plan), json.dumps(plan)])
+
+    result = AuthoringOrchestrator(
+        transport=transport,
+        package_dir=tmp_path / "package",
+        task_id="closure-duplicate",
+        policy=ONE_PLAN_CORRECTION,
+    ).run(_view(), _inventory(), _runtime_contract())
+
+    assert result.status == "unresolved"
+    evidence = json.loads(Path(result.failure_evidence_path).read_text())
+    for attempt in evidence["attempts"]:
+        assert len(attempt["decoded_output"]["runtime_bindings"]) == 1
+        assert [(finding["code"], finding["path"]) for finding in attempt["findings"]] == [
+            ("plan_binding_validation", "runtime_bindings[1]"),
+            ("consumer_mismatch", "runtime_bindings[0].consumers[0]"),
+        ]
+        assert _kinds(attempt["transformations"]) == ["binding_consumer_added"]
+    # The correction reports no mismatch for the dropped declaration.
+    correction = json.dumps(transport.requests[1], default=str)
+    assert "duplicate binding: owned_order" in correction
+    assert "runtime_bindings[0].consumers[0]" in correction
+    assert "runtime_bindings[1].consumers[0]" not in correction
 
 
 def test_the_orchestrator_records_the_rewrites_of_its_one_normalization(tmp_path: Path) -> None:
     inventory = _orders_inventory()
     plan = _plan_needing_every_rewrite()
     metadata = _metadata_needing_slots()
-    normalized_plan, plan_rewrites = normalize_plan_v2(plan, inventory)
+    normalized_plan, plan_rewrites, _ = normalize_plan_v2(plan, inventory)
     normalized_metadata, artifact_rewrites = normalize_artifact_v2(metadata, normalized_plan)
     transport = ScriptedAuthoringTransport([json.dumps(plan), _framed(metadata)])
 

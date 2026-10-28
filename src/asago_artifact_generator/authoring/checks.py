@@ -10,7 +10,7 @@ import json
 from collections.abc import Callable, Collection, Iterator, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, NamedTuple
 
 from ..binding_rules import (
     CLOSED_TYPES,
@@ -29,10 +29,10 @@ from ..bindings import (
     AUTHORING_POLICY,
     BindingValidationError,
     canonical_binding_paths,
+    check_bindings,
     find_stimulus_user_text_consumer_mismatches,
     normalize_binding_declarations,
-    supplied_binding_values,
-    validate_bindings,
+    supplied_values_as_declared,
 )
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from .contracts import _SEMANTIC_JUDGE_SPEC_RULES, _call1_contract_v2
@@ -251,6 +251,7 @@ def collect_plan_findings_v2(
     *,
     provenance_ids: Collection[str] = frozenset(),
     condition: Mapping[str, Any] | None = None,
+    declarations: Any = None,
 ) -> list[Finding]:
     """Return every structural finding for a v2 plan that ``normalize_plan_v2`` returned.
 
@@ -266,7 +267,8 @@ def collect_plan_findings_v2(
     ``assumptions[].ref``; every other reference field stays limited to
     supplied inventory references. ``condition`` is the handoff's
     discriminating condition; its not_called comparisons add the omission
-    trigger check.
+    trigger check.  ``declarations`` are the ``NormalizedPlan.declarations``
+    the declaration checks read; by default the plan's ``runtime_bindings``.
     """
 
     if not isinstance(plan, dict):
@@ -288,7 +290,14 @@ def collect_plan_findings_v2(
     shared_plan.pop("required_observations", None)
     findings.extend(
         staged_findings(
-            _plan_field_findings(shared_plan, inventory, runtime_contract, provenance_ids), "plan"
+            _plan_field_findings(
+                shared_plan,
+                inventory,
+                runtime_contract,
+                provenance_ids,
+                plan.get("runtime_bindings") if declarations is None else declarations,
+            ),
+            "plan",
         )
     )
     findings.extend(_unobtainable_requirement_findings(plan))
@@ -419,7 +428,7 @@ def _plan_consumer_mismatch_findings(
     """Flag each stimulus.user_text consumer whose binding the request does not use."""
 
     findings: list[Finding] = []
-    values = supplied_binding_values(bindings, inventory)
+    values = supplied_values_as_declared(bindings, inventory)
     for mismatch in find_stimulus_user_text_consumer_mismatches(
         bindings, request, resolved_values=values
     ):
@@ -789,7 +798,7 @@ def _stimulus_consumer_findings(
     user_text: str,
 ) -> list[Finding]:
     findings: list[Finding] = []
-    values = supplied_binding_values(runtime_bindings, inventory)
+    values = supplied_values_as_declared(runtime_bindings, inventory)
     for mismatch in find_stimulus_user_text_consumer_mismatches(
         runtime_bindings,
         user_text,
@@ -999,7 +1008,7 @@ def _prerequisite_value_findings(
 
     if not isinstance(runtime_bindings, list):
         return []
-    resolved = supplied_binding_values(runtime_bindings, inventory)
+    resolved = supplied_values_as_declared(runtime_bindings, inventory)
     return [
         Finding(
             "prerequisite_value_mismatch",
@@ -1029,6 +1038,7 @@ def _plan_field_findings(
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
     provenance_ids: Collection[str],
+    declarations: Any,
 ) -> list[Finding]:
     findings = _plan_list_type_findings(plan)
     references = _inventory_references(inventory)
@@ -1037,17 +1047,18 @@ def _plan_field_findings(
     setup_recipe = plan.get("setup_recipe")
     if isinstance(setup_recipe, list):
         findings.extend(_collect_setup_findings(setup_recipe, inventory, runtime_contract))
-    runtime_bindings = plan.get("runtime_bindings")
-    if isinstance(runtime_bindings, list):
+    if isinstance(plan.get("runtime_bindings"), list) and isinstance(declarations, list):
         findings.extend(
             _collect_binding_findings(
-                runtime_bindings,
+                declarations,
                 inventory,
                 runtime_contract,
                 finding_code="plan_binding_validation",
             )
         )
-        findings.extend(_judge_consumer_findings(plan, finding_code="plan_binding_validation"))
+        findings.extend(
+            _judge_consumer_findings(plan, declarations, finding_code="plan_binding_validation")
+        )
     findings.extend(_stimulus_approach_findings(plan, runtime_contract))
     findings.extend(_observation_claim_findings(plan, runtime_contract))
     findings.extend(_semantic_judge_plan_findings(plan))
@@ -1465,7 +1476,7 @@ def _collect_binding_findings(
 
     The binding engine reports every fault of each declaration under
     ``_FINDINGS_POLICY``; a declaration with none of its own is then checked by
-    ``validate_bindings``, which also applies authoring's record-key rule.
+    ``check_bindings``, which also applies authoring's record-key rule.
     """
 
     declarations = list(declarations)
@@ -1486,7 +1497,7 @@ def _collect_binding_findings(
             findings.extend(_binding_findings(violation, path, finding_code))
         if all(violation.kind == "duplicate" for violation in violations):
             try:
-                validate_bindings([raw], inventory=inventory, runtime_contract=runtime_contract)
+                check_bindings([raw], inventory=inventory, runtime_contract=runtime_contract)
             except BindingValidationError as exc:
                 findings.append(Finding(finding_code, str(exc), path))
     return findings
@@ -1620,7 +1631,9 @@ def _canonicalize_binding_source(raw: dict[str, Any], inventory: dict[str, Any])
     )
 
 
-def _judge_consumer_findings(plan: dict[str, Any], *, finding_code: str) -> list[Finding]:
+def _judge_consumer_findings(
+    plan: dict[str, Any], declarations: Any, *, finding_code: str
+) -> list[Finding]:
     """Report a ``judge.`` consumer that the plan's claim level gives no judge to read."""
 
     claim_level = _plan_claim_level(plan)
@@ -1633,7 +1646,7 @@ def _judge_consumer_findings(plan: dict[str, Any], *, finding_code: str) -> list
             "observation_claim.claim_level is reply",
             f"runtime_bindings[{index}].consumers[{consumer_index}]",
         )
-        for index, consumer_index, consumer in _declared_consumers(plan.get("runtime_bindings"))
+        for index, consumer_index, consumer in _declared_consumers(declarations)
         if consumer.startswith(JUDGE_CONSUMERS.prefix)
     ]
 
@@ -1939,33 +1952,53 @@ def _consumer_declarations_by_name(runtime_bindings: list[Any]) -> dict[str, dic
     }
 
 
-def normalize_plan_v2(plan: Any, inventory: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:
+class NormalizedPlan(NamedTuple):
+    """What ``normalize_plan_v2`` returns; the plan checks read ``plan`` and ``declarations``."""
+
+    plan: Any
+    transformations: list[dict[str, Any]]
+    # The plan's runtime bindings before declarations the consumer closure made
+    # equal were dropped; the declaration checks read these.
+    declarations: Any
+
+
+def normalize_plan_v2(plan: Any, inventory: dict[str, Any]) -> NormalizedPlan:
     """Return a normalized copy of a v2 plan and the deterministic rewrites that made it.
 
     The bindings are canonicalized and exact duplicates dropped, then each
     prerequisite's binding gets its closed consumer.  A declaration the binding
     reader rejects keeps its place, with its source paths canonicalized so that
-    its findings name the documented paths; that rewrite is not recorded.  The
-    plan passed in is not changed; one that is not an object is returned as
-    written.  The plan checks read the returned plan.
+    its findings name the documented paths; that rewrite is not recorded.
+
+    An added consumer can make a declaration equal to an earlier one of its
+    name; the plan keeps the first.  That drop is not recorded either: the two
+    declarations differed as written, so ``declarations`` keeps both and the
+    declaration checks report the second as a duplicate binding, which rejects
+    the plan.  Normalizing the returned plan again changes nothing.
+
+    The plan passed in is not changed; one that is not an object is returned as
+    written.
     """
 
     if not isinstance(plan, dict):
-        return plan, []
+        return NormalizedPlan(plan, [], None)
     normalized = deepcopy(plan)
     transformations: list[dict[str, Any]] = []
     runtime_bindings = normalized.get("runtime_bindings")
-    if isinstance(runtime_bindings, list):
-        normalize_binding_declarations(
-            runtime_bindings, inventory=inventory, transformations=transformations
-        )
-        for raw in runtime_bindings:
-            if isinstance(raw, dict):
-                _canonicalize_binding_source(raw, inventory)
+    if not isinstance(runtime_bindings, list):
+        return NormalizedPlan(normalized, transformations, runtime_bindings)
+    normalize_binding_declarations(
+        runtime_bindings, inventory=inventory, transformations=transformations
+    )
+    for raw in runtime_bindings:
+        if isinstance(raw, dict):
+            _canonicalize_binding_source(raw, inventory)
     _normalize_prerequisite_binding_consumers(
         normalized.get("prerequisites"), runtime_bindings, transformations=transformations
     )
-    return normalized, transformations
+    declarations = list(runtime_bindings)
+    normalize_binding_declarations(runtime_bindings, inventory=inventory)
+    return NormalizedPlan(normalized, transformations, declarations)
 
 
 def normalize_artifact_v2(metadata: Any, plan: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:

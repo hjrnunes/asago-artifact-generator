@@ -55,8 +55,25 @@ def validate_bindings(
         inventory=inventory,
         transformations=transformations,
     )
+    return check_bindings(
+        normalized_declarations, inventory=inventory, runtime_contract=runtime_contract
+    )
+
+
+def check_bindings(
+    declarations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+) -> tuple[RuntimeBinding, ...]:
+    """Validate declarations as written, without canonicalizing or de-duplicating them.
+
+    The authoring checks read declarations the normalization step already
+    rewrote; ``validate_bindings`` normalizes first, then checks the same way.
+    """
+
     checked = check_declarations(
-        normalized_declarations,
+        declarations,
         inventory=inventory,
         runtime_contract=runtime_contract,
         policy=AUTHORING_POLICY,
@@ -503,15 +520,30 @@ def supplied_binding_values(
     not changed.
     """
 
+    if _supplied_facts_by_ref(declarations, inventory) is None:
+        return {}
+    return supplied_values_as_declared(
+        normalize_binding_declarations(tuple(declarations), inventory=dict(inventory)),
+        inventory,
+    )
+
+
+def supplied_values_as_declared(
+    declarations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    inventory: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resolve supplied values of declarations as written, without de-duplicating them.
+
+    The authoring checks read declarations the normalization step already
+    rewrote; ``supplied_binding_values`` normalizes first, then resolves the
+    same way.
+    """
+
     fact_by_ref = _supplied_facts_by_ref(declarations, inventory)
     if fact_by_ref is None:
         return {}
     values: dict[str, Any] = {}
-    normalized_declarations = normalize_binding_declarations(
-        tuple(declarations),
-        inventory=dict(inventory),
-    )
-    for raw in normalized_declarations:
+    for raw in declarations:
         declared = _supplied_declaration_paths(raw)
         if declared is None:
             continue
@@ -744,9 +776,11 @@ __all__ = [
     "authoring_message",
     "binding_from_dict",
     "canonical_binding_paths",
+    "check_bindings",
     "find_stimulus_user_text_consumer_mismatches",
     "named_record_facts",
     "normalize_binding_declarations",
     "supplied_binding_values",
+    "supplied_values_as_declared",
     "validate_bindings",
 ]

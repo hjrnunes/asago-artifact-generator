@@ -19,6 +19,7 @@ from ..input_adapter import InputView
 from ..package_io import write_package
 from .binding_repair import correction_repair_inputs
 from .checks import (
+    NormalizedPlan,
     _is_blocked_plan,
     _plan_claim_level,
     collect_artifact_findings_v2,
@@ -262,8 +263,9 @@ class _Stage:
     key: str
     author: str
     author_packet: Callable[[], PromptPacket]
-    # Returns a normalized copy of a decoded response and the rewrites that made it.
-    normalize: Callable[[Any], tuple[Any, list[Any]]]
+    # Returns a normalized copy of a decoded response, the rewrites that made it,
+    # and what ``checks`` reads.
+    normalize: Callable[[Any], tuple[Any, list[Any], Any]]
     # Checks the normalized response.
     checks: Callable[[Any], list[Finding]]
     # Stands in for the findings when the author request left none.
@@ -445,10 +447,10 @@ class AuthoringOrchestrator:
         secret = self._record_decoded(decoded, author_stage, correction=correction)
         if secret is not None:
             return None if correction else (None, [secret])
-        candidate, changes = stage.normalize(decoded)
+        candidate, changes, checked = stage.normalize(decoded)
         self._record_normalized(candidate, author_stage, correction=correction)
         self._record_validation_transformations(changes)
-        findings = stage.checks(candidate)
+        findings = stage.checks(checked)
         if findings:
             self._reject(findings, LedgerFindingsRecorded("findings", tuple(findings)))
             return None, findings
@@ -969,20 +971,25 @@ class AuthoringOrchestrator:
     def _plan_stage(
         self, view: InputView, inventory: dict[str, Any], runtime_contract: dict[str, Any]
     ) -> _Stage:
-        def checks(decoded: Any) -> list[Finding]:
+        def normalize(decoded: Any) -> tuple[Any, list[Any], NormalizedPlan]:
+            normalized = normalize_plan_v2(decoded, inventory)
+            return normalized.plan, normalized.transformations, normalized
+
+        def checks(normalized: NormalizedPlan) -> list[Finding]:
             return collect_plan_findings_v2(
-                decoded,
+                normalized.plan,
                 inventory,
                 runtime_contract,
                 provenance_ids=scenario_provenance_ids(view),
                 condition=view.payload.get("discriminating_condition"),
-            ) + sequential_plan_findings(view, decoded, runtime_contract)
+                declarations=normalized.declarations,
+            ) + sequential_plan_findings(view, normalized.plan, runtime_contract)
 
         return _Stage(
             key="plan",
             author="call1",
             author_packet=lambda: build_call1_packet_v2(view, inventory, runtime_contract),
-            normalize=lambda decoded: normalize_plan_v2(decoded, inventory),
+            normalize=normalize,
             checks=checks,
             missing=_staged(Finding("call1_failed", "Call 1 did not return a plan", "call1")),
             review_packet=(
@@ -1012,6 +1019,10 @@ class AuthoringOrchestrator:
     ) -> _Stage:
         planted_max_chars = planted_text_limit(view, runtime_contract, plan)
 
+        def normalize(decoded: Any) -> tuple[Any, list[Any], Any]:
+            candidate, changes = normalize_artifact_v2(decoded, plan)
+            return candidate, changes, candidate
+
         def checks(decoded: Any) -> list[Finding]:
             findings = collect_artifact_findings_v2(
                 decoded,
@@ -1027,7 +1038,7 @@ class AuthoringOrchestrator:
             key="artifact",
             author="call2",
             author_packet=lambda: build_call2_packet_v2(view, plan, inventory, runtime_contract),
-            normalize=lambda decoded: normalize_artifact_v2(decoded, plan),
+            normalize=normalize,
             checks=checks,
             missing=_staged(
                 Finding("call2_failed", "Call 2 did not return a valid artifact", "call2")

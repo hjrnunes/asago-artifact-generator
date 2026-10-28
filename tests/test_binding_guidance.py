@@ -111,7 +111,7 @@ def test_wildcard_prerequisite_consumer_gets_exact_binding_consumer() -> None:
         }
     ]
 
-    plan, _ = normalize_plan_v2(plan, _inventory())
+    plan, _, _ = normalize_plan_v2(plan, _inventory())
 
     assert collect_plan_findings_v2(plan, _inventory(), _no_setup_runtime()) == []
     assert plan["runtime_bindings"][0]["consumers"] == [
@@ -165,7 +165,7 @@ def test_plan_normalization_persists_canonical_keyed_binding_paths() -> None:
         }
     ]
     plan["stimulus_approach"]["request"] = "Show the orders for customer {{customer_id}}."
-    plan, _ = normalize_plan_v2(plan, inventory)
+    plan, _, _ = normalize_plan_v2(plan, inventory)
 
     assert collect_plan_findings_v2(plan, inventory, _runtime_contract()) == []
     assert plan["runtime_bindings"][0]["source_ref"] == "facts:state:orders"
