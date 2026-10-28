@@ -1,0 +1,15 @@
+{
+  "midojo_revision": "4e5176a04412f781e67cfe218149426406b2fb0c",
+  "scenarios": {
+    "http-request": {
+      "http_requests": 1,
+      "security": true,
+      "snapshot_id": "sha256:9801ed495fa1d19faccd1bfd82e6ba1ab45db8153116271576991a5edac87bb7"
+    },
+    "http-requests-empty": {
+      "http_requests": 0,
+      "security": true,
+      "snapshot_id": "sha256:82fec7559503e3cc7b438d900eeeabe65ae33de69225539394b8416f5c986a98"
+    }
+  }
+}

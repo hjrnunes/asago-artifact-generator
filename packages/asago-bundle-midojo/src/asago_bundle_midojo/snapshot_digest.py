@@ -19,13 +19,26 @@ From a19562e an injection outcome may say what it placed and where (``payload_di
 it had before they existed. The JSON form holds each as null, or not at all when sealed
 before; both encode the same.
 
+From 4e5176a an observation is encoded as its ``model_dump()`` without the list fields its
+model names in ``DIGEST_OMITS_WHEN_EMPTY``, each left out only while it is exactly an empty
+list (``observations.digest_content``, applied to each source in ``state.snapshot_digest``).
+JSON does not carry the model, so the names are kept here by the source the observation is
+recorded under, which is its key in ``observations`` (``OBSERVATION_OMITS_WHEN_EMPTY``):
+OpenShell's ``openshell`` (``runtimes/openshell/__init__.py``, ``OBSERVATIONS_SOURCE``) names
+``http_requests``, and no other source names any. Any other value, null included, is
+encoded as it is. MiDojo's model always has the field and raises when it does not; the JSON
+of an observation sealed before the field existed has none, and MiDojo before the field
+(which came with this rule, in cd20c61) digested it without one, so an absent field stays
+absent and the snapshot keeps that ID.
+
 A value JSON does not carry back as the type MiDojo encoded (bytes, a date, a tuple or
 set, a non-finite float, a mapping with keys that are not text, in a field MiDojo does
 not type) gives a different digest, so the snapshot is refused rather than renamed:
 MiDojo's own ``snapshot_from_response`` (``control_plane/client.py``) refuses such a
 round trip too. The values a planted-item episode holds are all JSON values.
-``tests/fixtures/episode/`` holds the IDs and encodings MiDojo computed, and the tests
-require this port to reproduce them.
+``tests/fixtures/episode/`` holds the IDs and encodings MiDojo computed, and
+``tests/fixtures/openshell-4e5176a/`` IDs of snapshots with OpenShell observations; the
+tests require this port to reproduce them.
 """
 
 from __future__ import annotations
@@ -52,6 +65,10 @@ CONTENT_FIELDS = (
     "capture_failures",
 )
 
+# Each observation source's list fields that MiDojo encodes only when not empty (its model's
+# ``DIGEST_OMITS_WHEN_EMPTY``), by the source the model is registered under.
+OBSERVATION_OMITS_WHEN_EMPTY = {"openshell": ("http_requests",)}
+
 
 # The fields an injection outcome gained after snapshots were first digested
 # (``state._LATER_OUTCOME_FIELDS``): each is encoded only when set.
@@ -70,6 +87,11 @@ def snapshot_digest(snapshot: dict[str, Any]) -> str:
 
     content = {name: snapshot[name] for name in CONTENT_FIELDS}
     content["function_calls"] = [call_content(call) for call in content["function_calls"]]
+    if isinstance(content["observations"], dict):
+        content["observations"] = {
+            source: observation_content(source, observed)
+            for source, observed in content["observations"].items()
+        }
     return f"sha256:{hashlib.sha256(dumps(canonical(content)).encode()).hexdigest()}"
 
 
@@ -91,6 +113,21 @@ def call_content(call: Any) -> Any:
         for outcome in call["injection_outcomes"]
     ]
     return {**call, "injection_outcomes": outcomes}
+
+
+def observation_content(source: Any, observed: Any) -> Any:
+    """Return an observation as the digest encodes it (``observations.digest_content``): without
+    each of its source's ``OBSERVATION_OMITS_WHEN_EMPTY`` fields that is exactly an empty list.
+    ``observed`` itself is left as it is."""
+
+    omitted = OBSERVATION_OMITS_WHEN_EMPTY.get(source, ()) if isinstance(source, str) else ()
+    if not (omitted and isinstance(observed, dict)):
+        return observed
+    return {
+        key: value
+        for key, value in observed.items()
+        if not (key in omitted and type(value) is list and not value)
+    }
 
 
 def canonical(value: Any) -> Any:

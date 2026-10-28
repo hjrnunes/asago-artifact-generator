@@ -216,6 +216,8 @@ Deterministic tests must not contact a model endpoint or target.
   `tests/fixtures/result-record/` holds episodes compiled for this package's clinic fixture
   target (its `tests/fixtures/targets/clinic/`, record IDs in the result only) and what MiDojo
   c0bee12 sealed from them in front of a scripted upstream (`tests/result_record_cases.py`).
+  `tests/fixtures/openshell-4e5176a/` holds its referral run sealed by MiDojo 4e5176a with
+  OpenShell observations, whose `http_requests` the snapshot ID leaves out while empty.
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-bundle-garak/tests -q`.
