@@ -189,35 +189,7 @@ counts as an empty findings list, and the run records the
 `review_findings_omitted_defaulted_empty` transformation (with the review
 stage) in its transformations and on that review's ledger entry; `findings`
 set to `null` or any non-list value, and an omitted `findings` on `revise` or
-`blocked`, stay invalid. A plan review that decides `revise` may have a
-duplicate finding set aside, so that it does not reach the correction; a
-set-aside only trims a duplicate from a review that still asks for revision
-and never decides the outcome. A finding is set aside only beside at least one
-finding that is kept: when every finding would be set aside, all are kept,
-the review stays `revise`, and nothing is recorded as set aside. That is
-because code cannot recognise a semantic restatement of a request at another
-location, so silence at a path is weak evidence that the request is met. A
-finding is a duplicate only when the latest review to judge its exact request
-found it met on this same plan: an earlier round reported a finding at the
-same plan path (its `location` is exactly one path) with the byte-identical
-`required_change`; the next round was shown it, reviewed a plan whose
-canonical JSON is identical to the candidate now under review, and reported
-no finding at that path, above it, or under it; no later round reported
-anything there either; and no round from that judging round on reported the
-byte-identical `required_change` at any location. A reported finding whose
-location is prose, or is not a path into a top-level plan field, counts as
-reported at every path. A candidate that differs in any field keeps the
-finding, because whether a request is met can depend on other fields. Every
-other finding is kept, including a repeat of the round just before, one
-restated in other words, and one whose location is prose. A set-aside is rare;
-the prior-round values in the prompt are the main defence against repeats.
-The review record then adds `repeated_met_findings` (each finding as written
-beside its reason: `plan_path`, `raised_in_review_round`,
-`met_in_review_round`, and `judged_plan_sha256`, the digest of the plan the
-judging round reviewed, which the candidate equals), and the run records one
-`review_finding_repeats_met_change` transformation per finding. A `blocked`
-review keeps every finding.
-`revise` feeds a stage correction that repeats
+`blocked`, stay invalid. `revise` feeds a stage correction that repeats
 all checks and the review. Each reviewed stage has a review-revision
 allowance that is separate from its correction allowance (two for the plan
 stage, one for the artifact stage): a `revise` spends a review
@@ -310,15 +282,15 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   (`candidate_plan.observation_claim.violation`, `runtime_bindings[0].selector`)
   existing in either plan is `{"state": "location_not_resolved"}`. The reviewer
   is told to compare each required change with `current_value`.
+  Whether reviewers stop asking again for changes the plan already holds is
+  unmeasured: the change was made and tested offline, with no model requests.
   Replay: the version change alters `prompt_version`, `prompt_sha256` and
   `reviewed_input_sha256` in every plan-review record. A first review's system
   and user text is byte-identical to v24, so a recorded first-round response
   still replays; every later-round user message differs, so replaying a
-  recording made before v25 stops at its first later-round plan review.
-  Recorded later rounds that repeat the round just before are kept by the
-  set-aside rule, which acts only after an intervening round left the path
-  unreported, the plan has not changed since, and another finding is kept. A replay serves recorded responses and does not test how a model
-  answers the changed prompt.
+  recording made before v25 stops at its first later-round plan review. A
+  replay serves recorded responses and does not test how a model answers the
+  changed prompt.
 - `authoring-call2-v27` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no

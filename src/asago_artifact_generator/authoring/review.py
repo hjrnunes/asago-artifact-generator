@@ -325,19 +325,10 @@ _ARTIFACT_REVIEW_GUIDANCE = prose("review/artifact_review_guidance")
 
 @dataclass(frozen=True)
 class PriorReviewRound:
-    """What the plan reviewer said about the plan before the author revised it.
-
-    ``findings`` are the in-scope findings the author answered;
-    ``repeated_findings`` are the ones this round's reviewer also reported but
-    code set aside as repeats of a met change (see ``set_aside_met_repeats``).
-    ``earlier_rounds`` are the review rounds of the same stage before this one,
-    oldest first; only the set-aside rule reads them, never the prompt.
-    """
+    """What the plan reviewer said about the plan before the author revised it."""
 
     findings: tuple[dict[str, str], ...]
     reviewed_plan: dict[str, Any]
-    repeated_findings: tuple[dict[str, str], ...] = ()
-    earlier_rounds: tuple[PriorReviewRound, ...] = ()
 
 
 _PRIOR_REVIEW_ROUND_MEANING = prose("review/prior_review_round_meaning")
@@ -472,132 +463,6 @@ def _prior_review_round_context(
         },
         "reviewer_instruction": _PRIOR_REVIEW_ROUND_INSTRUCTION,
     }
-
-
-# The transformation recorded for each finding code sets aside as a repeat of a
-# change an earlier review already judged met.
-REVIEW_FINDING_REPEATS_MET_CHANGE = "review_finding_repeats_met_change"
-
-
-def _same_request(first: dict[str, Any], second: dict[str, Any]) -> bool:
-    """Whether two findings name the same plan path and the identical required change."""
-
-    path = finding_plan_path(first.get("location"))
-    return (
-        path is not None
-        and path == finding_plan_path(second.get("location"))
-        and first.get("required_change") == second.get("required_change")
-    )
-
-
-def _reports_near(round_: PriorReviewRound, path: tuple[str | int, ...]) -> bool:
-    """Whether a round reported any finding at ``path``, above it, or under it.
-
-    A finding whose location is not one path into a top-level field of that
-    round's plan (prose, or ``candidate_plan`` alone) may concern ``path``, so it counts.
-    """
-
-    for reported in (*round_.findings, *round_.repeated_findings):
-        other = finding_plan_path(reported.get("location"))
-        if (
-            other is None
-            or other[0] not in round_.reviewed_plan
-            or other[: len(path)] == path
-            or path[: len(other)] == other
-        ):
-            return True
-    return False
-
-
-def _restated_since(finding: dict[str, Any], rounds: tuple[PriorReviewRound, ...]) -> bool:
-    """Whether any of ``rounds`` reported the byte-identical required_change, at any location."""
-
-    return any(
-        reported.get("required_change") == finding.get("required_change")
-        for round_ in rounds
-        for reported in (*round_.findings, *round_.repeated_findings)
-    )
-
-
-def _met_repeat(
-    finding: dict[str, Any], plan: dict[str, Any], rounds: tuple[PriorReviewRound, ...]
-) -> dict[str, Any] | None:
-    """Return why ``finding`` repeats a change an earlier review judged met, or None."""
-
-    path = finding_plan_path(finding.get("location"))
-    if path is None or _plan_value_at(plan, path) is _ABSENT:
-        return None
-    # Walk back from the latest round.  A round that reported anything near the
-    # path ends the walk: no judgment before it still stands.  A round that did
-    # not, and was shown the identical request by the round before it, judged the
-    # request met on the plan it reviewed.  That judgment covers only that exact
-    # plan: whether a request is met can depend on any other field, so an
-    # unchanged value at the path is not enough.  A round from the judging round
-    # on that reported the identical required_change anywhere vetoes it.
-    for judging in range(len(rounds) - 1, 0, -1):
-        if _reports_near(rounds[judging], path):
-            return None
-        if any(_same_request(finding, earlier) for earlier in rounds[judging - 1].findings):
-            judged = _canonical_json(rounds[judging].reviewed_plan)
-            if judged != _canonical_json(plan) or _restated_since(finding, rounds[judging:]):
-                return None
-            return {
-                "transformation": REVIEW_FINDING_REPEATS_MET_CHANGE,
-                "plan_path": _plan_path_text(path),
-                "raised_in_review_round": judging,
-                "met_in_review_round": judging + 1,
-                # The candidate is this same plan, unchanged since the judging round.
-                "judged_plan_sha256": _sha256(judged.encode("utf-8")),
-            }
-    return None
-
-
-def set_aside_met_repeats(
-    findings: tuple[dict[str, Any], ...],
-    plan: dict[str, Any],
-    prior_round: PriorReviewRound | None,
-) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
-    """Split plan-review findings into those kept and those set aside as met repeats.
-
-    A set-aside only trims a duplicate from a review that still asks for
-    revision; it never decides the outcome.  When every finding would be set
-    aside, all are kept and none is set aside, so the review's decision stands.
-    Code cannot recognise a semantic restatement of a request at another
-    location, which is why the rule may not decide whether a plan is accepted.
-
-    A finding is set aside only when all of this holds, decided from structure
-    alone: its location is exactly one plan path (``finding_plan_path``); an
-    earlier round reported a finding with the same path and the byte-identical
-    required_change; the round after that one was shown it as an earlier
-    finding, reviewed a plan whose canonical JSON is identical to ``plan``, and
-    reported no finding at that path, above it, or under it, so it judged the
-    change met on this exact plan; and no later round reported anything there
-    either, so that judgment is the latest one; and no round from the judging
-    round on reported the byte-identical required_change at any location.  A
-    plan that differs in any
-    field is never covered, because whether a request is met can depend on
-    fields other than the one at its path.  A reported finding whose
-    location is not one path into a top-level field of that round's plan counts
-    as reported at every path.  Everything else is
-    kept, including every finding that repeats the round just before and every
-    finding whose location is prose.  Each set-aside entry keeps the finding as
-    written beside the reason.  The caller applies this to a ``revise`` only.
-    """
-
-    if prior_round is None:
-        return findings, ()
-    rounds = (*prior_round.earlier_rounds, prior_round)
-    kept: list[dict[str, Any]] = []
-    set_aside: list[dict[str, Any]] = []
-    for finding in findings:
-        reason = _met_repeat(finding, plan, rounds)
-        if reason is None:
-            kept.append(finding)
-        else:
-            set_aside.append({"finding": dict(finding), "reason": reason})
-    if not kept:
-        return findings, ()
-    return tuple(kept), tuple(set_aside)
 
 
 @dataclass(frozen=True)
