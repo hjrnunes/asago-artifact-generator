@@ -504,6 +504,29 @@ def test_a_delivery_document_of_another_snapshot_fails_the_receipt(
     assert receipt["episode"]["delivery"] == document["delivery"]
 
 
+@pytest.mark.parametrize("field", ["evaluation_id", "snapshot_id"])
+def test_a_delivery_document_of_another_snapshot_leaves_every_placement_unknown(
+    tmp_path: Path, field: str
+) -> None:
+    document = recorded(REPORTED, "command-single", "detected", "delivery.json")
+    for name in ("matched", "mismatched"):
+        (tmp_path / name).mkdir()
+    matched = parsed(tmp_path / "matched", "command-single", "detected", root=REPORTED)
+    (outcome,) = matched["episode"]["call_injections"][0]["injection_outcomes"]
+    # With its own delivery document the outcome emitted, and both fields are established.
+    assert outcome["emitted"] and outcome["payload_sha256"] and outcome["slot"]
+    document[field] = "sha256:" + "0" * 64 if field == "snapshot_id" else "another"
+
+    receipt = parsed(
+        tmp_path / "mismatched", "command-single", "detected", root=REPORTED, delivery=document
+    )
+
+    assert receipt["incomplete_reason"] == "delivery_mismatch"
+    (outcome,) = receipt["episode"]["call_injections"][0]["injection_outcomes"]
+    assert outcome["emitted"]
+    assert (outcome["payload_sha256"], outcome["slot"]) == (None, None)
+
+
 def test_a_delivery_mismatch_outranks_an_unanswered_turn(tmp_path: Path) -> None:
     document = recorded(REGRADED, "command-single", "interrupted", "delivery.json")
     document["snapshot_id"] = "sha256:" + "0" * 64

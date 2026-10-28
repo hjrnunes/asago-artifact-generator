@@ -53,11 +53,13 @@ both are read from the episode's plan, and only where the plan is what the inter
 placed: a plan without generator permissions, so no payload was generated at run time. The
 outcome's instruction is the plan's tool-output instruction MiDojo's ``delivery_facts`` maps
 it to (the same probe key, a target tool that is the call's or none) and, with a delivery
-document, the instruction its fact names. ``payload_sha256`` is that instruction's payload
-digest when the outcome ``emitted`` it; ``slot`` is its ``placements`` entry's slot and record
-with its mode when it also ``selected`` the instruction's place. Anything else is null:
-nothing emitted, facts not reported, a plan that may generate payloads, an instruction that
-does not resolve, or a sealed result that does not hold together.
+document, the one instruction its facts for the outcome name. ``payload_sha256`` is that
+instruction's payload digest when the outcome ``emitted`` it; ``slot`` is its one
+``placements`` entry's slot and record with its mode when it also ``selected`` the
+instruction's place. Anything else is null: nothing emitted, facts not reported, a plan
+that may generate payloads, an instruction that does not resolve, delivery facts that name
+different instructions for the outcome (no slot for placements that name different slots
+for the instruction), or a sealed result that does not hold together.
 
 The snapshot must be the one MiDojo sealed: its ``snapshot_id`` is MiDojo's digest of its
 content, recomputed here (``snapshot_digest.py``), so a snapshot whose content changed
@@ -756,14 +758,12 @@ def call_injections(
     reported the call's text only). Each outcome gains its placement (``placed_fields``).
     """
 
-    facts = None
+    facts: dict[tuple[str, int, int], set[int | None]] | None = None
     if delivery is not None:
-        facts = {
-            (fact["call_id"], fact["interceptor_instruction_index"], fact["occurrence"]): fact[
-                "plan_instruction_index"
-            ]
-            for fact in delivery["delivery"]
-        }
+        facts = {}
+        for fact in delivery["delivery"]:
+            key = (fact["call_id"], fact["interceptor_instruction_index"], fact["occurrence"])
+            facts.setdefault(key, set()).add(fact["plan_instruction_index"])
     calls = []
     for call in snapshot["function_calls"]:
         outcomes = call.get("injection_outcomes")
@@ -786,13 +786,15 @@ def placed_fields(
     outcome: dict[str, Any],
     call: dict[str, Any],
     plan: list[Placed | None] | None,
-    facts: dict[tuple[str, int, int], int | None] | None,
+    facts: dict[tuple[str, int, int], set[int | None]] | None,
 ) -> dict[str, Any]:
     """Return an outcome's ``payload_sha256`` and ``slot``, each None when not established.
 
     The outcome's ``instruction_index`` counts the plan's tool-output instructions; it names
     an instruction of ``plan`` as MiDojo's ``delivery_facts`` maps it, and with a delivery
-    document (``facts``) only when its fact for the outcome names the same instruction.
+    document (``facts``: the plan indexes its facts for each call, instruction and occurrence
+    name) only when its facts for the outcome all name that instruction. Facts that name
+    different instructions for one outcome are ambiguous, and so is the placement.
     """
 
     emitted = outcome.get("emitted")
@@ -806,7 +808,7 @@ def placed_fields(
         or placed.tool not in (None, call["function"])
         or (
             facts is not None
-            and facts.get((call["call_id"], index, outcome["occurrence"])) != placed.plan_index
+            and facts.get((call["call_id"], index, outcome["occurrence"])) != {placed.plan_index}
         )
     ):
         return UNPLACED
@@ -831,11 +833,13 @@ def static_plan(compiled: Compiled) -> list[Placed | None] | None:
         not isinstance(permissions, dict) or any(permissions.values())
     ):
         return None
-    slots = {
-        entry.get("instruction"): (entry.get("slot"), entry.get("record"))
-        for entry in compiled.document.get("placements") or ()
-        if isinstance(entry, dict)
-    }
+    # Each instruction's distinct (slot, record) entries: more than one is ambiguous, no slot.
+    slots: dict[int, list[tuple[Any, Any]]] = {}
+    for entry in compiled.document.get("placements") or ():
+        if isinstance(entry, dict) and type(entry.get("instruction")) is int:
+            pairs = slots.setdefault(entry["instruction"], [])
+            if (pair := (entry.get("slot"), entry.get("record"))) not in pairs:
+                pairs.append(pair)
     found: list[Placed | None] = []
     for index, instruction in enumerate(plan["instructions"]):
         if not isinstance(instruction, dict):
@@ -848,7 +852,8 @@ def static_plan(compiled: Compiled) -> list[Placed | None] | None:
         if not (isinstance(target, dict) and _optional_text(tool) and _optional_text(probe_key)):
             found.append(None)
             continue
-        slot, record = slots.get(index, (None, None))
+        pairs = slots.get(index, [])
+        slot, record = pairs[0] if len(pairs) == 1 else (None, None)
         found.append(
             Placed(
                 plan_index=index,
