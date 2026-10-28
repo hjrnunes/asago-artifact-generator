@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +23,12 @@ from .example_capture_support import (
     neutral_metadata,
     neutral_reply_metadata,
 )
-from .support import assemble_refund_package, world_builders
+from .support import (
+    ScriptedAuthoringTransport,
+    assemble_refund_package,
+    stage_local_orchestrator,
+    world_builders,
+)
 
 _metadata, _plan = world_builders("refund", "metadata", "plan")
 
@@ -127,6 +134,111 @@ def test_inconclusive_example_cannot_carry_a_capture() -> None:
     assert [(f.code, f.path) for f in findings] == [
         ("unexpected_field", "examples.inconclusive.capture")
     ]
+
+
+# Each defect changes the unsafe example and names the findings it causes, in order.
+_EXAMPLE_DEFECTS: dict[str, tuple[Callable[[dict[str, Any]], Any], list[tuple[str, str]]]] = {
+    "wrong_label": (
+        lambda example: example.update(label="supplied"),
+        [("example_shape", "examples.unsafe")],
+    ),
+    "unexpected_field": (
+        lambda example: example.update(note="x"),
+        [("unexpected_field", "examples.unsafe.note")],
+    ),
+    "description_not_a_string": (
+        lambda example: example.update(description=3),
+        [("type_error", "examples.unsafe.description")],
+    ),
+    "bad_capture": (
+        lambda example: example.update(capture={"tool_calls": {}, "complete": "yes"}),
+        [
+            ("type_error", "examples.unsafe.capture.complete"),
+            ("type_error", "examples.unsafe.capture.tool_calls"),
+        ],
+    ),
+}
+_COMBINATIONS = [
+    *([name] for name in _EXAMPLE_DEFECTS),
+    *(["wrong_label", name] for name in _EXAMPLE_DEFECTS if name != "wrong_label"),
+    list(_EXAMPLE_DEFECTS),
+]
+
+
+def _defective_metadata(defects: list[str]) -> dict[str, Any]:
+    metadata = neutral_metadata()
+    for name in defects:
+        _EXAMPLE_DEFECTS[name][0](metadata["examples"]["unsafe"])
+    return metadata
+
+
+@pytest.mark.parametrize("defects", _COMBINATIONS, ids="+".join)
+def test_every_example_finding_is_reported_whatever_the_label(defects: list[str]) -> None:
+    findings = artifact_findings(_defective_metadata(defects))
+
+    expected = [
+        found
+        for name in _EXAMPLE_DEFECTS
+        if name in defects
+        for found in _EXAMPLE_DEFECTS[name][1]
+    ]
+    assert [(f.code, f.path) for f in findings] == expected
+
+
+def test_an_example_that_is_not_an_object_is_one_finding() -> None:
+    metadata = neutral_metadata()
+    metadata["examples"]["unsafe"] = "text"
+
+    findings = artifact_findings(metadata)
+
+    assert [(f.code, f.path) for f in findings] == [("example_shape", "examples.unsafe")]
+
+
+def test_a_capture_the_example_cannot_carry_is_not_shape_checked() -> None:
+    metadata = neutral_metadata()
+    metadata["examples"]["inconclusive"].update(label="supplied", capture="calls")
+
+    findings = artifact_findings(metadata)
+
+    assert [(f.code, f.path) for f in findings] == [
+        ("example_shape", "examples.inconclusive"),
+        ("unexpected_field", "examples.inconclusive.capture"),
+    ]
+
+
+def test_one_correction_request_lists_every_example_finding(tmp_path: Path) -> None:
+    view, inventory, runtime_contract = world_builders(
+        "refund", "view", "inventory", "runtime_contract"
+    )
+    corrected = _metadata()
+    defective = deepcopy(corrected)
+    defective["examples"]["unsafe"].update(
+        label="supplied", note="x", description=3, capture={"tool_calls": [], "complete": "yes"}
+    )
+    transport = ScriptedAuthoringTransport(
+        [json.dumps(_plan()), json.dumps(defective), json.dumps(corrected)]
+    )
+
+    result = stage_local_orchestrator(
+        transport=transport, package_dir=tmp_path / "package", task_id="task"
+    ).run(view(), inventory(), runtime_contract())
+
+    assert [request["stage"] for request in transport.requests] == [
+        "call1",
+        "call2",
+        "correction",
+    ]
+    correction = transport.requests[-1]
+    findings = correction["payload"]["findings"]
+    assert [(f["code"], f["path"]) for f in findings] == [
+        ("example_shape", "examples.unsafe"),
+        ("unexpected_field", "examples.unsafe.note"),
+        ("type_error", "examples.unsafe.description"),
+        ("type_error", "examples.unsafe.capture.complete"),
+    ]
+    for finding in findings:
+        assert finding["detail"] in correction["user"]
+    assert result.status == "accepted", result.findings
 
 
 @pytest.mark.parametrize("label", ["unsafe", "safe"])
