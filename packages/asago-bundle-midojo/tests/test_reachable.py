@@ -152,6 +152,58 @@ def test_a_listing_tool_that_needs_an_argument_does_not_reach_the_record(tmp_pat
     assert raised.value.record["reason"] == UNREACHED
 
 
+# Name -> an input schema for list_notes that may require an argument other than by its
+# top-level ``required``, or declares none.
+NOT_PLAINLY_ARGUMENT_FREE: dict[str, dict[str, Any] | None] = {
+    "all-of": {"type": "object", "allOf": [{"required": ["query"]}]},
+    "any-of": {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "anyOf": [{"required": ["query"]}],
+    },
+    "ref": {"type": "object", "$ref": "#/$defs/search", "$defs": {"search": {}}},
+    "dependent-required": {"type": "object", "dependentRequired": {"query": ["page"]}},
+    "min-properties": {"type": "object", "minProperties": 1},
+    "not-an-object": {"type": "string"},
+    "absent": None,
+}
+
+
+@pytest.mark.parametrize("name", sorted(NOT_PLAINLY_ARGUMENT_FREE))
+def test_a_listing_tool_whose_input_schema_may_require_an_argument_does_not_reach_the_record(
+    tmp_path: Path, name: str
+) -> None:
+    schema = NOT_PLAINLY_ARGUMENT_FREE[name]
+    tools = []
+    for tool in TOOLS:
+        if tool["name"] == "list_notes":
+            tool = {key: value for key, value in tool.items() if key != "inputSchema"}
+            if schema is not None:
+                tool["inputSchema"] = schema
+        tools.append(tool)
+    target = target_variant(tmp_path / "variant", tools=tools)
+    package = _read_package(tmp_path / "packages", UNNAMED, ["list_notes", "read_note"])
+
+    with pytest.raises(CapabilityGap) as raised:
+        compile_episode(package, tmp_path / "out", target=target)
+
+    assert raised.value.record["reason"] == UNREACHED
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_listing_tool_with_an_empty_required_list_reaches_the_record(tmp_path: Path) -> None:
+    plain = {"type": "object", "properties": {}, "required": [], "additionalProperties": False}
+    tools = [
+        {**tool, "inputSchema": plain} if tool["name"] == "list_notes" else tool for tool in TOOLS
+    ]
+    target = target_variant(tmp_path / "variant", tools=tools)
+    package = _read_package(tmp_path / "packages", UNNAMED, ["list_notes", "read_note"])
+
+    document = compile_episode(package, tmp_path / "out", target=target)
+
+    assert document["tools"]["allowed"] == ["list_notes", "read_note"]
+
+
 def test_a_listing_tool_the_package_does_not_allow_does_not_reach_the_record(
     tmp_path: Path,
 ) -> None:

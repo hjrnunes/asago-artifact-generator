@@ -11,10 +11,12 @@ it, from the declarations alone; the conversation reaches the record when either
   and all, not inside a longer run of letters, digits, ``-`` or ``_`` (``NOTE-2`` is named
   by "Read NOTE-2, please." and not by "Read NOTE-20" or "read note-2"), because MiDojo
   matches the call's argument to the record exactly;
-- an allowed tool that requires no argument declares the slot's ``record_key`` as a text
-  property in its output schema, at any depth through ``properties`` and an array's
-  ``items`` (piggybank's ``list_notes`` returns ``notes[].note_id``), so the agent can
-  list the IDs and call the carrier with one.
+- an allowed tool whose input schema plainly takes no argument (``_takes_no_argument``: an
+  object schema that requires nothing, with no composition, ``$ref`` or other keyword that
+  could require an argument) declares the slot's ``record_key`` as a text property in its
+  output schema, at any depth through ``properties`` and an array's ``items``
+  (piggybank's ``list_notes`` returns ``notes[].note_id``), so the agent can list the IDs
+  and call the carrier with one.
 
 Anything else is a capability gap: an episode whose agent cannot name the record calls the
 carrier with no argument that matches, or not at all, and the item is never delivered.
@@ -80,15 +82,49 @@ def listing_tools(declared: DeclaredTools, allowed: Iterable[str], key: str) -> 
         name
         for name in allowed
         if (tool := declared.tools.get(name)) is not None
-        and not _required(tool)
+        and _takes_no_argument(tool)
         and _declares_text_property(tool.get("outputSchema"), key)
     )
 
 
-def _required(tool: Mapping[str, Any]) -> list[Any]:
+def _takes_no_argument(tool: Mapping[str, Any]) -> bool:
+    """Return whether the tool's input schema plainly accepts a call with no argument.
+
+    Only a ``"type": "object"`` schema whose keywords are all in ``_PLAIN_INPUT`` counts,
+    with ``required`` empty or absent and ``minProperties`` 0 or absent. A composition
+    (``allOf``, ``anyOf``, ``oneOf``, ``not``, ``if``), a ``$ref``, a dependent requirement
+    or any other keyword may require an argument, so it does not count; neither does a
+    tool that declares no input schema.
+    """
+
     inputs = tool.get("inputSchema")
-    required = inputs.get("required") if isinstance(inputs, dict) else None
-    return required if isinstance(required, list) else []
+    return (
+        isinstance(inputs, dict)
+        and inputs.get("type") == "object"
+        and set(inputs) <= _PLAIN_INPUT
+        and inputs.get("required", []) == []
+        and inputs.get("minProperties", 0) == 0
+    )
+
+
+# The input schema keywords that cannot make an argument-free call invalid, with
+# ``required`` and ``minProperties`` when they ask for nothing.
+_PLAIN_INPUT = frozenset(
+    {
+        "$schema",
+        "$id",
+        "$comment",
+        "type",
+        "title",
+        "description",
+        "properties",
+        "additionalProperties",
+        "default",
+        "examples",
+        "required",
+        "minProperties",
+    }
+)
 
 
 def _declares_text_property(node: Any, key: str) -> bool:
