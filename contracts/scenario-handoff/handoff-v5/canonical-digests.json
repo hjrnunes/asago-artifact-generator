@@ -150,7 +150,7 @@
     "invalid/v5-uca-unknown-field.json": "7dd0a448036406793a6887b7dc341636a52381a19224d2ebd8acdaa7d78f2e49",
     "invalid/v5-worst-case-threat-blank.json": "c82679990ebbfb94940eaf53cb0700c8e0e84e619a8c8d97cf467f3ea0a5897d",
     "invalid/v5-worst-case-threat-missing.json": "2f8b59e8bb8e2b963971b1ed9c991cc8d41a065fa6e6f5eca13ae41f20a1999c",
-    "schema.json": "98c33891ad30dbf46ff667a9a6b3b403073f656cf5ff54f104b3729e71a3f907",
+    "schema.json": "b0f4d140db2009a0e6abb8d4af7b75ccf0ae8e70ef131991d63ccd1e5e6b7b76",
     "valid/adversarial-condition-omitted.json": "de567792ab0a689e5a1cb2bc2b4da3eb439be96a607b3088498a457422eedcd0",
     "valid/adversarial-direct-multi-turn.json": "812264273283a647c2c0d3b68844f0e3325e344db1dbdac35acb175cf910cd52",
     "valid/adversarial-direct-single.json": "cfd6692c17b3106f9eca32c975299d9a1a7d4854de3c096c8feda9a302626bd1",
