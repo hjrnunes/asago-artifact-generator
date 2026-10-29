@@ -52,6 +52,12 @@
   "invalid/safe-call-argument-value-not-scalar.json": [
     "schema_violation:safe_observable_outcome"
   ],
+  "invalid/safe-call-made-not-boolean.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
+  "invalid/safe-call-not-made-with-arguments.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
   "invalid/schema-assessment-blank-reason.json": [
     "schema_violation:observation"
   ],

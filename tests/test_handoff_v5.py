@@ -518,3 +518,94 @@ def test_an_empty_call_arguments_list_is_read_as_no_arguments(tmp_path: Path) ->
     view = load_input(_signed(tmp_path, payload))
 
     assert view.payload["safe_observable_outcome"]["call_arguments"] == []
+
+
+@pytest.mark.parametrize(
+    ("fixture", "call_made"),
+    [
+        ("safe-call-arguments.json", True),
+        ("safe-call-not-made.json", False),
+        ("safe-call-not-made.json", None),
+    ],
+    ids=["made-with-arguments", "not-made", "null"],
+)
+def test_a_safe_outcome_with_call_made_reads_as_the_same_handoff_without_it(
+    tmp_path: Path, fixture: str, call_made: bool | None
+) -> None:
+    payload = _valid(fixture)
+    payload["safe_observable_outcome"]["call_made"] = call_made
+    stated = load_input(_signed(tmp_path, payload))
+    del payload["safe_observable_outcome"]["call_made"]
+    unstated = load_input(_signed(tmp_path, payload))
+
+    assert stated.payload["safe_observable_outcome"] == {
+        **unstated.payload["safe_observable_outcome"],
+        "call_made": call_made,
+    }
+    assert stated.tool_call_condition_status == unstated.tool_call_condition_status
+    assert stated.tool_call_condition == unstated.tool_call_condition
+    assert stated.attack_shape == unstated.attack_shape
+    handoff = build_scenario_handoff_view(stated)
+    assert handoff["safe_observable_outcome"].pop("call_made") is call_made
+    handoff["source_references"]["input"] = unstated.source_sha256
+    assert handoff == build_scenario_handoff_view(unstated)
+    assert _case_meaning(stated) == _case_meaning(unstated)
+    unstated_packets = render_stage_packets("ehr", view=unstated)
+    for stage, packet in render_stage_packets("ehr", view=stated).items():
+        assert "call_made" not in packet.user, stage
+        assert packet.system == unstated_packets[stage].system, stage
+        user = packet.user.replace(stated.source_sha256, unstated.source_sha256)
+        assert user == unstated_packets[stage].user, stage
+
+
+@pytest.mark.parametrize(
+    ("fixture", "change", "schema_path", "reason"),
+    [
+        (
+            "safe-call-arguments.json",
+            lambda outcome: outcome.update(call_made=False),
+            "safe_observable_outcome.call_arguments",
+            "call_made false states that the call is not made",
+        ),
+        (
+            "safe-call-not-made.json",
+            lambda outcome: outcome.update(claim_level="reply", evidence="assistant_message"),
+            "safe_observable_outcome.call_made",
+            "requires claim_level command_attempt and an operation_name",
+        ),
+        (
+            "safe-call-not-made.json",
+            lambda outcome: outcome.update(operation_name=None),
+            "safe_observable_outcome.call_made",
+            "requires claim_level command_attempt and an operation_name",
+        ),
+        (
+            "safe-call-not-made.json",
+            _safe_outcome_without_evidence,
+            "safe_observable_outcome.call_made",
+            "an analytical-only safe outcome must omit call_made",
+        ),
+    ],
+    ids=["not-made-with-arguments", "reply-claim", "no-operation", "analytical-only"],
+)
+def test_a_call_made_that_breaks_a_producer_rule_is_refused(
+    tmp_path: Path, fixture: str, change: Any, schema_path: str, reason: str
+) -> None:
+    payload = _valid(fixture)
+    change(payload["safe_observable_outcome"])
+
+    with pytest.raises(InputSourceError) as raised:
+        load_input(_signed(tmp_path, payload))
+
+    assert raised.value.codes == ("schema_violation:safe_observable_outcome",)
+    assert raised.value.schema_path == schema_path
+    assert reason in str(raised.value)
+
+
+def test_call_made_false_with_an_empty_call_arguments_list_is_read(tmp_path: Path) -> None:
+    payload = _valid("safe-call-not-made.json")
+    payload["safe_observable_outcome"]["call_arguments"] = []
+
+    view = load_input(_signed(tmp_path, payload))
+
+    assert view.payload["safe_observable_outcome"]["call_made"] is False

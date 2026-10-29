@@ -1,6 +1,6 @@
 {
   "content_sha256": {
-    "expected-violations.json": "14c860b7862975d6efdfb266648ffd2af684b439fd80139fa2d10a5b4174cfd7",
+    "expected-violations.json": "ceb584916b04e2d2217978e14a36f5343c8954095160f3c9e4fed6615e32eb0b",
     "invalid/failure-call-blank-operation.json": "db857586e1f5493ccbe381fd010dc40bb5955e2cddfbfb5c84874367475450ba",
     "invalid/failure-call-kind-not-enumerated.json": "26f058550ab7ec4a24651e304eebee3248634c1b870c863fda0c7c9e684dfea9",
     "invalid/narrative-role-serialization.json": "a5e7f5bad74121ee72db41df6ed86a0a935e9432f77088cc1e697e8359c01b88",
@@ -17,6 +17,8 @@
     "invalid/role-turn-array.json": "adee58126d3c31f1aebc6d2970aa19f2cbeaca047669147f9b255c073e2d55dc",
     "invalid/safe-call-argument-blank-name.json": "330bae3953198d1d6d069db7312289240f7e7a5dca00707cbfcff9104bf04e93",
     "invalid/safe-call-argument-value-not-scalar.json": "67d4f34854b708aef90d1ceab874a1aa09889cbbbdb2cc85a680d586344130a1",
+    "invalid/safe-call-made-not-boolean.json": "7a8d38a869157b8c0673f641b971dbccb5d9169fa1611ae6e44b6a05a867609e",
+    "invalid/safe-call-not-made-with-arguments.json": "f91a511543159c6250cac6a9a46611d589c938bbc376f387e95e85db065397ed",
     "invalid/schema-assessment-blank-reason.json": "43febe340eb57d3e71f9bf244315de02b9ef7c1254bd0ae52ad2464aed783e73",
     "invalid/schema-assessment-disposition-not-enumerated.json": "aad972a441fabca97eaa2a5b31a4eee1bd7268cec669ddaec82af3d6fbf58730",
     "invalid/schema-assessment-missing-reason.json": "90e22ca27fa7ab078c9721e77fd865295d94b2b3f22b07886c79efc18bfaa1f6",
@@ -152,7 +154,7 @@
     "invalid/v5-uca-unknown-field.json": "7dd0a448036406793a6887b7dc341636a52381a19224d2ebd8acdaa7d78f2e49",
     "invalid/v5-worst-case-threat-blank.json": "c82679990ebbfb94940eaf53cb0700c8e0e84e619a8c8d97cf467f3ea0a5897d",
     "invalid/v5-worst-case-threat-missing.json": "2f8b59e8bb8e2b963971b1ed9c991cc8d41a065fa6e6f5eca13ae41f20a1999c",
-    "schema.json": "b163e1560afe70701d19240d8e5b3d9b53ed9ad6807b3e666d45aef2a7fe1da4",
+    "schema.json": "b0eee6b5691ac87229a5418f4f957b839b892c2f02d0155113a29b375fabae59",
     "valid/adversarial-condition-omitted.json": "de567792ab0a689e5a1cb2bc2b4da3eb439be96a607b3088498a457422eedcd0",
     "valid/adversarial-direct-multi-turn.json": "812264273283a647c2c0d3b68844f0e3325e344db1dbdac35acb175cf910cd52",
     "valid/adversarial-direct-single.json": "cfd6692c17b3106f9eca32c975299d9a1a7d4854de3c096c8feda9a302626bd1",
@@ -169,6 +171,7 @@
     "valid/functional-record-unavailable.json": "6d4e1c96f024b0380d03a0544e569d6ef111886bc49e3f5a6525bc8430ee715a",
     "valid/functional-stated-belief.json": "3d4dd26977859ccf36f74563a2b9a52d4c5c21f88287a23635ea2625216c343b",
     "valid/safe-call-arguments.json": "1ac42d04bfb8147c812b30ef37b229f4b5aada1e51bbbee4b8639c3bdc02412d",
+    "valid/safe-call-not-made.json": "3b6f2786a31e771658df95ebc77fcf35143248fad1a7b4a1ae5d4d2764da13eb",
     "valid/taxonomy-block.json": "0a6694ebbcf1462223f40cb367c934f07ae34746606c05b2a44e6f8598424d95"
   },
   "handoff_digests": {
@@ -188,6 +191,7 @@
     "valid/functional-record-unavailable.json": "b5151a4f2ed732029be2f38a27c6f16ef9bf1ae9ef001eff0ce66f955f739c94",
     "valid/functional-stated-belief.json": "fead51b7e75529b7d13e85c19e8484fb1f8e8976b9ed915fb6a4495ee401c874",
     "valid/safe-call-arguments.json": "cec83273bd7618b8528e0798d55815e2cf1b33a760f44eafac2f3ac0e5f3af33",
+    "valid/safe-call-not-made.json": "dbbc1620edd6ba4ccc64fe1b9f95e5f84630bc484250583dd2ea4238ed4d7a05",
     "valid/taxonomy-block.json": "e7228be1f0eb2f35158c85b014bf0625d5a5420c964259198a58d14efa32662b"
   }
 }
