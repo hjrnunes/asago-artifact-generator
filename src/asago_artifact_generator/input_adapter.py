@@ -552,6 +552,32 @@ def _safe_outcome_refs(value: dict[str, Any], path: str) -> _Break:
     return None
 
 
+def _safe_outcome_call_arguments(value: dict[str, Any], path: str) -> _Break:
+    """State each argument of the safe call once, by a non-blank name.
+
+    The rules are the producer's ``SafeObservableOutcome`` call-argument checks;
+    keep both in step. An empty list states no value, as an absent one does.
+    """
+
+    arguments = value.get("call_arguments")
+    if not arguments:
+        return None
+    path = f"{path}.call_arguments"
+    names = [item["argument"] for item in arguments]
+    for index, name in enumerate(names):
+        if not name.strip():
+            return f"{path}.{index}.argument", "must not be blank"
+    if not value["observable"]:
+        return path, "an analytical-only safe outcome must omit call_arguments"
+    if value.get("claim_level") != ClaimLevel.COMMAND_ATTEMPT.value or not value.get(
+        "operation_name"
+    ):
+        return path, "requires claim_level command_attempt and an operation_name"
+    if len({name.strip() for name in names}) != len(names):
+        return path, "must name each argument once"
+    return None
+
+
 def _procedure_chain(steps: list[dict[str, Any]], path: str) -> _Break:
     """Number the steps S00, S01, ... in order and link each to the next.
 
@@ -625,7 +651,10 @@ _HAND_RULES: tuple[tuple[str, tuple[Any, ...]], ...] = (
     ),
     ("observation", (_observation_contract, _observation_criteria, _observation_assessment)),
     ("semantic_failure_call", (_semantic_failure_call,)),
-    ("safe_observable_outcome", (_safe_outcome_claim, _safe_outcome_refs)),
+    (
+        "safe_observable_outcome",
+        (_safe_outcome_claim, _safe_outcome_refs, _safe_outcome_call_arguments),
+    ),
     ("deduplication", (_deduplication,)),
     ("tool_call_condition_status", (_tool_call_status_reason,)),
     ("taxonomy", (_taxonomy_references,)),

@@ -422,3 +422,99 @@ def test_a_decision_rule_factor_with_a_null_belief_reaches_every_stage(tmp_path:
         assert len(re.findall(r'"process_model_belief": ?null', user)) == 1, stage
         assert user.count(rule["flaw"]) == 1, stage
         assert "None" not in user, stage
+
+
+def test_a_safe_outcome_with_call_arguments_reads_as_the_same_handoff_without_them(
+    tmp_path: Path,
+) -> None:
+    payload = _valid("safe-call-arguments.json")
+    stated = load_input(_KIT / "valid" / "safe-call-arguments.json")
+    arguments = payload["safe_observable_outcome"].pop("call_arguments")
+    unstated = load_input(_signed(tmp_path, payload))
+
+    assert stated.payload["safe_observable_outcome"]["call_arguments"] == arguments
+    assert stated.payload["safe_observable_outcome"] == {
+        **unstated.payload["safe_observable_outcome"],
+        "call_arguments": arguments,
+    }
+    assert stated.tool_call_condition_status == unstated.tool_call_condition_status
+    assert stated.tool_call_condition == unstated.tool_call_condition
+    assert stated.attack_shape == unstated.attack_shape
+    handoff = build_scenario_handoff_view(stated)
+    assert handoff["safe_observable_outcome"].pop("call_arguments") == arguments
+    handoff["source_references"]["input"] = unstated.source_sha256
+    assert handoff == build_scenario_handoff_view(unstated)
+    assert _case_meaning(stated) == _case_meaning(unstated)
+    unstated_packets = render_stage_packets("ehr", view=unstated)
+    for stage, packet in render_stage_packets("ehr", view=stated).items():
+        assert "call_arguments" not in packet.user, stage
+        assert packet.system == unstated_packets[stage].system, stage
+        user = packet.user.replace(stated.source_sha256, unstated.source_sha256)
+        assert user == unstated_packets[stage].user, stage
+
+
+def _safe_outcome_without_evidence(outcome: dict[str, Any]) -> None:
+    outcome.update(
+        observable=False,
+        claim_level=None,
+        evidence=None,
+        operation_name=None,
+        record_refs=[],
+        fact_refs=[],
+    )
+
+
+@pytest.mark.parametrize(
+    ("change", "schema_path", "reason"),
+    [
+        (
+            lambda outcome: outcome["call_arguments"][0].update(argument=" "),
+            "safe_observable_outcome.call_arguments.0.argument",
+            "must not be blank",
+        ),
+        (
+            lambda outcome: outcome["call_arguments"].append(
+                {"argument": " item_id", "value": "ITEM-3"}
+            ),
+            "safe_observable_outcome.call_arguments",
+            "must name each argument once",
+        ),
+        (
+            lambda outcome: outcome.update(claim_level="reply", evidence="assistant_message"),
+            "safe_observable_outcome.call_arguments",
+            "requires claim_level command_attempt and an operation_name",
+        ),
+        (
+            lambda outcome: outcome.update(operation_name=None),
+            "safe_observable_outcome.call_arguments",
+            "requires claim_level command_attempt and an operation_name",
+        ),
+        (
+            _safe_outcome_without_evidence,
+            "safe_observable_outcome.call_arguments",
+            "an analytical-only safe outcome must omit call_arguments",
+        ),
+    ],
+    ids=["blank-name", "repeated-name", "reply-claim", "no-operation", "analytical-only"],
+)
+def test_safe_call_arguments_that_break_a_producer_rule_are_refused(
+    tmp_path: Path, change: Any, schema_path: str, reason: str
+) -> None:
+    payload = _valid("safe-call-arguments.json")
+    change(payload["safe_observable_outcome"])
+
+    with pytest.raises(InputSourceError) as raised:
+        load_input(_signed(tmp_path, payload))
+
+    assert raised.value.codes == ("schema_violation:safe_observable_outcome",)
+    assert raised.value.schema_path == schema_path
+    assert reason in str(raised.value)
+
+
+def test_an_empty_call_arguments_list_is_read_as_no_arguments(tmp_path: Path) -> None:
+    payload = _valid("safe-call-arguments.json")
+    payload["safe_observable_outcome"]["call_arguments"] = []
+
+    view = load_input(_signed(tmp_path, payload))
+
+    assert view.payload["safe_observable_outcome"]["call_arguments"] == []

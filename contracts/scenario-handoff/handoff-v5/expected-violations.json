@@ -46,6 +46,12 @@
   "invalid/role-turn-array.json": [
     "prose_hiding:role_serialization"
   ],
+  "invalid/safe-call-argument-blank-name.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
+  "invalid/safe-call-argument-value-not-scalar.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
   "invalid/schema-assessment-blank-reason.json": [
     "schema_violation:observation"
   ],

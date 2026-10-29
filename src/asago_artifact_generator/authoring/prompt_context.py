@@ -784,6 +784,9 @@ def _case_meaning(view: InputView) -> dict[str, Any]:
         if isinstance(observation, dict)
         else "selected by the plan and bounded by runtime evidence"
     )
+    # The safe behavior is the producer's prose. The safe observable outcome stays
+    # out of model context, its optional call_arguments too: when present, they
+    # state the argument values of the call the safe behavior makes.
     result = {
         "scenario_id": view.scenario_id,
         "narrative": view.narrative,

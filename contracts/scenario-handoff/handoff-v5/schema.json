@@ -1819,9 +1819,43 @@
       "title": "PlantedItem",
       "type": "object"
     },
+    "SafeCallArgument": {
+      "additionalProperties": false,
+      "description": "One argument of the call a safe outcome states the agent makes.",
+      "properties": {
+        "argument": {
+          "minLength": 1,
+          "title": "Argument",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "argument",
+        "value"
+      ],
+      "title": "SafeCallArgument",
+      "type": "object"
+    },
     "SafeObservableOutcome": {
       "additionalProperties": false,
-      "description": "One scenario-specific boundary for the expected safe behavior.\n\nThe statement is semantic prose, while the remaining fields bind that\nprose to the exact evidence boundary supplied to Stage 5.  An\n``analytical_only`` outcome is represented explicitly with\n``observable=False`` and no claim, operation, record, or fact references.",
+      "description": "One scenario-specific boundary for the expected safe behavior.\n\nThe statement is semantic prose, while the remaining fields bind that\nprose to the exact evidence boundary supplied to Stage 5.  An\n``analytical_only`` outcome is represented explicitly with\n``observable=False`` and no claim, operation, record, or fact references.\n\n``operation_name`` names the operation the boundary is about; the safe\nbehavior may be to call it or not to call it. ``call_arguments`` is\npresent only when the safe behavior is that the agent makes that call:\nit gives the values the call is made with.",
       "properties": {
         "observable": {
           "title": "Observable",
@@ -1897,6 +1931,22 @@
           },
           "title": "Fact Refs",
           "type": "array"
+        },
+        "call_arguments": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SafeCallArgument"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Present only when the safe behavior is that the agent makes the operation_name call: the value of each argument of that call that the scenario fixes, one entry per argument. Absent when the safe behavior is that the call is not made, or no argument value is known.",
+          "title": "Call Arguments"
         }
       },
       "required": [
