@@ -79,6 +79,14 @@ instructions for the outcome, a sealed slot no plan instruction targets or whose
 name more than one (slot, record) or another record, a static plan whose payload digest is
 not the sealed one (neither then), or a sealed result that does not hold together.
 
+An OpenShell observation (``observations["openshell"]``) sealed from 4e5176a holds
+``http_requests``, one ``HttpRequestRecord`` per HTTP request OpenShell's policy proxy
+inspected, in log order. A list of anything else fails the receipt (``snapshot_malformed``).
+The attempt's ``runtime_observations.http_requests`` copies the records as sealed
+(``http_requests_of``), and is left out, not observed, when the snapshot has no OpenShell
+observation, the observation no ``http_requests`` (sealed before it existed), or an empty
+list from a log read that is not ``complete``. The snapshot ID is computed as before.
+
 The snapshot must be the one MiDojo sealed: its ``snapshot_id`` is MiDojo's digest of its
 content, recomputed here (``snapshot_digest.py``), so a snapshot whose content changed
 under its ID is refused. The verdict must name the snapshot's evaluation and the snapshot
@@ -172,6 +180,14 @@ INJECTION_STATUSES = frozenset(
     }
 )
 DISPOSITIONS = frozenset({"forwarded", "denied", "simulated", "blocked", None})
+# OpenShell's observation (``runtimes/openshell/__init__.py``, ``OBSERVATIONS_SOURCE``), its
+# ``HttpRequestRecord`` list, and the snapshot evidence status of the part that holds it.
+OPENSHELL = "openshell"
+HTTP_REQUESTS = "http_requests"
+OCSF_EVIDENCE = "openshell.ocsf"
+HTTP_REQUEST_REQUIRED = frozenset({"method", "url", "decision", "raw"})
+HTTP_REQUEST_FIELDS = HTTP_REQUEST_REQUIRED | {"host", "port", "path", "query"}
+HTTP_DECISIONS = frozenset({"allowed", "denied"})
 INTERCEPTOR = "interceptor"
 PROVENANCES = frozenset({"host", INTERCEPTOR, "agent", None})
 TURN_FIELDS = frozenset({"index", "message", "reply", "started_at", "ended_at"})
@@ -359,10 +375,29 @@ def snapshot_shape(snapshot: dict[str, Any]) -> bool:
         and all(isinstance(snapshot[key], dict) for key in SNAPSHOT_MAPPINGS)
         and all(isinstance(snapshot[key], list) for key in SNAPSHOT_LISTS)
         and all(isinstance(observed, dict) for observed in snapshot["observations"].values())
+        and _http_requests_shape(snapshot["observations"].get(OPENSHELL, {}))
         and evidence_shape(snapshot["evidence_status"])
         and all(_call_shape(call) for call in snapshot["function_calls"])
         and all(_turn_shape(turn) for turn in snapshot["turns"])
         and all(_failure_shape(failure) for failure in snapshot["capture_failures"])
+    )
+
+
+def _http_requests_shape(observed: Any) -> bool:
+    """An OpenShell observation's ``http_requests``, when it has one, is a list of
+    ``HttpRequestRecord``: its required fields, no others, each of its type."""
+
+    if not isinstance(observed, dict) or HTTP_REQUESTS not in observed:
+        return True
+    requests = observed[HTTP_REQUESTS]
+    return isinstance(requests, list) and all(
+        isinstance(request, dict)
+        and HTTP_REQUEST_REQUIRED <= request.keys() <= HTTP_REQUEST_FIELDS
+        and all(isinstance(request[key], str) for key in ("method", "url", "raw"))
+        and _one_of(request["decision"], HTTP_DECISIONS)
+        and all(_optional_text(request.get(key)) for key in ("host", "path", "query"))
+        and (request.get("port") is None or type(request["port"]) is int)
+        for request in requests
     )
 
 
@@ -752,21 +787,7 @@ def attempt_of(
             "assistant_messages": [replies[index] for index in sorted(replies)],
             "tool_calls": calls,
         },
-        "runtime_observations": {
-            "source": None,
-            **{
-                name: []
-                for name in (
-                    "processes",
-                    "network_calls_allowed",
-                    "network_calls_blocked",
-                    "files_created",
-                    "files_modified",
-                    "files_deleted",
-                    "security_findings",
-                )
-            },
-        },
+        "runtime_observations": runtime_observations(snapshot),
         "detections": [
             {
                 "detector": DETECTORS[level],
@@ -777,6 +798,51 @@ def attempt_of(
         ],
         "judge": judge_of(level, grade),
     }
+
+
+def runtime_observations(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Return the attempt's runtime observations: empty lists, and ``http_requests`` as
+    ``http_requests_of`` gives it, left out when that is None (not observed)."""
+
+    observed: dict[str, Any] = {
+        "source": None,
+        **{
+            name: []
+            for name in (
+                "processes",
+                "network_calls_allowed",
+                "network_calls_blocked",
+                "files_created",
+                "files_modified",
+                "files_deleted",
+                "security_findings",
+            )
+        },
+    }
+    requests = http_requests_of(snapshot)
+    if requests is not None:
+        observed[HTTP_REQUESTS] = requests
+    return observed
+
+
+def http_requests_of(snapshot: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """Return the HTTP requests OpenShell sealed, each record copied as sealed, or None when
+    they were not observed.
+
+    None when the snapshot has no OpenShell observation or the observation no
+    ``http_requests`` (sealed before MiDojo recorded them), and for an empty list unless the
+    snapshot's ``openshell.ocsf`` evidence is ``complete``: an empty list read from a log that
+    failed or was read in part says no request was read, not that none was made. A list with
+    requests is copied whatever that status; when it is not complete, it holds those read.
+    """
+
+    observed = snapshot["observations"].get(OPENSHELL)
+    if not isinstance(observed, dict) or HTTP_REQUESTS not in observed:
+        return None
+    requests = observed[HTTP_REQUESTS]
+    if not requests and snapshot["evidence_status"].get(OCSF_EVIDENCE) != "complete":
+        return None
+    return [dict(request) for request in requests]
 
 
 def native_call(call: dict[str, Any]) -> dict[str, Any]:

@@ -82,6 +82,7 @@ def attempt() -> dict[str, Any]:
         ],
         "result": {"outcome": "detected", "claim_level": "command_attempt", "reason": "r"},
         "observation": {"source": "tool_native", "assistant_messages": [], "tool_calls": []},
+        # No runtime observed: empty lists, and no ``http_requests`` (not observed, never ``[]``).
         "runtime_observations": {
             "source": None,
             **{

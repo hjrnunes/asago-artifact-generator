@@ -23,6 +23,26 @@
     "path": "/episode",
     "keyword": "required"
   },
+  "invalid/http-request-text-port.json": {
+    "path": "/attempts/0/runtime_observations/http_requests/1/port",
+    "keyword": "type"
+  },
+  "invalid/http-request-unknown-decision.json": {
+    "path": "/attempts/0/runtime_observations/http_requests/1/decision",
+    "keyword": "enum"
+  },
+  "invalid/http-request-unknown-field.json": {
+    "path": "/attempts/0/runtime_observations/http_requests/1",
+    "keyword": "additionalProperties"
+  },
+  "invalid/http-request-without-raw.json": {
+    "path": "/attempts/0/runtime_observations/http_requests/1",
+    "keyword": "required"
+  },
+  "invalid/http-requests-not-a-list.json": {
+    "path": "/attempts/0/runtime_observations/http_requests",
+    "keyword": "type"
+  },
   "invalid/matched-call-not-an-index.json": {
     "path": "/attempts/0/detections/0/matched_calls/0",
     "keyword": "type"

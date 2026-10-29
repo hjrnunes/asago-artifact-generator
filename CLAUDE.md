@@ -227,7 +227,10 @@ Deterministic tests must not contact a model endpoint or target.
   target (its `tests/fixtures/targets/clinic/`, record IDs in the result only) and what MiDojo
   c0bee12 sealed from them in front of a scripted upstream (`tests/result_record_cases.py`).
   `tests/fixtures/openshell-4e5176a/` holds its referral run sealed by MiDojo 4e5176a with
-  OpenShell observations, whose `http_requests` the snapshot ID leaves out while empty.
+  OpenShell observations, whose `http_requests` the snapshot ID leaves out while empty;
+  `parse` copies them as sealed into the attempt's `runtime_observations.http_requests`
+  (left out when not observed: no such observation or field, or an empty list from an
+  OCSF read that is not `complete`; Garak's receipt always leaves it out).
   `tests/fixtures/reply-judge-4e5176a/` holds the reply episode as compiled now and the
   reply runs MiDojo 4e5176a graded through `judge-serve` and a fake model, verdicts with
   `judgements` (which `parse` accepts and does not carry).

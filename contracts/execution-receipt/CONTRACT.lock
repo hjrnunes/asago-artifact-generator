@@ -3,13 +3,18 @@
   "contract": "execution-receipt",
   "schema_version": "execution-receipt-v1",
   "files": {
-    "execution-receipt-v1/expected-violations.json": "eda9630a4858cb76ef2154895a064a532bb2e91d1ceedecabd72f1d5c7658ac4",
+    "execution-receipt-v1/expected-violations.json": "72d4b1df8a3b7003192e3812524ff53333a1fcdde02478be9064e1a20aed86c9",
     "execution-receipt-v1/invalid/blank-tool-id.json": "f20acf06335593289b2661bda1b91100f070fcc017335441e81f31ecffeb382f",
     "execution-receipt-v1/invalid/episode-attempted-not-three-valued.json": "a9916c2ad93fee027623c731c83ca6e14d9bdcf1615e2a400c2c1119be7557f2",
     "execution-receipt-v1/invalid/episode-exposure-unknown-status.json": "2937f4d3096b585395eb781fb5fbc152b00c0f3030c1ecf1dd58faab03786aa4",
     "execution-receipt-v1/invalid/episode-injection-outcome-without-status.json": "619a9e32ac3c6c5f9d54276ea46e9abdbe674f756caf38226049b2dcb362d778",
     "execution-receipt-v1/invalid/episode-security-not-three-valued.json": "cea95a814445108398bec9c607ba097f5a26f2d457b6f6b45d1420a3e7267acd",
     "execution-receipt-v1/invalid/episode-without-route.json": "8886b1c49230ddaa54fb414c9c6033324b1362351938661a28d9216c15a895a7",
+    "execution-receipt-v1/invalid/http-request-text-port.json": "6215691219af523ab4a40603c546fdc66950be908d78d745f9d57069208373e7",
+    "execution-receipt-v1/invalid/http-request-unknown-decision.json": "2084c04a95bb1bbf6c3844bccd05209797bf3d8ac8d739fb121db9586a2828cd",
+    "execution-receipt-v1/invalid/http-request-unknown-field.json": "6fe39a726eb935d6fed3a9e96d5cd77f0ea73f19b0571a91051ad68a9d36ccae",
+    "execution-receipt-v1/invalid/http-request-without-raw.json": "3f52ca9cfbe375543d928535bcc3b9ba82f7767d7ee6d45caf86773301de8820",
+    "execution-receipt-v1/invalid/http-requests-not-a-list.json": "64283c902cbe4aeb158ad6c26aa2f74a1b56137c4ddd97439633bb02b2ce262a",
     "execution-receipt-v1/invalid/matched-call-not-an-index.json": "d2175c2c430731dcc27c5637407b2740480c34b6102f18f589efe647d42a9a9e",
     "execution-receipt-v1/invalid/missing-attempts.json": "9c8757fb1b87257adc6312ed8331bb791d431cda89c9a95eacd9da90e9fcf041",
     "execution-receipt-v1/invalid/native-path-escapes.json": "3ef84a992c221f23a350ebc04cde83c237ac990446fe6e15a7b7cc998c50b324",
@@ -27,10 +32,13 @@
     "execution-receipt-v1/valid/garak-sequential.json": "fdb47fb852f13d2609417e8c025c49884045349d42586a0d78a22cd8c1c91a21",
     "execution-receipt-v1/valid/garak-single-turn.json": "79a1fff0634f6c19438ef74dbe9997dfe8a4a3a8f8e525fb9958bff92d3cbaa4",
     "execution-receipt-v1/valid/gym-repeats.json": "807488de38cccb20314e67d23b2270b77ee5a1301e8c91239509a9833b19c6a5",
+    "execution-receipt-v1/valid/http-requests-null.json": "df1c53bdb9304c36afba2feaece6edfe97f1dea2bd69e87661b59c04d726b063",
     "execution-receipt-v1/valid/incomplete-without-attempts.json": "bbedbd6523c020026bb9c22a5665300a1feea84c6cf7f7efc2c1e64f56f4562d",
     "execution-receipt-v1/valid/midojo-episode-delivery.json": "2fb294db5750cd38a3499c73533791005f2f850761ce12785ed552aa2811afc0",
     "execution-receipt-v1/valid/midojo-episode-placement.json": "c40dc5b572ac268b64abbe610904d0829b6728c1ef9d9afaf9c7cd9d2f5e86d5",
     "execution-receipt-v1/valid/midojo-episode-unknown.json": "e8d72977c24d2b20b0d617bfefdc0782b8956d29d2f1c27b0664801731f90203",
-    "execution-receipt-v1.schema.json": "64b433c142afb6d8104e53928ac16ec02adabe9bdf59f1ab5e0a84684a4bbe10"
+    "execution-receipt-v1/valid/midojo-openshell-http-requests-empty.json": "612358bf48fd79b9731d59bc39b90ec8d2076f0aaeddb0bb0a225e64e0e6f401",
+    "execution-receipt-v1/valid/midojo-openshell-http-requests.json": "ec2064efb2737b5b3629d653198690393b6ae208acfd7ad0a3cf4a0735226512",
+    "execution-receipt-v1.schema.json": "b0b2fe65915e725dbe3cde665023ccccd95ee04b52ba6e475a902f3f1bd49fc1"
   }
 }

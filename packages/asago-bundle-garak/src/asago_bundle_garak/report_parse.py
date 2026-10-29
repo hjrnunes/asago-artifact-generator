@@ -58,6 +58,8 @@ RECORD_NOTES = {
 PROXY_CALLS = Path("mcp_capture/calls.jsonl")
 GATEWAY_ACCOUNTING = Path("boundary/gateway-accounting.json")
 JUDGE_EXCHANGES = Path("boundary/judge-exchanges.jsonl")
+# Garak observes no runtime, so every list is empty and ``http_requests`` is left out: it
+# records no HTTP requests, which is not observed, never ``[]`` (none made).
 RUNTIME_LISTS = (
     "processes",
     "network_calls_allowed",

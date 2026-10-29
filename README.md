@@ -1273,6 +1273,16 @@ never false). They never change the attempt's outcome, and any other unknown gra
 still `verdict_malformed`. The episode's tool revision range stays `>=b5b8c752` (or
 `>=c0bee126` with a `result_record` target).
 
+The attempt's `runtime_observations` may also carry `http_requests`, optional in the
+receipt: absent or null is not observed, `[]` observed with no request made. `parse`
+copies the records an OpenShell observation sealed (from `4e5176a`,
+`observations.openshell.http_requests`, MiDojo's `HttpRequestRecord`: `method`, `url`,
+`decision` `allowed`/`denied`, `host`, `port`, `path` and `query` nullable, `raw`), in log
+order; a record of another shape is `snapshot_malformed`. It leaves the field out for a
+snapshot without that observation or field, and for an empty list when
+`evidence_status["openshell.ocsf"]` is not `complete` (none read is not none made). The
+snapshot ID is unchanged. Garak's receipt leaves the field out: it observes no runtime.
+
 Delivery and exposure are not in the snapshot or the verdict: the runner computes them in
 MiDojo's interpreter and writes `delivery.json` beside the snapshot, a
 `midojo-delivery-v1` document (`contracts/midojo-delivery/`):

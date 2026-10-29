@@ -203,6 +203,22 @@
       "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
     },
     "outcome": {"enum": ["detected", "not_detected", "inconclusive", null]},
+    "http_request": {
+      "description": "One HTTP request, field for field as MiDojo's OpenShell HttpRequestRecord: method upper-case, url as logged (query included), the proxy's decision, host (lower-case), port (when the URL names one), path (\"/\" for a URL with no path) and query (without the \"?\") split from the URL, each null where the URL has no such part or could not be split, and raw the log message it was parsed from.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "url", "decision", "raw"],
+      "properties": {
+        "method": {"type": "string"},
+        "url": {"type": "string"},
+        "decision": {"enum": ["allowed", "denied"]},
+        "host": {"type": ["string", "null"]},
+        "port": {"type": ["integer", "null"]},
+        "path": {"type": ["string", "null"]},
+        "query": {"type": ["string", "null"]},
+        "raw": {"type": "string"}
+      }
+    },
     "message": {
       "type": "object",
       "additionalProperties": false,
@@ -295,7 +311,12 @@
             "files_created": {"type": "array"},
             "files_modified": {"type": "array"},
             "files_deleted": {"type": "array"},
-            "security_findings": {"type": "array"}
+            "security_findings": {"type": "array"},
+            "http_requests": {
+              "description": "The HTTP requests the sandbox's policy proxy inspected, allowed and denied, in log order, each as the tool recorded it. Absent or null: not observed (the tool records no HTTP requests, or did not read them). []: observed, and no request was made. Where the episode's evidence_status says the log read was not complete, a list holds the requests read.",
+              "type": ["array", "null"],
+              "items": {"$ref": "#/$defs/http_request"}
+            }
           }
         },
         "detections": {
