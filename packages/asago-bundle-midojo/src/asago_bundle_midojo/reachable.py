@@ -12,8 +12,9 @@ it, from the declarations alone; the conversation reaches the record when either
   by "Read NOTE-2, please." and not by "Read NOTE-20" or "read note-2"), because MiDojo
   matches the call's argument to the record exactly;
 - an allowed tool whose input schema plainly takes no argument (``_takes_no_argument``: an
-  object schema that requires nothing, with no composition, ``$ref`` or other keyword that
-  could require an argument) declares the slot's ``record_key`` as a text property in its
+  object schema built only from keywords that cannot require an argument, ``required``
+  empty and ``minProperties`` 0; any other keyword, such as a composition or ``$ref``,
+  makes it not count) declares the slot's ``record_key`` as a text property in its
   output schema, at any depth through ``properties`` and an array's ``items``
   (piggybank's ``list_notes`` returns ``notes[].note_id``), so the agent can list the IDs
   and call the carrier with one.
@@ -90,11 +91,13 @@ def listing_tools(declared: DeclaredTools, allowed: Iterable[str], key: str) -> 
 def _takes_no_argument(tool: Mapping[str, Any]) -> bool:
     """Return whether the tool's input schema plainly accepts a call with no argument.
 
-    Only a ``"type": "object"`` schema whose keywords are all in ``_PLAIN_INPUT`` counts,
-    with ``required`` empty or absent and ``minProperties`` 0 or absent. A composition
-    (``allOf``, ``anyOf``, ``oneOf``, ``not``, ``if``), a ``$ref``, a dependent requirement
-    or any other keyword may require an argument, so it does not count; neither does a
-    tool that declares no input schema.
+    Only a ``"type": "object"`` schema whose keywords are all in ``_PLAIN_INPUT``, the
+    keywords that cannot make the empty arguments ``{}`` invalid, counts, with ``required``
+    empty or absent and ``minProperties`` 0 or absent. A keyword outside that set does not
+    count, whether or not it requires an argument here: a composition (``allOf``,
+    ``anyOf``, ``oneOf``, ``not``, ``if``), a ``$ref``, a dependent requirement, an object
+    ``const`` or ``enum``, or one this list does not know. Neither does a tool that declares
+    no input schema.
     """
 
     inputs = tool.get("inputSchema")
@@ -107,20 +110,31 @@ def _takes_no_argument(tool: Mapping[str, Any]) -> bool:
     )
 
 
-# The input schema keywords that cannot make an argument-free call invalid, with
-# ``required`` and ``minProperties`` when they ask for nothing.
+# The input schema keywords that cannot make the empty arguments ``{}`` invalid: each
+# constrains only properties present, or annotates. ``required`` and ``minProperties``
+# count only when they ask for nothing.
 _PLAIN_INPUT = frozenset(
     {
         "$schema",
         "$id",
+        "$anchor",
         "$comment",
+        "$defs",
+        "definitions",
         "type",
         "title",
         "description",
-        "properties",
-        "additionalProperties",
         "default",
         "examples",
+        "deprecated",
+        "readOnly",
+        "writeOnly",
+        "properties",
+        "patternProperties",
+        "additionalProperties",
+        "unevaluatedProperties",
+        "propertyNames",
+        "maxProperties",
         "required",
         "minProperties",
     }

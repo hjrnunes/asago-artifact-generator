@@ -191,8 +191,31 @@ def test_a_listing_tool_whose_input_schema_may_require_an_argument_does_not_reac
     assert not (tmp_path / "out").exists()
 
 
-def test_a_listing_tool_with_an_empty_required_list_reaches_the_record(tmp_path: Path) -> None:
-    plain = {"type": "object", "properties": {}, "required": [], "additionalProperties": False}
+# Name -> an input schema for list_notes whose keywords cannot make the arguments {} invalid.
+ARGUMENT_FREE: dict[str, dict[str, Any]] = {
+    "empty-required": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    },
+    "max-properties-0": {"type": "object", "maxProperties": 0},
+    "pattern-and-names": {
+        "type": "object",
+        "patternProperties": {"^x-": {"type": "string"}},
+        "propertyNames": {"pattern": "^x-"},
+        "unevaluatedProperties": False,
+        "$defs": {"page": {"type": "integer"}},
+        "deprecated": False,
+    },
+}
+
+
+@pytest.mark.parametrize("name", sorted(ARGUMENT_FREE))
+def test_a_listing_tool_whose_input_schema_takes_no_argument_reaches_the_record(
+    tmp_path: Path, name: str
+) -> None:
+    plain = ARGUMENT_FREE[name]
     tools = [
         {**tool, "inputSchema": plain} if tool["name"] == "list_notes" else tool for tool in TOOLS
     ]

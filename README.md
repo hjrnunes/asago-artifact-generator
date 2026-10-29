@@ -1099,10 +1099,16 @@ cannot lead the agent to (`reachable.py`). A carrier matched by its arguments (a
 outside a list whose carrier requires `record_key`) returns the record only to a call
 that names it, so the agent must learn its ID: a user turn names it, written exactly as
 the seed's `record_ref` (case and all, not inside a longer run of letters, digits, `-` or
-`_`), or an allowed tool whose input schema plainly takes no argument (an object schema
-that requires nothing, with no `allOf`, `anyOf`, `oneOf`, `$ref` or other keyword that
-could require one) declares `record_key` as a text property in its output schema (at any depth through `properties` and `items`, such as a
-listing tool's `notes[].note_id`). The reason names the carrier, the record and that
+`_`), or an allowed tool whose input schema plainly takes no argument declares
+`record_key` as a text property in its output schema (at any depth through `properties` and `items`, such as a
+listing tool's `notes[].note_id`). An input schema plainly takes no argument when it is
+a `"type": "object"` schema built only from keywords that cannot make the empty arguments
+`{}` invalid (annotations, `$defs`, `properties`, `patternProperties`,
+`additionalProperties`, `unevaluatedProperties`, `propertyNames`, `maxProperties`), with
+`required` empty or absent and `minProperties` 0 or absent; any other keyword (a
+composition, `$ref`, `if`, `not`, a dependent requirement, an object `const` or `enum`, or
+one the check does not know) makes the tool not count, as does no input schema. The reason
+names the carrier, the record and that
 neither holds. It is a structural reference check, not a reading of what a turn asks:
 it follows no chain of calls, does not know whether a listing tool returns this record,
 and does not see an ID in the agent's own system prompt. A field inside a list, and one
