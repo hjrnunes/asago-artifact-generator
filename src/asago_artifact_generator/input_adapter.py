@@ -552,11 +552,35 @@ def _safe_outcome_refs(value: dict[str, Any], path: str) -> _Break:
     return None
 
 
+def _on_safe_call(value: dict[str, Any]) -> bool:
+    return value.get("claim_level") == ClaimLevel.COMMAND_ATTEMPT.value and bool(
+        value.get("operation_name")
+    )
+
+
+def _safe_outcome_call_made(value: dict[str, Any], path: str) -> _Break:
+    """State call_made only on a command attempt that names its operation.
+
+    The rule is the producer's ``SafeObservableOutcome`` call_made check; keep
+    both in step. A null call_made says nothing, as an absent one does.
+    """
+
+    if value.get("call_made") is None:
+        return None
+    path = f"{path}.call_made"
+    if not value["observable"]:
+        return path, "an analytical-only safe outcome must omit call_made"
+    if not _on_safe_call(value):
+        return path, "requires claim_level command_attempt and an operation_name"
+    return None
+
+
 def _safe_outcome_call_arguments(value: dict[str, Any], path: str) -> _Break:
     """State each argument of the safe call once, by a non-blank name.
 
     The rules are the producer's ``SafeObservableOutcome`` call-argument checks;
     keep both in step. An empty list states no value, as an absent one does.
+    call_made false states that the call is not made, so it has no arguments.
     """
 
     arguments = value.get("call_arguments")
@@ -569,10 +593,12 @@ def _safe_outcome_call_arguments(value: dict[str, Any], path: str) -> _Break:
             return f"{path}.{index}.argument", "must not be blank"
     if not value["observable"]:
         return path, "an analytical-only safe outcome must omit call_arguments"
-    if value.get("claim_level") != ClaimLevel.COMMAND_ATTEMPT.value or not value.get(
-        "operation_name"
-    ):
+    if not _on_safe_call(value):
         return path, "requires claim_level command_attempt and an operation_name"
+    if value.get("call_made") is False:
+        return path, (
+            "call_made false states that the call is not made, so it has no call_arguments"
+        )
     if len({name.strip() for name in names}) != len(names):
         return path, "must name each argument once"
     return None
@@ -653,7 +679,12 @@ _HAND_RULES: tuple[tuple[str, tuple[Any, ...]], ...] = (
     ("semantic_failure_call", (_semantic_failure_call,)),
     (
         "safe_observable_outcome",
-        (_safe_outcome_claim, _safe_outcome_refs, _safe_outcome_call_arguments),
+        (
+            _safe_outcome_claim,
+            _safe_outcome_refs,
+            _safe_outcome_call_made,
+            _safe_outcome_call_arguments,
+        ),
     ),
     ("deduplication", (_deduplication,)),
     ("tool_call_condition_status", (_tool_call_status_reason,)),
