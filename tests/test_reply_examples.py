@@ -13,7 +13,7 @@ from asago_artifact_generator.authoring.contracts import (
     _call2_contract_v2,
     neutral_artifact_plan_v2,
 )
-from asago_artifact_generator.authoring.core import CORRECTION_PROMPT_VERSION_V44
+from asago_artifact_generator.authoring.core import CORRECTION_PROMPT_VERSION_V46
 from asago_artifact_generator.authoring.prompt_packets import build_call2_packet_v2
 from asago_artifact_generator.authoring.reply_examples import (
     REPLY_MEANING,
@@ -249,7 +249,7 @@ def test_a_third_person_reply_is_corrected_and_the_package_holds_the_reply(
         "correction",
     ]
     correction = transport.requests[-1]
-    assert correction["version"] == CORRECTION_PROMPT_VERSION_V44
+    assert correction["version"] == CORRECTION_PROMPT_VERSION_V46
     payload = correction["payload"]
     assert payload["current_output"] == described.decode()
     assert [(f["code"], f["path"]) for f in payload["findings"]] == [

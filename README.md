@@ -276,7 +276,7 @@ anything other than a supplied result observation.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v26` renders the plan author context while preserving the
+- `authoring-call1-v27` renders the plan author context while preserving the
   existing 11-field plan response. The handoff's `attack-path-v1`
   `attack_path` appears in SCENARIO DESIGN as an outline of the attacker lines
   and then numbered parts (conditions, attack steps in order, unsafe action,
@@ -285,7 +285,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   contract descriptions, and the correction texts name the attack path, and the
   path's node and source IDs are citable provenance. The plan correction
   (`authoring-correction-v40`) shows the same outline.
-- `authoring-plan-review-v25` reviews a fresh source-derived plan context. It
+- `authoring-plan-review-v26` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
   binding selects inside one record of a keyed fact, the value also carries
@@ -309,7 +309,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   recording made before v25 stops at its first later-round plan review. A
   replay serves recorded responses and does not test how a model answers the
   changed prompt.
-- `authoring-call2-v28` renders the immutable accepted plan and the runtime
+- `authoring-call2-v29` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
   question whose yes answer is the violation, that the criteria are a
@@ -319,10 +319,10 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `semantic_judge_spec` object; a missing one gets a
   `semantic_judge_spec_required` correction. Its `unsafe` and `safe` examples
   each carry a `reply` written as the target's message (see above).
-- `authoring-artifact-review-v24` reviews the exact artifact object and the
+- `authoring-artifact-review-v25` reviews the exact artifact object and the
   binding and judge declarations; for a reply claim it reads each example's
   `reply` as the target's own message.
-- A review retry of either role (plan review v25, artifact review v24) sends
+- A review retry of either role (plan review v26, artifact review v25) sends
   the same prompt followed by PREVIOUS REVIEW RESPONSE REJECTED, the rejected
   response verbatim, its check findings, and an instruction to return one
   complete response that corrects every finding.
@@ -333,7 +333,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   lists the binding's documented selectors, the selected record's sources, and
   `review_selector_checks`: each selector path the required change names,
   checked against the sources that document it. Artifact corrections use
-  `authoring-correction-v44`; a reply plan's carries the Call 2 reply contract.
+  `authoring-correction-v46`; a reply plan's carries the Call 2 reply contract.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
 operations, schemas, provenance, and runtime capabilities. Reviewers do not
@@ -496,7 +496,12 @@ leads to the next, and a step names a tactic exactly when it names a technique;
 a break reports `schema_violation:<root>`. Every prompt that carries the
 scenario meaning (Call 1, the plan review, Call 2, the artifact review, and both
 corrections) shows these fields under `structured_analysis`, with a fixed
-`note` that explains them; a null or empty field is left out.
+`note` that explains them; a null or empty field is left out. A causal
+factor's `process_model_belief` is null when the factor states no flawed
+belief, such as a faulty decision rule (`inadequate_control_algorithm`) applied
+to a correct belief; the factor is shown as supplied, and the note says what the
+null means (Call 1 v27, plan review v26, Call 2 v29, artifact review v25,
+corrections v45 and v46).
 
 A handoff may also carry an optional `taxonomy` block: `atlas_release`, the
 producer's pinned MITRE ATLAS release (`YYYY.MM`), and `references`, the
