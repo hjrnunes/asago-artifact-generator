@@ -909,7 +909,7 @@
     },
     "HandoffCausalFactor": {
       "additionalProperties": false,
-      "description": "One causal factor: the flawed process-model belief and its flaw.",
+      "description": "One causal factor: its flaw and, for a belief flaw, the flawed belief.",
       "properties": {
         "source_id": {
           "minLength": 1,
@@ -928,6 +928,7 @@
               "type": "null"
             }
           ],
+          "description": "The controller's flawed process-model belief behind the unsafe action, or null when the factor states none: a factor that is not a belief flaw, such as a faulty decision rule applied to a correct belief, or one whose belief was not stated.",
           "title": "Process Model Belief"
         },
         "flaw": {
