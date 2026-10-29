@@ -671,7 +671,8 @@ def _exchange(
     watchdog = _Watchdog(deadline)
     try:
         body = _send(watchdog.opener, request, timeout)
-    except JudgeCallError as exc:
+    except (JudgeCallError, _Rejected) as exc:
+        # A shut-down socket can end the headers early, so even a 400 is then a timeout.
         if watchdog.fired:
             raise JudgeCallError("APITimeoutError") from exc
         raise

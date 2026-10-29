@@ -412,6 +412,18 @@ def test_the_same_answer_in_time_is_read_whole(name: str) -> None:
     assert content == SUPPORTED
 
 
+def test_a_bad_request_answer_cut_off_at_the_budget_is_a_timeout() -> None:
+    # The 400 status line arrives in time but its headers do not: the socket is shut down at
+    # the deadline, the client takes that for the end of the headers and reports a 400.
+    script = [(b"HTTP/1.1 400 Bad Request\r\n", 0)] + [(b"X-Pad: p\r\n", 0.05)] * 20
+    with raw_model(script) as port:
+        call = service.model_calls(f"http://127.0.0.1:{port}/v1", "m")(0.15)
+        with pytest.raises(service.JudgeCallError) as raised:
+            call([{"role": "user", "content": "u"}])
+
+    assert raised.value.label == "APITimeoutError"
+
+
 def test_a_body_cut_short_is_a_connection_error() -> None:
     head = f"HTTP/1.1 200 OK\r\nContent-Length: {len(CONTENT) + 10}\r\n\r\n".encode()
     with raw_model([(head + CONTENT, 0)]) as port:
