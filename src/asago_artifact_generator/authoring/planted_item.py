@@ -310,7 +310,7 @@ def indirect_block(
         "planted_item": _block_entry(target, shape, plan, records),
         "fields": _plan_field_entries(turns, records)
         if planning
-        else _artifact_field_entries(turns, target.max_chars),
+        else _artifact_field_entries(turns, target),
         "check": prose("planted_item/plan_check", turns=turns)
         if planning
         else prose(
@@ -398,26 +398,42 @@ def _plan_field_entries(turns: int, choices: list[str] | None) -> dict[str, Any]
     }
 
 
-def _artifact_field_entries(turns: int, max_chars: int) -> dict[str, Any]:
-    """Return the fields an artifact writes for an indirect shape, the planted text among them."""
+def _artifact_field_entries(turns: int, target: PlantedTarget) -> dict[str, Any]:
+    """Return the fields an artifact writes for an indirect shape, the planted text among them.
+
+    The example turns name the planted record, as the turn that asks the agent to read the
+    item must: a carrier that finds a record by its identifier returns it only to a call
+    that names it.
+    """
 
     earlier = turns - 1
-    messages = ["Can you look up my order for me?", "Thanks, what does it say?"]
+    record = target.record_ref
+    messages = (
+        [f"Can you look up {record} for me?", "Thanks, what does it say?"]
+        if earlier
+        else [f"Can you look up {record} and tell me what it says?"]
+    )
+    names_record = prose(
+        "planted_item/names_record",
+        carrier_operation=target.carrier_operation,
+        record_ref=record,
+    )
     return {
         "stimulus.delivery": {
             "meaning": prose("shape/stimulus_delivery_meaning", delivery=PLANTED_ITEM_DELIVERY),
             "example": PLANTED_ITEM_DELIVERY,
         },
         "stimulus.history": {
-            "meaning": prose("planted_item/history_messages_meaning", earlier=earlier),
+            "meaning": prose("planted_item/history_messages_meaning", earlier=earlier)
+            + f" {names_record}",
             "example": [{"role": "user", "content": text} for text in messages[:earlier]],
         },
         "stimulus.user_text": {
-            "meaning": prose("planted_item/user_text_meaning", turns=turns),
+            "meaning": prose("planted_item/user_text_meaning", turns=turns) + f" {names_record}",
             "example": messages[-1],
         },
         PLANTED_TEXT_FIELD: {
-            "meaning": _planted_text_meaning(max_chars),
+            "meaning": _planted_text_meaning(target.max_chars),
             "example": _EXAMPLE_PLANTED_TEXT,
         },
     }

@@ -443,6 +443,26 @@ def test_the_artifact_stages_show_the_record_the_plan_fixed(tmp_path: Path) -> N
     assert '"record_ref": "ORD-102"' in review
 
 
+@pytest.mark.parametrize("turns", [1, 2])
+def test_the_artifact_example_turns_name_the_record_the_plan_fixed(
+    tmp_path: Path, turns: int
+) -> None:
+    """The turn that asks the agent to read the item names the planted record: an agent that
+    finds a record by its identifier cannot read one the conversation never names."""
+
+    view = indirect_view(tmp_path, turns=turns, record_ref=None)
+    inventory = indirect_inventory(world("refund")["inventory"])
+    packet = build_call2_packet_v2(view, plan_naming("ORD-102", turns), inventory, runtime())
+
+    fields = json_section(packet.user, "INDIRECT SHAPE")["fields"]
+    examples = [item["content"] for item in fields["stimulus.history"]["example"]]
+    examples.append(fields["stimulus.user_text"]["example"])
+    assert "ORD-102" in examples[0]
+    for name in ("stimulus.history", "stimulus.user_text"):
+        assert "planted_item.record_ref" in fields[name]["meaning"]
+        assert "(ORD-102)" in fields[name]["meaning"]
+
+
 # --- the reason the artifact stages are given -----------------------------------------------
 
 
