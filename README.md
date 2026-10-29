@@ -284,7 +284,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   The purpose, the stimulus rules, the EVIDENCE REFERENCES rules, the response
   contract descriptions, and the correction texts name the attack path, and the
   path's node and source IDs are citable provenance. The plan correction
-  (`authoring-correction-v40`) shows the same outline.
+  (`authoring-correction-v45`) shows the same outline.
 - `authoring-plan-review-v26` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
@@ -302,13 +302,16 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   is told to compare each required change with `current_value`.
   Whether reviewers stop asking again for changes the plan already holds is
   unmeasured: the change was made and tested offline, with no model requests.
-  Replay: the version change alters `prompt_version`, `prompt_sha256` and
-  `reviewed_input_sha256` in every plan-review record. A first review's system
-  and user text is byte-identical to v24, so a recorded first-round response
-  still replays; every later-round user message differs, so replaying a
-  recording made before v25 stops at its first later-round plan review. A
-  replay serves recorded responses and does not test how a model answers the
-  changed prompt.
+  Replay: a version change alters `prompt_version`, `prompt_sha256` and
+  `reviewed_input_sha256` in every plan-review record. The replay gate serves a
+  recorded response only to a request whose system and user messages equal the
+  recording's, and refuses any other as a prompt mismatch, which fails the
+  item. Every stage's current version carries the structured-analysis note
+  that explains a null `process_model_belief` (see the structured-analysis
+  fields below), so no prompt matches a recording made before Call 1 v27, plan
+  review v26, Call 2 v29, artifact review v25 and corrections v45 and v46:
+  replaying one refuses its first dispatch. A replay serves recorded responses
+  and does not test how a model answers the changed prompt.
 - `authoring-call2-v29` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
@@ -326,7 +329,7 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   the same prompt followed by PREVIOUS REVIEW RESPONSE REJECTED, the rejected
   response verbatim, its check findings, and an instruction to return one
   complete response that corrects every finding.
-- `authoring-correction-v40` renders only the failed stage format and all
+- `authoring-correction-v45` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option
