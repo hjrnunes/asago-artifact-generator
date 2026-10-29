@@ -1,9 +1,7 @@
 """The rubric judge: a strict yes/no semantic judge that evaluates a reply oracle.
 
-The MiDojo adapter copies this file byte for byte beside each reply episode, where the
-episode's verifier (``asago_episode_judge.py`` in the adapter) imports it in MiDojo's
-interpreter, which has none of the consumer's packages, so it imports the standard
-library only.
+The MiDojo adapter's judge service (``asago_bundle_midojo.judge_service``) imports it to
+answer the ``reply_judge`` check of a reply episode. It imports the standard library only.
 
 The evidence, request and response checks are a port of Garak's
 ``garak/detectors/rubric_judge.py`` at revision 968cc22 (``build_evidence``,
@@ -12,14 +10,14 @@ The evidence, request and response checks are a port of Garak's
 functions in Garak's interpreter, and a test requires this port to give the same output
 on every vector. Garak's own file is Apache-2.0 licensed (NVIDIA CORPORATION).
 
-Three things differ from Garak, each by what MiDojo hands a verifier:
+Three things differ from Garak, each by what MiDojo sends the judge service:
 
-- A MiDojo verifier gets the conversation (each user message and reply) and the calls
-  MiDojo recorded (``function``, ``args``, ``result``, ``error``); the episode's verifier
+- MiDojo's judge request holds the conversation (each user message and reply) and the
+  calls MiDojo recorded (``function``, ``args``, ``result``, ``error``); the judge service
   builds each judged turn's ``user_text`` and ``history`` from the conversation. Evidence
   ``completeness`` is ``complete`` unless a recorded call's ``error`` is the text
-  ``no_response`` (``UNSETTLED``), where Garak uses the response status; the episode's
-  verifier also makes it partial for a call MiDojo holds as unfinished or a capture
+  ``no_response`` (``UNSETTLED``), where Garak uses the response status; the judge
+  service also makes it partial for a call MiDojo holds as unfinished or a capture
   MiDojo marks incomplete.
 - A recorded call's ``result`` is the text the target reported to MiDojo's control plane
   when it finished the call, and ``error`` its error text when the call failed; the port
@@ -27,16 +25,23 @@ Three things differ from Garak, each by what MiDojo hands a verifier:
   ``None`` when the text is not JSON or the call failed (Garak captures no output for a
   failed call).
 - The judge request goes over ``urllib`` to ``<judge_url>/chat/completions`` with the body
-  Garak's OpenAI-compatible client sends (``request_body``), and a failed call gives
-  ``judge_failed:<label>`` with the label of the OpenAI SDK error Garak would name; a 400
-  answer gives no content (``judge_parse_failed``), as in Garak.
+  Garak's OpenAI-compatible client sends (``request_body``), once: no retry, no redirect
+  followed (a 3xx is a failed call) and no proxy read from the environment, so the key
+  goes only to that URL. A failed call gives ``judge_failed:<label>`` with the label of
+  the OpenAI SDK error Garak would name; a 400 answer gives no content
+  (``judge_parse_failed``), as in Garak.
 """
 
 from __future__ import annotations
 
+import functools
+import http.client
 import json
 import os
 import re
+import socket
+import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
@@ -502,11 +507,20 @@ def judge_output(
 # --- the judge call ---------------------------------------------------------------------
 
 
-def http_judge(judge_url: str, model: str, timeout: float = TIMEOUT_SECONDS) -> Callable[..., Any]:
+def http_judge(
+    judge_url: str,
+    model: str,
+    timeout: float = TIMEOUT_SECONDS,
+    deadline: float | None = None,
+) -> Callable[..., Any]:
     """Return the call that posts the judge request to ``<judge_url>/chat/completions``.
 
-    The key comes from ``OPENAICOMPATIBLE_API_KEY`` in this process's environment; the
-    boundary judge replaces the placeholder the bundle's environment carries.
+    The key comes from ``OPENAICOMPATIBLE_API_KEY`` in this process's environment. The
+    request is sent once, through no proxy from the environment, and a redirect is not
+    followed. ``timeout`` bounds each wait on the socket; with ``deadline`` (a
+    ``time.monotonic`` value) the connection's socket is shut down when it passes, so no
+    wait outlasts it (the status line and headers, the body, a chunk's framing and the
+    trailers alike), and an exchange cut off there is a timeout (``APITimeoutError``).
     """
 
     url = judge_url.rstrip("/") + "/chat/completions"
@@ -519,7 +533,7 @@ def http_judge(judge_url: str, model: str, timeout: float = TIMEOUT_SECONDS) -> 
             headers["Authorization"] = f"Bearer {key}"
         request = urllib.request.Request(url, data=data, headers=headers, method="POST")
         try:
-            return _reply_content(_exchange(request, timeout))
+            return _reply_content(_exchange(request, timeout, deadline))
         except _Rejected:
             return None
 
@@ -547,9 +561,132 @@ def status_label(status: int) -> str:
     return STATUS_LABELS.get(status, "APIStatusError")
 
 
-def _exchange(request: urllib.request.Request, timeout: float) -> bytes:
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow no redirect: the key goes only to the URL configured, so a 3xx is an error."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201
+        return None
+
+
+# No proxy from the environment (an empty ``ProxyHandler``) and no redirect.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _RefuseRedirects())
+
+
+class _Watchdog:
+    """Shuts the sockets of an exchange's connections down at ``deadline``.
+
+    A shut-down socket ends every wait on it at once: ``http.client`` then sees the
+    connection closed, and the exchange is a timeout because the watchdog ``fired``. Its
+    ``opener`` is ``_OPENER``'s (no proxy, no redirect) with connections it watches.
+    """
+
+    def __init__(self, deadline: float) -> None:
+        self.fired = False
+        self._lock = threading.Lock()
+        self._sockets: list[socket.socket] = []
+        self.opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            _RefuseRedirects(),
+            _WatchedHTTPHandler(self),
+            _WatchedHTTPSHandler(self),
+        )
+        self._timer = threading.Timer(max(deadline - time.monotonic(), 0.0), self._fire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def watch(self, sock: socket.socket) -> None:
+        with self._lock:
+            self._sockets.append(sock)
+            if not self.fired:
+                return
+        _shut(sock)
+
+    def _fire(self) -> None:
+        with self._lock:
+            self.fired = True
+            sockets = list(self._sockets)
+        for sock in sockets:
+            _shut(sock)
+
+    def cancel(self) -> None:
+        self._timer.cancel()
+
+
+def _shut(sock: socket.socket) -> None:
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:  # already closed
+        pass
+
+
+class _Watched:
+    """A connection that hands its socket to a watchdog once connected."""
+
+    def __init__(self, *args: Any, watchdog: _Watchdog, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._watchdog = watchdog
+
+    def connect(self) -> None:
+        super().connect()  # type: ignore[misc]
+        self._watchdog.watch(self.sock)  # type: ignore[attr-defined]
+
+
+class _WatchedHTTPConnection(_Watched, http.client.HTTPConnection):
+    pass
+
+
+class _WatchedHTTPSConnection(_Watched, http.client.HTTPSConnection):
+    pass
+
+
+class _WatchedHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, watchdog: _Watchdog) -> None:
+        super().__init__()
+        self._watchdog = watchdog
+
+    def http_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(
+            functools.partial(_WatchedHTTPConnection, watchdog=self._watchdog), req
+        )
+
+
+class _WatchedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, watchdog: _Watchdog) -> None:
+        super().__init__()
+        self._watchdog = watchdog
+
+    def https_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(
+            functools.partial(_WatchedHTTPSConnection, watchdog=self._watchdog),
+            req,
+            context=self._context,  # type: ignore[attr-defined]
+        )
+
+
+def _exchange(
+    request: urllib.request.Request, timeout: float, deadline: float | None = None
+) -> bytes:
+    if deadline is None:
+        return _send(_OPENER, request, timeout)
+    watchdog = _Watchdog(deadline)
+    try:
+        body = _send(watchdog.opener, request, timeout)
+    except JudgeCallError as exc:
+        if watchdog.fired:
+            raise JudgeCallError("APITimeoutError") from exc
+        raise
+    finally:
+        watchdog.cancel()
+    if watchdog.fired:  # the answer may have ended where the socket was shut down
+        raise JudgeCallError("APITimeoutError")
+    return body
+
+
+def _send(
+    opener: urllib.request.OpenerDirector, request: urllib.request.Request, timeout: float
+) -> bytes:
+    try:
+        with opener.open(request, timeout=timeout) as response:
             return response.read()
     except urllib.error.HTTPError as exc:
         if exc.code == 400:
@@ -560,7 +697,8 @@ def _exchange(request: urllib.request.Request, timeout: float) -> bytes:
     except urllib.error.URLError as exc:
         label = "APITimeoutError" if isinstance(exc.reason, TimeoutError) else "APIConnectionError"
         raise JudgeCallError(label) from exc
-    except OSError as exc:
+    except (OSError, http.client.HTTPException) as exc:
+        # An answer cut short (``IncompleteRead``) or malformed is a connection failure.
         raise JudgeCallError("APIConnectionError") from exc
 
 

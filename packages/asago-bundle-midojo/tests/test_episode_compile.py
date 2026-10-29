@@ -4,17 +4,19 @@
 ``episode_cases.CASES`` with the fixture target's ``target.yaml``; MiDojo built each of
 those episodes from its data at 3824922 and wrote it back unchanged
 (``fixtures/episode/generate.py``), so a compile that still writes those bytes still writes
-MiDojo's ``Episode`` shape. A target's ``call_arguments`` is checked against the shape
-MiDojo's plan data gives it from b5b8c75 (``InjectionPlan.to_data``). Variants of the
-fixture target's declaration files (``episode_cases.target_variant``) cover what the target
-itself does not declare.
+MiDojo's ``Episode`` shape. A reply episode's check is MiDojo's ``reply_judge``, which
+3824922 does not have: ``fixtures/reply-judge-4e5176a/episode.json`` is the reply case as
+compile writes it now, which MiDojo 4e5176a built and graded
+(``fixtures/reply-judge-4e5176a/generate.py``). A target's ``call_arguments`` is checked
+against the shape MiDojo's plan data gives it from b5b8c75 (``InjectionPlan.to_data``).
+Variants of the fixture target's declaration files (``episode_cases.target_variant``) cover
+what the target itself does not declare.
 """
 
 from __future__ import annotations
 
 import copy
 import json
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +25,7 @@ from episode_cases import (
     CASES,
     CONDITION,
     EPISODES,
+    FIXTURES,
     JUDGE,
     PLANTED,
     READ_SLOT,
@@ -46,7 +49,6 @@ from asago_bundle_core.conformance import check_gap
 from asago_bundle_core.gap import CapabilityGap
 from asago_bundle_core.target import load_target_config
 from asago_bundle_core.testing import sequential_stimulus, single_stimulus
-from asago_bundle_midojo.bundle_files.asago_episode_judge import EPISODE_RUBRIC_NAME
 from asago_bundle_midojo.cli import main
 from asago_bundle_midojo.episode import EPISODE_FIELDS
 from asago_bundle_midojo.episode_compile import CompileError, compile_episode
@@ -85,15 +87,18 @@ def compiled(package: Path, out: Path, **options: Any) -> dict[str, Any]:
     return compile_episode(package, out, target=options.pop("target", TARGET), **options)
 
 
+# The case whose fixture episode MiDojo 4e5176a built: a reply's ``reply_judge`` check.
+REPLY_JUDGE_EPISODES = {"reply-single": FIXTURES / "reply-judge-4e5176a"}
+
+
 def written(root: Path) -> dict[str, bytes]:
-    """Return what compile wrote under ``root``; a fixture's scenario files are not compile's."""
+    """Return what compile wrote under ``root``; a fixture's scenario directories and its
+    generator are not compile's."""
 
     return {
         path.relative_to(root).as_posix(): path.read_bytes()
-        for path in sorted(root.rglob("*"))
-        if path.is_file()
-        and "__pycache__" not in path.parts
-        and path.name not in ("snapshot.json", "verdict.json")
+        for path in sorted(root.glob("*"))
+        if path.is_file() and path.name not in ("generate.py", "recording.json")
     }
 
 
@@ -103,7 +108,8 @@ def test_compile_writes_the_episode_midojo_built_from_the_fixture(
 ) -> None:
     compile_case(tmp_path / "packages", case, tmp_path / "out")
 
-    assert written(tmp_path / "out") == written(EPISODES / case)
+    assert all(path.is_file() for path in (tmp_path / "out").iterdir())
+    assert written(tmp_path / "out") == written(REPLY_JUDGE_EPISODES.get(case, EPISODES / case))
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
@@ -278,11 +284,14 @@ def test_a_record_key_the_contract_and_the_target_config_disagree_on_cannot_be_c
         compiled(package, tmp_path / "out")
 
 
-def _read_package(tmp_path: Path, slot: dict[str, Any] = READ_SLOT) -> Path:
+def _read_package(
+    tmp_path: Path, slot: dict[str, Any] = READ_SLOT, claim_level: str = "command_attempt"
+) -> Path:
     """A package that plants NOTE-2's body through ``slot``, a slot outside a list."""
 
     return write_planted_package(
         tmp_path / "packages",
+        claim_level=claim_level,
         slots=[slot],
         operations=["list_notes", slot["carrier_operation"]],
         seed=seed_document(
@@ -646,35 +655,64 @@ def test_a_sequential_package_sends_each_user_turn(tmp_path: Path) -> None:
     assert document["episode"]["turns"] == list(SEQUENTIAL_TURNS)
 
 
-def test_a_reply_episode_names_the_rubric_check_and_writes_its_verifier(tmp_path: Path) -> None:
+def test_a_reply_episode_asks_the_judge_service_with_reply_judge(tmp_path: Path) -> None:
     out = tmp_path / "out"
     document = compiled(write_case_package(tmp_path / "packages", "reply-single"), out)
 
     assert document["episode"]["security"] == {
-        EPISODE_RUBRIC_NAME: {"rubric": JUDGE, "turns": list(SINGLE_TURNS), "judge_turns": "final"}
+        "reply_judge": {
+            "claim": JUDGE["question"],
+            "rubric": {
+                "criteria": JUDGE["criteria"],
+                "facts": JUDGE["facts"],
+                "runtime_facts": {},
+                "turns": list(SINGLE_TURNS),
+                "judge_turns": "final",
+            },
+            "url_env": "JUDGE_URL",
+            "token_env": "JUDGE_TOKEN",
+            "prior_turns": True,
+            "tool_calls": True,
+            "timeout_seconds": 190,
+        }
     }
-    assert document["verifiers"] == [
-        {"check": EPISODE_RUBRIC_NAME, "module": "asago_verifiers.asago_episode_judge"}
-    ]
-    authoring = files("asago_artifact_generator.authoring")
-    bundled = files("asago_bundle_midojo.bundle_files")
-    assert (out / "asago_verifiers/asago_rubric.py").read_bytes() == (
-        authoring.joinpath("rubric_judge.py").read_bytes()
-    )
-    assert (out / "asago_verifiers/asago_episode_judge.py").read_bytes() == (
-        bundled.joinpath("asago_episode_judge.py").read_bytes()
-    )
-    assert (out / "asago_verifiers/__init__.py").is_file()
+    assert document["tool_revision_range"] == ">=cab2a35e"
+    assert document["verifiers"] == []
+    assert sorted(path.name for path in out.iterdir()) == ["episode.json"]
 
 
-def test_a_reply_episode_judges_the_turns_judge_turns_names(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("judge_turns", "timeout"), [("final", 190), ("all", 370)])
+def test_a_reply_episode_judges_the_turns_judge_turns_names(
+    tmp_path: Path, judge_turns: str, timeout: int
+) -> None:
     package = write_planted_package(
         tmp_path / "packages", claim_level="reply", stimulus=planted_stimulus(SEQUENTIAL_TURNS)
     )
-    spec = compiled(package, tmp_path / "out", judge_turns="all")["episode"]["security"]
+    spec = compiled(package, tmp_path / "out", judge_turns=judge_turns)["episode"]["security"]
 
-    assert spec[EPISODE_RUBRIC_NAME]["turns"] == list(SEQUENTIAL_TURNS)
-    assert spec[EPISODE_RUBRIC_NAME]["judge_turns"] == "all"
+    assert spec["reply_judge"]["rubric"]["turns"] == list(SEQUENTIAL_TURNS)
+    assert spec["reply_judge"]["rubric"]["judge_turns"] == judge_turns
+    assert spec["reply_judge"]["timeout_seconds"] == timeout, "180 s per judged turn, and 10"
+
+
+def test_a_reply_whose_carrier_matches_a_result_still_needs_reply_judge(tmp_path: Path) -> None:
+    slot, tools = SINGLE_RECORD_BY_RESULT[sorted(SINGLE_RECORD_BY_RESULT)[0]]
+    target = target_variant(tmp_path / "variant", tools=tools)
+    package = _read_package(tmp_path, slot, claim_level="reply")
+
+    document = compiled(package, tmp_path / "out", target=target)
+
+    assert document["tool_revision_range"] == ">=cab2a35e", "cab2a35 follows c0bee12"
+
+
+@pytest.mark.parametrize("question", ["", "  "])
+def test_a_judge_without_question_text_cannot_be_compiled(tmp_path: Path, question: str) -> None:
+    package = write_planted_package(
+        tmp_path / "packages", claim_level="reply", judge={**JUDGE, "question": question}
+    )
+
+    with pytest.raises(CompileError, match="no question text"):
+        compiled(package, tmp_path / "out")
 
 
 def test_a_command_attempt_episode_writes_no_verifier(tmp_path: Path) -> None:

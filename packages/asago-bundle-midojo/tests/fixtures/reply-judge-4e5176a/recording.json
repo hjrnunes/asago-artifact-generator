@@ -1,0 +1,59 @@
+{
+  "revision": "4e5176a04412f781e67cfe218149426406b2fb0c",
+  "scenarios": {
+    "blocked-call": {
+      "judgements": [
+        {
+          "request_id": "sha256:c13776dad7a33d1f5c77c949a103e66c732d3a02a212066c9a76f9d030a5ab84",
+          "verdict": "supported"
+        },
+        {
+          "request_id": "sha256:bdb080d55f0f09c12273c633ad56a8e07a74f774800e4b22486b83bb574eb89a",
+          "verdict": "supported"
+        }
+      ],
+      "model_requests": 2,
+      "security": true
+    },
+    "contradicted": {
+      "judgements": [
+        {
+          "request_id": "sha256:b81d27eb01eeaa03c9c291b9ce3bfd14c9a38e2fdf40012d39823c167dd12259",
+          "verdict": "contradicted"
+        }
+      ],
+      "model_requests": 1,
+      "security": false
+    },
+    "deep-args": {
+      "judgements": [
+        {
+          "request_id": "sha256:8bbbf86a6d4fb92ff9e522187c9a3475dbae3a5d2f5d6ad64126db29e86330f7",
+          "verdict": "supported"
+        }
+      ],
+      "model_requests": 1,
+      "security": true
+    },
+    "supported": {
+      "judgements": [
+        {
+          "request_id": "sha256:b81d27eb01eeaa03c9c291b9ce3bfd14c9a38e2fdf40012d39823c167dd12259",
+          "verdict": "supported"
+        }
+      ],
+      "model_requests": 1,
+      "security": true
+    },
+    "unresolved": {
+      "judgements": [
+        {
+          "request_id": "sha256:b6c9cc9ab76493c839e76b7c60e8fe0a6267afa918f21f952e8de8a49f81e9f4",
+          "verdict": "unresolved"
+        }
+      ],
+      "model_requests": 1,
+      "security": null
+    }
+  }
+}

@@ -28,11 +28,15 @@ same bytes.
   default) or ``block`` (nothing runs; MiDojo records the call as blocked). Every other
   call is forwarded.
 - A command attempt is checked with MiDojo's builtin ``tool_call_condition`` predicate,
-  whose value is the package's condition. A reply is checked with the rubric judge
-  (``bundle_files/asago_episode_judge.py``): the episode names the check and its spec,
-  and the directory holds the verifier as the ``asago_verifiers`` package, which the
-  runner registers with its judge's URL and model before it builds the episode. An
-  episode runs no package setup, so the judge gets no runtime facts.
+  whose value is the package's condition. A reply is checked with MiDojo's builtin
+  ``reply_judge`` predicate: its claim is the judge's question, its rubric the judge's
+  criteria and facts with the episode's user turns and ``judge_turns``, and it asks the
+  judge service (``judge_service.py``) at the URL in ``JUDGE_URL`` with the token in
+  ``JUDGE_TOKEN``, sending the earlier turns and the recorded calls. It waits 180
+  seconds for each turn the service judges, and 10 more (``judge_timeout_seconds``).
+  An episode runs no package setup, so the judge gets no runtime facts. The directory
+  holds ``episode.json`` alone, and ``verifiers`` names no verifier for the runner to
+  register.
 - There is no utility check and no environment, and the runtime is ``unmanaged``: the
   runner connects the agent.
 
@@ -51,7 +55,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -63,9 +66,9 @@ from asago_bundle_core.slots import contains_marker
 from asago_bundle_core.target import TargetConfig, authorized_target
 from asago_bundle_core.text import canonical_text
 
-from .bundle_files.asago_episode_judge import EPISODE_RUBRIC_NAME, FINAL_TURN, JUDGE_TURNS
 from .declared import DeclarationFault, DeclaredTools, declared_tools
 from .episode import episode, injection_plan
+from .judge_service import FINAL_TURN, JUDGE_TURNS, TIMEOUT_SECONDS, judged_count
 from .placement import (
     Placement,
     PlacementFault,
@@ -93,6 +96,9 @@ TOOL_REVISION_RANGE = ">=b5b8c752"
 # declares that capability. An earlier MiDojo refuses the key, so an episode with such a
 # target names this range; every other episode keeps the one above, which still runs it.
 RESULT_RECORD_REVISION_RANGE = ">=c0bee126"
+# From cab2a35 (the merge of the judge-service reply check into asago/main, after c0bee12)
+# MiDojo has the builtin ``reply_judge`` predicate, so a reply episode names this range.
+REPLY_JUDGE_REVISION_RANGE = ">=cab2a35e"
 EPISODE_FILE = "episode.json"
 SEED_MEMBER = "seed.json"
 CONDITION_MEMBER = "tool_call_condition.json"
@@ -113,15 +119,13 @@ BLOCK = "block"
 WRITE_DISPOSITIONS = (FORWARD, BLOCK)
 # MiDojo's builtin predicate; its value is the condition object itself.
 TOOL_CALL_CONDITION = "tool_call_condition"
-VERIFIERS = "asago_verifiers"
-BUNDLE_FILES = "asago_bundle_midojo.bundle_files"
-# Path in the output -> (package, file of that package it copies).
-VERIFIER_CODE = {
-    f"{VERIFIERS}/asago_rubric.py": ("asago_artifact_generator.authoring", "rubric_judge.py"),
-    f"{VERIFIERS}/asago_episode_judge.py": (BUNDLE_FILES, "asago_episode_judge.py"),
-}
-VERIFIERS_INIT = f"{VERIFIERS}/__init__.py"
-VERIFIERS_DOC = '"""The verifiers a reply episode names; see asago_episode_judge.register."""\n'
+# MiDojo's builtin predicate that asks a judge service, and how a reply episode sets it: the
+# service's URL and bearer token are in the grading process's environment.
+REPLY_JUDGE = "reply_judge"
+JUDGE_URL_ENV = "JUDGE_URL"
+JUDGE_TOKEN_ENV = "JUDGE_TOKEN"
+# What the check waits beyond the service's budget for the answer to travel.
+JUDGE_MARGIN_SECONDS = 10
 
 
 class CompileError(BundleError):
@@ -142,7 +146,8 @@ def compile_episode(
     read from one, with ``tools-list.json`` and ``runtime-spec.yaml`` beside it; one not
     authorized for a run (``authorized_as``) is refused. ``write_disposition`` maps a
     mutating tool to ``forward`` or ``block``; every other mutating tool forwards.
-    ``judge_turns`` (``final`` or ``all``) is which turns a reply's judge grades.
+    ``judge_turns`` (``final`` or ``all``) is which turns the judge service grades for a
+    reply; the episode's rubric carries it.
     """
 
     if judge_turns not in JUDGE_TURNS:
@@ -187,13 +192,13 @@ def compile_episode(
     document = {
         "schema_version": SCHEMA_VERSION,
         "tool": TOOL,
-        "tool_revision_range": revision_range(planted),
+        "tool_revision_range": revision_range(level, planted),
         "package_id": package.manifest.package_id,
         "scenario_id": package.manifest.scenario_id,
         "package_digest": package.manifest.manifest_digest,
         "claim_level": level,
         "delivery": delivery,
-        "verifiers": _verifiers(level),
+        "verifiers": [],
         "interception": dict(HOST_INTERCEPTION),
         "tools": {
             "allowed": allowed,
@@ -206,14 +211,17 @@ def compile_episode(
             security=security,
         ),
     }
-    _write(out, document, VERIFIER_CODE if level == REPLY else {})
+    _write(out, document)
     return document
 
 
-def revision_range(planted: list[Placement]) -> str:
-    """Return the MiDojo revisions the episode needs: from c0bee12 when a target matches a
-    result, else from b5b8c75."""
+def revision_range(level: str, planted: list[Placement]) -> str:
+    """Return the MiDojo revisions the episode needs: from cab2a35 for a reply, which has
+    every capability below; else from c0bee12 when a target matches a result, else from
+    b5b8c75."""
 
+    if level == REPLY:
+        return REPLY_JUDGE_REVISION_RANGE
     if any(item.by_result for item in planted):
         return RESULT_RECORD_REVISION_RANGE
     return TOOL_REVISION_RANGE
@@ -370,22 +378,8 @@ def _security_check(
     package: ArtifactPackage, level: str, turns: list[str], judge_turns: str
 ) -> dict[str, Any]:
     if level == REPLY:
-        return {
-            EPISODE_RUBRIC_NAME: {
-                "rubric": _rubric(package),
-                "turns": list(turns),
-                "judge_turns": judge_turns,
-            }
-        }
+        return {REPLY_JUDGE: _reply_judge(package, turns, judge_turns)}
     return {TOOL_CALL_CONDITION: _condition(package)}
-
-
-def _verifiers(level: str) -> list[dict[str, str]]:
-    """Return the verifiers the runner registers before it builds the episode."""
-
-    if level != REPLY:
-        return []
-    return [{"check": EPISODE_RUBRIC_NAME, "module": f"{VERIFIERS}.asago_episode_judge"}]
 
 
 def _condition(package: ArtifactPackage) -> dict[str, Any]:
@@ -398,18 +392,40 @@ def _condition(package: ArtifactPackage) -> dict[str, Any]:
     return condition
 
 
-def _rubric(package: ArtifactPackage) -> dict[str, Any]:
+def _reply_judge(package: ArtifactPackage, turns: list[str], judge_turns: str) -> dict[str, Any]:
+    """Return the ``reply_judge`` spec: the judge's question as the claim, and as the rubric
+    its criteria and facts, no runtime facts, the user turns and the judged turns."""
+
     judge = _json_member(package, JUDGE_MEMBER)
-    if not isinstance(judge, dict) or not isinstance(judge.get("question"), str):
+    question = judge.get("question") if isinstance(judge, dict) else None
+    # MiDojo refuses a claim that is not a non-empty string.
+    if not isinstance(question, str) or not question.strip():
         raise CompileError(f"{JUDGE_MEMBER} has no question text")
     rubric = {
-        "question": judge["question"],
         "criteria": judge.get("criteria", []),
         "facts": judge.get("facts", []),
+        "runtime_facts": {},
+        "turns": list(turns),
+        "judge_turns": judge_turns,
     }
-    if contains_marker(rubric):
+    if contains_marker([question, rubric]):
         raise CompileError("package content contains a slot marker")
-    return rubric
+    return {
+        "claim": question,
+        "rubric": rubric,
+        "url_env": JUDGE_URL_ENV,
+        "token_env": JUDGE_TOKEN_ENV,
+        "prior_turns": True,
+        "tool_calls": True,
+        "timeout_seconds": judge_timeout_seconds(judge_turns, len(turns)),
+    }
+
+
+def judge_timeout_seconds(judge_turns: str, turns: int) -> int:
+    """Return how long the check waits for the judge service: the old judge's 180 seconds
+    for each model request (one per judged turn), the service's budget, and a margin."""
+
+    return int(TIMEOUT_SECONDS) * judged_count(judge_turns, turns) + JUDGE_MARGIN_SECONDS
 
 
 def _load(package_dir: Path) -> ArtifactPackage:
@@ -429,13 +445,8 @@ def _json_member(package: ArtifactPackage, name: str) -> Any:
         raise CompileError(f"package {name} is not JSON: {exc}") from exc
 
 
-def _write(out: Path, document: dict[str, Any], code: dict[str, tuple[str, str]]) -> None:
+def _write(out: Path, document: dict[str, Any]) -> None:
     if out.exists() and any(out.iterdir()):
         raise CompileError(f"output directory is not empty: {out}")
     out.mkdir(parents=True, exist_ok=True)
     (out / EPISODE_FILE).write_text(canonical_text(document), encoding="utf-8")
-    if code:
-        (out / VERIFIERS).mkdir()
-        (out / VERIFIERS_INIT).write_text(VERIFIERS_DOC, encoding="utf-8")
-    for name, (package, original) in code.items():
-        (out / name).write_bytes(files(package).joinpath(original).read_bytes())

@@ -9,7 +9,10 @@ agent to; the record is printed).
 ``compile`` writes one package's episode for a target config; the runner opens it with
 MiDojo's host interception in front of that target's MCP endpoint, seals it and grades the
 snapshot; ``parse`` reads the sealed snapshot, the verdict and, when named, the runner's
-delivery facts into a receipt.
+delivery facts into a receipt. ``judge-serve`` runs the judge service a reply episode's
+``reply_judge`` check asks while MiDojo grades (``judge_service.py``): it prints
+``judge service on http://127.0.0.1:<port>/`` once it listens and stops on SIGINT or
+SIGTERM (exit 0); a missing or unusable environment value exits 1 before it listens.
 """
 
 from __future__ import annotations
@@ -21,8 +24,17 @@ from pathlib import Path
 
 from asago_bundle_core.gap import EXIT_CAPABILITY_GAP, EXIT_INPUT, EXIT_OK, CapabilityGap
 
-from .bundle_files.asago_episode_judge import FINAL_TURN, JUDGE_TURNS
 from .episode_compile import BLOCK, CompileError, compile_episode
+from .judge_service import (
+    DEFAULT_PORT,
+    FINAL_TURN,
+    JUDGE_TURNS,
+    MODEL_ENV,
+    MODEL_URL_ENV,
+    SERVICE_TOKEN_ENV,
+    ServiceConfigError,
+    serve,
+)
 from .route import DEFAULT_ROUTE, ROUTES
 from .sealed import ParseError, parse_sealed
 
@@ -30,13 +42,11 @@ from .sealed import ParseError, parse_sealed
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="asago-bundle-midojo",
-        description="Compile a planted_item package into a MiDojo episode and parse its "
-        "sealed result.",
+        description="Compile a planted_item package into a MiDojo episode, parse its "
+        "sealed result, and serve the judge a reply episode asks.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    compile_cmd = commands.add_parser(
-        "compile", help="write episode.json (and a reply's verifiers) for one package"
-    )
+    compile_cmd = commands.add_parser("compile", help="write episode.json for one package")
     compile_cmd.add_argument("package", type=Path, help="artifact package directory")
     compile_cmd.add_argument("--out", type=Path, required=True, help="new episode directory")
     compile_cmd.add_argument(
@@ -56,7 +66,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--judge-turns",
         choices=sorted(JUDGE_TURNS),
         default=FINAL_TURN,
-        help="the turns a reply's judge grades",
+        help="the turns the judge service grades for a reply (the reply_judge rubric's "
+        "judge_turns)",
     )
     compile_cmd.set_defaults(handler=_compile)
     parse_cmd = commands.add_parser(
@@ -87,6 +98,18 @@ def build_parser() -> argparse.ArgumentParser:
     parse_cmd.add_argument("--tool-revision", help="MiDojo commit that ran the episode")
     parse_cmd.add_argument("--adapter-revision", help="consumer commit of this adapter")
     parse_cmd.set_defaults(handler=_parse)
+    serve_cmd = commands.add_parser(
+        "judge-serve",
+        help="serve midojo.judge.v1 on 127.0.0.1 with the rubric judge, for a reply "
+        "episode's reply_judge check",
+        description=f"Reads the model's base URL from {MODEL_URL_ENV}, the model from "
+        f"{MODEL_ENV} and its key from OPENAICOMPATIBLE_API_KEY, and requires the bearer "
+        f"token in {SERVICE_TOKEN_ENV} on every request.",
+    )
+    serve_cmd.add_argument(
+        "--port", type=int, default=DEFAULT_PORT, help="port on 127.0.0.1; 0 takes a free one"
+    )
+    serve_cmd.set_defaults(handler=_judge_serve)
     return parser
 
 
@@ -127,5 +150,14 @@ def _parse(args: argparse.Namespace) -> int:
         )
     except ParseError as exc:
         print(f"parse: {exc}", file=sys.stderr)
+        return EXIT_INPUT
+    return EXIT_OK
+
+
+def _judge_serve(args: argparse.Namespace) -> int:
+    try:
+        serve(args.port)
+    except ServiceConfigError as exc:
+        print(f"judge-serve: {exc}", file=sys.stderr)
         return EXIT_INPUT
     return EXIT_OK
