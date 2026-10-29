@@ -56,8 +56,9 @@ judged turn (``budget_seconds``): the check's ``timeout_seconds`` is that and a 
 timeout); from then on the connection's socket is shut down at the deadline, so an answer
 whose status line, headers, body, chunk framing or trailers trickle in is cut off there
 (``judge_failed:APITimeoutError``). The service keeps no state between
-requests: MiDojo may ask twice in one grading, the second time without the blocked and
-unfinished calls, and each request is judged on its own.
+requests: MiDojo may ask up to three times in one grading, first on the whole run, then
+without the blocked calls (for ``blocked``), then without the blocked and unfinished calls
+(for ``effect_observed``), and each request is judged on its own.
 """
 
 from __future__ import annotations
