@@ -1094,6 +1094,21 @@ with its slot (an unknown slot, a record or mode the slot does not have, a text 
 `max_chars` characters), or a `record_key` the runtime contract and the target config
 state differently, cannot be compiled (exit 1).
 
+`compile` also refuses, as a capability gap, a seed item whose record the conversation
+cannot lead the agent to (`reachable.py`). A carrier matched by its arguments (a field
+outside a list whose carrier requires `record_key`) returns the record only to a call
+that names it, so the agent must learn its ID: a user turn names it, written exactly as
+the seed's `record_ref` (case and all, not inside a longer run of letters, digits, `-` or
+`_`), or an allowed tool that requires no argument declares `record_key` as a text
+property in its output schema (at any depth through `properties` and `items`, such as a
+listing tool's `notes[].note_id`). The reason names the carrier, the record and that
+neither holds. It is a structural reference check, not a reading of what a turn asks:
+it follows no chain of calls, does not know whether a listing tool returns this record,
+and does not see an ID in the agent's own system prompt. A field inside a list, and one
+whose result names the record, are not checked: the interceptor finds the record in any
+call's result, and which call returns it depends on argument values the declarations do
+not tie to it.
+
 `parse` reads the snapshot as MiDojo's `GET .../snapshot` returns it and the verdict as
 `{evaluation_id, snapshot_id, grade}`. It grades nothing: `security` true is `detected`,
 false `not_detected`, and null (validity `invalid`) `inconclusive`, never a pass or a

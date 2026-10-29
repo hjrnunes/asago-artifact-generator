@@ -167,7 +167,10 @@ Deterministic tests must not contact a model endpoint or target.
   schema requires `record_key` as a text argument, else `result_record` `{"field":
   record_key, "equals": record}` when its result object declares `record_key` as a text
   property (the host interceptor declares that capability). Any other field, or a slot
-  without a `record_key`, is a gap. A
+  without a `record_key`, is a gap. So is a record the conversation cannot lead the agent
+  to (`reachable.py`): for a carrier matched by `call_arguments`, a user turn must name
+  the record exactly as written, or an allowed tool that requires no argument must declare
+  `record_key` as a text property in its result; a structural check, not semantic. A
   command attempt uses MiDojo's `tool_call_condition` predicate; a reply uses
   `bundle_files/asago_episode_judge.py` (copied beside the episode with
   `authoring/rubric_judge.py`; the runner registers it with its judge), three-valued, its

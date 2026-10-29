@@ -2,8 +2,9 @@
 
 Exit codes: 0 done, 1 the input cannot be used, 2 usage error, 3 capability gap
 (``compile`` only: MiDojo cannot run the package, such as a direct or user-turn package,
-a single one with history, one that claims a state effect, or a seed its interceptor
-cannot place in an MCP tool result; the record is printed).
+a single one with history, one that claims a state effect, a seed its interceptor
+cannot place in an MCP tool result, or one whose record the conversation cannot lead the
+agent to; the record is printed).
 
 ``compile`` writes one package's episode for a target config; the runner opens it with
 MiDojo's host interception in front of that target's MCP endpoint, seals it and grades the

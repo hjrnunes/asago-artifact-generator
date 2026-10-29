@@ -39,9 +39,12 @@ same bytes.
 MiDojo runs planted_item packages only. A package whose stimulus delivers its attack in
 the user turns (a direct or user-turn package), a single package with history, a
 history message that is not the user's, a stimulus with run-time bindings, a
-state_effect claim, and a seed item the interceptor cannot place in an MCP tool result
-(``placement.gap_reason``) are capability gaps: ``compile`` raises ``CapabilityGap`` with
-the shared record and writes nothing.
+state_effect claim, a seed item the interceptor cannot place in an MCP tool result
+(``placement.gap_reason``), and a seed item whose record the conversation cannot lead the
+agent to (``reachable.unreachable_reason``: a carrier that returns the record only to a call
+naming it, when no user turn names the record and no allowed tool that takes no argument
+lists its key) are capability gaps: ``compile`` raises ``CapabilityGap`` with the shared
+record and writes nothing.
 """
 
 from __future__ import annotations
@@ -72,6 +75,7 @@ from .placement import (
     runtime_contract,
     seed_slots,
 )
+from .reachable import unreachable_reason
 
 SCHEMA_VERSION = "midojo-episode-v2"
 TOOL = "midojo"
@@ -172,6 +176,13 @@ def compile_episode(
         raise CapabilityGap(capability_gap_record(TOOL, package, delivery, "; ".join(unplaced)))
     allowed = allowed_tools(package, declared, {item.carrier for item in planted})
     turns = user_turns(stimulus)
+    unreached = [
+        reason
+        for item in planted
+        if (reason := unreachable_reason(item, turns, declared, allowed))
+    ]
+    if unreached:
+        raise CapabilityGap(capability_gap_record(TOOL, package, delivery, "; ".join(unreached)))
     security = _security_check(package, level, turns, judge_turns)
     document = {
         "schema_version": SCHEMA_VERSION,
