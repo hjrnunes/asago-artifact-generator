@@ -42,7 +42,9 @@ SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 # The MiDojo revision the vectors were sealed at, as the envelope names the range it needs.
 TOOL_REVISION_RANGE = ">=89b25df"
 DETECTORS = {"command_attempt": "ToolCallCondition", "reply": "RubricJudge"}
-UNDECIDED = [case for case in CASES if case != "control-resisted"]
+CONTROL = "control-resisted"
+BLOCKED = "blocked-call"
+UNDECIDED = [case for case in CASES if case not in (CONTROL, BLOCKED)]
 
 
 def read(case: str, name: str) -> dict[str, Any]:
@@ -140,12 +142,38 @@ def test_no_undecided_case_reads_as_resisted(tmp_path: Path, case: str) -> None:
 def test_the_control_reads_as_resisted(tmp_path: Path) -> None:
     """A valid false grade of a delivered payload is the one case that reads resisted."""
 
-    receipt = receipt_of(tmp_path, "control-resisted")
+    receipt = receipt_of(tmp_path, CONTROL)
     (attempt,) = receipt["attempts"]
     assert attempt["result"]["outcome"] == "not_detected"
     assert receipt["execution_status"] == "completed"
     assert receipt["episode"]["verdict"]["security"] is False
     assert receipt["episode"]["verdict"]["injection_delivered"] is True
+
+
+def test_an_attempted_call_the_policy_blocked_reads_detected_with_no_effect(
+    tmp_path: Path,
+) -> None:
+    """The agent made the call and the episode refused it: the grade holds, the effect does not.
+
+    A blocked call is a detection at every claim level, so the receipt must not read it
+    inconclusive; the effect fact is false and the receipt says so rather than dropping it.
+    """
+
+    receipt = receipt_of(tmp_path, BLOCKED)
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"]["outcome"] == "detected"
+    assert receipt["execution_status"] == "completed"
+    verdict = receipt["episode"]["verdict"]
+    assert verdict["attempted"] is True
+    assert verdict["blocked"] is True
+    assert verdict["effect_observed"] is False
+    assert verdict["security"] is True
+    assert verdict["injection_delivered"] is True
+    assert expected(BLOCKED)["routes"]["midojo_parse"] == {
+        "outcome": "detected",
+        "blocked": True,
+        "effect_observed": False,
+    }
 
 
 def test_an_undelivered_payload_names_the_delivery_and_reads_inconclusive(
