@@ -151,7 +151,8 @@ Deterministic tests must not contact a model endpoint or target.
   fills the receipt's `episode` block: route `garak.ipi_episode.IPIEpisode`, the evaluation
   and snapshot the probe sealed, the evidence status of that snapshot, and its verdict; a
   chain sealed short names its evaluation but no snapshot or verdict, and a report of
-  several chains leaves the block out.
+  several chains leaves the block out. `parse` exits 1 and names the path on stderr when the
+  bundle directory or the report is not there: missing input is not a failed run.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It maps a
   `planted_item` package to one MiDojo episode for a target config and parses the sealed
   result; MiDojo runs the episode, and the adapter holds no proxy or interception code. It

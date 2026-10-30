@@ -302,12 +302,19 @@ def _refusal_failures(
 
 
 def _missing_native_failures(adapter: AdapterUnderTest, bundle_dir: Path) -> list[str]:
+    """Return what is wrong with parsing a bundle whose native output is absent.
+
+    An adapter may refuse the input or write a failed receipt with a reason; both
+    say the run left nothing to grade. It may not report a completed run, and a
+    refusal must say why.
+    """
+
     probe = bundle_dir / PROBE_RECEIPT
     prefix = "parse of a bundle without its native output"
     try:
         receipt = adapter.parse(bundle_dir, probe)
     except BundleError as exc:
-        return [f"{prefix} raised instead of writing a failed receipt: {exc}"]
+        return [] if str(exc).strip() else [f"{prefix} was refused without naming why"]
     probe.unlink(missing_ok=True)
     status = receipt.get("execution_status")
     if status != "failed":

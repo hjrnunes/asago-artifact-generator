@@ -176,7 +176,8 @@ def parse(
 
     ``report`` defaults to the bundle's native output; ``records_dir``, when given, is a
     directory of boundary records that replace the report's evidence. A run that failed
-    still yields a receipt; ``ParseError`` means the inputs name no usable bundle.
+    still yields a receipt; ``ParseError`` means the inputs name no usable bundle or a
+    report that is not there.
     """
 
     _directory(bundle_dir, "bundle", ParseError)

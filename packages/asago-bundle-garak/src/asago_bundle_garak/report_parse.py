@@ -2,7 +2,9 @@
 
 A usable report holds exactly one finished attempt (status 2) with one output
 whose response completed. Anything else yields a ``failed`` receipt whose
-``incomplete_reason`` names what was wrong; the receipt is still written.
+``incomplete_reason`` names what was wrong; the receipt is still written. A
+report that is not there is not a failed run: ``ParseError`` names the missing
+path, because the caller's input is what is wrong.
 
 A sequential bundle's report holds one finished attempt per user turn, each
 naming its turn in ``notes.sequence``. The receipt lists every planned turn
@@ -135,7 +137,12 @@ def parse_report(
     tool_revision: str | None = None,
     adapter_revision: str | None = None,
 ) -> dict[str, Any]:
-    """Write the receipt for one bundle's report to ``out_path`` and return it."""
+    """Write the receipt for one bundle's report to ``out_path`` and return it.
+
+    A report that is not there is unusable input, not a failed run: ``ParseError``
+    names the missing path, because a report a run never wrote could be a report
+    written elsewhere.
+    """
 
     bundle = read_bundle(Path(bundle_dir))
     out = Path(out_path)
@@ -202,8 +209,14 @@ def read_records(directory: Path) -> Records:
 
 
 def read_entries(path: Path) -> tuple[list[Any] | None, str | None]:
+    """Return the report's lines, or why they are unreadable; a missing report raises.
+
+    A report a run never wrote is not a run that failed: the caller named a path
+    that is not there, so the input is unusable and the error names the path.
+    """
+
     if not path.is_file():
-        return None, "report_missing"
+        raise ParseError(f"the report does not exist: {path}")
     entries = []
     for line in lines(path):
         try:

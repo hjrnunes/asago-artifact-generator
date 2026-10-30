@@ -24,7 +24,7 @@ from asago_bundle_core.testing import MOCK_TARGET, write_test_package
 from asago_bundle_garak.cli import main
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import instantiate_bundle
-from asago_bundle_garak.report_parse import parse_report
+from asago_bundle_garak.report_parse import ParseError, parse_report
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 RECEIPT_SCHEMA = (
@@ -226,13 +226,11 @@ def test_report_cut_inside_a_line(command_output: Path) -> None:
 
 
 def test_missing_report(command_output: Path) -> None:
-    report_path(command_output).unlink()
+    missing = report_path(command_output)
+    missing.unlink()
 
-    receipt = parse(command_output)
-
-    assert receipt["execution_status"] == "failed"
-    assert receipt["incomplete_reason"] == "report_missing"
-    assert receipt["native"] == []
+    with pytest.raises(ParseError, match=str(missing)):
+        parse(command_output)
 
 
 def test_two_finished_attempts(command_output: Path) -> None:
@@ -499,14 +497,31 @@ def test_a_run_without_proxy_records_keeps_the_reports_own_evidence(
     assert receipt == without_records
 
 
-def test_cli_parse_writes_a_failure_receipt_with_exit_0(command_output: Path) -> None:
-    report_path(command_output).unlink()
+def test_cli_parse_refuses_a_missing_report(
+    command_output: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    missing = report_path(command_output)
+    missing.unlink()
     out = command_output / "execution-receipt.json"
 
     code = main(["parse", str(command_output / "bundle"), "--out", str(out)])
 
-    assert code == 0
-    assert json.loads(out.read_text())["incomplete_reason"] == "report_missing"
+    assert code == 1
+    assert not out.exists()
+    assert f"parse: the report does not exist: {missing}" in capfd.readouterr().err
+
+
+def test_cli_parse_refuses_a_missing_bundle(
+    command_output: Path, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    missing = tmp_path / "absent"
+    out = tmp_path / "execution-receipt.json"
+
+    code = main(["parse", str(missing), "--out", str(out)])
+
+    assert code == 1
+    assert not out.exists()
+    assert f"parse: the bundle directory does not exist: {missing}" in capfd.readouterr().err
 
 
 def test_cli_parse_reads_records_and_revisions(command_output: Path) -> None:

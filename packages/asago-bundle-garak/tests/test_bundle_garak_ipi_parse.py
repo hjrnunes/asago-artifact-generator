@@ -32,7 +32,7 @@ from ipi_cases import (
 
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import instantiate_bundle
-from asago_bundle_garak.report_parse import parse_report
+from asago_bundle_garak.report_parse import ParseError, parse_report
 
 SCENARIO = "SCN-051"
 RECEIPT_SCHEMA = (
@@ -335,14 +335,13 @@ def test_two_source_entries_make_two_attempts(tmp_path: Path) -> None:
     ]
 
 
-def test_a_missing_report_fails_without_attempts(tmp_path: Path) -> None:
+def test_a_missing_report_is_unusable_input(tmp_path: Path) -> None:
     output = make_bundle(tmp_path, [])
-    (output / "bundle" / "reports" / f"{SCENARIO}.report.jsonl").unlink()
+    missing = output / "bundle" / "reports" / f"{SCENARIO}.report.jsonl"
+    missing.unlink()
 
-    receipt = parse(output)
-
-    assert receipt["incomplete_reason"] == "report_missing"
-    assert receipt["attempts"] == []
+    with pytest.raises(ParseError, match=str(missing)):
+        parse(output)
 
 
 def test_a_report_without_an_attempt_fails_without_attempts(tmp_path: Path) -> None:
