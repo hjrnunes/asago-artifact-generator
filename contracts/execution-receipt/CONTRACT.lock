@@ -39,6 +39,7 @@
     "execution-receipt-v1/valid/midojo-episode-unknown.json": "e8d72977c24d2b20b0d617bfefdc0782b8956d29d2f1c27b0664801731f90203",
     "execution-receipt-v1/valid/midojo-openshell-http-requests-empty.json": "fd5c4b4e4de3c345b6ebb84c16ec5382037b3c4c6ba43d5ab0867aee91bfa2f4",
     "execution-receipt-v1/valid/midojo-openshell-http-requests.json": "0a077505f764660184c70d39fb086ff8b0de0aae74c1fd1a2b7f69cd93d27190",
-    "execution-receipt-v1.schema.json": "b0b2fe65915e725dbe3cde665023ccccd95ee04b52ba6e475a902f3f1bd49fc1"
+    "execution-receipt-v1/valid/garak-ipi-episode.json": "31c79efb695b8b33716d45b58a996519fa81fd6d36b0b328003cf89156586dc7",
+    "execution-receipt-v1.schema.json": "178e569b9cd6a345e9396da19eb82a11f56abce7346913035c52c0801435d1a2"
   }
 }

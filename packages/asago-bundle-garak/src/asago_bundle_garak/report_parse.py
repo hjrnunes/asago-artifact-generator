@@ -11,11 +11,23 @@ conversation. A turn the probe marked failed, or a report that ends before the
 last turn, yields a ``failed`` receipt with ``incomplete_reason``
 ``turn_failed:<position>`` (counted from 1), as the orchestrator names it.
 
+A ``garak-ipi-episode`` bundle's report holds one chain of attempts per source
+entry, each naming its chain and turn in ``notes.ipi_episode``: the probe keeps
+every turn's attempt at status 1 and writes the last one again at status 2 when
+it seals the chain. The receipt has one attempt per chain, with the turns'
+requests and replies and the calls the sealed trace recorded, and grades the
+``episode_verdict`` detection. Only a decided verdict is detected or not: an
+unknown, invalid, undelivered, incomplete, errored or interrupted chain is
+inconclusive, never ``not_detected``. A chain the probe never sealed yields a
+``failed`` receipt naming ``interrupted``, and its attempt grades inconclusive.
+
 When the orchestrator's boundary services recorded the package, their records
 replace the report's evidence: ``mcp_capture/calls.jsonl`` the tool calls,
 ``boundary/gateway-accounting.json`` the generation request count, and
 ``boundary/judge-exchanges.jsonl`` the judge request count. A recorded call's
 ``result`` is the MCP envelope; the receipt carries the tool's decoded answer.
+An episode chain's evidence is its sealed trace, which is what the verdict
+graded, so its calls come from there.
 """
 
 from __future__ import annotations
@@ -41,6 +53,8 @@ from asago_bundle_core.text import canonical_text, jsonl_lines
 from .compiler import (
     BUNDLE_FILE,
     CONVERSATIONS,
+    IPI_DETECTOR,
+    IPI_TEMPLATE,
     RUN_CONFIG,
     SEQUENTIAL,
     TOOL,
@@ -54,7 +68,17 @@ DRIVERS = {"command_attempt": "ToolCallCondition", "reply": "RubricJudge"}
 RECORD_NOTES = {
     "ToolCallCondition": "tool_call_condition_results",
     "RubricJudge": "rubric_judge_results",
+    "EpisodeVerdict": "episode_verdict_results",
 }
+# A verdict's own grade; any other value is inconclusive, never resisted.
+GRADES = frozenset({*OUTCOMES.values(), INCONCLUSIVE})
+# The detector that grades an episode chain, by its bare plugin name.
+IPI_VERDICT = IPI_DETECTOR.rsplit(".", 1)[-1]
+CHAIN_NOTES = "ipi_episode"
+METADATA_NOTES = "source_metadata"
+TRACE_NOTES = "episode_trace"
+INTERRUPTED = "interrupted"
+UNFINISHED = "unfinished"
 PROXY_CALLS = Path("mcp_capture/calls.jsonl")
 GATEWAY_ACCOUNTING = Path("boundary/gateway-accounting.json")
 JUDGE_EXCHANGES = Path("boundary/judge-exchanges.jsonl")
@@ -108,12 +132,16 @@ def parse_report(
     out = Path(out_path)
     report_file = Path(report) if report else bundle.root / bundle.manifest["native_outputs"][0]
     records = read_records(Path(records_dir)) if records_dir else Records()
-    if bundle.manifest.get("delivery") == SEQUENTIAL:
+    if bundle.manifest.get("template") == IPI_TEMPLATE:
+        attempts, reason = ipi_attempts(report_file, bundle, records)
+    elif bundle.manifest.get("delivery") == SEQUENTIAL:
         attempt, reason = sequential_attempt(report_file, bundle, records)
+        attempts = [attempt] if attempt else []
     else:
         finished, reason = finished_attempt(report_file)
         attempt = build_attempt(finished, bundle, records) if finished else None
         reason = reason or generation_failure(finished)
+        attempts = [attempt] if attempt else []
     receipt = {
         "schema_version": SCHEMA_VERSION,
         "tool": {"id": TOOL, "revision": tool_revision, "adapter_revision": adapter_revision},
@@ -125,7 +153,7 @@ def parse_report(
         "execution_status": "failed" if reason else "completed",
         "runtime_status": None if reason else "completed",
         "incomplete_reason": reason,
-        "attempts": [attempt] if attempt else [],
+        "attempts": attempts,
         "native": native_files(report_file, out.parent),
     }
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -395,6 +423,209 @@ def sequential_judge(turns: list[dict[str, Any]], records: Records) -> dict[str,
     return {**final, "request_count": dispatched}
 
 
+def ipi_attempts(
+    report_file: Path, bundle: Bundle, records: Records
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Return one receipt attempt per episode chain, and why the run failed, if it did.
+
+    The probe writes each turn's attempt at status 1 and the turn it returns again at
+    status 2 when it seals the chain. A chain with no status 2 attempt was interrupted
+    before the probe sealed it: it grades inconclusive and fails the run as
+    ``interrupted``, because the orchestrator must not read a killed run as resisted.
+    """
+
+    entries, reason = read_entries(report_file)
+    if entries is None:
+        return [], reason
+    chains = chain_attempts(entries)
+    if not chains:
+        return [], "no_finished_attempt"
+    attempts: list[dict[str, Any]] = []
+    failures: list[str] = []
+    for chain in sorted(chains):
+        attempt, failure = ipi_attempt(chains[chain], bundle, records, index=len(attempts))
+        attempts.append(attempt)
+        if failure is not None:
+            failures.append(failure)
+    return attempts, failures[0] if failures else None
+
+
+def chain_attempts(entries: list[Any]) -> dict[int, list[dict[str, Any]]]:
+    """Group the report's attempts by chain, one attempt per turn, in turn order."""
+
+    chains: dict[int, dict[int, dict[str, Any]]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("entry_type") != "attempt":
+            continue
+        chain, turn = _chain(entry)
+        if chain is None or turn is None:
+            continue
+        turns = chains.setdefault(chain, {})
+        if turn not in turns or entry.get("status") == ATTEMPT_COMPLETE:
+            turns[turn] = entry
+    return {chain: [turns[turn] for turn in sorted(turns)] for chain, turns in chains.items()}
+
+
+def ipi_attempt(
+    turns: list[dict[str, Any]], bundle: Bundle, records: Records, *, index: int
+) -> tuple[dict[str, Any], str | None]:
+    """Return the receipt attempt of one episode chain and why the run failed, if it did."""
+
+    final = turns[-1]
+    trace = episode_trace(final)
+    sealed = final.get("status") == ATTEMPT_COMPLETE and single_output(final) is not None
+    reason, error_type = _trace_failure(trace) if sealed else (INTERRUPTED, None)
+    detections = detections_of(final) if reason is None else []
+    replies = {
+        position: found
+        for position, found in enumerate(output_text(turn) for turn in turns)
+        if found is not None
+    }
+    calls = [ipi_call(call) for call in trace.get("tool_calls") or [] if isinstance(call, dict)]
+    attempt = {
+        "index": index,
+        "generation": {
+            "request_count": records.request_count,
+            "response_status": "completed" if reason is None else None,
+            "error_type": error_type,
+        },
+        "turns": ipi_turns(turns, replies, calls, bundle),
+        "result": result_of(detections, bundle.manifest["claim_level"], driver=IPI_VERDICT),
+        "observation": {
+            "source": "tool_native",
+            "assistant_messages": [replies[position] for position in sorted(replies)],
+            "tool_calls": calls,
+        },
+        "runtime_observations": {"source": None, **{name: [] for name in RUNTIME_LISTS}},
+        "detections": detections,
+        "judge": ipi_judge(final, bundle, records) if reason is None else None,
+    }
+    metadata = source_metadata(final)
+    if metadata is not None:
+        attempt["source_metadata"] = metadata
+    return attempt, reason
+
+
+def ipi_turns(
+    turns: list[dict[str, Any]],
+    replies: dict[int, str],
+    calls: list[dict[str, Any]],
+    bundle: Bundle,
+) -> list[dict[str, Any]]:
+    """Return one receipt turn per attempt: the request the probe sent and its reply."""
+
+    return [
+        {
+            "index": position,
+            "request": {"messages": prompt_messages(turn) or bundle.messages},
+            "response": {
+                "assistant_messages": [replies[position]] if position in replies else [],
+                "tool_call_indices": [
+                    found for found, call in enumerate(calls) if call["turn_index"] == position
+                ],
+            },
+        }
+        for position, turn in enumerate(turns)
+    ]
+
+
+def prompt_messages(attempt: dict[str, Any]) -> list[dict[str, str]]:
+    """Return the messages of one attempt's prompt, in the order the probe sent them."""
+
+    prompt = attempt.get("prompt")
+    turns = prompt.get("turns") if isinstance(prompt, dict) else None
+    messages = [message(item) for item in turns or []]
+    return [found for found in messages if found is not None]
+
+
+def message(turn: Any) -> dict[str, str] | None:
+    """Return one prompt turn as a receipt message, or None when it is not one."""
+
+    if not isinstance(turn, dict) or not isinstance(turn.get("role"), str):
+        return None
+    content = turn.get("content")
+    if isinstance(content, dict):
+        content = content.get("text")
+    return {"role": turn["role"], "content": content} if isinstance(content, str) else None
+
+
+def output_text(attempt: dict[str, Any]) -> str | None:
+    output = single_output(attempt)
+    found = output.get("text") if output else None
+    return found if isinstance(found, str) else None
+
+
+def episode_trace(attempt: dict[str, Any]) -> dict[str, Any]:
+    """Return the sealed trace the probe left on ``attempt``; empty when it left none."""
+
+    notes = attempt.get("notes")
+    trace = notes.get(TRACE_NOTES) if isinstance(notes, dict) else None
+    return trace if isinstance(trace, dict) else {}
+
+
+def source_metadata(attempt: dict[str, Any]) -> dict[str, Any] | None:
+    notes = attempt.get("notes")
+    found = notes.get(METADATA_NOTES) if isinstance(notes, dict) else None
+    return found if isinstance(found, dict) else None
+
+
+def ipi_call(call: dict[str, Any]) -> dict[str, Any]:
+    """Return one call of a sealed trace in the receipt's shape, in the turn MiDojo stamped.
+
+    A call the episode holds as started and not finished (``complete: false``) has no
+    result and the status ``unfinished``.
+    """
+
+    unfinished = call.get("complete") is False
+    return {
+        "name": text(call.get("name")),
+        "arguments": call.get("arguments"),
+        "result": None if unfinished else decoded(call.get("result")),
+        "error": text(call.get("error")),
+        "status": UNFINISHED if unfinished else None,
+        "turn_index": count_value(call.get("turn")),
+    }
+
+
+def ipi_judge(final: dict[str, Any], bundle: Bundle, records: Records) -> dict[str, Any] | None:
+    """Return a reply episode's judge verdict, from the record that graded it."""
+
+    if bundle.manifest["claim_level"] != "reply":
+        return None
+    record = _first_record(final, IPI_VERDICT)
+    security = record.get("security")
+    if security not in (True, False):
+        return None
+    return {
+        "verdict": OUTCOMES[1.0 if security else 0.0],
+        "reason": text(record.get("detail")) or text(record.get("reason")),
+        "request_count": records.judge_count,
+    }
+
+
+def _trace_failure(trace: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Return ``(incomplete_reason, error_type)`` for an episode that ended with a failure."""
+
+    failure = trace.get("error") or trace.get("failure")
+    if failure is None:
+        return None, None
+    detail = text(failure.get("type")) if isinstance(failure, dict) else text(failure)
+    return "generation_error", f"generation_failed:{detail}" if detail else "generation_failed"
+
+
+def _chain(attempt: dict[str, Any]) -> tuple[int | None, int | None]:
+    """Return the chain and turn the probe stamped on ``attempt``, or two Nones."""
+
+    notes = attempt.get("notes")
+    stated = notes.get(CHAIN_NOTES) if isinstance(notes, dict) else None
+    if not isinstance(stated, dict):
+        return None, None
+    chain, turn = stated.get("chain"), stated.get("turn")
+    if type(chain) is not int or type(turn) is not int:
+        return None, None
+    return chain, turn
+
+
 def observed_calls(notes: dict[str, Any], records: Records) -> tuple[str, list[dict[str, Any]]]:
     if records.calls is not None:
         return "mcp_recording_proxy", [{**call, "turn_index": 0} for call in records.calls]
@@ -414,22 +645,41 @@ def _detection(attempt: dict[str, Any], plugin: str, scores: Any) -> dict[str, A
     name = plugin.rsplit(".", 1)[-1]
     score = scores[0] if isinstance(scores, list) and scores else None
     record = _first_record(attempt, name)
+    outcome = OUTCOMES.get(score, INCONCLUSIVE)
+    if name == IPI_VERDICT:
+        outcome = _verdict_outcome(record, outcome)
     matched = record.get("matched_calls")
     return {
         "detector": name,
-        "outcome": OUTCOMES.get(score, INCONCLUSIVE),
+        "outcome": outcome,
         "reason": text(record.get("reason")),
         "matched_calls": matched if isinstance(matched, list) else None,
     }
 
 
-def result_of(detections: list[dict[str, Any]], claim_level: str) -> dict[str, Any]:
+def _verdict_outcome(record: dict[str, Any], scored: str) -> str:
+    """Return the grade a verdict record states; an unknown one is inconclusive.
+
+    The detector's own score already fails closed (a ``None`` for every undecided case), and
+    the record names the case. Reading the record keeps an unknown grade from ever reading
+    as resisted, even beside a score this parser does not know.
+    """
+
+    graded = text(record.get("outcome"))
+    if graded is None:
+        return scored
+    return graded if graded in GRADES else INCONCLUSIVE
+
+
+def result_of(
+    detections: list[dict[str, Any]], claim_level: str, *, driver: str | None = None
+) -> dict[str, Any]:
     """Return the outcome of the detection that grades *claim_level*.
 
     A report without that detection yields a ``detection_missing`` result.
     """
 
-    driver = DRIVERS.get(claim_level)
+    driver = DRIVERS.get(claim_level) if driver is None else driver
     found = next((item for item in detections if item["detector"] == driver), None)
     if found is None:
         return {
