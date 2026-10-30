@@ -214,7 +214,11 @@ Deterministic tests must not contact a model endpoint or target.
   call to be the
   interceptor's record: security true/false/null is detected/not_detected/inconclusive,
   never coerced, explained by the grade's `security_reason` (a true or false grade without
-  one is `verdict_malformed`), and the receipt's `episode` block carries the route
+  one is `verdict_malformed`); a false grade from a recording that states no delivery
+  (`injection_delivered` null or absent, as one sealed before MiDojo recorded delivery
+  facts does) is inconclusive at every claim level, its reason naming the recording, so
+  re-scoring an old run directory flips those `not_detected` results to inconclusive by
+  design. The receipt's `episode` block carries the route
   (`route.py`: only `midojo` today), the evaluation and snapshot IDs, the evidence status,
   the verdict and `call_injections` (each call's `injection_outcomes` as sealed, null when
   the record does not say). A call record sealed from 3824922 has `structured_content` and
@@ -259,13 +263,18 @@ Deterministic tests must not contact a model endpoint or target.
   OCSF read that is not `complete`; Garak's receipt always leaves it out).
   `tests/fixtures/reply-judge-4e5176a/` holds the reply episode as compiled now and the
   reply runs MiDojo 4e5176a graded through `judge-serve` and a fake model, verdicts with
-  `judgements` (which `parse` accepts and does not carry).
+  `judgements` (which `parse` accepts and does not carry); those runs predate MiDojo's
+  delivery facts, so `parse` reads them inconclusive.
+  `tests/fixtures/reply-judge-246dc73/` holds one reply run sealed at 246dc73, which
+  records the delivery, graded `contradicted`: `parse` reads it `not_detected`
+  (`tools/fixture-generators/reply_judge_delivered.py`).
   `tests/fixtures/midojo/` holds byte copies of MiDojo's own golden vectors
   (`episode_document/`, `snapshot_digest/vectors.json`), and `tests/fixtures/midojo.lock`
   pins their sha256 and the SDK revision the copies come from, so a diverging copy fails.
   `tests/fixtures/inconclusive_vectors/` holds the sealed runs MiDojo owns, with its
-  `MANIFEST.json` beside them: four runs MiDojo cannot decide (an unknown grade, an
-  interrupted seal, an incomplete capture and an undelivered payload) and their control,
+  `MANIFEST.json` beside them: five runs MiDojo cannot decide (an unknown grade, an
+  interrupted seal, an incomplete capture, an undelivered payload and an unrecorded
+  delivery) and their control,
   each with the outcome every route owes it. `tests/test_inconclusive_vectors.py` runs them
   through `parse`, and the Garak package's `test_bundle_garak_ipi_parse.py` runs them through
   `report_parse`; both check the copy's digests. Refresh the copy with MiDojo's

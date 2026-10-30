@@ -176,7 +176,7 @@ def test_every_compiled_fixture_episode_is_a_document_of_midojo_s_v1_schema() ->
         if "episode-a5f81e9" not in path.parts
     ]
 
-    assert len(episodes) == 11
+    assert len(episodes) == 12
     for path in episodes:
         document = json.loads(path.read_text(encoding="utf-8"))
         assert document["schema_version"] == ENVELOPE_SCHEMA, path

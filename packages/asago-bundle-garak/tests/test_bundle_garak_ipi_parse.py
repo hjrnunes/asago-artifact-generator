@@ -384,7 +384,7 @@ def reply_attempt(tmp_path: Path, record: dict[str, Any]) -> dict[str, Any]:
         sealed=trace(
             security=record["security"],
             validity=record["security_validity"],
-            delivered=record["injection_delivered"],
+            delivered=record.get("injection_delivered"),
             capture_complete=record["capture_complete"],
         ),
         records=(record,),
@@ -464,6 +464,20 @@ def test_an_undecided_reply_grade_is_unresolved_never_contradicted(
 
     assert attempt["judge"]["verdict"] == "unresolved"
     assert attempt["judge"]["verdict"] not in {"supported", "contradicted"}
+
+
+def test_a_reply_grade_that_does_not_mention_delivery_is_unresolved(tmp_path: Path) -> None:
+    """An absent delivery fact contradicts nothing, as a null one contradicts nothing."""
+
+    record = verdict_record(
+        "inconclusive", reason="unrecorded_delivery", security=False, delivered=None
+    )
+    del record["injection_delivered"]
+
+    attempt = reply_attempt(tmp_path, record)
+
+    assert attempt["result"]["outcome"] == "inconclusive"
+    assert attempt["judge"]["verdict"] == "unresolved"
 
 
 def test_a_planted_bundle_writes_no_http_request_observation(tmp_path: Path) -> None:
