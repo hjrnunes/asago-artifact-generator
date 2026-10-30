@@ -20,6 +20,9 @@ requests and replies and the calls the sealed trace recorded, and grades the
 unknown, invalid, undelivered, incomplete, errored or interrupted chain is
 inconclusive, never ``not_detected``. A chain the probe never sealed yields a
 ``failed`` receipt naming ``interrupted``, and its attempt grades inconclusive.
+A report of one chain also carries the receipt's ``episode`` block: the route
+``garak.ipi_episode.IPIEpisode`` and the evaluation, snapshot, evidence status
+and verdict the probe sealed.
 
 When the orchestrator's boundary services recorded the package, their records
 replace the report's evidence: ``mcp_capture/calls.jsonl`` the tool calls,
@@ -74,6 +77,12 @@ RECORD_NOTES = {
 GRADES = frozenset({*OUTCOMES.values(), INCONCLUSIVE})
 # The detector that grades an episode chain, by its bare plugin name.
 IPI_VERDICT = IPI_DETECTOR.rsplit(".", 1)[-1]
+# The route that drove an IPI report: Garak's own probe, over MiDojo's episode API.
+IPI_ROUTE = "garak.ipi_episode.IPIEpisode"
+# The attack outcomes a grade may state, each null when the grade does not say.
+ATTACK_OUTCOME = ("attempted", "blocked", "effect_observed", "injection_delivered")
+EVIDENCE_STATUSES = frozenset({"complete", "incomplete", "failed", "not_collected"})
+VALIDITIES = frozenset({"valid", "invalid"})
 CHAIN_NOTES = "ipi_episode"
 METADATA_NOTES = "source_metadata"
 TRACE_NOTES = "episode_trace"
@@ -132,8 +141,9 @@ def parse_report(
     out = Path(out_path)
     report_file = Path(report) if report else bundle.root / bundle.manifest["native_outputs"][0]
     records = read_records(Path(records_dir)) if records_dir else Records()
+    episode = None
     if bundle.manifest.get("template") == IPI_TEMPLATE:
-        attempts, reason = ipi_attempts(report_file, bundle, records)
+        attempts, reason, episode = ipi_report(report_file, bundle, records)
     elif bundle.manifest.get("delivery") == SEQUENTIAL:
         attempt, reason = sequential_attempt(report_file, bundle, records)
         attempts = [attempt] if attempt else []
@@ -156,6 +166,8 @@ def parse_report(
         "attempts": attempts,
         "native": native_files(report_file, out.parent),
     }
+    if episode is not None:
+        receipt["episode"] = episode
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(canonical_text(receipt), encoding="utf-8")
     return receipt
@@ -423,23 +435,27 @@ def sequential_judge(turns: list[dict[str, Any]], records: Records) -> dict[str,
     return {**final, "request_count": dispatched}
 
 
-def ipi_attempts(
+def ipi_report(
     report_file: Path, bundle: Bundle, records: Records
-) -> tuple[list[dict[str, Any]], str | None]:
-    """Return one receipt attempt per episode chain, and why the run failed, if it did.
+) -> tuple[list[dict[str, Any]], str | None, dict[str, Any] | None]:
+    """Return one receipt attempt per episode chain, why the run failed, and the episode block.
 
     The probe writes each turn's attempt at status 1 and the turn it returns again at
     status 2 when it seals the chain. A chain with no status 2 attempt was interrupted
     before the probe sealed it: it grades inconclusive and fails the run as
     ``interrupted``, because the orchestrator must not read a killed run as resisted.
+
+    The ``episode`` block names the route and what the probe sealed for a report of one
+    chain. A report of several chains leaves it out: one member cannot name several
+    episodes.
     """
 
     entries, reason = read_entries(report_file)
     if entries is None:
-        return [], reason
+        return [], reason, None
     chains = chain_attempts(entries)
     if not chains:
-        return [], "no_finished_attempt"
+        return [], "no_finished_attempt", None
     attempts: list[dict[str, Any]] = []
     failures: list[str] = []
     for chain in sorted(chains):
@@ -447,7 +463,76 @@ def ipi_attempts(
         attempts.append(attempt)
         if failure is not None:
             failures.append(failure)
-    return attempts, failures[0] if failures else None
+    episode = ipi_episode(next(iter(chains.values()))) if len(chains) == 1 else None
+    return attempts, failures[0] if failures else None, episode
+
+
+def ipi_episode(turns: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return the receipt's episode block for one chain, from the trace the probe sealed.
+
+    A chain the probe closed short still names its evaluation, but no snapshot and no
+    verdict: those are null, never invented.
+    """
+
+    trace = episode_trace(turns[-1])
+    snapshot = trace.get("snapshot")
+    return {
+        "route": IPI_ROUTE,
+        "evaluation_id": text(trace.get("evaluation_id")),
+        "snapshot_id": text(trace.get("snapshot_id")),
+        "evidence_status": _evidence_status(snapshot),
+        "verdict": _episode_verdict(trace.get("verdict")),
+    }
+
+
+def _evidence_status(snapshot: Any) -> dict[str, str] | None:
+    """Return how complete each evidence source was collected, or None when unknown.
+
+    A status this parser cannot place leaves the whole member null: unknown, never
+    collected completely.
+    """
+
+    found = snapshot.get("evidence_status") if isinstance(snapshot, dict) else None
+    if not isinstance(found, dict):
+        return None
+    if any(status not in EVIDENCE_STATUSES for status in found.values()):
+        return None
+    return dict(found)
+
+
+def _episode_verdict(document: Any) -> dict[str, Any] | None:
+    """Return the verdict the probe sealed in the receipt's shape, or None when unreadable.
+
+    The grade must name both IDs, a security value and its validity; anything else is
+    null, as for a file the tool left unreadable. The parser never coerces a grade.
+    """
+
+    if not isinstance(document, dict):
+        return None
+    grade = document.get("grade") if isinstance(document.get("grade"), dict) else {}
+    stated = grade.get("grade_validity")
+    stated = stated.get("security") if isinstance(stated, dict) else None
+    validity = stated.get("status") if isinstance(stated, dict) else None
+    security = grade.get("security")
+    evaluation, snapshot = text(document.get("evaluation_id")), text(document.get("snapshot_id"))
+    if evaluation is None or snapshot is None or validity not in VALIDITIES:
+        return None
+    if security is not None and not isinstance(security, bool):
+        return None
+    return {
+        "evaluation_id": evaluation,
+        "snapshot_id": snapshot,
+        "security": security,
+        "reason": text(grade.get("security_reason")),
+        "validity": validity,
+        **{name: _outcome(grade.get(name)) for name in ATTACK_OUTCOME},
+    }
+
+
+def _outcome(value: Any) -> bool | None:
+    """Return an attack outcome the grade states, or None when it is not one."""
+
+    return value if isinstance(value, bool) else None
 
 
 def chain_attempts(entries: list[Any]) -> dict[int, list[dict[str, Any]]]:

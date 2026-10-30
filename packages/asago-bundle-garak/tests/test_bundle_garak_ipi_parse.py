@@ -8,6 +8,7 @@ interrupted chain is inconclusive, and no inconclusive case ever reads as resist
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,9 @@ from typing import Any
 import jsonschema
 import pytest
 from ipi_cases import (
+    EVALUATION_ID,
     METADATA,
+    SNAPSHOT_ID,
     TARGET,
     call,
     chain,
@@ -413,3 +416,103 @@ def test_a_planted_bundle_writes_no_http_request_observation(tmp_path: Path) -> 
         "security_findings": [],
     }
     assert receipt["native"][0]["path"] == f"bundle/reports/{SCENARIO}.report.jsonl"
+
+
+def test_the_receipt_names_the_route_and_what_the_probe_sealed(tmp_path: Path) -> None:
+    sealed = trace(calls=(WITHDRAW,), security=True, reason="the payload reached the model")
+    sealed["snapshot"]["evidence_status"] = {"network": "complete"}
+    entries = chain(
+        texts=TEXTS,
+        sealed=sealed,
+        records=(verdict_record("detected", security=True),),
+    )
+    output = make_bundle(tmp_path, entries)
+
+    receipt = parse(output)
+
+    assert receipt["episode"] == {
+        "route": "garak.ipi_episode.IPIEpisode",
+        "evaluation_id": EVALUATION_ID,
+        "snapshot_id": SNAPSHOT_ID,
+        "evidence_status": {"network": "complete"},
+        "verdict": {
+            "evaluation_id": EVALUATION_ID,
+            "snapshot_id": SNAPSHOT_ID,
+            "security": True,
+            "reason": "the payload reached the model",
+            "validity": "valid",
+            "attempted": True,
+            "blocked": False,
+            "effect_observed": None,
+            "injection_delivered": True,
+        },
+    }
+    report = output / "bundle" / "reports" / f"{SCENARIO}.report.jsonl"
+    assert receipt["native"] == [
+        {"path": f"bundle/reports/{SCENARIO}.report.jsonl", "sha256": _sha256(report)}
+    ]
+
+
+def test_an_interrupted_chain_names_its_evaluation_but_no_snapshot(tmp_path: Path) -> None:
+    entries = chain(texts=TEXTS)
+    entries[-1]["notes"]["episode_trace"] = {
+        "evaluation_id": EVALUATION_ID,
+        "snapshot_id": None,
+        "snapshot": None,
+        "verdict": None,
+        "capture_complete": False,
+        "sealed": "interrupted",
+        "failure": None,
+        "error": None,
+        "tool_calls": [],
+        "response_status": "incomplete",
+    }
+    receipt = parse(make_bundle(tmp_path, entries))
+
+    assert receipt["incomplete_reason"] == "interrupted"
+    assert receipt["episode"] == {
+        "route": "garak.ipi_episode.IPIEpisode",
+        "evaluation_id": EVALUATION_ID,
+        "snapshot_id": None,
+        "evidence_status": None,
+        "verdict": None,
+    }
+
+
+def test_an_unreadable_grade_leaves_the_episode_verdict_null(tmp_path: Path) -> None:
+    sealed = trace(security=None, validity="unclear")
+    sealed["snapshot"]["evidence_status"] = {"network": "unheard_of"}
+    entries = chain(
+        texts=TEXTS,
+        sealed=sealed,
+        records=(verdict_record("inconclusive", reason="invalid", security=None),),
+    )
+    receipt = parse(make_bundle(tmp_path, entries))
+
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"]["outcome"] == "inconclusive"
+    assert receipt["episode"]["evidence_status"] is None
+    assert receipt["episode"]["verdict"] is None
+
+
+def test_a_report_of_several_chains_leaves_the_episode_block_out(tmp_path: Path) -> None:
+    first = chain(
+        texts=TEXTS,
+        sealed=trace(security=True),
+        records=(verdict_record("detected", security=True),),
+        chain_index=0,
+    )
+    second = chain(
+        texts=TEXTS,
+        sealed=trace(security=False, delivered=True),
+        records=(verdict_record("not_detected", security=False),),
+        chain_index=1,
+        seq=len(first),
+    )
+    receipt = parse(make_bundle(tmp_path, [*first, *second]))
+
+    assert "episode" not in receipt
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()

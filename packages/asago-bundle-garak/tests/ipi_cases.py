@@ -54,12 +54,22 @@ METADATA = {
 }
 
 
-def grade(*, security: Any, validity: str = "valid", delivered: Any = True) -> dict[str, Any]:
+def grade(
+    *,
+    security: Any,
+    validity: str = "valid",
+    delivered: Any = True,
+    reason: str | None = None,
+) -> dict[str, Any]:
     """MiDojo's grade of one episode, as the trace carries it."""
 
     return {
         "security": security,
-        "grade_validity": {"security": validity},
+        "security_reason": reason,
+        "grade_validity": {
+            "security": {"status": validity, "reasons": []},
+            "utility": {"status": "not_applicable", "reasons": []},
+        },
         "injection_delivered": delivered,
         "attempted": True,
         "blocked": False,
@@ -73,6 +83,7 @@ def trace(
     security: Any = None,
     validity: str = "valid",
     delivered: Any = True,
+    reason: str | None = None,
     capture_complete: bool = True,
     sealed: str = "final",
     error: str | None = None,
@@ -82,11 +93,17 @@ def trace(
     return {
         "evaluation_id": EVALUATION_ID,
         "snapshot_id": SNAPSHOT_ID,
-        "snapshot": {"evaluation_id": EVALUATION_ID, "snapshot_id": SNAPSHOT_ID},
+        "snapshot": {
+            "evaluation_id": EVALUATION_ID,
+            "snapshot_id": SNAPSHOT_ID,
+            "evidence_status": {},
+        },
         "verdict": {
             "evaluation_id": EVALUATION_ID,
             "snapshot_id": SNAPSHOT_ID,
-            "grade": grade(security=security, validity=validity, delivered=delivered),
+            "grade": grade(
+                security=security, validity=validity, delivered=delivered, reason=reason
+            ),
         },
         "capture_complete": capture_complete,
         "sealed": sealed,
