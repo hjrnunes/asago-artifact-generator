@@ -138,6 +138,26 @@ def compile_episode(
     reply; the episode's rubric carries it.
     """
 
+    document = episode_document(
+        package_dir, target=target, write_disposition=write_disposition, judge_turns=judge_turns
+    )
+    _write(Path(out_dir), document)
+    return document
+
+
+def episode_document(
+    package_dir: str | Path,
+    *,
+    target: TargetConfig | Mapping[str, Any] | str | Path,
+    write_disposition: Mapping[str, str] | None = None,
+    judge_turns: str = FINAL_TURN,
+) -> dict[str, Any]:
+    """Return the envelope ``compile_episode`` writes, without writing it.
+
+    A caller that runs the episode itself takes the document this way; the options are
+    ``compile_episode``'s.
+    """
+
     if judge_turns not in JUDGE_TURNS:
         raise CompileError(f"judge_turns is one of {sorted(JUDGE_TURNS)}, not {judge_turns!r}")
     config = authorized_target(target, CompileError)
@@ -145,7 +165,6 @@ def compile_episode(
         declared = declared_tools(config)
     except DeclarationFault as exc:
         raise CompileError(str(exc)) from exc
-    out = Path(out_dir)
     package = _load(Path(package_dir))
     stimulus = _json_member(package, "stimulus.json")
     level = claim_level(_json_member(package, "plan.json"))
@@ -196,7 +215,6 @@ def compile_episode(
         placements=[item.entry() for item in planted],
         tool_revision_range=TOOL_REVISION_RANGE,
     )
-    _write(out, document)
     return document
 
 
