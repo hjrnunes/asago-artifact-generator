@@ -15,6 +15,7 @@ import copy
 import hashlib
 import json
 import re
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -149,9 +150,40 @@ def test_a_v1_envelope_reads_back_what_it_wrote() -> None:
 
 
 def test_read_envelope_takes_a_path() -> None:
-    envelope = read_envelope(V0)
+    with pytest.warns(DeprecationWarning):
+        envelope = read_envelope(V0)
 
     assert envelope.source_version == LEGACY_SCHEMA
+
+
+def test_reading_a_v0_wrapper_warns_that_it_is_deprecated() -> None:
+    """MiDojo and orch warn as well: the v0 wrapper is read for one release only."""
+
+    with pytest.warns(DeprecationWarning, match="midojo-episode-v2") as raised:
+        read_envelope(V0)
+
+    assert "asago-midojo-package-v1" in str(raised[0].message)
+
+
+def test_reading_a_v1_envelope_warns_about_nothing() -> None:
+    episode = _read(DOCUMENTS / "v1_sequential.json")
+    written = build_envelope(
+        episode,
+        package_id="SCN-102-SCN-102",
+        scenario_id="SCN-102",
+        package_digest="b" * 64,
+        claim_level="command_attempt",
+        delivery="sequential",
+        placements=[],
+        tool_revision_range=">=8e8208f",
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+
+        envelope = read_envelope(written)
+
+    assert envelope.source_version == ENVELOPE_SCHEMA
 
 
 def test_a_v0_wrapper_reads_as_a_v1_episode_document() -> None:

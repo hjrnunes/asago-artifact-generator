@@ -21,6 +21,7 @@ module follows MiDojo without copying its constants.
 from __future__ import annotations
 
 import json
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -144,8 +145,9 @@ def build_envelope(
 def read_envelope(document: Mapping[str, Any] | str | Path) -> Envelope:
     """Read ``episode.json``, given as its decoded contents or as its path.
 
-    ``asago-midojo-package-v1`` is read as v1, ``midojo-episode-v2`` as the v0 wrapper, and
-    any other version raises :class:`UnsupportedEnvelopeVersion`, which names it.
+    ``asago-midojo-package-v1`` is read as v1, ``midojo-episode-v2`` as the v0 wrapper with
+    a :class:`DeprecationWarning`, and any other version raises
+    :class:`UnsupportedEnvelopeVersion`, which names it.
     """
 
     data = _object(_decode(document), "envelope")
@@ -154,6 +156,12 @@ def read_envelope(document: Mapping[str, Any] | str | Path) -> Envelope:
         _closed(data, ENVELOPE_FIELDS, "envelope")
         episode = _episode_member(data.get("episode"))
     elif version == LEGACY_SCHEMA:
+        warnings.warn(
+            f"the envelope version {LEGACY_SCHEMA!r} is read as v0 and is deprecated; "
+            f"write {ENVELOPE_SCHEMA!r} instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         _closed(data, LEGACY_FIELDS, "envelope (v0)")
         episode = _v0_episode(data)
     else:
