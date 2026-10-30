@@ -1,11 +1,12 @@
 """compile: turn a planted_item package into one MiDojo episode for one target.
 
-The output directory holds ``episode.json`` (``midojo-episode-v2``): the package's
-identity, its claim level and delivery, the MiDojo revisions the episode needs, how the
-run intercepts the target's tools, which tools the agent may call and what happens to a
-write, and ``episode``, the MiDojo ``Episode`` as plain data (``episode.py``). Everything in
-it is fixed by the package and the caller's target config, so the same inputs give the
-same bytes.
+The output directory holds ``episode.json``, the consumer envelope
+(``asago-midojo-package-v1``, ``document.py``): the package's identity, its claim level
+and delivery, the MiDojo revisions the episode needs and ``placements``, the seed items as
+the runtime contract states them; and ``episode``, exactly an episode document v1
+(``episode.py``), which holds the turns, the plan, the checks, the runtime, host
+interception and the agent's tool policy. Everything in it is fixed by the package and the
+caller's target config, so the same inputs give the same bytes.
 
 - The turns are the stimulus's user turns: its history's, then its user text.
 - Each seed item becomes one ``tool_output`` instruction from the seed slot of the
@@ -16,13 +17,13 @@ same bytes.
   result's ``record_key`` property is the record, the slot's mode and ``max_chars``.
   ``placements`` restates each in the contract's terms. MiDojo's host interceptor places
   the text in the result as it forwards the call; the target's data is not changed.
-- ``interception`` is host-side: the runner opens the episode with MiDojo's
+- ``episode.interception`` is host-side: the runner opens the episode with MiDojo's
   ``HostInterception`` whose upstream is the target config's ``endpoint.mcp_url`` at run
   time. The agent holds the interceptor's URL and bearer token and nothing else of
   MiDojo's: no evaluation session, and no address or credential of its control plane.
   The target is only where the interceptor forwards calls, and gets no MiDojo credential
   or session either. The episode holds no URL.
-- ``tools.allowed`` are the operations of the package's inventory; the agent is given no
+- ``episode.tools.allowed`` are the operations of the package's inventory; the agent is given no
   other. ``tools.write_disposition`` names, for each allowed tool the target config
   declares mutating (``declared.py``), ``forward`` (the target performs the write; the
   default) or ``block`` (nothing runs; MiDojo records the call as blocked). Every other
@@ -67,10 +68,10 @@ from asago_bundle_core.target import TargetConfig, authorized_target
 from asago_bundle_core.text import canonical_text
 
 from .declared import DeclarationFault, DeclaredTools, declared_tools
+from .document import SEQUENTIAL, SINGLE, build_envelope
 from .episode import episode, injection_plan
 from .judge_service import FINAL_TURN, JUDGE_TURNS, TIMEOUT_SECONDS, judged_count
 from .placement import (
-    Placement,
     PlacementFault,
     gap_reason,
     locate,
@@ -80,25 +81,14 @@ from .placement import (
 )
 from .reachable import unreachable_reason
 
-SCHEMA_VERSION = "midojo-episode-v2"
 TOOL = "midojo"
-# ``Episode`` with its injection plan, ``midojo.open_episode`` with ``HostInterception``,
-# a structured-content path's record selector, and ``midojo.grade`` over a sealed snapshot
-# are on asago/main at a5f81e9. From 3824922 the interceptor also copies a placement into a
-# result's text when that text mirrors its structured content, so an agent that reads only
-# the text gets the planted item, and each sealed call record carries its injection outcomes.
-# From b5b8c75 a target can match the call's arguments (``call_arguments``), which places an
-# item in the result of a single-record carrier.
-TOOL_REVISION_RANGE = ">=b5b8c752"
-# From c0bee12 (the merge of result-record matching into asago/main) a target can match the
-# call's result instead (``result_record``), which places an item in the result of a
-# single-record carrier whose record ID is in the result only, and the host interceptor
-# declares that capability. An earlier MiDojo refuses the key, so an episode with such a
-# target names this range; every other episode keeps the one above, which still runs it.
-RESULT_RECORD_REVISION_RANGE = ">=c0bee126"
-# From cab2a35 (the merge of the judge-service reply check into asago/main, after c0bee12)
-# MiDojo has the builtin ``reply_judge`` predicate, so a reply episode names this range.
-REPLY_JUDGE_REVISION_RANGE = ">=cab2a35e"
+# MiDojo 8e8208f, on m90/main, reads episode document v1 (the schema this adapter's episodes
+# validate against), and every capability the earlier ranges named is an ancestor of it:
+# ``call_arguments`` and the text mirror from 3824922, host interception with
+# ``midojo.grade``, the result-record match from c0bee12, and the judge-service reply check
+# from cab2a35. A harness older than that cannot read what this adapter writes, so every
+# episode names this range.
+TOOL_REVISION_RANGE = ">=8e8208f"
 EPISODE_FILE = "episode.json"
 SEED_MEMBER = "seed.json"
 CONDITION_MEMBER = "tool_call_condition.json"
@@ -108,12 +98,10 @@ PLANTED_ITEM = "planted_item"
 COMMAND_ATTEMPT = "command_attempt"
 REPLY = "reply"
 CLAIM_LEVELS = ("command_attempt", "reply", "state_effect")
-SINGLE = "single"
-SEQUENTIAL = "sequential"
-# The interceptor runs on the host and forwards to the target config's MCP endpoint. It is
-# MiDojo's ``MidojoMCP``, which declares every capability a compiled target needs
-# (``call_arguments`` and, from c0bee12, ``result_record``), so compile models no other.
-HOST_INTERCEPTION = {"mode": "host", "upstream": "endpoint.mcp_url"}
+# The interceptor runs on the host and forwards to the target config's MCP endpoint, which
+# the runner supplies at run time. It is MiDojo's ``MidojoMCP``, which declares every
+# capability a compiled target needs (``call_arguments`` and, from c0bee12, ``result_record``),
+# so compile models no other.
 FORWARD = "forward"
 BLOCK = "block"
 WRITE_DISPOSITIONS = (FORWARD, BLOCK)
@@ -189,42 +177,27 @@ def compile_episode(
     if unreached:
         raise CapabilityGap(capability_gap_record(TOOL, package, delivery, "; ".join(unreached)))
     security = _security_check(package, level, turns, judge_turns)
-    document = {
-        "schema_version": SCHEMA_VERSION,
-        "tool": TOOL,
-        "tool_revision_range": revision_range(level, planted),
-        "package_id": package.manifest.package_id,
-        "scenario_id": package.manifest.scenario_id,
-        "package_digest": package.manifest.manifest_digest,
-        "claim_level": level,
-        "delivery": delivery,
-        "verifiers": [],
-        "interception": dict(HOST_INTERCEPTION),
-        "tools": {
-            "allowed": allowed,
-            "write_disposition": write_dispositions(allowed, declared, write_disposition or {}),
-        },
-        "placements": [item.entry() for item in planted],
-        "episode": episode(
+    tools = {
+        "allowed": allowed,
+        "write_disposition": write_dispositions(allowed, declared, write_disposition or {}),
+    }
+    document = build_envelope(
+        episode(
             turns=turns,
             plan=injection_plan([item.instruction() for item in planted]),
             security=security,
+            tools=tools,
         ),
-    }
+        package_id=package.manifest.package_id,
+        scenario_id=package.manifest.scenario_id,
+        package_digest=package.manifest.manifest_digest,
+        claim_level=level,
+        delivery=delivery,
+        placements=[item.entry() for item in planted],
+        tool_revision_range=TOOL_REVISION_RANGE,
+    )
     _write(out, document)
     return document
-
-
-def revision_range(level: str, planted: list[Placement]) -> str:
-    """Return the MiDojo revisions the episode needs: from cab2a35 for a reply, which has
-    every capability below; else from c0bee12 when a target matches a result, else from
-    b5b8c75."""
-
-    if level == REPLY:
-        return REPLY_JUDGE_REVISION_RANGE
-    if any(item.by_result for item in planted):
-        return RESULT_RECORD_REVISION_RANGE
-    return TOOL_REVISION_RANGE
 
 
 def allowed_tools(

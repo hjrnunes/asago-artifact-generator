@@ -1,0 +1,19 @@
+{
+  "source": "midojo m90/main 89b25df993f2b56c22ffb7058da2bca15d4bb09f",
+  "files": {
+    "episode_document/refused_bad_disposition.json": "47873105121ffb3d343bef5d911553baf777b15b5ef57f6e1b4151631a7ec8fe",
+    "episode_document/refused_nonempty_verifiers.json": "46f7758d691ca464c365eb5a514cf446a2717050575eccd094ca301c7568c403",
+    "episode_document/refused_openshell_predicate_on_unmanaged.json": "3ea7c90f7e3c3e6db7029f77bf2520299802125433dee94950bddcf65d9436c8",
+    "episode_document/refused_plan_unknown_key.json": "69c1699b1bfbd7c93da9e76bc87ba44583fdc70a3ef4e984d2126b1755bc6b69",
+    "episode_document/refused_unknown_key.json": "3a29420faed67b7606427764e4e3b083e707cd1441d90ebd9e37de4781a20cac",
+    "episode_document/refused_unknown_runtime_type.json": "e507d912c32b12d01cf49eb5703841a21e76659aeed285f203fe923c8b94d84d",
+    "episode_document/refused_unknown_version.json": "0fdcd511c7a4a7b59b0bd3345f7d665183645dddce09697371e4b8d12322f61d",
+    "episode_document/v0_cm58_episode.json": "2ed42034d7332094ca1548947da6cc0139181596f9c3c187e9961c5448969e49",
+    "episode_document/v0_cm58_verdict.json": "1bb55e5f91705c826a51823d2d885833335707dbd7ff75a02e81d045e980eaf7",
+    "episode_document/v1_openshell.json": "ff3c61fbc47394aaafd89520d57c39973dd4d0afa08472d917a3a7df57998d63",
+    "episode_document/v1_reply_judge.json": "5cf41eea2314f0b9d50d4b5611e3fda240531208657688e23a8b53f4e6f5f9bf",
+    "episode_document/v1_sequential.json": "e149def07c1d370f8f11e53bf2fcef1d37404170a376d2fb79de863585cc2dad",
+    "episode_document/v1_single.json": "7feb07195b2d49df3aeee31a30dea5e4f4f012fedfc165aa08c387294b0211a4",
+    "snapshot_digest/vectors.json": "506aed425279a6dd54cc9463440f63839c35a6064698630a18ab8b66741be0d5"
+  }
+}

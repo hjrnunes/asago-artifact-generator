@@ -3,7 +3,7 @@
 Every snapshot and verdict under ``fixtures/episode/<case>/<scenario>/`` is what MiDojo
 wrote at 3824922 when it ran that case's episode with its host interceptor in front of the
 fixture target, a scripted agent calling the tools through the interceptor, and graded it
-with ``midojo.grade`` (``fixtures/episode/generate.py``); ``recording.json`` lists the
+with ``midojo.grade`` (``tools/fixture-generators/episode.py``); ``recording.json`` lists the
 security grade each got and the interceptor's injection outcomes. ``fixtures/
 episode-a5f81e9/`` holds the same runs sealed at a5f81e9, whose call records have neither
 ``structured_content`` nor ``injection_outcomes``.
@@ -19,6 +19,7 @@ from typing import Any
 import jsonschema
 import pytest
 from episode_cases import EPISODES, EPISODES_A5F81E9, PLANTED, SEQUENTIAL_TURNS, SINGLE_TURNS
+from midojo_sdk.snapshot import canonical, dumps, snapshot_digest
 
 from asago_bundle_midojo.route import ROUTES
 from asago_bundle_midojo.sealed import (
@@ -28,7 +29,6 @@ from asago_bundle_midojo.sealed import (
     compiled_digest,
     parse_sealed,
 )
-from asago_bundle_midojo.snapshot_digest import canonical, dumps, snapshot_digest
 from conftest import RECEIPT_SCHEMA, as_sealed
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
@@ -590,7 +590,7 @@ def test_missing_files_fail_the_receipt_and_name_what_is_known(tmp_path: Path) -
 def test_an_episode_directory_without_an_episode_cannot_be_parsed(tmp_path: Path) -> None:
     run = run_dir(tmp_path, "command-single", "detected")
 
-    with pytest.raises(ParseError, match="midojo-episode-v2"):
+    with pytest.raises(ParseError, match="is missing"):
         parse_sealed(tmp_path, run / "snapshot.json", run / "verdict.json", run / "r.json")
 
 
@@ -604,7 +604,7 @@ def test_an_episode_whose_claim_level_is_not_text_cannot_be_parsed(
     (episode / "episode.json").write_text(json.dumps(document), encoding="utf-8")
     run = run_dir(tmp_path, "command-single", "detected")
 
-    with pytest.raises(ParseError, match="claim level is not graded"):
+    with pytest.raises(ParseError, match="claim_level must be a non-empty string"):
         parse_sealed(episode, run / "snapshot.json", run / "verdict.json", run / "r.json")
 
 

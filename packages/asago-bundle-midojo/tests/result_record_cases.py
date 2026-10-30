@@ -7,16 +7,16 @@ call. A seed item for either slot compiles to a ``result_record`` target. Each c
 package; ``fixtures/result-record/<case>/`` holds what ``compile`` writes for it with the
 clinic target's ``target.yaml``, and each scenario directory under it a snapshot and its
 verdict that MiDojo sealed and graded at asago/main c0bee12 from that episode
-(``fixtures/result-record/generate.py``): its host interceptor in front of a scripted
+(``tools/fixture-generators/result_record.py``): its host interceptor in front of a scripted
 upstream of the same shape in MiDojo's process, not a target. To regenerate, with a MiDojo
 export or checkout at c0bee12 (``uv sync --frozen --extra dev`` there first)::
 
     uv run python packages/asago-bundle-midojo/tests/result_record_cases.py <empty dir>
     cd <that MiDojo tree> && uv run --frozen --extra dev python \\
-        <consumer>/packages/asago-bundle-midojo/tests/fixtures/result-record/generate.py \\
+        <consumer>/tools/fixture-generators/result_record.py \\
         <the full c0bee12 SHA> <that dir>
 
-then copy ``<that dir>`` over ``fixtures/result-record/`` (``generate.py`` stays).
+then copy ``<that dir>`` over ``fixtures/result-record/``.
 """
 
 from __future__ import annotations

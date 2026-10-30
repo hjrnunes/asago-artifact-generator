@@ -1,7 +1,8 @@
 """A reply episode graded by MiDojo's ``reply_judge`` through the judge service.
 
 ``fixtures/reply-judge-4e5176a/`` holds the reply case as compile writes it and what MiDojo
-4e5176a made of it (``generate.py``): it built the episode, then graded each sealed reply
+4e5176a made of it (``tools/fixture-generators/reply_judge_4e5176a.py``): it built the
+episode, then graded each sealed reply
 run with ``midojo.grade``, its ``reply_judge`` check asking this adapter's ``judge-serve``
 in front of a fake model on 127.0.0.1. Each verdict carries MiDojo's ``judgements``: the
 ``midojo.judge.v1`` request MiDojo sent and the service's answer; ``model-requests.json``
@@ -69,9 +70,9 @@ def judgements(scenario: str) -> list[dict[str, Any]]:
 def test_the_fixture_was_graded_by_4e5176a_in_every_scenario() -> None:
     assert RECORDING["revision"].startswith("4e5176a")
     assert set(RECORDING["scenarios"]) == set(SCENARIOS)
-    episode = _read(GRADED / "episode.json")
-    assert episode["tool_revision_range"] == ">=cab2a35e"
-    assert set(episode["episode"]["security"]) == {"reply_judge"}
+    document = _read(GRADED / "episode.json")
+    assert document["tool_revision_range"] == ">=8e8208f"
+    assert set(document["episode"]["security"]) == {"reply_judge"}
 
 
 @pytest.mark.parametrize("scenario", sorted(SCENARIOS))

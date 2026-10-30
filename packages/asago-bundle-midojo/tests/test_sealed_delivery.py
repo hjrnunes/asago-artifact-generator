@@ -6,7 +6,8 @@ carries its delivery facts: ``selected``, ``transformation`` and ``emitted``. A 
 write ``delivery.json`` (``midojo-delivery-v1``) beside the snapshot: MiDojo's delivery
 facts of the snapshot's calls and the exposure they derive. ``fixtures/regraded-13d5487/``
 holds the fixture runs as MiDojo at 13d5487 reads, grades and reports them
-(``regrade.py``); ``fixtures/episode/`` the 3824922 verdicts, which lack the four fields.
+(``tools/fixture-generators/regraded_13d5487.py``); ``fixtures/episode/`` the 3824922
+verdicts, which lack the four fields.
 """
 
 from __future__ import annotations
@@ -20,10 +21,10 @@ from typing import Any
 import jsonschema
 import pytest
 from episode_cases import EPISODES, REGRADED
+from midojo_sdk.snapshot import snapshot_digest
 
 from asago_bundle_midojo.cli import main
 from asago_bundle_midojo.sealed import ATTACK_OUTCOME, delivery_shape, parse_sealed
-from asago_bundle_midojo.snapshot_digest import snapshot_digest
 from conftest import DELIVERY_CONTRACT, RECEIPT_SCHEMA, as_sealed
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))

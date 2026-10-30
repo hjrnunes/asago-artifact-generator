@@ -10,7 +10,7 @@ plan that may generate payloads (``note-generated``, ``referral-generated``): th
 episode with ``generator_permissions`` naming the carrier, the slot's field and its mode,
 which compile never writes, so those two documents are derived here. Each scenario
 directory holds a snapshot and its verdict that MiDojo sealed and graded at asago/main
-a19562e (``fixtures/placed-a19562e/generate.py``), its host interceptor in front of a
+a19562e (``tools/fixture-generators/placed_a19562e.py``), its host interceptor in front of a
 scripted upstream of the targets' shape in MiDojo's process, not a target, and the
 ``delivery.json`` a runner writes from them. For a generated case the script stands in for
 the generator: the interceptor is given the plan with each tool-output payload replaced, its
@@ -19,10 +19,10 @@ targets as compiled. To regenerate, with a MiDojo export or checkout at a19562e
 
     uv run python packages/asago-bundle-midojo/tests/placed_cases.py <empty dir>
     cd <that MiDojo tree> && uv run --frozen --extra dev python \\
-        <consumer>/packages/asago-bundle-midojo/tests/fixtures/placed-a19562e/generate.py \\
+        <consumer>/tools/fixture-generators/placed_a19562e.py \\
         <the full a19562e SHA> <that dir>
 
-then copy ``<that dir>`` over ``fixtures/placed-a19562e/`` (``generate.py`` stays).
+then copy ``<that dir>`` over ``fixtures/placed-a19562e/``.
 """
 
 from __future__ import annotations

@@ -6,19 +6,19 @@ run from an export with no Git history. With an export of 4e5176a in an empty di
 dev`` there)::
 
     cd <that dir> && uv run --frozen --extra dev python \\
-        <consumer>/packages/asago-bundle-midojo/tests/fixtures/openshell-4e5176a/generate.py \\
+        <consumer>/tools/fixture-generators/openshell_4e5176a.py \\
         <the full 4e5176a SHA> \\
         <consumer>/packages/asago-bundle-midojo/tests/fixtures/result-record/referral \\
         <empty dir>
 
-then copy ``<empty dir>`` over ``fixtures/openshell-4e5176a/`` (``generate.py`` stays).
+then copy ``<empty dir>`` over ``fixtures/openshell-4e5176a/``.
 
 From 4e5176a MiDojo leaves an observation's later list fields out of the snapshot digest
 while they are empty (``observations.digest_content``, the model's
 ``DIGEST_OMITS_WHEN_EMPTY``); today only OpenShell's ``http_requests``. Each scenario runs
 the episode ``result-record/referral/episode.json`` once with ``midojo.open_episode`` on an
 in-process control plane, its host interceptor in front of a scripted upstream of the
-clinic fixture target's shape, as ``result-record/generate.py`` does, but with a scripted
+clinic fixture target's shape, as ``result_record.py`` does, but with a scripted
 runtime in place of the unmanaged one: its ``observe`` returns ``observations["openshell"]``
 built from fixed OCSF log lines through MiDojo's ``parse_ocsf_lines``, field for field as
 ``OpenShellRuntime.observe`` builds them. No sandbox, model or target is involved, and
@@ -147,8 +147,8 @@ def episode(data: dict[str, Any]) -> Episode:
 
 
 async def run(built: Episode, document: dict[str, Any], lines: list[str]) -> Any:
-    assert document["interception"] == {"mode": "host", "upstream": "endpoint.mcp_url"}
-    allowed = document["tools"]["allowed"]
+    assert document["episode"]["interception"] == {"mode": "host", "upstream": None}
+    allowed = document["episode"]["tools"]["allowed"]
 
     async def send(ep: Any, _message: str) -> str:
         endpoint = ep.binding.tool_endpoint

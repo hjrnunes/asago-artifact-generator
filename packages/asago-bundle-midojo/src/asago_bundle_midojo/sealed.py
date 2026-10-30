@@ -56,7 +56,7 @@ transformation), ``placed_digest`` (the same of the transformed text written) an
 (``{id, target, mode}``: the instruction's target in the plan codec's form, its mode, and
 ``id`` the target's digest, ``slot_id``). Each is optional, null or absent when not
 reported, and only a placement has any; the snapshot ID leaves a null one out
-(``snapshot_digest.py``). ``delivery.json`` facts may carry the same three keys.
+(``midojo_sdk.snapshot``). ``delivery.json`` facts may carry the same three keys.
 
 Each outcome in ``call_injections`` gets ``payload_sha256``, the SHA-256 of the payload text
 placed before its transformation, and ``slot``, the seed slot it was placed in (``id``,
@@ -88,7 +88,7 @@ observation, the observation no ``http_requests`` (sealed before it existed), or
 list from a log read that is not ``complete``. The snapshot ID is computed as before.
 
 The snapshot must be the one MiDojo sealed: its ``snapshot_id`` is MiDojo's digest of its
-content, recomputed here (``snapshot_digest.py``), so a snapshot whose content changed
+content, recomputed here (``midojo_sdk.snapshot``), so a snapshot whose content changed
 under its ID is refused. The verdict must name the snapshot's evaluation and the snapshot
 itself, its validity must agree with its grade, and its evidence status must be exactly
 the snapshot's (``grading.grade`` keeps the snapshot's). The snapshot's turns must be the
@@ -110,13 +110,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from midojo_sdk.snapshot import CONTENT_FIELDS, DigestFault, verified
+
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.mcp_records import decoded, read_json, text
 from asago_bundle_core.text import canonical_text
 
-from .episode_compile import COMMAND_ATTEMPT, EPISODE_FILE, REPLY, SCHEMA_VERSION, TOOL
+from .document import Envelope, EnvelopeError, read_envelope
+from .episode_compile import COMMAND_ATTEMPT, EPISODE_FILE, REPLY, TOOL
 from .route import DEFAULT_ROUTE, ROUTES
-from .snapshot_digest import CONTENT_FIELDS, snapshot_digest
 
 RECEIPT_SCHEMA_VERSION = "execution-receipt-v1"
 DETECTORS = {COMMAND_ATTEMPT: "ToolCallCondition", REPLY: "RubricJudge"}
@@ -193,7 +195,11 @@ PROVENANCES = frozenset({"host", INTERCEPTOR, "agent", None})
 TURN_FIELDS = frozenset({"index", "message", "reply", "started_at", "ended_at"})
 FAILURE_FIELDS = frozenset({"call_id", "function", "phase", "reason", "stage", "by", "at"})
 CAPTURE_PHASES = frozenset({"start", "finish"})
-VERDICT_FIELDS = frozenset({"evaluation_id", "snapshot_id", "grade"})
+VERDICT_SCHEMA_VERSION = "midojo-verdict-v1"
+# The verdict a runner writes from cab2a35 names its version; the cm.58 artifacts carry the
+# versionless v0 form, which MiDojo reads and so does this receipt.
+VERDICT_FIELDS = frozenset({"schema_version", "evaluation_id", "snapshot_id", "grade"})
+VERDICT_V0_FIELDS = VERDICT_FIELDS - {"schema_version"}
 GRADED = ("utility", "security")
 GRADE_FIELDS = frozenset(
     {*GRADED, "utility_reason", "security_reason", "grade_validity", "evidence_status"}
@@ -233,7 +239,6 @@ TOOL_OUTPUT = "tool_output"
 PLACEMENT_MODES = frozenset({"append", "replace"})
 # What an outcome's placement reads when it cannot be established.
 UNPLACED: dict[str, Any] = {"payload_sha256": None, "slot": None}
-EPISODE_KEYS = frozenset({"package_id", "scenario_id", "package_digest", "claim_level", "episode"})
 
 
 class ParseError(BundleError):
@@ -242,18 +247,19 @@ class ParseError(BundleError):
 
 @dataclass(frozen=True)
 class Compiled:
-    """What ``compile`` wrote: the directory and its ``episode.json``."""
+    """What ``compile`` wrote: the directory, its ``episode.json``, and the envelope it holds."""
 
     root: Path
     document: dict[str, Any]
+    envelope: Envelope
 
     @property
     def claim_level(self) -> str:
-        return self.document["claim_level"]
+        return self.envelope.claim_level
 
     @property
     def turns(self) -> list[str]:
-        return self.document["episode"]["turns"]
+        return list(self.envelope.episode["turns"])
 
 
 @dataclass(frozen=True)
@@ -307,7 +313,9 @@ def parse_sealed(
     compiled = read_compiled(Path(episode_dir))
     out = Path(out_path)
     snapshot, reason = read_document(Path(snapshot_path), "snapshot", snapshot_shape)
-    verdict, verdict_reason = read_document(Path(verdict_path), "verdict", verdict_shape)
+    verdict, verdict_reason = read_document(
+        Path(verdict_path), "verdict", verdict_shape, verdict_version_reason
+    )
     native = [Path(snapshot_path), Path(verdict_path)]
     delivery, delivery_reason = None, None
     if delivery_path is not None:
@@ -324,8 +332,8 @@ def parse_sealed(
         "schema_version": RECEIPT_SCHEMA_VERSION,
         "tool": {"id": TOOL, "revision": tool_revision, "adapter_revision": adapter_revision},
         "package": {
-            "id": compiled.document["scenario_id"],
-            "digest": compiled.document["package_digest"],
+            "id": compiled.envelope.scenario_id,
+            "digest": compiled.envelope.package_digest,
         },
         "bundle_digest": compiled_digest(compiled.root),
         "execution_status": "failed" if reason else "completed",
@@ -341,22 +349,45 @@ def parse_sealed(
 
 
 def read_compiled(root: Path) -> Compiled:
-    document = read_json(root / EPISODE_FILE)
-    if not isinstance(document, dict) or document.get("schema_version") != SCHEMA_VERSION:
-        raise ParseError(f"{root / EPISODE_FILE} is not a {SCHEMA_VERSION} document")
-    missing = EPISODE_KEYS - document.keys()
-    if missing:
-        raise ParseError(f"the episode document lacks {sorted(missing)}")
-    if not _one_of(document["claim_level"], DETECTORS):
-        raise ParseError(f"the episode's claim level is not graded: {document['claim_level']!r}")
-    return Compiled(root, document)
+    """Read ``root/episode.json``: the envelope (v1, or the v0 wrapper for one release).
+
+    An unknown version, an unknown key and an episode member that is not a document v1 all
+    fail the receipt before it is built.
+    """
+
+    path = root / EPISODE_FILE
+    if not path.is_file():
+        raise ParseError(f"{path} is missing")
+    document = read_json(path)
+    if not isinstance(document, dict):
+        raise ParseError(f"{path} is not a JSON object")
+    try:
+        envelope = read_envelope(document)
+    except EnvelopeError as exc:
+        raise ParseError(f"{path}: {exc}") from exc
+    if not _one_of(envelope.claim_level, DETECTORS):
+        raise ParseError(f"the episode's claim level is not graded: {envelope.claim_level!r}")
+    return Compiled(root, document, envelope)
 
 
-def read_document(path: Path, prefix: str, shape: Any) -> tuple[dict[str, Any] | None, str | None]:
+def read_document(
+    path: Path, prefix: str, shape: Any, version_reason: Any = None
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Read one sealed document and check its shape.
+
+    ``version_reason``, when given, reads a document that names a ``schema_version`` first: it
+    returns why this reader refuses that version (naming it in the reason), or None. A
+    versionless document passes, which is how the cm.58 verdicts read.
+    """
+
     if not path.is_file():
         return None, f"{prefix}_missing"
     document = read_json(path)
-    if not (isinstance(document, dict) and shape(document)):
+    if not isinstance(document, dict):
+        return None, f"{prefix}_malformed"
+    if version_reason is not None and (unknown := version_reason(document)) is not None:
+        return None, unknown
+    if not shape(document):
         return None, f"{prefix}_malformed"
     return document, None
 
@@ -568,15 +599,31 @@ def evidence_shape(status: Any) -> bool:
     )
 
 
+def verdict_version_reason(verdict: dict[str, Any]) -> str | None:
+    """Return why this reader refuses the verdict's version, naming it; None reads it.
+
+    ``midojo-verdict-v1`` is the document a runner writes; a versionless verdict is the v0
+    form MiDojo reads and so does this receipt.
+    """
+
+    if "schema_version" not in verdict:
+        return None
+    version = verdict["schema_version"]
+    if type(version) is str and version == VERDICT_SCHEMA_VERSION:
+        return None
+    return f"verdict_version_unknown:{version}"
+
+
 def verdict_shape(verdict: dict[str, Any]) -> bool:
-    """The verdict is ``Verdict``, its grade MiDojo's ``GradeResponse``, field for field (the
-    attack outcome all or none, ``judgements`` optional), and the security grade agrees with
-    its validity: unknown exactly when ``invalid``. A decided security grade carries its
-    ``security_reason``, the receipt's explanation of the outcome."""
+    """The verdict is ``Verdict`` (its v1 document or the versionless v0 form), its grade
+    MiDojo's ``GradeResponse``, field for field (the attack outcome all or none,
+    ``judgements`` optional), and the security grade agrees with its validity: unknown exactly
+    when ``invalid``. A decided security grade carries its ``security_reason``, the receipt's
+    explanation of the outcome."""
 
     grade = verdict.get("grade")
     if not (
-        set(verdict) == VERDICT_FIELDS
+        set(verdict) in (VERDICT_FIELDS, VERDICT_V0_FIELDS)
         and isinstance(verdict["evaluation_id"], str)
         and isinstance(verdict["snapshot_id"], str)
         and isinstance(grade, dict)
@@ -694,7 +741,9 @@ def sealed_failure(
 ) -> str | None:
     """Return the first reason the sealed result cannot be graded, or None."""
 
-    if snapshot_digest(snapshot) != snapshot["snapshot_id"]:
+    try:
+        verified(snapshot)
+    except DigestFault:
         return "snapshot_digest_mismatch"
     if verdict["evaluation_id"] != snapshot["evaluation_id"]:
         return "evaluation_mismatch"
@@ -1076,7 +1125,7 @@ def read_plan(compiled: Compiled) -> Plan:
     An instruction is None when it cannot be read; its payload digest None when it has no text.
     """
 
-    plan = compiled.document["episode"].get("plan")
+    plan = compiled.envelope.episode.get("plan")
     if not isinstance(plan, dict) or not isinstance(plan.get("instructions"), list):
         return UNREAD
     permissions = plan.get("generator_permissions")
@@ -1085,7 +1134,7 @@ def read_plan(compiled: Compiled) -> Plan:
     )
     # Each instruction's distinct (slot, record) entries: more than one is ambiguous, no slot.
     slots: dict[int, list[tuple[Any, Any]]] = {}
-    for entry in compiled.document.get("placements") or ():
+    for entry in compiled.envelope.placements:
         if isinstance(entry, dict) and type(entry.get("instruction")) is int:
             pairs = slots.setdefault(entry["instruction"], [])
             if (pair := (entry.get("slot"), entry.get("record"))) not in pairs:

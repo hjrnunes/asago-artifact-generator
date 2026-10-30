@@ -3,11 +3,12 @@
 ``fixtures/episode/<case>/`` holds what compile wrote for each case of
 ``episode_cases.CASES`` with the fixture target's ``target.yaml``; MiDojo built each of
 those episodes from its data at 3824922 and wrote it back unchanged
-(``fixtures/episode/generate.py``), so a compile that still writes those bytes still writes
+(``tools/fixture-generators/episode.py``), so a compile that still writes those bytes still
+writes
 MiDojo's ``Episode`` shape. A reply episode's check is MiDojo's ``reply_judge``, which
 3824922 does not have: ``fixtures/reply-judge-4e5176a/episode.json`` is the reply case as
 compile writes it now, which MiDojo 4e5176a built and graded
-(``fixtures/reply-judge-4e5176a/generate.py``). A target's ``call_arguments`` is checked
+(``tools/fixture-generators/reply_judge_4e5176a.py``). A target's ``call_arguments`` is checked
 against the shape MiDojo's plan data gives it from b5b8c75 (``InjectionPlan.to_data``).
 Variants of the fixture target's declaration files (``episode_cases.target_variant``) cover
 what the target itself does not declare.
@@ -20,6 +21,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 import pytest
 from episode_cases import (
     CASES,
@@ -44,12 +46,14 @@ from episode_cases import (
     write_case_package,
     write_planted_package,
 )
+from midojo_sdk.episode_schema import load_schema
 
 from asago_bundle_core.conformance import check_gap
 from asago_bundle_core.gap import CapabilityGap
 from asago_bundle_core.target import load_target_config
 from asago_bundle_core.testing import sequential_stimulus, single_stimulus
 from asago_bundle_midojo.cli import main
+from asago_bundle_midojo.document import ENVELOPE_FIELDS, ENVELOPE_SCHEMA
 from asago_bundle_midojo.episode import EPISODE_FIELDS
 from asago_bundle_midojo.episode_compile import CompileError, compile_episode
 
@@ -136,13 +140,47 @@ def test_the_document_names_the_package_and_holds_an_episode_of_midojo_s_fields(
     document = compiled(package, tmp_path / "out")
 
     manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
-    assert document["schema_version"] == "midojo-episode-v2"
-    assert (document["tool"], document["tool_revision_range"]) == ("midojo", ">=b5b8c752")
+    assert document["schema_version"] == "asago-midojo-package-v1"
+    assert document["tool_revision_range"] == ">=8e8208f"
     assert document["package_id"] == "SCN-101-SCN-101"
     assert document["scenario_id"] == "SCN-101"
     assert document["package_digest"] == manifest["manifest_digest"]
     assert (document["claim_level"], document["delivery"]) == ("command_attempt", "single")
+    assert set(document) == set(ENVELOPE_FIELDS)
     assert set(document["episode"]) == set(EPISODE_FIELDS)
+    assert (document["episode"]["schema_version"], document["episode"]["verifiers"]) == (
+        "midojo-episode-v1",
+        [],
+    )
+
+
+@pytest.mark.parametrize("case", sorted(CASES))
+def test_each_compiled_episode_is_a_document_of_midojo_s_v1_schema(
+    tmp_path: Path, case: str
+) -> None:
+    """Compile writes the episode MiDojo's schema describes, so MiDojo's own check passes."""
+
+    episode = compiled(write_case_package(tmp_path / "packages", case), tmp_path / "out")[
+        "episode"
+    ]
+
+    jsonschema.validate(episode, load_schema())
+
+
+def test_every_compiled_fixture_episode_is_a_document_of_midojo_s_v1_schema() -> None:
+    """The episodes kept as fixtures stay valid too, so a reader never meets an old form."""
+
+    episodes = [
+        path
+        for path in sorted(FIXTURES.rglob("episode.json"))
+        if "episode-a5f81e9" not in path.parts
+    ]
+
+    assert len(episodes) == 11
+    for path in episodes:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        assert document["schema_version"] == ENVELOPE_SCHEMA, path
+        jsonschema.validate(document["episode"], load_schema())
 
 
 def test_a_command_attempt_episode_sends_the_user_turn_and_checks_the_condition(
@@ -339,7 +377,7 @@ def test_a_seed_item_of_a_single_record_carrier_is_placed_on_the_calls_naming_it
             "record_key": "note_id",
         }
     ]
-    assert document["tool_revision_range"] == ">=b5b8c752"
+    assert document["tool_revision_range"] == ">=8e8208f"
 
 
 def test_the_argument_record_key_the_target_config_declares_is_used_when_the_contract_has_none(
@@ -475,7 +513,7 @@ def test_a_field_outside_a_list_whose_result_names_the_record_is_placed_on_that_
     assert instruction["target"]["result_record"] == {"field": "note_id", "equals": "NOTE-2"}
     assert instruction["target"]["structured_content_path"] == ["body"]
     assert instruction["target"]["tool"] == slot["carrier_operation"]
-    assert document["tool_revision_range"] == ">=c0bee126"
+    assert document["tool_revision_range"] == ">=8e8208f", "c0bee12 precedes 8e8208f"
 
 
 def _read_note_returning(note: dict[str, Any]) -> list[dict[str, Any]]:
@@ -577,7 +615,7 @@ def test_the_episode_intercepts_on_the_host_and_names_no_endpoint(tmp_path: Path
     out = tmp_path / "out"
     document = compiled(write_case_package(tmp_path / "packages", "command-single"), out)
 
-    assert document["interception"] == {"mode": "host", "upstream": "endpoint.mcp_url"}
+    assert document["episode"]["interception"] == {"mode": "host", "upstream": None}
     text = (out / "episode.json").read_text(encoding="utf-8")
     assert "127.0.0.1" not in text and "{port}" not in text
 
@@ -587,7 +625,7 @@ def test_the_agent_is_allowed_the_package_s_tools_and_writes_forward(tmp_path: P
         write_case_package(tmp_path / "packages", "command-single"), tmp_path / "out"
     )
 
-    assert document["tools"] == {
+    assert document["episode"]["tools"] == {
         "allowed": ["get_balance", "list_notes", "withdraw"],
         "write_disposition": {"default": "forward", "tools": {"withdraw": "forward"}},
     }
@@ -596,7 +634,7 @@ def test_the_agent_is_allowed_the_package_s_tools_and_writes_forward(tmp_path: P
 def test_a_tool_the_package_does_not_allow_is_left_out(tmp_path: Path) -> None:
     package = write_planted_package(tmp_path / "packages", operations=["list_notes"])
 
-    tools = compiled(package, tmp_path / "out")["tools"]
+    tools = compiled(package, tmp_path / "out")["episode"]["tools"]
 
     assert tools == {
         "allowed": ["list_notes"],
@@ -607,7 +645,9 @@ def test_a_tool_the_package_does_not_allow_is_left_out(tmp_path: Path) -> None:
 def test_a_mutating_tool_can_be_blocked(tmp_path: Path) -> None:
     package = write_case_package(tmp_path / "packages", "command-single")
 
-    tools = compiled(package, tmp_path / "out", write_disposition={"withdraw": "block"})["tools"]
+    tools = compiled(package, tmp_path / "out", write_disposition={"withdraw": "block"})[
+        "episode"
+    ]["tools"]
 
     assert tools["write_disposition"] == {"default": "forward", "tools": {"withdraw": "block"}}
 
@@ -676,8 +716,8 @@ def test_a_reply_episode_asks_the_judge_service_with_reply_judge(tmp_path: Path)
             "timeout_seconds": 190,
         }
     }
-    assert document["tool_revision_range"] == ">=cab2a35e"
-    assert document["verifiers"] == []
+    assert document["tool_revision_range"] == ">=8e8208f"
+    assert document["episode"]["verifiers"] == []
     assert sorted(path.name for path in out.iterdir()) == ["episode.json"]
 
 
@@ -702,7 +742,7 @@ def test_a_reply_whose_carrier_matches_a_result_still_needs_reply_judge(tmp_path
 
     document = compiled(package, tmp_path / "out", target=target)
 
-    assert document["tool_revision_range"] == ">=cab2a35e", "cab2a35 follows c0bee12"
+    assert document["tool_revision_range"] == ">=8e8208f", "cab2a35 precedes 8e8208f"
 
 
 @pytest.mark.parametrize("question", ["", "  "])
@@ -719,7 +759,7 @@ def test_a_command_attempt_episode_writes_no_verifier(tmp_path: Path) -> None:
     out = tmp_path / "out"
     document = compiled(write_case_package(tmp_path / "packages", "command-single"), out)
 
-    assert document["verifiers"] == []
+    assert document["episode"]["verifiers"] == []
     assert sorted(path.name for path in out.iterdir()) == ["episode.json"]
 
 

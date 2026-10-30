@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "asago-bundle-garak"
 version = "0.1.0"
 description = "Garak adapter: compiles an artifact package into a Garak bundle and parses Garak's report into an execution receipt"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "asago-artifact-generator",
     "asago-bundle-core",

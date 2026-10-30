@@ -6,12 +6,12 @@ run from an export with no Git history. With an export of 4e5176a in an empty di
 dev`` there), and the reply case compiled by this adapter (``tests/episode_cases.py``)::
 
     cd <that dir> && uv run --frozen --extra dev python \\
-        <consumer>/packages/asago-bundle-midojo/tests/fixtures/reply-judge-4e5176a/generate.py \\
+        <consumer>/tools/fixture-generators/reply_judge_4e5176a.py \\
         <the full 4e5176a SHA> <compiled reply-single dir> \\
         <consumer>/packages/asago-bundle-midojo/tests/fixtures/regraded-13d5487/reply-single \\
         <consumer>/.venv/bin/asago-bundle-midojo <empty dir>
 
-then copy ``<empty dir>`` over ``fixtures/reply-judge-4e5176a/`` (``generate.py`` stays).
+then copy ``<empty dir>`` over ``fixtures/reply-judge-4e5176a/``.
 
 It runs no episode. It builds ``midojo.episode.Episode`` from the compiled
 ``episode.json`` (the ``reply_judge`` check is parsed then), starts the adapter's judge
