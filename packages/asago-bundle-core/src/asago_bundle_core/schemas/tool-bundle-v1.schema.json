@@ -23,6 +23,11 @@
   ],
   "properties": {
     "schema_version": {"const": "tool-bundle-v1"},
+    "template": {
+      "description": "Optional; the adapter's template name, which says how the bundle runs. A bundle that omits it runs the adapter's default route; Garak writes 'garak-ipi-episode' for a bundle whose probe runs a MiDojo episode.",
+      "type": "string",
+      "minLength": 1
+    },
     "tool": {"type": "string", "minLength": 1},
     "tool_revision_range": {"type": "string", "minLength": 1},
     "package_id": {"type": "string", "minLength": 1},
@@ -52,6 +57,12 @@
       "description": "Template files relative to the bundle template directory.",
       "type": "object",
       "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "files": {
+      "description": "Optional; static files the package ships beside its templates and the tool reads unchanged. instantiate copies each from the template directory into the concrete bundle under the same name. Garak lists the ipi-episodes.json source of a planted_item bundle.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
     },
     "entrypoint": {
       "description": "Argument vector. {tool_python} is the tool interpreter the orchestrator runs; in a template, {bundle} and value keys such as {model} are placeholders that instantiate renders.",

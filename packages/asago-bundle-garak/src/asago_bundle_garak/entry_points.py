@@ -95,16 +95,23 @@ class Instantiated:
     preparation: PreparedPackage
 
 
-def compile(package_dir: str | Path, out_dir: str | Path) -> dict[str, Any]:
+def compile(
+    package_dir: str | Path,
+    out_dir: str | Path,
+    *,
+    target: TargetConfig | Mapping[str, Any] | str | Path | None = None,
+) -> dict[str, Any]:
     """Write the bundle template for one package directory and return its manifest.
 
-    Raises ``CapabilityGap`` before writing anything when Garak cannot deliver the package,
+    ``target`` is the authorized target config a ``planted_item`` package is compiled
+    against; a package Garak delivers in its user turns ignores it. Raises
+    ``CapabilityGap`` before writing anything when Garak cannot deliver the package,
     and ``CompileError`` for a package it cannot read or an output directory in use.
     """
 
     _directory(package_dir, "package", CompileError)
     _new_directory(out_dir, CompileError)
-    return compile_package(package_dir, out_dir)
+    return compile_package(package_dir, out_dir, target=target)
 
 
 def instantiate(

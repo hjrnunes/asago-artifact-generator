@@ -115,12 +115,14 @@ source = { editable = "packages/asago-bundle-garak" }
 dependencies = [
     { name = "asago-artifact-generator" },
     { name = "asago-bundle-core" },
+    { name = "asago-bundle-midojo" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "asago-artifact-generator", editable = "." },
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
+    { name = "asago-bundle-midojo", editable = "packages/asago-bundle-midojo" },
 ]
 
 [[package]]
