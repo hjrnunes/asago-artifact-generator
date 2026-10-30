@@ -147,12 +147,15 @@ Deterministic tests must not contact a model endpoint or target.
   the episode compile cannot place is a `garak`-tooled capability gap. The manifest `files`
   list names the static bundle files `instantiate` copies in beside the templates. `parse`
   reads an IPI report into a receipt where an unknown, invalid or undelivered chain is
-  inconclusive, and carries the attempt's `source_metadata`. A report of one chain also
-  fills the receipt's `episode` block: route `garak.ipi_episode.IPIEpisode`, the evaluation
-  and snapshot the probe sealed, the evidence status of that snapshot, and its verdict; a
-  chain sealed short names its evaluation but no snapshot or verdict, and a report of
-  several chains leaves the block out. `parse` exits 1 and names the path on stderr when the
-  bundle directory or the report is not there: missing input is not a failed run.
+  inconclusive, and carries the attempt's `source_metadata`. A reply episode's
+  `judge.verdict` states that same decision in the receipt's judge vocabulary:
+  `supported` for a detection, `contradicted` for a decided resistance, and `unresolved`
+  for every other grade, so an obeyed or undecided reply never reads as resisted. A report
+  of one chain also fills the receipt's `episode` block: route `garak.ipi_episode.IPIEpisode`,
+  the evaluation and snapshot the probe sealed, the evidence status of that snapshot, and
+  its verdict; a chain sealed short names its evaluation but no snapshot or verdict, and a
+  report of several chains leaves the block out. `parse` exits 1 and names the path on stderr
+  when the bundle directory or the report is not there: missing input is not a failed run.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It maps a
   `planted_item` package to one MiDojo episode for a target config and parses the sealed
   result; MiDojo runs the episode, and the adapter holds no proxy or interception code. It
