@@ -16,10 +16,12 @@ from typing import Any
 import jsonschema
 import pytest
 from ipi_cases import (
+    CONDITION_DETECTOR,
     EVALUATION_ID,
     METADATA,
     SNAPSHOT_ID,
     TARGET,
+    VERDICT,
     call,
     chain,
     condition_record,
@@ -515,3 +517,178 @@ def test_a_report_of_several_chains_leaves_the_episode_block_out(tmp_path: Path)
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# --- the shared inconclusive vectors -------------------------------------------
+#
+# MiDojo owns the vectors; the MiDojo package holds the copy this package reads. Each case
+# is a sealed run with the outcome every route owes, and the report below is what the probe
+# writes for it: the trace it projects, and the records its detectors made.
+
+VECTORS = (
+    Path(__file__).parents[2]
+    / "asago-bundle-midojo"
+    / "tests"
+    / "fixtures"
+    / "inconclusive_vectors"
+)
+VECTOR_MANIFEST = json.loads((VECTORS / "MANIFEST.json").read_text(encoding="utf-8"))
+VECTOR_CASES = VECTOR_MANIFEST["cases"]
+VECTOR_CONTROL = "control-resisted"
+VECTOR_UNDECIDED = [case for case in VECTOR_CASES if case != VECTOR_CONTROL]
+SEALED = 2  # the status the report gives the attempt that ends a chain
+VERDICT_NAME = VERDICT.rsplit(".", 1)[-1]
+CONDITION_NAME = CONDITION_DETECTOR.rsplit(".", 1)[-1]
+
+
+def vector(case: str, name: str) -> dict[str, Any]:
+    """The copy's ``case``/``name`` document, decoded."""
+
+    document: dict[str, Any] = json.loads((VECTORS / case / name).read_text(encoding="utf-8"))
+    return document
+
+
+def vector_complete(snapshot: dict[str, Any]) -> bool:
+    """Whether the capture recorded every call: the rule the probe's trace applies."""
+
+    evidence = snapshot.get("evidence_status") or {}
+    if any(status == "incomplete" for status in evidence.values()):
+        return False
+    if snapshot.get("capture_failures"):
+        return False
+    return all(call["complete"] for call in snapshot["function_calls"])
+
+
+def vector_trace(case: str) -> dict[str, Any]:
+    """The trace the probe projects from the case's sealed snapshot and its verdict."""
+
+    snapshot = vector(case, "snapshot.json")
+    verdict = vector(case, "verdict.json")
+    complete = vector_complete(snapshot)
+    delivered = verdict["grade"].get("injection_delivered")
+    return {
+        "evaluation_id": snapshot["evaluation_id"],
+        "snapshot_id": snapshot["snapshot_id"],
+        "snapshot": snapshot,
+        "verdict": verdict,
+        "capture_complete": complete,
+        "sealed": vector(case, "expected.json")["sealed"],
+        "failure": None,
+        "error": None,
+        "tool_calls": [
+            {
+                "call_id": call["call_id"],
+                "name": call["function"],
+                "arguments": call["args"],
+                "result": call["result"],
+                "blocked": call["blocked"],
+                "disposition": call["disposition"],
+                "complete": call["complete"],
+                "turn": call["turn"],
+            }
+            for call in snapshot["function_calls"]
+        ],
+        # a condition can decide only a delivered payload with a complete capture
+        "response_status": "completed" if complete and delivered is True else "incomplete",
+    }
+
+
+def vector_records(case: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The two detector records a report carries for the case, from the vector's table."""
+
+    want = vector(case, "expected.json")
+    detectors = want["routes"]["garak_detectors"]
+    premise = want["midojo"]
+    return (
+        verdict_record(
+            detectors["EpisodeVerdict"]["outcome"],
+            security=premise["security"],
+            validity=premise["grade_validity"],
+            delivered=premise["injection_delivered"],
+            capture_complete=premise["capture_complete"],
+        ),
+        condition_record(detectors["ToolCallCondition"]["outcome"]),
+    )
+
+
+def vector_report(tmp_path: Path, case: str) -> tuple[Path, dict[str, Any]]:
+    """Compile a bundle and write the case's report as the probe and its detectors leave it."""
+
+    want = vector(case, "expected.json")
+    turns = vector(case, "snapshot.json")["turns"]
+    texts = tuple(turn["message"] for turn in turns)
+    replies = tuple(turn["reply"] or "" for turn in turns)
+    entries = chain(
+        texts=texts,
+        replies=replies,
+        sealed=vector_trace(case),
+        records=vector_records(case),
+    )
+    return make_bundle(tmp_path, entries, texts=texts, claim_level=want["claim_level"]), want
+
+
+def test_the_vector_copy_is_the_one_midojo_pins() -> None:
+    """The copy these tests read is byte for byte the owner's, and holds nothing else."""
+
+    on_disk = sorted(
+        path.relative_to(VECTORS).as_posix()
+        for path in VECTORS.rglob("*")
+        if path.is_file() and path.name != "MANIFEST.json"
+    )
+    assert on_disk == sorted(VECTOR_MANIFEST["copies"]), "the copy differs from the owner"
+    for name in VECTOR_MANIFEST["copies"]:
+        assert _sha256(VECTORS / name) == VECTOR_MANIFEST["files"][name], name
+
+
+@pytest.mark.parametrize("case", VECTOR_UNDECIDED)
+def test_an_undecided_vector_report_is_never_resisted(tmp_path: Path, case: str) -> None:
+    """Every undecided case reads inconclusive here, with its detector's score unscored."""
+
+    output, want = vector_report(tmp_path, case)
+    receipt = parse(output)
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"]["outcome"] == "inconclusive"
+    assert {item["detector"]: item["outcome"] for item in attempt["detections"]} == {
+        VERDICT_NAME: "inconclusive",
+        CONDITION_NAME: "inconclusive",
+    }
+    assert want["routes"]["garak_report"] == {"outcome": "inconclusive", "score": None}
+
+
+def test_the_control_vector_report_is_resisted(tmp_path: Path) -> None:
+    """The control is the one case this route scores, and it scores 0.0."""
+
+    output, want = vector_report(tmp_path, VECTOR_CONTROL)
+    receipt = parse(output)
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"]["outcome"] == "not_detected"
+    assert receipt["execution_status"] == "completed"
+    graded = {item["detector"]: item["outcome"] for item in attempt["detections"]}
+    assert graded == {VERDICT_NAME: "not_detected", CONDITION_NAME: "not_detected"}
+    assert want["routes"]["garak_report"] == {"outcome": "not_detected", "score": 0.0}
+    report = output / "bundle" / "reports" / f"{SCENARIO}.report.jsonl"
+    sealed = [
+        json.loads(line)
+        for line in report.read_text(encoding="utf-8").splitlines()
+        if json.loads(line)["status"] == SEALED
+    ][-1]
+    assert sealed["detector_results"] == {
+        VERDICT: [0.0],
+        CONDITION_DETECTOR: [0.0],
+    }
+
+
+@pytest.mark.parametrize("case", VECTOR_CASES)
+def test_every_vector_report_names_the_snapshot_it_sealed(tmp_path: Path, case: str) -> None:
+    """The episode block carries the fixture's snapshot, evidence and verdict, uncoerced."""
+
+    output, want = vector_report(tmp_path, case)
+    receipt = parse(output)
+    snapshot = vector(case, "snapshot.json")
+    grade = vector(case, "verdict.json")["grade"]
+    assert receipt["episode"]["snapshot_id"] == snapshot["snapshot_id"]
+    assert receipt["episode"]["evaluation_id"] == snapshot["evaluation_id"]
+    assert receipt["episode"]["evidence_status"] == snapshot["evidence_status"]
+    assert receipt["episode"]["verdict"]["security"] is grade["security"]
+    validity = grade["grade_validity"]["security"]["status"]
+    assert receipt["episode"]["verdict"]["validity"] == validity

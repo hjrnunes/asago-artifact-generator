@@ -260,6 +260,13 @@ Deterministic tests must not contact a model endpoint or target.
   `tests/fixtures/midojo/` holds byte copies of MiDojo's own golden vectors
   (`episode_document/`, `snapshot_digest/vectors.json`), and `tests/fixtures/midojo.lock`
   pins their sha256 and the SDK revision the copies come from, so a diverging copy fails.
+  `tests/fixtures/inconclusive_vectors/` holds the sealed runs MiDojo owns, with its
+  `MANIFEST.json` beside them: four runs MiDojo cannot decide (an unknown grade, an
+  interrupted seal, an incomplete capture and an undelivered payload) and their control,
+  each with the outcome every route owes it. `tests/test_inconclusive_vectors.py` runs them
+  through `parse`, and the Garak package's `test_bundle_garak_ipi_parse.py` runs them through
+  `report_parse`; both check the copy's digests. Refresh the copy with MiDojo's
+  `scripts/sync_inconclusive_vectors.py --write`, never by editing a fixture.
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-bundle-garak/tests -q`.
