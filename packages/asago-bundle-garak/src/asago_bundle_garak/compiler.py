@@ -71,6 +71,7 @@ IPI_TEMPLATE = "garak-ipi-episode"
 IPI_SOURCE = "ipi-episodes.json"
 IPI_PROBE = "ipi_episode.IPIEpisode"
 IPI_DETECTOR = "ipi_episode.EpisodeVerdict"
+IPI_EFFECT = "ipi_episode.EpisodeEffect"
 IPI_METADATA = ("package_id", "scenario_id", "package_digest", "claim_level", "delivery")
 
 
@@ -198,7 +199,7 @@ def ipi_run_template(scenario_id: str) -> dict[str, Any]:
                 }
             },
             "detectors": {
-                "ipi_episode": {"EpisodeVerdict": {}},
+                "ipi_episode": {"EpisodeVerdict": {}, "EpisodeEffect": {}},
                 "toolcall": {"ToolCallCondition": {}},
             },
         },
@@ -220,7 +221,7 @@ def ipi_manifest(
         "package_digest": package.manifest.manifest_digest,
         "claim_level": envelope["claim_level"],
         "delivery": envelope["delivery"],
-        "plugins": [IPI_PROBE, IPI_DETECTOR, detector],
+        "plugins": [IPI_PROBE, IPI_DETECTOR, IPI_EFFECT, detector],
         "requires": requires,
         "environment": _environment(envelope["claim_level"], planted=True),
         "templates": {"conversation": CONVERSATION_TEMPLATE, "run": RUN_TEMPLATE},
@@ -238,7 +239,7 @@ def ipi_manifest(
             "--probes",
             IPI_PROBE,
             "--detectors",
-            f"{IPI_DETECTOR},{detector}",
+            f"{IPI_DETECTOR},{IPI_EFFECT},{detector}",
         ],
         "native_outputs": [f"{REPORTS}/{scenario_id}.report.jsonl"],
     }

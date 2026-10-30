@@ -63,6 +63,7 @@ from .compiler import (
     BUNDLE_FILE,
     CONVERSATIONS,
     IPI_DETECTOR,
+    IPI_EFFECT,
     IPI_TEMPLATE,
     RUN_CONFIG,
     SEQUENTIAL,
@@ -78,6 +79,7 @@ RECORD_NOTES = {
     "ToolCallCondition": "tool_call_condition_results",
     "RubricJudge": "rubric_judge_results",
     "EpisodeVerdict": "episode_verdict_results",
+    "EpisodeEffect": "episode_effect_results",
 }
 # A verdict's own grade; any other value is inconclusive, never resisted.
 GRADES = frozenset({*OUTCOMES.values(), INCONCLUSIVE})
@@ -85,8 +87,10 @@ GRADES = frozenset({*OUTCOMES.values(), INCONCLUSIVE})
 # three values, so a detection outcome never reaches the judge's vocabulary.
 JUDGE_VERDICTS = {"detected": "supported", "not_detected": "contradicted"}
 UNRESOLVED = "unresolved"
-# The detector that grades an episode chain, by its bare plugin name.
+# The detectors that read an episode's sealed grade, by their bare plugin names.
 IPI_VERDICT = IPI_DETECTOR.rsplit(".", 1)[-1]
+IPI_EFFECT_NAME = IPI_EFFECT.rsplit(".", 1)[-1]
+GRADE_READERS = frozenset({IPI_VERDICT, IPI_EFFECT_NAME})
 # The route that drove an IPI report: Garak's own probe, over MiDojo's episode API.
 IPI_ROUTE = "garak.ipi_episode.IPIEpisode"
 # The attack outcomes a grade may state, each null when the grade does not say.
@@ -481,11 +485,33 @@ def ipi_report(
     failures: list[str] = []
     for chain in sorted(chains):
         attempt, failure = ipi_attempt(chains[chain], bundle, records, index=len(attempts))
+        check_source_metadata(attempt, bundle)
         attempts.append(attempt)
         if failure is not None:
             failures.append(failure)
     episode = ipi_episode(next(iter(chains.values()))) if len(chains) == 1 else None
     return attempts, failures[0] if failures else None, episode
+
+
+def check_source_metadata(attempt: dict[str, Any], bundle: Bundle) -> None:
+    """Refuse an attempt whose ``source_metadata`` names another package than the bundle's.
+
+    The probe copies the package the episode came from onto the attempt. A report that
+    names another package or another digest is a report of another run, so a receipt that
+    joined the two would name evidence the run never produced.
+    """
+
+    metadata = attempt.get("source_metadata")
+    if not isinstance(metadata, dict):
+        return
+    for name in ("package_id", "package_digest"):
+        stated = metadata.get(name)
+        wanted = bundle.manifest.get(name)
+        if stated is None or wanted is None or stated == wanted:
+            continue
+        raise ParseError(
+            f"the report's source_metadata {name} {stated!r} is not the bundle's {wanted!r}"
+        )
 
 
 def ipi_episode(turns: list[dict[str, Any]]) -> dict[str, Any]:
@@ -721,7 +747,7 @@ def _judge_verdict(record: dict[str, Any]) -> str:
     ``not_detected``; every other grade supports nothing and contradicts nothing.
     """
 
-    outcome = _verdict_outcome(record, INCONCLUSIVE)
+    outcome = _graded_outcome(record, INCONCLUSIVE)
     if outcome == "detected" and record.get("security") is True:
         return JUDGE_VERDICTS["detected"]
     if (
@@ -778,8 +804,8 @@ def _detection(attempt: dict[str, Any], plugin: str, scores: Any) -> dict[str, A
     score = scores[0] if isinstance(scores, list) and scores else None
     record = _first_record(attempt, name)
     outcome = OUTCOMES.get(score, INCONCLUSIVE)
-    if name == IPI_VERDICT:
-        outcome = _verdict_outcome(record, outcome)
+    if name in GRADE_READERS:
+        outcome = _graded_outcome(record, outcome)
     matched = record.get("matched_calls")
     return {
         "detector": name,
@@ -789,8 +815,8 @@ def _detection(attempt: dict[str, Any], plugin: str, scores: Any) -> dict[str, A
     }
 
 
-def _verdict_outcome(record: dict[str, Any], scored: str) -> str:
-    """Return the grade a verdict record states; an unknown one is inconclusive.
+def _graded_outcome(record: dict[str, Any], scored: str) -> str:
+    """Return the grade an episode detector's record states; an unknown one is inconclusive.
 
     The detector's own score already fails closed (a ``None`` for every undecided case), and
     the record names the case. Reading the record keeps an unknown grade from ever reading

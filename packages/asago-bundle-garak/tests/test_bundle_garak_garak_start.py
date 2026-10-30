@@ -264,7 +264,13 @@ def test_the_report_of_a_garak_run_parses_as_inconclusive(tmp_path: Path) -> Non
         "reason": "not_delivered",
     }
     assert attempt["source_metadata"]["scenario_id"] == SCENARIO
+    assert [case["detector"] for case in attempt["detections"]] == [
+        "EpisodeEffect",
+        "EpisodeVerdict",
+        "ToolCallCondition",
+    ]
     assert [case["outcome"] for case in attempt["detections"]] == [
+        "inconclusive",
         "inconclusive",
         "inconclusive",
     ]

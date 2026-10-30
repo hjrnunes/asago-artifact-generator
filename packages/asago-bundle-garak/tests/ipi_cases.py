@@ -40,6 +40,7 @@ from episode_cases import (  # noqa: E402, F401  the MiDojo adapter's builders, 
 # The probe's class name, as the report's ``probe_classname`` writes it.
 PROBE = "probes.ipi_episode.IPIEpisode"
 VERDICT = "ipi_episode.EpisodeVerdict"
+EFFECT = "ipi_episode.EpisodeEffect"
 CONDITION_DETECTOR = "toolcall.ToolCallCondition"
 SCORES = {"detected": 1.0, "not_detected": 0.0, "inconclusive": None}
 EVALUATION_ID = "evaluation-6f1c"
@@ -60,6 +61,8 @@ def grade(
     validity: str = "valid",
     delivered: Any = True,
     reason: str | None = None,
+    effect: Any = None,
+    blocked: bool = False,
 ) -> dict[str, Any]:
     """MiDojo's grade of one episode, as the trace carries it."""
 
@@ -72,8 +75,8 @@ def grade(
         },
         "injection_delivered": delivered,
         "attempted": True,
-        "blocked": False,
-        "effect_observed": None,
+        "blocked": blocked,
+        "effect_observed": effect,
     }
 
 
@@ -84,6 +87,8 @@ def trace(
     validity: str = "valid",
     delivered: Any = True,
     reason: str | None = None,
+    effect: Any = None,
+    blocked: bool = False,
     capture_complete: bool = True,
     sealed: str = "final",
     error: str | None = None,
@@ -102,7 +107,12 @@ def trace(
             "evaluation_id": EVALUATION_ID,
             "snapshot_id": SNAPSHOT_ID,
             "grade": grade(
-                security=security, validity=validity, delivered=delivered, reason=reason
+                security=security,
+                validity=validity,
+                delivered=delivered,
+                reason=reason,
+                effect=effect,
+                blocked=blocked,
             ),
         },
         "capture_complete": capture_complete,
@@ -181,6 +191,32 @@ def verdict_record(
     }
 
 
+def effect_record(
+    outcome: str,
+    *,
+    reason: str | None = None,
+    detail: str | None = None,
+    security: Any = None,
+    validity: str = "valid",
+    delivered: Any = True,
+    capture_complete: bool = True,
+    effect_observed: Any = None,
+) -> dict[str, Any]:
+    """The ``episode_effect_results`` record the effect detector writes."""
+
+    return {
+        "outcome": outcome,
+        "score": SCORES.get(outcome),
+        "reason": reason,
+        "detail": detail,
+        "security": security,
+        "security_validity": validity,
+        "injection_delivered": delivered,
+        "capture_complete": capture_complete,
+        "effect_observed": effect_observed,
+    }
+
+
 def prompt_turns(texts: tuple[str, ...], replies: tuple[str, ...]) -> list[list[dict[str, Any]]]:
     """Return each attempt's prompt turns: the earlier turns and replies, then its own."""
 
@@ -250,7 +286,8 @@ def chain(
     replies: tuple[str, ...] | None = None,
     sealed: dict[str, Any] | None = None,
     records: tuple[dict[str, Any], ...] = (),
-    metadata: dict[str, Any] | None = METADATA,
+    effect: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
     chain_index: int = 0,
     seq: int = 0,
 ) -> list[dict[str, Any]]:
@@ -258,8 +295,10 @@ def chain(
 
     ``sealed`` is the trace the probe writes when it seals the chain; without one the
     chain ends at its last status-1 attempt, as a run killed before the seal leaves it.
-    ``records`` are the verdict records the detectors write; they go on the status-2
-    attempt, which is the only one Garak evaluates.
+    ``records`` are the verdict and condition records the detectors write, and ``effect``
+    the effect detector's; they go on the status-2 attempt, which is the only one Garak
+    evaluates. A detector with no record is left out of the report, as a run that never
+    loaded it leaves it out.
     """
 
     said = replies if replies is not None else ("Done.",) * len(texts)
@@ -287,13 +326,19 @@ def chain(
     finished["status"] = 2
     finished["seq"] = seq + len(texts)
     notes = dict(finished["notes"])
-    if records:
-        finished["detector_results"] = {
-            VERDICT: [records[0].get("score")],
-            CONDITION_DETECTOR: [records[1].get("score")] if len(records) > 1 else [],
-        }
-        notes["episode_verdict_results"] = [records[0]]
+    results: dict[str, list[Any]] = {}
+    if len(records) > 1:
+        # the probe's own detector runs first, then the extended ones in name order
+        results[CONDITION_DETECTOR] = [records[1].get("score")]
         notes["tool_call_condition_results"] = list(records[1:])
+    if effect is not None:
+        results[EFFECT] = [effect.get("score")]
+        notes["episode_effect_results"] = [effect]
+    if records:
+        results[VERDICT] = [records[0].get("score")]
+        notes["episode_verdict_results"] = [records[0]]
+    if results:
+        finished["detector_results"] = results
     finished["notes"] = notes
     return [*lines, finished]
 

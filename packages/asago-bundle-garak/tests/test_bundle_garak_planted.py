@@ -116,6 +116,7 @@ def test_the_run_template_runs_the_episode_probe_on_the_source_file(
     assert options["upstream"] == value_slot("mcp_url")
     assert sorted(run["plugins"]["detectors"]) == ["ipi_episode", "toolcall"]
     assert run["plugins"]["detectors"]["ipi_episode"]["EpisodeVerdict"] == {}
+    assert run["plugins"]["detectors"]["ipi_episode"]["EpisodeEffect"] == {}
     assert run["plugins"]["detectors"]["toolcall"]["ToolCallCondition"] == {}
     assert run["reporting"] == {
         "report_dir": bundle_slot("reports"),
@@ -137,13 +138,14 @@ def test_the_manifest_names_the_template_the_probe_and_the_detectors(
     assert manifest["plugins"] == [
         "ipi_episode.IPIEpisode",
         "ipi_episode.EpisodeVerdict",
+        "ipi_episode.EpisodeEffect",
         "toolcall.ToolCallCondition",
     ]
     assert manifest["entrypoint"][-4:] == [
         "--probes",
         "ipi_episode.IPIEpisode",
         "--detectors",
-        "ipi_episode.EpisodeVerdict,toolcall.ToolCallCondition",
+        "ipi_episode.EpisodeVerdict,ipi_episode.EpisodeEffect,toolcall.ToolCallCondition",
     ]
     assert source_of(out)[0]["metadata"]["package_digest"] == manifest["package_digest"]
     assert manifest["native_outputs"] == [f"reports/{SCENARIO}.report.jsonl"]
