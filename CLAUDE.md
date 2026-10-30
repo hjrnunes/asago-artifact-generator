@@ -140,6 +140,14 @@ Deterministic tests must not contact a model endpoint or target.
   that same template with the resolved values (`fill_template`, which `instantiate_bundle`
   also uses). The bundle's MCP server is the authorized config's `endpoint.mcp_url`.
   Its CLI `instantiate` requires `--package`, `--target` and `--run`.
+  A `planted_item` package takes the IPI route: `compile --target` writes `ipi-episodes.json`
+  (one `{episode, metadata}` entry, the episode the MiDojo adapter's `episode_document`
+  builds) and a template named `garak-ipi-episode` that runs `ipi_episode.IPIEpisode` and
+  `ipi_episode.EpisodeVerdict` with one generation against that `endpoint.mcp_url`; a package
+  the episode compile cannot place is a `garak`-tooled capability gap. The manifest `files`
+  list names the static bundle files `instantiate` copies in beside the templates. `parse`
+  reads an IPI report into a receipt where an unknown, invalid or undelivered chain is
+  inconclusive, and carries the attempt's `source_metadata`.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It maps a
   `planted_item` package to one MiDojo episode for a target config and parses the sealed
   result; MiDojo runs the episode, and the adapter holds no proxy or interception code. It
