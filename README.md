@@ -986,6 +986,41 @@ asago-bundle-garak instantiate TEMPLATE --package PACKAGE --target target.yaml \
 URLs. The command prints the preparation as JSON and exits 4 when the package cannot
 be prepared. A call without `--package`, `--target` or `--run` is a usage error (exit 2).
 
+## The Garak IPI route
+
+A `planted_item` package takes Garak's IPI route. `compile --target` writes
+`ipi-episodes.json`: one source entry `{episode, metadata}`, where `episode` is the
+episode the MiDojo adapter's `episode_document` builds and `metadata` holds
+`package_id`, `scenario_id`, `package_digest`, `claim_level` and `delivery`. It also
+writes a template named `garak-ipi-episode`, holding `conversation.template.json`,
+`run.template.json` and `bundle.json`. `run.template.json` runs
+`ipi_episode.IPIEpisode` with `ipi_episode.EpisodeVerdict`,
+`ipi_episode.EpisodeEffect` and `toolcall.ToolCallCondition`, one generation per
+attempt with no parallel attempts or requests, and the target's `endpoint.mcp_url` as
+the interceptor's upstream. The bundle's entrypoint is:
+
+```bash
+{tool_python} -m garak --config {bundle}/run.yaml \
+  --target_type openai.OpenAIResponsesGenerator --target_name {model} \
+  --probes ipi_episode.IPIEpisode \
+  --detectors ipi_episode.EpisodeVerdict,ipi_episode.EpisodeEffect,toolcall.ToolCallCondition
+```
+
+The probe plants by response injection through the same host interceptor: MiDojo's
+interceptor sits between the agent and the target's MCP server, forwards each call,
+and places the planted text in the structured result of the carrier tool. It writes
+no `seed.json` into the target, so the target's own data is not changed. A package
+the episode compile cannot place is a `garak`-tooled capability gap.
+
+`parse` reads `reports/<scenario>.report.jsonl` and names the route
+`garak.ipi_episode.IPIEpisode`. It carries each attempt's `source_metadata`, refuses
+a report whose package digest or ID is not the bundle's own, and makes an unknown,
+invalid or undelivered chain inconclusive. A reply episode's `judge.verdict` states
+`supported` for a detection, `contradicted` for a decided resistance, and
+`unresolved` in every other case. A one-chain report also fills the receipt's
+`episode` block with the evaluation and snapshot the probe sealed and their verdict;
+a chain sealed short names its evaluation only.
+
 ## MiDojo episodes
 
 The MiDojo adapter maps a `planted_item` package to one MiDojo episode for one target
@@ -993,15 +1028,17 @@ and reads the sealed result back into a receipt; MiDojo itself runs the episode.
 plants by response injection: MiDojo's host interceptor sits between the agent and the
 target's MCP server, forwards each call (except a write the episode blocks, which it
 refuses and records as blocked), and places the planted text in the structured result
-of the carrier tool. The target's own data is not changed (the Garak adapter plants the
-same text by writing `seed.json` into the target before the run). The adapter reads and
+of the carrier tool. The target's own data is not changed. The Garak adapter reaches
+the same result through the Garak IPI route: its `compile --target` writes
+`ipi-episodes.json`, and Garak's `IPIEpisode` probe plants through the same host
+interceptor. Neither adapter writes a `seed.json` into the target. The adapter reads and
 writes MiDojo's documents through `midojo-sdk`, which `pyproject.toml` pins by commit to
 `m90/main` at `40707ab` (subdirectory `interception/python-sdk`), and it never imports
 `midojo`: the episode schema, the plan and the snapshot digest are the SDK's
 (`midojo_sdk.episode_schema`, `midojo_sdk.injection` and `midojo_sdk.snapshot`). The
 runner runs the episode with the same revision, `m90/main` at `40707ab`. It reads the
-v1 episode document (`8e8208f` was the first revision that did): `midojo.open_episode`
-with `HostInterception`
+v1 episode document (`8e8208f` was the first revision that did):
+`midojo.episode_handle.open` with `HostInterception`
 (`src/midojo/interception_host.py`), `midojo.grade`
 (`src/midojo/control_plane/grading.py`), and, for a reply episode, MiDojo's `reply_judge`
 (`src/midojo/verifiers/judge.py`).
@@ -1010,9 +1047,10 @@ with `HostInterception`
 asago-bundle-midojo compile PACKAGE --out EPISODE_DIR --target target.yaml \
   [--block TOOL ...] [--judge-turns final|all]
 # the runner builds the Episode from EPISODE_DIR/episode.json and opens it with
-# midojo.open_episode(..., interception=HostInterception(upstream=<the target's
-# endpoint.mcp_url>)), seals it, grades the snapshot with midojo.grade, and may write
-# delivery.json from midojo.delivery; a reply episode's grade asks the judge service
+# midojo.episode_handle.open(..., interception=HostInterception(upstream=<the
+# target's endpoint.mcp_url>)), seals it, grades the snapshot with midojo.grade,
+# and may write delivery.json from midojo.delivery; a reply episode's grade asks
+# the judge service
 JUDGE_MODEL_URL=http://127.0.0.1:8001/v1 JUDGE_MODEL=judge-name OPENAICOMPATIBLE_API_KEY=... \
 JUDGE_SERVICE_TOKEN=... asago-bundle-midojo judge-serve [--port 8780]
 asago-bundle-midojo parse EPISODE_DIR --snapshot snapshot.json --verdict verdict.json \
