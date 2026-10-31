@@ -170,15 +170,29 @@ def test_each_compiled_episode_is_a_document_of_midojo_s_v1_schema(
 def test_every_compiled_fixture_episode_is_a_document_of_midojo_s_v1_schema() -> None:
     """The episodes kept as fixtures stay valid too, so a reader never meets an old form."""
 
-    episodes = [
-        path
-        for path in sorted(FIXTURES.rglob("episode.json"))
+    episodes = {
+        path.relative_to(FIXTURES).as_posix()
+        for path in FIXTURES.rglob("episode.json")
         if "episode-a5f81e9" not in path.parts
-    ]
+    }
 
-    assert len(episodes) == 12
-    for path in episodes:
-        document = json.loads(path.read_text(encoding="utf-8"))
+    # name every fixture, so adding or losing one is a visible decision rather than a count
+    assert episodes == {
+        "episode/command-blocked/episode.json",
+        "episode/command-sequential/episode.json",
+        "episode/command-single/episode.json",
+        "episode/reply-single/episode.json",
+        "placed-a19562e/note-generated/episode.json",
+        "placed-a19562e/note/episode.json",
+        "placed-a19562e/referral-generated/episode.json",
+        "placed-a19562e/referral/episode.json",
+        "reply-judge-246dc73/episode.json",
+        "reply-judge-4e5176a/episode.json",
+        "result-record/education/episode.json",
+        "result-record/referral/episode.json",
+    }, "the fixtures under episode-a5f81e9 hold the v0 wrapper and are read elsewhere"
+    for path in sorted(episodes):
+        document = json.loads((FIXTURES / path).read_text(encoding="utf-8"))
         assert document["schema_version"] == ENVELOPE_SCHEMA, path
         jsonschema.validate(document["episode"], load_schema())
 
