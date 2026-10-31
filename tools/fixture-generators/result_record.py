@@ -3,7 +3,9 @@
 Run with MiDojo's interpreter at c0bee12 (see ``tests/result_record_cases.py``), naming
 that revision, since the interpreter may run from an export with no Git history::
 
-    uv run --frozen --extra dev python generate.py <midojo revision> <dir of <case>/episode.json>
+    uv run --frozen --extra dev python \
+        <consumer>/tools/fixture-generators/result_record.py \
+        <midojo revision> <dir of <case>/episode.json>
 
 For each case it builds ``midojo.episode.Episode`` from ``episode.json`` field by field,
 the plan with MiDojo's own ``InjectionPlan.from_data``, and checks that the episode written
@@ -153,8 +155,8 @@ def check_capability(built: Episode) -> None:
 
 
 async def run(built: Episode, document: dict[str, Any], calls: list[Call], reply: str) -> Any:
-    assert document["interception"] == {"mode": "host", "upstream": "endpoint.mcp_url"}
-    allowed = document["tools"]["allowed"]
+    assert document["episode"]["interception"] == {"mode": "host", "upstream": None}
+    allowed = document["episode"]["tools"]["allowed"]
 
     async def send(ep: Any, _message: str) -> str:
         endpoint = ep.binding.tool_endpoint

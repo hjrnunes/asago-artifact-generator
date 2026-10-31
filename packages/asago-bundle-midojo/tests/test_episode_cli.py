@@ -50,7 +50,7 @@ def test_compile_blocks_each_tool_block_names(tmp_path: Path) -> None:
     assert main(compile_args(package, tmp_path / "out", "--block", "withdraw")) == 0
 
     document = json.loads((tmp_path / "out/episode.json").read_text(encoding="utf-8"))
-    assert document["tools"]["write_disposition"] == {
+    assert document["episode"]["tools"]["write_disposition"] == {
         "default": "forward",
         "tools": {"withdraw": "block"},
     }

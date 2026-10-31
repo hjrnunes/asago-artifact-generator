@@ -6,10 +6,13 @@ build-backend = "hatchling.build"
 name = "asago-bundle-midojo"
 version = "0.1.0"
 description = "MiDojo adapter: compiles a planted_item artifact package into a response-injection MiDojo episode for a target and parses its sealed snapshot and verdict into an execution receipt"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "asago-artifact-generator",
     "asago-bundle-core",
+    # The SDK alone: it carries episode document v1's schema and the snapshot digest, and it
+    # imports no part of the harness.
+    "midojo-sdk",
 ]
 
 [project.scripts]

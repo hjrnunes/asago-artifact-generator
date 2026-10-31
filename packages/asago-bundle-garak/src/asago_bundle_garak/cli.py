@@ -3,7 +3,8 @@
 Exit codes: 0 done, 1 the input cannot be used (including a target config
 not authorized for a run), 2 usage error, 3 capability gap (``compile`` only:
 Garak cannot deliver the package, such as a sequential history holding a
-message other than a user turn), 4 the package could not be prepared
+message other than a user turn, or a planted item the episode compiler cannot
+place), 4 the package could not be prepared
 (``instantiate`` only). ``instantiate`` prints its preparation as JSON on
 stdout: the setup ledger, bindings and prerequisites, or the incomplete reason.
 """
@@ -43,6 +44,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     compile_cmd.add_argument("package", type=Path, help="artifact package directory")
     compile_cmd.add_argument("--out", type=Path, required=True, help="new template directory")
+    compile_cmd.add_argument(
+        "--target",
+        type=Path,
+        help=f"the target's target.yaml, required for a planted_item package; its "
+        f"{AUTHORIZATION_FIELD} must be one of {', '.join(AUTHORIZED_KINDS)}",
+    )
     compile_cmd.set_defaults(handler=_compile)
     instantiate_cmd = commands.add_parser(
         "instantiate",
@@ -99,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _compile(args: argparse.Namespace) -> int:
     try:
-        compile(args.package, args.out)
+        compile(args.package, args.out, target=args.target)
     except CapabilityGap as gap:
         print(json.dumps(gap.record, indent=2, sort_keys=True))
         return EXIT_CAPABILITY_GAP

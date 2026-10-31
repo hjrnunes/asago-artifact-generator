@@ -5,7 +5,7 @@ essentials for getting started.
 
 ## Prerequisites
 
-- Python 3.11 or newer
+- Python 3.12 or newer
 - [uv](https://docs.astral.sh/uv/) for dependency management
 
 ## Setup

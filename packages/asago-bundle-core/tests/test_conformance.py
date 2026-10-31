@@ -211,6 +211,10 @@ class FakeAdapter:
     def parse(self, bundle: Path, out: Path) -> dict[str, Any]:
         manifest = json.loads((bundle / "bundle.json").read_text())
         report = bundle / manifest["native_outputs"][0]
+        if not report.is_file() and "native-missing-refused" in self.flaws:
+            raise FakeError(f"the report does not exist: {report}")
+        if not report.is_file() and "native-missing-refused-silently" in self.flaws:
+            raise FakeError("")
         failed = not report.is_file() and "native-missing-ok" not in self.flaws
         reason = None if "no-reason" in self.flaws else "report_missing"
         receipt = {
@@ -261,6 +265,14 @@ def round_trip(
 
 def test_a_faithful_adapter_has_no_failures(tmp_path: Path, package: Path) -> None:
     assert round_trip(tmp_path, package) == []
+
+
+def test_an_adapter_may_refuse_a_missing_native_output_by_name(
+    tmp_path: Path, package: Path
+) -> None:
+    # Unusable input can be refused rather than written up as a failed run, as
+    # long as the refusal says what is missing.
+    assert round_trip(tmp_path, package, "native-missing-refused") == []
 
 
 def test_each_check_runs_on_its_own(tmp_path: Path, package: Path) -> None:
@@ -317,6 +329,11 @@ def test_each_check_runs_on_its_own(tmp_path: Path, package: Path) -> None:
             "no-reason",
             "without its native output gave no incomplete_reason",
             id="parse-no-reason",
+        ),
+        pytest.param(
+            "native-missing-refused-silently",
+            "without its native output was refused without naming why",
+            id="parse-native-missing-refused-silently",
         ),
         pytest.param("gap-bad-digest", "gap record package_digest", id="gap-bad-digest"),
         pytest.param("gap-missing-field", "gap record fields", id="gap-missing-field"),

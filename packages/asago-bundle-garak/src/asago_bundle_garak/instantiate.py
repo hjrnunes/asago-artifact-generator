@@ -69,10 +69,12 @@ def instantiate_bundle(
 
 @dataclass(frozen=True)
 class Template:
-    """A bundle template ``read_template`` checked: its manifest and its two documents."""
+    """A bundle template ``read_template`` checked: its manifest, documents and files."""
 
     manifest: dict[str, Any]
     documents: dict[str, Any]
+    files: tuple[str, ...] = ()
+    root: Path | None = None
 
 
 def read_template(template_dir: str | Path) -> Template:
@@ -85,8 +87,10 @@ def read_template(template_dir: str | Path) -> Template:
     and every ``$bundle`` a relative path inside the bundle. ``requires`` must list exactly
     the ``$value`` keys plus the entrypoint's value keys (``ENTRYPOINT_VALUES``), each one
     this adapter checks (``check_for``), and the entrypoint may hold no placeholder
-    ``render_entrypoint`` does not render besides ``{tool_python}``. What is left to
-    ``fill_template`` is the values themselves.
+    ``render_entrypoint`` does not render besides ``{tool_python}``. A manifest that lists
+    ``files`` must name only files that exist beside the templates, and instantiate copies
+    them into the bundle unchanged. What is left to ``fill_template`` is the values
+    themselves.
     """
 
     template = Path(template_dir)
@@ -102,6 +106,10 @@ def read_template(template_dir: str | Path) -> Template:
     for name in names.values():
         if not _inside(name):
             raise InstantiateError(f"template file {name!r} is outside the template directory")
+    files = manifest.get("files", [])
+    problem = _files_problem(template, files, set(names.values()))
+    if problem:
+        raise InstantiateError(f"{BUNDLE_FILE} {problem}")
     requires = manifest["requires"]
     unknown = sorted(key for key in requires if check_for(key) is None)
     if unknown:
@@ -131,7 +139,7 @@ def read_template(template_dir: str | Path) -> Template:
             f"{BUNDLE_FILE} requires does not match what the templates and the entrypoint "
             f"use: unused {sorted(set(requires) - used)}, unlisted {sorted(used - set(requires))}"
         )
-    return Template(manifest, documents)
+    return Template(manifest, documents, tuple(files), template)
 
 
 def fill_template(
@@ -144,17 +152,16 @@ def fill_template(
     """
 
     check_values(template.manifest["requires"], values, check_for, InstantiateError)
-    return _write_bundle(template.manifest, template.documents, values, out_dir)
+    return _write_bundle(template, values, out_dir)
 
 
 def _write_bundle(
-    manifest: dict[str, Any],
-    documents: dict[str, Any],
-    values: dict[str, Any],
-    out_dir: str | Path,
+    template: Template, values: dict[str, Any], out_dir: str | Path
 ) -> dict[str, Any]:
-    """Fill the conversation and run documents with checked values and write the bundle."""
+    """Fill a template's documents with checked values, write the bundle and copy its files."""
 
+    manifest = template.manifest
+    documents = template.documents
     out = Path(out_dir).resolve()
 
     def resolve(kind: str, argument: Any) -> Any:
@@ -176,6 +183,10 @@ def _write_bundle(
             BUNDLE_FILE: canonical_text(concrete),
         },
     )
+    for name in template.files:
+        target = out / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((template.root / name).read_bytes())
     (out / REPORTS).mkdir()
     return concrete
 
@@ -187,6 +198,25 @@ def _inside(name: Any) -> bool:
         return False
     path = PurePosixPath(name)
     return not path.is_absolute() and not name.startswith("\\") and ".." not in path.parts
+
+
+def _files_problem(root: Path, files: Any, templates: set[str]) -> str | None:
+    """Return what is wrong with the manifest's static ``files``, or None."""
+
+    if not isinstance(files, list) or not all(isinstance(name, str) for name in files):
+        return "files must be a list of names"
+    seen: set[str] = set()
+    for name in files:
+        if not _inside(name):
+            return f"file {name!r} is outside the template directory"
+        if name == BUNDLE_FILE or name in templates:
+            return f"file {name!r} is also a template or the manifest"
+        if name in seen:
+            return f"file {name!r} is listed twice"
+        seen.add(name)
+        if not (root / name).is_file():
+            return f"file {name!r} is missing from the template directory"
+    return None
 
 
 def _slot_problem(document: Any) -> str | None:
