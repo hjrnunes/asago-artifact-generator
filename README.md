@@ -1008,9 +1008,16 @@ the interceptor's upstream. The bundle's entrypoint is:
 
 The probe plants by response injection through the same host interceptor: MiDojo's
 interceptor sits between the agent and the target's MCP server, forwards each call,
-and places the planted text in the structured result of the carrier tool. It writes
-no `seed.json` into the target, so the target's own data is not changed. A package
-the episode compile cannot place is a `garak`-tooled capability gap.
+and places the planted text in the structured result of the carrier tool. The probe
+writes no `seed.json` itself. Orch seeds the target for a Garak item: it writes the
+package's `seed.json` bytes as the target's seed file
+(`runtime_state/<target>/target-seed.json`) and starts the target with the
+arguments its config's `start_seed` names, so the target's records hold the planted
+text before the first turn and the launcher receipt's `seed` record says
+`delivery: start` (or `command`). Because the target was seeded beside the episode,
+`comparison.json` records the Garak item's payload coverage as `unknown`, with the
+reason `the target was seeded beside the episode`. A package the episode compile
+cannot place is a `garak`-tooled capability gap.
 
 `parse` reads `reports/<scenario>.report.jsonl` and names the route
 `garak.ipi_episode.IPIEpisode`. It carries each attempt's `source_metadata`, refuses
@@ -1028,10 +1035,15 @@ and reads the sealed result back into a receipt; MiDojo itself runs the episode.
 plants by response injection: MiDojo's host interceptor sits between the agent and the
 target's MCP server, forwards each call (except a write the episode blocks, which it
 refuses and records as blocked), and places the planted text in the structured result
-of the carrier tool. The target's own data is not changed. The Garak adapter reaches
-the same result through the Garak IPI route: its `compile --target` writes
-`ipi-episodes.json`, and Garak's `IPIEpisode` probe plants through the same host
-interceptor. Neither adapter writes a `seed.json` into the target. The adapter reads and
+of the carrier tool. The target's own data is not changed, because orch starts the
+target plain for a MiDojo item: it writes no seed file and runs no seed command
+(`tool_places_seed`), so the interceptor's placements are the only planted text. The
+Garak adapter reaches the same result through the Garak IPI route: its
+`compile --target` writes `ipi-episodes.json`, and Garak's `IPIEpisode` probe plants
+through the same host interceptor. Neither adapter writes a `seed.json` into the
+target; for a Garak item orch writes the package's seed file and the target plants
+it before it serves (see [The Garak IPI route](#the-garak-ipi-route)). The adapter
+reads and
 writes MiDojo's documents through `midojo-sdk`, which `pyproject.toml` pins by commit to
 `m90/main` at `40707ab` (subdirectory `interception/python-sdk`), and it never imports
 `midojo`: the episode schema, the plan and the snapshot digest are the SDK's
