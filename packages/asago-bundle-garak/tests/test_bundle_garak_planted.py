@@ -111,8 +111,8 @@ def test_the_run_template_runs_the_episode_probe_on_the_source_file(
     assert run["run"]["generations"] == 1
     assert list(run["plugins"]["generators"]["openai"]) == ["OpenAIResponsesGenerator"]
     options = run["plugins"]["probes"]["ipi_episode"]["IPIEpisode"]
-    assert options["episode_source"] == bundle_slot(SOURCE)
     assert options["source_path"] == bundle_slot(SOURCE)
+    assert set(options) == {"source_path", "upstream"}, "one name for the source file"
     assert options["upstream"] == value_slot("mcp_url")
     assert sorted(run["plugins"]["detectors"]) == ["ipi_episode", "toolcall"]
     assert run["plugins"]["detectors"]["ipi_episode"]["EpisodeVerdict"] == {}

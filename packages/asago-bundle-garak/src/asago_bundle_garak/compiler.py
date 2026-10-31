@@ -189,10 +189,7 @@ def ipi_run_template(scenario_id: str) -> dict[str, Any]:
             "probes": {
                 "ipi_episode": {
                     "IPIEpisode": {
-                        # ``episode_source`` is the parameter the probe reads; ``source_path``
-                        # is the name the design gives it, and an unknown parameter is
-                        # ignored, so both name the same file.
-                        "episode_source": bundle_slot(IPI_SOURCE),
+                        # ``source_path`` is the parameter the probe reads
                         "source_path": bundle_slot(IPI_SOURCE),
                         "upstream": value_slot("mcp_url"),
                     }
