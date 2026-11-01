@@ -5,7 +5,8 @@ The clinic fixture target (``fixtures/targets/clinic/``) declares ``get_referral
 property of the result. ``fixtures/result-record/<case>/`` holds what compile wrote for
 each case of ``result_record_cases.CLINIC_CASES``, and each scenario under it the snapshot
 and verdict MiDojo sealed and graded from that episode at c0bee12, its host interceptor in
-front of a scripted upstream of the clinic's shape (``fixtures/result-record/generate.py``,
+front of a scripted upstream of the clinic's shape (``tools/fixture-generators/
+result_record.py``,
 which also loads the plan with MiDojo's ``InjectionPlan.from_data`` and checks MiDojo's
 host interceptor declares ``result_record``). The other carrier shapes below copy the
 declarations of real single-record and list carriers, cut to what placement reads.
@@ -36,11 +37,7 @@ from asago_bundle_core.conformance import check_gap
 from asago_bundle_core.gap import CapabilityGap
 from asago_bundle_midojo.cli import main
 from asago_bundle_midojo.declared import DeclaredTools
-from asago_bundle_midojo.episode_compile import (
-    RESULT_RECORD_REVISION_RANGE,
-    TOOL_REVISION_RANGE,
-    compile_episode,
-)
+from asago_bundle_midojo.episode_compile import TOOL_REVISION_RANGE, compile_episode
 from asago_bundle_midojo.placement import Placement, gap_reason, locate
 from asago_bundle_midojo.sealed import parse_sealed
 from conftest import RECEIPT_SCHEMA
@@ -98,7 +95,7 @@ def test_a_record_named_in_the_result_only_is_matched_by_the_result(
     }
     assert instruction["payload"] == CLINIC_PLANTED
     assert instruction["occurrence"] == {"kind": "every", "nth": None}
-    assert document["tool_revision_range"] == RESULT_RECORD_REVISION_RANGE == ">=c0bee126"
+    assert document["tool_revision_range"] == TOOL_REVISION_RANGE == ">=8e8208f"
     assert document["placements"] == [
         {
             "instruction": 0,
@@ -111,16 +108,20 @@ def test_a_record_named_in_the_result_only_is_matched_by_the_result(
     ]
 
 
-def test_an_episode_without_a_result_record_keeps_the_earlier_range() -> None:
-    """Every compiled fixture under ``fixtures/episode*`` names the earlier range unchanged."""
+def test_every_compiled_fixture_names_one_range() -> None:
+    """Every fixture compiled now names the one range compile writes, whatever it targets.
 
-    assert TOOL_REVISION_RANGE == ">=b5b8c752"
-    for root in sorted(FIXTURES.glob("episode*")):
+    ``fixtures/episode-a5f81e9/`` is not swept: it keeps what compile wrote at a5f81e9 beside
+    the snapshots MiDojo sealed then, so it is read as the v0 envelope and never compared with
+    a compile.
+    """
+
+    assert TOOL_REVISION_RANGE == ">=8e8208f"
+    roots = [FIXTURES / "episode", FIXTURES / "placed-a19562e", FIXTURES / "result-record"]
+    for root in roots:
         for episode in sorted(root.glob("*/episode.json")):
             document = json.loads(episode.read_text(encoding="utf-8"))
-            targets = [item["target"] for item in document["episode"]["plan"]["instructions"]]
-            assert all("result_record" not in target for target in targets)
-            assert document["tool_revision_range"] in (">=b5b8c752", ">=a5f81e96")
+            assert document["tool_revision_range"] == TOOL_REVISION_RANGE
 
 
 def _clinic_variant(tmp_path: Path, output: dict[str, Any]) -> Path:
@@ -375,4 +376,4 @@ def test_midojo_placed_the_payload_only_in_the_result_of_the_planted_record() ->
 
 
 def test_the_fixture_names_the_revision_midojo_sealed_it_at() -> None:
-    assert RECORDING["midojo_revision"].startswith(RESULT_RECORD_REVISION_RANGE[2:])
+    assert RECORDING["midojo_revision"] == "c0bee1266f51a18a9383fb8edd4cbb7b55217d9a"

@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "asago-bundle-core"
 version = "0.1.0"
 description = "Shared core of the tool adapters: the tool-bundle-v1 schema, slot markers, capability-gap record, error base class and adapter conformance helper"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "asago-artifact-generator",
     "jsonschema>=4.0",

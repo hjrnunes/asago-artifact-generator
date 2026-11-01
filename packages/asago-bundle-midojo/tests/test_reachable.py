@@ -139,7 +139,7 @@ def test_a_record_an_allowed_tool_without_arguments_lists_is_reached(tmp_path: P
 
     document = compile_episode(package, tmp_path / "out", target=TARGET)
 
-    assert document["tools"]["allowed"] == ["list_notes", "read_note"]
+    assert document["episode"]["tools"]["allowed"] == ["list_notes", "read_note"]
 
 
 def test_a_listing_tool_that_needs_an_argument_does_not_reach_the_record(tmp_path: Path) -> None:
@@ -224,7 +224,7 @@ def test_a_listing_tool_whose_input_schema_takes_no_argument_reaches_the_record(
 
     document = compile_episode(package, tmp_path / "out", target=target)
 
-    assert document["tools"]["allowed"] == ["list_notes", "read_note"]
+    assert document["episode"]["tools"]["allowed"] == ["list_notes", "read_note"]
 
 
 def test_a_listing_tool_the_package_does_not_allow_does_not_reach_the_record(

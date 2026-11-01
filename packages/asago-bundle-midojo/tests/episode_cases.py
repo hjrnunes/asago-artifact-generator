@@ -5,7 +5,8 @@ piggybank``): their runtime contract holds its seed slot, their inventory its to
 case is one package; ``fixtures/episode/<case>/`` holds what ``compile`` writes for it with
 that target's ``target.yaml``, and each scenario directory under it a sealed snapshot and its
 verdict, which MiDojo produced from that episode with its host interceptor in front of the
-fixture target (``fixtures/episode/generate.py``), at asago/main 3824922: each call record
+fixture target (``tools/fixture-generators/episode.py``), at asago/main 3824922: each call
+record
 carries its ``structured_content`` and ``injection_outcomes``. ``fixtures/episode-a5f81e9/``
 keeps what compile wrote and MiDojo sealed at a5f81e9, before those fields, so a snapshot
 sealed then still parses. When the range moved to ``>=b5b8c752`` the episodes were
@@ -17,25 +18,26 @@ not the fixture target's ``read_note`` and its slot. To regenerate:
     uv run python packages/asago-bundle-midojo/tests/episode_cases.py <empty dir>
     cd <midojo checkout at 3824922> && uv sync --frozen --extra dev && \\
         uv run --frozen --extra dev python \\
-        <consumer>/packages/asago-bundle-midojo/tests/fixtures/episode/generate.py <that dir>
+        <consumer>/tools/fixture-generators/episode.py <that dir>
 
-then copy ``<that dir>`` over ``fixtures/episode/`` (``generate.py`` stays).
+then copy ``<that dir>`` over ``fixtures/episode/``.
 ``fixtures/episode/reply-single/`` keeps the reply episode as compile wrote it then, with the
 rubric verifier it copied beside it; compile now writes a ``reply_judge`` check instead, and
 ``fixtures/reply-judge-4e5176a/`` holds that episode and MiDojo 4e5176a's grades of the same
-reply runs (its ``generate.py`` says how to regenerate). Regenerating ``fixtures/episode/``
-needs a MiDojo that has ``reply_judge`` and the judge service running for the reply case.
+reply runs (``tools/fixture-generators/reply_judge_4e5176a.py`` says how to regenerate).
+Regenerating ``fixtures/episode/`` needs a MiDojo that has ``reply_judge`` and the judge
+service running for the reply case.
 ``fixtures/episode-a5f81e9/`` was made the same way with a MiDojo checkout at a5f81e9,
 when compile wrote ``tool_revision_range`` ``>=a5f81e96``; it is kept as sealed, not
 regenerated.
 
 ``fixtures/regraded-13d5487/`` runs no episode: MiDojo at 13d5487 reads each run of
 ``fixtures/episode/`` in its own snapshot form, grades it and computes its delivery facts
-(``regrade.py`` says what each file is). To regenerate, with a MiDojo export or checkout at
-13d5487 (``uv sync --frozen --extra dev`` there first)::
+(``tools/fixture-generators/regraded_13d5487.py`` says what each file is). To regenerate,
+with a MiDojo export or checkout at 13d5487 (``uv sync --frozen --extra dev`` there first)::
 
     cd <that MiDojo tree> && uv run --frozen --extra dev python \\
-        <consumer>/packages/asago-bundle-midojo/tests/fixtures/regraded-13d5487/regrade.py \\
+        <consumer>/tools/fixture-generators/regraded_13d5487.py \\
         <the full 13d5487 SHA> <consumer>/packages/asago-bundle-midojo/tests/fixtures/episode \\
         <consumer>/packages/asago-bundle-midojo/tests/fixtures/regraded-13d5487
 """

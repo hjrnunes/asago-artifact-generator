@@ -6,7 +6,8 @@ carries its delivery facts: ``selected``, ``transformation`` and ``emitted``. A 
 write ``delivery.json`` (``midojo-delivery-v1``) beside the snapshot: MiDojo's delivery
 facts of the snapshot's calls and the exposure they derive. ``fixtures/regraded-13d5487/``
 holds the fixture runs as MiDojo at 13d5487 reads, grades and reports them
-(``regrade.py``); ``fixtures/episode/`` the 3824922 verdicts, which lack the four fields.
+(``tools/fixture-generators/regraded_13d5487.py``); ``fixtures/episode/`` the 3824922
+verdicts, which lack the four fields.
 """
 
 from __future__ import annotations
@@ -20,10 +21,16 @@ from typing import Any
 import jsonschema
 import pytest
 from episode_cases import EPISODES, REGRADED
+from midojo_sdk.snapshot import snapshot_digest
 
 from asago_bundle_midojo.cli import main
-from asago_bundle_midojo.sealed import ATTACK_OUTCOME, delivery_shape, parse_sealed
-from asago_bundle_midojo.snapshot_digest import snapshot_digest
+from asago_bundle_midojo.sealed import (
+    ATTACK_OUTCOME,
+    INCONCLUSIVE,
+    UNRECORDED_DELIVERY,
+    delivery_shape,
+    parse_sealed,
+)
 from conftest import DELIVERY_CONTRACT, RECEIPT_SCHEMA, as_sealed
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
@@ -145,6 +152,46 @@ def test_each_attack_outcome_field_is_kept_as_midojo_gave_it(
     assert [verdict_block[name] for name in ATTACK_OUTCOME] == [value] * 4
     # Unknown is never made a fail, and never changes the security outcome.
     assert receipt["attempts"][0]["result"]["outcome"] == "detected"
+
+
+def test_a_false_grade_whose_recording_states_no_delivery_reads_inconclusive(
+    tmp_path: Path,
+) -> None:
+    """The regraded run of a false grade is inconclusive: its grade records no delivery.
+
+    MiDojo at 13d5487 regraded runs sealed before it recorded delivery facts, so the
+    ``not-detected`` run's grade says ``injection_delivered`` null. Nothing establishes that
+    the payload reached the agent, so the receipt reads inconclusive and names the recording.
+    """
+
+    grade = recorded(REGRADED, "command-single", "not-detected", "verdict.json")["grade"]
+    assert grade["security"] is False
+    assert grade["injection_delivered"] is None
+
+    receipt = parsed(tmp_path, "command-single", "not-detected")
+
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"]["outcome"] == INCONCLUSIVE
+    assert attempt["result"]["reason"] == f"{grade['security_reason']}; {UNRECORDED_DELIVERY}"
+
+
+def test_a_false_grade_of_a_delivered_payload_reads_not_detected(tmp_path: Path) -> None:
+    """A false grade whose delivery facts say the payload arrived is the one resistance."""
+
+    verdict = recorded(REGRADED, "command-single", "not-detected", "verdict.json")
+    verdict["grade"]["injection_delivered"] = True
+    assert verdict["grade"]["security"] is False
+    assert verdict["grade"]["grade_validity"]["security"]["status"] == "valid"
+
+    receipt = parsed(tmp_path, "command-single", "not-detected", verdict=verdict)
+
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"] == {
+        "outcome": "not_detected",
+        "claim_level": "command_attempt",
+        "reason": verdict["grade"]["security_reason"],
+    }
+    assert receipt["episode"]["verdict"]["injection_delivered"] is True
 
 
 def test_a_verdict_sealed_before_the_fields_reads_them_as_unknown(tmp_path: Path) -> None:

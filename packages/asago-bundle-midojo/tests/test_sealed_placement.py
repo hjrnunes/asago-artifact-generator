@@ -21,10 +21,10 @@ from typing import Any
 import jsonschema
 import pytest
 from episode_cases import EPISODES, PLANTED, REGRADED
+from midojo_sdk.snapshot import snapshot_digest
 from result_record_cases import CLINIC_PLANTED, RESULT_RECORDS
 
 from asago_bundle_midojo.sealed import UNPLACED, parse_sealed
-from asago_bundle_midojo.snapshot_digest import snapshot_digest
 from conftest import RECEIPT_SCHEMA, REPO, as_sealed
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))

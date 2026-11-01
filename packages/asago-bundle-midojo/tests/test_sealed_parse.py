@@ -3,7 +3,7 @@
 Every snapshot and verdict under ``fixtures/episode/<case>/<scenario>/`` is what MiDojo
 wrote at 3824922 when it ran that case's episode with its host interceptor in front of the
 fixture target, a scripted agent calling the tools through the interceptor, and graded it
-with ``midojo.grade`` (``fixtures/episode/generate.py``); ``recording.json`` lists the
+with ``midojo.grade`` (``tools/fixture-generators/episode.py``); ``recording.json`` lists the
 security grade each got and the interceptor's injection outcomes. ``fixtures/
 episode-a5f81e9/`` holds the same runs sealed at a5f81e9, whose call records have neither
 ``structured_content`` nor ``injection_outcomes``.
@@ -19,16 +19,18 @@ from typing import Any
 import jsonschema
 import pytest
 from episode_cases import EPISODES, EPISODES_A5F81E9, PLANTED, SEQUENTIAL_TURNS, SINGLE_TURNS
+from midojo_sdk.snapshot import canonical, dumps, snapshot_digest
 
 from asago_bundle_midojo.route import ROUTES
 from asago_bundle_midojo.sealed import (
+    INCONCLUSIVE,
     INJECTION_STATUSES,
     UNPLACED,
+    UNRECORDED_DELIVERY,
     ParseError,
     compiled_digest,
     parse_sealed,
 )
-from asago_bundle_midojo.snapshot_digest import canonical, dumps, snapshot_digest
 from conftest import RECEIPT_SCHEMA, as_sealed
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
@@ -56,6 +58,13 @@ ALL_SCENARIOS = [
     for scenario in sorted(scenarios)
 ]
 OUTCOMES = {True: "detected", False: "not_detected", None: "inconclusive"}
+# The runs whose false grade states no delivery fact: MiDojo sealed them before it recorded
+# one, so the parse owes them inconclusive and never the not_detected the grade alone
+# suggests. This is a recording made before delivery facts, not an episode with no injection.
+UNDECIDED_DELIVERY = {
+    ("3824922", "command-single", "not-detected"),
+    ("a5f81e9", "command-single", "not-detected"),
+}
 
 
 def recorded(case: str, scenario: str, name: str, *, root: Path = EPISODES) -> Any:
@@ -101,17 +110,43 @@ def parsed(
 
 
 @pytest.mark.parametrize(("revision", "case", "scenario"), ALL_SCENARIOS)
-def test_each_recorded_run_gives_a_valid_receipt_with_midojo_s_three_valued_grade(
+def test_each_recorded_run_gives_a_valid_receipt_with_the_outcome_its_grade_and_delivery_owe(
     tmp_path: Path, revision: str, case: str, scenario: str
 ) -> None:
     security = RECORDINGS[revision]["scenarios"][case][scenario]["security"]
+    outcome = (
+        INCONCLUSIVE if (revision, case, scenario) in UNDECIDED_DELIVERY else OUTCOMES[security]
+    )
 
     receipt = parsed(tmp_path, case, scenario, root=SETS[revision])
 
     (attempt,) = receipt["attempts"]
-    assert attempt["result"]["outcome"] == OUTCOMES[security]
-    assert [item["outcome"] for item in attempt["detections"]] == [OUTCOMES[security]]
+    assert attempt["result"]["outcome"] == outcome
+    assert [item["outcome"] for item in attempt["detections"]] == [outcome]
     assert receipt["episode"]["verdict"]["security"] is security
+
+
+@pytest.mark.parametrize(("revision", "case", "scenario"), sorted(UNDECIDED_DELIVERY))
+def test_a_run_sealed_before_the_delivery_facts_reads_inconclusive(
+    tmp_path: Path, revision: str, case: str, scenario: str
+) -> None:
+    """The grade is false and valid, and nothing records a delivery, so nothing was resisted.
+
+    MiDojo sealed these runs before it recorded whether the payload reached the agent: their
+    grade states no delivery fact. The parse owes them inconclusive and names the recording.
+    """
+
+    grade = recorded(case, scenario, "verdict.json", root=SETS[revision])["grade"]
+    assert grade["security"] is False
+    assert grade["grade_validity"]["security"]["status"] == "valid"
+    assert grade.get("injection_delivered") is not True
+
+    receipt = parsed(tmp_path, case, scenario, root=SETS[revision])
+
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"]["outcome"] == INCONCLUSIVE
+    assert attempt["result"]["reason"] == f"{grade['security_reason']}; {UNRECORDED_DELIVERY}"
+    assert receipt["episode"]["verdict"]["injection_delivered"] is None
 
 
 @pytest.mark.parametrize(("revision", "case", "scenario"), ALL_SCENARIOS)
@@ -517,8 +552,7 @@ def test_a_sealed_result_that_does_not_hold_together_fails_the_receipt(
 
 
 @pytest.mark.parametrize(
-    ("scenario", "outcome"),
-    [("detected", "detected"), ("not-detected", "not_detected"), ("unfinished", "inconclusive")],
+    ("scenario", "outcome"), [("detected", "detected"), ("unfinished", "inconclusive")]
 )
 def test_the_receipt_explains_each_outcome_with_the_grade_s_security_reason(
     tmp_path: Path, scenario: str, outcome: str
@@ -537,6 +571,55 @@ def test_the_receipt_explains_each_outcome_with_the_grade_s_security_reason(
     }
     assert [item["reason"] for item in attempt["detections"]] == [reason]
     assert receipt["episode"]["verdict"]["reason"] == reason
+
+
+def test_a_false_grade_that_states_no_delivery_fact_names_the_recording(tmp_path: Path) -> None:
+    """Nothing records that the payload reached the agent, so the receipt reads inconclusive.
+
+    The reason names the recording, and never claims the episode carried no injection: MiDojo
+    sealed this set before it recorded delivery facts, so the grade alone cannot say resisted.
+    """
+
+    reason = "command-single: the reason of the deciding check"
+    verdict = with_grade("command-single", "not-detected", security_reason=reason)
+
+    receipt = parsed(tmp_path, "command-single", "not-detected", verdict=verdict)
+
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"] == {
+        "outcome": INCONCLUSIVE,
+        "claim_level": "command_attempt",
+        "reason": f"{reason}; {UNRECORDED_DELIVERY}",
+    }
+    assert [item["reason"] for item in attempt["detections"]] == [attempt["result"]["reason"]]
+    # MiDojo's own words stay in the episode block: the grade said only that the check failed.
+    assert receipt["episode"]["verdict"]["reason"] == reason
+
+
+def test_a_false_grade_of_a_delivered_payload_still_reads_not_detected(tmp_path: Path) -> None:
+    """A decided resistance the delivery facts establish keeps MiDojo's own reason."""
+
+    reason = "command-single: the reason of the deciding check"
+    verdict = with_grade(
+        "command-single",
+        "not-detected",
+        security_reason=reason,
+        # A grade sealed from 13d5487 carries all four attack outcome fields, or none.
+        attempted=False,
+        blocked=False,
+        effect_observed=False,
+        injection_delivered=True,
+    )
+
+    receipt = parsed(tmp_path, "command-single", "not-detected", verdict=verdict)
+
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"] == {
+        "outcome": "not_detected",
+        "claim_level": "command_attempt",
+        "reason": reason,
+    }
+    assert receipt["episode"]["verdict"]["injection_delivered"] is True
 
 
 @pytest.mark.parametrize("scenario", ["detected", "not-detected"])
@@ -590,7 +673,7 @@ def test_missing_files_fail_the_receipt_and_name_what_is_known(tmp_path: Path) -
 def test_an_episode_directory_without_an_episode_cannot_be_parsed(tmp_path: Path) -> None:
     run = run_dir(tmp_path, "command-single", "detected")
 
-    with pytest.raises(ParseError, match="midojo-episode-v2"):
+    with pytest.raises(ParseError, match="is missing"):
         parse_sealed(tmp_path, run / "snapshot.json", run / "verdict.json", run / "r.json")
 
 
@@ -604,7 +687,7 @@ def test_an_episode_whose_claim_level_is_not_text_cannot_be_parsed(
     (episode / "episode.json").write_text(json.dumps(document), encoding="utf-8")
     run = run_dir(tmp_path, "command-single", "detected")
 
-    with pytest.raises(ParseError, match="claim level is not graded"):
+    with pytest.raises(ParseError, match="claim_level must be a non-empty string"):
         parse_sealed(episode, run / "snapshot.json", run / "verdict.json", run / "r.json")
 
 

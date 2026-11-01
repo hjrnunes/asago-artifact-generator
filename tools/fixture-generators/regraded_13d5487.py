@@ -3,7 +3,9 @@
 Run with MiDojo's interpreter at 13d5487 (see ``tests/episode_cases.py``), naming that
 revision, since the interpreter may run from an export with no Git history::
 
-    uv run --frozen python regrade.py <midojo revision> <consumer>/.../fixtures/episode <out dir>
+    uv run --frozen python \
+        <consumer>/tools/fixture-generators/regraded_13d5487.py \
+        <midojo revision> <consumer>/.../fixtures/episode <out dir>
 
 It runs no episode and starts no server. From 13d5487 each ``CallInjectionOutcome`` also
 holds ``selected``, ``transformation`` and ``emitted``, None when the interception layer
@@ -55,10 +57,12 @@ from midojo.episode import Episode
 from midojo.verifiers import register_verifier
 from midojo_sdk.injection import InjectionPlan
 
+# The verifier payload a v0 episode names, imported when a case declares one.
+VERIFIERS = Path(__file__).resolve().parent / "asago_verifiers"
 ATTACK_OUTCOME = ("attempted", "blocked", "effect_observed", "injection_delivered")
 BOUNDARIES = ("emitted", "agent_tool_result", "model_input")
 SUPPORTED = json.dumps({"verdict": "supported", "evidence_refs": ["messages[0].content"]})
-# The judge reply each reply scenario was graded with at 3824922 (``episode/generate.py``).
+# The judge reply each reply scenario was graded with at 3824922 (``episode.py``).
 JUDGE_REPLIES = {"supported": SUPPORTED, "unresolved": "not json"}
 REPORTED = ("command-single", "detected")
 # What a 3824922 record's outcome lacks: unreported at 13d5487.
@@ -91,14 +95,14 @@ def episode(data: dict[str, Any]) -> Episode:
     )
 
 
-def register_judge(case_dir: Path, document: dict[str, Any]) -> None:
-    sys.path.insert(0, str(case_dir))
+def register_judge(document: dict[str, Any]) -> None:
+    sys.path.insert(0, str(VERIFIERS))
     try:
-        for verifier in document["verifiers"]:
+        for verifier in document["episode"]["verifiers"]:
             module = importlib.import_module(verifier["module"])
             register_verifier(module.EpisodeRubricJudgeVerifier(JUDGE))
     finally:
-        sys.path.remove(str(case_dir))
+        sys.path.remove(str(VERIFIERS))
 
 
 def with_facts(response: dict[str, Any], facts: Any) -> dict[str, Any]:
@@ -183,7 +187,7 @@ def main(revision: str, episodes: Path, out: Path) -> None:
         if not (case_dir / "episode.json").is_file():
             continue
         document = json.loads((case_dir / "episode.json").read_text())
-        register_judge(case_dir, document)
+        register_judge(document)
         built = episode(document["episode"])
         for scenario_dir in sorted(path for path in case_dir.iterdir() if path.is_dir()):
             if not (scenario_dir / "snapshot.json").is_file():

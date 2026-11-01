@@ -55,7 +55,7 @@ matches nothing leaves the result as it was, and MiDojo reports it unmatched.
 
 A ``result_record`` target needs an interceptor that declares MiDojo's
 ``InterceptorCapability.result_record`` (asago/main from c0bee12). The episode intercepts
-on the host only (``episode_compile.HOST_INTERCEPTION``), and MiDojo's host interceptor
+on the host only (``episode.HOST_INTERCEPTION``), and MiDojo's host interceptor
 (``MidojoMCP``) declares it, so the compiler models no other interceptor; the episode's
 ``tool_revision_range`` names the revision instead (``episode_compile``).
 """

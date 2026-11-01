@@ -38,13 +38,13 @@ def test_the_lock_pins_every_kit_file_and_names_v2() -> None:
     lock = json.loads((_KIT / "CONTRACT.lock").read_text(encoding="utf-8"))
     files = {
         str(path.relative_to(_KIT)): hashlib.sha256(path.read_bytes()).hexdigest()
-        for version in (_V1, _V2)
-        for path in sorted((_KIT / version).rglob("*"))
-        if path.is_file()
+        for path in sorted(_KIT.rglob("*"))
+        if path.is_file() and path.name != "CONTRACT.lock"
     }
 
     assert lock["version"] == _V2
     assert lock["files"] == files
+    assert _V2 in (_KIT / "VERSIONING.md").read_text(encoding="utf-8")
 
 
 def test_v2_changes_only_the_named_v1_evaluate_results() -> None:

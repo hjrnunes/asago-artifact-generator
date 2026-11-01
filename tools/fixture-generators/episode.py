@@ -2,7 +2,8 @@
 
 Run with MiDojo's interpreter at the revision to record (see ``tests/episode_cases.py``)::
 
-    uv run --frozen python generate.py <dir holding <case>/episode.json>
+    uv run --frozen python <consumer>/tools/fixture-generators/episode.py \
+        <dir holding <case>/episode.json>
 
 For each case it builds ``midojo.episode.Episode`` from ``episode.json`` field by field,
 the plan with MiDojo's own ``InjectionPlan.from_data``, and checks that the episode written
@@ -72,7 +73,10 @@ REVISION = subprocess.run(
     text=True,
     check=True,
 ).stdout.strip()
-PIGGYBANK = Path(__file__).resolve().parents[5] / "tests" / "fixtures" / "targets" / "piggybank"
+REPO = Path(__file__).resolve().parents[2]
+PIGGYBANK = REPO / "tests/fixtures/targets/piggybank"
+# The verifier payload a v0 episode names, imported when a case declares one.
+VERIFIERS = Path(__file__).resolve().parent / "asago_verifiers"
 # How long the agent waits for a call the target holds open before it gives up on it.
 HELD_CALL_SECONDS = 1.0
 # JSON values whose encoding pins the digest's edge cases: int, float and bool apart, a
@@ -171,8 +175,8 @@ class BlockingInterception(HostInterception):
 def interception(document: dict[str, Any], mcp_url: str) -> HostInterception:
     """The interception the document declares, forwarding to the target's ``mcp_url``."""
 
-    assert document["interception"] == {"mode": "host", "upstream": "endpoint.mcp_url"}
-    dispositions = document["tools"]["write_disposition"]["tools"]
+    assert document["episode"]["interception"] == {"mode": "host", "upstream": None}
+    dispositions = document["episode"]["tools"]["write_disposition"]["tools"]
     blocked = tuple(sorted(name for name, value in dispositions.items() if value == "block"))
     return BlockingInterception(upstream=mcp_url, blocked=blocked)
 
@@ -303,7 +307,7 @@ async def run(
     built: Episode, document: dict[str, Any], script: tuple[Agent, bool]
 ) -> tuple[Any, dict[str, Any]]:
     send, held = script
-    allowed = document["tools"]["allowed"]
+    allowed = document["episode"]["tools"]["allowed"]
     RECEIVED.clear()
     control = ControlPlane({}, config=AppConfig(closure_wait_seconds=0))
     with fixture_target(held) as mcp_url:
@@ -367,16 +371,16 @@ def write(path: Path, document: Any) -> None:
     path.write_text(json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
 
 
-def register_judge(case_dir: Path, document: dict[str, Any]) -> None:
-    sys.path.insert(0, str(case_dir))
+def register_judge(document: dict[str, Any]) -> None:
+    sys.path.insert(0, str(VERIFIERS))
     try:
-        for verifier in document["verifiers"]:
+        for verifier in document["episode"]["verifiers"]:
             module = importlib.import_module(verifier["module"])
             judge = module.EpisodeRubricJudgeVerifier(JUDGE)
             assert judge.name == verifier["check"]
             register_verifier(judge)
     finally:
-        sys.path.remove(str(case_dir))
+        sys.path.remove(str(VERIFIERS))
 
 
 def main(root: Path) -> None:
@@ -384,7 +388,7 @@ def main(root: Path) -> None:
     snapshot_ids: dict[str, Any] = {}
     for case, scenarios in SCENARIOS.items():
         document = json.loads((root / case / "episode.json").read_text())
-        register_judge(root / case, document)
+        register_judge(document)
         built = episode(document["episode"])
         assert written_back(built) == document["episode"], f"{case}: the episode differs"
         for scenario, (script, judge_reply) in scenarios.items():

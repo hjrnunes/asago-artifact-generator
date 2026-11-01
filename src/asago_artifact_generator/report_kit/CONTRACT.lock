@@ -3,7 +3,7 @@
   "contract": "report-kit",
   "schema_version": "report-kit-v1",
   "files": {
-    "__init__.py": "7d7e6160d8d0c99322d4e5897217182c249ad287e6acff53d87d0f5f44e33d69",
+    "__init__.py": "b50807d317025cf246f2045f1f28e70c02a66502780ccf23ae90154bdd9503c7",
     "catalog.html": "c6a3e85953dce3f7d22c1d214a67600154ba4d2c579d5a45eb2fe671ce3d6795",
     "kit.css": "51815db1a4e303648ac2410384589a3febaf53a487db3c2b97873f25d1a4adef",
     "kit.js": "002f26e807f1f5b6c763d5dcfbb756324c32f835d2297920ea893e681a977b14",

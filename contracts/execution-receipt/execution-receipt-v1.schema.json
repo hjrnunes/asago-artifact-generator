@@ -347,6 +347,10 @@
             "reason": {"$ref": "#/$defs/optional_text"},
             "request_count": {"$ref": "#/$defs/optional_count"}
           }
+        },
+        "source_metadata": {
+          "description": "Optional; the metadata the tool's own source entry carried for this attempt's run, when the tool records one. Garak's ipi-episodes.json entry carries the package, the claim and the delivery it ran; a tool that keeps no such entry leaves the field out.",
+          "type": ["object", "null"]
         }
       }
     },

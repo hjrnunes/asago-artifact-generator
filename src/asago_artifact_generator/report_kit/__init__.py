@@ -2,7 +2,7 @@
 
 The scenario generator is the authority for this directory; the artifact
 generator and the orchestrator mirror it byte for byte, so this module imports
-only the standard library (Python 3.11 or later). Every helper returns
+only the standard library (Python 3.12 or later). Every helper returns
 ``Markup``: plain text it receives is escaped, and ``Markup`` it receives is
 trusted. Rendering reads no clock, environment, or random source, so the same
 inputs give the same bytes.

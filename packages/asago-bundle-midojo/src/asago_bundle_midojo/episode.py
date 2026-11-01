@@ -1,16 +1,16 @@
-"""The MiDojo episode as plain data: the fields of ``midojo.episode.Episode``, JSON-able.
+"""The MiDojo episode as a JSON document: episode document v1, whose schema MiDojo owns.
 
-MiDojo (asago/main at b5b8c75) describes one run as a frozen ``Episode``
-(``src/midojo/episode.py``): the user ``turns``, the injection ``plan``
-(``midojo_sdk.injection.InjectionPlan``, ``interception/python-sdk/src/midojo_sdk/injection.py``),
-the ``security`` and ``utility`` checks as authored specs, the initial ``environment``
-of the simulated tools, the ``runtime`` definition (``suite_definition.AgentRuntimeDefinition``
-as its fields), and the provenance IDs ``suite_name``, ``user_task_id`` and
-``injection_task_id`` (None when no suite compiled it). MiDojo publishes no JSON form of
-an episode, so this module writes each dataclass as a mapping of its fields, in MiDojo's
-field names, with every enum as its string value and every tuple as a list. A runner
-builds the MiDojo types from it field by field (``tests/fixtures/episode/generate.py``
-does, in MiDojo's interpreter).
+MiDojo describes one run as a frozen ``Episode`` and writes it as an ``midojo-episode-v1``
+document (``src/midojo/episode_document.py``; the schema is
+``midojo_sdk.episode_schema.load_schema()``). The document holds the user ``turns``, the
+injection ``plan`` (``midojo_sdk.injection.InjectionPlan``,
+``interception/python-sdk/src/midojo_sdk/injection.py``), the ``security`` and ``utility``
+checks as authored specs, the initial ``environment`` of the simulated tools, the
+``runtime`` definition, the interception settings, the agent's tool policy, and the
+provenance IDs ``suite_name``, ``user_task_id`` and ``injection_task_id`` (null when no
+suite compiled it). This module writes that document for a planted item, in MiDojo's field
+names, with every member written and every tuple as a list. MiDojo's ``Episode.from_document``
+reads it.
 
 A planted item becomes a ``tool_output`` instruction: MiDojo's host interceptor
 (``midojo.interception_host``) forwards each call to the target's MCP server and places
@@ -41,6 +41,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from midojo_sdk.episode_schema import EPISODE_DOCUMENT_V1
+
 # ``midojo_sdk.injection`` enum values.
 TOOL_OUTPUT = "tool_output"
 STRUCTURED_CONTENT = "structured_content"
@@ -49,18 +51,28 @@ EVERY = "every"
 IDENTITY = "identity"
 STRICT = "strict"
 UNMANAGED_RUNTIME = {"type": "unmanaged"}
+# The interceptor runs on the host: the runner supplies the target's MCP endpoint at run
+# time, so the document names no upstream.
+HOST_INTERCEPTION = {"mode": "host", "upstream": None}
 # The provenance of an instruction, ``<task>:<probe>`` as MiDojo names probes.
 PROBE_TASK = "planted_item"
+# Every member of an episode document v1, in MiDojo's ``to_document`` order, null where the
+# episode has none: two dumps of the same episode are the same bytes.
 EPISODE_FIELDS = (
+    "schema_version",
+    "suite_name",
+    "user_task_id",
+    "injection_task_id",
+    "environment_type",
+    "environment",
     "runtime",
     "turns",
     "plan",
     "security",
     "utility",
-    "environment",
-    "suite_name",
-    "user_task_id",
-    "injection_task_id",
+    "verifiers",
+    "interception",
+    "tools",
 )
 
 
@@ -128,18 +140,32 @@ def injection_plan(instructions: Sequence[dict[str, Any]]) -> dict[str, Any]:
 
 
 def episode(
-    *, turns: Sequence[str], plan: dict[str, Any], security: dict[str, Any]
+    *,
+    turns: Sequence[str],
+    plan: dict[str, Any],
+    security: dict[str, Any],
+    tools: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Return an ``Episode``: no utility check, no environment, the ``unmanaged`` runtime."""
+    """Return an episode document v1: no utility check, no environment, the ``unmanaged``
+    runtime, the host interceptor, ``tools`` as the agent may use them, and no verifier.
+
+    The document is closed and every member is written, as MiDojo's ``to_document`` writes
+    them, so a reader sees the null fields as well as the set ones.
+    """
 
     return {
+        "schema_version": EPISODE_DOCUMENT_V1,
+        "suite_name": None,
+        "user_task_id": None,
+        "injection_task_id": None,
+        "environment_type": None,
+        "environment": None,
         "runtime": dict(UNMANAGED_RUNTIME),
         "turns": list(turns),
         "plan": plan,
         "security": security,
         "utility": None,
-        "environment": None,
-        "suite_name": None,
-        "user_task_id": None,
-        "injection_task_id": None,
+        "verifiers": [],
+        "interception": dict(HOST_INTERCEPTION),
+        "tools": dict(tools),
     }
