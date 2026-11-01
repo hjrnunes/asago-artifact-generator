@@ -43,10 +43,10 @@ members = ["packages/*"]
 asago-bundle-core = { workspace = true }
 asago-bundle-garak = { workspace = true }
 asago-bundle-midojo = { workspace = true }
-# MiDojo's light SDK: the episode document v1 schema and the snapshot digest. The adapter
-# depends on the SDK alone; the harness (``midojo``) never enters this workspace. The revision
-# is a pushed ``asago/main`` SHA, and the subdirectory is the SDK's workspace member.
-midojo-sdk = { git = "https://github.com/hjrnunes/midojo.git", subdirectory = "interception/python-sdk", rev = "76d58073d150c5323edfc01631900d2d64470679" }
+# MiDojo's light SDK: the injection-spec document v1 schema and the snapshot digest. The
+# adapter depends on the SDK alone; the harness (``midojo``) never enters this workspace. The
+# revision is a pushed ``asago/main`` SHA, and the subdirectory is the SDK's workspace member.
+midojo-sdk = { git = "https://github.com/hjrnunes/midojo.git", subdirectory = "interception/python-sdk", rev = "2a794f341d578088477525d095b178b9722258cd" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/asago_artifact_generator"]
@@ -61,6 +61,9 @@ packages = ["src/asago_artifact_generator"]
 target-version = "py312"
 line-length = 99
 src = ["src", "tests", "scripts", "packages/asago-bundle-core/src", "packages/asago-bundle-garak/src", "packages/asago-bundle-midojo/src"]
+# MiDojo's fixture copies are byte for byte MiDojo's: its lock pins each sha256, and MiDojo
+# styles its own ``generate.py`` at its line length, so neither lint nor format reads them.
+extend-exclude = ["packages/asago-bundle-midojo/tests/fixtures/midojo"]
 
 [tool.ruff.format]
 # The report kit is a byte-for-byte mirror of the scenario generator's copy, formatted by the
