@@ -1,4 +1,4 @@
-"""The adapter's command line: compile an episode, parse its sealed result."""
+"""The adapter's command line: compile an injection spec, parse its sealed result."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from episode_cases import (
+from injection_spec_cases import (
     EPISODES,
     READ_SLOT,
     SPEC,
@@ -35,12 +35,12 @@ def compile_args(package: Path, out: Path, *extra: str) -> list[str]:
     ]
 
 
-def test_compile_writes_the_episode(tmp_path: Path) -> None:
+def test_compile_writes_the_injection_spec(tmp_path: Path) -> None:
     package = write_case_package(tmp_path / "packages", "reply-single")
 
     assert main(compile_args(package, tmp_path / "out", "--judge-turns", "all")) == 0
 
-    document = json.loads((tmp_path / "out/episode.json").read_text(encoding="utf-8"))
+    document = json.loads((tmp_path / "out/injection-spec.json").read_text(encoding="utf-8"))
     assert document["episode"]["security"]["reply_judge"]["rubric"]["judge_turns"] == "all"
 
 
@@ -49,7 +49,7 @@ def test_compile_blocks_each_tool_block_names(tmp_path: Path) -> None:
 
     assert main(compile_args(package, tmp_path / "out", "--block", "withdraw")) == 0
 
-    document = json.loads((tmp_path / "out/episode.json").read_text(encoding="utf-8"))
+    document = json.loads((tmp_path / "out/injection-spec.json").read_text(encoding="utf-8"))
     assert document["episode"]["tools"]["write_disposition"] == {
         "default": "forward",
         "tools": {"withdraw": "block"},
@@ -128,6 +128,7 @@ def test_a_package_that_cannot_be_read_exits_1(
 
 
 def test_parse_writes_the_receipt(tmp_path: Path) -> None:
+    # The recorded case holds the document under its pre-rename filename, which parse reads.
     run = tmp_path / "run"
     shutil.copytree(EPISODES / "command-single/detected", run)
 
@@ -155,7 +156,7 @@ def test_parse_writes_the_receipt(tmp_path: Path) -> None:
     assert receipt["attempts"][0]["result"]["outcome"] == "detected"
 
 
-def test_parse_without_an_episode_exits_1(
+def test_parse_without_a_document_exits_1(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = tmp_path / "run"

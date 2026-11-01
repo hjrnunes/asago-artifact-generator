@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from episode_cases import EPISODES, PLANTED, REGRADED
+from injection_spec_cases import EPISODES, PLANTED, REGRADED
 from midojo_sdk.snapshot import snapshot_digest
 from placed_cases import PLACED
 from result_record_cases import CLINIC_PLANTED

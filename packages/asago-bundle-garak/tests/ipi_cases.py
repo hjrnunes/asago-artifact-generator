@@ -1,7 +1,7 @@
 """The planted packages, and the reports an ``IPIEpisode`` run writes, for the Garak tests.
 
 The packages come from the MiDojo adapter's own builders
-(``packages/asago-bundle-midojo/tests/episode_cases.py``): both adapters compile the
+(``packages/asago-bundle-midojo/tests/injection_spec_cases.py``): both adapters compile the
 same package for the same fixture target, and the entry Garak writes must carry the
 episode MiDojo compiled. The reports follow what ``garak/probes/ipi_episode.py`` and
 ``garak/detectors/ipi_episode.py`` write: each turn's attempt at status 1, the turn
@@ -22,7 +22,7 @@ MIDOJO_TESTS = REPO / "packages" / "asago-bundle-midojo" / "tests"
 if str(MIDOJO_TESTS) not in sys.path:
     sys.path.insert(0, str(MIDOJO_TESTS))
 
-from episode_cases import (  # noqa: E402, F401  the MiDojo adapter's builders, by path
+from injection_spec_cases import (  # noqa: E402, F401  the MiDojo adapter's builders, by path
     CONDITION,
     JUDGE,
     PIGGYBANK,

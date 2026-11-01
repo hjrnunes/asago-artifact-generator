@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any
 
 import midojo
+from compiled import document_path
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import StreamableHttpTransport
 from midojo.control_plane.client import snapshot_from_response
@@ -178,7 +179,7 @@ def write(path: Path, document: Any) -> None:
 
 
 def main(revision: str, episode_dir: Path, root: Path) -> None:
-    document = json.loads((episode_dir / "episode.json").read_text())
+    document = json.loads(document_path(episode_dir).read_text())
     built = episode(document["episode"])
     recorded: dict[str, Any] = {}
     for scenario, lines in SCENARIOS.items():

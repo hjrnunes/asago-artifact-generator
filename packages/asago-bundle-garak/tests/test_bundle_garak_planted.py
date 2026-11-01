@@ -1,9 +1,9 @@
 """compile: a planted_item package becomes the IPIEpisode source and its run template.
 
-The episode itself is the MiDojo adapter's: Garak compiles the same package for the same
-fixture target, and the source entry must carry exactly the ``episode`` member that
-adapter's ``compile_episode`` writes, so both tools run one episode. A package MiDojo
-cannot place is a capability gap for Garak too, and the gap names Garak.
+The injection spec itself is the MiDojo adapter's: Garak compiles the same package for the
+same fixture target, and the source entry must carry exactly the ``episode`` member that
+adapter's ``compile_injection_spec`` writes, so both tools run one injection spec. A
+package MiDojo cannot place is a capability gap for Garak too, and the gap names Garak.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from asago_bundle_garak.compiler import (
     compile_package,
 )
 from asago_bundle_midojo.document import read_envelope
-from asago_bundle_midojo.episode_compile import compile_episode
+from asago_bundle_midojo.injection_spec_compile import compile_injection_spec
 
 SCENARIO = "SCN-051"
 SOURCE = "ipi-episodes.json"
@@ -90,9 +90,9 @@ def test_the_entry_holds_the_episode_the_midojo_adapter_compiles(
     out = tmp_path / "out"
 
     compiled(planted_package, out)
-    compile_episode(planted_package, tmp_path / "episode", target=TARGET)
+    compile_injection_spec(planted_package, tmp_path / "injection-spec", target=TARGET)
 
-    expected = read_envelope(tmp_path / "episode" / "episode.json")
+    expected = read_envelope(tmp_path / "injection-spec" / "injection-spec.json")
     (entry,) = source_of(out)
     assert entry["episode"] == expected.episode
     assert entry["metadata"]["package_id"] == expected.package_id

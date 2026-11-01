@@ -1,6 +1,6 @@
 """Read the sealed fixture runs with MiDojo at 13d5487: snapshot form, grade and delivery facts.
 
-Run with MiDojo's interpreter at 13d5487 (see ``tests/episode_cases.py``), naming that
+Run with MiDojo's interpreter at 13d5487 (see ``tests/injection_spec_cases.py``), naming that
 revision, since the interpreter may run from an export with no Git history::
 
     uv run --frozen python \
@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any
 
 import midojo
+from compiled import find_document_path
 from midojo.control_plane.client import snapshot_from_response
 from midojo.control_plane.models import SnapshotResponse
 from midojo.control_plane.state import _canonical, _dumps
@@ -184,9 +185,10 @@ def main(revision: str, episodes: Path, out: Path) -> None:
     recorded: dict[str, Any] = {}
     for case_dir in sorted(path for path in episodes.iterdir() if path.is_dir()):
         case = case_dir.name
-        if not (case_dir / "episode.json").is_file():
+        path = find_document_path(case_dir)
+        if path is None:
             continue
-        document = json.loads((case_dir / "episode.json").read_text())
+        document = json.loads(path.read_text())
         register_judge(document)
         built = episode(document["episode"])
         for scenario_dir in sorted(path for path in case_dir.iterdir() if path.is_dir()):

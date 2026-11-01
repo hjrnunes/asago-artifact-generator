@@ -24,7 +24,7 @@ from typing import Any
 
 import jsonschema
 import pytest
-from episode_cases import FIXTURES
+from injection_spec_cases import FIXTURES
 from judge_cases import (
     CONTRADICTED,
     SUPPORTED,

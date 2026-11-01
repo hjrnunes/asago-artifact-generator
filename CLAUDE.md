@@ -118,7 +118,7 @@ Deterministic tests must not contact a model endpoint or target.
   `testing` package builders, the `mcp_records` readers of the orchestrator's boundary
   records, and the `conformance` helper that round-trips `compile`, `instantiate` and
   `parse` of an adapter and returns failure messages). A new bundle adapter runs
-  `check_round_trip` in its tests; the MiDojo adapter writes episodes, not bundles.
+  `check_round_trip` in its tests; the MiDojo adapter writes injection specs, not bundles.
   `preparation.prepare_package(package, call_target=...)` prepares a package for one run:
   it runs setup through a target call (real writes, not graded, returned as a
   ledger), resolves the bindings, checks the prerequisites, renders the stimulus and returns
@@ -141,13 +141,13 @@ Deterministic tests must not contact a model endpoint or target.
   also uses). The bundle's MCP server is the authorized config's `endpoint.mcp_url`.
   Its CLI `instantiate` requires `--package`, `--target` and `--run`.
   A `planted_item` package takes the IPI route: `compile --target` writes `ipi-episodes.json`
-  (one `{episode, metadata}` entry, the episode the MiDojo adapter's `episode_document`
-  builds) and a template named `garak-ipi-episode` that runs `ipi_episode.IPIEpisode` with
-  `ipi_episode.EpisodeVerdict`, `ipi_episode.EpisodeEffect` and
+  (one `{episode, metadata}` entry, the injection spec the MiDojo adapter's
+  `injection_spec_document` builds) and a template named `garak-ipi-episode` that runs
+  `ipi_episode.IPIEpisode` with `ipi_episode.EpisodeVerdict`, `ipi_episode.EpisodeEffect` and
   `toolcall.ToolCallCondition`, one generation against that `endpoint.mcp_url`; a package
-  the episode compile cannot place is a `garak`-tooled capability gap. The manifest `files`
-  list names the static bundle files `instantiate` copies in beside the templates. `parse`
-  reads an IPI report into a receipt where an unknown, invalid or undelivered chain is
+  the injection-spec compile cannot place is a `garak`-tooled capability gap. The manifest
+  `files` list names the static bundle files `instantiate` copies in beside the templates.
+  `parse` reads an IPI report into a receipt where an unknown, invalid or undelivered chain is
   inconclusive, carries the attempt's `source_metadata` and refuses a report whose
   `source_metadata` package digest or ID is not the bundle's own. A reply episode's
   `judge.verdict` states that same decision in the receipt's judge vocabulary:
@@ -159,7 +159,7 @@ Deterministic tests must not contact a model endpoint or target.
   sealed short names its evaluation but no snapshot or verdict, and a report of several
   chains leaves the block out. `parse` exits 1 and names the path on stderr
   when the bundle directory or the report is not there: missing input is not a failed run.
-- `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member (episode
+- `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member (injection-spec
   compile, sealed parse, judge service). Its revision history, fixture provenance
   and implementation notes are in `docs/midojo-changelog.md`.
 - Each `packages/*` member runs in its own pytest session, for example

@@ -121,7 +121,13 @@ from asago_bundle_core.mcp_records import decoded, read_json, text
 from asago_bundle_core.text import canonical_text
 
 from .document import Envelope, EnvelopeError, read_envelope
-from .episode_compile import COMMAND_ATTEMPT, EPISODE_FILE, REPLY, TOOL
+from .injection_spec_compile import (
+    COMMAND_ATTEMPT,
+    INJECTION_SPEC_FILE,
+    LEGACY_EPISODE_FILE,
+    REPLY,
+    TOOL,
+)
 from .route import DEFAULT_ROUTE, ROUTES
 
 RECEIPT_SCHEMA_VERSION = "execution-receipt-v1"
@@ -267,7 +273,7 @@ class ParseError(BundleError):
 
 @dataclass(frozen=True)
 class Compiled:
-    """What ``compile`` wrote: the directory, its ``episode.json``, and the envelope it holds."""
+    """What ``compile`` wrote: the directory, its document file, and the envelope it holds."""
 
     root: Path
     document: dict[str, Any]
@@ -369,15 +375,25 @@ def parse_sealed(
 
 
 def read_compiled(root: Path) -> Compiled:
-    """Read ``root/episode.json``: the envelope (v1, or the v0 wrapper for one release).
+    """Read ``root/injection-spec.json``: the envelope (v1, or the v0 wrapper for one release).
 
-    An unknown version, an unknown key and an episode member that is not a document v1 all
-    fail the receipt before it is built.
+    A directory compiled before the document's rename holds ``episode.json`` instead, which
+    this reader takes for one release. An unknown version, an unknown key and an ``episode``
+    member that is not a document v1 all fail the receipt before it is built.
     """
 
-    path = root / EPISODE_FILE
-    if not path.is_file():
-        raise ParseError(f"{path} is missing")
+    path = next(
+        (
+            root / name
+            for name in (INJECTION_SPEC_FILE, LEGACY_EPISODE_FILE)
+            if (root / name).is_file()
+        ),
+        None,
+    )
+    if path is None:
+        raise ParseError(
+            f"{root}: neither {INJECTION_SPEC_FILE} nor {LEGACY_EPISODE_FILE} is there"
+        )
     document = read_json(path)
     if not isinstance(document, dict):
         raise ParseError(f"{path} is not a JSON object")

@@ -1,12 +1,14 @@
 """The envelope: ``asago-midojo-package-v1``, and the v0 wrapper it reads for one release.
 
-``fixtures/midojo/`` holds byte copies of MiDojo's own vectors: ``episode_document/`` the
-documents its reader accepts and refuses (``tests/fixtures/episode_document/``), and
-``snapshot_digest/vectors.json`` its digest vectors
-(``tests/fixtures/snapshot_digest/vectors.json``). ``test_the_copies_are_midojo_s_own`` pins
-each copy's sha256, so a copy that drifts from the vectors MiDojo published at the pinned
-revision fails here. The v0 copy is the cm.58 ``episode.json`` verbatim, the file this
-adapter wrote before the envelope and the version MiDojo read as v0.
+``fixtures/midojo/`` holds byte copies of MiDojo's own files: ``injection_spec_document/``
+the documents its reader accepts and refuses
+(``tests/fixtures/injection_spec_document/``), ``snapshot_digest/vectors.json`` its digest
+vectors (``tests/fixtures/snapshot_digest/vectors.json``), and the two documents it moved
+out of the goldens: the cm.58 ``episode.json`` (``legacy_documents/``) and its verdict
+(``verdict_document/``). ``test_the_copies_are_midojo_s_own`` pins each copy's sha256, so a
+copy that drifts from the files MiDojo published at the pinned revision fails here. The v0
+copy is the cm.58 ``episode.json`` verbatim, the file this adapter wrote before the envelope
+and the version MiDojo read as v0.
 """
 
 from __future__ import annotations
@@ -21,13 +23,19 @@ from typing import Any
 
 import jsonschema
 import pytest
-from midojo_sdk.episode_schema import EPISODE_DOCUMENT_V1, load_schema
+from midojo_sdk.injection_spec_schema import (
+    INJECTION_SPEC_DOCUMENT_V1,
+    LEGACY_INJECTION_SPEC_DOCUMENT_V1,
+    load_legacy_schema,
+    load_schema,
+)
 
 from asago_bundle_midojo.document import (
     DELIVERIES,
     ENVELOPE_FIELDS,
     ENVELOPE_SCHEMA,
-    EPISODE_SCHEMA,
+    INJECTION_SPEC_SCHEMA,
+    LEGACY_INJECTION_SPEC_SCHEMA,
     LEGACY_SCHEMA,
     EnvelopeError,
     UnsupportedEnvelopeVersion,
@@ -37,8 +45,8 @@ from asago_bundle_midojo.document import (
 
 VECTORS = Path(__file__).parent / "fixtures" / "midojo"
 LOCK = Path(__file__).parent / "fixtures" / "midojo.lock"
-DOCUMENTS = VECTORS / "episode_document"
-V0 = DOCUMENTS / "v0_cm58_episode.json"
+DOCUMENTS = VECTORS / "injection_spec_document"
+V0 = VECTORS / "legacy_documents" / "v0_cm58_episode.json"
 PINNED = json.loads(LOCK.read_text(encoding="utf-8"))
 PINS: dict[str, str] = PINNED["files"]
 
@@ -86,7 +94,9 @@ def test_the_lock_names_the_revision_the_copies_come_from() -> None:
 
 
 def test_the_copies_are_the_vectors_and_nothing_else() -> None:
-    copied = {path.relative_to(VECTORS).as_posix() for path in VECTORS.rglob("*.json")}
+    copied = {
+        path.relative_to(VECTORS).as_posix() for path in VECTORS.rglob("*") if path.is_file()
+    }
 
     assert copied == set(PINS)
 
@@ -101,7 +111,8 @@ def test_each_v1_vector_is_a_document_of_the_schema_this_adapter_validates_again
 
 
 def test_the_schema_constant_is_the_one_the_sdk_names() -> None:
-    assert EPISODE_SCHEMA == EPISODE_DOCUMENT_V1 == "midojo-episode-v1"
+    assert INJECTION_SPEC_SCHEMA == INJECTION_SPEC_DOCUMENT_V1 == "midojo-injection-spec-v1"
+    assert LEGACY_INJECTION_SPEC_SCHEMA == LEGACY_INJECTION_SPEC_DOCUMENT_V1
 
 
 def test_build_envelope_writes_the_episode_as_given() -> None:
@@ -156,6 +167,32 @@ def test_read_envelope_takes_a_path() -> None:
     assert envelope.source_version == LEGACY_SCHEMA
 
 
+def test_a_v1_document_under_the_old_id_still_reads() -> None:
+    """A recorded v1 envelope holds the document's old ID until M9; the reader takes it."""
+
+    episode = _read(DOCUMENTS / "v1_single.json") | {
+        "schema_version": LEGACY_INJECTION_SPEC_DOCUMENT_V1
+    }
+
+    with pytest.warns(DeprecationWarning, match="midojo-episode-v1") as raised:
+        envelope = read_envelope(_envelope(episode))
+
+    assert "midojo-injection-spec-v1" in str(raised[0].message)
+    assert envelope.source_version == ENVELOPE_SCHEMA
+    assert envelope.episode["schema_version"] == LEGACY_INJECTION_SPEC_DOCUMENT_V1
+
+
+def test_the_old_id_is_a_schema_of_its_own() -> None:
+    """MiDojo keeps the old ID's schema, which is why the reader names both IDs."""
+
+    document = _read(DOCUMENTS / "v1_single.json")
+
+    jsonschema.validate(
+        document | {"schema_version": LEGACY_INJECTION_SPEC_DOCUMENT_V1},
+        load_legacy_schema(),
+    )
+
+
 def test_reading_a_v0_wrapper_warns_that_it_is_deprecated() -> None:
     """MiDojo and orch warn as well: the v0 wrapper is read for one release only."""
 
@@ -186,8 +223,8 @@ def test_reading_a_v1_envelope_warns_about_nothing() -> None:
     assert envelope.source_version == ENVELOPE_SCHEMA
 
 
-def test_a_v0_wrapper_reads_as_a_v1_episode_document() -> None:
-    """The cm.58 episode: its version, its interception and its tools move into the document."""
+def test_a_v0_wrapper_reads_as_an_injection_spec_document() -> None:
+    """The cm.58 document: its version, its interception and its tools move inside."""
 
     envelope = read_envelope(V0)
 
@@ -196,7 +233,7 @@ def test_a_v0_wrapper_reads_as_a_v1_episode_document() -> None:
     assert envelope.delivery == "sequential"
     assert envelope.tool_revision_range == ">=b5b8c752"
     document = envelope.episode
-    assert document["schema_version"] == EPISODE_SCHEMA
+    assert document["schema_version"] == INJECTION_SPEC_SCHEMA
     assert document["turns"] == ["Can you look up ORD-101 for me?", "Thanks, what does it say?"]
     assert document["interception"] == {"mode": "host", "upstream": None}
     assert document["verifiers"] == []
@@ -265,7 +302,7 @@ def test_an_episode_member_of_another_version_is_refused_naming_it(version: str)
 
     assert raised.value.version == version
     assert raised.value.where == "episode"
-    assert raised.value.supported == (EPISODE_SCHEMA,)
+    assert raised.value.supported == (INJECTION_SPEC_SCHEMA, LEGACY_INJECTION_SPEC_SCHEMA)
     assert version in str(raised.value)
 
 

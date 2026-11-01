@@ -30,6 +30,7 @@ import jsonschema
 import pytest
 
 from asago_bundle_midojo.document import build_envelope
+from asago_bundle_midojo.injection_spec_compile import INJECTION_SPEC_FILE
 from asago_bundle_midojo.sealed import INCONCLUSIVE, parse_sealed
 from conftest import RECEIPT_SCHEMA
 
@@ -99,7 +100,9 @@ def compiled(tmp_path: Path, case: str) -> tuple[Path, Path, Path]:
         placements=[],
         tool_revision_range=TOOL_REVISION_RANGE,
     )
-    (root / "episode.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    (root / INJECTION_SPEC_FILE).write_text(
+        json.dumps(document, indent=2) + "\n", encoding="utf-8"
+    )
     sealed = []
     for name in ("snapshot.json", "verdict.json"):
         target = root / name

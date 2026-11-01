@@ -20,7 +20,7 @@ from typing import Any
 
 import jsonschema
 import pytest
-from episode_cases import EPISODES, REGRADED
+from injection_spec_cases import EPISODES, REGRADED
 from midojo_sdk.snapshot import snapshot_digest
 
 from asago_bundle_midojo.cli import main

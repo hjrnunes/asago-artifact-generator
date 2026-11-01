@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 import midojo
+from compiled import document_path
 from episode import REVISION, agent, episode, run, write
 from midojo.control_plane.client import snapshot_from_response
 from midojo.control_plane.models import SnapshotResponse
@@ -61,10 +62,10 @@ SCENARIO = "contradicted"
 
 
 def main(compiled: Path, command: str, out: Path) -> None:
-    document = json.loads((compiled / "episode.json").read_text(encoding="utf-8"))
+    document = json.loads(document_path(compiled).read_text(encoding="utf-8"))
     built = episode(document["episode"])
     out.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(compiled / "episode.json", out / "episode.json")
+    shutil.copyfile(document_path(compiled), out / "episode.json")
     model = FakeModel()
     model.reply = CONTRADICTED
     with model_server(model) as model_url, judge_service(command, model_url) as url:

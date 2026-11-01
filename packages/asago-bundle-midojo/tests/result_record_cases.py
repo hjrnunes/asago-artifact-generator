@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from episode_cases import (
+from injection_spec_cases import (
     FIXTURES,
     planted_stimulus,
     seed_document,
@@ -81,9 +81,9 @@ def write_clinic_package(root: Path, case: str) -> Path:
 def compile_clinic_case(root: Path, case: str, out: Path) -> dict[str, Any]:
     """Compile ``case``'s package for the clinic target into ``out``."""
 
-    from asago_bundle_midojo.episode_compile import compile_episode
+    from asago_bundle_midojo.injection_spec_compile import compile_injection_spec
 
-    return compile_episode(write_clinic_package(root, case), out, target=CLINIC_TARGET)
+    return compile_injection_spec(write_clinic_package(root, case), out, target=CLINIC_TARGET)
 
 
 if __name__ == "__main__":

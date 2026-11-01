@@ -54,10 +54,10 @@ argument nor its result object as a text property. Placement is strict: a select
 matches nothing leaves the result as it was, and MiDojo reports it unmatched.
 
 A ``result_record`` target needs an interceptor that declares MiDojo's
-``InterceptorCapability.result_record`` (asago/main from c0bee12). The episode intercepts
-on the host only (``episode.HOST_INTERCEPTION``), and MiDojo's host interceptor
-(``MidojoMCP``) declares it, so the compiler models no other interceptor; the episode's
-``tool_revision_range`` names the revision instead (``episode_compile``).
+``InterceptorCapability.result_record`` (asago/main from c0bee12). The document intercepts
+on the host only (``injection_spec.HOST_INTERCEPTION``), and MiDojo's host interceptor
+(``MidojoMCP``) declares it, so the compiler models no other interceptor; the document's
+``tool_revision_range`` names the revision instead (``injection_spec_compile``).
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ from asago_artifact_generator.package_io import ArtifactPackage
 from asago_bundle_core.errors import BundleError
 
 from .declared import DeclaredTools
-from .episode import EVERY, probe_key, tool_output_instruction
+from .injection_spec import EVERY, probe_key, tool_output_instruction
 
 SEED_SCHEMA_VERSION = "artifact-seed-v1"
 MODES = ("append", "replace")

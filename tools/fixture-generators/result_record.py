@@ -5,10 +5,10 @@ that revision, since the interpreter may run from an export with no Git history:
 
     uv run --frozen --extra dev python \
         <consumer>/tools/fixture-generators/result_record.py \
-        <midojo revision> <dir of <case>/episode.json>
+        <midojo revision> <dir of <case>/injection-spec.json>
 
-For each case it builds ``midojo.episode.Episode`` from ``episode.json`` field by field,
-the plan with MiDojo's own ``InjectionPlan.from_data``, and checks that the episode written
+For each case it builds ``midojo.episode.Episode`` from its compiled document field by
+field, the plan with MiDojo's own ``InjectionPlan.from_data``, and checks the episode written
 back as data is the document's ``episode``, so the consumer's plan, its ``result_record``
 targets included, has MiDojo's shape. It checks that MiDojo's host interceptor declares
 every capability the plan needs (``capability_gaps`` against ``MIDOJO_MCP_CAPABILITY`` is
@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any
 
 import midojo
+from compiled import document_path
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import StreamableHttpTransport
 from midojo.control_plane.client import snapshot_from_response
@@ -188,7 +189,7 @@ def write(path: Path, document: Any) -> None:
 def main(revision: str, root: Path) -> None:
     recorded: dict[str, Any] = {}
     for case, scenarios in SCENARIOS.items():
-        document = json.loads((root / case / "episode.json").read_text())
+        document = json.loads(document_path(root / case).read_text())
         built = episode(document["episode"])
         assert written_back(built) == document["episode"], f"{case}: the episode differs"
         check_capability(built)

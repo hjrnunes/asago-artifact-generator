@@ -6,9 +6,9 @@ a single one with history, one that claims a state effect, a seed its intercepto
 cannot place in an MCP tool result, or one whose record the conversation cannot lead the
 agent to; the record is printed).
 
-``compile`` writes one package's episode for a target config; the runner opens it with
-MiDojo's host interception in front of that target's MCP endpoint, seals it and grades the
-snapshot; ``parse`` reads the sealed snapshot, the verdict and, when named, the runner's
+``compile`` writes one package's injection spec for a target config; the runner opens it
+with MiDojo's host interception in front of that target's MCP endpoint, seals it and grades
+the snapshot; ``parse`` reads the sealed snapshot, the verdict and, when named, the runner's
 delivery facts into a receipt. ``judge-serve`` runs the judge service a reply episode's
 ``reply_judge`` check asks while MiDojo grades (``judge_service.py``): it prints
 ``judge service on http://127.0.0.1:<port>/`` once it listens and stops on SIGINT or
@@ -24,7 +24,7 @@ from pathlib import Path
 
 from asago_bundle_core.gap import EXIT_CAPABILITY_GAP, EXIT_INPUT, EXIT_OK, CapabilityGap
 
-from .episode_compile import BLOCK, CompileError, compile_episode
+from .injection_spec_compile import BLOCK, CompileError, compile_injection_spec
 from .judge_service import (
     DEFAULT_PORT,
     FINAL_TURN,
@@ -42,13 +42,15 @@ from .sealed import ParseError, parse_sealed
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="asago-bundle-midojo",
-        description="Compile a planted_item package into a MiDojo episode, parse its "
+        description="Compile a planted_item package into a MiDojo injection spec, parse its "
         "sealed result, and serve the judge a reply episode asks.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    compile_cmd = commands.add_parser("compile", help="write episode.json for one package")
+    compile_cmd = commands.add_parser("compile", help="write injection-spec.json for one package")
     compile_cmd.add_argument("package", type=Path, help="artifact package directory")
-    compile_cmd.add_argument("--out", type=Path, required=True, help="new episode directory")
+    compile_cmd.add_argument(
+        "--out", type=Path, required=True, help="new injection-spec directory"
+    )
     compile_cmd.add_argument(
         "--target",
         type=Path,
@@ -75,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="write execution-receipt-v1 from a sealed snapshot and its verdict; a failed "
         "run exits 0",
     )
-    parse_cmd.add_argument("episode", type=Path, help="the directory compile wrote")
+    parse_cmd.add_argument("injection_spec", type=Path, help="the directory compile wrote")
     parse_cmd.add_argument(
         "--snapshot", type=Path, required=True, help="the sealed snapshot (GET .../snapshot)"
     )
@@ -120,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _compile(args: argparse.Namespace) -> int:
     try:
-        compile_episode(
+        compile_injection_spec(
             args.package,
             args.out,
             target=args.target,
@@ -139,7 +141,7 @@ def _compile(args: argparse.Namespace) -> int:
 def _parse(args: argparse.Namespace) -> int:
     try:
         parse_sealed(
-            args.episode,
+            args.injection_spec,
             args.snapshot,
             args.verdict,
             args.out,

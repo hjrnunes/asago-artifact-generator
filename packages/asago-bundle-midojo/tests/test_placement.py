@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 import pytest
-from episode_cases import SLOTS, runtime_contract
+from injection_spec_cases import SLOTS, runtime_contract
 
 from asago_artifact_generator.package_io import build_package
 from asago_bundle_midojo.declared import DeclaredTools

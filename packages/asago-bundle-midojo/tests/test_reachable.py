@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from episode_cases import (
+from injection_spec_cases import (
     READ_SLOT,
     TARGET,
     TOOLS,
@@ -27,7 +27,7 @@ from episode_cases import (
 from asago_bundle_core.conformance import check_gap
 from asago_bundle_core.gap import CapabilityGap
 from asago_bundle_midojo.cli import main
-from asago_bundle_midojo.episode_compile import compile_episode
+from asago_bundle_midojo.injection_spec_compile import compile_injection_spec
 from asago_bundle_midojo.reachable import names_record
 
 UNREACHED = (
@@ -82,7 +82,7 @@ def test_a_record_no_turn_names_and_no_tool_lists_is_a_gap_and_writes_nothing(
     package = _read_package(tmp_path / "packages", UNNAMED, ["read_note"])
 
     with pytest.raises(CapabilityGap) as raised:
-        compile_episode(package, tmp_path / "out", target=TARGET)
+        compile_injection_spec(package, tmp_path / "out", target=TARGET)
 
     assert raised.value.record["reason"] == UNREACHED
     assert raised.value.record["delivery"] == "sequential"
@@ -105,7 +105,7 @@ def test_a_record_no_turn_names_and_no_tool_lists_is_a_gap_and_writes_nothing(
 def test_a_record_a_user_turn_names_is_reached(tmp_path: Path, turns: tuple[str, ...]) -> None:
     package = _read_package(tmp_path / "packages", turns, ["read_note"])
 
-    document = compile_episode(package, tmp_path / "out", target=TARGET)
+    document = compile_injection_spec(package, tmp_path / "out", target=TARGET)
 
     (instruction,) = document["episode"]["plan"]["instructions"]
     assert instruction["target"]["call_arguments"] == {"note_id": "NOTE-2"}
@@ -127,7 +127,7 @@ def test_a_turn_names_the_record_only_as_written_and_not_inside_a_longer_identif
     package = _read_package(tmp_path / "packages", (turn,), ["read_note"])
 
     with pytest.raises(CapabilityGap) as raised:
-        compile_episode(package, tmp_path / "out", target=TARGET)
+        compile_injection_spec(package, tmp_path / "out", target=TARGET)
 
     assert raised.value.record["reason"] == UNREACHED
 
@@ -137,7 +137,7 @@ def test_a_record_an_allowed_tool_without_arguments_lists_is_reached(tmp_path: P
 
     package = _read_package(tmp_path / "packages", UNNAMED, ["list_notes", "read_note"])
 
-    document = compile_episode(package, tmp_path / "out", target=TARGET)
+    document = compile_injection_spec(package, tmp_path / "out", target=TARGET)
 
     assert document["episode"]["tools"]["allowed"] == ["list_notes", "read_note"]
 
@@ -147,7 +147,7 @@ def test_a_listing_tool_that_needs_an_argument_does_not_reach_the_record(tmp_pat
     package = _read_package(tmp_path / "packages", UNNAMED, ["read_note", "search_notes"])
 
     with pytest.raises(CapabilityGap) as raised:
-        compile_episode(package, tmp_path / "out", target=target)
+        compile_injection_spec(package, tmp_path / "out", target=target)
 
     assert raised.value.record["reason"] == UNREACHED
 
@@ -185,7 +185,7 @@ def test_a_listing_tool_whose_input_schema_may_require_an_argument_does_not_reac
     package = _read_package(tmp_path / "packages", UNNAMED, ["list_notes", "read_note"])
 
     with pytest.raises(CapabilityGap) as raised:
-        compile_episode(package, tmp_path / "out", target=target)
+        compile_injection_spec(package, tmp_path / "out", target=target)
 
     assert raised.value.record["reason"] == UNREACHED
     assert not (tmp_path / "out").exists()
@@ -222,7 +222,7 @@ def test_a_listing_tool_whose_input_schema_takes_no_argument_reaches_the_record(
     target = target_variant(tmp_path / "variant", tools=tools)
     package = _read_package(tmp_path / "packages", UNNAMED, ["list_notes", "read_note"])
 
-    document = compile_episode(package, tmp_path / "out", target=target)
+    document = compile_injection_spec(package, tmp_path / "out", target=target)
 
     assert document["episode"]["tools"]["allowed"] == ["list_notes", "read_note"]
 
@@ -235,7 +235,7 @@ def test_a_listing_tool_the_package_does_not_allow_does_not_reach_the_record(
     package = _read_package(tmp_path / "packages", UNNAMED, ["get_balance", "read_note"])
 
     with pytest.raises(CapabilityGap) as raised:
-        compile_episode(package, tmp_path / "out", target=TARGET)
+        compile_injection_spec(package, tmp_path / "out", target=TARGET)
 
     assert raised.value.record["reason"] == UNREACHED
 
@@ -247,7 +247,7 @@ def test_a_field_inside_a_list_is_not_checked(tmp_path: Path) -> None:
         tmp_path / "packages", stimulus=planted_stimulus(UNNAMED), operations=["list_notes"]
     )
 
-    document = compile_episode(package, tmp_path / "out", target=TARGET)
+    document = compile_injection_spec(package, tmp_path / "out", target=TARGET)
 
     assert document["placements"][0]["record"] == "NOTE-1"
 

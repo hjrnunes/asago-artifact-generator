@@ -3,7 +3,7 @@
 From a19562e MiDojo seals, with each placement (``applied``, ``partial``, ``fallback``), what
 it placed and where: ``payload_digest``, ``placed_digest`` and ``slot``. The cases cover a
 list slot reached through a record selector (``note``, the fixture target's
-``piggybank.note.body``, compiled as ``episode_cases.py``'s ``command-single``) and a
+``piggybank.note.body``, compiled as ``injection_spec_cases.py``'s ``command-single``) and a
 ``result_record`` slot (``referral``, the clinic target's ``clinic.referral.reason``,
 compiled as ``result_record_cases.py``'s ``referral``), each with a static plan and with a
 plan that may generate payloads (``note-generated``, ``referral-generated``): the compiled
@@ -33,10 +33,11 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from episode_cases import FIXTURES, compile_case
+from injection_spec_cases import FIXTURES, compile_case
 from result_record_cases import compile_clinic_case
 
 from asago_bundle_core.text import canonical_text
+from asago_bundle_midojo.injection_spec_compile import INJECTION_SPEC_FILE, LEGACY_EPISODE_FILE
 
 PLACED = FIXTURES / "placed-a19562e"
 # Each generated case: the static case it derives from, and the generator permissions it adds.
@@ -58,11 +59,15 @@ def write_cases(out: Path) -> None:
     with tempfile.TemporaryDirectory() as packages:
         compile_case(Path(packages), "command-single", out / "note")
         compile_clinic_case(Path(packages), "referral", out / "referral")
+    # The recorded fixtures keep the document's pre-rename filename, which MiDojo at a19562e
+    # read; M9 renames them, so this script writes the layout the fixtures hold.
+    for case in ("note", "referral"):
+        (out / case / INJECTION_SPEC_FILE).rename(out / case / LEGACY_EPISODE_FILE)
     for case, (base, permissions) in GENERATED.items():
-        document = json.loads((out / base / "episode.json").read_text(encoding="utf-8"))
+        document = json.loads((out / base / LEGACY_EPISODE_FILE).read_text(encoding="utf-8"))
         document["episode"]["plan"]["generator_permissions"] = permissions
         (out / case).mkdir(parents=True)
-        (out / case / "episode.json").write_text(canonical_text(document), encoding="utf-8")
+        (out / case / LEGACY_EPISODE_FILE).write_text(canonical_text(document), encoding="utf-8")
 
 
 if __name__ == "__main__":

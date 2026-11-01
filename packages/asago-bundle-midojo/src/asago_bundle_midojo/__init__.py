@@ -1,1 +1,1 @@
-"""MiDojo adapter: compile a planted_item package to an episode, parse its sealed result."""
+"""MiDojo adapter: compile a planted_item package to an injection spec, parse its sealed result."""

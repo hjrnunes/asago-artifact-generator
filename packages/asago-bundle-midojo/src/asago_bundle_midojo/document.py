@@ -1,21 +1,25 @@
-"""The consumer envelope, ``asago-midojo-package-v1``: an episode document and the Asago fields.
+"""The consumer envelope, ``asago-midojo-package-v1``: an injection spec and the Asago fields.
 
-The consumer writes one file, ``episode.json``, that holds an episode document v1
-(``midojo-episode-v1``, owned by MiDojo) as its ``episode`` member, plus the fields only
-Asago reads: the package it came from, the claim it grades, how the turns are delivered,
-where the planted items sit, and the MiDojo revisions it needs. The envelope is closed:
-an unknown key is refused, and so is an unknown version, named in the error.
+The consumer writes one file, ``injection-spec.json``, that holds an injection-spec document
+v1 (``midojo-injection-spec-v1``, owned by MiDojo) under the envelope key ``episode``, plus
+the fields only Asago reads: the package it came from, the claim it grades, how the turns are
+delivered, where the planted items sit, and the MiDojo revisions it needs. The envelope is
+closed: an unknown key is refused, and so is an unknown version, named in the error.
 
 The wrapper this adapter wrote before (``midojo-episode-v2``) is the v0 form. MiDojo and
-every Asago reader read it for one release and then stop. A v0 wrapper keeps the episode's
+every Asago reader read it for one release and then stop. A v0 wrapper keeps the document's
 own fields under ``episode`` and the interception, tools and verifier list beside them; the
-v0 reader moves them into the episode document. A v0 wrapper's ``verifiers`` list is the
-old Garak verifier registry: a v1 document names no verifier (MiDojo's rule, because a
-registry is trusted code and not data), so the conversion drops it. This adapter never ran
-those verifiers; the sealed reader reads the turns, the plan and the placements only.
+v0 reader moves them into the document. A v0 wrapper's ``verifiers`` list is the old Garak
+verifier registry: a v1 document names no verifier (MiDojo's rule, because a registry is
+trusted code and not data), so the conversion drops it. This adapter never ran those
+verifiers; the sealed reader reads the turns, the plan and the placements only.
 
-Version strings and the episode schema come from ``midojo_sdk.episode_schema``, so this
-module follows MiDojo without copying its constants.
+The reader also accepts a document under its old ID, ``midojo-episode-v1``: the recorded
+fixtures hold it, and MiDojo reads it for one release with a deprecation warning.
+
+Version strings and the injection-spec schema come from
+``midojo_sdk.injection_spec_schema``, so this module follows MiDojo without copying its
+constants.
 """
 
 from __future__ import annotations
@@ -27,13 +31,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from midojo_sdk.episode_schema import EPISODE_DOCUMENT_V1
+from midojo_sdk.injection_spec_schema import (
+    INJECTION_SPEC_DOCUMENT_V1,
+    LEGACY_INJECTION_SPEC_DOCUMENT_V1,
+)
 
 from asago_bundle_core.errors import BundleError
 
 ENVELOPE_SCHEMA = "asago-midojo-package-v1"
 LEGACY_SCHEMA = "midojo-episode-v2"
-EPISODE_SCHEMA = EPISODE_DOCUMENT_V1
+INJECTION_SPEC_SCHEMA = INJECTION_SPEC_DOCUMENT_V1
+# The document's old ID, which a reader accepts for one release.
+LEGACY_INJECTION_SPEC_SCHEMA = LEGACY_INJECTION_SPEC_DOCUMENT_V1
+# The name this constant had before the document's rename; kept for one release.
+EPISODE_SCHEMA = INJECTION_SPEC_SCHEMA
 SINGLE = "single"
 SEQUENTIAL = "sequential"
 DELIVERIES = (SINGLE, SEQUENTIAL)
@@ -50,8 +61,8 @@ ENVELOPE_FIELDS = frozenset(
         "episode",
     }
 )
-# The v0 wrapper: the envelope's fields, with the episode's interception, tools and verifier
-# list beside the episode instead of inside it, and the tool the wrapper named.
+# The v0 wrapper: the envelope's fields, with the document's interception, tools and verifier
+# list beside it instead of inside it, and the tool the wrapper named.
 LEGACY_FIELDS = (ENVELOPE_FIELDS - {"schema_version"}) | {
     "schema_version",
     "tool",
@@ -59,9 +70,9 @@ LEGACY_FIELDS = (ENVELOPE_FIELDS - {"schema_version"}) | {
     "interception",
     "tools",
 }
-# The v0 wrapper's ``episode`` member: the episode document v1's own data members, in the
-# names MiDojo's ``Episode`` uses.
-LEGACY_EPISODE_FIELDS = frozenset(
+# The v0 wrapper's ``episode`` member: the injection-spec document v1's own data members, in
+# the names MiDojo's ``InjectionSpec`` uses.
+LEGACY_INJECTION_SPEC_FIELDS = frozenset(
     {
         "runtime",
         "turns",
@@ -90,8 +101,11 @@ class UnsupportedEnvelopeVersion(EnvelopeError):
         self.version = version
         self.where = where
         if where == "episode":
-            self.supported = (EPISODE_SCHEMA,)
-            reason = f"supported: {EPISODE_SCHEMA}"
+            self.supported = (INJECTION_SPEC_SCHEMA, LEGACY_INJECTION_SPEC_SCHEMA)
+            reason = (
+                f"supported: {INJECTION_SPEC_SCHEMA}, or {LEGACY_INJECTION_SPEC_SCHEMA} "
+                f"for the document's old ID"
+            )
         else:
             self.supported = (ENVELOPE_SCHEMA, LEGACY_SCHEMA)
             reason = f"supported: {ENVELOPE_SCHEMA}, or {LEGACY_SCHEMA} for the v0 wrapper"
@@ -100,7 +114,7 @@ class UnsupportedEnvelopeVersion(EnvelopeError):
 
 @dataclass(frozen=True)
 class Envelope:
-    """One ``episode.json``: the version it was read as, the Asago fields, the episode document."""
+    """One compiled document: the version it was read as, the Asago fields, the spec."""
 
     source_version: str
     package_id: str
@@ -126,7 +140,8 @@ def build_envelope(
 ) -> dict[str, Any]:
     """Return the envelope of ``episode``: a v1 document plus the fields only Asago reads.
 
-    ``episode`` is written as given, so this function never edits MiDojo's document.
+    ``episode`` is written as given under the envelope key ``episode`` (the key stays until
+    M9), so this function never edits MiDojo's document.
     """
 
     return {
@@ -143,18 +158,19 @@ def build_envelope(
 
 
 def read_envelope(document: Mapping[str, Any] | str | Path) -> Envelope:
-    """Read ``episode.json``, given as its decoded contents or as its path.
+    """Read ``injection-spec.json``, or a recorded ``episode.json``, as contents or as a path.
 
     ``asago-midojo-package-v1`` is read as v1, ``midojo-episode-v2`` as the v0 wrapper with
     a :class:`DeprecationWarning`, and any other version raises
-    :class:`UnsupportedEnvelopeVersion`, which names it.
+    :class:`UnsupportedEnvelopeVersion`, which names it. A v1 envelope's document may carry
+    its current ID or the old ``midojo-episode-v1``, which warns as deprecated.
     """
 
     data = _object(_decode(document), "envelope")
     version = _version(data)
     if version == ENVELOPE_SCHEMA:
         _closed(data, ENVELOPE_FIELDS, "envelope")
-        episode = _episode_member(data.get("episode"))
+        episode = _injection_spec_member(data.get("episode"))
     elif version == LEGACY_SCHEMA:
         warnings.warn(
             f"the envelope version {LEGACY_SCHEMA!r} is read as v0 and is deprecated; "
@@ -163,7 +179,7 @@ def read_envelope(document: Mapping[str, Any] | str | Path) -> Envelope:
             stacklevel=2,
         )
         _closed(data, LEGACY_FIELDS, "envelope (v0)")
-        episode = _v0_episode(data)
+        episode = _v0_injection_spec(data)
     else:
         raise UnsupportedEnvelopeVersion(version)
     delivery = _text(data.get("delivery"), "delivery")
@@ -182,21 +198,32 @@ def read_envelope(document: Mapping[str, Any] | str | Path) -> Envelope:
     )
 
 
-def _episode_member(value: object) -> Mapping[str, Any]:
-    """Return the v1 envelope's ``episode`` member: a document v1, and nothing else."""
+def _injection_spec_member(value: object) -> Mapping[str, Any]:
+    """Return the v1 envelope's ``episode`` member: an injection-spec document v1.
+
+    The document's old ID, ``midojo-episode-v1``, is the same closed shape and is read for
+    one release with a :class:`DeprecationWarning`; any other version is a refusal.
+    """
 
     episode = _object(value, "episode")
     version = _version(episode, "episode")
-    if version != EPISODE_SCHEMA:
+    if version == LEGACY_INJECTION_SPEC_SCHEMA:
+        warnings.warn(
+            f"the document ID {LEGACY_INJECTION_SPEC_SCHEMA!r} is deprecated; "
+            f"write {INJECTION_SPEC_SCHEMA!r} instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    elif version != INJECTION_SPEC_SCHEMA:
         raise UnsupportedEnvelopeVersion(version, "episode")
     _readable(episode, "episode")
     return episode
 
 
 def _readable(episode: Mapping[str, Any], label: str) -> None:
-    """Check what a reader needs of an episode document: a runtime object and a plan, if any.
+    """Check what a reader needs of an injection-spec document: a runtime object, a plan, if any.
 
-    MiDojo's document makes ``plan`` optional, and a receipt reads an episode without one as
+    MiDojo's document makes ``plan`` optional, and a receipt reads a spec without one as
     unread rather than refusing it.
     """
 
@@ -208,14 +235,14 @@ def _readable(episode: Mapping[str, Any], label: str) -> None:
     _turns(episode.get("turns"))
 
 
-def _v0_episode(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Return the episode document a v0 wrapper holds, its next to the episode moved inside."""
+def _v0_injection_spec(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the injection-spec document a v0 wrapper holds, its next to it moved inside."""
 
     inner = _object(data.get("episode"), "episode (v0)")
-    _closed(inner, LEGACY_EPISODE_FIELDS, "episode (v0)")
+    _closed(inner, LEGACY_INJECTION_SPEC_FIELDS, "episode (v0)")
     _readable(inner, "episode (v0)")
     episode: dict[str, Any] = {
-        "schema_version": EPISODE_SCHEMA,
+        "schema_version": INJECTION_SPEC_SCHEMA,
         "suite_name": inner.get("suite_name"),
         "user_task_id": inner.get("user_task_id"),
         "injection_task_id": inner.get("injection_task_id"),

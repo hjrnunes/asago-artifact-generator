@@ -18,7 +18,7 @@ from typing import Any
 
 import jsonschema
 import pytest
-from episode_cases import FIXTURES
+from injection_spec_cases import FIXTURES
 from midojo_sdk.snapshot import snapshot_digest
 from result_record_cases import RESULT_RECORDS
 

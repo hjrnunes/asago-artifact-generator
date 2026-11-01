@@ -4,41 +4,46 @@ This page holds the MiDojo adapter's revision history, fixture provenance and
 implementation notes, moved out of the agent guide (`CLAUDE.md`) so that guide
 stays short.
 
-The adapter currently pins `midojo-sdk` at `76d5807`; `pyproject.toml` and
+The adapter currently pins `midojo-sdk` at `2a794f3`; `pyproject.toml` and
 `uv.lock` hold the full revision. The note below keeps each revision as it was
 recorded.
 
 ## Adapter notes
 
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It maps a
-  `planted_item` package to one MiDojo episode for a target config and parses the sealed
-  result; MiDojo runs the episode, and the adapter holds no proxy or interception code. It
-  names the MiDojo `asago/main` range `>=8e8208f`, the first revision that reads the v1
-  episode document, and pins `midojo-sdk` to the revision `pyproject.toml` and `uv.lock`
-  record (`40707ab`); a target can match the call's arguments from
-  `b5b8c75`, the interceptor copies a placement into a text block that mirrors the
-  structured content from `3824922`, an episode can carry a `result_record` target from
-  `c0bee12`, and a reply from `cab2a35`. The adapter imports `midojo_sdk` only (the episode
-  schema, the injection plan and the snapshot digest) and never `midojo`: its pinned SDK
-  runs the consumer's checks, and the runner's MiDojo runs the episode. It plants by
-  response injection. `compile_episode` (`episode_compile.py`, CLI `compile --target
-  [--block TOOL]`) reads the target config's `tools-list.json` and `runtime-spec.yaml`
-  (`declared.py`) and writes one `episode.json` as a package envelope (`document.py`,
-  `asago-midojo-package-v1`): the Asago fields `package_id`, `scenario_id`,
-  `package_digest`, `claim_level`, `delivery`, `placements` and `tool_revision_range`, and
-  `episode`, exactly MiDojo's
-  `midojo-episode-v1` document (`episode.py`, validated against
-  `midojo_sdk.episode_schema`): host `interception` (the runner gives the interceptor the
-  target's `endpoint.mcp_url`; the agent gets only the interceptor's endpoint and token, and
-  neither it nor the target sees a MiDojo session), the allowed `tools` and their write
-  disposition (`forward` by default), `verifiers` `[]`, and `Episode`'s fields as plain
-  data with no environment. `read_envelope` also reads the older `midojo-episode-v2`
-  wrapper, the bare episode with `tools` and `placements` at the top level, for one
-  release, and refuses any other version, naming it. Each seed item becomes one strict
-  `tool_output` instruction from its runtime contract slot (`placement.py`): carrier, field
-  path, mode, `max_chars`, and the record by the slot's declared `record_key` (from the
-  target's `runtime-spec.yaml` or the runtime contract, never inferred): a field inside a
-  list through a record selector on that item property;
+  `planted_item` package to one MiDojo injection spec for a target config and parses the
+  sealed result; MiDojo runs the injection spec, and the adapter holds no proxy or
+  interception code. It names the MiDojo `asago/main` range `>=8e8208f`, the first revision
+  that carries every capability the document uses, and pins `midojo-sdk` to the revision
+  `pyproject.toml` and `uv.lock` record (`2a794f3`, the revision that renamed the document
+  to the injection spec); a target can match the call's arguments from `b5b8c75`, the
+  interceptor copies a placement into a text block that mirrors the structured content from
+  `3824922`, an injection spec can carry a `result_record` target from `c0bee12`, and a
+  reply from `cab2a35`. The adapter imports `midojo_sdk` only (the injection-spec schema,
+  the injection plan and the snapshot digest) and never `midojo`: its pinned SDK runs the
+  consumer's checks, and the runner's MiDojo runs the injection spec. It plants by
+  response injection. `compile_injection_spec` (`injection_spec_compile.py`, CLI `compile
+  --target` `[--block TOOL]`) reads the target config's `tools-list.json` and
+  `runtime-spec.yaml` (`declared.py`) and writes one `injection-spec.json` as a package
+  envelope (`document.py`, `asago-midojo-package-v1`): the Asago fields `package_id`,
+  `scenario_id`, `package_digest`, `claim_level`, `delivery`, `placements` and
+  `tool_revision_range`, and `episode` (the key the envelope keeps until M9), exactly
+  MiDojo's `midojo-injection-spec-v1` document (`injection_spec.py`, validated against
+  `midojo_sdk.injection_spec_schema`): host `interception` (the runner gives the
+  interceptor the target's `endpoint.mcp_url`; the agent gets only the interceptor's
+  endpoint and token, and neither it nor the target sees a MiDojo session), the allowed
+  `tools` and their write disposition (`forward` by default), `verifiers` `[]`, and
+  `InjectionSpec`'s fields as plain data with no environment. `read_envelope` also reads the
+  older `midojo-episode-v2` wrapper, the bare episode with `tools` and `placements` at the
+  top level, for one release, and it reads a document that keeps the old ID
+  `midojo-episode-v1`, warning that it is deprecated; it refuses any other version, naming
+  it. `parse` reads a directory compiled before the rename, which holds `episode.json`, for
+  the same release. The pre-rename modules `episode_compile` and `episode` remain as
+  deprecated aliases of `injection_spec_compile` and `injection_spec`. Each seed item
+  becomes one strict `tool_output` instruction from its runtime contract slot
+  (`placement.py`): carrier, field path, mode, `max_chars`, and the record by the slot's
+  declared `record_key` (from the target's `runtime-spec.yaml` or the runtime contract,
+  never inferred): a field inside a list through a record selector on that item property;
   a field outside any list, of a carrier whose output schema declares the result and every
   key above the field exactly `"type": "object"` (no array, scalar, union or nullable
   object), by the plain path and `call_arguments` `{record_key: record}` when its input
@@ -59,10 +64,11 @@ recorded.
   `authoring/rubric_judge.py` per judged turn, three-valued, its model requests checked
   against Garak's (`tests/fixtures/rubric/`); a conversation that is not the rubric's
   turns is `unresolved`. Its `details` summarize each turn (no evidence or model text),
-  the model key and token are redacted, and its log is method and status only. `verifiers` is `[]`; compile writes `episode.json` alone. Direct
-  and user-turn packages, a single package with history, non-user history, run-time bindings,
-  state_effect claims and a seed the interceptor cannot place in an MCP tool result are
-  capability gaps (exit 3). `parse_sealed` (`sealed.py`, CLI `parse --snapshot --verdict
+  the model key and token are redacted, and its log is method and status only.
+  `verifiers` is `[]`; compile writes `injection-spec.json` alone. Direct and user-turn
+  packages, a single package with history, non-user history, run-time bindings, state_effect
+  claims and a seed the interceptor cannot place in an MCP tool result are capability gaps
+  (exit 3). `parse_sealed` (`sealed.py`, CLI `parse --snapshot --verdict
   [--delivery] [--route]`) reads the snapshot (`GET .../snapshot`) and the verdict (`evaluation_id`,
   `snapshot_id`, `grade`) into `execution-receipt-v1`, after recomputing the snapshot ID,
   MiDojo's digest of the content (`midojo_sdk.snapshot`, `verified`), and requiring every
@@ -98,10 +104,11 @@ recorded.
   The tests compile against the fixture target (`tests/fixtures/targets/piggybank/`);
   `tests/fixtures/episode/` holds compiled episodes and the snapshots and verdicts MiDojo
   produced from them at 3824922 through its interceptor in front of that target
-  (`tools/fixture-generators/episode.py`, run in MiDojo's interpreter; `tests/episode_cases.py`
-  says how to regenerate; the episodes were recompiled offline since, into the package
-  envelope), `tests/fixtures/episode-a5f81e9/` the same runs sealed at a5f81e9 with the v0
-  wrapper compile wrote then, and `tests/fixtures/regraded-13d5487/` those runs as MiDojo
+  (`tools/fixture-generators/episode.py`, run in MiDojo's interpreter;
+  `tests/injection_spec_cases.py` says how to regenerate; the episodes were recompiled
+  offline since, into the package envelope), `tests/fixtures/episode-a5f81e9/` the same
+  runs sealed at a5f81e9 with the v0 wrapper compile wrote then, and
+  `tests/fixtures/regraded-13d5487/` those runs as MiDojo
   13d5487 reads, grades and reports them (`tools/fixture-generators/regraded_13d5487.py` and
   the other scripts beside it, offline and in MiDojo's interpreter; `reported/` derives
   reported facts).
@@ -123,9 +130,11 @@ recorded.
   `tests/fixtures/reply-judge-246dc73/` holds one reply run sealed at 246dc73, which
   records the delivery, graded `contradicted`: `parse` reads it `not_detected`
   (`tools/fixture-generators/reply_judge_delivered.py`).
-  `tests/fixtures/midojo/` holds byte copies of MiDojo's own golden vectors
-  (`episode_document/`, `snapshot_digest/vectors.json`), and `tests/fixtures/midojo.lock`
-  pins their sha256 and the SDK revision the copies come from, so a diverging copy fails.
+  `tests/fixtures/midojo/` holds byte copies of MiDojo's own files
+  (`injection_spec_document/`, `snapshot_digest/vectors.json`, and the documents MiDojo
+  files under `legacy_documents/` and `verdict_document/`), and
+  `tests/fixtures/midojo.lock` pins their sha256 and the SDK revision the copies come
+  from, so a diverging copy fails.
   `tests/fixtures/inconclusive_vectors/` holds the sealed runs MiDojo owns, with its
   `MANIFEST.json` beside them: five runs MiDojo cannot decide (an unknown grade, an
   interrupted seal, an incomplete capture, an undelivered payload and an unrecorded

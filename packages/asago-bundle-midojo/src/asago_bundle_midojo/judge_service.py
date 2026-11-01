@@ -1,7 +1,7 @@
 """The judge service of a reply episode: ``midojo.judge.v1`` in front of the rubric judge.
 
 A reply episode's security check is MiDojo's built-in ``reply_judge`` predicate
-(``episode_compile.py``). When MiDojo grades the sealed run it posts one
+(``injection_spec_compile.py``). When MiDojo grades the sealed run it posts one
 ``midojo.judge.v1`` request to the URL in ``JUDGE_URL`` with the bearer token in
 ``JUDGE_TOKEN``: the check's ``claim`` (the rubric's question) and ``rubric``, the last
 turn's ``message`` and the agent's ``reply``, the earlier turns (``prior_turns``) and the
@@ -52,7 +52,7 @@ Each judged turn is one model request, sent once, as the rubric judge's ``http_j
 sends it. A model request may take up to 180 seconds (``TIMEOUT_SECONDS``, the old
 judge's), and one ``midojo.judge.v1`` request's model requests share 180 seconds per
 judged turn (``budget_seconds``): the check's ``timeout_seconds`` is that and a margin
-(``episode_compile.judge_timeout_seconds``). The time left bounds the connect (a socket
+(``injection_spec_compile.judge_timeout_seconds``). The time left bounds the connect (a socket
 timeout); from then on the connection's socket is shut down at the deadline, so an answer
 whose status line, headers, body, chunk framing or trailers trickle in is cut off there
 (``judge_failed:APITimeoutError``). The service keeps no state between

@@ -21,7 +21,7 @@ from typing import Any
 
 import jsonschema
 import pytest
-from episode_cases import FIXTURES
+from injection_spec_cases import FIXTURES
 from result_record_cases import (
     CLINIC_CASES,
     CLINIC_PLANTED,
@@ -37,10 +37,13 @@ from asago_bundle_core.conformance import check_gap
 from asago_bundle_core.gap import CapabilityGap
 from asago_bundle_midojo.cli import main
 from asago_bundle_midojo.declared import DeclaredTools
-from asago_bundle_midojo.episode_compile import TOOL_REVISION_RANGE, compile_episode
+from asago_bundle_midojo.injection_spec_compile import (
+    TOOL_REVISION_RANGE,
+    compile_injection_spec,
+)
 from asago_bundle_midojo.placement import Placement, gap_reason, locate
 from asago_bundle_midojo.sealed import parse_sealed
-from conftest import RECEIPT_SCHEMA
+from conftest import RECEIPT_SCHEMA, as_written
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 RECORDING = json.loads((RESULT_RECORDS / "recording.json").read_text(encoding="utf-8"))
@@ -64,10 +67,10 @@ def written(root: Path) -> dict[str, bytes]:
 
 
 @pytest.mark.parametrize("case", sorted(CLINIC_CASES))
-def test_compile_writes_the_episode_midojo_ran(tmp_path: Path, case: str) -> None:
+def test_compile_writes_the_injection_spec_midojo_ran(tmp_path: Path, case: str) -> None:
     compile_clinic_case(tmp_path / "packages", case, tmp_path / "out")
 
-    assert written(tmp_path / "out") == written(RESULT_RECORDS / case)
+    assert written(tmp_path / "out") == as_written(RESULT_RECORDS / case)
 
 
 @pytest.mark.parametrize(
@@ -154,7 +157,7 @@ def test_a_record_named_by_neither_the_call_nor_the_result_is_a_capability_gap(
     )
 
     with pytest.raises(CapabilityGap) as raised:
-        compile_episode(package, tmp_path / "out", target=target)
+        compile_injection_spec(package, tmp_path / "out", target=target)
 
     assert raised.value.record["reason"] == reason
     assert check_gap(raised.value.record, package) == []
@@ -176,7 +179,7 @@ def test_a_result_property_of_another_type_than_the_record_s_is_a_capability_gap
     package = write_clinic_package(tmp_path / "packages", "referral")
 
     with pytest.raises(CapabilityGap) as raised:
-        compile_episode(package, tmp_path / "out", target=target)
+        compile_injection_spec(package, tmp_path / "out", target=target)
 
     assert raised.value.record["reason"].endswith(
         "'get_referral''s result declares 'referral_id' (slot clinic.referral.reason's "

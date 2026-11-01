@@ -6,7 +6,9 @@ fixture target, a scripted agent calling the tools through the interceptor, and 
 with ``midojo.grade`` (``tools/fixture-generators/episode.py``); ``recording.json`` lists the
 security grade each got and the interceptor's injection outcomes. ``fixtures/
 episode-a5f81e9/`` holds the same runs sealed at a5f81e9, whose call records have neither
-``structured_content`` nor ``injection_outcomes``.
+``structured_content`` nor ``injection_outcomes``. Each case directory keeps the document
+compile wrote then, ``episode.json``; M9 renames the recorded files along with the reader's
+primary name, ``injection-spec.json``.
 """
 
 from __future__ import annotations
@@ -18,7 +20,13 @@ from typing import Any
 
 import jsonschema
 import pytest
-from episode_cases import EPISODES, EPISODES_A5F81E9, PLANTED, SEQUENTIAL_TURNS, SINGLE_TURNS
+from injection_spec_cases import (
+    EPISODES,
+    EPISODES_A5F81E9,
+    PLANTED,
+    SEQUENTIAL_TURNS,
+    SINGLE_TURNS,
+)
 from midojo_sdk.snapshot import canonical, dumps, snapshot_digest
 
 from asago_bundle_midojo.route import ROUTES
@@ -38,6 +46,12 @@ SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 
 def _read(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _without_digest(receipt: dict[str, Any]) -> dict[str, Any]:
+    """The receipt without its compiled-file digest, which names the document's filename."""
+
+    return {key: value for key, value in receipt.items() if key != "bundle_digest"}
 
 
 # Each fixture set: the revision MiDojo sealed it at, its root, and its recording.
@@ -670,11 +684,29 @@ def test_missing_files_fail_the_receipt_and_name_what_is_known(tmp_path: Path) -
     assert [item["path"] for item in receipt["native"]] == ["snapshot.json"]
 
 
-def test_an_episode_directory_without_an_episode_cannot_be_parsed(tmp_path: Path) -> None:
+def test_a_directory_without_a_document_cannot_be_parsed(tmp_path: Path) -> None:
     run = run_dir(tmp_path, "command-single", "detected")
 
-    with pytest.raises(ParseError, match="is missing"):
+    with pytest.raises(ParseError, match="neither injection-spec.json nor episode.json"):
         parse_sealed(tmp_path, run / "snapshot.json", run / "verdict.json", run / "r.json")
+
+
+def test_a_compiled_directory_reads_under_either_document_filename(tmp_path: Path) -> None:
+    """A directory compiled before the rename keeps ``episode.json``; both names read."""
+
+    run = run_dir(tmp_path, "command-single", "detected")
+    compiled = tmp_path / "compiled"
+    shutil.copytree(EPISODES / "command-single", compiled)
+    sealed = (run / "snapshot.json", run / "verdict.json", run / "receipt.json")
+
+    before_the_rename = parse_sealed(compiled, *sealed)
+    (compiled / "episode.json").rename(compiled / "injection-spec.json")
+    after_the_rename = parse_sealed(compiled, *sealed)
+
+    assert after_the_rename["episode"] == before_the_rename["episode"]
+    # The digest names each compiled file, so the document's filename is part of it.
+    assert after_the_rename["bundle_digest"] != before_the_rename["bundle_digest"]
+    assert _without_digest(after_the_rename) == _without_digest(before_the_rename)
 
 
 @pytest.mark.parametrize("claim_level", [["reply"], {"reply": True}])

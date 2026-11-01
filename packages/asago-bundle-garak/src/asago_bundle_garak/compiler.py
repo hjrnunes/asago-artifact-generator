@@ -31,10 +31,10 @@ from asago_bundle_core.gap import CapabilityGap, capability_gap_record
 from asago_bundle_core.slots import bundle_slot, contains_marker, template_slots, value_slot
 from asago_bundle_core.target import TargetConfig
 from asago_bundle_core.text import canonical_text
-from asago_bundle_midojo.episode_compile import (
+from asago_bundle_midojo.injection_spec_compile import (
     JUDGE_TOKEN_ENV,
     JUDGE_URL_ENV,
-    episode_document,
+    injection_spec_document,
 )
 
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
@@ -136,7 +136,7 @@ def _compile_planted(
             f"a {PLANTED_ITEM} package is compiled against a target; pass the target config"
         )
     try:
-        envelope = episode_document(package_dir, target=target)
+        envelope = injection_spec_document(package_dir, target=target)
     except CapabilityGap as gap:
         raise CapabilityGap(
             capability_gap_record(TOOL, package, gap.record["delivery"], gap.record["reason"])

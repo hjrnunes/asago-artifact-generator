@@ -3,7 +3,7 @@
 Run with MiDojo's interpreter at 4e5176a, naming that revision, since the interpreter may
 run from an export with no Git history. With an export of 4e5176a in an empty directory
 (``git -C <midojo> archive 4e5176a | tar -x -C <dir>``, then ``uv sync --frozen --extra
-dev`` there), and the reply case compiled by this adapter (``tests/episode_cases.py``)::
+dev`` there), and the reply case compiled by this adapter (``tests/injection_spec_cases.py``)::
 
     cd <that dir> && uv run --frozen --extra dev python \\
         <consumer>/tools/fixture-generators/reply_judge_4e5176a.py \\
@@ -56,6 +56,7 @@ from pathlib import Path
 from typing import Any
 
 import midojo
+from compiled import document_path
 from midojo.control_plane.client import snapshot_from_response
 from midojo.control_plane.models import SnapshotResponse
 from midojo.control_plane.state import _canonical, _dumps
@@ -179,10 +180,10 @@ def write(path: Path, document: Any) -> None:
 
 
 def main(revision: str, compiled: Path, sealed: Path, command: str, out: Path) -> None:
-    document = json.loads((compiled / "episode.json").read_text())
+    document = json.loads(document_path(compiled).read_text())
     built = episode(document["episode"])
     out.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(compiled / "episode.json", out / "episode.json")
+    shutil.copyfile(document_path(compiled), out / "episode.json")
     model = FakeModel()
     recorded: dict[str, Any] = {"revision": revision, "scenarios": {}}
     with model_server(model) as model_url, judge_service(command, model_url) as url:

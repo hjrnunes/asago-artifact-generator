@@ -1,12 +1,12 @@
 """Run each compiled episode in MiDojo, in front of the fixture target, and record the results.
 
-Run with MiDojo's interpreter at the revision to record (see ``tests/episode_cases.py``)::
+Run with MiDojo's interpreter at the revision to record (see ``tests/injection_spec_cases.py``)::
 
     uv run --frozen python <consumer>/tools/fixture-generators/episode.py \
-        <dir holding <case>/episode.json>
+        <dir holding <case>/injection-spec.json>
 
-For each case it builds ``midojo.episode.Episode`` from ``episode.json`` field by field,
-the plan with MiDojo's own ``InjectionPlan.from_data``, and checks that the episode written
+For each case it builds ``midojo.episode.Episode`` from its compiled document field by
+field, the plan with MiDojo's own ``InjectionPlan.from_data``, and checks the episode written
 back as data (the plan by ``InjectionPlan.to_data``) is the document's ``episode``, so the
 consumer's data has MiDojo's shape. Then it runs each scenario once with
 ``midojo.open_episode`` on an in-process control plane, as the episode's ``interception``
@@ -52,6 +52,7 @@ from typing import Any
 
 import midojo
 import yaml
+from compiled import document_path
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from midojo.control_plane.client import snapshot_from_response
@@ -387,7 +388,7 @@ def main(root: Path) -> None:
     recorded: dict[str, Any] = {}
     snapshot_ids: dict[str, Any] = {}
     for case, scenarios in SCENARIOS.items():
-        document = json.loads((root / case / "episode.json").read_text())
+        document = json.loads(document_path(root / case).read_text())
         register_judge(document)
         built = episode(document["episode"])
         assert written_back(built) == document["episode"], f"{case}: the episode differs"
