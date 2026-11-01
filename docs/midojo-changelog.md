@@ -4,6 +4,10 @@ This page holds the MiDojo adapter's revision history, fixture provenance and
 implementation notes, moved out of the agent guide (`CLAUDE.md`) so that guide
 stays short.
 
+The adapter currently pins `midojo-sdk` at `76d5807`; `pyproject.toml` and
+`uv.lock` hold the full revision. The note below keeps each revision as it was
+recorded.
+
 ## Adapter notes
 
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It maps a
@@ -11,7 +15,7 @@ stays short.
   result; MiDojo runs the episode, and the adapter holds no proxy or interception code. It
   names the MiDojo `asago/main` range `>=8e8208f`, the first revision that reads the v1
   episode document, and pins `midojo-sdk` to the revision `pyproject.toml` and `uv.lock`
-  record (`76d5807`); a target can match the call's arguments from
+  record (`40707ab`); a target can match the call's arguments from
   `b5b8c75`, the interceptor copies a placement into a text block that mirrors the
   structured content from `3824922`, an episode can carry a `result_record` target from
   `c0bee12`, and a reply from `cab2a35`. The adapter imports `midojo_sdk` only (the episode
