@@ -1045,10 +1045,10 @@ target; for a Garak item orch writes the package's seed file and the target plan
 it before it serves (see [The Garak IPI route](#the-garak-ipi-route)). The adapter
 reads and
 writes MiDojo's documents through `midojo-sdk`, which `pyproject.toml` pins by commit to
-`m90/main` at `76d5807` (subdirectory `interception/python-sdk`), and it never imports
+`asago/main` at `76d5807` (subdirectory `interception/python-sdk`), and it never imports
 `midojo`: the episode schema, the plan and the snapshot digest are the SDK's
 (`midojo_sdk.episode_schema`, `midojo_sdk.injection` and `midojo_sdk.snapshot`). The
-runner runs the episode with the same revision, `m90/main` at `76d5807`. It reads the
+runner runs the episode with the same revision, `asago/main` at `76d5807`. It reads the
 v1 episode document (`8e8208f` was the first revision that did):
 `midojo.episode_handle.open` with `HostInterception`
 (`src/midojo/interception_host.py`), `midojo.grade`

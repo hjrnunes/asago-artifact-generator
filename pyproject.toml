@@ -45,7 +45,7 @@ asago-bundle-garak = { workspace = true }
 asago-bundle-midojo = { workspace = true }
 # MiDojo's light SDK: the episode document v1 schema and the snapshot digest. The adapter
 # depends on the SDK alone; the harness (``midojo``) never enters this workspace. The revision
-# is a pushed ``m90/main`` SHA, and the subdirectory is the SDK's workspace member.
+# is a pushed ``asago/main`` SHA, and the subdirectory is the SDK's workspace member.
 midojo-sdk = { git = "https://github.com/hjrnunes/midojo.git", subdirectory = "interception/python-sdk", rev = "76d58073d150c5323edfc01631900d2d64470679" }
 
 [tool.hatch.build.targets.wheel]

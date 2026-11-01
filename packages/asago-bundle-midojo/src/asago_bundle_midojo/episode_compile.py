@@ -82,7 +82,7 @@ from .placement import (
 from .reachable import unreachable_reason
 
 TOOL = "midojo"
-# MiDojo 8e8208f, on m90/main, reads episode document v1 (the schema this adapter's episodes
+# MiDojo 8e8208f, on asago/main, reads episode document v1 (the schema this adapter's episodes
 # validate against), and every capability the earlier ranges named is an ancestor of it:
 # ``call_arguments`` and the text mirror from 3824922, host interception with
 # ``midojo.grade``, the result-record match from c0bee12, and the judge-service reply check

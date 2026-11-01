@@ -9,7 +9,7 @@ stays short.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It maps a
   `planted_item` package to one MiDojo episode for a target config and parses the sealed
   result; MiDojo runs the episode, and the adapter holds no proxy or interception code. It
-  names the MiDojo `m90/main` range `>=8e8208f`, the first revision that reads the v1
+  names the MiDojo `asago/main` range `>=8e8208f`, the first revision that reads the v1
   episode document, and pins `midojo-sdk` to the revision `pyproject.toml` and `uv.lock`
   record (`76d5807`); a target can match the call's arguments from
   `b5b8c75`, the interceptor copies a placement into a text block that mirrors the

@@ -82,7 +82,7 @@ def test_the_lock_names_the_revision_the_copies_come_from() -> None:
     )
 
     assert pin, "pyproject.toml pins midojo-sdk by git rev"
-    assert PINNED["source"] == f"midojo m90/main {pin.group(1)}"
+    assert PINNED["source"] == f"midojo asago/main {pin.group(1)}"
 
 
 def test_the_copies_are_the_vectors_and_nothing_else() -> None:
