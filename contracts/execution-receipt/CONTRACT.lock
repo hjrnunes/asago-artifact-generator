@@ -28,6 +28,8 @@
     "execution-receipt-v1/invalid/unknown-observation-source.json": "05d648c3959deb16fe6bb725d5e790a3a7b203bd07ba0aabb8b5f0d853633b8a",
     "execution-receipt-v1/invalid/unknown-outcome.json": "8529ff24356ac332200063c1c7dbdd783212ca0efb50c883217b899747e0959b",
     "execution-receipt-v1/invalid/uppercase-package-digest.json": "b65568000266e87f7c900105c12afc4cdc7b02475b3dd5a4bb5242a5b889fff8",
+    "execution-receipt-v1/valid/garak-ipi-episode-legacy.json": "31c79efb695b8b33716d45b58a996519fa81fd6d36b0b328003cf89156586dc7",
+    "execution-receipt-v1/valid/garak-ipi-episode.json": "dddf1ffb40443023c148cd40e02fc4406e265651249ccf43c5c24457d78b59a5",
     "execution-receipt-v1/valid/garak-not-started.json": "db15d1b1cd66a28dc6a3273ab5db1829c9ab4743c3c63189c02b59a7f354f0f7",
     "execution-receipt-v1/valid/garak-sequential.json": "fdb47fb852f13d2609417e8c025c49884045349d42586a0d78a22cd8c1c91a21",
     "execution-receipt-v1/valid/garak-single-turn.json": "79a1fff0634f6c19438ef74dbe9997dfe8a4a3a8f8e525fb9958bff92d3cbaa4",
@@ -39,7 +41,6 @@
     "execution-receipt-v1/valid/midojo-episode-unknown.json": "e8d72977c24d2b20b0d617bfefdc0782b8956d29d2f1c27b0664801731f90203",
     "execution-receipt-v1/valid/midojo-openshell-http-requests-empty.json": "fd5c4b4e4de3c345b6ebb84c16ec5382037b3c4c6ba43d5ab0867aee91bfa2f4",
     "execution-receipt-v1/valid/midojo-openshell-http-requests.json": "0a077505f764660184c70d39fb086ff8b0de0aae74c1fd1a2b7f69cd93d27190",
-    "execution-receipt-v1/valid/garak-ipi-episode.json": "31c79efb695b8b33716d45b58a996519fa81fd6d36b0b328003cf89156586dc7",
     "execution-receipt-v1.schema.json": "178e569b9cd6a345e9396da19eb82a11f56abce7346913035c52c0801435d1a2"
   }
 }

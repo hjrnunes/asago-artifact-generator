@@ -3,7 +3,7 @@
     {
       "detections": [
         {
-          "detector": "EpisodeVerdict",
+          "detector": "EvaluationVerdict",
           "matched_calls": null,
           "outcome": "detected",
           "reason": null

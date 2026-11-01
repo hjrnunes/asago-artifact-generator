@@ -1,9 +1,11 @@
-"""parse: an ``IPIEpisode`` report becomes one receipt attempt per episode chain.
+"""parse: an ``InjectionSpecProbe`` report becomes one receipt attempt per episode chain.
 
 The report lines come from ``ipi_cases``, which follows what the probe and the verdict
 detector write. What matters here is the fail-closed rule: only a decided grade is
 detected or not detected; an unknown, invalid, undelivered, incomplete, errored or
-interrupted chain is inconclusive, and no inconclusive case ever reads as resisted.
+interrupted chain is inconclusive, and no inconclusive case ever reads as resisted. A
+report recorded before the rename names the old plugin and notes; it parses as the same
+run.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from ipi_cases import (
     chain,
     condition_record,
     effect_record,
+    legacy_report,
     planted_stimulus,
     trace,
     verdict_record,
@@ -215,13 +218,13 @@ def test_a_delivered_attack_is_detected(tmp_path: Path) -> None:
     # the report's detector results are keyed by plugin name, so they arrive sorted
     assert attempt["detections"] == [
         {
-            "detector": "EpisodeEffect",
+            "detector": "EvaluationEffect",
             "outcome": "detected",
             "reason": None,
             "matched_calls": None,
         },
         {
-            "detector": "EpisodeVerdict",
+            "detector": "EvaluationVerdict",
             "outcome": "detected",
             "reason": None,
             "matched_calls": None,
@@ -248,9 +251,34 @@ def test_a_complete_resisted_run_is_not_detected(tmp_path: Path) -> None:
     assert attempt["generation"]["response_status"] == "completed"
     assert {item["detector"]: item["outcome"] for item in attempt["detections"]} == {
         "ToolCallCondition": "detected",
-        "EpisodeEffect": "not_detected",
-        "EpisodeVerdict": "not_detected",
+        "EvaluationEffect": "not_detected",
+        "EvaluationVerdict": "not_detected",
     }, "the target complied with the condition and the action it asked for never ran"
+
+
+def test_a_report_recorded_before_the_rename_parses_as_the_same_run(tmp_path: Path) -> None:
+    """A pre-rename report names the old plugins and notes; the receipt decides the same.
+
+    The probe and both detectors keep accepting their old names, and the parser reads the
+    old trace, chain and result notes, so a report recorded before the rename is not lost.
+    """
+
+    output = make_bundle(tmp_path / "legacy", legacy_report(obey()))
+    receipt = parse(output)
+
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"] == {
+        "outcome": "detected",
+        "claim_level": "command_attempt",
+        "reason": None,
+    }
+    assert {item["detector"]: item["outcome"] for item in attempt["detections"]} == {
+        "EpisodeEffect": "detected",
+        "EpisodeVerdict": "detected",
+        "ToolCallCondition": "detected",
+    }
+    assert receipt["episode"]["route"] == "garak.midojo.InjectionSpecProbe"
+    assert receipt["episode"]["verdict"]["security"] is True
 
 
 def test_a_blocked_call_is_detected_with_no_effect(tmp_path: Path) -> None:
@@ -276,8 +304,8 @@ def test_a_blocked_call_is_detected_with_no_effect(tmp_path: Path) -> None:
     assert attempt["result"]["outcome"] == "detected"
     assert {item["detector"]: item["outcome"] for item in attempt["detections"]} == {
         "ToolCallCondition": "detected",
-        "EpisodeEffect": "not_detected",
-        "EpisodeVerdict": "detected",
+        "EvaluationEffect": "not_detected",
+        "EvaluationVerdict": "detected",
     }
     verdict = receipt["episode"]["verdict"]
     assert verdict["blocked"] is True, "the receipt says the policy refused the call"
@@ -381,12 +409,11 @@ def test_an_intermediate_turn_is_not_counted(tmp_path: Path) -> None:
     (attempt,) = receipt["attempts"]
     assert len(receipt["attempts"]) == 1
     assert len(attempt["turns"]) == 2
-    assert [item["detector"] for item in attempt["detections"]] == ["EpisodeVerdict"]
+    assert [item["detector"] for item in attempt["detections"]] == ["EvaluationVerdict"]
     # The sealed turn is in the report twice: once at status 1, once at status 2.
-    assert [entry["status"] for entry in entries if entry["notes"]["ipi_episode"]["final"]] == [
-        1,
-        2,
-    ]
+    assert [
+        entry["status"] for entry in entries if entry["notes"]["injection_spec_chain"]["final"]
+    ] == [1, 2]
 
 
 def test_a_chain_the_probe_never_sealed_fails_as_interrupted(tmp_path: Path) -> None:
@@ -399,7 +426,7 @@ def test_a_chain_the_probe_never_sealed_fails_as_interrupted(tmp_path: Path) -> 
     assert attempt["result"] == {
         "outcome": None,
         "claim_level": "command_attempt",
-        "reason": "detection_missing:EpisodeVerdict",
+        "reason": "detection_missing:EvaluationVerdict",
     }
     assert attempt["detections"] == []
     assert attempt["generation"]["response_status"] is None
@@ -616,7 +643,7 @@ def test_the_receipt_names_the_route_and_what_the_probe_sealed(tmp_path: Path) -
     receipt = parse(output)
 
     assert receipt["episode"] == {
-        "route": "garak.ipi_episode.IPIEpisode",
+        "route": "garak.midojo.InjectionSpecProbe",
         "evaluation_id": EVALUATION_ID,
         "snapshot_id": SNAPSHOT_ID,
         "evidence_status": {"network": "complete"},
@@ -640,7 +667,7 @@ def test_the_receipt_names_the_route_and_what_the_probe_sealed(tmp_path: Path) -
 
 def test_an_interrupted_chain_names_its_evaluation_but_no_snapshot(tmp_path: Path) -> None:
     entries = chain(texts=TEXTS)
-    entries[-1]["notes"]["episode_trace"] = {
+    entries[-1]["notes"]["evaluation_trace"] = {
         "evaluation_id": EVALUATION_ID,
         "snapshot_id": None,
         "snapshot": None,
@@ -656,7 +683,7 @@ def test_an_interrupted_chain_names_its_evaluation_but_no_snapshot(tmp_path: Pat
 
     assert receipt["incomplete_reason"] == "interrupted"
     assert receipt["episode"] == {
-        "route": "garak.ipi_episode.IPIEpisode",
+        "route": "garak.midojo.InjectionSpecProbe",
         "evaluation_id": EVALUATION_ID,
         "snapshot_id": None,
         "evidence_status": None,
@@ -787,7 +814,7 @@ def vector_records(case: str) -> tuple[dict[str, Any], dict[str, Any]]:
     premise = want["midojo"]
     return (
         verdict_record(
-            detectors["EpisodeVerdict"]["outcome"],
+            detectors["EvaluationVerdict"]["outcome"],
             security=premise["security"],
             validity=premise["grade_validity"],
             delivered=premise["injection_delivered"],
@@ -801,7 +828,7 @@ def vector_effect(case: str) -> dict[str, Any]:
     """The effect detector's record for the case, from its own sealed grade."""
 
     want = vector(case, "expected.json")
-    route = want["routes"]["garak_detectors"]["EpisodeEffect"]
+    route = want["routes"]["garak_detectors"]["EvaluationEffect"]
     premise = want["midojo"]
     return effect_record(
         route["outcome"],
@@ -920,7 +947,7 @@ def test_every_vector_report_carries_the_effect_its_table_names(tmp_path: Path, 
     receipt = parse(output)
     (attempt,) = receipt["attempts"]
     graded = {item["detector"]: item["outcome"] for item in attempt["detections"]}
-    route = want["routes"]["garak_detectors"]["EpisodeEffect"]
+    route = want["routes"]["garak_detectors"]["EvaluationEffect"]
     assert graded[EFFECT_NAME] == route["outcome"]
     assert want["routes"]["garak_report"]["effect"] == route["outcome"]
 

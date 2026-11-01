@@ -1,16 +1,18 @@
-"""The planted packages, and the reports an ``IPIEpisode`` run writes, for the Garak tests.
+"""The planted packages, and the reports an ``InjectionSpecProbe`` run writes, for the tests.
 
 The packages come from the MiDojo adapter's own builders
 (``packages/asago-bundle-midojo/tests/injection_spec_cases.py``): both adapters compile the
 same package for the same fixture target, and the entry Garak writes must carry the
-episode MiDojo compiled. The reports follow what ``garak/probes/ipi_episode.py`` and
-``garak/detectors/ipi_episode.py`` write: each turn's attempt at status 1, the turn
-that ends the chain again at status 2 with the detectors' results, and the sealed
-trace on every attempt of a sealed chain.
+injection spec MiDojo compiled. The reports follow what ``garak/probes/midojo.py`` and
+``garak/detectors/midojo.py`` write: each turn's attempt at status 1, the turn that
+ends the chain again at status 2 with the detectors' results, and the sealed trace on
+every attempt of a sealed chain. ``legacy_report`` turns one into the names a report
+recorded before the rename carries, which the parser still reads.
 """
 
 from __future__ import annotations
 
+import copy
 import json
 import sys
 from pathlib import Path
@@ -38,10 +40,21 @@ from injection_spec_cases import (  # noqa: E402, F401  the MiDojo adapter's bui
 )
 
 # The probe's class name, as the report's ``probe_classname`` writes it.
-PROBE = "probes.ipi_episode.IPIEpisode"
-VERDICT = "ipi_episode.EpisodeVerdict"
-EFFECT = "ipi_episode.EpisodeEffect"
+PROBE = "probes.midojo.InjectionSpecProbe"
+VERDICT = "midojo.EvaluationVerdict"
+EFFECT = "midojo.EvaluationEffect"
 CONDITION_DETECTOR = "toolcall.ToolCallCondition"
+# The plugin and note names a report recorded before the rename carries. The probe and
+# detectors still answer to them, so a pre-rename report must parse as the same run.
+LEGACY_NAMES = {
+    PROBE: "probes.ipi_episode.IPIEpisode",
+    VERDICT: "ipi_episode.EpisodeVerdict",
+    EFFECT: "ipi_episode.EpisodeEffect",
+    "injection_spec_chain": "ipi_episode",
+    "evaluation_trace": "episode_trace",
+    "evaluation_verdict_results": "episode_verdict_results",
+    "evaluation_effect_results": "episode_effect_results",
+}
 SCORES = {"detected": 1.0, "not_detected": 0.0, "inconclusive": None}
 EVALUATION_ID = "evaluation-6f1c"
 SNAPSHOT_ID = "a" * 64
@@ -176,7 +189,7 @@ def verdict_record(
     capture_complete: bool = True,
     condition: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The ``episode_verdict_results`` record the verdict detector writes."""
+    """The ``evaluation_verdict_results`` record the verdict detector writes."""
 
     return {
         "outcome": outcome,
@@ -202,7 +215,7 @@ def effect_record(
     capture_complete: bool = True,
     effect_observed: Any = None,
 ) -> dict[str, Any]:
-    """The ``episode_effect_results`` record the effect detector writes."""
+    """The ``evaluation_effect_results`` record the effect detector writes."""
 
     return {
         "outcome": outcome,
@@ -269,12 +282,17 @@ def _attempt(
         },
         "outputs": [output],
         "notes": {
-            "ipi_episode": {"chain": chain, "turn": position, "turns": turns, "final": final},
+            "injection_spec_chain": {
+                "chain": chain,
+                "turn": position,
+                "turns": turns,
+                "final": final,
+            },
             "source_metadata": metadata,
         },
     }
     if sealed is not None:
-        entry["notes"]["episode_trace"] = sealed
+        entry["notes"]["evaluation_trace"] = sealed
     if results is not None:
         entry["detector_results"] = results
     return entry
@@ -333,14 +351,35 @@ def chain(
         notes["tool_call_condition_results"] = list(records[1:])
     if effect is not None:
         results[EFFECT] = [effect.get("score")]
-        notes["episode_effect_results"] = [effect]
+        notes["evaluation_effect_results"] = [effect]
     if records:
         results[VERDICT] = [records[0].get("score")]
-        notes["episode_verdict_results"] = [records[0]]
+        notes["evaluation_verdict_results"] = [records[0]]
     if results:
         finished["detector_results"] = results
     finished["notes"] = notes
     return [*lines, finished]
+
+
+def legacy_report(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return the report lines with the plugin and note names a pre-rename run wrote.
+
+    Each old name belongs to the same plugin or note the probe and detectors write now,
+    so a legacy report describes the same run in the recorded vocabulary. A test that
+    compares one with a current report proves the parser reads both forms.
+    """
+
+    legacy: list[dict[str, Any]] = []
+    for original in entries:
+        entry = copy.deepcopy(original)
+        if entry.get("probe_classname") in LEGACY_NAMES:
+            entry["probe_classname"] = LEGACY_NAMES[entry["probe_classname"]]
+        for member in ("notes", "detector_results"):
+            found = entry.get(member)
+            if isinstance(found, dict):
+                entry[member] = {LEGACY_NAMES.get(key, key): value for key, value in found.items()}
+        legacy.append(entry)
+    return legacy
 
 
 def write_report(path: Path, entries: list[dict[str, Any]]) -> Path:

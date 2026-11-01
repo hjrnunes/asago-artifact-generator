@@ -141,9 +141,10 @@ Deterministic tests must not contact a model endpoint or target.
   also uses). The bundle's MCP server is the authorized config's `endpoint.mcp_url`.
   Its CLI `instantiate` requires `--package`, `--target` and `--run`.
   A `planted_item` package takes the IPI route: `compile --target` writes `ipi-episodes.json`
-  (one `{episode, metadata}` entry, the injection spec the MiDojo adapter's
-  `injection_spec_document` builds) and a template named `garak-ipi-episode` that runs
-  `ipi_episode.IPIEpisode` with `ipi_episode.EpisodeVerdict`, `ipi_episode.EpisodeEffect` and
+  (one `{injection_spec, metadata}` entry, the injection spec the MiDojo adapter's
+  `injection_spec_document` builds; the file keeps its name) and a template named
+  `garak-ipi-episode` that runs
+  `midojo.InjectionSpecProbe` with `midojo.EvaluationVerdict`, `midojo.EvaluationEffect` and
   `toolcall.ToolCallCondition`, one generation against that `endpoint.mcp_url`; a package
   the injection-spec compile cannot place is a `garak`-tooled capability gap. The manifest
   `files` list names the static bundle files `instantiate` copies in beside the templates.
@@ -153,11 +154,12 @@ Deterministic tests must not contact a model endpoint or target.
   `judge.verdict` states that same decision in the receipt's judge vocabulary:
   `supported` for a detection, `contradicted` for a decided resistance, and `unresolved`
   for every other grade, so an obeyed or undecided reply never reads as resisted. A report
-  of one chain also fills the receipt's `episode` block: route `garak.ipi_episode.IPIEpisode`,
+  of one chain also fills the receipt's `episode` block: route `garak.midojo.InjectionSpecProbe`,
   the evaluation and snapshot the probe sealed, the evidence status of that snapshot, and
   its verdict, which states `attempted`, `blocked` and `effect_observed` as sealed; a chain
   sealed short names its evaluation but no snapshot or verdict, and a report of several
-  chains leaves the block out. `parse` exits 1 and names the path on stderr
+  chains leaves the block out. A report recorded before the rename names the old plugins and
+  notes; `parse` reads both forms. `parse` exits 1 and names the path on stderr
   when the bundle directory or the report is not there: missing input is not a failed run.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member (injection-spec
   compile, sealed parse, judge service). Its revision history, fixture provenance

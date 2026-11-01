@@ -1,7 +1,7 @@
 """One planted bundle started under a real ``python -m garak --config``.
 
 The garak checkout (``ASAGO_GARAK``, else ``garak`` beside this repository's checkout or
-one of its parents) supplies the interpreter and the ``ipi_episode`` plugins. The run
+one of its parents) supplies the interpreter and the ``midojo`` plugins. The run
 reaches two scripted servers the test starts on free local ports: an OpenAI Responses
 endpoint that answers every request, and an MCP upstream that serves the tools the
 compiled episode may call. No model and no target is contacted.
@@ -98,7 +98,7 @@ def _checkout() -> Path | None:
     named = os.environ.get("ASAGO_GARAK")
     candidates = [Path(named)] if named else [parent / "garak" for parent in REPO.parents]
     return next(
-        (path for path in candidates if (path / "garak/probes/ipi_episode.py").is_file()),
+        (path for path in candidates if (path / "garak/probes/midojo.py").is_file()),
         None,
     )
 
@@ -233,17 +233,19 @@ def test_the_filled_bundle_starts_under_garak(tmp_path: Path) -> None:
 
     garak_output = ANSI.sub("", completed.stdout + completed.stderr)
     assert completed.returncode == 0, garak_output
-    assert "queue of probes: ipi_episode.IPIEpisode" in garak_output, "the run selects the probe"
-    assert "ipi_episode.EpisodeVerdict" in garak_output, "the run loads the verdict detector"
+    assert "queue of probes: midojo.InjectionSpecProbe" in garak_output, (
+        "the run selects the probe"
+    )
+    assert "midojo.EvaluationVerdict" in garak_output, "the run loads the verdict detector"
     assert "load exception" not in garak_output, garak_output
 
     report = bundle / REPORT
     assert report.is_file(), garak_output
     (final,) = final_attempts(report)
-    assert final["probe_classname"] == "ipi_episode.IPIEpisode"
+    assert final["probe_classname"] == "midojo.InjectionSpecProbe"
     assert final["notes"]["source_metadata"]["package_id"] == f"{SCENARIO}-{SCENARIO}"
 
-    record = final["notes"]["episode_verdict_results"][0]
+    record = final["notes"]["evaluation_verdict_results"][0]
     assert record["injection_delivered"] is False, "a reply-only run delivers no payload"
     assert record["outcome"] == "inconclusive", "an undelivered payload is never resisted"
 
@@ -265,8 +267,8 @@ def test_the_report_of_a_garak_run_parses_as_inconclusive(tmp_path: Path) -> Non
     }
     assert attempt["source_metadata"]["scenario_id"] == SCENARIO
     assert [case["detector"] for case in attempt["detections"]] == [
-        "EpisodeEffect",
-        "EpisodeVerdict",
+        "EvaluationEffect",
+        "EvaluationVerdict",
         "ToolCallCondition",
     ]
     assert [case["outcome"] for case in attempt["detections"]] == [

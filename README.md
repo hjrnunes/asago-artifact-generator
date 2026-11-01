@@ -989,21 +989,22 @@ be prepared. A call without `--package`, `--target` or `--run` is a usage error 
 ## The Garak IPI route
 
 A `planted_item` package takes Garak's IPI route. `compile --target` writes
-`ipi-episodes.json`: one source entry `{episode, metadata}`, where `episode` is the
-injection spec the MiDojo adapter's `injection_spec_document` builds and `metadata` holds
-`package_id`, `scenario_id`, `package_digest`, `claim_level` and `delivery`. It also
+`ipi-episodes.json`: one source entry `{injection_spec, metadata}`, where `injection_spec`
+is the injection spec the MiDojo adapter's `injection_spec_document` builds and `metadata`
+holds `package_id`, `scenario_id`, `package_digest`, `claim_level` and `delivery`. The
+source keeps its filename; the entry key is what moved. It also
 writes a template named `garak-ipi-episode`, holding `conversation.template.json`,
 `run.template.json` and `bundle.json`. `run.template.json` runs
-`ipi_episode.IPIEpisode` with `ipi_episode.EpisodeVerdict`,
-`ipi_episode.EpisodeEffect` and `toolcall.ToolCallCondition`, one generation per
+`midojo.InjectionSpecProbe` with `midojo.EvaluationVerdict`,
+`midojo.EvaluationEffect` and `toolcall.ToolCallCondition`, one generation per
 attempt with no parallel attempts or requests, and the target's `endpoint.mcp_url` as
 the interceptor's upstream. The bundle's entrypoint is:
 
 ```bash
 {tool_python} -m garak --config {bundle}/run.yaml \
   --target_type openai.OpenAIResponsesGenerator --target_name {model} \
-  --probes ipi_episode.IPIEpisode \
-  --detectors ipi_episode.EpisodeVerdict,ipi_episode.EpisodeEffect,toolcall.ToolCallCondition
+  --probes midojo.InjectionSpecProbe \
+  --detectors midojo.EvaluationVerdict,midojo.EvaluationEffect,toolcall.ToolCallCondition
 ```
 
 The probe plants by response injection through the same host interceptor: MiDojo's
@@ -1020,9 +1021,12 @@ reason `the target was seeded beside the episode`. A package the injection-spec
 compile cannot place is a `garak`-tooled capability gap.
 
 `parse` reads `reports/<scenario>.report.jsonl` and names the route
-`garak.ipi_episode.IPIEpisode`. It carries each attempt's `source_metadata`, refuses
+`garak.midojo.InjectionSpecProbe`. It carries each attempt's `source_metadata`, refuses
 a report whose package digest or ID is not the bundle's own, and makes an unknown,
-invalid or undelivered chain inconclusive. A reply episode's `judge.verdict` states
+invalid or undelivered chain inconclusive. A report recorded before the rename names
+`ipi_episode.IPIEpisode`, its detectors and its `ipi_episode` and `episode_trace`
+notes; `parse` reads both forms and gives the same outcome and verdict. A reply
+episode's `judge.verdict` states
 `supported` for a detection, `contradicted` for a decided resistance, and
 `unresolved` in every other case. A one-chain report also fills the receipt's
 `episode` block with the evaluation and snapshot the probe sealed and their verdict;
@@ -1039,7 +1043,7 @@ of the carrier tool. The target's own data is not changed, because orch starts t
 target plain for a MiDojo item: it writes no seed file and runs no seed command
 (`tool_places_seed`), so the interceptor's placements are the only planted text. The
 Garak adapter reaches the same result through the Garak IPI route: its
-`compile --target` writes `ipi-episodes.json`, and Garak's `IPIEpisode` probe plants
+`compile --target` writes `ipi-episodes.json`, and Garak's `InjectionSpecProbe` probe plants
 through the same host interceptor. Neither adapter writes a `seed.json` into the
 target; for a Garak item orch writes the package's seed file and the target plants
 it before it serves (see [The Garak IPI route](#the-garak-ipi-route)). The adapter

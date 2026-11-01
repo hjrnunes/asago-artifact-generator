@@ -14,11 +14,11 @@ last turn, yields a ``failed`` receipt with ``incomplete_reason``
 ``turn_failed:<position>`` (counted from 1), as the orchestrator names it.
 
 A ``garak-ipi-episode`` bundle's report holds one chain of attempts per source
-entry, each naming its chain and turn in ``notes.ipi_episode``: the probe keeps
-every turn's attempt at status 1 and writes the last one again at status 2 when
-it seals the chain. The receipt has one attempt per chain, with the turns'
+entry, each naming its chain and turn in ``notes.injection_spec_chain``: the probe
+keeps every turn's attempt at status 1 and writes the last one again at status 2
+when it seals the chain. The receipt has one attempt per chain, with the turns'
 requests and replies and the calls the sealed trace recorded, and grades the
-``episode_verdict`` detection. Only a decided verdict is detected or not: an
+``evaluation_verdict`` detection. Only a decided verdict is detected or not: an
 unknown, invalid, undelivered, incomplete, errored or interrupted chain is
 inconclusive, never ``not_detected``. A reply episode's judge states the same
 decision in the receipt's judge vocabulary: ``supported`` for a detection,
@@ -27,8 +27,12 @@ nothing, so an obeyed or undecided reply is never counted as resisted. A chain
 the probe never sealed yields a
 ``failed`` receipt naming ``interrupted``, and its attempt grades inconclusive.
 A report of one chain also carries the receipt's ``episode`` block: the route
-``garak.ipi_episode.IPIEpisode`` and the evaluation, snapshot, evidence status
+``garak.midojo.InjectionSpecProbe`` and the evaluation, snapshot, evidence status
 and verdict the probe sealed.
+
+A report recorded before the rename names the probe's old plugins and the old
+``ipi_episode``, ``episode_trace`` and ``episode_verdict_results`` notes; this
+parser reads both forms, so a saved run keeps its outcome and verdict.
 
 When the orchestrator's boundary services recorded the package, their records
 replace the report's evidence: ``mcp_capture/calls.jsonl`` the tool calls,
@@ -75,11 +79,15 @@ ATTEMPT_COMPLETE = 2
 OUTCOMES = {1.0: "detected", 0.0: "not_detected"}
 INCONCLUSIVE = "inconclusive"
 DRIVERS = {"command_attempt": "ToolCallCondition", "reply": "RubricJudge"}
+# Each detector's result note, under the names it writes now and the names a report
+# recorded before the rename carries. The first name is the one this parser prefers.
 RECORD_NOTES = {
-    "ToolCallCondition": "tool_call_condition_results",
-    "RubricJudge": "rubric_judge_results",
-    "EpisodeVerdict": "episode_verdict_results",
-    "EpisodeEffect": "episode_effect_results",
+    "ToolCallCondition": ("tool_call_condition_results",),
+    "RubricJudge": ("rubric_judge_results",),
+    "EvaluationVerdict": ("evaluation_verdict_results", "episode_verdict_results"),
+    "EpisodeVerdict": ("episode_verdict_results", "evaluation_verdict_results"),
+    "EvaluationEffect": ("evaluation_effect_results", "episode_effect_results"),
+    "EpisodeEffect": ("episode_effect_results", "evaluation_effect_results"),
 }
 # A verdict's own grade; any other value is inconclusive, never resisted.
 GRADES = frozenset({*OUTCOMES.values(), INCONCLUSIVE})
@@ -87,19 +95,26 @@ GRADES = frozenset({*OUTCOMES.values(), INCONCLUSIVE})
 # three values, so a detection outcome never reaches the judge's vocabulary.
 JUDGE_VERDICTS = {"detected": "supported", "not_detected": "contradicted"}
 UNRESOLVED = "unresolved"
-# The detectors that read an episode's sealed grade, by their bare plugin names.
+# The detectors that read an episode's sealed grade, by their bare plugin names. The
+# old names are what a report recorded before the rename carries; both still grade.
 IPI_VERDICT = IPI_DETECTOR.rsplit(".", 1)[-1]
 IPI_EFFECT_NAME = IPI_EFFECT.rsplit(".", 1)[-1]
-GRADE_READERS = frozenset({IPI_VERDICT, IPI_EFFECT_NAME})
-# The route that drove an IPI report: Garak's own probe, over MiDojo's episode API.
-IPI_ROUTE = "garak.ipi_episode.IPIEpisode"
+LEGACY_IPI_VERDICT = "EpisodeVerdict"
+LEGACY_IPI_EFFECT = "EpisodeEffect"
+IPI_VERDICTS = (IPI_VERDICT, LEGACY_IPI_VERDICT)
+GRADE_READERS = frozenset({IPI_VERDICT, IPI_EFFECT_NAME, LEGACY_IPI_VERDICT, LEGACY_IPI_EFFECT})
+# The route that drove an IPI report: Garak's own probe, over MiDojo's injection-spec API.
+# A receipt recorded before the rename names ``garak.ipi_episode.IPIEpisode``; the
+# contract accepts both, and this adapter writes the current name.
+IPI_ROUTE = "garak.midojo.InjectionSpecProbe"
 # The attack outcomes a grade may state, each null when the grade does not say.
 ATTACK_OUTCOME = ("attempted", "blocked", "effect_observed", "injection_delivered")
 EVIDENCE_STATUSES = frozenset({"complete", "incomplete", "failed", "not_collected"})
 VALIDITIES = frozenset({"valid", "invalid"})
-CHAIN_NOTES = "ipi_episode"
+# The probe's chain and trace notes, now first, then the names a pre-rename report holds.
+CHAIN_NOTES = ("injection_spec_chain", "ipi_episode")
 METADATA_NOTES = "source_metadata"
-TRACE_NOTES = "episode_trace"
+TRACE_NOTES = ("evaluation_trace", "episode_trace")
 INTERRUPTED = "interrupted"
 UNFINISHED = "unfinished"
 PROXY_CALLS = Path("mcp_capture/calls.jsonl")
@@ -622,7 +637,7 @@ def ipi_attempt(
             "error_type": error_type,
         },
         "turns": ipi_turns(turns, replies, calls, bundle),
-        "result": result_of(detections, bundle.manifest["claim_level"], driver=IPI_VERDICT),
+        "result": result_of(detections, bundle.manifest["claim_level"], driver=IPI_VERDICTS),
         "observation": {
             "source": "tool_native",
             "assistant_messages": [replies[position] for position in sorted(replies)],
@@ -690,9 +705,24 @@ def output_text(attempt: dict[str, Any]) -> str | None:
 def episode_trace(attempt: dict[str, Any]) -> dict[str, Any]:
     """Return the sealed trace the probe left on ``attempt``; empty when it left none."""
 
+    return _note(attempt, TRACE_NOTES)
+
+
+def _note(attempt: dict[str, Any], names: tuple[str, ...]) -> dict[str, Any]:
+    """Return the first of ``names`` the attempt's notes hold as an object, else empty.
+
+    The names come newest first, so a report that carries both forms reads the current
+    one; a report recorded before the rename carries only the older one.
+    """
+
     notes = attempt.get("notes")
-    trace = notes.get(TRACE_NOTES) if isinstance(notes, dict) else None
-    return trace if isinstance(trace, dict) else {}
+    if not isinstance(notes, dict):
+        return {}
+    for name in names:
+        found = notes.get(name)
+        if isinstance(found, dict):
+            return found
+    return {}
 
 
 def source_metadata(attempt: dict[str, Any]) -> dict[str, Any] | None:
@@ -730,7 +760,7 @@ def ipi_judge(final: dict[str, Any], bundle: Bundle, records: Records) -> dict[s
 
     if bundle.manifest["claim_level"] != "reply":
         return None
-    record = _first_record(final, IPI_VERDICT)
+    record = _first_record(final, IPI_VERDICTS)
     return {
         "verdict": _judge_verdict(record),
         "reason": text(record.get("detail")) or text(record.get("reason")),
@@ -774,10 +804,7 @@ def _trace_failure(trace: dict[str, Any]) -> tuple[str | None, str | None]:
 def _chain(attempt: dict[str, Any]) -> tuple[int | None, int | None]:
     """Return the chain and turn the probe stamped on ``attempt``, or two Nones."""
 
-    notes = attempt.get("notes")
-    stated = notes.get(CHAIN_NOTES) if isinstance(notes, dict) else None
-    if not isinstance(stated, dict):
-        return None, None
+    stated = _note(attempt, CHAIN_NOTES)
     chain, turn = stated.get("chain"), stated.get("turn")
     if type(chain) is not int or type(turn) is not int:
         return None, None
@@ -830,20 +857,28 @@ def _graded_outcome(record: dict[str, Any], scored: str) -> str:
 
 
 def result_of(
-    detections: list[dict[str, Any]], claim_level: str, *, driver: str | None = None
+    detections: list[dict[str, Any]],
+    claim_level: str,
+    *,
+    driver: str | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Return the outcome of the detection that grades *claim_level*.
 
-    A report without that detection yields a ``detection_missing`` result.
+    A report without that detection yields a ``detection_missing`` result. A tuple names
+    alternatives, newest first, so a report recorded under an older detector name grades
+    the same run; the message names the first (current) name.
     """
 
-    driver = DRIVERS.get(claim_level) if driver is None else driver
-    found = next((item for item in detections if item["detector"] == driver), None)
+    if isinstance(driver, str):
+        drivers: tuple[str, ...] = (driver,)
+    else:
+        drivers = tuple(driver or (DRIVERS.get(claim_level),))
+    found = next((item for item in detections if item["detector"] in drivers), None)
     if found is None:
         return {
             "outcome": None,
             "claim_level": claim_level,
-            "reason": f"detection_missing:{driver}",
+            "reason": f"detection_missing:{drivers[0]}",
         }
     return {"outcome": found["outcome"], "claim_level": claim_level, "reason": found["reason"]}
 
@@ -888,16 +923,27 @@ def _sequence(attempt: dict[str, Any]) -> dict[str, Any]:
 
 
 def _records(attempt: dict[str, Any], detector: str) -> list[dict[str, Any]]:
+    """Return the records ``detector`` wrote, under its current or old result note."""
+
     notes = attempt.get("notes")
-    found = notes.get(RECORD_NOTES[detector]) if isinstance(notes, dict) else None
-    return [item for item in found if isinstance(item, dict)] if isinstance(found, list) else []
+    if not isinstance(notes, dict) or detector not in RECORD_NOTES:
+        return []
+    for name in RECORD_NOTES[detector]:
+        found = notes.get(name)
+        if isinstance(found, list):
+            return [item for item in found if isinstance(item, dict)]
+    return []
 
 
-def _first_record(attempt: dict[str, Any], detector: str) -> dict[str, Any]:
-    if detector not in RECORD_NOTES:
-        return {}
-    found = _records(attempt, detector)
-    return found[0] if found else {}
+def _first_record(attempt: dict[str, Any], detector: str | tuple[str, ...]) -> dict[str, Any]:
+    """Return the first record of ``detector``, or of the first name in a tuple that has one."""
+
+    names = (detector,) if isinstance(detector, str) else detector
+    for name in names:
+        found = _records(attempt, name)
+        if found:
+            return found[0]
+    return {}
 
 
 def _native_call(call: dict[str, Any]) -> dict[str, Any]:

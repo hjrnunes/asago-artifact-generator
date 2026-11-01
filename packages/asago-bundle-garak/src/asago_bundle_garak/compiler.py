@@ -9,13 +9,13 @@ single-turn package's messages in one request; ``injection.SequentialInjection``
 sends a sequential package's user turns one per request, each after the target's
 real reply to the one before.
 
-A ``planted_item`` package runs through ``ipi_episode.IPIEpisode`` instead: the
-template carries the episode MiDojo's compiler builds for the same package
-(``ipi-episodes.json``, one source entry), and a run configuration that names it.
-The episode's turns, its injection plan and its security check are then
-MiDojo's, and the probe reports a sealed trace the ``episode_verdict`` detector
-grades. A package MiDojo's compiler cannot place is a capability gap for Garak
-too, recorded under this tool's name.
+A ``planted_item`` package runs through ``midojo.InjectionSpecProbe`` instead: the
+template carries the injection spec MiDojo's compiler builds for the same package
+(``ipi-episodes.json``, one source entry, under its existing filename), and a run
+configuration that names it. The spec's turns, its injection plan and its security
+check are then MiDojo's, and the probe reports a sealed trace the
+``midojo.EvaluationVerdict`` detector grades. A package MiDojo's compiler cannot place
+is a capability gap for Garak too, recorded under this tool's name.
 """
 
 from __future__ import annotations
@@ -66,12 +66,14 @@ USER_TURN_PREFIX = "user_turn_"
 # Values the entrypoint names as ``{key}``; the templates hold the others.
 ENTRYPOINT_VALUES = ("model",)
 # A planted_item bundle: the probe's source file, its plugin names, and the template name the
-# manifest carries so the orchestrator and the parser know which route ran.
+# manifest carries so the orchestrator and the parser know which route ran. The source keeps
+# its old filename until the orchestrator's readers move; its entry carries the spec under
+# the new key, and the probes and detectors accept their old names as aliases.
 IPI_TEMPLATE = "garak-ipi-episode"
 IPI_SOURCE = "ipi-episodes.json"
-IPI_PROBE = "ipi_episode.IPIEpisode"
-IPI_DETECTOR = "ipi_episode.EpisodeVerdict"
-IPI_EFFECT = "ipi_episode.EpisodeEffect"
+IPI_PROBE = "midojo.InjectionSpecProbe"
+IPI_DETECTOR = "midojo.EvaluationVerdict"
+IPI_EFFECT = "midojo.EvaluationEffect"
 IPI_METADATA = ("package_id", "scenario_id", "package_digest", "claim_level", "delivery")
 
 
@@ -129,7 +131,7 @@ def _compile_planted(
     out: Path,
     target: TargetConfig | Mapping[str, Any] | str | Path | None,
 ) -> dict[str, Any]:
-    """Write the IPIEpisode template for one planted_item package and return its manifest."""
+    """Write the injection-spec template for one planted_item package and return its manifest."""
 
     if target is None:
         raise CompileError(
@@ -159,10 +161,14 @@ def _compile_planted(
 
 
 def ipi_entry(envelope: Mapping[str, Any]) -> dict[str, Any]:
-    """Return one probe source entry: the episode document and what the run is about."""
+    """Return one probe source entry: the injection spec and what the run is about.
+
+    ``injection_spec`` is the MiDojo document the envelope carries under its own
+    ``episode`` key until M9; readers that predate the key still find the spec there.
+    """
 
     return {
-        "episode": envelope["episode"],
+        "injection_spec": envelope["episode"],
         "metadata": {name: envelope[name] for name in IPI_METADATA},
     }
 
@@ -187,8 +193,8 @@ def ipi_run_template(scenario_id: str) -> dict[str, Any]:
         "plugins": {
             "generators": {"openai": {"OpenAIResponsesGenerator": _generator()}},
             "probes": {
-                "ipi_episode": {
-                    "IPIEpisode": {
+                "midojo": {
+                    "InjectionSpecProbe": {
                         # ``source_path`` is the parameter the probe reads
                         "source_path": bundle_slot(IPI_SOURCE),
                         "upstream": value_slot("mcp_url"),
@@ -196,7 +202,7 @@ def ipi_run_template(scenario_id: str) -> dict[str, Any]:
                 }
             },
             "detectors": {
-                "ipi_episode": {"EpisodeVerdict": {}, "EpisodeEffect": {}},
+                "midojo": {"EvaluationVerdict": {}, "EvaluationEffect": {}},
                 "toolcall": {"ToolCallCondition": {}},
             },
         },

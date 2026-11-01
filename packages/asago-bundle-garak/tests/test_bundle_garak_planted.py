@@ -1,8 +1,8 @@
-"""compile: a planted_item package becomes the IPIEpisode source and its run template.
+"""compile: a planted_item package becomes the injection-spec source and its run template.
 
 The injection spec itself is the MiDojo adapter's: Garak compiles the same package for the
-same fixture target, and the source entry must carry exactly the ``episode`` member that
-adapter's ``compile_injection_spec`` writes, so both tools run one injection spec. A
+same fixture target, and the source entry must carry exactly the ``injection_spec`` member
+that adapter's ``compile_injection_spec`` writes, so both tools run one injection spec. A
 package MiDojo cannot place is a capability gap for Garak too, and the gap names Garak.
 """
 
@@ -70,7 +70,7 @@ def test_a_planted_package_writes_the_ipi_source_and_its_templates(
         [SOURCE, CONVERSATION_TEMPLATE, RUN_TEMPLATE, BUNDLE_FILE]
     )
     (entry,) = source_of(out)
-    assert sorted(entry) == ["episode", "metadata"]
+    assert sorted(entry) == ["injection_spec", "metadata"]
     assert sorted(entry["metadata"]) == [
         "claim_level",
         "delivery",
@@ -84,7 +84,7 @@ def test_a_planted_package_writes_the_ipi_source_and_its_templates(
     assert len(entry["metadata"]["package_digest"]) == 64
 
 
-def test_the_entry_holds_the_episode_the_midojo_adapter_compiles(
+def test_the_entry_holds_the_injection_spec_the_midojo_adapter_compiles(
     planted_package: Path, tmp_path: Path
 ) -> None:
     out = tmp_path / "out"
@@ -94,11 +94,11 @@ def test_the_entry_holds_the_episode_the_midojo_adapter_compiles(
 
     expected = read_envelope(tmp_path / "injection-spec" / "injection-spec.json")
     (entry,) = source_of(out)
-    assert entry["episode"] == expected.episode
+    assert entry["injection_spec"] == expected.episode
     assert entry["metadata"]["package_id"] == expected.package_id
 
 
-def test_the_run_template_runs_the_episode_probe_on_the_source_file(
+def test_the_run_template_runs_the_injection_spec_probe_on_the_source_file(
     planted_package: Path, tmp_path: Path
 ) -> None:
     out = tmp_path / "out"
@@ -110,13 +110,13 @@ def test_the_run_template_runs_the_episode_probe_on_the_source_file(
     assert run["system"]["lite"] is False
     assert run["run"]["generations"] == 1
     assert list(run["plugins"]["generators"]["openai"]) == ["OpenAIResponsesGenerator"]
-    options = run["plugins"]["probes"]["ipi_episode"]["IPIEpisode"]
+    options = run["plugins"]["probes"]["midojo"]["InjectionSpecProbe"]
     assert options["source_path"] == bundle_slot(SOURCE)
     assert set(options) == {"source_path", "upstream"}, "one name for the source file"
     assert options["upstream"] == value_slot("mcp_url")
-    assert sorted(run["plugins"]["detectors"]) == ["ipi_episode", "toolcall"]
-    assert run["plugins"]["detectors"]["ipi_episode"]["EpisodeVerdict"] == {}
-    assert run["plugins"]["detectors"]["ipi_episode"]["EpisodeEffect"] == {}
+    assert sorted(run["plugins"]["detectors"]) == ["midojo", "toolcall"]
+    assert run["plugins"]["detectors"]["midojo"]["EvaluationVerdict"] == {}
+    assert run["plugins"]["detectors"]["midojo"]["EvaluationEffect"] == {}
     assert run["plugins"]["detectors"]["toolcall"]["ToolCallCondition"] == {}
     assert run["reporting"] == {
         "report_dir": bundle_slot("reports"),
@@ -136,16 +136,16 @@ def test_the_manifest_names_the_template_the_probe_and_the_detectors(
     assert manifest["tool"] == "garak"
     assert manifest["delivery"] == "single"
     assert manifest["plugins"] == [
-        "ipi_episode.IPIEpisode",
-        "ipi_episode.EpisodeVerdict",
-        "ipi_episode.EpisodeEffect",
+        "midojo.InjectionSpecProbe",
+        "midojo.EvaluationVerdict",
+        "midojo.EvaluationEffect",
         "toolcall.ToolCallCondition",
     ]
     assert manifest["entrypoint"][-4:] == [
         "--probes",
-        "ipi_episode.IPIEpisode",
+        "midojo.InjectionSpecProbe",
         "--detectors",
-        "ipi_episode.EpisodeVerdict,ipi_episode.EpisodeEffect,toolcall.ToolCallCondition",
+        "midojo.EvaluationVerdict,midojo.EvaluationEffect,toolcall.ToolCallCondition",
     ]
     assert source_of(out)[0]["metadata"]["package_digest"] == manifest["package_digest"]
     assert manifest["native_outputs"] == [f"reports/{SCENARIO}.report.jsonl"]
@@ -310,8 +310,8 @@ def test_the_planted_route_ignores_a_package_the_direct_route_can_take(
     assert stimulus["user_text"] == "Can you read me my notes?"
     out = tmp_path / "out"
     compiled(package, out)
-    assert source_of(out)[0]["episode"]["turns"] == ["Can you read me my notes?"]
-    assert PLANTED in json.dumps(source_of(out)[0]["episode"])
+    assert source_of(out)[0]["injection_spec"]["turns"] == ["Can you read me my notes?"]
+    assert PLANTED in json.dumps(source_of(out)[0]["injection_spec"])
 
 
 def test_the_seed_travels_into_the_episode_placement(tmp_path: Path) -> None:
@@ -324,9 +324,9 @@ def test_the_seed_travels_into_the_episode_placement(tmp_path: Path) -> None:
     compiled(package, tmp_path / "out")
     entry = source_of(tmp_path / "out")[0]
 
-    assert entry["episode"]["security"]["tool_call_condition"] == CONDITION
-    assert "NOTE-1" in json.dumps(entry["episode"])
-    assert "Write it down." in json.dumps(entry["episode"])
+    assert entry["injection_spec"]["security"]["tool_call_condition"] == CONDITION
+    assert "NOTE-1" in json.dumps(entry["injection_spec"])
+    assert "Write it down." in json.dumps(entry["injection_spec"])
 
 
 def test_a_planted_package_carries_no_user_turn_message_slot(
