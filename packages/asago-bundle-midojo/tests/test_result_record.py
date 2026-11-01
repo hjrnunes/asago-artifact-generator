@@ -43,7 +43,7 @@ from asago_bundle_midojo.injection_spec_compile import (
 )
 from asago_bundle_midojo.placement import Placement, gap_reason, locate
 from asago_bundle_midojo.sealed import parse_sealed
-from conftest import RECEIPT_SCHEMA, as_written
+from conftest import RECEIPT_SCHEMA, RECORDED_TOOL_REVISION_RANGE, as_written
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 RECORDING = json.loads((RESULT_RECORDS / "recording.json").read_text(encoding="utf-8"))
@@ -98,7 +98,7 @@ def test_a_record_named_in_the_result_only_is_matched_by_the_result(
     }
     assert instruction["payload"] == CLINIC_PLANTED
     assert instruction["occurrence"] == {"kind": "every", "nth": None}
-    assert document["tool_revision_range"] == TOOL_REVISION_RANGE == ">=8e8208f"
+    assert document["tool_revision_range"] == TOOL_REVISION_RANGE == ">=2a794f3"
     assert document["placements"] == [
         {
             "instruction": 0,
@@ -111,20 +111,23 @@ def test_a_record_named_in_the_result_only_is_matched_by_the_result(
     ]
 
 
-def test_every_compiled_fixture_names_one_range() -> None:
-    """Every fixture compiled now names the one range compile writes, whatever it targets.
+def test_the_recorded_fixtures_keep_the_range_they_were_compiled_with() -> None:
+    """Every recorded fixture names one range, whatever it targets.
 
-    ``fixtures/episode-a5f81e9/`` is not swept: it keeps what compile wrote at a5f81e9 beside
-    the snapshots MiDojo sealed then, so it is read as the v0 envelope and never compared with
-    a compile.
+    Compile's minimum rose with the document ID: a new document names 2a794f3, the first
+    revision that reads ``midojo-injection-spec-v1``, and the recorded bytes keep the
+    range they were written with until M9 regenerates them. ``fixtures/episode-a5f81e9/``
+    is not swept: it keeps what compile wrote at a5f81e9 beside the snapshots MiDojo
+    sealed then, so it is read as the v0 envelope and never compared with a compile.
     """
 
-    assert TOOL_REVISION_RANGE == ">=8e8208f"
+    assert TOOL_REVISION_RANGE == ">=2a794f3"
+    assert RECORDED_TOOL_REVISION_RANGE == ">=8e8208f"
     roots = [FIXTURES / "episode", FIXTURES / "placed-a19562e", FIXTURES / "result-record"]
     for root in roots:
         for episode in sorted(root.glob("*/episode.json")):
             document = json.loads(episode.read_text(encoding="utf-8"))
-            assert document["tool_revision_range"] == TOOL_REVISION_RANGE
+            assert document["tool_revision_range"] == RECORDED_TOOL_REVISION_RANGE
 
 
 def _clinic_variant(tmp_path: Path, output: dict[str, Any]) -> Path:

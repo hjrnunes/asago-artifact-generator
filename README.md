@@ -1079,7 +1079,7 @@ asago-bundle-midojo parse INJECTION_SPEC_DIR --snapshot snapshot.json --verdict 
 is refused (exit 1). `compile` writes one `injection-spec.json`, an
 `asago-midojo-package-v1` envelope whose top level is closed: `schema_version`, the
 package's `package_id`, `scenario_id`, `package_digest`, `claim_level` and `delivery`, the
-`tool_revision_range` it needs (`>=8e8208f`), `placements`, and `episode`.
+`tool_revision_range` it needs (`>=2a794f3`), `placements`, and `episode`.
 
 `placements` holds each instruction's seed slot, record, carrier and field, in the runtime
 contract's terms, and the slot's record key: the list item property it selects by, or,
@@ -1147,12 +1147,13 @@ document, and `compile` validates it against `midojo_sdk.injection_spec_schema`:
 - `verifiers`: always `[]`. MiDojo's built-in checks grade every episode, so the runner
   registers no verifier, and the directory holds `injection-spec.json` alone.
 
-The envelope names one MiDojo revision range for every case, `>=8e8208f`: the first
+The envelope names one MiDojo revision range for every case, `>=2a794f3`: the first
 revision that carries every capability the document uses, `b5b8c75` (a target that matches
 the call's arguments), `3824922` (the text block that mirrors the structured content),
-`c0bee12` (`result_record` targets) and `cab2a35` (`reply_judge`). The document's new ID
-needs the revision that renamed it, `2a794f3`; the recorded fixtures keep the old ID, and
-the range they name, until M9.
+`c0bee12` (`result_record` targets) and `cab2a35` (`reply_judge`), and that reads the
+document's new ID, `midojo-injection-spec-v1`. `8e8208f`, the range the recorded fixtures
+name, reads only the old ID. The recorded fixtures keep the old ID, and the range they
+name, until M9.
 
 `parse` and the library's `read_envelope` also read the older `midojo-episode-v2` wrapper
 that `compile` wrote before this release, the bare episode with `tools` and `placements` at
@@ -1360,7 +1361,8 @@ never false). `injection_delivered` decides whether a false grade can read `not_
 true it can; false (the payload never reached the agent) and unknown it cannot, so
 re-scoring a run directory sealed before those facts flips its `not_detected` results to
 `inconclusive` by design. Any other unknown grade key is still `verdict_malformed`. The
-episode's tool revision range stays `>=8e8208f`.
+episode's tool revision range in a recorded document does not change for these keys: they
+are optional, and a snapshot without them reads as before.
 
 The attempt's `runtime_observations` may also carry `http_requests`, optional in the
 receipt: absent or null is not observed, `[]` observed with no request made. `parse`

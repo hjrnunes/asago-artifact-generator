@@ -13,8 +13,9 @@ recorded.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It maps a
   `planted_item` package to one MiDojo injection spec for a target config and parses the
   sealed result; MiDojo runs the injection spec, and the adapter holds no proxy or
-  interception code. It names the MiDojo `asago/main` range `>=8e8208f`, the first revision
-  that carries every capability the document uses, and pins `midojo-sdk` to the revision
+  interception code. It names the MiDojo `asago/main` range `>=2a794f3`, the first revision
+  that carries every capability the document uses and reads the document's ID, and pins
+  `midojo-sdk` to the revision
   `pyproject.toml` and `uv.lock` record (`2a794f3`, the revision that renamed the document
   to the injection spec); a target can match the call's arguments from `b5b8c75`, the
   interceptor copies a placement into a text block that mirrors the structured content from

@@ -83,14 +83,15 @@ from .placement import (
 from .reachable import unreachable_reason
 
 TOOL = "midojo"
-# MiDojo 8e8208f, on asago/main, carries every capability the earlier ranges named, and each
+# MiDojo 2a794f3, on asago/main, carries every capability the earlier ranges named, and each
 # is an ancestor of it: ``call_arguments`` and the text mirror from 3824922, host interception
 # with ``midojo.grade``, the result-record match from c0bee12, and the judge-service reply
-# check from cab2a35. A harness older than that cannot run what this adapter writes, so every
-# injection spec names this range. The document ID is ``midojo-injection-spec-v1``, which only
-# a harness at 2a794f3 reads; the recorded fixtures still name the document's old ID, so the
-# range stays where they name it until they are regenerated.
-TOOL_REVISION_RANGE = ">=8e8208f"
+# check from cab2a35. It is also the first revision that reads the ID this adapter writes,
+# ``midojo-injection-spec-v1``: 8e8208f reads only the document's old ID. A harness older than
+# 2a794f3 cannot run what this adapter writes, so every injection spec names this range. The
+# recorded fixtures keep the filename, ID and range they were written with until M9
+# regenerates them; a reader still takes them as they are.
+TOOL_REVISION_RANGE = ">=2a794f3"
 # The file compile writes, and the name it wrote before the document's rename: a reader takes
 # either for one release.
 INJECTION_SPEC_FILE = "injection-spec.json"

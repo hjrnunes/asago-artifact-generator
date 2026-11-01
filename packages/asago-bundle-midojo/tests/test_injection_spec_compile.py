@@ -152,7 +152,7 @@ def test_the_document_names_the_package_and_holds_an_injection_spec_of_midojo_s_
 
     manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
     assert document["schema_version"] == "asago-midojo-package-v1"
-    assert document["tool_revision_range"] == ">=8e8208f"
+    assert document["tool_revision_range"] == ">=2a794f3"
     assert document["package_id"] == "SCN-101-SCN-101"
     assert document["scenario_id"] == "SCN-101"
     assert document["package_digest"] == manifest["manifest_digest"]
@@ -405,7 +405,7 @@ def test_a_seed_item_of_a_single_record_carrier_is_placed_on_the_calls_naming_it
             "record_key": "note_id",
         }
     ]
-    assert document["tool_revision_range"] == ">=8e8208f"
+    assert document["tool_revision_range"] == ">=2a794f3"
 
 
 def test_the_argument_record_key_the_target_config_declares_is_used_when_the_contract_has_none(
@@ -541,7 +541,7 @@ def test_a_field_outside_a_list_whose_result_names_the_record_is_placed_on_that_
     assert instruction["target"]["result_record"] == {"field": "note_id", "equals": "NOTE-2"}
     assert instruction["target"]["structured_content_path"] == ["body"]
     assert instruction["target"]["tool"] == slot["carrier_operation"]
-    assert document["tool_revision_range"] == ">=8e8208f", "c0bee12 precedes 8e8208f"
+    assert document["tool_revision_range"] == ">=2a794f3", "c0bee12 precedes 2a794f3"
 
 
 def _read_note_returning(note: dict[str, Any]) -> list[dict[str, Any]]:
@@ -744,7 +744,7 @@ def test_a_reply_episode_asks_the_judge_service_with_reply_judge(tmp_path: Path)
             "timeout_seconds": 190,
         }
     }
-    assert document["tool_revision_range"] == ">=8e8208f"
+    assert document["tool_revision_range"] == ">=2a794f3"
     assert document["episode"]["verifiers"] == []
     assert sorted(path.name for path in out.iterdir()) == [INJECTION_SPEC_FILE]
 
@@ -770,7 +770,7 @@ def test_a_reply_whose_carrier_matches_a_result_still_needs_reply_judge(tmp_path
 
     document = compiled(package, tmp_path / "out", target=target)
 
-    assert document["tool_revision_range"] == ">=8e8208f", "cab2a35 precedes 8e8208f"
+    assert document["tool_revision_range"] == ">=2a794f3", "cab2a35 precedes 2a794f3"
 
 
 @pytest.mark.parametrize("question", ["", "  "])
