@@ -23,6 +23,13 @@ corrections, and reviews all run for real.  The gate then compares every
 output file and the item log with the recording.  Only the differences in
 :data:`ALLOWED_DIFFERENCES` are permitted.
 
+A prompt the code renders differently from the recording is a prompt mismatch,
+unless :data:`EXPECTED_PROMPT_DIFFERENCES` declares the change.  The gate then
+answers the request with the recorded response anyway, reports the difference
+as declared, and compares the outputs the change produces.  A difference no
+entry declares fails, and so does an entry whose from-version the replayed
+recording carries but which matches no difference: it is stale.
+
 A recording made while packages still copied each request (``authoring/``
 members, ``source-hashes.json``, a manifest ledger, and the ``<ID>.authoring/``
 request files of a failed item) is compared as the current writer lays it out:
@@ -95,6 +102,111 @@ ALLOWED_DIFFERENCES: tuple[AllowedDifference, ...] = (
     AllowedDifference("*.blocked.json", ("package_path",), _OUTPUT_LOCATION),
     AllowedDifference("items/*.log", ("package",), _OUTPUT_LOCATION),
 )
+
+
+# --- declared prompt differences ---------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PromptIdentity:
+    """The stage and prompt version the code under test renders for one dispatch."""
+
+    stage: str
+    version: str
+
+
+@dataclass(frozen=True)
+class ExpectedPromptDifference:
+    """One intended prompt change that a recording made before it may still show.
+
+    *stage* is the recorded dispatch stage.  *template* is the prompt template
+    family: a version names its family and build, ``authoring-call1-v27``.
+    *from_prompt_version* is the version the recording carries and
+    *to_prompt_version* the version the current code renders; both versions
+    must name *template*.  *bead* is the backlog item that owns the change and
+    *reason* says why the change is intended.
+
+    A difference is declared when the recorded dispatch has the entry's stage
+    and from-version, the replayed prompt has its to-version, and both versions
+    name its template.  The recorded response then still answers the request,
+    so the gate compares the outputs the change produces, and the difference is
+    reported as declared, not as a mismatch.  An entry whose from-version a
+    replayed recording carries but which matches no difference is stale: the
+    recording is probably new enough that the change is in it, so remove the
+    entry.  An unlisted difference always fails.
+    """
+
+    stage: str
+    template: str
+    from_prompt_version: str
+    to_prompt_version: str
+    bead: str
+    reason: str
+
+
+# Keep this list short: one entry per prompt change that a recording the gate
+# replays was made before, and no entry once that stage is re-recorded.  An
+# entry declares only the version change it names; a prompt that differs at any
+# other version pair still fails, and a recording whose stated prompt digest
+# does not match its prompt text cannot use an entry at all.
+EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = (
+    ExpectedPromptDifference(
+        stage="call1",
+        template="authoring-call1",
+        from_prompt_version="authoring-call1-v26",
+        to_prompt_version="authoring-call1-v27",
+        bead="asago-vfh7",
+        reason=(
+            "the vfh7 recording carries authoring-call1-v26, the version ff36f1c gave "
+            "the plan stage when it stopped it writing planted_text; 8ebdc96 then "
+            "added the null process_model_belief note to every stage, so call 1 "
+            "renders authoring-call1-v27"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="plan_review",
+        template="authoring-plan-review",
+        from_prompt_version="authoring-plan-review-v23",
+        to_prompt_version="authoring-plan-review-v26",
+        bead="asago-sy73",
+        reason=(
+            "d1f4f0f added the bounded review-retry sections, fbbf89b showed a later "
+            "review the current value at each earlier finding, and 8ebdc96 added the "
+            "null process_model_belief note"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="call2",
+        template="authoring-call2",
+        from_prompt_version="authoring-call2-v27",
+        to_prompt_version="authoring-call2-v29",
+        bead="asago-sy73",
+        reason=(
+            "3e08ebc carried a reply written as the target's message into the reply "
+            "examples and 8ebdc96 added the null process_model_belief note"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="artifact_review",
+        template="authoring-artifact-review",
+        from_prompt_version="authoring-artifact-review-v22",
+        to_prompt_version="authoring-artifact-review-v25",
+        bead="asago-sy73",
+        reason=(
+            "d1f4f0f added the bounded review-retry sections, 3e08ebc changed the reply "
+            "examples, and 8ebdc96 added the null process_model_belief note"
+        ),
+    ),
+)
+
+
+def prompt_template(version: str) -> str:
+    """Return the template family a prompt version names (``X-v3`` -> ``X``)."""
+
+    family, separator, number = version.rpartition("-v")
+    if not separator or not number.isdigit():
+        return version
+    return family
 
 
 # What a recording made while packages copied each request holds that the
@@ -224,6 +336,32 @@ def _recorded_response(
     return raw, final_answer, reasoning, finish_reason
 
 
+def _prompt_digest(stage: str, version: str, system: str, user: str) -> str:
+    """Return the digest a recording states for one rendered prompt."""
+
+    rendered = "\0".join((stage, version, system, user))
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
+def _check_recorded_prompt(stage: str, prompt: dict[str, Any], where: str) -> None:
+    """Refuse a recording whose stated prompt digest does not match its prompt text.
+
+    A recording made before the journal stated digests carries neither field
+    and is accepted as it stands.  One that states a digest must state the
+    digest of the prompt it carries: a declared difference trusts the recorded
+    text, so a text change that leaves the digest behind cannot be replayed.
+    """
+
+    digest = _prompt_digest(stage, prompt["version"], prompt["system"], prompt["user"])
+    for name in ("sha256", "hash"):
+        stated = prompt.get(name)
+        if stated is not None and stated != digest:
+            raise ReplayRecordError(
+                f"{where}: undeclared prompt mismatch: the recorded prompt does not"
+                f" match its recorded {name}"
+            )
+
+
 def _recorded_call(attempt: dict[str, Any]) -> RecordedCall:
     index = attempt.get("dispatch_index")
     where = f"dispatch {index} ({attempt.get('stage')})"
@@ -236,6 +374,7 @@ def _recorded_call(attempt: dict[str, Any]) -> RecordedCall:
             attempt, raw_record, where
         )
     prompt = attempt["prompt"]
+    _check_recorded_prompt(attempt["stage"], prompt, where)
     identity = attempt["model_identity"]
     return RecordedCall(
         dispatch_index=index,
@@ -296,7 +435,13 @@ class ReplayChatClient:
     It stands in for ``openai.OpenAI``.  Every request must carry the recorded
     model and the exact recorded system and user messages.  A mismatch, or a
     request beyond the recording, is reported and refused with a
-    ``ConnectionError``, so the code under test sees a transport failure.
+    ``ConnectionError``, so the code under test sees a transport failure.  The
+    one exception is a prompt difference an :data:`EXPECTED_PROMPT_DIFFERENCES`
+    entry declares: the recorded response is served, and the difference is
+    appended to :attr:`declared` instead of :attr:`mismatches`.  The prompt the
+    code renders for the request is in :attr:`prompt`, which the transport
+    wrapper in :func:`_replay_item` sets before every dispatch; without it no
+    difference is declared.
     A dispatch recorded with a transport retry or a service-tier fallback
     first raises each recorded failure (a 429 ``RateLimitError`` before the
     fallback), then serves the response, so the transport's own retry and
@@ -309,6 +454,8 @@ class ReplayChatClient:
         self._calls = list(calls)
         self.served = 0
         self.mismatches: list[dict[str, Any]] = []
+        self.declared: list[dict[str, Any]] = []
+        self.prompt: PromptIdentity | None = None
         self.chat = SimpleNamespace(completions=_Completions(self))
         self._failures_raised = 0
 
@@ -336,17 +483,25 @@ class ReplayChatClient:
         self._calls.pop(0)
         self._failures_raised = 0
         if detail is not None:
-            self.mismatches.append(
-                {
-                    "dispatch_index": call.dispatch_index,
-                    "stage": call.stage,
-                    "prompt_version": call.prompt_version,
-                    "detail": detail,
-                }
+            entry = (
+                _declared_prompt_difference(call, self.prompt)
+                if detail in _PROMPT_DETAILS
+                else None
             )
-            raise ConnectionError(
-                f"replay gate: prompt mismatch at dispatch {call.dispatch_index} ({call.stage})"
-            )
+            if entry is None:
+                self.mismatches.append(
+                    {
+                        "dispatch_index": call.dispatch_index,
+                        "stage": call.stage,
+                        "prompt_version": call.prompt_version,
+                        "detail": detail,
+                    }
+                )
+                raise ConnectionError(
+                    f"replay gate: prompt mismatch at dispatch {call.dispatch_index}"
+                    f" ({call.stage})"
+                )
+            self.declared.append(_declared_difference(call, self.prompt, entry, detail))
         self.served += 1
         return _serve(call)
 
@@ -370,6 +525,57 @@ def _request_mismatch(call: RecordedCall, request: dict[str, Any]) -> str | None
     if messages[1].get("content") != call.user:
         return "user message differs from the recording"
     return None
+
+
+_PROMPT_DETAILS = frozenset(
+    {"system message differs from the recording", "user message differs from the recording"}
+)
+
+
+def _declared_prompt_difference(
+    call: RecordedCall, prompt: PromptIdentity | None
+) -> ExpectedPromptDifference | None:
+    """Return the entry that declares this dispatch's prompt difference, if one does.
+
+    The entry must name the recorded stage and from-version, the replayed
+    stage and to-version, and the template family both versions belong to.  A
+    prompt rendered at the recorded version is never declared: a text change
+    at an unchanged version is not the change an entry names.
+    """
+
+    if prompt is None or prompt.stage != call.stage:
+        return None
+    if prompt.version == call.prompt_version:
+        return None
+    for entry in EXPECTED_PROMPT_DIFFERENCES:
+        if entry.from_prompt_version == entry.to_prompt_version:
+            continue
+        if (
+            entry.stage == call.stage
+            and entry.from_prompt_version == call.prompt_version
+            and entry.to_prompt_version == prompt.version
+            and entry.template == prompt_template(call.prompt_version)
+            and entry.template == prompt_template(prompt.version)
+        ):
+            return entry
+    return None
+
+
+def _declared_difference(
+    call: RecordedCall, prompt: PromptIdentity, entry: ExpectedPromptDifference, detail: str
+) -> dict[str, Any]:
+    """Return the report record for one declared prompt difference."""
+
+    return {
+        "dispatch_index": call.dispatch_index,
+        "stage": call.stage,
+        "template": entry.template,
+        "from_prompt_version": call.prompt_version,
+        "to_prompt_version": prompt.version,
+        "bead": entry.bead,
+        "reason": entry.reason,
+        "detail": detail,
+    }
 
 
 def _captured_value(capture: dict[str, Any]) -> Any:
@@ -456,8 +662,15 @@ def _replay_item(
     from asago_artifact_generator import cli
     from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 
+    class RecordedPromptTransport(PrivateModelAuthoringTransport):
+        """Give the replay client the prompt the code renders for each dispatch."""
+
+        def complete(self, packet: Any) -> Any:
+            client.prompt = PromptIdentity(packet.stage, packet.version)
+            return super().complete(packet)
+
     def transport(**options: Any) -> PrivateModelAuthoringTransport:
-        return PrivateModelAuthoringTransport(**options, client=client)
+        return RecordedPromptTransport(**options, client=client)
 
     try:
         cli.run(arguments, prog_name=PROG_NAME, transport_factory=transport)
@@ -468,6 +681,7 @@ def _replay_item(
                     "served": client.served,
                     "unused": client.unused,
                     "mismatches": client.mismatches,
+                    "declared": client.declared,
                 }
             ),
             encoding="utf-8",
@@ -583,8 +797,62 @@ def _mask_wall_clock(document: Any) -> Any:
     return {**document, "attempts": [_mask_attempt_duration(item) for item in attempts]}
 
 
+# A review records the prompt it reviewed beside its decision; a declared
+# difference changes that prompt, so these two pins travel with it.
+_REVIEW_PROMPT_PINS = ("prompt_version", "prompt_sha256")
+
+
+def _mask_declared_prompts(
+    recorded: Any, replayed: Any, declared: Sequence[dict[str, Any]]
+) -> Any:
+    """Return *replayed* with each declared dispatch's prompt record as recorded.
+
+    A declared difference is the one change a dispatch's prompt may show: its
+    version, its two messages and their digests.  The recording keeps the
+    prompt it dispatched and the replay writes the prompt it renders, so the
+    replayed evidence's record of a declared dispatch is replaced by the
+    recorded one; every other field of the attempt still compares, and a
+    review's pins of the prompt it reviewed are replaced the same way.
+    """
+
+    dispatches = {item["dispatch_index"] for item in declared}
+    if not dispatches or not isinstance(recorded, dict) or not isinstance(replayed, dict):
+        return replayed
+    recorded_attempts = {
+        attempt.get("dispatch_index"): attempt
+        for attempt in recorded.get("attempts") or []
+        if isinstance(attempt, dict)
+    }
+    attempts = []
+    for attempt in replayed.get("attempts") or []:
+        if not isinstance(attempt, dict) or attempt.get("dispatch_index") not in dispatches:
+            attempts.append(attempt)
+            continue
+        original = recorded_attempts.get(attempt.get("dispatch_index"))
+        if not isinstance(original, dict):
+            attempts.append(attempt)
+            continue
+        masked = dict(attempt)
+        if "prompt" in original:
+            masked["prompt"] = original["prompt"]
+        reviewed = masked.get("review")
+        if isinstance(reviewed, dict):
+            pinned = original.get("review")
+            if isinstance(pinned, dict):
+                masked["review"] = {
+                    **reviewed,
+                    **{key: pinned[key] for key in _REVIEW_PROMPT_PINS if key in pinned},
+                }
+        attempts.append(masked)
+    return {**replayed, "attempts": attempts}
+
+
 def _compare_structured(
-    left_text: str, right_text: str, relative: str, aliases: dict[str, str]
+    left_text: str,
+    right_text: str,
+    relative: str,
+    aliases: dict[str, str],
+    declared: Sequence[dict[str, Any]] = (),
 ) -> str | None:
     left = _json_or_none(left_text)
     right = _json_or_none(right_text)
@@ -592,6 +860,7 @@ def _compare_structured(
         return "content is not JSON on both sides"
     if relative.endswith(FAILURE_EVIDENCE_SUFFIX):
         left, right = _mask_wall_clock(left), _mask_wall_clock(right)
+        right = _mask_declared_prompts(left, right, declared)
     return _first_difference(left, _apply_allowances(right, relative, aliases))
 
 
@@ -620,10 +889,13 @@ def compare_file(
     relative: str,
     aliases: dict[str, str],
     recorded_bytes: bytes | None = None,
+    declared: Sequence[dict[str, Any]] = (),
 ) -> str | None:
     """Return the first difference not covered by an allowance, or ``None``.
 
     *recorded_bytes*, when given, stands in for the recorded file's content.
+    *declared* holds the prompt differences the replay declared, whose prompt
+    records do not count as differences.
     """
 
     left = recorded.read_bytes() if recorded_bytes is None else recorded_bytes
@@ -637,7 +909,7 @@ def compare_file(
     if relative.startswith("items/"):
         return _compare_log(left_text, right_text, relative, aliases)
     if recorded.suffix == ".json":
-        return _compare_structured(left_text, right_text, relative, aliases)
+        return _compare_structured(left_text, right_text, relative, aliases, declared)
     for number, (a, b) in enumerate(
         zip(left_text.splitlines(), right_text.splitlines(), strict=False), start=1
     ):
@@ -743,11 +1015,13 @@ def compare_item_outputs(
     replayed_output: Path,
     replayed_log: Path,
     recorded_output_label: str | None = None,
+    declared: Sequence[dict[str, Any]] = (),
 ) -> tuple[int, list[Difference]]:
     """Compare one item's output files and console log with the recording.
 
     *recorded_output_label* is the output directory as the recording names it
-    (default: *recorded_output*).
+    (default: *recorded_output*).  *declared* holds the prompt differences the
+    replay declared, whose prompt records do not count as differences.
     """
 
     aliases = _location_aliases(replayed_output, recorded_output_label or str(recorded_output))
@@ -765,6 +1039,7 @@ def compare_item_outputs(
             relative,
             aliases,
             rewritten.get(relative),
+            declared,
         )
         if detail:
             differences.append(Difference(relative, detail))
@@ -793,6 +1068,7 @@ class ItemResult:
     served: int = 0
     unused: int = 0
     mismatches: list[dict[str, Any]] = field(default_factory=list)
+    declared: list[dict[str, Any]] = field(default_factory=list)
     network_attempts: list[str] = field(default_factory=list)
     files_compared: int = 0
     differences: list[Difference] = field(default_factory=list)
@@ -818,25 +1094,42 @@ class GateResult:
     stage_dir: Path
     work: Path
     items: list[ItemResult] = field(default_factory=list)
+    stale: list[ExpectedPromptDifference] = field(default_factory=list)
     skipped: int = 0
     seconds: float = 0.0
 
     @property
     def passed(self) -> bool:
-        return bool(self.items) and all(item.passed for item in self.items)
+        return bool(self.items) and not self.stale and all(item.passed for item in self.items)
 
     def report(self, limit: int = 10) -> str:
         failed = [item for item in self.items if not item.passed]
+        declared = [(item.item_id, record) for item in self.items for record in item.declared]
         lines = [
             f"stage:      {self.stage_dir}",
             f"scratch:    {self.work}",
             f"items:      {len(self.items)} replayed, {self.skipped} skipped by the recording",
             "statuses:   " + _status_counts(self.items, "recorded_status"),
             f"dispatches: {sum(item.served for item in self.items)} served",
+            f"declared:   {len(declared)} prompt differences",
             f"files:      {sum(item.files_compared for item in self.items)} compared",
             f"time:       {self.seconds:.1f}s",
             f"failed:     {len(failed)}",
         ]
+        for item_id, record in declared[:limit]:
+            lines.append(
+                f"  declared: {item_id} dispatch {record['dispatch_index']}"
+                f" ({record['stage']}): {record['detail']},"
+                f" {record['from_prompt_version']} -> {record['to_prompt_version']}"
+                f" (bead {record['bead']})"
+            )
+        for entry in self.stale[:limit]:
+            lines.append(
+                f"  stale declared prompt difference: {entry.stage}"
+                f" {entry.from_prompt_version} -> {entry.to_prompt_version}"
+                f" (bead {entry.bead}): the recording carries its from-version"
+                " but no prompt difference matched it"
+            )
         for item in failed[:limit]:
             lines += _failure_lines(item, limit)
         lines.append("PASS" if self.passed else "FAIL")
@@ -987,6 +1280,7 @@ def _run_item(
         result.served = status["served"]
         result.unused = status["unused"]
         result.mismatches = status["mismatches"]
+        result.declared = status.get("declared") or []
     else:
         result.error = "the replayed item wrote no replay status"
     if network_log.is_file():
@@ -998,6 +1292,7 @@ def _run_item(
         replayed_output=output_dir,
         replayed_log=replay_log,
         recorded_output_label=prepared.recorded_output_label,
+        declared=result.declared,
     )
     if result.exit_code != result.recorded_exit_code or result.error:
         result.log_tail = replay_log.read_text(encoding="utf-8").splitlines()[-5:]
@@ -1039,8 +1334,51 @@ def run_gate(
                 prepared,
             )
         )
+    result.stale = _stale_entries(
+        _recorded_prompt_identities(stage_dir, result.items),
+        [record for item in result.items for record in item.declared],
+    )
     result.seconds = time.perf_counter() - started
     return result
+
+
+def _recorded_prompt_identities(
+    stage_dir: Path, items: Iterable[ItemResult]
+) -> set[tuple[str, str]]:
+    """Return the stage and prompt version of every dispatch the item recordings carry."""
+
+    identities = set()
+    for item in items:
+        evidence = stage_dir / "output" / f"{item.item_id}{FAILURE_EVIDENCE_SUFFIX}"
+        try:
+            calls = load_recorded_calls(evidence)
+        except (OSError, ReplayRecordError, KeyError, ValueError):
+            continue
+        identities.update((call.stage, call.prompt_version) for call in calls)
+    return identities
+
+
+def _stale_entries(
+    recorded: set[tuple[str, str]], declared: Sequence[dict[str, Any]]
+) -> list[ExpectedPromptDifference]:
+    """Return the entries a replayed recording carries but no difference matched.
+
+    An entry applies to a recording that dispatched its stage at its
+    from-version.  If the replay of that recording declared no such change, the
+    entry is stale: the recording is probably new enough to hold the change
+    already, so remove the entry instead of keeping a declaration nothing uses.
+    """
+
+    matched = {
+        (record["stage"], record["from_prompt_version"], record["to_prompt_version"])
+        for record in declared
+    }
+    return [
+        entry
+        for entry in EXPECTED_PROMPT_DIFFERENCES
+        if (entry.stage, entry.from_prompt_version) in recorded
+        and (entry.stage, entry.from_prompt_version, entry.to_prompt_version) not in matched
+    ]
 
 
 def _authored_items(
@@ -1061,6 +1399,8 @@ def _summary(results: Sequence[GateResult], seconds: float) -> str:
     items = [item for result in results for item in result.items]
     failed = [item for item in items if not item.passed]
     mismatches = sum(len(item.mismatches) for item in items)
+    declared = sum(len(item.declared) for item in items)
+    stale = [entry for result in results for entry in result.stale]
     return "\n".join(
         [
             "== summary",
@@ -1068,9 +1408,11 @@ def _summary(results: Sequence[GateResult], seconds: float) -> str:
             f"items:           {len(items)} replayed, {len(items) - len(failed)} identical",
             "statuses:        " + _status_counts(items, "status"),
             f"dispatches:      {sum(item.served for item in items)} served",
+            f"prompt declared: {declared}",
             f"prompt mismatch: {mismatches}",
+            f"stale entries:   {len(stale)}",
             f"wall time:       {seconds:.1f}s",
-            "PASS" if results and not failed else "FAIL",
+            "PASS" if results and not failed and not stale else "FAIL",
         ]
     )
 
@@ -1133,6 +1475,7 @@ def _write_results_json(path: Path, results: list[GateResult]) -> None:
                 {
                     "stage_dir": str(result.stage_dir),
                     "items": [asdict(item) for item in result.items],
+                    "stale": [asdict(entry) for entry in result.stale],
                 }
                 for result in results
             ],

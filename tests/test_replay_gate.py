@@ -7,6 +7,7 @@ orchestrator author stage, and replay it through the gate in a guarded subproces
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -173,6 +174,47 @@ def _rewrite_json(path: Path, change) -> None:
     path.write_text(json.dumps(document, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def _recorded_attempt(document: dict, dispatch_index: int) -> dict:
+    """Return the recorded dispatch with *dispatch_index*."""
+
+    return next(
+        attempt for attempt in document["attempts"] if attempt["dispatch_index"] == dispatch_index
+    )
+
+
+def _prompt_digest(attempt: dict) -> str:
+    """Return the digest a journal states for one recorded prompt."""
+
+    prompt = attempt["prompt"]
+    rendered = "\0".join((attempt["stage"], prompt["version"], prompt["system"], prompt["user"]))
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
+def _rewrite_prompt(
+    stage: Path, dispatch_index: int, *, user: str | None = None, version: str | None = None
+) -> None:
+    """Rewrite one recorded prompt as the recording of other code would hold it.
+
+    A recording states the digest of the prompt it carries, so rewrite the
+    stated digest with the text.  The difference the gate then finds is between
+    the recording and the current code, not inside the recording.
+    """
+
+    def change(document: dict) -> None:
+        attempt = _recorded_attempt(document, dispatch_index)
+        prompt = attempt["prompt"]
+        if user is not None:
+            prompt["user"] = user
+        if version is not None:
+            prompt["version"] = version
+        digest = _prompt_digest(attempt)
+        for name in ("sha256", "hash"):
+            if name in prompt:
+                prompt[name] = digest
+
+    _rewrite_json(_evidence_path(stage), change)
+
+
 # --- recorded calls -----------------------------------------------------------
 
 
@@ -196,6 +238,18 @@ def test_recorded_call_that_cannot_be_rebuilt_is_rejected(unresolved_stage: Path
     _rewrite_json(_evidence_path(unresolved_stage), make_non_text)
 
     with pytest.raises(ReplayRecordError, match="final_answer"):
+        load_recorded_calls(_evidence_path(unresolved_stage))
+
+
+def test_recorded_call_whose_stated_prompt_digest_disagrees_is_not_loaded(
+    unresolved_stage: Path,
+) -> None:
+    def edit_prompt(document: dict) -> None:
+        _recorded_attempt(document, 1)["prompt"]["user"] += "!"
+
+    _rewrite_json(_evidence_path(unresolved_stage), edit_prompt)
+
+    with pytest.raises(ReplayRecordError, match="undeclared prompt mismatch"):
         load_recorded_calls(_evidence_path(unresolved_stage))
 
 
@@ -547,12 +601,12 @@ def test_package_path_elsewhere_and_other_fields_still_differ(tmp_path: Path) ->
     assert "$.status" in details[f"items/{TASK_ID}.log"]
 
 
-def _compare_evidence(tmp_path: Path, recorded: dict, replayed: dict) -> str | None:
+def _compare_evidence(tmp_path: Path, recorded: dict, replayed: dict, declared=()) -> str | None:
     name = f"{TASK_ID}.failure-evidence.json"
     left, right = tmp_path / "recorded.json", tmp_path / "replayed.json"
     left.write_text(json.dumps(recorded), encoding="utf-8")
     right.write_text(json.dumps(replayed), encoding="utf-8")
-    return replay_gate.compare_file(left, right, name, {})
+    return replay_gate.compare_file(left, right, name, {}, declared=declared)
 
 
 def _failed_attempt(elapsed_ms: object = 26910.979, **failure: object) -> dict:
@@ -829,10 +883,7 @@ def test_gate_replays_a_stage_whose_plan_request_timed_out_identically(
 def test_gate_fails_on_a_prompt_the_code_no_longer_renders(
     unresolved_stage: Path, tmp_path: Path
 ) -> None:
-    def change_prompt(document: dict) -> None:
-        document["attempts"][0]["prompt"]["user"] += "\nrecorded under older code"
-
-    _rewrite_json(_evidence_path(unresolved_stage), change_prompt)
+    _rewrite_prompt(unresolved_stage, 1, user="recorded under older code")
 
     result = run_gate(unresolved_stage, work=tmp_path / "work")
 
@@ -840,6 +891,23 @@ def test_gate_fails_on_a_prompt_the_code_no_longer_renders(
     [item] = result.items
     assert item.mismatches[0]["stage"] == "call1"
     assert item.mismatches[0]["detail"] == "user message differs from the recording"
+
+
+def test_gate_refuses_a_recording_whose_prompt_was_edited_after_it_was_made(
+    unresolved_stage: Path, tmp_path: Path
+) -> None:
+    def edit_prompt(document: dict) -> None:
+        _recorded_attempt(document, 1)["prompt"]["user"] += "!"
+
+    _rewrite_json(_evidence_path(unresolved_stage), edit_prompt)
+
+    result = run_gate(unresolved_stage, work=tmp_path / "work")
+
+    assert not result.passed
+    [item] = result.items
+    assert item.error is not None
+    assert "undeclared prompt mismatch" in item.error
+    assert "dispatch 1 (call1)" in item.error
 
 
 def test_gate_fails_on_an_output_or_exit_code_difference(
@@ -863,6 +931,275 @@ def test_gate_fails_on_an_output_or_exit_code_difference(
         f"{TASK_ID}.failure-evidence.json"
     ]
     assert "$.status" in item.differences[0].detail
+
+
+# --- declared prompt differences --------------------------------------------------
+
+
+def _ff36f1c_entry() -> replay_gate.ExpectedPromptDifference:
+    """Return the entry that covers the vfh7 recording's call-1 prompt."""
+
+    return next(
+        entry for entry in replay_gate.EXPECTED_PROMPT_DIFFERENCES if entry.bead == "asago-vfh7"
+    )
+
+
+def test_every_expected_prompt_difference_fills_every_field() -> None:
+    entries = replay_gate.EXPECTED_PROMPT_DIFFERENCES
+
+    assert entries, "the list records the intended prompt changes"
+    for entry in entries:
+        assert entry.stage and entry.template and entry.bead and entry.reason
+        assert entry.from_prompt_version != entry.to_prompt_version
+        assert replay_gate.prompt_template(entry.from_prompt_version) == entry.template
+        assert replay_gate.prompt_template(entry.to_prompt_version) == entry.template
+    assert any("ff36f1c" in entry.reason or entry.bead == "asago-vfh7" for entry in entries)
+
+
+@pytest.mark.parametrize(
+    ("version", "template"),
+    [
+        ("authoring-call1-v27", "authoring-call1"),
+        ("authoring-plan-review-v26", "authoring-plan-review"),
+        ("authoring-correction-v46", "authoring-correction"),
+        ("unversioned", "unversioned"),
+        ("authoring-call1-v", "authoring-call1-v"),
+    ],
+)
+def test_prompt_template_names_the_family_of_a_version(version: str, template: str) -> None:
+    assert replay_gate.prompt_template(version) == template
+
+
+def test_replay_client_serves_a_difference_its_entry_declares() -> None:
+    entry = _ff36f1c_entry()
+    client = ReplayChatClient([_call(prompt_version=entry.from_prompt_version)])
+    client.prompt = replay_gate.PromptIdentity(entry.stage, entry.to_prompt_version)
+
+    response = client.chat.completions.create(**_request(user="the older prompt"))
+
+    assert response.choices[0].message == {"content": "answer", "reasoning": None}
+    assert client.served == 1 and client.mismatches == []
+    assert client.declared == [
+        {
+            "dispatch_index": 1,
+            "stage": entry.stage,
+            "template": entry.template,
+            "from_prompt_version": entry.from_prompt_version,
+            "to_prompt_version": entry.to_prompt_version,
+            "bead": entry.bead,
+            "reason": entry.reason,
+            "detail": "user message differs from the recording",
+        }
+    ]
+
+
+def test_replay_client_refuses_a_prompt_difference_no_entry_lists() -> None:
+    entry = _ff36f1c_entry()
+    client = ReplayChatClient([_call(prompt_version="authoring-call1-v25")])
+    client.prompt = replay_gate.PromptIdentity(entry.stage, entry.to_prompt_version)
+
+    with pytest.raises(ConnectionError, match="prompt mismatch"):
+        client.chat.completions.create(**_request(user="an older prompt no entry names"))
+
+    assert client.declared == [] and client.served == 0
+    assert client.mismatches[0]["prompt_version"] == "authoring-call1-v25"
+    assert client.mismatches[0]["detail"] == "user message differs from the recording"
+
+
+def test_replay_client_refuses_a_prompt_change_at_the_recorded_version() -> None:
+    entry = _ff36f1c_entry()
+    client = ReplayChatClient([_call(prompt_version=entry.to_prompt_version)])
+    client.prompt = replay_gate.PromptIdentity(entry.stage, entry.to_prompt_version)
+
+    with pytest.raises(ConnectionError, match="prompt mismatch"):
+        client.chat.completions.create(**_request(user="a prompt changed in place"))
+
+    assert client.declared == []
+
+
+def test_replay_client_refuses_a_difference_after_the_version_its_entry_names() -> None:
+    entry = _ff36f1c_entry()
+    client = ReplayChatClient([_call(prompt_version=entry.from_prompt_version)])
+    client.prompt = replay_gate.PromptIdentity(entry.stage, "authoring-call1-v28")
+
+    with pytest.raises(ConnectionError, match="prompt mismatch"):
+        client.chat.completions.create(**_request(user="a later prompt"))
+
+    assert client.declared == []
+
+
+def test_replay_client_never_declares_a_requested_model_difference() -> None:
+    entry = _ff36f1c_entry()
+    client = ReplayChatClient([_call(prompt_version=entry.from_prompt_version)])
+    client.prompt = replay_gate.PromptIdentity(entry.stage, entry.to_prompt_version)
+    request = _request(user="the older prompt")
+    request["model"] = "another-model"
+
+    with pytest.raises(ConnectionError, match="prompt mismatch"):
+        client.chat.completions.create(**request)
+
+    assert client.declared == []
+    assert client.mismatches[0]["detail"].startswith("requested model")
+
+
+def _prompt_attempt(version: str, user: str, **fields: object) -> dict:
+    return {
+        "dispatch_index": 1,
+        "prompt": {"version": version, "system": "system text", "user": user},
+        **fields,
+    }
+
+
+def test_a_declared_difference_leaves_the_rest_of_its_attempt_compared(tmp_path: Path) -> None:
+    entry = _ff36f1c_entry()
+    recorded = {
+        "attempts": [_prompt_attempt(entry.from_prompt_version, "older prompt", status="accepted")]
+    }
+    replayed = {
+        "attempts": [_prompt_attempt(entry.to_prompt_version, "current prompt", status="accepted")]
+    }
+    declared = [
+        {
+            "dispatch_index": 1,
+            "stage": entry.stage,
+            "from_prompt_version": entry.from_prompt_version,
+            "to_prompt_version": entry.to_prompt_version,
+        }
+    ]
+
+    assert _compare_evidence(tmp_path, recorded, replayed, declared) is None
+
+    replayed["attempts"][0]["status"] = "unresolved"
+    found = _compare_evidence(tmp_path, recorded, replayed, declared)
+    assert found is not None and found.startswith("$.attempts[0].status")
+
+
+def test_an_undeclared_prompt_difference_is_reported(tmp_path: Path) -> None:
+    entry = _ff36f1c_entry()
+    recorded = {"attempts": [_prompt_attempt(entry.from_prompt_version, "older prompt")]}
+    replayed = {"attempts": [_prompt_attempt(entry.to_prompt_version, "current prompt")]}
+
+    found = _compare_evidence(tmp_path, recorded, replayed)
+
+    assert found is not None and found.startswith("$.attempts[0].prompt")
+
+
+def test_a_declared_review_dispatch_keeps_the_recorded_prompt_pins(tmp_path: Path) -> None:
+    recorded = {
+        "attempts": [
+            _prompt_attempt(
+                "authoring-plan-review-v23",
+                "older prompt",
+                review={"prompt_version": "authoring-plan-review-v23", "prompt_sha256": "a" * 64},
+            )
+        ]
+    }
+    replayed = {
+        "attempts": [
+            _prompt_attempt(
+                "authoring-plan-review-v26",
+                "current prompt",
+                review={"prompt_version": "authoring-plan-review-v26", "prompt_sha256": "b" * 64},
+            )
+        ]
+    }
+    declared = [
+        {
+            "dispatch_index": 1,
+            "stage": "plan_review",
+            "from_prompt_version": "authoring-plan-review-v23",
+            "to_prompt_version": "authoring-plan-review-v26",
+        }
+    ]
+
+    assert _compare_evidence(tmp_path, recorded, replayed, declared) is None
+    assert _compare_evidence(tmp_path, recorded, replayed) is not None
+
+
+def test_an_entry_the_recording_carries_but_matches_nothing_is_stale() -> None:
+    entry = _ff36f1c_entry()
+    recorded = {(entry.stage, entry.from_prompt_version)}
+
+    assert replay_gate._stale_entries(recorded, []) == [entry]
+
+    declared = [
+        {
+            "stage": entry.stage,
+            "from_prompt_version": entry.from_prompt_version,
+            "to_prompt_version": entry.to_prompt_version,
+        }
+    ]
+    assert replay_gate._stale_entries(recorded, declared) == []
+
+
+def test_an_entry_the_recording_does_not_carry_is_not_stale() -> None:
+    entry = _ff36f1c_entry()
+
+    assert replay_gate._stale_entries({(entry.stage, "authoring-call1-v25")}, []) == []
+
+
+def test_gate_declares_a_listed_prompt_difference_and_passes(
+    unresolved_stage: Path, tmp_path: Path
+) -> None:
+    entry = _ff36f1c_entry()
+    _rewrite_prompt(
+        unresolved_stage, 1, user="the prompt ff36f1c recorded", version=entry.from_prompt_version
+    )
+
+    result = run_gate(unresolved_stage, work=tmp_path / "work")
+
+    assert result.passed, result.report()
+    assert result.stale == []
+    [item] = result.items
+    assert item.mismatches == [] and item.served == 2 and item.unused == 0
+    [record] = item.declared
+    assert record["stage"] == entry.stage
+    assert record["from_prompt_version"] == entry.from_prompt_version
+    assert record["to_prompt_version"] == entry.to_prompt_version
+    assert record["bead"] == entry.bead
+    report = result.report()
+    assert "declared:   1 prompt differences" in report
+    assert (
+        f"declared: {TASK_ID} dispatch 1 ({entry.stage}): user message differs"
+        f" from the recording, {entry.from_prompt_version} -> {entry.to_prompt_version}"
+        f" (bead {entry.bead})"
+    ) in report
+
+
+def test_gate_fails_a_prompt_difference_no_entry_lists(
+    unresolved_stage: Path, tmp_path: Path
+) -> None:
+    _rewrite_prompt(
+        unresolved_stage, 1, user="a prompt no entry names", version="authoring-call1-v25"
+    )
+
+    result = run_gate(unresolved_stage, work=tmp_path / "work")
+
+    assert not result.passed and result.stale == []
+    [item] = result.items
+    assert item.declared == []
+    assert item.mismatches[0]["stage"] == "call1"
+    assert item.mismatches[0]["detail"] == "user message differs from the recording"
+    assert "prompt mismatch" in result.report()
+
+
+def test_gate_fails_an_entry_the_recording_carries_but_matches_nothing(
+    unresolved_stage: Path, tmp_path: Path
+) -> None:
+    entry = _ff36f1c_entry()
+    # A recording that states the entry's from-version but was made by code
+    # that already holds the change: nothing differs, so the entry is stale.
+    _rewrite_prompt(unresolved_stage, 1, version=entry.from_prompt_version)
+
+    result = run_gate(unresolved_stage, work=tmp_path / "work")
+
+    assert not result.passed
+    assert result.stale == [entry]
+    [item] = result.items
+    assert item.declared == []
+    report = result.report()
+    assert "stale declared prompt difference" in report
+    assert entry.from_prompt_version in report
 
 
 # --- report and command line ------------------------------------------------------
@@ -916,6 +1253,7 @@ def test_stage_report_lists_totals_and_each_failure_in_order() -> None:
         "items:      3 replayed, 2 skipped by the recording",
         "statuses:   accepted 1, unresolved 2",
         "dispatches: 8 served",
+        "declared:   0 prompt differences",
         "files:      12 compared",
         "time:       12.3s",
         "failed:     1",
@@ -932,9 +1270,16 @@ def test_stage_report_lists_totals_and_each_failure_in_order() -> None:
 def test_stage_report_passes_only_when_every_item_passes() -> None:
     passing = GateResult(stage_dir=Path("/s"), work=Path("/w"), items=[_item("SCN-1", "accepted")])
     empty = GateResult(stage_dir=Path("/s"), work=Path("/w"))
+    stale = GateResult(
+        stage_dir=Path("/s"),
+        work=Path("/w"),
+        items=[_item("SCN-1", "accepted")],
+        stale=[_ff36f1c_entry()],
+    )
 
     assert passing.report().splitlines()[-2:] == ["failed:     0", "PASS"]
     assert empty.report().splitlines()[-1] == "FAIL"
+    assert not stale.passed and stale.report().splitlines()[-1] == "FAIL"
 
 
 def test_summary_totals_every_stage() -> None:
@@ -950,13 +1295,29 @@ def test_summary_totals_every_stage() -> None:
             "items:           3 replayed, 2 identical",
             "statuses:        accepted 2, blocked 1",
             "dispatches:      8 served",
+            "prompt declared: 0",
             "prompt mismatch: 1",
+            "stale entries:   0",
             "wall time:       61.0s",
             "FAIL",
         ]
     )
     assert _summary([first], 0.0).splitlines()[-1] == "PASS"
     assert _summary([], 0.0).splitlines()[-1] == "FAIL"
+
+
+def test_summary_fails_when_an_entry_is_stale() -> None:
+    stale = GateResult(
+        stage_dir=Path("/a"),
+        work=Path("/w"),
+        items=[_item("SCN-1", "accepted")],
+        stale=[_ff36f1c_entry()],
+    )
+
+    lines = _summary([stale], 1.0).splitlines()
+
+    assert "stale entries:   1" in lines
+    assert lines[-1] == "FAIL"
 
 
 def test_main_passes_a_recorded_stage_and_removes_its_temporary_scratch(
@@ -975,7 +1336,7 @@ def test_main_passes_a_recorded_stage_and_removes_its_temporary_scratch(
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == f"== {unresolved_stage}"
     assert "items:           1 replayed, 1 identical" in lines
-    assert lines[-3] == "prompt mismatch: 0"
+    assert "prompt mismatch: 0" in lines
     assert lines[-1] == "PASS"
     [stage] = json.loads(report.read_text(encoding="utf-8"))
     assert stage["stage_dir"] == str(unresolved_stage.resolve())
