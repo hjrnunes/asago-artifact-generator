@@ -139,7 +139,7 @@ dependencies = [
 requires-dist = [
     { name = "asago-artifact-generator", editable = "." },
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
-    { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=2a794f341d578088477525d095b178b9722258cd" },
+    { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=2d50c55de209dd77f8e7bcf4920b0d780cd85e36" },
 ]
 
 [[package]]
@@ -516,7 +516,7 @@ wheels = [
 [[package]]
 name = "midojo-sdk"
 version = "0.1.0"
-source = { git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=2a794f341d578088477525d095b178b9722258cd#2a794f341d578088477525d095b178b9722258cd" }
+source = { git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=2d50c55de209dd77f8e7bcf4920b0d780cd85e36#2d50c55de209dd77f8e7bcf4920b0d780cd85e36" }
 dependencies = [
     { name = "httpx" },
 ]
