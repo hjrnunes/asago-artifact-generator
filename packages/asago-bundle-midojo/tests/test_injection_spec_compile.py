@@ -38,6 +38,7 @@ from injection_spec_cases import (
     TARGET,
     TOOLS,
     compile_case,
+    history_binding_options,
     planted_stimulus,
     seed_document,
     seed_item,
@@ -828,6 +829,14 @@ GAPS = {
     ),
     "bindings": (
         {"stimulus": {**planted_stimulus(), "slots": [{"name": "note"}]}},
+        "an episode sends fixed user turns; this stimulus fills run-time bindings into them",
+    ),
+    "history-binding": (
+        history_binding_options(),
+        "an episode sends fixed user turns; this stimulus fills run-time bindings into them",
+    ),
+    "user-text-binding": (
+        {"stimulus": planted_stimulus(("Please read note {{note_id}}.",))},
         "an episode sends fixed user turns; this stimulus fills run-time bindings into them",
     ),
     "state-effect": (

@@ -67,7 +67,8 @@ recorded.
   turns is `unresolved`. Its `details` summarize each turn (no evidence or model text),
   the model key and token are redacted, and its log is method and status only.
   `verifiers` is `[]`; compile writes `injection-spec.json` alone. Direct and user-turn
-  packages, a single package with history, non-user history, run-time bindings, state_effect
+  packages, a single package with history, non-user history, run-time bindings (a declared
+  slot, or a `{{name}}` placeholder in a user turn), state_effect
   claims and a seed the interceptor cannot place in an MCP tool result are capability gaps
   (exit 3). `parse_sealed` (`sealed.py`, CLI `parse --snapshot --verdict
   [--delivery] [--route]`) reads the snapshot (`GET .../snapshot`) and the verdict (`evaluation_id`,

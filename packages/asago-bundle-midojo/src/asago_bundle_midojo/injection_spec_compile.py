@@ -44,7 +44,8 @@ inputs give the same bytes.
 
 MiDojo runs planted_item packages only. A package whose stimulus delivers its attack in
 the user turns (a direct or user-turn package), a single package with history, a
-history message that is not the user's, a stimulus with run-time bindings, a
+history message that is not the user's, a stimulus with run-time bindings (a declared
+slot, or a ``{{name}}`` placeholder in a user turn), a
 state_effect claim, a seed item the interceptor cannot place in an MCP tool result
 (``placement.gap_reason``), and a seed item whose record the conversation cannot lead the
 agent to (``reachable.unreachable_reason``: a carrier that returns the record only to a call
@@ -61,6 +62,7 @@ from pathlib import Path
 from typing import Any
 
 from asago_artifact_generator.authoring.condition_eval import validate_condition
+from asago_artifact_generator.binding_rules import SLOT_PATTERN
 from asago_artifact_generator.package_io import ArtifactPackage, load_package
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.gap import CapabilityGap, capability_gap_record
@@ -334,12 +336,31 @@ def _delivery_reason(stimulus: Any) -> str | None:
 
 
 def _binding_reason(stimulus: Any) -> str | None:
-    """An episode's turns are fixed text; a binding would need a value at run time."""
+    """An episode's turns are fixed text; a binding would need a value at run time.
 
-    slots = stimulus.get("slots") if isinstance(stimulus, dict) else None
-    if not slots:
+    A declared slot asks for a value to fill into the user text, and a ``{{name}}``
+    placeholder in a turn asks for one too. Authoring records slots from the user text
+    alone (``authoring.checks``), so a placeholder in the history arrives with no slot;
+    the turns cannot be sent as they are either way.
+    """
+
+    if not isinstance(stimulus, dict):
+        return None
+    if not stimulus.get("slots") and not any(
+        SLOT_PATTERN.search(turn) for turn in _turn_text(stimulus)
+    ):
         return None
     return "an episode sends fixed user turns; this stimulus fills run-time bindings into them"
+
+
+def _turn_text(stimulus: dict[str, Any]) -> list[str]:
+    """Return the text of the turns an episode would send, ignoring any other member."""
+
+    history = stimulus.get("history")
+    messages = history if isinstance(history, list) else []
+    turns = [stimulus.get("user_text")]
+    turns.extend(item.get("content") for item in messages if isinstance(item, dict))
+    return [turn for turn in turns if isinstance(turn, str)]
 
 
 def _claim_reason(level: str) -> str | None:

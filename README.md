@@ -1259,7 +1259,8 @@ state between requests.
 
 `compile` refuses, as a capability gap (exit 3, with the shared record), a package whose
 stimulus delivers its attack in the user turns (a direct or user-turn package), a single
-package with history, a non-user history message, a stimulus with run-time bindings, a
+package with history, a non-user history message, a stimulus with run-time bindings (a
+declared slot, or a `{{name}}` placeholder in a user turn), a
 `state_effect` claim, and a seed item the interceptor cannot place in an MCP tool result:
 a carrier the target does not list over MCP, a carrier without a JSON object result, a
 field the result does not declare as text (or one through more than one list), a slot
