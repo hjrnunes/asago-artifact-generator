@@ -183,9 +183,9 @@ Deterministic tests must not contact a model endpoint or target.
   chains leaves the block out. A report recorded before the rename names the old plugins and
   notes; `parse` reads both forms. `parse` exits 1 and names the path on stderr
   when the bundle directory or the report is not there: missing input is not a failed run.
-  **Garak planted receipt.** The `episode` block is the planted-item receipt's evidence
+  **Garak planted receipt.** The `episode` block is a planted-item receipt's evidence
   record, and every member comes from the trace the probe sealed, never from the run's
-  intent: `route` is `garak.midojo.InjectionSpecProbe`; `evaluation_id` and `snapshot_id`
+  intent. `route` is `garak.midojo.InjectionSpecProbe`; `evaluation_id` and `snapshot_id`
   name the evaluation and the snapshot MiDojo sealed and graded; `evidence_status` is that
   snapshot's own map of how completely each source was collected; `verdict` states the
   grade as sealed, with `security` three-valued and `validity` (`valid`/`invalid`) saying
@@ -196,19 +196,29 @@ Deterministic tests must not contact a model endpoint or target.
   of the same, stating per boundary whether the payload was `exposed`, `not_exposed` or
   unknown; and `call_injections` copies each sealed call with its `injection_outcomes`, each
   carrying `payload_sha256` (the digest of the payload text before its transformation) and
-  `slot` (`id`, `record`, `mode`: the seed slot the payload was placed in). The delivery
-  guard decides the outcome before the grade does: a security grade of false whose payload
-  never reached the agent, and a false grade whose delivery nothing recorded, are
-  `inconclusive` and their reason names the delivery, never `not_detected`. So a report that
-  records no delivery fact cannot read as resisted, whatever the target did. A final seal
-  whose snapshot or verdict the reader cannot shape-check fails the receipt with MiDojo's own
-  reason (`snapshot_missing`, `snapshot_malformed`, `verdict_missing`, `verdict_malformed`)
-  and states no attempt, as a seal that fails its digest (`snapshot_digest_mismatch`) or names
-  another evaluation (`delivery_mismatch`) already does: a verdict read from a seal nothing
-  verified would decide an attack on unverified evidence. A chain the probe never sealed, or
-  a generation that errored, keeps its attempt and fails as `interrupted` or
-  `generation_error`.
-  `packages/asago-bundle-garak/tests/fixtures/ipi/` pins that receipt: seven sealed cases
+  `slot` (`id`, `record`, `mode`: the seed slot the payload was placed in). A chain sealed
+  short names its evaluation but no snapshot or verdict, and a report of several chains
+  leaves the block out. The delivery guard decides the outcome before the grade does: a
+  security grade of false whose payload never reached the agent, and a false grade whose
+  delivery nothing recorded, are `inconclusive` and their reason names the delivery, never
+  `not_detected`. So a report that records no delivery fact cannot read as resisted,
+  whatever the target did. A seal the reader cannot verify fails the receipt with MiDojo's
+  own reason and states no attempt. That covers a snapshot or verdict that is missing or
+  malformed (`snapshot_missing`, `snapshot_malformed`, `verdict_missing`,
+  `verdict_malformed`), a tampered seal whose digest does not hold
+  (`snapshot_digest_mismatch`), and one that names another evaluation
+  (`delivery_mismatch`): a verdict read from a seal nothing verified would decide an attack
+  on unverified evidence. A chain the probe never sealed, or a generation that errored,
+  keeps its attempt and fails as `interrupted` or `generation_error`. Together the fixture
+  README and the parity test are the executable spec of that receipt:
+  `packages/asago-bundle-garak/tests/fixtures/ipi/README.md` names each case's expected
+  outcome and what each sealed file holds, and
+  `packages/asago-bundle-garak/tests/test_bundle_garak_parity.py` reads all seven cases
+  through `bundle-garak parse` and `bundle-midojo parse --delivery`, requiring the same
+  `evaluation_id`, `snapshot_id`, `evidence_status`, `delivery`, `exposure`, `verdict` and
+  `call_injections`, the same `execution_status` and incomplete reason, and the same
+  attempts, with the tampered case stating no attempt on either route.
+  `packages/asago-bundle-garak/tests/fixtures/ipi/` pins those seven sealed cases
   (delivered, undelivered, incomplete, blocked, sequential, reply-judged and a tampered
   snapshot), each with the report, the snapshot, the verdict and the delivery document
   MiDojo produced, plus `expected.json` naming the outcome the route must state.
