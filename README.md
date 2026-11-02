@@ -1053,8 +1053,8 @@ target's MCP server, forwards each call (except a write the episode blocks, whic
 refuses and records as blocked), and places the planted text in the structured result
 of the carrier tool. The target's own data is not changed: orch starts the target
 plain for a MiDojo item and for a Garak item alike, writing no seed file and running
-no seed command (`tool_places_seed`), so the interceptor's placements are the only
-planted text. The Garak adapter reaches the same result through the Garak IPI route:
+no seed command, so the interceptor's placements are the only planted text. The
+Garak adapter reaches the same result through the Garak IPI route:
 its `compile --target` writes `ipi-episodes.json`, and Garak's `InjectionSpecProbe`
 probe plants through the same host interceptor. Neither adapter writes a `seed.json`
 into the target. The adapter reads and writes MiDojo's documents through `midojo-sdk`,
