@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -250,6 +251,40 @@ def test_an_authoring_counts_the_requests_of_every_step() -> None:
 
 def test_a_directory_without_a_manifest_is_no_package(tmp_path: Path) -> None:
     assert load_package(tmp_path) is None
+
+
+def test_a_package_reads_the_advisory_findings_in_its_checks_member(tmp_path: Path) -> None:
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "checks.json").write_text(
+        json.dumps(
+            {
+                "interface": "artifact-authoring-v2",
+                "status": "structurally_valid",
+                "findings": [
+                    {
+                        "code": "slot_party_mismatch",
+                        "detail": "slot klarna.order.item is writable by third_party",
+                        "path": "attack_shape.indirect.party_relation.controller",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    package = load_package(tmp_path)
+
+    assert [
+        (finding.source, finding.key, finding.location, finding.problem)
+        for finding in package.findings
+    ] == [
+        (
+            "check",
+            "slot_party_mismatch",
+            "attack_shape.indirect.party_relation.controller",
+            "slot klarna.order.item is writable by third_party",
+        )
+    ]
 
 
 def _package(**members) -> Package:

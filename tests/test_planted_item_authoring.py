@@ -813,3 +813,37 @@ def test_a_direct_package_has_no_seed_and_costs_the_same_requests(tmp_path: Path
         r["stage"] for r in indirect_transport.requests
     ]
     assert indirect.status == "accepted"
+
+
+def test_a_slot_that_excludes_the_controlling_party_is_accepted_with_an_advisory_finding(
+    tmp_path: Path,
+) -> None:
+    result, _ = _author(tmp_path, view=indirect_view(tmp_path, party="counterparty"))
+
+    assert result.status == "accepted", result.findings
+    checks = json.loads((tmp_path / "package" / "checks.json").read_text(encoding="utf-8"))
+    assert checks["findings"] == [
+        {
+            "code": "slot_party_mismatch",
+            "detail": (
+                "the scenario's controlling party is counterparty, and slot klarna.order.item "
+                "is writable by third_party; the package keeps the slot and records the "
+                "mismatch as advisory"
+            ),
+            "path": "attack_shape.indirect.party_relation.controller",
+            "details": {
+                "controlling_party": "counterparty",
+                "slot": "klarna.order.item",
+                "slot_writable_by": "third_party",
+            },
+        }
+    ]
+    assert (tmp_path / "package" / "seed.json").is_file()
+
+
+def test_an_unknown_controlling_party_packages_without_a_finding(tmp_path: Path) -> None:
+    result, _ = _author(tmp_path, view=indirect_view(tmp_path, party="unknown"))
+
+    assert result.status == "accepted", result.findings
+    checks = json.loads((tmp_path / "package" / "checks.json").read_text(encoding="utf-8"))
+    assert checks == {"interface": "artifact-authoring-v2", "status": "structurally_valid"}

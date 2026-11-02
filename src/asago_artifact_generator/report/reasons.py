@@ -160,6 +160,9 @@ _CHECKS = {
         "The attack shape plans more turns than the runtime contract supports."
     ),
     "slot_mismatch": "The stimulus slots do not match the slots its user text uses.",
+    "slot_party_mismatch": (
+        "The chosen seed slot is not writable by the scenario's controlling party."
+    ),
     "type_error": "A field has the wrong type.",
     "undeclared_slot": "A stimulus slot names no declared runtime binding.",
     "undocumented_selector": "A binding selector is not documented by the inventory.",

@@ -404,6 +404,38 @@ def test_the_page_is_marked_confidential(run_dir: Path) -> None:
     assert '<p class="banner" role="note">Confidential: contains test attacks' in html
 
 
+def test_a_package_finding_is_shown_inside_its_package(run_dir: Path) -> None:
+    path = _output(run_dir) / "SCN-004" / "checks.json"
+    path.write_text(
+        json.dumps(
+            {
+                "interface": "artifact-authoring-v2",
+                "status": "structurally_valid",
+                "findings": [
+                    {
+                        "code": "slot_party_mismatch",
+                        "detail": "slot klarna.order.item is writable by third_party",
+                        "path": "attack_shape.indirect.party_relation.controller",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    html, _ = _render(run_dir)
+
+    assert "Package findings" in html
+    assert "slot_party_mismatch" in html
+    assert "writable by third_party" in html
+
+
+def test_a_package_without_findings_shows_no_findings_block(run_dir: Path) -> None:
+    html, _ = _render(run_dir)
+
+    assert "Package findings" not in html
+
+
 def test_build_report_writes_nothing(run_dir: Path) -> None:
     output = _output(run_dir)
 

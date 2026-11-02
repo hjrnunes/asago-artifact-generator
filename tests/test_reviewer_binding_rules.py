@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from asago_artifact_generator.authoring.core import (
-    ARTIFACT_REVIEW_PROMPT_VERSION_V26,
-    PLAN_REVIEW_PROMPT_VERSION_V27,
+    ARTIFACT_REVIEW_PROMPT_VERSION_V27,
+    PLAN_REVIEW_PROMPT_VERSION_V28,
     PromptPacket,
 )
 from asago_artifact_generator.authoring.review import (
@@ -114,8 +114,8 @@ def test_each_reviewer_prompt_carries_its_bumped_version(stage: str) -> None:
 
     packet = {"plan_review": plan, "artifact_review": artifact}[stage]
     version = {
-        "plan_review": PLAN_REVIEW_PROMPT_VERSION_V27,
-        "artifact_review": ARTIFACT_REVIEW_PROMPT_VERSION_V26,
+        "plan_review": PLAN_REVIEW_PROMPT_VERSION_V28,
+        "artifact_review": ARTIFACT_REVIEW_PROMPT_VERSION_V27,
     }[stage]
 
     assert packet.version == version

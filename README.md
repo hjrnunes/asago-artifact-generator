@@ -276,7 +276,7 @@ anything other than a supplied result observation.
 
 New v2 authoring uses five independently versioned, hashed prompt roles:
 
-- `authoring-call1-v28` renders the plan author context while preserving the
+- `authoring-call1-v29` renders the plan author context while preserving the
   existing 11-field plan response. The handoff's `attack-path-v1`
   `attack_path` appears in SCENARIO DESIGN as an outline of the attacker lines
   and then numbered parts (conditions, attack steps in order, unsafe action,
@@ -284,8 +284,8 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   The purpose, the stimulus rules, the EVIDENCE REFERENCES rules, the response
   contract descriptions, and the correction texts name the attack path, and the
   path's node and source IDs are citable provenance. The plan correction
-  (`authoring-correction-v46`) shows the same outline.
-- `authoring-plan-review-v27` reviews a fresh source-derived plan context. It
+  (`authoring-correction-v47`) shows the same outline.
+- `authoring-plan-review-v28` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
   binding selects inside one record of a keyed fact, the value also carries
@@ -308,12 +308,12 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   recording's, and refuses any other as a prompt mismatch, which fails the
   item. Every stage's current version carries the structured-analysis note
   that explains a null `process_model_belief` (see the structured-analysis
-  fields below), so a recording made before Call 1 v28, plan review v27, Call 2
-  v30, artifact review v26 and corrections v46 and v47 needs a declared
+  fields below), so a recording made before Call 1 v29, plan review v28, Call 2
+  v31, artifact review v27 and corrections v47 and v48 needs a declared
   difference; without one, replaying it refuses its first dispatch. A replay
   serves recorded responses and does not test how a model answers the changed
   prompt.
-- `authoring-call2-v30` renders the immutable accepted plan and the runtime
+- `authoring-call2-v31` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
   question whose yes answer is the violation, that the criteria are a
@@ -323,21 +323,21 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `semantic_judge_spec` object; a missing one gets a
   `semantic_judge_spec_required` correction. Its `unsafe` and `safe` examples
   each carry a `reply` written as the target's message (see above).
-- `authoring-artifact-review-v26` reviews the exact artifact object and the
+- `authoring-artifact-review-v27` reviews the exact artifact object and the
   binding and judge declarations; for a reply claim it reads each example's
   `reply` as the target's own message.
-- A review retry of either role (plan review v27, artifact review v26) sends
+- A review retry of either role (plan review v28, artifact review v27) sends
   the same prompt followed by PREVIOUS REVIEW RESPONSE REJECTED, the rejected
   response verbatim, its check findings, and an instruction to return one
   complete response that corrects every finding.
-- `authoring-correction-v46` renders only the failed stage format and all
+- `authoring-correction-v47` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option
   lists the binding's documented selectors, the selected record's sources, and
   `review_selector_checks`: each selector path the required change names,
   checked against the sources that document it. Artifact corrections use
-  `authoring-correction-v47`; a reply plan's carries the Call 2 reply contract.
+  `authoring-correction-v48`; a reply plan's carries the Call 2 reply contract.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
 operations, schemas, provenance, and runtime capabilities. Reviewers do not
@@ -540,7 +540,10 @@ at load with `shape_version_malformed`.
 An `indirect` shape puts the attack text in a record that a carrier operation
 returns to the agent, and every user turn stays benign. Code picks the seed slot
 from the runtime contract's `seed_slots`: a slot of the shape's carrier, of the
-shape's content kind when one matches. Each slot states `max_chars`, the most
+shape's content kind when one matches, and among those the first whose
+`controller` lists the shape's controlling party; an `unknown` controlling
+party prefers no slot, and a slot that cannot hold the record the shape names is
+skipped. Each slot states `max_chars`, the most
 characters of planted text the target accepts, and `mode`, how the target
 writes the text into the field: `replace` swaps the field's text for it, and
 `append` adds it after the field's text. A slot without a positive `max_chars`
@@ -558,7 +561,12 @@ artifact stages (Call 2, its correction, and the artifact review) see the
 `stimulus` fields, `planted_text`, and the rule that asks for it. The rule block
 keeps the two party names apart: `shape_controlling_party.party` is the party
 the scenario assumes wrote the item, and `slot_writable_by` is the party the
-target lets write the slot.
+target lets write the slot. A scalar `controller` counts as a one-element set.
+When the shape names the record and the chosen slot's `controller` does not
+include the controlling party, `planted_item/slot_writable_by_note` says so
+without asking for a change, and the package records the advisory
+`slot_party_mismatch` finding in `checks.json`, which the author report shows.
+An `unknown` controlling party records no finding.
 
 When an `indirect` shape names no record (`record_ref` is null) and the runtime
 contract's seed slot lists records, the plan names the record that holds the

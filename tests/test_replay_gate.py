@@ -26,7 +26,13 @@ from typer.testing import CliRunner
 
 import replay_gate
 from asago_artifact_generator import cli
-from asago_artifact_generator.authoring.core import CALL1_PROMPT_VERSION_V28
+from asago_artifact_generator.authoring.core import (
+    ARTIFACT_REVIEW_PROMPT_VERSION,
+    CALL1_PROMPT_VERSION_V29,
+    CALL2_PROMPT_VERSION_V31,
+    CORRECTION_PROMPT_VERSION_V47,
+    PLAN_REVIEW_PROMPT_VERSION,
+)
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.contract_kit import canonical_json
 from replay_gate import (
@@ -762,6 +768,77 @@ def test_a_retired_layout_still_shows_a_difference_in_a_kept_member(tmp_path: Pa
     assert [item.path for item in differences] == [f"{TASK_ID}/inputs.json"]
 
 
+def _add_findings(output: Path, item_id: str, findings: list[dict]) -> None:
+    """Write a checks member's findings and refresh the manifest that names it."""
+
+    from asago_artifact_generator.package_io import _manifest_digest, _member_record
+
+    package = output / item_id
+    checks = json.loads((package / "checks.json").read_bytes())
+    checks["findings"] = findings
+    content = (canonical_json(checks) + "\n").encode("utf-8")
+    (package / "checks.json").write_bytes(content)
+    manifest = json.loads((package / "manifest.json").read_bytes())
+    manifest["members"] = [
+        _member_record(record["path"], content) if record["path"] == "checks.json" else record
+        for record in manifest["members"]
+    ]
+    manifest["manifest_digest"] = _manifest_digest(manifest)
+    (package / "manifest.json").write_text(canonical_json(manifest) + "\n", encoding="utf-8")
+
+
+ADVISORY_FINDING = {
+    "code": "slot_party_mismatch",
+    "detail": (
+        "the scenario's controlling party is third_party, and slot policy.body"
+        " is writable by operator"
+    ),
+    "path": "attack_shape.indirect.party_relation.controller",
+    "details": {"controlling_party": "third_party"},
+}
+
+
+def test_a_recording_without_the_advisory_finding_compares_equal(tmp_path: Path) -> None:
+    recorded, replayed = _package_trees(tmp_path)
+    _add_findings(replayed / "output", TASK_ID, [ADVISORY_FINDING])
+
+    compared, differences = _differences(recorded, replayed)
+
+    assert differences == []
+    assert compared == 14
+
+
+def test_a_package_difference_beside_the_advisory_finding_is_reported(tmp_path: Path) -> None:
+    recorded, replayed = _package_trees(tmp_path)
+    _add_findings(
+        replayed / "output",
+        TASK_ID,
+        [ADVISORY_FINDING, {**ADVISORY_FINDING, "code": "unlisted_check"}],
+    )
+
+    _, differences = _differences(recorded, replayed)
+
+    assert [item.path for item in differences] == [
+        f"{TASK_ID}/checks.json",
+        f"{TASK_ID}/manifest.json",
+    ]
+    assert "$.findings" in differences[0].detail
+
+
+def test_a_recording_that_carries_findings_compares_them(tmp_path: Path) -> None:
+    recorded, replayed = _package_trees(tmp_path)
+    _add_findings(recorded / "output", TASK_ID, [ADVISORY_FINDING])
+    _add_findings(replayed / "output", TASK_ID, [{**ADVISORY_FINDING, "detail": "other"}])
+
+    _, differences = _differences(recorded, replayed)
+
+    assert [item.path for item in differences] == [
+        f"{TASK_ID}/checks.json",
+        f"{TASK_ID}/manifest.json",
+    ]
+    assert "$.findings[0].detail" in differences[0].detail
+
+
 # --- end to end -------------------------------------------------------------------
 
 
@@ -951,7 +1028,7 @@ def _current_call1_entry() -> replay_gate.ExpectedPromptDifference:
     return next(
         entry
         for entry in replay_gate.EXPECTED_PROMPT_DIFFERENCES
-        if entry.stage == "call1" and entry.to_prompt_version == CALL1_PROMPT_VERSION_V28
+        if entry.stage == "call1" and entry.to_prompt_version == CALL1_PROMPT_VERSION_V29
     )
 
 
@@ -965,6 +1042,25 @@ def test_every_expected_prompt_difference_fills_every_field() -> None:
         assert replay_gate.prompt_template(entry.from_prompt_version) == entry.template
         assert replay_gate.prompt_template(entry.to_prompt_version) == entry.template
     assert any("ff36f1c" in entry.reason or entry.bead == "asago-vfh7" for entry in entries)
+
+
+def test_the_term_entries_end_at_the_versions_the_code_renders() -> None:
+    current = {
+        "call1": ("authoring-call1", CALL1_PROMPT_VERSION_V29),
+        "plan_review": ("authoring-plan-review", PLAN_REVIEW_PROMPT_VERSION),
+        "call2": ("authoring-call2", CALL2_PROMPT_VERSION_V31),
+        "artifact_review": ("authoring-artifact-review", ARTIFACT_REVIEW_PROMPT_VERSION),
+        "correction": ("authoring-correction", CORRECTION_PROMPT_VERSION_V47),
+    }
+
+    for bead in ("asago-term.2", "asago-term.7"):
+        entries = [
+            entry for entry in replay_gate.EXPECTED_PROMPT_DIFFERENCES if entry.bead == bead
+        ]
+        assert {entry.stage for entry in entries} == set(current)
+        for entry in entries:
+            assert (entry.template, entry.to_prompt_version) == current[entry.stage], entry
+    assert _ff36f1c_entry().from_prompt_version == "authoring-call1-v26"
 
 
 @pytest.mark.parametrize(
@@ -1031,7 +1127,7 @@ def test_replay_client_refuses_a_prompt_change_at_the_recorded_version() -> None
 def test_replay_client_refuses_a_difference_after_the_version_its_entry_names() -> None:
     entry = _ff36f1c_entry()
     client = ReplayChatClient([_call(prompt_version=entry.from_prompt_version)])
-    client.prompt = replay_gate.PromptIdentity(entry.stage, "authoring-call1-v28")
+    client.prompt = replay_gate.PromptIdentity(entry.stage, CALL1_PROMPT_VERSION_V29)
 
     with pytest.raises(ConnectionError, match="prompt mismatch"):
         client.chat.completions.create(**_request(user="a later prompt"))

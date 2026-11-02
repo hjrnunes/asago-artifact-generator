@@ -454,10 +454,16 @@ def package_row(item: Authoring, places: Places) -> Markup:
         if package.explanation
         else ""
     )
+    findings = (
+        "<h3>Package findings</h3>"
+        + join(finding_html(finding, full=True) for finding in package.findings)
+        if package.findings
+        else ""
+    )
     body = Markup(
         f"<h3>What the test sends</h3>{package_conversation(package)}"
         f"<h3>How it decides</h3><p>{esc(oracle_sentence(package))}</p>{_examples(item)}"
-        f"{explanation}<h3>Every request, in order</h3>{timeline(item, links)}"
+        f"{explanation}{findings}<h3>Every request, in order</h3>{timeline(item, links)}"
         f'<p class="links">{files}</p>'
     )
     return disclosure(summary, body, item.id, level="package")

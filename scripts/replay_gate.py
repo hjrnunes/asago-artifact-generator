@@ -199,62 +199,129 @@ EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = (
     ),
     # D20 split the two planted-item party names: the indirect block names the
     # scenario's shape_controlling_party and the slot's slot_writable_by, and the
-    # meanings state the party the scenario assumes wrote the item.  Every stage
-    # that renders the block carries the change, so each stage the M1 recording
-    # dispatched before it declares its own version pair.
+    # meanings state the party the scenario assumes wrote the item.  D21 then
+    # added the slot_writable_by note to every stage that renders the block.
+    # Every stage the M1 recording dispatched before both changes therefore
+    # declares one pair from its recorded version to the version the code renders
+    # now; the term.7 pairs name the note alone, so a recording made after D20
+    # and before D21 still has its own declared difference.
     ExpectedPromptDifference(
         stage="call1",
         template="authoring-call1",
         from_prompt_version="authoring-call1-v27",
-        to_prompt_version="authoring-call1-v28",
+        to_prompt_version="authoring-call1-v29",
         bead="asago-term.2",
         reason=(
             "the plan-stage indirect block and plan check carry D20's two party names and "
-            "the meanings that state the party the scenario assumes wrote the item"
+            "the meanings that state the party the scenario assumes wrote the item, and the "
+            "same pair carries D21's slot_writable_by note"
         ),
     ),
     ExpectedPromptDifference(
         stage="plan_review",
         template="authoring-plan-review",
         from_prompt_version="authoring-plan-review-v26",
-        to_prompt_version="authoring-plan-review-v27",
+        to_prompt_version="authoring-plan-review-v28",
         bead="asago-term.2",
         reason=(
             "the plan review's indirect block and planted-text check carry D20's two party "
-            "names and the meanings that state the party the scenario assumes wrote the item"
+            "names and the meanings that state the party the scenario assumes wrote the "
+            "item, and the same pair carries D21's slot_writable_by note"
         ),
     ),
     ExpectedPromptDifference(
         stage="call2",
         template="authoring-call2",
         from_prompt_version="authoring-call2-v29",
-        to_prompt_version="authoring-call2-v30",
+        to_prompt_version="authoring-call2-v31",
         bead="asago-term.2",
         reason=(
             "the artifact-stage indirect block, planted-text meaning and check carry D20's "
-            "two party names and the meanings that state the party that wrote the item"
+            "two party names and the meanings that state the party that wrote the item, and "
+            "the same pair carries D21's slot_writable_by note"
         ),
     ),
     ExpectedPromptDifference(
         stage="artifact_review",
         template="authoring-artifact-review",
         from_prompt_version="authoring-artifact-review-v25",
-        to_prompt_version="authoring-artifact-review-v26",
+        to_prompt_version="authoring-artifact-review-v27",
         bead="asago-term.2",
         reason=(
             "the artifact review's PLANTED TEXT block and check carry D20's two party names "
-            "and the meanings that state the party the scenario assumes wrote the item"
+            "and the meanings that state the party the scenario assumes wrote the item, and "
+            "the same pair carries D21's slot_writable_by note"
         ),
     ),
     ExpectedPromptDifference(
         stage="correction",
         template="authoring-correction",
         from_prompt_version="authoring-correction-v45",
-        to_prompt_version="authoring-correction-v46",
+        to_prompt_version="authoring-correction-v47",
         bead="asago-term.2",
         reason=(
             "the plan correction's original stage context carries the D20 indirect block; "
-            "the recording holds no artifact correction"
+            "the recording holds no artifact correction, so this pair also carries D21's "
+            "slot_writable_by note through the same block"
+        ),
+    ),
+    # D21 adds the slot_writable_by note: when the chosen slot does not list the
+    # scenario's controlling party the block says so, keeps the slot, and the
+    # package records the advisory slot_party_mismatch finding.  A stage that
+    # renders the block advances one version.
+    ExpectedPromptDifference(
+        stage="call1",
+        template="authoring-call1",
+        from_prompt_version="authoring-call1-v28",
+        to_prompt_version="authoring-call1-v29",
+        bead="asago-term.7",
+        reason=(
+            "the plan-stage indirect block carries D21's slot_writable_by note for a slot "
+            "that does not list the scenario's controlling party"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="plan_review",
+        template="authoring-plan-review",
+        from_prompt_version="authoring-plan-review-v27",
+        to_prompt_version="authoring-plan-review-v28",
+        bead="asago-term.7",
+        reason=(
+            "the plan review's PLANTED TEXT block carries D21's slot_writable_by note for a "
+            "slot that does not list the scenario's controlling party"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="call2",
+        template="authoring-call2",
+        from_prompt_version="authoring-call2-v30",
+        to_prompt_version="authoring-call2-v31",
+        bead="asago-term.7",
+        reason=(
+            "the artifact-stage indirect block carries D21's slot_writable_by note for a "
+            "slot that does not list the scenario's controlling party"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="artifact_review",
+        template="authoring-artifact-review",
+        from_prompt_version="authoring-artifact-review-v26",
+        to_prompt_version="authoring-artifact-review-v27",
+        bead="asago-term.7",
+        reason=(
+            "the artifact review's PLANTED TEXT block carries D21's slot_writable_by note "
+            "for a slot that does not list the scenario's controlling party"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="correction",
+        template="authoring-correction",
+        from_prompt_version="authoring-correction-v46",
+        to_prompt_version="authoring-correction-v47",
+        bead="asago-term.7",
+        reason=(
+            "the plan correction's original stage context carries D21's slot_writable_by "
+            "note; the recording holds no artifact correction"
         ),
     ),
 )
@@ -1087,6 +1154,85 @@ def current_layout(
     return kept, rewritten
 
 
+# D21 (term.7) writes the advisory slot_party_mismatch finding into the package's
+# checks.json.  A recording made before it carries that member without findings;
+# the replay recomputes the same slot and writes one.  The finding is the only
+# change, so the recorded member is rewritten with the replay's findings and the
+# manifest member record and digest follow.  A recording that carries findings,
+# as the re-recorded corpus does, comes back unchanged.
+_ADVISORY_FINDING_CODES = frozenset({"slot_party_mismatch"})
+
+
+def _advisory_findings(document: Any) -> list[Any] | None:
+    """Return a package's findings when every one is an advisory term.7 finding."""
+
+    if not isinstance(document, dict):
+        return None
+    findings = document.get("findings")
+    if not isinstance(findings, list) or not findings:
+        return None
+    if not all(
+        isinstance(item, dict) and item.get("code") in _ADVISORY_FINDING_CODES for item in findings
+    ):
+        return None
+    return findings
+
+
+def declared_package_layout(
+    recorded_output: Path,
+    replayed_output: Path,
+    item_id: str,
+    rewritten: dict[str, bytes],
+) -> dict[str, bytes]:
+    """Return the recorded files rewritten to the package layout term.7 adds.
+
+    The rewrite applies only when the recorded ``checks.json`` has no findings,
+    the replay adds advisory findings alone, and every other field matches.  The
+    manifest's member record for ``checks.json`` and its digest are recomputed
+    over the recorded manifest as ``current_layout`` left it.
+    """
+
+    from asago_artifact_generator.contract_kit import canonical_json
+    from asago_artifact_generator.package_io import _manifest_digest, _member_record
+
+    checks_name = f"{item_id}/checks.json"
+    manifest_name = f"{item_id}/manifest.json"
+    if (
+        not (recorded_output / checks_name).is_file()
+        or not (replayed_output / checks_name).is_file()
+    ):
+        return rewritten
+    recorded = _json_or_none((recorded_output / checks_name).read_text(encoding="utf-8"))
+    replayed = _json_or_none((replayed_output / checks_name).read_text(encoding="utf-8"))
+    if not isinstance(recorded, dict) or "findings" in recorded:
+        return rewritten
+    if _advisory_findings(replayed) is None:
+        return rewritten
+    without_findings = {key: value for key, value in replayed.items() if key != "findings"}
+    if recorded != without_findings:
+        return rewritten
+    replayed_bytes = (replayed_output / checks_name).read_bytes()
+    rewritten = {**rewritten, checks_name: replayed_bytes}
+    manifest_bytes = rewritten.get(manifest_name)
+    if manifest_bytes is None:
+        path = recorded_output / manifest_name
+        if not path.is_file():
+            return rewritten
+        manifest_bytes = path.read_bytes()
+    manifest = _json_or_none(manifest_bytes.decode("utf-8"))
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("members"), list):
+        return rewritten
+    manifest["members"] = [
+        _member_record("checks.json", replayed_bytes)
+        if isinstance(record, dict) and record.get("path") == "checks.json"
+        else record
+        for record in manifest["members"]
+    ]
+    manifest["manifest_digest"] = _manifest_digest(manifest)
+    rewritten[manifest_name] = (canonical_json(manifest) + "\n").encode("utf-8")
+    return rewritten
+
+
 def _location_aliases(replayed_output: Path, recorded_label: str) -> dict[str, str]:
     aliases = {str(replayed_output): recorded_label}
     aliases.setdefault(str(replayed_output.resolve()), recorded_label)
@@ -1116,6 +1262,7 @@ def compare_item_outputs(
         recorded_output, item_id, _owned_files(recorded_output, item_id)
     )
     right = _owned_files(replayed_output, item_id)
+    rewritten = declared_package_layout(recorded_output, replayed_output, item_id, rewritten)
     differences = [Difference(name, "only in recording") for name in sorted(left - right)]
     differences += [Difference(name, "only in replay") for name in sorted(right - left)]
     shared = sorted(left & right)

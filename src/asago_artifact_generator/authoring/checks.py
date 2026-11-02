@@ -59,7 +59,16 @@ from .inventory import _inventory_fact_map, _inventory_references
 from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
-from .planted_item import PLANTED_TEXT_FIELD, RECORD_FIELD, planted_item_findings
+from .planted_item import (
+    CONTROLLING_PARTY_PATH,
+    CONTROLLING_PARTY_UNKNOWN,
+    PLANTED_TEXT_FIELD,
+    RECORD_FIELD,
+    choose_planted_target,
+    controlling_party,
+    planted_item_findings,
+    writable_by,
+)
 from .reply_examples import REPLY_FIELD, reply_example_findings
 
 SELECTOR_THROUGH_ARRAY_CODE = "selector_through_array"
@@ -515,6 +524,40 @@ def collect_artifact_findings_v2(
         )
     )
     return staged_findings(findings, "artifact")
+
+
+def slot_party_findings(
+    shape: dict[str, Any] | None, runtime_contract: dict[str, Any], plan: Any = None
+) -> list[Finding]:
+    """Return the advisory finding for a planted slot its controlling party cannot write.
+
+    The finding is advisory: the package keeps the slot the runtime contract gives it and
+    records the mismatch beside the seed. An ``unknown`` controlling party states no
+    assumption about who wrote the item, so it never mismatches.
+    """
+
+    if not shape or shape.get("indirect") is None:
+        return []
+    target = choose_planted_target(shape, runtime_contract, plan)
+    if target is None:
+        return []
+    party = controlling_party(shape)
+    if party == CONTROLLING_PARTY_UNKNOWN or party in writable_by(target.controller):
+        return []
+    return [
+        Finding(
+            "slot_party_mismatch",
+            f"the scenario's controlling party is {party}, and slot {target.slot} is writable "
+            f"by {target.controller}; the package keeps the slot and records the mismatch "
+            "as advisory",
+            CONTROLLING_PARTY_PATH,
+            {
+                "controlling_party": party,
+                "slot": target.slot,
+                "slot_writable_by": target.controller,
+            },
+        )
+    ]
 
 
 def _reply_led_shape_findings(metadata: Any, plan: dict[str, Any]) -> list[Finding]:

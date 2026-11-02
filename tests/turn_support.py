@@ -106,7 +106,9 @@ LISTING_SLOT = {
 PLANTED_ITEM = "planted_item"
 
 
-def indirect_shape(turns: int = 2, record_ref: str | None = "ORD-101") -> dict[str, Any]:
+def indirect_shape(
+    turns: int = 2, record_ref: str | None = "ORD-101", party: str = "third_party"
+) -> dict[str, Any]:
     purposes = ["ask_to_read_item", "follow_up_on_item", "follow_up_on_item"][:turns]
     return {
         "channel": "indirect",
@@ -118,7 +120,7 @@ def indirect_shape(turns: int = 2, record_ref: str | None = "ORD-101") -> dict[s
         "indirect": {
             "carrier_operation": "get_order",
             "data_item": {"content_kind": "order_content", "record_ref": record_ref},
-            "party_relation": {"controller": "third_party", "benign_user_actor_ref": "CUST001"},
+            "party_relation": {"controller": party, "benign_user_actor_ref": "CUST001"},
         },
         "threat_label": None,
         "source": "stage5_validated",
@@ -126,13 +128,18 @@ def indirect_shape(turns: int = 2, record_ref: str | None = "ORD-101") -> dict[s
     }
 
 
-def indirect_view(tmp_path: Path, turns: int = 2, record_ref: str | None = "ORD-101") -> InputView:
+def indirect_view(
+    tmp_path: Path,
+    turns: int = 2,
+    record_ref: str | None = "ORD-101",
+    party: str = "third_party",
+) -> InputView:
     payload = json.loads(HANDOFF.read_text(encoding="utf-8"))
     payload.pop("content_digest")
     payload["schema_version"] = "scenario-handoff-v5"
-    payload["attack_shape"] = indirect_shape(turns, record_ref)
+    payload["attack_shape"] = indirect_shape(turns, record_ref, party)
     payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
-    path = tmp_path / f"refund-indirect-{turns}.json"
+    path = tmp_path / f"refund-indirect-{party}-{turns}.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return load_input(path)
 

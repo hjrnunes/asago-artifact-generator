@@ -178,7 +178,7 @@ CASES: dict[str, Callable[[Path], str]] = {
     "indirect_operator_insider": _indirect_case("operator_insider"),
     "indirect_plan_chooses_record": _plan_chooses_record,
     "indirect_record_fixed_by_plan": _record_fixed_by_plan,
-    "indirect_unknown_controller": _indirect_case("unknown"),
+    "indirect_unknown_party": _indirect_case("unknown"),
     "plan_review_record_rule": _plan_review_record_rule,
     "planted_review_counterparty": _planted_review,
     "planted_review_record_fixed_by_plan": _planted_review_record_fixed_by_plan,

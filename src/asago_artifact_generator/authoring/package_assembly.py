@@ -14,7 +14,7 @@ from ..package_io import (
     build_package,
     tool_call_condition_bytes,
 )
-from .checks import _plan_claim_level
+from .checks import _plan_claim_level, slot_party_findings
 from .core import AUTHORING_INTERFACE_VERSION_V2, _json_bytes
 from .inventory import _expected_authoring_input_pins, _resolved_judge_spec
 from .planted_item import seed_members
@@ -38,15 +38,20 @@ def _package_from_responses(
     """Assemble the package; its requests, ledger, and reviews stay in the failure evidence."""
 
     claim_level = _plan_claim_level(plan)
+    checks: dict[str, Any] = {
+        "interface": AUTHORING_INTERFACE_VERSION_V2,
+        "status": "structurally_valid",
+    }
+    advisory = slot_party_findings(view.attack_shape, runtime_contract, plan)
+    if advisory:
+        checks["findings"] = [finding.to_dict() for finding in advisory]
     members = {
         "plan.json": _json_bytes(plan),
         "stimulus.json": _json_bytes(stamped_stimulus(view, artifact["stimulus"])),
         "setup.json": _json_bytes(artifact["setup_recipe"]),
         "bindings.json": _json_bytes(artifact["runtime_bindings"]),
         "prerequisites.json": _json_bytes(artifact["prerequisites"]),
-        "checks.json": _json_bytes(
-            {"interface": AUTHORING_INTERFACE_VERSION_V2, "status": "structurally_valid"}
-        ),
+        "checks.json": _json_bytes(checks),
         "inputs.json": _json_bytes(
             {
                 "inventory": inventory,

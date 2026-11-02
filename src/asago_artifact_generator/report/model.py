@@ -106,6 +106,7 @@ class Package:
     condition: dict[str, Any] | None
     judge: dict[str, Any] | None
     seed: dict[str, Any] | None
+    findings: list[Finding] = field(default_factory=list)
 
 
 @dataclass
@@ -336,6 +337,7 @@ def load_package(directory: Path) -> Package | None:
     if not (directory / "manifest.json").is_file():
         return None
     explanation = _optional_json(directory / "explanation.json") or {}
+    checks = _optional_json(directory / "checks.json")
     return Package(
         plan=_optional_json(directory / "plan.json") or {},
         stimulus=_optional_json(directory / "stimulus.json") or {},
@@ -344,6 +346,7 @@ def load_package(directory: Path) -> Package | None:
         condition=_optional_json(directory / "tool_call_condition.json"),
         judge=_optional_json(directory / "judge.json"),
         seed=_optional_json(directory / "seed.json"),
+        findings=_check_findings(checks.get("findings") if isinstance(checks, dict) else None),
     )
 
 

@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from asago_artifact_generator.authoring.checks import slot_party_findings
 from asago_artifact_generator.authoring.planted_item import PlantedTarget, choose_planted_target
 from asago_artifact_generator.authoring.sequential_turns import multi_turn_block
 from asago_artifact_generator.authoring.shape_gate import shape_refusal_findings
@@ -283,3 +284,62 @@ def test_without_a_matching_content_kind_the_first_carrier_slot_with_the_record_
     assert (target.slot, target.content_kind) == ("airbnb.listing.a", "review_content")
     fallback = choose_planted_target(shape_of(LISTING), with_slots(second, third))
     assert (fallback.slot, fallback.content_kind) == ("airbnb.listing.c", "policy_document")
+
+
+def _unknown_party_shape() -> dict[str, Any]:
+    shape = shape_of(LISTING)
+    shape["indirect"]["party_relation"]["controller"] = "unknown"
+    return shape
+
+
+def test_a_slot_that_lists_the_controlling_party_wins_a_tie_of_the_same_kind() -> None:
+    other_party = {**LISTING_SLOT, "id": "airbnb.listing.other", "controller": "counterparty"}
+    party = {**LISTING_SLOT, "id": "airbnb.listing.party", "controller": "third_party"}
+
+    target = choose_planted_target(shape_of(LISTING), with_slots(other_party, party))
+
+    assert (target.slot, target.controller) == ("airbnb.listing.party", "third_party")
+
+
+def test_a_content_kind_match_wins_over_a_party_match_of_another_kind() -> None:
+    party = {
+        **LISTING_SLOT,
+        "id": "airbnb.listing.party",
+        "controller": "third_party",
+        "content_kind": "review_content",
+    }
+    kind = {**LISTING_SLOT, "id": "airbnb.listing.kind", "controller": "counterparty"}
+
+    target = choose_planted_target(shape_of(LISTING), with_slots(party, kind))
+
+    assert (target.slot, target.content_kind) == ("airbnb.listing.kind", "listing_content")
+
+
+def test_an_unknown_controlling_party_gets_no_preference_and_no_finding() -> None:
+    first = {**LISTING_SLOT, "id": "airbnb.listing.first", "controller": "counterparty"}
+    second = {**LISTING_SLOT, "id": "airbnb.listing.second", "controller": "unknown"}
+    runtime = with_slots(first, second)
+
+    target = choose_planted_target(_unknown_party_shape(), runtime)
+
+    assert target.slot == "airbnb.listing.first"
+    assert slot_party_findings(_unknown_party_shape(), runtime) == []
+
+
+def test_a_scalar_controller_equal_to_the_controlling_party_is_a_match() -> None:
+    slot = {**LISTING_SLOT, "controller": "third_party"}
+
+    assert slot_party_findings(shape_of(LISTING), with_slots(slot)) == []
+
+
+def test_a_scalar_controller_that_differs_is_an_advisory_finding() -> None:
+    [finding] = slot_party_findings(shape_of(LISTING), RUNTIME)
+
+    assert finding.code == "slot_party_mismatch"
+    assert finding.path == "attack_shape.indirect.party_relation.controller"
+    assert finding.details == {
+        "controlling_party": "third_party",
+        "slot": "airbnb.listing.title",
+        "slot_writable_by": "counterparty",
+    }
+    assert "writable by counterparty" in finding.detail
