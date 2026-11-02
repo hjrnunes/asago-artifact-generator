@@ -16,7 +16,7 @@ then copy ``<empty dir>`` over ``fixtures/openshell-4e5176a/``.
 From 4e5176a MiDojo leaves an observation's later list fields out of the snapshot digest
 while they are empty (``observations.digest_content``, the model's
 ``DIGEST_OMITS_WHEN_EMPTY``); today only OpenShell's ``http_requests``. Each scenario runs
-the episode ``result-record/referral/episode.json`` once with ``midojo.open_episode`` on an
+the episode ``result-record/referral/episode.json`` once with ``open_context`` on an
 in-process control plane, its host interceptor in front of a scripted upstream of the
 clinic fixture target's shape, as ``result_record.py`` does, but with a scripted
 runtime in place of the unmanaged one: its ``observe`` returns ``observations["openshell"]``
@@ -52,7 +52,6 @@ from midojo.control_plane.models import SnapshotResponse
 from midojo.control_plane.routers.runs import snapshot_response
 from midojo.control_plane.service import ControlPlane
 from midojo.control_plane.state import snapshot_digest
-from midojo.episode import Episode
 from midojo.interception_host import HostInterception
 from midojo.runtimes import UnmanagedRuntime
 from midojo.runtimes.openshell import (
@@ -62,6 +61,7 @@ from midojo.runtimes.openshell import (
     ProcessRecord,
 )
 from midojo.runtimes.openshell.logs import parse_ocsf_lines
+from midojo_api import InjectionSpec, open_context
 from midojo_sdk.injection import InjectionPlan
 from pydantic import BaseModel
 
@@ -133,8 +133,8 @@ class ObservedRuntime(UnmanagedRuntime):
         return {OBSERVATIONS_SOURCE: observed}
 
 
-def episode(data: dict[str, Any]) -> Episode:
-    return Episode(
+def episode(data: dict[str, Any]) -> InjectionSpec:
+    return InjectionSpec(
         runtime=data["runtime"],
         turns=data["turns"],
         plan=InjectionPlan.from_data(data["plan"]),
@@ -147,7 +147,7 @@ def episode(data: dict[str, Any]) -> Episode:
     )
 
 
-async def run(built: Episode, document: dict[str, Any], lines: list[str]) -> Any:
+async def run(built: InjectionSpec, document: dict[str, Any], lines: list[str]) -> Any:
     assert document["episode"]["interception"] == {"mode": "host", "upstream": None}
     allowed = document["episode"]["tools"]["allowed"]
 
@@ -161,7 +161,7 @@ async def run(built: Episode, document: dict[str, Any], lines: list[str]) -> Any
         return REPLY
 
     control = ControlPlane({}, config=AppConfig(closure_wait_seconds=0))
-    context = midojo.open_episode(
+    context = open_context(
         built,
         runtime=ObservedRuntime(lines),
         control=control,

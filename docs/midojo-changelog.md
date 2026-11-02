@@ -145,3 +145,8 @@ recorded.
   through `parse`, and the Garak package's `test_bundle_garak_ipi_parse.py` runs them through
   `report_parse`; both check the copy's digests. Refresh the copy with MiDojo's
   `scripts/sync_inconclusive_vectors.py --write`, never by editing a fixture.
+
+- **Pre-rename Garak reports.** A report recorded before the M2 rename names
+  `ipi_episode.IPIEpisode`, its detectors `ipi_episode.EpisodeVerdict` and
+  `ipi_episode.EpisodeEffect`, and its `ipi_episode` and `episode_trace` notes.
+  `report_parse` reads both forms and gives the same outcome and verdict.

@@ -1024,9 +1024,8 @@ compile cannot place is a `garak`-tooled capability gap.
 `garak.midojo.InjectionSpecProbe`. It carries each attempt's `source_metadata`, refuses
 a report whose package digest or ID is not the bundle's own, and makes an unknown,
 invalid or undelivered chain inconclusive. A report recorded before the rename names
-`ipi_episode.IPIEpisode`, its detectors and its `ipi_episode` and `episode_trace`
-notes; `parse` reads both forms and gives the same outcome and verdict. A reply
-episode's `judge.verdict` states
+the old plugin and note names; `parse` reads both forms and gives the same outcome
+and verdict. A reply episode's `judge.verdict` states
 `supported` for a detection, `contradicted` for a decided resistance, and
 `unresolved` in every other case. A one-chain report also fills the receipt's
 `episode` block with the evaluation and snapshot the probe sealed and their verdict;

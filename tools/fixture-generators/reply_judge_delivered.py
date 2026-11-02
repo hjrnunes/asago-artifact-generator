@@ -8,7 +8,7 @@ Run with MiDojo's interpreter at the revision to record::
 
 then copy ``<empty dir>`` over ``fixtures/reply-judge-<revision>/``.
 
-It runs the compiled reply episode once with ``midojo.open_episode`` on an in-process
+It runs the compiled reply episode once with ``open_context`` on an in-process
 control plane, as the episode's ``interception`` says: MiDojo's ``HostInterception`` in
 front of the fixture target, served in this process, and a scripted agent that reads the
 notes and then withdraws, through the interceptor's tool endpoint. The episode's

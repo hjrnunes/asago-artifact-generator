@@ -7,14 +7,14 @@ that revision, since the interpreter may run from an export with no Git history:
         <consumer>/tools/fixture-generators/result_record.py \
         <midojo revision> <dir of <case>/injection-spec.json>
 
-For each case it builds ``midojo.episode.Episode`` from its compiled document field by
-field, the plan with MiDojo's own ``InjectionPlan.from_data``, and checks the episode written
-back as data is the document's ``episode``, so the consumer's plan, its ``result_record``
+For each case it builds ``InjectionSpec`` from its compiled document field by field, the
+plan with MiDojo's own ``InjectionPlan.from_data``, and checks the episode written back as
+data is the document's ``episode``, so the consumer's plan, its ``result_record``
 targets included, has MiDojo's shape. It checks that MiDojo's host interceptor declares
 every capability the plan needs (``capability_gaps`` against ``MIDOJO_MCP_CAPABILITY`` is
 empty) and that an interceptor without ``result_record`` would not.
 
-Then it runs each scenario once with ``midojo.open_episode`` on an in-process control
+Then it runs each scenario once with ``open_context`` on an in-process control
 plane, as the episode's ``interception`` says, except that the upstream is a scripted
 FastMCP server in this process shaped like the clinic fixture target's declarations
 (``SCRIPTED``): each carrier returns the record of the patient the call names, the
@@ -49,9 +49,9 @@ from midojo.control_plane.models import SnapshotResponse
 from midojo.control_plane.routers.runs import snapshot_response
 from midojo.control_plane.service import ControlPlane
 from midojo.control_plane.state import snapshot_digest
-from midojo.episode import Episode, thaw
 from midojo.interception_host import HostInterception
 from midojo.runtimes import UnmanagedRuntime
+from midojo_api import InjectionSpec, open_context, thaw
 from midojo_sdk.injection import InjectionPlan, InterceptorCapability, capability_gaps
 from midojo_sdk.mcp import MIDOJO_MCP_CAPABILITY
 
@@ -112,8 +112,8 @@ SCENARIOS: dict[str, dict[str, tuple[list[Call], str]]] = {
 }
 
 
-def episode(data: dict[str, Any]) -> Episode:
-    return Episode(
+def episode(data: dict[str, Any]) -> InjectionSpec:
+    return InjectionSpec(
         runtime=data["runtime"],
         turns=data["turns"],
         plan=InjectionPlan.from_data(data["plan"]),
@@ -126,7 +126,7 @@ def episode(data: dict[str, Any]) -> Episode:
     )
 
 
-def written_back(built: Episode) -> dict[str, Any]:
+def written_back(built: InjectionSpec) -> dict[str, Any]:
     def optional(value: Any) -> Any:
         return None if value is None else thaw(value)
 
@@ -143,7 +143,7 @@ def written_back(built: Episode) -> dict[str, Any]:
     }
 
 
-def check_capability(built: Episode) -> None:
+def check_capability(built: InjectionSpec) -> None:
     """MiDojo's host interceptor places the plan; one without ``result_record`` would not."""
 
     assert capability_gaps(built.plan, MIDOJO_MCP_CAPABILITY) == ()
@@ -155,7 +155,9 @@ def check_capability(built: Episode) -> None:
     assert [gap.aspect for gap in capability_gaps(built.plan, without)] == ["result_record"]
 
 
-async def run(built: Episode, document: dict[str, Any], calls: list[Call], reply: str) -> Any:
+async def run(
+    built: InjectionSpec, document: dict[str, Any], calls: list[Call], reply: str
+) -> Any:
     assert document["episode"]["interception"] == {"mode": "host", "upstream": None}
     allowed = document["episode"]["tools"]["allowed"]
 
@@ -169,7 +171,7 @@ async def run(built: Episode, document: dict[str, Any], calls: list[Call], reply
         return reply
 
     control = ControlPlane({}, config=AppConfig(closure_wait_seconds=0))
-    context = midojo.open_episode(
+    context = open_context(
         built,
         runtime=UnmanagedRuntime(),
         control=control,

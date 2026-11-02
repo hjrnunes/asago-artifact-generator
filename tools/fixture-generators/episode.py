@@ -5,11 +5,11 @@ Run with MiDojo's interpreter at the revision to record (see ``tests/injection_s
     uv run --frozen python <consumer>/tools/fixture-generators/episode.py \
         <dir holding <case>/injection-spec.json>
 
-For each case it builds ``midojo.episode.Episode`` from its compiled document field by
-field, the plan with MiDojo's own ``InjectionPlan.from_data``, and checks the episode written
-back as data (the plan by ``InjectionPlan.to_data``) is the document's ``episode``, so the
-consumer's data has MiDojo's shape. Then it runs each scenario once with
-``midojo.open_episode`` on an in-process control plane, as the episode's ``interception``
+For each case it builds ``InjectionSpec`` from its compiled document field by field, the
+plan with MiDojo's own ``InjectionPlan.from_data``, and checks the episode written back as
+data (the plan by ``InjectionPlan.to_data``) is the document's ``episode``, so the
+consumer's data has MiDojo's shape. Then it runs each scenario once with ``open_context``
+on an in-process control plane, as the episode's ``interception``
 says: MiDojo's ``HostInterception`` in front of the fixture target, served in this process
 from its ``server.py`` with a fresh state per scenario, at the ``endpoint.mcp_url`` of its
 ``target.yaml``. A tool the episode's write disposition blocks is blocked on the
@@ -61,10 +61,10 @@ from midojo.control_plane.models import SnapshotResponse
 from midojo.control_plane.routers.runs import snapshot_response
 from midojo.control_plane.service import ControlPlane
 from midojo.control_plane.state import _canonical, _dumps, snapshot_digest
-from midojo.episode import Episode, thaw
 from midojo.interception_host import HostInterception, HostInterceptor
 from midojo.runtimes import UnmanagedRuntime
 from midojo.verifiers import register_verifier
+from midojo_api import InjectionSpec, open_context, thaw
 from midojo_sdk.injection import InjectionPlan
 
 REVISION = subprocess.run(
@@ -130,8 +130,8 @@ def _load_server() -> Any:
 server = _load_server()
 
 
-def episode(data: dict[str, Any]) -> Episode:
-    return Episode(
+def episode(data: dict[str, Any]) -> InjectionSpec:
+    return InjectionSpec(
         runtime=data["runtime"],
         turns=data["turns"],
         plan=InjectionPlan.from_data(data["plan"]),
@@ -144,7 +144,7 @@ def episode(data: dict[str, Any]) -> Episode:
     )
 
 
-def written_back(built: Episode) -> dict[str, Any]:
+def written_back(built: InjectionSpec) -> dict[str, Any]:
     def optional(value: Any) -> Any:
         return None if value is None else thaw(value)
 
@@ -305,14 +305,14 @@ SCENARIOS: dict[str, dict[str, tuple[tuple[Agent, bool], str]]] = {
 
 
 async def run(
-    built: Episode, document: dict[str, Any], script: tuple[Agent, bool]
+    built: InjectionSpec, document: dict[str, Any], script: tuple[Agent, bool]
 ) -> tuple[Any, dict[str, Any]]:
     send, held = script
     allowed = document["episode"]["tools"]["allowed"]
     RECEIVED.clear()
     control = ControlPlane({}, config=AppConfig(closure_wait_seconds=0))
     with fixture_target(held) as mcp_url:
-        context = midojo.open_episode(
+        context = open_context(
             built,
             runtime=UnmanagedRuntime(),
             control=control,
@@ -345,7 +345,7 @@ def at(value: Any, path: list[Any]) -> Any:
     return value
 
 
-def received(built: Episode) -> list[dict[str, Any]]:
+def received(built: InjectionSpec) -> list[dict[str, Any]]:
     """Return, per carrier call the agent made, what it got at each instruction's field."""
 
     found = []

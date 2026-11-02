@@ -7,14 +7,14 @@ revision, since the interpreter may run from an export with no Git history::
         <consumer>/tools/fixture-generators/placed_a19562e.py \
         <midojo revision> <dir of <case>/injection-spec.json>
 
-For each case it builds ``midojo.episode.Episode`` from its compiled document field by
-field, the plan with MiDojo's own ``InjectionPlan.from_data``, and checks the episode written
-back as data is the document's ``episode``. A generated case's plan has generator
+For each case it builds ``InjectionSpec`` from its compiled document field by field, the
+plan with MiDojo's own ``InjectionPlan.from_data``, and checks the episode written back as
+data is the document's ``episode``. A generated case's plan has generator
 permissions; the script stands in for the generator and gives the interceptor the plan with
 each tool-output payload replaced by the case's ``GENERATED`` text, every target as
 compiled, as an attacker's proposal changes a probe's payload and nothing else.
 
-Then it runs each scenario once with ``midojo.open_episode`` on an in-process control
+Then it runs each scenario once with ``open_context`` on an in-process control
 plane, as the episode's ``interception`` says, except that the upstream is a scripted
 FastMCP server in this process shaped like the fixture targets' declarations (``piggybank``
 and ``clinic``). Nothing is a target, and nothing leaves the process but loopback
@@ -59,9 +59,9 @@ from midojo.control_plane.routers.runs import snapshot_response
 from midojo.control_plane.service import ControlPlane
 from midojo.control_plane.state import snapshot_digest
 from midojo.delivery import delivery_facts, exposure
-from midojo.episode import Episode, thaw
 from midojo.interception_host import HostInterception, HostInterceptor
 from midojo.runtimes import UnmanagedRuntime
+from midojo_api import InjectionSpec, open_context, thaw
 from midojo_sdk.injection import Channel, InjectionPlan, InjectionSlot, payload_digest
 
 REGRADED = (
@@ -141,8 +141,8 @@ CASES: dict[str, tuple[Any, dict[str, tuple[list[Call], str]]]] = {
 }
 
 
-def episode(data: dict[str, Any]) -> Episode:
-    return Episode(
+def episode(data: dict[str, Any]) -> InjectionSpec:
+    return InjectionSpec(
         runtime=data["runtime"],
         turns=data["turns"],
         plan=InjectionPlan.from_data(data["plan"]),
@@ -155,7 +155,7 @@ def episode(data: dict[str, Any]) -> Episode:
     )
 
 
-def written_back(built: Episode) -> dict[str, Any]:
+def written_back(built: InjectionSpec) -> dict[str, Any]:
     def optional(value: Any) -> Any:
         return None if value is None else thaw(value)
 
@@ -203,7 +203,7 @@ class GeneratingInterception(HostInterception):
 
 
 async def run(
-    built: Episode,
+    built: InjectionSpec,
     document: dict[str, Any],
     upstream: Any,
     payload: str | None,
@@ -223,7 +223,7 @@ async def run(
         return reply
 
     control = ControlPlane({}, config=AppConfig(closure_wait_seconds=0))
-    context = midojo.open_episode(
+    context = open_context(
         built,
         runtime=UnmanagedRuntime(),
         control=control,
@@ -235,7 +235,7 @@ async def run(
     return context
 
 
-def check_placements(built: Episode, snapshot: Any, payload: str | None) -> None:
+def check_placements(built: InjectionSpec, snapshot: Any, payload: str | None) -> None:
     """Each placement's sealed digest is of the payload placed; its slot the plan instruction's."""
 
     tool_output = [item for item in built.plan.instructions if item.channel is Channel.TOOL_OUTPUT]
@@ -258,7 +258,7 @@ def check_placements(built: Episode, snapshot: Any, payload: str | None) -> None
     assert placements
 
 
-def delivery_document(built: Episode, snapshot: Any) -> dict[str, Any]:
+def delivery_document(built: InjectionSpec, snapshot: Any) -> dict[str, Any]:
     facts = delivery_facts(built.plan, snapshot.function_calls)
     outcomes = [
         outcome for call in snapshot.function_calls for outcome in call.injection_outcomes or ()
