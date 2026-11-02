@@ -137,6 +137,10 @@ def test_both_parsers_read_one_sealed_episode_the_same(tmp_path: Path, case: str
         assert midojo["episode"][field] == garak["episode"][field], field
     for field in EVIDENCE:
         assert canonical(midojo["episode"][field]) == canonical(garak["episode"][field]), field
+    # Every fixture is a sealed chain, so neither route may state the evidence as missing.
+    for receipt in (midojo, garak):
+        for field in EVIDENCE:
+            assert receipt["episode"][field] is not None, field
     sealed = midojo["episode"]["verdict"]
     assert sealed["security"] == expected["security"]
     assert sealed["validity"] == expected["security_validity"]
