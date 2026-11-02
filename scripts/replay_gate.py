@@ -65,6 +65,8 @@ _SCRIPT = Path(__file__).resolve()
 STAGE_FILENAME = "stage.json"
 FAILURE_EVIDENCE_SUFFIX = ".failure-evidence.json"
 PROG_NAME = "asago-artifact-generator"
+# The declarations the gate replay applies, written for each child process.
+_DECLARED_FILENAME = "declared-prompt-differences.json"
 
 # Options whose value is a path the item writes; the gate redirects it.
 _OUTPUT_OPTIONS = frozenset({"--output-dir"})
@@ -148,183 +150,12 @@ class ExpectedPromptDifference:
 # replays was made before, and no entry once that stage is re-recorded.  An
 # entry declares only the version change it names; a prompt that differs at any
 # other version pair still fails, and a recording whose stated prompt digest
-# does not match its prompt text cannot use an entry at all.
-EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = (
-    ExpectedPromptDifference(
-        stage="call1",
-        template="authoring-call1",
-        from_prompt_version="authoring-call1-v26",
-        to_prompt_version="authoring-call1-v27",
-        bead="asago-vfh7",
-        reason=(
-            "the vfh7 recording carries authoring-call1-v26, the version ff36f1c gave "
-            "the plan stage when it stopped it writing planted_text; 8ebdc96 then "
-            "added the null process_model_belief note to every stage, so call 1 "
-            "renders authoring-call1-v27"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="plan_review",
-        template="authoring-plan-review",
-        from_prompt_version="authoring-plan-review-v23",
-        to_prompt_version="authoring-plan-review-v26",
-        bead="asago-sy73",
-        reason=(
-            "d1f4f0f added the bounded review-retry sections, fbbf89b showed a later "
-            "review the current value at each earlier finding, and 8ebdc96 added the "
-            "null process_model_belief note"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="call2",
-        template="authoring-call2",
-        from_prompt_version="authoring-call2-v27",
-        to_prompt_version="authoring-call2-v29",
-        bead="asago-sy73",
-        reason=(
-            "3e08ebc carried a reply written as the target's message into the reply "
-            "examples and 8ebdc96 added the null process_model_belief note"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="artifact_review",
-        template="authoring-artifact-review",
-        from_prompt_version="authoring-artifact-review-v22",
-        to_prompt_version="authoring-artifact-review-v25",
-        bead="asago-sy73",
-        reason=(
-            "d1f4f0f added the bounded review-retry sections, 3e08ebc changed the reply "
-            "examples, and 8ebdc96 added the null process_model_belief note"
-        ),
-    ),
-    # D20 split the two planted-item party names: the indirect block names the
-    # scenario's shape_controlling_party and the slot's slot_writable_by, and the
-    # meanings state the party the scenario assumes wrote the item.  D21 then
-    # added the slot_writable_by note to every stage that renders the block.
-    # Every stage the M1 recording dispatched before both changes therefore
-    # declares one pair from its recorded version to the version the code renders
-    # now; the term.7 pairs name the note alone, so a recording made after D20
-    # and before D21 still has its own declared difference.
-    ExpectedPromptDifference(
-        stage="call1",
-        template="authoring-call1",
-        from_prompt_version="authoring-call1-v27",
-        to_prompt_version="authoring-call1-v29",
-        bead="asago-term.2",
-        reason=(
-            "the plan-stage indirect block and plan check carry D20's two party names and "
-            "the meanings that state the party the scenario assumes wrote the item, and the "
-            "same pair carries D21's slot_writable_by note"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="plan_review",
-        template="authoring-plan-review",
-        from_prompt_version="authoring-plan-review-v26",
-        to_prompt_version="authoring-plan-review-v28",
-        bead="asago-term.2",
-        reason=(
-            "the plan review's indirect block and planted-text check carry D20's two party "
-            "names and the meanings that state the party the scenario assumes wrote the "
-            "item, and the same pair carries D21's slot_writable_by note"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="call2",
-        template="authoring-call2",
-        from_prompt_version="authoring-call2-v29",
-        to_prompt_version="authoring-call2-v31",
-        bead="asago-term.2",
-        reason=(
-            "the artifact-stage indirect block, planted-text meaning and check carry D20's "
-            "two party names and the meanings that state the party that wrote the item, and "
-            "the same pair carries D21's slot_writable_by note"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="artifact_review",
-        template="authoring-artifact-review",
-        from_prompt_version="authoring-artifact-review-v25",
-        to_prompt_version="authoring-artifact-review-v27",
-        bead="asago-term.2",
-        reason=(
-            "the artifact review's PLANTED TEXT block and check carry D20's two party names "
-            "and the meanings that state the party the scenario assumes wrote the item, and "
-            "the same pair carries D21's slot_writable_by note"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="correction",
-        template="authoring-correction",
-        from_prompt_version="authoring-correction-v45",
-        to_prompt_version="authoring-correction-v47",
-        bead="asago-term.2",
-        reason=(
-            "the plan correction's original stage context carries the D20 indirect block; "
-            "the recording holds no artifact correction, so this pair also carries D21's "
-            "slot_writable_by note through the same block"
-        ),
-    ),
-    # D21 adds the slot_writable_by note: when the chosen slot does not list the
-    # scenario's controlling party the block says so, keeps the slot, and the
-    # package records the advisory slot_party_mismatch finding.  A stage that
-    # renders the block advances one version.
-    ExpectedPromptDifference(
-        stage="call1",
-        template="authoring-call1",
-        from_prompt_version="authoring-call1-v28",
-        to_prompt_version="authoring-call1-v29",
-        bead="asago-term.7",
-        reason=(
-            "the plan-stage indirect block carries D21's slot_writable_by note for a slot "
-            "that does not list the scenario's controlling party"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="plan_review",
-        template="authoring-plan-review",
-        from_prompt_version="authoring-plan-review-v27",
-        to_prompt_version="authoring-plan-review-v28",
-        bead="asago-term.7",
-        reason=(
-            "the plan review's PLANTED TEXT block carries D21's slot_writable_by note for a "
-            "slot that does not list the scenario's controlling party"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="call2",
-        template="authoring-call2",
-        from_prompt_version="authoring-call2-v30",
-        to_prompt_version="authoring-call2-v31",
-        bead="asago-term.7",
-        reason=(
-            "the artifact-stage indirect block carries D21's slot_writable_by note for a "
-            "slot that does not list the scenario's controlling party"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="artifact_review",
-        template="authoring-artifact-review",
-        from_prompt_version="authoring-artifact-review-v26",
-        to_prompt_version="authoring-artifact-review-v27",
-        bead="asago-term.7",
-        reason=(
-            "the artifact review's PLANTED TEXT block carries D21's slot_writable_by note "
-            "for a slot that does not list the scenario's controlling party"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="correction",
-        template="authoring-correction",
-        from_prompt_version="authoring-correction-v46",
-        to_prompt_version="authoring-correction-v47",
-        bead="asago-term.7",
-        reason=(
-            "the plan correction's original stage context carries D21's slot_writable_by "
-            "note; the recording holds no artifact correction"
-        ),
-    ),
-)
+# does not match its prompt text cannot use an entry at all.  The re-recorded
+# corpus under $ASAGO_REPLAY_CORPUS/consumer carries every version the code
+# renders now (call1 v29, plan review v28, call2 v31, artifact review v27,
+# correction v47), so no entry is live: the fourteen the M1 baseline and the
+# term.2 and term.7 changes added were inert, and bead asago-sy73 lists them.
+EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = ()
 
 
 def prompt_template(version: str) -> str:
@@ -780,10 +611,24 @@ def install_network_guard(log_path: Path) -> None:
 
 
 def _replay_item(
-    failure_evidence: Path, status_path: Path, network_log: Path, arguments: list[str]
+    failure_evidence: Path,
+    status_path: Path,
+    network_log: Path,
+    arguments: list[str],
+    declared_path: Path | None = None,
 ) -> None:
-    """Run one ``generate`` command with the recorded responses (child process)."""
+    """Run one ``generate`` command with the recorded responses (child process).
 
+    *declared_path* holds the prompt differences the gate declares, which the
+    parent passes because the checked-in list is only its default.
+    """
+
+    global EXPECTED_PROMPT_DIFFERENCES
+
+    if declared_path is not None:
+        EXPECTED_PROMPT_DIFFERENCES = _entries_from_document(
+            json.loads(declared_path.read_text(encoding="utf-8"))
+        )
     install_network_guard(network_log)
     client = ReplayChatClient(load_recorded_calls(failure_evidence))
     from asago_artifact_generator import cli
@@ -931,16 +776,33 @@ def _mask_wall_clock(document: Any) -> Any:
 _REVIEW_PROMPT_PINS = ("prompt_version", "prompt_sha256", "reviewed_input_sha256")
 
 
-def _declared_version_pairs() -> list[dict[str, str]]:
+def _declared_version_pairs(
+    entries: Sequence[ExpectedPromptDifference] | None = None,
+) -> list[dict[str, str]]:
     """Return the version pair every expected prompt difference names."""
 
+    declared = EXPECTED_PROMPT_DIFFERENCES if entries is None else entries
     return [
         {
             "from_prompt_version": entry.from_prompt_version,
             "to_prompt_version": entry.to_prompt_version,
         }
-        for entry in EXPECTED_PROMPT_DIFFERENCES
+        for entry in declared
     ]
+
+
+def _entries_document(entries: Sequence[ExpectedPromptDifference]) -> list[dict[str, str]]:
+    """Return the declarations as the child process reads them."""
+
+    return [asdict(entry) for entry in entries]
+
+
+def _entries_from_document(document: Any) -> tuple[ExpectedPromptDifference, ...]:
+    """Return the declarations a parent process passed to its child."""
+
+    if not isinstance(document, list):
+        raise ValueError("declared prompt differences must be a JSON list")
+    return tuple(ExpectedPromptDifference(**record) for record in document)
 
 
 def _mask_declared_prompts(
@@ -1467,7 +1329,13 @@ def _logged_status(log: Path) -> str | None:
 
 
 def _run_item(
-    prepared: _PreparedItem, *, stage_dir: Path, work: Path, output_dir: Path
+    prepared: _PreparedItem,
+    *,
+    stage_dir: Path,
+    work: Path,
+    output_dir: Path,
+    declared: Sequence[ExpectedPromptDifference],
+    declared_path: Path,
 ) -> ItemResult:
     recorded_log = stage_dir / "items" / f"{prepared.item_id}.log"
     result = ItemResult(
@@ -1496,6 +1364,8 @@ def _run_item(
         str(record),
         str(status_path),
         str(network_log),
+        "--declared",
+        str(declared_path),
         "--",
         *prepared.arguments,
     ]
@@ -1526,7 +1396,7 @@ def _run_item(
         replayed_output=output_dir,
         replayed_log=replay_log,
         recorded_output_label=prepared.recorded_output_label,
-        declared=_declared_version_pairs(),
+        declared=_declared_version_pairs(declared),
     )
     if result.exit_code != result.recorded_exit_code or result.error:
         result.log_tail = replay_log.read_text(encoding="utf-8").splitlines()[-5:]
@@ -1539,18 +1409,23 @@ def run_gate(
     work: Path | None = None,
     jobs: int = 1,
     only: Iterable[str] | None = None,
+    declared: Sequence[ExpectedPromptDifference] | None = None,
 ) -> GateResult:
     """Replay every recorded item of one author stage and compare the outputs.
 
     The recorded stage directory is only read.  *only* restricts the replay to
-    the named item ids.
+    the named item ids.  *declared* holds the prompt differences the replay
+    declares; it defaults to the checked-in list.
     """
 
     started = time.perf_counter()
     stage_dir = stage_dir.resolve()
+    entries = EXPECTED_PROMPT_DIFFERENCES if declared is None else tuple(declared)
     work = Path(tempfile.mkdtemp(prefix="replay-gate-")) if work is None else work
     work.mkdir(parents=True, exist_ok=True)
     work = work.resolve()
+    declared_path = work / _DECLARED_FILENAME
+    declared_path.write_text(json.dumps(_entries_document(entries)), encoding="utf-8")
     document = json.loads((stage_dir / STAGE_FILENAME).read_text(encoding="utf-8"))
     result = GateResult(stage_dir=stage_dir, work=work)
     authored, result.skipped = _authored_items(document, only)
@@ -1563,7 +1438,12 @@ def run_gate(
         result.items = list(
             pool.map(
                 lambda item: _run_item(
-                    item, stage_dir=stage_dir, work=work, output_dir=output_dir
+                    item,
+                    stage_dir=stage_dir,
+                    work=work,
+                    output_dir=output_dir,
+                    declared=entries,
+                    declared_path=declared_path,
                 ),
                 prepared,
             )
@@ -1571,6 +1451,7 @@ def run_gate(
     result.stale = _stale_entries(
         _recorded_prompt_identities(stage_dir, result.items),
         [record for item in result.items for record in item.declared],
+        entries,
     )
     result.seconds = time.perf_counter() - started
     return result
@@ -1593,7 +1474,9 @@ def _recorded_prompt_identities(
 
 
 def _stale_entries(
-    recorded: set[tuple[str, str]], declared: Sequence[dict[str, Any]]
+    recorded: set[tuple[str, str]],
+    declared: Sequence[dict[str, Any]],
+    entries: Sequence[ExpectedPromptDifference] | None = None,
 ) -> list[ExpectedPromptDifference]:
     """Return the entries a replayed recording carries but no difference matched.
 
@@ -1607,9 +1490,10 @@ def _stale_entries(
         (record["stage"], record["from_prompt_version"], record["to_prompt_version"])
         for record in declared
     }
+    candidates = EXPECTED_PROMPT_DIFFERENCES if entries is None else entries
     return [
         entry
-        for entry in EXPECTED_PROMPT_DIFFERENCES
+        for entry in candidates
         if (entry.stage, entry.from_prompt_version) in recorded
         and (entry.stage, entry.from_prompt_version, entry.to_prompt_version) not in matched
     ]
@@ -1659,10 +1543,17 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 
 def _replay_item_command(items: list[str]) -> int:
-    record, status, network, separator, *arguments = items
+    record, status, network, *rest = items
+    declared = None
+    if rest[:1] == ["--declared"]:
+        declared = Path(rest[1])
+        rest = rest[2:]
+    separator, *arguments = rest
     if separator != "--":
-        raise SystemExit("usage: _replay-item RECORD STATUS NETWORK_LOG -- AUTHOR_ARGS...")
-    _replay_item(Path(record), Path(status), Path(network), arguments)
+        raise SystemExit(
+            "usage: _replay-item RECORD STATUS NETWORK_LOG [--declared PATH] -- AUTHOR_ARGS..."
+        )
+    _replay_item(Path(record), Path(status), Path(network), arguments, declared)
     return 0
 
 

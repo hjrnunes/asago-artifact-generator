@@ -26,13 +26,7 @@ from typer.testing import CliRunner
 
 import replay_gate
 from asago_artifact_generator import cli
-from asago_artifact_generator.authoring.core import (
-    ARTIFACT_REVIEW_PROMPT_VERSION,
-    CALL1_PROMPT_VERSION_V29,
-    CALL2_PROMPT_VERSION_V31,
-    CORRECTION_PROMPT_VERSION_V47,
-    PLAN_REVIEW_PROMPT_VERSION,
-)
+from asago_artifact_generator.authoring.core import CALL1_PROMPT_VERSION_V29
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.contract_kit import canonical_json
 from replay_gate import (
@@ -1014,53 +1008,38 @@ def test_gate_fails_on_an_output_or_exit_code_difference(
 # --- declared prompt differences --------------------------------------------------
 
 
+OLDER_CALL1_ENTRY = replay_gate.ExpectedPromptDifference(
+    stage="call1",
+    template="authoring-call1",
+    from_prompt_version="authoring-call1-v26",
+    to_prompt_version=CALL1_PROMPT_VERSION_V29,
+    bead="asago-vfh7",
+    reason="the vfh7 recording carries authoring-call1-v26",
+)
+
+
 def _ff36f1c_entry() -> replay_gate.ExpectedPromptDifference:
-    """Return the entry that covers the vfh7 recording's call-1 prompt."""
+    """Return the call-1 declaration the matching tests use."""
 
-    return next(
-        entry for entry in replay_gate.EXPECTED_PROMPT_DIFFERENCES if entry.bead == "asago-vfh7"
-    )
+    return OLDER_CALL1_ENTRY
 
 
-def _current_call1_entry() -> replay_gate.ExpectedPromptDifference:
-    """Return the call-1 entry that ends at the version the code renders."""
+def _declare(monkeypatch: pytest.MonkeyPatch) -> replay_gate.ExpectedPromptDifference:
+    """Hold one declaration in the module, as a recording made before a change has."""
 
-    return next(
-        entry
-        for entry in replay_gate.EXPECTED_PROMPT_DIFFERENCES
-        if entry.stage == "call1" and entry.to_prompt_version == CALL1_PROMPT_VERSION_V29
-    )
+    monkeypatch.setattr(replay_gate, "EXPECTED_PROMPT_DIFFERENCES", (OLDER_CALL1_ENTRY,))
+    return OLDER_CALL1_ENTRY
 
 
-def test_every_expected_prompt_difference_fills_every_field() -> None:
-    entries = replay_gate.EXPECTED_PROMPT_DIFFERENCES
+def test_no_declared_prompt_difference_remains() -> None:
+    """The re-recorded corpus carries every prompt version the code renders.
 
-    assert entries, "the list records the intended prompt changes"
-    for entry in entries:
-        assert entry.stage and entry.template and entry.bead and entry.reason
-        assert entry.from_prompt_version != entry.to_prompt_version
-        assert replay_gate.prompt_template(entry.from_prompt_version) == entry.template
-        assert replay_gate.prompt_template(entry.to_prompt_version) == entry.template
-    assert any("ff36f1c" in entry.reason or entry.bead == "asago-vfh7" for entry in entries)
+    The M1 baseline's four entries and the five term.2 and five term.7 entries
+    were all inert against it, so bead asago-sy73 lists the entries this list no
+    longer holds.  A recording made before a later prompt change adds one back.
+    """
 
-
-def test_the_term_entries_end_at_the_versions_the_code_renders() -> None:
-    current = {
-        "call1": ("authoring-call1", CALL1_PROMPT_VERSION_V29),
-        "plan_review": ("authoring-plan-review", PLAN_REVIEW_PROMPT_VERSION),
-        "call2": ("authoring-call2", CALL2_PROMPT_VERSION_V31),
-        "artifact_review": ("authoring-artifact-review", ARTIFACT_REVIEW_PROMPT_VERSION),
-        "correction": ("authoring-correction", CORRECTION_PROMPT_VERSION_V47),
-    }
-
-    for bead in ("asago-term.2", "asago-term.7"):
-        entries = [
-            entry for entry in replay_gate.EXPECTED_PROMPT_DIFFERENCES if entry.bead == bead
-        ]
-        assert {entry.stage for entry in entries} == set(current)
-        for entry in entries:
-            assert (entry.template, entry.to_prompt_version) == current[entry.stage], entry
-    assert _ff36f1c_entry().from_prompt_version == "authoring-call1-v26"
+    assert replay_gate.EXPECTED_PROMPT_DIFFERENCES == ()
 
 
 @pytest.mark.parametrize(
@@ -1077,8 +1056,10 @@ def test_prompt_template_names_the_family_of_a_version(version: str, template: s
     assert replay_gate.prompt_template(version) == template
 
 
-def test_replay_client_serves_a_difference_its_entry_declares() -> None:
-    entry = _ff36f1c_entry()
+def test_replay_client_serves_a_difference_its_entry_declares(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = _declare(monkeypatch)
     client = ReplayChatClient([_call(prompt_version=entry.from_prompt_version)])
     client.prompt = replay_gate.PromptIdentity(entry.stage, entry.to_prompt_version)
 
@@ -1100,8 +1081,10 @@ def test_replay_client_serves_a_difference_its_entry_declares() -> None:
     ]
 
 
-def test_replay_client_refuses_a_prompt_difference_no_entry_lists() -> None:
-    entry = _ff36f1c_entry()
+def test_replay_client_refuses_a_prompt_difference_no_entry_lists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = _declare(monkeypatch)
     client = ReplayChatClient([_call(prompt_version="authoring-call1-v25")])
     client.prompt = replay_gate.PromptIdentity(entry.stage, entry.to_prompt_version)
 
@@ -1113,8 +1096,10 @@ def test_replay_client_refuses_a_prompt_difference_no_entry_lists() -> None:
     assert client.mismatches[0]["detail"] == "user message differs from the recording"
 
 
-def test_replay_client_refuses_a_prompt_change_at_the_recorded_version() -> None:
-    entry = _ff36f1c_entry()
+def test_replay_client_refuses_a_prompt_change_at_the_recorded_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = _declare(monkeypatch)
     client = ReplayChatClient([_call(prompt_version=entry.to_prompt_version)])
     client.prompt = replay_gate.PromptIdentity(entry.stage, entry.to_prompt_version)
 
@@ -1124,10 +1109,12 @@ def test_replay_client_refuses_a_prompt_change_at_the_recorded_version() -> None
     assert client.declared == []
 
 
-def test_replay_client_refuses_a_difference_after_the_version_its_entry_names() -> None:
-    entry = _ff36f1c_entry()
+def test_replay_client_refuses_a_difference_after_the_version_its_entry_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = _declare(monkeypatch)
     client = ReplayChatClient([_call(prompt_version=entry.from_prompt_version)])
-    client.prompt = replay_gate.PromptIdentity(entry.stage, CALL1_PROMPT_VERSION_V29)
+    client.prompt = replay_gate.PromptIdentity(entry.stage, "authoring-call1-v30")
 
     with pytest.raises(ConnectionError, match="prompt mismatch"):
         client.chat.completions.create(**_request(user="a later prompt"))
@@ -1135,8 +1122,10 @@ def test_replay_client_refuses_a_difference_after_the_version_its_entry_names() 
     assert client.declared == []
 
 
-def test_replay_client_never_declares_a_requested_model_difference() -> None:
-    entry = _ff36f1c_entry()
+def test_replay_client_never_declares_a_requested_model_difference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = _declare(monkeypatch)
     client = ReplayChatClient([_call(prompt_version=entry.from_prompt_version)])
     client.prompt = replay_gate.PromptIdentity(entry.stage, entry.to_prompt_version)
     request = _request(user="the older prompt")
@@ -1307,8 +1296,10 @@ def test_a_dispatch_outside_a_declared_version_pair_is_reported(tmp_path: Path) 
     assert found is not None and found.startswith("$.attempts[0].prompt")
 
 
-def test_an_entry_the_recording_carries_but_matches_nothing_is_stale() -> None:
-    entry = _ff36f1c_entry()
+def test_an_entry_the_recording_carries_but_matches_nothing_is_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = _declare(monkeypatch)
     recorded = {(entry.stage, entry.from_prompt_version)}
 
     assert replay_gate._stale_entries(recorded, []) == [entry]
@@ -1323,21 +1314,23 @@ def test_an_entry_the_recording_carries_but_matches_nothing_is_stale() -> None:
     assert replay_gate._stale_entries(recorded, declared) == []
 
 
-def test_an_entry_the_recording_does_not_carry_is_not_stale() -> None:
-    entry = _ff36f1c_entry()
+def test_an_entry_the_recording_does_not_carry_is_not_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _declare(monkeypatch)
 
-    assert replay_gate._stale_entries({(entry.stage, "authoring-call1-v25")}, []) == []
+    assert replay_gate._stale_entries({("call1", "authoring-call1-v25")}, []) == []
 
 
 def test_gate_declares_a_listed_prompt_difference_and_passes(
     unresolved_stage: Path, tmp_path: Path
 ) -> None:
-    entry = _current_call1_entry()
+    entry = _ff36f1c_entry()
     _rewrite_prompt(
         unresolved_stage, 1, user="the prompt ff36f1c recorded", version=entry.from_prompt_version
     )
 
-    result = run_gate(unresolved_stage, work=tmp_path / "work")
+    result = run_gate(unresolved_stage, work=tmp_path / "work", declared=(entry,))
 
     assert result.passed, result.report()
     assert result.stale == []
@@ -1382,7 +1375,7 @@ def test_gate_fails_an_entry_the_recording_carries_but_matches_nothing(
     # that already holds the change: nothing differs, so the entry is stale.
     _rewrite_prompt(unresolved_stage, 1, version=entry.from_prompt_version)
 
-    result = run_gate(unresolved_stage, work=tmp_path / "work")
+    result = run_gate(unresolved_stage, work=tmp_path / "work", declared=(entry,))
 
     assert not result.passed
     assert result.stale == [entry]
@@ -1592,7 +1585,33 @@ def test_main_runs_one_replay_item_with_the_generate_arguments(
     code = replay_gate.main(["_replay-item", "r.json", "s.json", "n.log", "--", "generate", "x"])
 
     assert code == 0
-    assert calls == [(Path("r.json"), Path("s.json"), Path("n.log"), ["generate", "x"])]
+    assert calls == [(Path("r.json"), Path("s.json"), Path("n.log"), ["generate", "x"], None)]
+
+
+def test_main_hands_the_child_the_declared_prompt_differences(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(replay_gate, "_replay_item", lambda *args: calls.append(args))
+
+    code = replay_gate.main(
+        [
+            "_replay-item",
+            "r.json",
+            "s.json",
+            "n.log",
+            "--declared",
+            "d.json",
+            "--",
+            "generate",
+            "x",
+        ]
+    )
+
+    assert code == 0
+    assert calls == [
+        (Path("r.json"), Path("s.json"), Path("n.log"), ["generate", "x"], Path("d.json"))
+    ]
 
 
 def test_main_rejects_a_replay_item_without_the_separator() -> None:
