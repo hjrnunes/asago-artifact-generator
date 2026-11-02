@@ -18,19 +18,21 @@ every trace carries MiDojo's `delivery` and `exposure` rather than null.
 | `tampered` | `inconclusive` | snapshot_digest_mismatch | `failed` | the delivered seal's snapshot is edited after the seal, so it no longer hashes to its ID: both detectors refuse to grade it and the receipt's reason is snapshot_digest_mismatch |
 
 `expected.json` names the receipt's status (`execution_status`, completed for every
-case but `tampered`, which the sealed reader refuses), the attempt's `outcome`, the
-reason where one applies, the attempt and repeat counts, the route, the three
-detectors, and the payload's `probe_key` with the slot it was placed in. `reason` is
-the reason the detectors refuse the trace when they do (the tampered case's
-`snapshot_digest_mismatch`), and the detector's own reason otherwise; the probe's own
-record keeps the detector's wording as `detector_reason`.
+case but `tampered`, which the sealed reader refuses), the probe's `outcome`, the
+reason where one applies, the attempt count (0 for `tampered`, whose refused seal
+states no attempt, and 1 for every other case) and the repeat count, the route, the
+three detectors, and the payload's `probe_key` with the slot it was placed in.
+`reason` is the reason the detectors refuse the trace when they do (the tampered
+case's `snapshot_digest_mismatch`), and the detector's own reason otherwise; the
+probe's own record keeps the detector's wording as `detector_reason`.
 
 The outcomes are the probe's, and the route keeps every one that decided nothing
 inconclusive: `delivered`, `blocked`, `sequential` and `reply-judged` detect the
 payload, `undelivered` names `not_delivered` (the agent never read the notes, so no
 call carried the payload and `delivery.json` holds no fact), `incomplete` names
 `invalid` (the held withdrawal leaves the capture incomplete), and `tampered` names
-`snapshot_digest_mismatch`.
+`snapshot_digest_mismatch` and states no attempt, because the reader refuses the seal
+the attempt would have decided from.
 
 ## Files
 

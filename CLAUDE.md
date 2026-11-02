@@ -200,7 +200,14 @@ Deterministic tests must not contact a model endpoint or target.
   guard decides the outcome before the grade does: a security grade of false whose payload
   never reached the agent, and a false grade whose delivery nothing recorded, are
   `inconclusive` and their reason names the delivery, never `not_detected`. So a report that
-  records no delivery fact cannot read as resisted, whatever the target did.
+  records no delivery fact cannot read as resisted, whatever the target did. A final seal
+  whose snapshot or verdict the reader cannot shape-check fails the receipt with MiDojo's own
+  reason (`snapshot_missing`, `snapshot_malformed`, `verdict_missing`, `verdict_malformed`)
+  and states no attempt, as a seal that fails its digest (`snapshot_digest_mismatch`) or names
+  another evaluation (`delivery_mismatch`) already does: a verdict read from a seal nothing
+  verified would decide an attack on unverified evidence. A chain the probe never sealed, or
+  a generation that errored, keeps its attempt and fails as `interrupted` or
+  `generation_error`.
   `packages/asago-bundle-garak/tests/fixtures/ipi/` pins that receipt: seven sealed cases
   (delivered, undelivered, incomplete, blocked, sequential, reply-judged and a tampered
   snapshot), each with the report, the snapshot, the verdict and the delivery document

@@ -4,8 +4,13 @@ Each of the seven ``fixtures/ipi`` cases is read twice: by ``bundle-garak``'s ``
 the report the probe wrote, and by ``bundle-midojo``'s ``parse --delivery`` of the snapshot,
 verdict and delivery documents the same episode sealed. The receipt's evidence block
 (``delivery``, ``exposure``, ``verdict``, ``call_injections``) must agree byte for byte, and
-so must the attempt's result. The route's own fields (``episode.route`` and the detectors it
-names) are excluded: each route states the same decision in its own vocabulary.
+so must every attempt: the count, each attempt's result (outcome, claim level and reason) and
+its judge verdict. The route's own fields (``episode.route``, the ``detections[]`` it names
+and the judge fields beyond the agreed verdict vocabulary) are excluded: each route states
+the same decision in its own vocabulary.
+
+A seal a parser cannot verify fails both receipts with MiDojo's reason and, as MiDojo's
+reader does, states no attempt. The tampered case states no attempt on either route.
 
 The delivery guard is part of the parity: a grade whose security is false and whose payload
 the seal never recorded as delivered reads ``inconclusive`` through both parsers, never
@@ -155,27 +160,34 @@ def test_both_parsers_read_one_sealed_episode_the_same(tmp_path: Path, case: str
                 assert sealed["security"] is True
 
 
-@pytest.mark.parametrize("case", CASES)
-def test_both_parsers_state_one_attempt_decision(tmp_path: Path, case: str) -> None:
-    """The attempt's result is ``grade_result`` of the seal through either parser.
+def judge_verdict(attempt: dict[str, Any]) -> Any:
+    """The attempt's judge verdict: the one judge field both routes state as the same."""
 
-    A route that refuses the seal deeply enough to build no attempt (MiDojo's failed receipt)
-    still states the same decision where the other route keeps its attempt: the case's
-    expected outcome and the refusal's reason.
+    judge = attempt.get("judge")
+    return judge.get("verdict") if isinstance(judge, dict) else None
+
+
+@pytest.mark.parametrize("case", CASES)
+def test_both_parsers_state_the_same_attempts(tmp_path: Path, case: str) -> None:
+    """Every attempt, and its decision, reads the same through either parser.
+
+    The tampered case decides the failed-evidence representation: MiDojo's reader builds no
+    attempt for a seal it cannot verify, so the Garak receipt has none either. Only the
+    route's ``detections[]``, ``episode.route`` and the judge fields beyond the agreed
+    verdict vocabulary are excluded (D17); the count and every result field are compared.
     """
 
     midojo, garak = midojo_receipt(tmp_path, case), garak_receipt(tmp_path, case)
     expected = load(case, "expected.json")
-    (garak_attempt,) = garak["attempts"]
 
-    assert len(garak["attempts"]) == expected["attempt_count"]
-    if midojo["attempts"]:
-        assert canonical(midojo["attempts"][0]["result"]) == canonical(garak_attempt["result"])
-    assert garak_attempt["result"]["outcome"] == expected["outcome"]
-    assert garak_attempt["result"]["claim_level"] == expected["claim_level"]
+    assert len(garak["attempts"]) == len(midojo["attempts"]) == expected["attempt_count"]
+    for garak_attempt, midojo_attempt in zip(garak["attempts"], midojo["attempts"], strict=True):
+        assert canonical(garak_attempt["result"]) == canonical(midojo_attempt["result"])
+        assert judge_verdict(garak_attempt) == judge_verdict(midojo_attempt)
+        assert garak_attempt["result"]["outcome"] == expected["outcome"]
+        assert garak_attempt["result"]["claim_level"] == expected["claim_level"]
     if expected["execution_status"] == "failed":
-        assert midojo["attempts"] == []
-        assert garak_attempt["result"]["reason"] == expected["incomplete_reason"]
+        assert garak["attempts"] == [], "a failed seal states no attempt on either route"
 
 
 def test_the_undelivered_case_reads_inconclusive_through_both_parsers(tmp_path: Path) -> None:

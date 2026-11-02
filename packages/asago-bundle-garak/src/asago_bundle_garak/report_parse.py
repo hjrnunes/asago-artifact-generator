@@ -502,6 +502,11 @@ def ipi_report(
     before the probe sealed it: it grades inconclusive and fails the run as
     ``interrupted``, because the orchestrator must not read a killed run as resisted.
 
+    A chain whose final seal cannot be read or verified fails the run and states no
+    attempt, as MiDojo's own reader treats the same seal: the launcher recorded a
+    generation, but nothing the receipt could verify. A runtime failure (an interrupted
+    chain or an errored generation) keeps its attempt.
+
     The ``episode`` block names the route and what the probe sealed for a report of one
     chain. A report of several chains leaves it out: one member cannot name several
     episodes.
@@ -516,24 +521,25 @@ def ipi_report(
     attempts: list[dict[str, Any]] = []
     failures: list[str] = []
     for chain in sorted(chains):
-        attempt, failure = ipi_attempt(chains[chain], bundle, records, index=len(attempts))
-        check_source_metadata(attempt, bundle)
-        attempts.append(attempt)
+        turns = chains[chain]
+        attempt, failure = ipi_attempt(turns, bundle, records, index=len(attempts))
+        check_source_metadata(source_metadata(turns[-1]), bundle)
+        if attempt is not None:
+            attempts.append(attempt)
         if failure is not None:
             failures.append(failure)
     episode = ipi_episode(next(iter(chains.values())), bundle) if len(chains) == 1 else None
     return attempts, failures[0] if failures else None, episode
 
 
-def check_source_metadata(attempt: dict[str, Any], bundle: Bundle) -> None:
-    """Refuse an attempt whose ``source_metadata`` names another package than the bundle's.
+def check_source_metadata(metadata: Any, bundle: Bundle) -> None:
+    """Refuse a report whose ``source_metadata`` names another package than the bundle's.
 
-    The probe copies the package the episode came from onto the attempt. A report that
-    names another package or another digest is a report of another run, so a receipt that
-    joined the two would name evidence the run never produced.
+    The probe copies the package the episode came from onto its final attempt. A report
+    that names another package or another digest is a report of another run, so a receipt
+    that joined the two would name evidence the run never produced.
     """
 
-    metadata = attempt.get("source_metadata")
     if not isinstance(metadata, dict):
         return
     for name in ("package_id", "package_digest"):
@@ -657,17 +663,36 @@ def sealed_delivery(trace: dict[str, Any]) -> dict[str, Any] | None:
 def sealed_trace_failure(trace: dict[str, Any]) -> str | None:
     """Return why the trace's sealed evidence does not hold together, or None.
 
-    The snapshot must hash to its ID (``midojo.snapshot.verified``), and the verdict and the
-    delivery the probe computed must name the same evaluation and snapshot. A receipt that
-    named evidence it cannot re-verify would make a tampered seal read as a result.
+    A final seal owes the snapshot and the verdict MiDojo's reader shape-checks. A document
+    the trace never states, or one whose shape it refuses, is a document this parser cannot
+    digest-verify either, so the seal fails with the reason MiDojo's reader names and the
+    receipt states no attempt. The snapshot must hash to its ID
+    (``midojo.snapshot.verified``), and the verdict and the delivery the probe computed must
+    name the same evaluation and snapshot. A receipt that named evidence it cannot re-verify
+    would make a tampered seal read as a result.
     """
 
     if trace.get("sealed") != SEALED_FINAL:
         return None
-    snapshot, verdict = sealed_snapshot(trace), sealed_verdict(trace)
-    if snapshot is None or verdict is None:
-        return None
+    snapshot = sealed_snapshot(trace)
+    if snapshot is None:
+        return unreadable_document(trace.get("snapshot"), "snapshot")
+    verdict = sealed_verdict(trace)
+    if verdict is None:
+        return unreadable_document(trace.get("verdict"), "verdict")
     return sealed_failure_of(snapshot, verdict, sealed_delivery(trace))
+
+
+def unreadable_document(document: Any, prefix: str) -> str:
+    """Return the reason MiDojo's reader names for a sealed document it cannot read.
+
+    ``read_document`` (``asago_bundle_midojo.sealed``) names a document the seal never
+    states ``<prefix>_missing`` and one it states but cannot shape-check
+    ``<prefix>_malformed``. This route names the same reasons, never a new one: the
+    orchestrator's receipt reader places those reasons in evidence integrity.
+    """
+
+    return f"{prefix}_missing" if document is None else f"{prefix}_malformed"
 
 
 def _evidence_status(snapshot: Any) -> dict[str, str] | None:
@@ -703,32 +728,32 @@ def chain_attempts(entries: list[Any]) -> dict[int, list[dict[str, Any]]]:
 
 def ipi_attempt(
     turns: list[dict[str, Any]], bundle: Bundle, records: Records, *, index: int
-) -> tuple[dict[str, Any], str | None]:
+) -> tuple[dict[str, Any] | None, str | None]:
     """Return the receipt attempt of one episode chain and why the run failed, if it did.
 
     A sealed trace grades through MiDojo's own reader (``grade_result``): the delivery guard
     decides the outcome before the grade does, so a false grade whose payload never reached
     the agent is inconclusive, never ``not_detected``. A trace whose seal does not verify
-    states an inconclusive result naming the refusal, and grades no detector.
+    states no attempt at all: MiDojo's own reader builds none for the same seal, and an
+    attempt would state a decision from evidence the receipt never verified. The caller
+    reads the ``None`` attempt with the failure as the receipt's reason.
     """
 
     final = turns[-1]
     trace = episode_trace(final)
     sealed = final.get("status") == ATTEMPT_COMPLETE and single_output(final) is not None
-    evidence = None
     if sealed:
         reason, error_type = _trace_failure(trace)
         if reason is None:
             evidence = sealed_trace_failure(trace)
+            if evidence is not None:
+                return None, evidence
         detections = detections_of(final) if reason is None else []
-        reason = reason or evidence
     else:
         reason, error_type, detections = INTERRUPTED, None, []
     level = bundle.manifest["claim_level"]
     verdict = sealed_verdict(trace) if reason is None else None
-    if evidence is not None:
-        result = {"outcome": INCONCLUSIVE, "claim_level": level, "reason": evidence}
-    elif verdict is not None:
+    if verdict is not None:
         result = grade_result(verdict, level)
     else:
         result = result_of(detections, level, driver=IPI_VERDICTS)

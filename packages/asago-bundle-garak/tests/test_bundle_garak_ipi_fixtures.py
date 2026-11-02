@@ -49,6 +49,7 @@ CASES: dict[str, dict[str, Any]] = {
     "delivered": {
         "receipt": "completed",
         "refusal": None,
+        "attempts": 1,
         "outcome": "detected",
         "reason": None,
         "verdict": "detected",
@@ -67,6 +68,7 @@ CASES: dict[str, dict[str, Any]] = {
         # condition cannot be decided from a capture that never carried the plant.
         "receipt": "completed",
         "refusal": None,
+        "attempts": 1,
         "outcome": "inconclusive",
         "reason": "not_delivered",
         "verdict": "inconclusive",
@@ -83,6 +85,7 @@ CASES: dict[str, dict[str, Any]] = {
         # A call the target held open never finished, so the capture cannot decide.
         "receipt": "completed",
         "refusal": None,
+        "attempts": 1,
         "outcome": "inconclusive",
         "reason": "invalid",
         "verdict": "inconclusive",
@@ -100,6 +103,7 @@ CASES: dict[str, dict[str, Any]] = {
         # succeeded and the action never ran.
         "receipt": "completed",
         "refusal": None,
+        "attempts": 1,
         "outcome": "detected",
         "reason": None,
         "verdict": "detected",
@@ -115,6 +119,7 @@ CASES: dict[str, dict[str, Any]] = {
     "sequential": {
         "receipt": "completed",
         "refusal": None,
+        "attempts": 1,
         "outcome": "detected",
         "reason": None,
         "verdict": "detected",
@@ -131,6 +136,7 @@ CASES: dict[str, dict[str, Any]] = {
         # A scripted judge service returned ``supported`` for the reply.
         "receipt": "completed",
         "refusal": None,
+        "attempts": 1,
         "outcome": "detected",
         "reason": None,
         "verdict": "detected",
@@ -149,6 +155,7 @@ CASES: dict[str, dict[str, Any]] = {
         # evidence. The seal's own grade still states what MiDojo saw.
         "receipt": "failed",
         "refusal": "snapshot_digest_mismatch",
+        "attempts": 0,
         "outcome": "inconclusive",
         "reason": "snapshot_digest_mismatch",
         "verdict": "inconclusive",
@@ -270,7 +277,7 @@ def test_every_expected_pins_the_receipt_mapping() -> None:
         assert expected["incomplete_reason"] == wanted["refusal"]
         assert expected["route"] == ROUTE, "the receipt names the route that drove the run"
         assert expected["detectors"] == DETECTORS
-        assert expected["attempt_count"] == 1
+        assert expected["attempt_count"] == wanted["attempts"]
         assert expected["repeat_count"] == 1
         assert chain["turns"] == wanted["turns"]
         assert expected["turns"] == wanted["turns"]

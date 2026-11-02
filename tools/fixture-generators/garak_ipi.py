@@ -83,6 +83,7 @@ from asago_bundle_garak.compiler import ipi_entry  # noqa: E402
 from asago_bundle_midojo.injection_spec_compile import injection_spec_document  # noqa: E402
 from asago_bundle_midojo.sealed import (  # noqa: E402
     DELIVERY_SCHEMA_VERSION,
+    TURN_FAILED,
     Compiled,
     delivery_shape,
     read_envelope,
@@ -839,7 +840,10 @@ def expected_document(
         "reason": failure or verdict["reason"],
         "detector_reason": verdict["reason"],
         "detector_detail": verdict["detail"],
-        "attempt_count": 1,
+        # A seal MiDojo's reader refuses states no attempt: its ``parse_sealed`` builds one
+        # only for no failure or a turn failure. These cases seal only final chains, so no
+        # other runtime failure can appear here.
+        "attempt_count": 0 if failure and not failure.startswith(TURN_FAILED) else 1,
         "repeat_count": REPEATS,
         "turns": len(envelope["episode"]["turns"]),
         "route": ROUTE,
@@ -887,19 +891,21 @@ def readme(cases: list[tuple[Case, dict]]) -> str:
         "| --- | --- | --- | --- | --- |\n" + "\n".join(rows) + "\n"
         "\n"
         "`expected.json` names the receipt's status (`execution_status`, completed for every\n"
-        "case but `tampered`, which the sealed reader refuses), the attempt's `outcome`, the\n"
-        "reason where one applies, the attempt and repeat counts, the route, the three\n"
-        "detectors, and the payload's `probe_key` with the slot it was placed in. `reason` is\n"
-        "the reason the detectors refuse the trace when they do (the tampered case's\n"
-        "`snapshot_digest_mismatch`), and the detector's own reason otherwise; the probe's own\n"
-        "record keeps the detector's wording as `detector_reason`.\n"
+        "case but `tampered`, which the sealed reader refuses), the probe's `outcome`, the\n"
+        "reason where one applies, the attempt count (0 for `tampered`, whose refused seal\n"
+        "states no attempt, and 1 for every other case) and the repeat count, the route, the\n"
+        "three detectors, and the payload's `probe_key` with the slot it was placed in.\n"
+        "`reason` is the reason the detectors refuse the trace when they do (the tampered\n"
+        "case's `snapshot_digest_mismatch`), and the detector's own reason otherwise; the\n"
+        "probe's own record keeps the detector's wording as `detector_reason`.\n"
         "\n"
         "The outcomes are the probe's, and the route keeps every one that decided nothing\n"
         "inconclusive: `delivered`, `blocked`, `sequential` and `reply-judged` detect the\n"
         "payload, `undelivered` names `not_delivered` (the agent never read the notes, so no\n"
         "call carried the payload and `delivery.json` holds no fact), `incomplete` names\n"
         "`invalid` (the held withdrawal leaves the capture incomplete), and `tampered` names\n"
-        "`snapshot_digest_mismatch`.\n"
+        "`snapshot_digest_mismatch` and states no attempt, because the reader refuses the seal\n"
+        "the attempt would have decided from.\n"
         "\n"
         "## Files\n"
         "\n"

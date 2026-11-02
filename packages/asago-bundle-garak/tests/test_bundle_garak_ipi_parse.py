@@ -217,9 +217,13 @@ def resist() -> list[dict[str, Any]]:
 
 
 def undecided(outcome: str, reason: str, *, sealed: dict[str, Any] | None = None) -> list:
-    """A chain whose verdict names ``reason`` instead of deciding the attack."""
+    """A chain whose verdict names ``reason`` instead of deciding the attack.
 
-    state = trace(security=None) if sealed is None else sealed
+    A seal that decides no security grade states validity ``invalid``: MiDojo's verdict shape
+    reads unknown security exactly when invalid, and the probe never seals the two apart.
+    """
+
+    state = trace(security=None, validity="invalid") if sealed is None else sealed
     return chain(
         texts=TEXTS,
         sealed=state,
@@ -239,7 +243,11 @@ CASES = {
     "interrupted": undecided(
         "inconclusive", "interrupted", sealed=trace(security=None, sealed="interrupted")
     ),
-    "incomplete": undecided("inconclusive", "incomplete", sealed=trace(capture_complete=False)),
+    "incomplete": undecided(
+        "inconclusive",
+        "incomplete",
+        sealed=trace(security=None, validity="invalid", capture_complete=False),
+    ),
     "unknown-grade": undecided("unknown", "something else"),
 }
 
@@ -531,7 +539,12 @@ def test_a_call_the_episode_never_finished_carries_no_result(tmp_path: Path) -> 
     unfinished = call("withdraw", {"account_id": "ACC-1"}, None, complete=False, call_id="c-2")
     entries = chain(
         texts=TEXTS,
-        sealed=trace(calls=(WITHDRAW, unfinished), security=None, capture_complete=False),
+        sealed=trace(
+            calls=(WITHDRAW, unfinished),
+            security=None,
+            validity="invalid",
+            capture_complete=False,
+        ),
         records=(verdict_record("inconclusive", reason="incomplete", security=None),),
     )
     receipt = parse(make_bundle(tmp_path, entries))
@@ -627,7 +640,7 @@ def test_a_reply_episode_the_attack_obeyed_supports_the_judges_claim(
             security=False,
             capture_complete=False,
         ),
-        verdict_record("unknown", reason="something else", security=None),
+        verdict_record("unknown", reason="something else", security=None, validity="invalid"),
     ],
     ids=["invalid", "not-delivered", "incomplete", "unknown-grade"],
 )
@@ -747,7 +760,9 @@ def test_an_interrupted_chain_names_its_evaluation_but_no_snapshot(tmp_path: Pat
 
 
 def test_an_unreadable_grade_leaves_the_episode_verdict_null(tmp_path: Path) -> None:
-    sealed = trace(security=None, validity="unclear", evidence_status={"network": "unheard_of"})
+    """A verdict this parser cannot shape-check fails the seal; it never grades an attempt."""
+
+    sealed = trace(security=None, validity="unclear")
     entries = chain(
         texts=TEXTS,
         sealed=sealed,
@@ -755,9 +770,12 @@ def test_an_unreadable_grade_leaves_the_episode_verdict_null(tmp_path: Path) -> 
     )
     receipt = parse(make_bundle(tmp_path, entries))
 
-    (attempt,) = receipt["attempts"]
-    assert attempt["result"]["outcome"] == "inconclusive"
-    assert receipt["episode"]["evidence_status"] is None
+    assert (receipt["execution_status"], receipt["incomplete_reason"]) == (
+        "failed",
+        "verdict_malformed",
+    )
+    assert receipt["attempts"] == []
+    assert receipt["episode"]["evidence_status"] == {}
     assert receipt["episode"]["verdict"] is None
 
 
@@ -919,16 +937,16 @@ def test_a_trace_whose_delivery_names_another_snapshot_fails_the_run(
 
     assert receipt["execution_status"] == "failed"
     assert receipt["incomplete_reason"] == "delivery_mismatch"
-    (attempt,) = receipt["attempts"]
-    assert attempt["result"] == {
-        "outcome": "inconclusive",
-        "claim_level": "command_attempt",
-        "reason": "delivery_mismatch",
-    }
+    assert receipt["runtime_status"] is None
+    assert receipt["attempts"] == [], "MiDojo's reader builds no attempt for a refused seal"
 
 
 def test_a_tampered_snapshot_fails_the_run_with_its_digest_mismatch(tmp_path: Path) -> None:
-    """A snapshot that no longer hashes to its ID is refused, and its evidence is kept."""
+    """A snapshot that no longer hashes to its ID is refused, and its seal kept as evidence.
+
+    MiDojo's reader refuses the same snapshot and builds no attempt, so the receipt states
+    the reason and the episode's evidence, never a result from evidence it did not verify.
+    """
 
     sealed = trace(calls=(WITHDRAW,), security=True)
     sealed["snapshot"]["agent_output"] = "Edited after the seal."
@@ -943,15 +961,57 @@ def test_a_tampered_snapshot_fails_the_run_with_its_digest_mismatch(tmp_path: Pa
         "failed",
         "snapshot_digest_mismatch",
     )
-    (attempt,) = receipt["attempts"]
-    assert attempt["result"] == {
-        "outcome": "inconclusive",
-        "claim_level": "command_attempt",
-        "reason": "snapshot_digest_mismatch",
-    }
+    assert receipt["runtime_status"] is None
+    assert receipt["attempts"] == []
     assert receipt["episode"]["snapshot_id"] == sealed["snapshot_id"]
     assert receipt["episode"]["delivery"] == []
-    assert [found["detector"] for found in attempt["detections"]] == ["EvaluationVerdict"]
+
+
+UNREADABLE_SEALS = {
+    "snapshot-malformed": "snapshot_malformed",
+    "snapshot-missing": "snapshot_missing",
+    "verdict-malformed": "verdict_malformed",
+    "verdict-missing": "verdict_missing",
+}
+
+
+def unreadable_seal(name: str) -> dict[str, Any]:
+    """The sealed trace with one document a final seal owes MiDojo missing or malformed."""
+
+    sealed = trace(calls=(WITHDRAW,), security=True)
+    if name == "snapshot-missing":
+        del sealed["snapshot"]
+    elif name == "snapshot-malformed":
+        del sealed["snapshot"]["turns"]
+    elif name == "verdict-missing":
+        sealed["verdict"] = None
+    else:
+        sealed["verdict"]["grade"]["security"] = None  # a decided grade with no decision
+    return sealed
+
+
+@pytest.mark.parametrize(("name", "reason"), sorted(UNREADABLE_SEALS.items()))
+def test_a_final_seal_whose_documents_cannot_be_read_fails_the_run(
+    tmp_path: Path, name: str, reason: str
+) -> None:
+    """A final seal must state the snapshot and verdict MiDojo's own reader can check.
+
+    A snapshot this parser cannot shape-check is a snapshot it cannot digest-verify, so
+    reading the seal's verdict as a result would decide an attack on unverified evidence.
+    MiDojo's reader refuses the same documents with these reasons and builds no attempt;
+    the Garak receipt fails the same way, with no runtime status.
+    """
+
+    entries = chain(
+        texts=TEXTS,
+        sealed=unreadable_seal(name),
+        records=(verdict_record("detected", security=True),),
+    )
+    receipt = parse(make_bundle(tmp_path, entries))
+
+    assert (receipt["execution_status"], receipt["incomplete_reason"]) == ("failed", reason)
+    assert receipt["runtime_status"] is None
+    assert receipt["attempts"] == []
 
 
 def test_a_report_of_several_chains_leaves_the_episode_block_out(tmp_path: Path) -> None:
