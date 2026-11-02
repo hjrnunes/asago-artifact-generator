@@ -140,10 +140,10 @@ def controlling_party(shape: dict[str, Any]) -> str:
     return shape["indirect"]["party_relation"]["controller"]
 
 
-def writable_by(slot_controller: str) -> frozenset[str]:
+def writable_by(slot_writer: str) -> frozenset[str]:
     """Return the parties that may write a slot; until M9 the contract states one scalar."""
 
-    return frozenset({slot_controller})
+    return frozenset({slot_writer})
 
 
 def slots_for_shape(
