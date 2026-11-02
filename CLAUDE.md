@@ -12,6 +12,27 @@ contracts and historical experiment details belong in their own documents.
 - Preserve unrelated changes and historical evidence. Stage only your own work;
   commit or push when requested.
 
+## Key concepts
+
+- **Scenario** — the producer's statement of one failure: narrative, attack tree,
+  Gherkin, failure criterion and safe alternative. You do not invent it.
+- **Artifact package** (`artifact-package-v5`) — the frozen test material
+  authoring returns: stimulus, setup, bindings, checks and judge facts.
+- **Planted item** — the lower-trust data item an indirect attack uses to carry
+  the payload.
+- **Injection spec** (`InjectionSpec`) — the runtime description of one injection
+  test; the MiDojo adapter compiles a planted-item package into one.
+- **Slot** — a place in the target's data that can hold a payload;
+  `slot_writable_by` names the parties that can write it.
+- **Controlling party** — the party the scenario assumes controls the planted
+  item; `shape_controlling_party` states it.
+- **Binding placeholder** — a `{{name}}` in the user text that preparation fills
+  from a binding.
+- **Judge** — a model-based assessment of a check, run from a judge spec and its
+  rubric; the judge spec is data, not code.
+- **Oracle** — the package's rule for the unsafe outcome: a tool-call condition
+  or a rubric judge.
+
 ## Ownership and workflow
 
 - The producer supplies scenario meaning: narrative, attack path, Gherkin,
