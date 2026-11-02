@@ -56,6 +56,13 @@ LEGACY_NAMES = {
     "evaluation_effect_results": "episode_effect_results",
 }
 SCORES = {"detected": 1.0, "not_detected": 0.0, "inconclusive": None}
+# The exposure of an episode whose payload reached no recorded boundary.
+UNEXPOSED = {
+    "emitted": "unknown",
+    "agent_tool_result": "unknown",
+    "model_input": "unknown",
+    "instructions": [],
+}
 EVALUATION_ID = "evaluation-6f1c"
 SNAPSHOT_ID = "a" * 64
 ACCOUNT = "piggybank"
@@ -105,8 +112,15 @@ def trace(
     capture_complete: bool = True,
     sealed: str = "final",
     error: str | None = None,
+    delivery: tuple[dict[str, Any], ...] = (),
+    exposure: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The sealed trace the probe puts on a chain's final attempt."""
+    """The sealed trace the probe puts on a chain's final attempt.
+
+    ``delivery`` and ``exposure`` are what ``midojo.delivery.delivery_facts`` and
+    ``exposure`` return for the sealed calls; an episode with no placement records neither,
+    so the defaults are no facts and every boundary unknown.
+    """
 
     return {
         "evaluation_id": EVALUATION_ID,
@@ -133,6 +147,8 @@ def trace(
         "failure": None,
         "error": error,
         "tool_calls": list(calls),
+        "delivery": list(delivery),
+        "exposure": exposure if exposure is not None else UNEXPOSED,
         # A condition can decide only a delivered payload with a complete capture.
         "response_status": (
             "completed" if capture_complete and delivered is True else "incomplete"
@@ -168,11 +184,15 @@ def call(
 def condition_record(
     outcome: str, *, matched_calls: list[int] | None = None, reason: str | None = None
 ) -> dict[str, Any]:
-    """The ``tool_call_condition_results`` record the condition detector writes."""
+    """The ``tool_call_condition_results`` record the condition detector writes.
+
+    The condition detector states its decision as an outcome and writes no score, unlike
+    the two MiDojo detectors: the run's ``detector_results`` carries the score its outcome
+    names.
+    """
 
     return {
         "outcome": outcome,
-        "score": SCORES[outcome],
         "reason": reason,
         "matched_calls": matched_calls,
     }
@@ -347,7 +367,7 @@ def chain(
     results: dict[str, list[Any]] = {}
     if len(records) > 1:
         # the probe's own detector runs first, then the extended ones in name order
-        results[CONDITION_DETECTOR] = [records[1].get("score")]
+        results[CONDITION_DETECTOR] = [SCORES.get(records[1].get("outcome"))]
         notes["tool_call_condition_results"] = list(records[1:])
     if effect is not None:
         results[EFFECT] = [effect.get("score")]

@@ -182,6 +182,31 @@ Deterministic tests must not contact a model endpoint or target.
   chains leaves the block out. A report recorded before the rename names the old plugins and
   notes; `parse` reads both forms. `parse` exits 1 and names the path on stderr
   when the bundle directory or the report is not there: missing input is not a failed run.
+  **Garak planted receipt.** The `episode` block is the planted-item receipt's evidence
+  record, and every member comes from the trace the probe sealed, never from the run's
+  intent: `route` is `garak.midojo.InjectionSpecProbe`; `evaluation_id` and `snapshot_id`
+  name the evaluation and the snapshot MiDojo sealed and graded; `evidence_status` is that
+  snapshot's own map of how completely each source was collected; `verdict` states the
+  grade as sealed, with `security` three-valued and `validity` (`valid`/`invalid`) saying
+  whether the grade could be decided, the reason it gives, and `attempted`, `blocked`,
+  `effect_observed` and `injection_delivered` (each true, false or null when the seal does
+  not state it); `delivery` is `midojo.delivery.delivery_facts` of the plan and the sealed
+  calls, one fact per instruction placed on a call; `exposure` is `midojo.delivery.exposure`
+  of the same, stating per boundary whether the payload was `exposed`, `not_exposed` or
+  unknown; and `call_injections` copies each sealed call with its `injection_outcomes`, each
+  carrying `payload_sha256` (the digest of the payload text before its transformation) and
+  `slot` (`id`, `record`, `mode`: the seed slot the payload was placed in). The delivery
+  guard decides the outcome before the grade does: a security grade of false whose payload
+  never reached the agent, and a false grade whose delivery nothing recorded, are
+  `inconclusive` and their reason names the delivery, never `not_detected`. So a report that
+  records no delivery fact cannot read as resisted, whatever the target did.
+  `packages/asago-bundle-garak/tests/fixtures/ipi/` pins that receipt: seven sealed cases
+  (delivered, undelivered, incomplete, blocked, sequential, reply-judged and a tampered
+  snapshot), each with the report, the snapshot, the verdict and the delivery document
+  MiDojo produced, plus `expected.json` naming the outcome the route must state.
+  `tools/fixture-generators/garak_ipi.py` reseals them with the MiDojo interpreter
+  (`--check` reproduces every file byte for byte), and its README says what each case is
+  real evidence of and what the report composes.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member (injection-spec
   compile, sealed parse, judge service). Its revision history, fixture provenance
   and implementation notes are in `docs/midojo-changelog.md`.
