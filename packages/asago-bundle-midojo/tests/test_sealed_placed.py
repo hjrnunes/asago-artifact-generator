@@ -199,6 +199,36 @@ def test_the_slot_carries_the_sealed_mode(tmp_path: Path) -> None:
     assert placed(receipt) == [(sha256(PLANTED), {**NOTE_SLOT, "mode": "replace"})]
 
 
+def call_arguments_target(arguments: dict[str, Any]) -> dict[str, Any]:
+    """The note's target with no record selector, naming the record by the call instead."""
+
+    target = copy.deepcopy(
+        _read(NOTE / "snapshot.json")["function_calls"][0]["injection_outcomes"][0]["slot"][
+            "target"
+        ]
+    )
+    target["structured_content_path"] = ["item"]
+    target["call_arguments"] = arguments
+    return target
+
+
+def test_a_sealed_target_naming_its_record_by_one_call_argument_is_named(tmp_path: Path) -> None:
+    target = call_arguments_target({"note_id": "NOTE-1"})
+    snapshot = _read(NOTE / "snapshot.json")
+    slot = snapshot["function_calls"][0]["injection_outcomes"][0]["slot"]
+    slot["target"] = copy.deepcopy(target)
+    slot["id"] = slot_id(target)
+
+    def by_call(document: dict[str, Any]) -> None:
+        document["episode"]["plan"]["instructions"][0]["target"] = copy.deepcopy(target)
+
+    receipt = parsed(
+        tmp_path, NOTE, episode=PLACED / "note", snapshot=snapshot, delivery=None, plan=by_call
+    )
+
+    assert placed(receipt) == [(sha256(PLANTED), NOTE_SLOT)]
+
+
 # --- what does not hold together ---------------------------------------------------------
 
 
@@ -267,6 +297,25 @@ def test_a_placements_record_that_is_not_the_sealed_target_s_gives_no_slot(
         document["placements"][0]["record"] = "NOTE-2"
 
     receipt = parsed(tmp_path, NOTE, episode=PLACED / "note", plan=elsewhere)
+
+    assert placed(receipt) == [(sha256(PLANTED), None)]
+
+
+def test_a_sealed_target_naming_its_record_by_more_than_one_call_argument_gives_no_slot(
+    tmp_path: Path,
+) -> None:
+    target = call_arguments_target({"note_id": "NOTE-1", "include_items": True})
+    snapshot = _read(NOTE / "snapshot.json")
+    slot = snapshot["function_calls"][0]["injection_outcomes"][0]["slot"]
+    slot["target"] = copy.deepcopy(target)
+    slot["id"] = slot_id(target)
+
+    def by_calls(document: dict[str, Any]) -> None:
+        document["episode"]["plan"]["instructions"][0]["target"] = copy.deepcopy(target)
+
+    receipt = parsed(
+        tmp_path, NOTE, episode=PLACED / "note", snapshot=snapshot, delivery=None, plan=by_calls
+    )
 
     assert placed(receipt) == [(sha256(PLANTED), None)]
 

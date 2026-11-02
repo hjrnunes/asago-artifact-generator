@@ -68,11 +68,11 @@ placed before its transformation, and ``slot``, the seed slot it was placed in (
 ``delivery`` facts leave those keys out too. Both need an outcome that ``emitted`` its
 payload. The snapshot comes first: ``payload_sha256`` is the sealed ``payload_digest``'s
 hex, and ``slot``, when the outcome also ``selected`` its place, the sealed slot's mode and
-record (its target's record selector or ``result_record``) with the seed slot the
-``placements`` entries of the plan's instructions with that target name. A generated
-payload changes no target, so this holds for a plan that may generate payloads too. A key
-the outcome does not seal falls back to the plan, and only to a static one (no generator
-permissions, so its text is what was placed): the outcome's instruction is the plan's
+record (its target's record selector, ``result_record`` or one ``call_arguments`` entry) with
+the seed slot the ``placements`` entries of the plan's instructions with that target name. A
+generated payload changes no target, so this holds for a plan that may generate payloads
+too. A key the outcome does not seal falls back to the plan, and only to a static one (no
+generator permissions, so its text is what was placed): the outcome's instruction is the plan's
 tool-output instruction MiDojo's ``delivery_facts`` maps it to (the same probe key, a target
 tool that is the call's or none) and, with a delivery document, the one instruction its
 facts for the outcome name; ``payload_sha256`` is that instruction's payload digest and
@@ -1170,10 +1170,11 @@ def sealed_slot(slot: dict[str, Any], plan: Plan) -> dict[str, str] | None:
 
     The sealed slot says where MiDojo placed the payload (its target, by ``id``) and how
     (``mode``); the record is its target's: the ``equals`` of the record selector in its
-    ``structured_content_path``, else of its ``result_record``. The plan names it: the
-    ``placements`` entries of every tool-output instruction whose target has the sealed ID
-    name one slot and that record. No such instruction, entries that name more than one
-    (slot, record), or one whose record is not the target's leave no slot.
+    ``structured_content_path``, else of its ``result_record``, else the value of its one
+    ``call_arguments`` entry. The plan names it: the ``placements`` entries of every
+    tool-output instruction whose target has the sealed ID name one slot and that record. No
+    such instruction, entries that name more than one (slot, record), or one whose record is
+    not the target's leave no slot.
     """
 
     record = _target_record(slot["target"])
@@ -1188,7 +1189,8 @@ def sealed_slot(slot: dict[str, Any], plan: Plan) -> dict[str, str] | None:
 
 def _target_record(target: dict[str, Any]) -> Any:
     """The record a sealed target selects: its one record selector's ``equals``, else its
-    ``result_record``'s; None when it selects none, or more than one."""
+    ``result_record``'s, else the value of its one ``call_arguments`` entry; None when it
+    selects none, or more than one."""
 
     path = target.get("structured_content_path")
     selectors = (
@@ -1199,7 +1201,12 @@ def _target_record(target: dict[str, Any]) -> Any:
     if selectors:
         return selectors[0]["equals"] if len(selectors) == 1 else None
     result_record = target.get("result_record")
-    return result_record.get("equals") if isinstance(result_record, dict) else None
+    if isinstance(result_record, dict):
+        return result_record.get("equals")
+    call_arguments = target.get("call_arguments")
+    if isinstance(call_arguments, dict) and len(call_arguments) == 1:
+        return next(iter(call_arguments.values()))
+    return None
 
 
 def read_plan(compiled: Compiled) -> Plan:
