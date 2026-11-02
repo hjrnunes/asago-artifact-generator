@@ -36,6 +36,7 @@ from asago_bundle_midojo.injection_spec_compile import (
     JUDGE_URL_ENV,
     injection_spec_document,
 )
+from asago_bundle_midojo.judge_service import FINAL_TURN, JUDGE_TURNS
 
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "garak"
@@ -86,6 +87,7 @@ def compile_package(
     out_dir: str | Path,
     *,
     target: TargetConfig | Mapping[str, Any] | str | Path | None = None,
+    judge_turns: str = FINAL_TURN,
 ) -> dict[str, Any]:
     """Write the bundle template for one package and return its manifest.
 
@@ -94,15 +96,21 @@ def compile_package(
     ``target.yaml`` and the files beside it. A package that delivers its attack in the
     user turns ignores ``target``.
 
+    ``judge_turns`` names the turns a reply episode's judge grades, ``final`` or
+    ``all``; it reaches the injection spec the planted-item route compiles, and a
+    package that does not plant its attack ignores it.
+
     Raises ``CapabilityGap`` before writing anything when Garak cannot deliver
     the package, and ``CompileError`` for a package it cannot read.
     """
 
+    if judge_turns not in JUDGE_TURNS:
+        raise CompileError(f"judge_turns is one of {sorted(JUDGE_TURNS)}, not {judge_turns!r}")
     out = Path(out_dir)
     package = _load(Path(package_dir))
     stimulus = _json_member(package, "stimulus.json")
     if planted(stimulus):
-        return _compile_planted(Path(package_dir), package, stimulus, out, target)
+        return _compile_planted(Path(package_dir), package, stimulus, out, target, judge_turns)
     gap = delivery_gap(package, stimulus)
     if gap is not None:
         raise CapabilityGap(gap)
@@ -130,6 +138,7 @@ def _compile_planted(
     stimulus: Any,
     out: Path,
     target: TargetConfig | Mapping[str, Any] | str | Path | None,
+    judge_turns: str,
 ) -> dict[str, Any]:
     """Write the injection-spec template for one planted_item package and return its manifest."""
 
@@ -138,7 +147,7 @@ def _compile_planted(
             f"a {PLANTED_ITEM} package is compiled against a target; pass the target config"
         )
     try:
-        envelope = injection_spec_document(package_dir, target=target)
+        envelope = injection_spec_document(package_dir, target=target, judge_turns=judge_turns)
     except CapabilityGap as gap:
         raise CapabilityGap(
             capability_gap_record(TOOL, package, gap.record["delivery"], gap.record["reason"])

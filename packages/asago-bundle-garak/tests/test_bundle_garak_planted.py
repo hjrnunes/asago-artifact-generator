@@ -201,6 +201,41 @@ def test_a_two_turn_episode_keeps_one_source_entry_and_its_turns(
     assert "user_turn_2" in manifest["requires"]
 
 
+def test_a_sequential_reply_episode_judges_the_turns_judge_turns_names(
+    tmp_path: Path,
+) -> None:
+    package = write_planted_package(
+        tmp_path / "packages",
+        scenario_id=SCENARIO,
+        claim_level="reply",
+        stimulus=planted_stimulus(SEQUENTIAL_TURNS),
+    )
+
+    default = tmp_path / "default"
+    compiled(package, default)
+    reply = source_of(default)[0]["injection_spec"]["security"]["reply_judge"]
+    assert reply["rubric"]["judge_turns"] == "final"
+    assert reply["timeout_seconds"] == 190, "180 s for the one judged turn, and 10"
+
+    every = tmp_path / "every"
+    compile_package(package, every, target=TARGET, judge_turns="all")
+    reply = source_of(every)[0]["injection_spec"]["security"]["reply_judge"]
+    assert reply["rubric"]["turns"] == list(SEQUENTIAL_TURNS)
+    assert reply["rubric"]["judge_turns"] == "all"
+    assert reply["timeout_seconds"] == 370, "180 s per judged turn, and 10"
+
+
+def test_an_unknown_judge_turns_cannot_be_compiled(tmp_path: Path) -> None:
+    package = write_planted_package(
+        tmp_path / "packages", scenario_id=SCENARIO, claim_level="reply"
+    )
+
+    with pytest.raises(CompileError, match="judge_turns"):
+        compile_package(package, tmp_path / "out", target=TARGET, judge_turns="some")
+
+    assert not (tmp_path / "out").exists()
+
+
 def test_a_planted_package_needs_the_target_config(planted_package: Path, tmp_path: Path) -> None:
     with pytest.raises(CompileError, match="planted_item package is compiled against a target"):
         compile_package(planted_package, tmp_path / "out")

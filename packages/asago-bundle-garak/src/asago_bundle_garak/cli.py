@@ -26,6 +26,7 @@ from asago_bundle_core.gap import (
 )
 from asago_bundle_core.preparation import PreparationIncomplete
 from asago_bundle_core.target import AUTHORIZATION_FIELD, AUTHORIZED_KINDS, authorized_target
+from asago_bundle_midojo.judge_service import FINAL_TURN, JUDGE_TURNS
 
 from .compiler import CompileError
 from .entry_points import compile, instantiate, parse
@@ -49,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help=f"the target's target.yaml, required for a planted_item package; its "
         f"{AUTHORIZATION_FIELD} must be one of {', '.join(AUTHORIZED_KINDS)}",
+    )
+    compile_cmd.add_argument(
+        "--judge-turns",
+        choices=sorted(JUDGE_TURNS),
+        default=FINAL_TURN,
+        help="the turns a reply episode's judge grades (default: %(default)s)",
     )
     compile_cmd.set_defaults(handler=_compile)
     instantiate_cmd = commands.add_parser(
@@ -106,7 +113,12 @@ def main(argv: list[str] | None = None) -> int:
 
 def _compile(args: argparse.Namespace) -> int:
     try:
-        compile(args.package, args.out, target=args.target)
+        compile(
+            args.package,
+            args.out,
+            target=args.target,
+            judge_turns=args.judge_turns,
+        )
     except CapabilityGap as gap:
         print(json.dumps(gap.record, indent=2, sort_keys=True))
         return EXIT_CAPABILITY_GAP

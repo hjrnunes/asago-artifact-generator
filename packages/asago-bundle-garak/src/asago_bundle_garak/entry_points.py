@@ -32,12 +32,13 @@ from asago_bundle_core.preparation import (
     prepare_package,
 )
 from asago_bundle_core.target import TargetConfig, authorized_target, mcp_call_target
+from asago_bundle_midojo.judge_service import FINAL_TURN
 
 from .compiler import CompileError, compile_package
 from .instantiate import CHECKS, InstantiateError, Template, fill_template, read_template
 from .report_parse import ParseError, parse_report
 
-DEFAULT_JUDGE_TURNS = "final"
+DEFAULT_JUDGE_TURNS = FINAL_TURN
 
 
 @dataclass(frozen=True)
@@ -100,18 +101,21 @@ def compile(
     out_dir: str | Path,
     *,
     target: TargetConfig | Mapping[str, Any] | str | Path | None = None,
+    judge_turns: str = DEFAULT_JUDGE_TURNS,
 ) -> dict[str, Any]:
     """Write the bundle template for one package directory and return its manifest.
 
     ``target`` is the authorized target config a ``planted_item`` package is compiled
-    against; a package Garak delivers in its user turns ignores it. Raises
-    ``CapabilityGap`` before writing anything when Garak cannot deliver the package,
-    and ``CompileError`` for a package it cannot read or an output directory in use.
+    against; a package Garak delivers in its user turns ignores it. ``judge_turns``
+    (``final`` or ``all``) names the turns a planted package's reply judge grades.
+    Raises ``CapabilityGap`` before writing anything when Garak cannot deliver the
+    package, and ``CompileError`` for a package it cannot read or an output directory
+    in use.
     """
 
     _directory(package_dir, "package", CompileError)
     _new_directory(out_dir, CompileError)
-    return compile_package(package_dir, out_dir, target=target)
+    return compile_package(package_dir, out_dir, target=target, judge_turns=judge_turns)
 
 
 def instantiate(

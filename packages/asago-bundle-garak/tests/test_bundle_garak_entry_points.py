@@ -465,6 +465,26 @@ def test_compile_refuses_a_missing_package_directory(tmp_path: Path) -> None:
         compile(tmp_path / "missing", tmp_path / "template")
 
 
+def test_compile_takes_the_turns_a_reply_judges(tmp_path: Path) -> None:
+    from ipi_cases import SEQUENTIAL_TURNS, planted_stimulus, write_planted_package
+    from ipi_cases import TARGET as FIXTURE_TARGET
+
+    package = write_planted_package(
+        tmp_path / "packages",
+        scenario_id="SCN-053",
+        claim_level="reply",
+        stimulus=planted_stimulus(SEQUENTIAL_TURNS),
+    )
+    out = tmp_path / "template"
+
+    compile(package, out, target=FIXTURE_TARGET, judge_turns="all")
+
+    (entry,) = json.loads((out / "ipi-episodes.json").read_text(encoding="utf-8"))
+    reply = entry["injection_spec"]["security"]["reply_judge"]
+    assert reply["rubric"]["judge_turns"] == "all"
+    assert reply["timeout_seconds"] == 370
+
+
 def test_parse_refuses_a_missing_bundle_or_records_directory(
     setup_package: Path, setup_template: Path, tmp_path: Path
 ) -> None:
