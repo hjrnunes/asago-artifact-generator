@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from asago_artifact_generator.authoring.core import PromptPacket
+from asago_artifact_generator.authoring.core import (
+    ARTIFACT_REVIEW_PROMPT_VERSION_V26,
+    PLAN_REVIEW_PROMPT_VERSION_V27,
+    PromptPacket,
+)
 from asago_artifact_generator.authoring.review import (
     _PLAN_SELECTOR_FORMS,
     build_artifact_review_packet,
@@ -109,5 +113,9 @@ def test_each_reviewer_prompt_carries_its_bumped_version(stage: str) -> None:
     plan, artifact = _ehr_packets()
 
     packet = {"plan_review": plan, "artifact_review": artifact}[stage]
+    version = {
+        "plan_review": PLAN_REVIEW_PROMPT_VERSION_V27,
+        "artifact_review": ARTIFACT_REVIEW_PROMPT_VERSION_V26,
+    }[stage]
 
-    assert packet.version.endswith({"plan_review": "-v26", "artifact_review": "-v25"}[stage])
+    assert packet.version == version

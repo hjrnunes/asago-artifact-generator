@@ -124,15 +124,15 @@ def test_the_rule_block_names_the_target_and_explains_each_field(
         "field": "item",
         "record_ref": "ORD-101",
         "content_kind": "order_content",
-        "slot_controller": "third_party",
+        "slot_writable_by": "third_party",
         "mode": "replace",
         "mode_meaning": block["planted_item"]["mode_meaning"],
         "record_ref_fixed_by": block["planted_item"]["record_ref_fixed_by"],
     }
     assert block["planted_item"]["mode_meaning"]
     assert "producer's attack shape" in block["planted_item"]["record_ref_fixed_by"]
-    assert block["shape_controller"]["controller"] == "third_party"
-    assert block["shape_controller"]["meaning"]
+    assert block["shape_controlling_party"]["party"] == "third_party"
+    assert block["shape_controlling_party"]["meaning"]
     assert block["benign_user_actor_ref"] == "CUST001"
     for name, entry in block["fields"].items():
         assert entry["meaning"], name

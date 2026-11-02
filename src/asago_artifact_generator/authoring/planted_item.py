@@ -35,8 +35,11 @@ PLAN_REVIEW_RECORD_KEY = "planted_record_rule"
 # it. A planted text shorter than this counts only when the turn holds all of it.
 VERBATIM_RUN = 40
 
-_CONTROLLER_MEANINGS = {
-    key: prose(f"planted_item/controller_meanings/{key}")
+# The two planted-item party names are different concepts: the shape's controlling party
+# is the scenario's assumption about who wrote the item, and a slot's writable-by party is
+# a capability of the target.
+_CONTROLLING_PARTY_MEANINGS = {
+    key: prose(f"planted_item/controlling_party_meanings/{key}")
     for key in (
         "third_party",
         "counterparty",
@@ -277,7 +280,7 @@ def indirect_block(
     shape = view.attack_shape
     turns = shape["turn_count"]
     relation = shape["indirect"]["party_relation"]
-    controller = relation["controller"]
+    controlling_party = relation["controller"]
     contract = runtime_contract or {}
     target = choose_planted_target(shape, contract, plan)
     if target is None:
@@ -295,9 +298,9 @@ def indirect_block(
         "turn_count": turns,
         "delivery": PLANTED_ITEM_DELIVERY,
         "benign_user_actor_ref": relation["benign_user_actor_ref"],
-        "shape_controller": {
-            "controller": controller,
-            "meaning": _CONTROLLER_MEANINGS[controller],
+        "shape_controlling_party": {
+            "party": controlling_party,
+            "meaning": _CONTROLLING_PARTY_MEANINGS[controlling_party],
         },
         "turn_plan": [
             {
@@ -329,7 +332,7 @@ def _base_entry(target: PlantedTarget) -> dict[str, Any]:
         "field": target.field,
         "record_ref": target.record_ref,
         "content_kind": target.content_kind,
-        "slot_controller": target.controller,
+        "slot_writable_by": target.controller,
         "mode": target.mode,
         "mode_meaning": _MODE_MEANINGS[target.mode],
     }
@@ -447,7 +450,7 @@ def planted_review_sections(
     text = metadata.get(PLANTED_TEXT_FIELD) if isinstance(metadata, dict) else None
     if not is_indirect(view) or not isinstance(text, str):
         return ()
-    controller = view.attack_shape["indirect"]["party_relation"]["controller"]
+    controlling_party = view.attack_shape["indirect"]["party_relation"]["controller"]
     target = choose_planted_target(view.attack_shape, runtime_contract or {}, plan)
     return (
         (
@@ -458,9 +461,9 @@ def planted_review_sections(
                 "planted_in": None
                 if target is None
                 else _fixed_entry(target, view.attack_shape, plan),
-                "shape_controller": {
-                    "controller": controller,
-                    "meaning": _CONTROLLER_MEANINGS[controller],
+                "shape_controlling_party": {
+                    "party": controlling_party,
+                    "meaning": _CONTROLLING_PARTY_MEANINGS[controlling_party],
                 },
                 "check": prose("planted_item/review_check"),
             },

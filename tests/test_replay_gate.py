@@ -26,6 +26,7 @@ from typer.testing import CliRunner
 
 import replay_gate
 from asago_artifact_generator import cli
+from asago_artifact_generator.authoring.core import CALL1_PROMPT_VERSION_V28
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.contract_kit import canonical_json
 from replay_gate import (
@@ -944,6 +945,16 @@ def _ff36f1c_entry() -> replay_gate.ExpectedPromptDifference:
     )
 
 
+def _current_call1_entry() -> replay_gate.ExpectedPromptDifference:
+    """Return the call-1 entry that ends at the version the code renders."""
+
+    return next(
+        entry
+        for entry in replay_gate.EXPECTED_PROMPT_DIFFERENCES
+        if entry.stage == "call1" and entry.to_prompt_version == CALL1_PROMPT_VERSION_V28
+    )
+
+
 def test_every_expected_prompt_difference_fills_every_field() -> None:
     entries = replay_gate.EXPECTED_PROMPT_DIFFERENCES
 
@@ -1116,6 +1127,90 @@ def test_a_declared_review_dispatch_keeps_the_recorded_prompt_pins(tmp_path: Pat
     assert _compare_evidence(tmp_path, recorded, replayed) is not None
 
 
+def _digest_attempt(version: str, digest: str, **fields: object) -> dict:
+    prompt = {
+        "version": version,
+        "hash": digest,
+        "system": "system text",
+        "user": "a prompt",
+    }
+    return {"dispatch_index": 1, "prompt": prompt, **fields}
+
+
+def test_a_declared_version_pair_masks_a_dispatch_whose_messages_do_not_change(
+    tmp_path: Path,
+) -> None:
+    entry = _ff36f1c_entry()
+    recorded = {"attempts": [_digest_attempt(entry.from_prompt_version, "a" * 64)]}
+    replayed = {"attempts": [_digest_attempt(entry.to_prompt_version, "b" * 64)]}
+    declared = [
+        {
+            "from_prompt_version": entry.from_prompt_version,
+            "to_prompt_version": entry.to_prompt_version,
+        }
+    ]
+
+    assert _compare_evidence(tmp_path, recorded, replayed, declared) is None
+    assert _compare_evidence(tmp_path, recorded, replayed) is not None
+
+
+def test_a_declared_version_pair_masks_the_review_digest_of_the_prompt(tmp_path: Path) -> None:
+    recorded = {
+        "attempts": [
+            _digest_attempt(
+                "authoring-plan-review-v23",
+                "a" * 64,
+                reviewed_input_sha256="c" * 64,
+                review={
+                    "prompt_version": "authoring-plan-review-v23",
+                    "prompt_sha256": "a" * 64,
+                    "reviewed_input_sha256": "c" * 64,
+                },
+            )
+        ]
+    }
+    replayed = {
+        "attempts": [
+            _digest_attempt(
+                "authoring-plan-review-v26",
+                "b" * 64,
+                reviewed_input_sha256="d" * 64,
+                review={
+                    "prompt_version": "authoring-plan-review-v26",
+                    "prompt_sha256": "b" * 64,
+                    "reviewed_input_sha256": "d" * 64,
+                },
+            )
+        ]
+    }
+    declared = [
+        {
+            "from_prompt_version": "authoring-plan-review-v23",
+            "to_prompt_version": "authoring-plan-review-v26",
+        }
+    ]
+
+    assert _compare_evidence(tmp_path, recorded, replayed, declared) is None
+    found = _compare_evidence(tmp_path, recorded, replayed)
+    assert found is not None and found.startswith("$.attempts[0].prompt")
+
+
+def test_a_dispatch_outside_a_declared_version_pair_is_reported(tmp_path: Path) -> None:
+    entry = _ff36f1c_entry()
+    recorded = {"attempts": [_digest_attempt("authoring-call1-v25", "a" * 64)]}
+    replayed = {"attempts": [_digest_attempt(entry.to_prompt_version, "b" * 64)]}
+    declared = [
+        {
+            "from_prompt_version": entry.from_prompt_version,
+            "to_prompt_version": entry.to_prompt_version,
+        }
+    ]
+
+    found = _compare_evidence(tmp_path, recorded, replayed, declared)
+
+    assert found is not None and found.startswith("$.attempts[0].prompt")
+
+
 def test_an_entry_the_recording_carries_but_matches_nothing_is_stale() -> None:
     entry = _ff36f1c_entry()
     recorded = {(entry.stage, entry.from_prompt_version)}
@@ -1141,7 +1236,7 @@ def test_an_entry_the_recording_does_not_carry_is_not_stale() -> None:
 def test_gate_declares_a_listed_prompt_difference_and_passes(
     unresolved_stage: Path, tmp_path: Path
 ) -> None:
-    entry = _ff36f1c_entry()
+    entry = _current_call1_entry()
     _rewrite_prompt(
         unresolved_stage, 1, user="the prompt ff36f1c recorded", version=entry.from_prompt_version
     )

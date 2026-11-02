@@ -197,6 +197,66 @@ EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = (
             "examples, and 8ebdc96 added the null process_model_belief note"
         ),
     ),
+    # D20 split the two planted-item party names: the indirect block names the
+    # scenario's shape_controlling_party and the slot's slot_writable_by, and the
+    # meanings state the party the scenario assumes wrote the item.  Every stage
+    # that renders the block carries the change, so each stage the M1 recording
+    # dispatched before it declares its own version pair.
+    ExpectedPromptDifference(
+        stage="call1",
+        template="authoring-call1",
+        from_prompt_version="authoring-call1-v27",
+        to_prompt_version="authoring-call1-v28",
+        bead="asago-term.2",
+        reason=(
+            "the plan-stage indirect block and plan check carry D20's two party names and "
+            "the meanings that state the party the scenario assumes wrote the item"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="plan_review",
+        template="authoring-plan-review",
+        from_prompt_version="authoring-plan-review-v26",
+        to_prompt_version="authoring-plan-review-v27",
+        bead="asago-term.2",
+        reason=(
+            "the plan review's indirect block and planted-text check carry D20's two party "
+            "names and the meanings that state the party the scenario assumes wrote the item"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="call2",
+        template="authoring-call2",
+        from_prompt_version="authoring-call2-v29",
+        to_prompt_version="authoring-call2-v30",
+        bead="asago-term.2",
+        reason=(
+            "the artifact-stage indirect block, planted-text meaning and check carry D20's "
+            "two party names and the meanings that state the party that wrote the item"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="artifact_review",
+        template="authoring-artifact-review",
+        from_prompt_version="authoring-artifact-review-v25",
+        to_prompt_version="authoring-artifact-review-v26",
+        bead="asago-term.2",
+        reason=(
+            "the artifact review's PLANTED TEXT block and check carry D20's two party names "
+            "and the meanings that state the party the scenario assumes wrote the item"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="correction",
+        template="authoring-correction",
+        from_prompt_version="authoring-correction-v45",
+        to_prompt_version="authoring-correction-v46",
+        bead="asago-term.2",
+        reason=(
+            "the plan correction's original stage context carries the D20 indirect block; "
+            "the recording holds no artifact correction"
+        ),
+    ),
 )
 
 
@@ -798,25 +858,43 @@ def _mask_wall_clock(document: Any) -> Any:
 
 
 # A review records the prompt it reviewed beside its decision; a declared
-# difference changes that prompt, so these two pins travel with it.
-_REVIEW_PROMPT_PINS = ("prompt_version", "prompt_sha256")
+# difference changes that prompt's version, so these pins travel with it.  The
+# reviewed input digest hashes the prompt version too, so it moves with the
+# version even when the prompt's two messages do not.
+_REVIEW_PROMPT_PINS = ("prompt_version", "prompt_sha256", "reviewed_input_sha256")
+
+
+def _declared_version_pairs() -> list[dict[str, str]]:
+    """Return the version pair every expected prompt difference names."""
+
+    return [
+        {
+            "from_prompt_version": entry.from_prompt_version,
+            "to_prompt_version": entry.to_prompt_version,
+        }
+        for entry in EXPECTED_PROMPT_DIFFERENCES
+    ]
 
 
 def _mask_declared_prompts(
     recorded: Any, replayed: Any, declared: Sequence[dict[str, Any]]
 ) -> Any:
-    """Return *replayed* with each declared dispatch's prompt record as recorded.
+    """Return *replayed* with each declared version pair's prompt record as recorded.
 
     A declared difference is the one change a dispatch's prompt may show: its
     version, its two messages and their digests.  The recording keeps the
     prompt it dispatched and the replay writes the prompt it renders, so the
-    replayed evidence's record of a declared dispatch is replaced by the
-    recorded one; every other field of the attempt still compares, and a
-    review's pins of the prompt it reviewed are replaced the same way.
+    replayed evidence's record of a dispatch that moved between a declared pair
+    of versions is replaced by the recorded one; every other field of the
+    attempt still compares, and a review's pins of the prompt it reviewed are
+    replaced the same way.  A dispatch whose two messages did not change still
+    moves to the declared version, so its record is masked as well: the replay
+    served its recorded response only after the transport compared both
+    messages.
     """
 
-    dispatches = {item["dispatch_index"] for item in declared}
-    if not dispatches or not isinstance(recorded, dict) or not isinstance(replayed, dict):
+    pairs = {(item.get("from_prompt_version"), item.get("to_prompt_version")) for item in declared}
+    if not pairs or not isinstance(recorded, dict) or not isinstance(replayed, dict):
         return replayed
     recorded_attempts = {
         attempt.get("dispatch_index"): attempt
@@ -825,16 +903,24 @@ def _mask_declared_prompts(
     }
     attempts = []
     for attempt in replayed.get("attempts") or []:
-        if not isinstance(attempt, dict) or attempt.get("dispatch_index") not in dispatches:
+        if not isinstance(attempt, dict):
             attempts.append(attempt)
             continue
         original = recorded_attempts.get(attempt.get("dispatch_index"))
         if not isinstance(original, dict):
             attempts.append(attempt)
             continue
+        prompt, recorded_prompt = attempt.get("prompt"), original.get("prompt")
+        if not isinstance(prompt, dict) or not isinstance(recorded_prompt, dict):
+            attempts.append(attempt)
+            continue
+        if (recorded_prompt.get("version"), prompt.get("version")) not in pairs:
+            attempts.append(attempt)
+            continue
         masked = dict(attempt)
-        if "prompt" in original:
-            masked["prompt"] = original["prompt"]
+        masked["prompt"] = recorded_prompt
+        if "reviewed_input_sha256" in original:
+            masked["reviewed_input_sha256"] = original["reviewed_input_sha256"]
         reviewed = masked.get("review")
         if isinstance(reviewed, dict):
             pinned = original.get("review")
@@ -894,8 +980,8 @@ def compare_file(
     """Return the first difference not covered by an allowance, or ``None``.
 
     *recorded_bytes*, when given, stands in for the recorded file's content.
-    *declared* holds the prompt differences the replay declared, whose prompt
-    records do not count as differences.
+    *declared* holds the prompt version pairs the expected differences name,
+    whose prompt records do not count as differences.
     """
 
     left = recorded.read_bytes() if recorded_bytes is None else recorded_bytes
@@ -1020,8 +1106,9 @@ def compare_item_outputs(
     """Compare one item's output files and console log with the recording.
 
     *recorded_output_label* is the output directory as the recording names it
-    (default: *recorded_output*).  *declared* holds the prompt differences the
-    replay declared, whose prompt records do not count as differences.
+    (default: *recorded_output*).  *declared* holds the prompt version pairs the
+    expected differences name, whose prompt records do not count as
+    differences.
     """
 
     aliases = _location_aliases(replayed_output, recorded_output_label or str(recorded_output))
@@ -1292,7 +1379,7 @@ def _run_item(
         replayed_output=output_dir,
         replayed_log=replay_log,
         recorded_output_label=prepared.recorded_output_label,
-        declared=result.declared,
+        declared=_declared_version_pairs(),
     )
     if result.exit_code != result.recorded_exit_code or result.error:
         result.log_tail = replay_log.read_text(encoding="utf-8").splitlines()[-5:]
