@@ -18,6 +18,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from midojo_sdk.snapshot import snapshot_digest
+
 from conftest import REPO
 
 MIDOJO_TESTS = REPO / "packages" / "asago-bundle-midojo" / "tests"
@@ -64,7 +66,9 @@ UNEXPOSED = {
     "instructions": [],
 }
 EVALUATION_ID = "evaluation-6f1c"
-SNAPSHOT_ID = "a" * 64
+# The reason MiDojo's grade states for the fixture target's condition: a decided grade
+# always states one, so a test that does not name one gets this.
+DEFAULT_REASON = "the condition holds on the captured calls"
 ACCOUNT = "piggybank"
 METADATA = {
     "package_id": "SCN-051-SCN-051",
@@ -83,16 +87,24 @@ def grade(
     reason: str | None = None,
     effect: Any = None,
     blocked: bool = False,
+    evidence_status: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """MiDojo's grade of one episode, as the trace carries it."""
+    """MiDojo's grade of one episode, as the trace carries it.
+
+    Every field of ``GradeResponse`` is here, as MiDojo writes them: a decided grade states
+    its reason (``DEFAULT_REASON`` when a test does not name one), an undecided one does not.
+    """
 
     return {
         "security": security,
-        "security_reason": reason,
+        "security_reason": DEFAULT_REASON if reason is None and security is not None else reason,
+        "utility": False,
+        "utility_reason": None,
         "grade_validity": {
             "security": {"status": validity, "reasons": []},
             "utility": {"status": "not_applicable", "reasons": []},
         },
+        "evidence_status": dict(evidence_status or {}),
         "injection_delivered": delivered,
         "attempted": True,
         "blocked": blocked,
@@ -100,9 +112,60 @@ def grade(
     }
 
 
+def sealed_snapshot(
+    *,
+    calls: tuple[dict[str, Any], ...] = (),
+    outcomes: dict[str, list[dict[str, Any]]] | None = None,
+    evidence_status: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """A snapshot in MiDojo's ``SnapshotResponse`` shape, holding ``calls``, digested.
+
+    ``outcomes`` gives a call's ``injection_outcomes`` by ``call_id``, as MiDojo's
+    interceptor seals them; a call it does not name states none. The snapshot ID is the
+    content's own digest, so ``midojo_sdk.snapshot.verified`` accepts it.
+    """
+
+    content = {
+        "evaluation_id": EVALUATION_ID,
+        "run_id": None,
+        "user_task_id": None,
+        "injection_task_id": None,
+        "agent_output": "Done.",
+        "pre_environment": {},
+        "environment": {},
+        "function_calls": [
+            {
+                "call_id": call["call_id"],
+                "function": call["name"],
+                "args": copy.deepcopy(call["arguments"]),
+                "result": call["result"],
+                "error": None,
+                "blocked": call["blocked"],
+                "disposition": call["disposition"],
+                "complete": call["complete"],
+                "provenance": "interceptor",
+                "timestamp": "2026-01-01T00:00:00Z",
+                "turn": call["turn"],
+                "pre_environment": {},
+                "post_environment": {},
+                "structured_content": None,
+                "injection_outcomes": (outcomes or {}).get(call["call_id"]),
+            }
+            for call in calls
+        ],
+        "turns": [],
+        "observations": {},
+        "evidence_status": dict(evidence_status or {}),
+        "sealed_at": "2026-01-01T00:00:01Z",
+        "capture_failures": [],
+    }
+    return {**content, "snapshot_id": snapshot_digest(content)}
+
+
 def trace(
     *,
     calls: tuple[dict[str, Any], ...] = (),
+    outcomes: dict[str, list[dict[str, Any]]] | None = None,
     security: Any = None,
     validity: str = "valid",
     delivered: Any = True,
@@ -114,25 +177,28 @@ def trace(
     error: str | None = None,
     delivery: tuple[dict[str, Any], ...] = (),
     exposure: dict[str, Any] | None = None,
+    evidence_status: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """The sealed trace the probe puts on a chain's final attempt.
 
-    ``delivery`` and ``exposure`` are what ``midojo.delivery.delivery_facts`` and
-    ``exposure`` return for the sealed calls; an episode with no placement records neither,
-    so the defaults are no facts and every boundary unknown.
+    The snapshot is MiDojo's document shape and its ID is its own digest, so the route can
+    verify it. ``delivery`` and ``exposure`` are what ``midojo.delivery.delivery_facts`` and
+    ``exposure`` return for the sealed calls; only a sealed chain states them, so a chain
+    closed short (``sealed`` not ``final``) records neither, as the probe writes it. An
+    episode with no placement records no facts and every boundary unknown.
     """
 
+    evidence = dict(evidence_status or {})
+    snapshot = sealed_snapshot(calls=calls, outcomes=outcomes, evidence_status=evidence)
+    final = sealed == "final"
     return {
         "evaluation_id": EVALUATION_ID,
-        "snapshot_id": SNAPSHOT_ID,
-        "snapshot": {
-            "evaluation_id": EVALUATION_ID,
-            "snapshot_id": SNAPSHOT_ID,
-            "evidence_status": {},
-        },
+        "snapshot_id": snapshot["snapshot_id"],
+        "snapshot": snapshot,
         "verdict": {
+            "schema_version": "midojo-verdict-v1",
             "evaluation_id": EVALUATION_ID,
-            "snapshot_id": SNAPSHOT_ID,
+            "snapshot_id": snapshot["snapshot_id"],
             "grade": grade(
                 security=security,
                 validity=validity,
@@ -140,6 +206,7 @@ def trace(
                 reason=reason,
                 effect=effect,
                 blocked=blocked,
+                evidence_status=evidence,
             ),
         },
         "capture_complete": capture_complete,
@@ -147,8 +214,8 @@ def trace(
         "failure": None,
         "error": error,
         "tool_calls": list(calls),
-        "delivery": list(delivery),
-        "exposure": exposure if exposure is not None else UNEXPOSED,
+        "delivery": list(delivery) if final else None,
+        "exposure": (exposure if exposure is not None else UNEXPOSED) if final else None,
         # A condition can decide only a delivered payload with a complete capture.
         "response_status": (
             "completed" if capture_complete and delivered is True else "incomplete"
@@ -165,7 +232,7 @@ def call(
     complete: bool = True,
     call_id: str = "call-1",
     blocked: bool = False,
-    disposition: str = "forward",
+    disposition: str = "forwarded",
 ) -> dict[str, Any]:
     """One call of a sealed trace; ``result`` is the JSON text MiDojo recorded."""
 
@@ -179,6 +246,81 @@ def call(
         "complete": complete,
         "turn": turn,
     }
+
+
+def injection_outcome(
+    *,
+    index: int = 0,
+    probe_key: str = "planted_item:seed_0",
+    occurrence: int = 1,
+    status: str = "applied",
+    detail: str = "exact selector matched; mirrored text re-serialised",
+    selected: bool = True,
+    emitted: tuple[str, ...] = ("structured_content",),
+    payload_sha256: str | None = None,
+    slot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """One call's ``CallInjectionOutcome``, as MiDojo seals it: what the instruction placed.
+
+    ``payload_sha256`` and ``slot`` are the digest of the payload text and the seed slot it
+    was placed in, each written only when the outcome states it.
+    """
+
+    found: dict[str, Any] = {
+        "instruction_index": index,
+        "probe_key": probe_key,
+        "occurrence": occurrence,
+        "status": status,
+        "detail": detail,
+        "selected": selected,
+        "transformation": "identity",
+        "emitted": list(emitted),
+    }
+    if payload_sha256 is not None:
+        found["payload_digest"] = f"sha256:{payload_sha256}"
+        found["placed_digest"] = f"sha256:{payload_sha256}"
+    if slot is not None:
+        found["slot"] = slot
+    return found
+
+
+def delivery_fact(
+    *,
+    call_id: str = "call-1",
+    function: str = "list_notes",
+    disposition: str = "forwarded",
+    turn: int = 0,
+    index: int = 0,
+    probe_key: str = "planted_item:seed_0",
+    occurrence: int = 1,
+    status: str = "applied",
+    selected: bool = True,
+    emitted: tuple[str, ...] = ("structured_content",),
+    slot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """One ``DeliveryFact``: the instruction placed on a call, as the probe records it.
+
+    ``slot`` is the seed slot the payload was placed in, written only when the fact states
+    it; the probe computes it from the plan, and the receipt leaves it out.
+    """
+
+    found: dict[str, Any] = {
+        "call_id": call_id,
+        "function": function,
+        "disposition": disposition,
+        "turn": turn,
+        "interceptor_instruction_index": index,
+        "plan_instruction_index": index,
+        "probe_key": probe_key,
+        "occurrence": occurrence,
+        "status": status,
+        "selected": selected,
+        "transformation": "identity",
+        "emitted": list(emitted),
+    }
+    if slot is not None:
+        found["slot"] = slot
+    return found
 
 
 def condition_record(

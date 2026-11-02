@@ -27,8 +27,13 @@ nothing, so an obeyed or undecided reply is never counted as resisted. A chain
 the probe never sealed yields a
 ``failed`` receipt naming ``interrupted``, and its attempt grades inconclusive.
 A report of one chain also carries the receipt's ``episode`` block: the route
-``garak.midojo.InjectionSpecProbe`` and the evaluation, snapshot, evidence status
-and verdict the probe sealed.
+``garak.midojo.InjectionSpecProbe``, the evaluation, snapshot, evidence status and verdict
+the probe sealed, the delivery facts and exposure it computed, and each sealed call's
+injection outcomes with the payload's digest and the slot it was placed in. The block is
+the trace's own evidence: the snapshot is re-hashed, the delivery must name the same
+evaluation and snapshot, and a seal that does not hold together fails the receipt with the
+reason (``snapshot_digest_mismatch`` or ``delivery_mismatch``). A chain sealed short names
+its evaluation and leaves the rest null.
 
 A report recorded before the rename names the probe's old plugins and the old
 ``ipi_episode``, ``episode_trace`` and ``episode_verdict_results`` notes; this
@@ -62,12 +67,24 @@ from asago_bundle_core.mcp_records import (
     text,
 )
 from asago_bundle_core.text import canonical_text, jsonl_lines
+from asago_bundle_midojo.sealed import (
+    DELIVERY_SCHEMA_VERSION,
+    delivery_shape,
+    episode_block,
+    grade_result,
+    placements_of,
+    plan_of,
+    sealed_failure_of,
+    snapshot_shape,
+    verdict_shape,
+)
 
 from .compiler import (
     BUNDLE_FILE,
     CONVERSATIONS,
     IPI_DETECTOR,
     IPI_EFFECT,
+    IPI_SOURCE,
     IPI_TEMPLATE,
     RUN_CONFIG,
     SEQUENTIAL,
@@ -107,10 +124,10 @@ GRADE_READERS = frozenset({IPI_VERDICT, IPI_EFFECT_NAME, LEGACY_IPI_VERDICT, LEG
 # A receipt recorded before the rename names ``garak.ipi_episode.IPIEpisode``; the
 # contract accepts both, and this adapter writes the current name.
 IPI_ROUTE = "garak.midojo.InjectionSpecProbe"
-# The attack outcomes a grade may state, each null when the grade does not say.
-ATTACK_OUTCOME = ("attempted", "blocked", "effect_observed", "injection_delivered")
+# What the probe's trace says of the chain it closed: ``final`` is a complete seal with the
+# plan's delivery computed; any other word is a chain that stopped short, which states none.
+SEALED_FINAL = "final"
 EVIDENCE_STATUSES = frozenset({"complete", "incomplete", "failed", "not_collected"})
-VALIDITIES = frozenset({"valid", "invalid"})
 # The probe's chain and trace notes, now first, then the names a pre-rename report holds.
 CHAIN_NOTES = ("injection_spec_chain", "ipi_episode")
 METADATA_NOTES = "source_metadata"
@@ -504,7 +521,7 @@ def ipi_report(
         attempts.append(attempt)
         if failure is not None:
             failures.append(failure)
-    episode = ipi_episode(next(iter(chains.values()))) if len(chains) == 1 else None
+    episode = ipi_episode(next(iter(chains.values())), bundle) if len(chains) == 1 else None
     return attempts, failures[0] if failures else None, episode
 
 
@@ -529,22 +546,100 @@ def check_source_metadata(attempt: dict[str, Any], bundle: Bundle) -> None:
         )
 
 
-def ipi_episode(turns: list[dict[str, Any]]) -> dict[str, Any]:
+def ipi_episode(turns: list[dict[str, Any]], bundle: Bundle) -> dict[str, Any]:
     """Return the receipt's episode block for one chain, from the trace the probe sealed.
 
-    A chain the probe closed short still names its evaluation, but no snapshot and no
-    verdict: those are null, never invented.
+    A chain the probe closed short still names its evaluation, but no snapshot, verdict or
+    delivery evidence: those are null, never invented. A final seal states the delivery and
+    exposure the probe computed from the plan, and each sealed call's injection outcomes,
+    each carrying ``payload_sha256`` and ``slot``, through the ``sealed`` helpers the MiDojo
+    route uses (D18): the payload's digest and the seed slot it was placed in are read from
+    the seal, never recomputed here. The snapshot must hash to its ID and the delivery must
+    name the same evaluation and snapshot; when that does not hold, the outcomes' placements
+    are left unestablished, never guessed.
     """
 
     trace = episode_trace(turns[-1])
-    snapshot = trace.get("snapshot")
-    return {
-        "route": IPI_ROUTE,
+    snapshot = sealed_snapshot(trace)
+    verdict = sealed_verdict(trace)
+    final = trace.get("sealed") == SEALED_FINAL
+    delivery = sealed_delivery(trace) if final else None
+    reason = sealed_failure_of(snapshot, verdict, delivery) if snapshot and verdict else None
+    plan = None
+    if final and reason is None:
+        plan = plan_of(source_plan(bundle), placements_of(delivery) if delivery else [])
+    block = episode_block(IPI_ROUTE, snapshot, verdict, delivery=delivery, plan=plan)
+    block["evidence_status"] = _evidence_status(snapshot)
+    if snapshot is None:
+        block["evaluation_id"] = text(trace.get("evaluation_id"))
+    if not final:
+        block["call_injections"] = block["delivery"] = block["exposure"] = None
+    return block
+
+
+def source_plan(bundle: Bundle) -> Any:
+    """Return the plan of the bundle's one source entry: what the probe placed a payload with.
+
+    A bundle without one readable entry states no plan, so its receipt leaves the outcomes'
+    placements unestablished, never a guess.
+    """
+
+    try:
+        (entry,) = json.loads((bundle.root / IPI_SOURCE).read_text(encoding="utf-8"))
+        return entry["injection_spec"]["plan"]
+    except (OSError, ValueError, TypeError, KeyError, IndexError):
+        return None
+
+
+def sealed_snapshot(trace: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the snapshot the trace sealed, or None when it states none this parser reads."""
+
+    found = trace.get("snapshot")
+    return found if isinstance(found, dict) and snapshot_shape(found) else None
+
+
+def sealed_verdict(trace: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the verdict the trace sealed, or None when it states none this parser reads."""
+
+    found = trace.get("verdict")
+    return found if isinstance(found, dict) and verdict_shape(found) else None
+
+
+def sealed_delivery(trace: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the delivery document the trace states, or None when it states none.
+
+    The probe computes ``delivery`` and ``exposure`` from the plan and the sealed calls, as
+    the runner's ``delivery.json`` holds them; a document ``delivery_shape`` does not accept
+    is no delivery evidence at all, so the guard reads it as unknown.
+    """
+
+    delivery, exposure = trace.get("delivery"), trace.get("exposure")
+    if not isinstance(delivery, list) or not isinstance(exposure, dict):
+        return None
+    document = {
+        "schema_version": DELIVERY_SCHEMA_VERSION,
         "evaluation_id": text(trace.get("evaluation_id")),
         "snapshot_id": text(trace.get("snapshot_id")),
-        "evidence_status": _evidence_status(snapshot),
-        "verdict": _episode_verdict(trace.get("verdict")),
+        "delivery": delivery,
+        "exposure": exposure,
     }
+    return document if delivery_shape(document) else None
+
+
+def sealed_trace_failure(trace: dict[str, Any]) -> str | None:
+    """Return why the trace's sealed evidence does not hold together, or None.
+
+    The snapshot must hash to its ID (``midojo.snapshot.verified``), and the verdict and the
+    delivery the probe computed must name the same evaluation and snapshot. A receipt that
+    named evidence it cannot re-verify would make a tampered seal read as a result.
+    """
+
+    if trace.get("sealed") != SEALED_FINAL:
+        return None
+    snapshot, verdict = sealed_snapshot(trace), sealed_verdict(trace)
+    if snapshot is None or verdict is None:
+        return None
+    return sealed_failure_of(snapshot, verdict, sealed_delivery(trace))
 
 
 def _evidence_status(snapshot: Any) -> dict[str, str] | None:
@@ -560,41 +655,6 @@ def _evidence_status(snapshot: Any) -> dict[str, str] | None:
     if any(status not in EVIDENCE_STATUSES for status in found.values()):
         return None
     return dict(found)
-
-
-def _episode_verdict(document: Any) -> dict[str, Any] | None:
-    """Return the verdict the probe sealed in the receipt's shape, or None when unreadable.
-
-    The grade must name both IDs, a security value and its validity; anything else is
-    null, as for a file the tool left unreadable. The parser never coerces a grade.
-    """
-
-    if not isinstance(document, dict):
-        return None
-    grade = document.get("grade") if isinstance(document.get("grade"), dict) else {}
-    stated = grade.get("grade_validity")
-    stated = stated.get("security") if isinstance(stated, dict) else None
-    validity = stated.get("status") if isinstance(stated, dict) else None
-    security = grade.get("security")
-    evaluation, snapshot = text(document.get("evaluation_id")), text(document.get("snapshot_id"))
-    if evaluation is None or snapshot is None or validity not in VALIDITIES:
-        return None
-    if security is not None and not isinstance(security, bool):
-        return None
-    return {
-        "evaluation_id": evaluation,
-        "snapshot_id": snapshot,
-        "security": security,
-        "reason": text(grade.get("security_reason")),
-        "validity": validity,
-        **{name: _outcome(grade.get(name)) for name in ATTACK_OUTCOME},
-    }
-
-
-def _outcome(value: Any) -> bool | None:
-    """Return an attack outcome the grade states, or None when it is not one."""
-
-    return value if isinstance(value, bool) else None
 
 
 def chain_attempts(entries: list[Any]) -> dict[int, list[dict[str, Any]]]:
@@ -616,13 +676,34 @@ def chain_attempts(entries: list[Any]) -> dict[int, list[dict[str, Any]]]:
 def ipi_attempt(
     turns: list[dict[str, Any]], bundle: Bundle, records: Records, *, index: int
 ) -> tuple[dict[str, Any], str | None]:
-    """Return the receipt attempt of one episode chain and why the run failed, if it did."""
+    """Return the receipt attempt of one episode chain and why the run failed, if it did.
+
+    A sealed trace grades through MiDojo's own reader (``grade_result``): the delivery guard
+    decides the outcome before the grade does, so a false grade whose payload never reached
+    the agent is inconclusive, never ``not_detected``. A trace whose seal does not verify
+    states an inconclusive result naming the refusal, and grades no detector.
+    """
 
     final = turns[-1]
     trace = episode_trace(final)
     sealed = final.get("status") == ATTEMPT_COMPLETE and single_output(final) is not None
-    reason, error_type = _trace_failure(trace) if sealed else (INTERRUPTED, None)
-    detections = detections_of(final) if reason is None else []
+    evidence = None
+    if sealed:
+        reason, error_type = _trace_failure(trace)
+        if reason is None:
+            evidence = sealed_trace_failure(trace)
+        detections = detections_of(final) if reason is None else []
+        reason = reason or evidence
+    else:
+        reason, error_type, detections = INTERRUPTED, None, []
+    level = bundle.manifest["claim_level"]
+    verdict = sealed_verdict(trace) if reason is None else None
+    if evidence is not None:
+        result = {"outcome": INCONCLUSIVE, "claim_level": level, "reason": evidence}
+    elif verdict is not None:
+        result = grade_result(verdict, level)
+    else:
+        result = result_of(detections, level, driver=IPI_VERDICTS)
     replies = {
         position: found
         for position, found in enumerate(output_text(turn) for turn in turns)
@@ -637,7 +718,7 @@ def ipi_attempt(
             "error_type": error_type,
         },
         "turns": ipi_turns(turns, replies, calls, bundle),
-        "result": result_of(detections, bundle.manifest["claim_level"], driver=IPI_VERDICTS),
+        "result": result,
         "observation": {
             "source": "tool_native",
             "assistant_messages": [replies[position] for position in sorted(replies)],
