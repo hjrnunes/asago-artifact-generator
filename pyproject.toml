@@ -46,7 +46,7 @@ asago-bundle-midojo = { workspace = true }
 # MiDojo's light SDK: the injection-spec document v1 schema and the snapshot digest. The
 # adapter depends on the SDK alone; the harness (``midojo``) never enters this workspace. The
 # revision is a pushed ``asago/main`` SHA, and the subdirectory is the SDK's workspace member.
-midojo-sdk = { git = "https://github.com/hjrnunes/midojo.git", subdirectory = "interception/python-sdk", rev = "8bd6166deb2651b0fb1f47d4f5355779a5089440" }
+midojo-sdk = { git = "https://github.com/hjrnunes/midojo.git", subdirectory = "interception/python-sdk", rev = "7f72815a2d95559326ebec9bd84cf8a33a49099e" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/asago_artifact_generator"]
