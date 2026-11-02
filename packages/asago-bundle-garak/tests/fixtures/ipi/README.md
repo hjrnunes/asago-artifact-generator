@@ -21,7 +21,14 @@ every trace carries MiDojo's `delivery` and `exposure` rather than null.
 case but `tampered`, which the sealed reader refuses), the probe's `outcome`, the
 reason where one applies, the attempt count (0 for `tampered`, whose refused seal
 states no attempt, and 1 for every other case) and the repeat count, the route, the
-three detectors, and the payload's `probe_key` with the slot it was placed in.
+three detectors, and the payload's `probe_key` mapped to `slot`: the seed slot and
+record the compiled placement names (the entry's `placements`) and the mode its
+instruction placed it in. `slot` is the `id`, `record` and `mode` the receipt states
+for the outcome, never the `sha256:` digest a delivery fact names the planted target
+by. `slot_observed` says whether the parsed receipt states that slot (true for a
+finished seal that placed the payload) or only the compiled plan names it (false for
+`undelivered`, which placed nothing, and `tampered`, whose refused seal builds no
+plan).
 `reason` is the reason the detectors refuse the trace when they do (the tampered
 case's `snapshot_digest_mismatch`), and the detector's own reason otherwise; the
 probe's own record keeps the detector's wording as `detector_reason`.

@@ -34,7 +34,12 @@
   "sealed": "final",
   "security": false,
   "security_validity": "valid",
-  "slot": null,
+  "slot": {
+    "id": "piggybank.note.body",
+    "mode": "append",
+    "record": "NOTE-1"
+  },
+  "slot_observed": false,
   "snapshot_id": "sha256:8eb6ed2b9864cd6d0041a2b7e3651df6864e9c21667ef633bbdb9b2e8a430213",
   "turns": 1,
   "verdict_outcome": "inconclusive"

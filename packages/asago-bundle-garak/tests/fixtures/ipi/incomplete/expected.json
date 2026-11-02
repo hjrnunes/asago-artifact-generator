@@ -35,11 +35,11 @@
   "security": null,
   "security_validity": "invalid",
   "slot": {
-    "id": "sha256:900941c84f7013f30b81223bef9978cfa01e1bbef1c0458d7441b1e445263a8e",
+    "id": "piggybank.note.body",
     "mode": "append",
-    "record": "NOTE-1",
-    "tool": "list_notes"
+    "record": "NOTE-1"
   },
+  "slot_observed": true,
   "snapshot_id": "sha256:f8668c65ff02d587fd98d0149d0c21ed72d664b1192d0ec789e57b0fae91bfb3",
   "turns": 1,
   "verdict_outcome": "inconclusive"

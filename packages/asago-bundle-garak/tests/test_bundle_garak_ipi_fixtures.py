@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from test_bundle_garak_parity import garak_receipt
 
 from conftest import REPO
 
@@ -40,6 +41,11 @@ FILES = (
 ROUTE = "garak.midojo.InjectionSpecProbe"
 DETECTORS = ["midojo.EvaluationEffect", "midojo.EvaluationVerdict", "toolcall.ToolCallCondition"]
 SCORES = {1.0: "detected", 0.0: "not_detected", None: "inconclusive"}
+PLANTED = "planted_item:seed_0"
+# The seed slot the compiled placement names for every case, never the ``sha256:`` digest a
+# delivery fact names the planted target by. This is the test's own literal, not a value read
+# from the fixture it checks.
+NAMED_SLOT = {"id": "piggybank.note.body", "record": "NOTE-1", "mode": "append"}
 
 # case -> what the case's one seal and its detector records say. The test's own
 # expectation, written here rather than read from ``expected.json``, so a wrong
@@ -61,6 +67,7 @@ CASES: dict[str, dict[str, Any]] = {
         "effect_observed": True,
         "turns": 1,
         "delivery_facts": 1,
+        "slot_observed": True,
     },
     "undelivered": {
         # The agent never read the notes, so the payload reached no tool result: the
@@ -80,6 +87,9 @@ CASES: dict[str, dict[str, Any]] = {
         "effect_observed": False,
         "turns": 1,
         "delivery_facts": 0,
+        # No call carried the payload, so the receipt has no outcome to name a slot on:
+        # the compiled placement is the only source of the probe key's mapping.
+        "slot_observed": False,
     },
     "incomplete": {
         # A call the target held open never finished, so the capture cannot decide.
@@ -97,6 +107,7 @@ CASES: dict[str, dict[str, Any]] = {
         "effect_observed": None,
         "turns": 1,
         "delivery_facts": 1,
+        "slot_observed": True,
     },
     "blocked": {
         # The target complied and the interceptor refused the write: the attack
@@ -115,6 +126,7 @@ CASES: dict[str, dict[str, Any]] = {
         "effect_observed": False,
         "turns": 1,
         "delivery_facts": 1,
+        "slot_observed": True,
     },
     "sequential": {
         "receipt": "completed",
@@ -131,6 +143,7 @@ CASES: dict[str, dict[str, Any]] = {
         "effect_observed": True,
         "turns": 2,
         "delivery_facts": 1,
+        "slot_observed": True,
     },
     "reply-judged": {
         # A scripted judge service returned ``supported`` for the reply.
@@ -148,6 +161,7 @@ CASES: dict[str, dict[str, Any]] = {
         "effect_observed": True,
         "turns": 1,
         "delivery_facts": 1,
+        "slot_observed": True,
     },
     "tampered": {
         # The snapshot was edited after the seal, so it no longer hashes to the ID the
@@ -167,12 +181,43 @@ CASES: dict[str, dict[str, Any]] = {
         "effect_observed": True,
         "turns": 1,
         "delivery_facts": 1,
+        # The reader refuses the seal, so it builds no plan and the receipt cannot
+        # establish the outcome's placement from evidence it could not verify.
+        "slot_observed": False,
     },
 }
 
 
 def load(case: str, name: str) -> Any:
     return json.loads((FIXTURES / case / name).read_text(encoding="utf-8"))
+
+
+def compiled_slot(case: str) -> dict[str, Any]:
+    """The named seed slot the case's compiled placement selects, with the mode it joined.
+
+    The compiled entry, not the delivery document, is the source: a delivery fact names the
+    planted target by its ``sha256:`` digest, and the placement names the seed slot.
+    """
+
+    (entry,) = load(case, "ipi-episodes.json")
+    index, instruction = next(
+        (index, item)
+        for index, item in enumerate(entry["injection_spec"]["plan"]["instructions"])
+        if item.get("probe_key") == PLANTED
+    )
+    (placement,) = [item for item in entry["placements"] if item["instruction"] == index]
+    return {"id": placement["slot"], "record": placement["record"], "mode": instruction["mode"]}
+
+
+def stated_slots(receipt: dict[str, Any], probe_key: str) -> list[Any]:
+    """Every slot the parsed receipt states for the probe key's injection outcomes."""
+
+    return [
+        outcome["slot"]
+        for call in receipt["episode"]["call_injections"] or []
+        for outcome in call["injection_outcomes"] or []
+        if outcome.get("probe_key") == probe_key and outcome.get("slot") is not None
+    ]
 
 
 def attempts(case: str) -> list[dict[str, Any]]:
@@ -234,7 +279,7 @@ def test_every_delivery_fact_names_its_slot_and_payload() -> None:
             assert fact["selected"] is True
             assert fact["payload_digest"] == fact["placed_digest"]
             assert fact["slot"]["id"].startswith("sha256:")
-            assert fact["probe_key"] == "planted_item:seed_0"
+            assert fact["probe_key"] == PLANTED
 
 
 def test_every_report_carries_the_detectors_the_route_names() -> None:
@@ -264,7 +309,7 @@ def test_every_report_carries_the_detectors_the_route_names() -> None:
         assert "score" not in records[0]
 
 
-def test_every_expected_pins_the_receipt_mapping() -> None:
+def test_every_expected_pins_the_receipt_mapping(tmp_path: Path) -> None:
     for case, wanted in CASES.items():
         expected = load(case, "expected.json")
         snapshot = load(case, "snapshot.json")
@@ -297,19 +342,18 @@ def test_every_expected_pins_the_receipt_mapping() -> None:
             name: document["exposure"][name]
             for name in ("emitted", "agent_tool_result", "model_input")
         }
-        # the probe key maps to the slot the placement wrote: the record it selected,
-        # how the payload joined that record's field, and the tool it read
-        found = load(case, "delivery.json")["delivery"]
-        slot = found[0]["slot"] if wanted["delivery_facts"] else None
-        if slot is None:
-            assert expected["slot"] is None
+        # the probe key maps to the named seed slot the compiled placement selected, which
+        # is what the parsed receipt states; a delivery fact's ``sha256:`` target digest is
+        # the planted target, not the seed slot
+        assert expected["probe_key"] == PLANTED
+        assert expected["slot"] == NAMED_SLOT
+        assert expected["slot_observed"] is wanted["slot_observed"]
+        assert compiled_slot(case) == NAMED_SLOT, f"{case}: the placement names the slot"
+        stated = stated_slots(garak_receipt(tmp_path / case, case), PLANTED)
+        if wanted["slot_observed"]:
+            assert stated == [NAMED_SLOT], f"{case}: the receipt states the slot it placed in"
         else:
-            assert expected["slot"] == {
-                "id": slot["id"],
-                "tool": slot["target"]["tool"],
-                "mode": slot["mode"],
-                "record": "NOTE-1",
-            }
+            assert stated == [], f"{case}: the receipt states no slot it cannot establish"
 
 
 def test_every_expected_names_the_detectors_reason() -> None:

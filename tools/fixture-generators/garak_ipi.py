@@ -790,13 +790,27 @@ def tool_calls(snapshot: Mapping[str, Any]) -> list[dict]:
     ]
 
 
-def slot_record(target: Mapping[str, Any]) -> Any:
-    """The record the slot's path selects, when it selects one by value."""
+def named_slot(
+    envelope: Mapping[str, Any], index: int, instruction: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The seed slot the compiled placement maps the instruction's probe key to.
 
-    for part in target.get("structured_content_path") or []:
-        if isinstance(part, dict) and "equals" in part:
-            return part["equals"]
-    return None
+    A delivery fact names the planted target by its ``sha256:`` digest. The compiled
+    placement names the slot the package selected (``piggybank.note.body``) and its record,
+    and the instruction names the mode the payload joined that record with. Those three
+    fields are the slot the receipt states for the outcome.
+    """
+
+    entries = [item for item in envelope["placements"] if item["instruction"] == index]
+    assert len(entries) == 1, f"the entry places instruction {index} {len(entries)} times"
+    (placement,) = entries
+    slot = {
+        "id": placement["slot"],
+        "record": placement["record"],
+        "mode": instruction["mode"],
+    }
+    assert not slot["id"].startswith("sha256:"), "the placement names a seed slot, not a digest"
+    return slot
 
 
 def expected_document(
@@ -813,21 +827,15 @@ def expected_document(
     verdict = records[VERDICT_DETECTOR]
     effect = records[EFFECT_DETECTOR]
     grade = trace["verdict"]["grade"]
-    (planned,) = [
-        item for item in envelope["episode"]["plan"]["instructions"] if item["probe_key"]
-    ]
-    slot = None
+    index, planned = next(
+        (index, item)
+        for index, item in enumerate(envelope["episode"]["plan"]["instructions"])
+        if item["probe_key"]
+    )
     if facts:
         assert facts[0]["probe_key"] == planned["probe_key"], (
             f"{case.name}: the placement names another probe key"
         )
-        target = facts[0]["slot"]["target"]
-        slot = {
-            "id": facts[0]["slot"]["id"],
-            "tool": target["tool"],
-            "mode": facts[0]["slot"]["mode"],
-            "record": slot_record(target),
-        }
     return {
         "case": case.name,
         "description": case.why,
@@ -865,7 +873,12 @@ def expected_document(
             name: trace["exposure"][name]
             for name in ("emitted", "agent_tool_result", "model_input")
         },
-        "slot": slot,
+        "slot": named_slot(envelope, index, planned),
+        # The receipt states an outcome's slot only for a finished seal whose delivery names
+        # the placed fact: a refused seal builds no plan, and a dataset that never placed the
+        # payload has no outcome to name a slot on. This set seals final chains only, so no
+        # other runtime failure can withhold the plan here.
+        "slot_observed": trace["sealed"] == "final" and failure is None and bool(facts),
     }
 
 
@@ -894,7 +907,14 @@ def readme(cases: list[tuple[Case, dict]]) -> str:
         "case but `tampered`, which the sealed reader refuses), the probe's `outcome`, the\n"
         "reason where one applies, the attempt count (0 for `tampered`, whose refused seal\n"
         "states no attempt, and 1 for every other case) and the repeat count, the route, the\n"
-        "three detectors, and the payload's `probe_key` with the slot it was placed in.\n"
+        "three detectors, and the payload's `probe_key` mapped to `slot`: the seed slot and\n"
+        "record the compiled placement names (the entry's `placements`) and the mode its\n"
+        "instruction placed it in. `slot` is the `id`, `record` and `mode` the receipt states\n"
+        "for the outcome, never the `sha256:` digest a delivery fact names the planted target\n"
+        "by. `slot_observed` says whether the parsed receipt states that slot (true for a\n"
+        "finished seal that placed the payload) or only the compiled plan names it (false for\n"
+        "`undelivered`, which placed nothing, and `tampered`, whose refused seal builds no\n"
+        "plan).\n"
         "`reason` is the reason the detectors refuse the trace when they do (the tampered\n"
         "case's `snapshot_digest_mismatch`), and the detector's own reason otherwise; the\n"
         "probe's own record keeps the detector's wording as `detector_reason`.\n"
