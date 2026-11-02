@@ -57,8 +57,9 @@ def write_midojo_episode(root: Path, case: str) -> Path:
 
     The fixtures hold the injection spec the Garak adapter compiled, not the MiDojo
     adapter's ``injection-spec.json``, so the envelope is rebuilt around that same spec. Its
-    placements come from the delivery document, which is the plan resolved against the calls
-    the seal recorded, so either reader reaches the same instruction.
+    placements are the entry's own, the ones the package was compiled with, which name the
+    seed slot; a case compiled before the entry carried them falls back to the delivery
+    document, whose facts name the planted target by its digest.
     """
 
     (entry,) = load(case, "ipi-episodes.json")
@@ -70,7 +71,7 @@ def write_midojo_episode(root: Path, case: str) -> Path:
         package_digest=metadata["package_digest"],
         claim_level=metadata["claim_level"],
         delivery=metadata["delivery"],
-        placements=placements_of(load(case, "delivery.json")),
+        placements=entry.get("placements") or placements_of(load(case, "delivery.json")),
         tool_revision_range=TOOL_REVISION_RANGE,
     )
     episode = root / "midojo"

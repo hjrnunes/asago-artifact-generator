@@ -162,8 +162,9 @@ Deterministic tests must not contact a model endpoint or target.
   also uses). The bundle's MCP server is the authorized config's `endpoint.mcp_url`.
   Its CLI `instantiate` requires `--package`, `--target` and `--run`.
   A `planted_item` package takes the IPI route: `compile --target` writes `ipi-episodes.json`
-  (one `{injection_spec, metadata}` entry, the injection spec the MiDojo adapter's
-  `injection_spec_document` builds; the file keeps its name) and a template named
+  (one `{injection_spec, placements, metadata}` entry, the injection spec the MiDojo adapter's
+  `injection_spec_document` builds and that envelope's `placements`; the file keeps its name)
+  and a template named
   `garak-ipi-episode` that runs
   `midojo.InjectionSpecProbe` with `midojo.EvaluationVerdict`, `midojo.EvaluationEffect` and
   `toolcall.ToolCallCondition`, one generation against that `endpoint.mcp_url`; a package

@@ -567,7 +567,7 @@ def ipi_episode(turns: list[dict[str, Any]], bundle: Bundle) -> dict[str, Any]:
     reason = sealed_failure_of(snapshot, verdict, delivery) if snapshot and verdict else None
     plan = None
     if final and reason is None:
-        plan = plan_of(source_plan(bundle), placements_of(delivery) if delivery else [])
+        plan = plan_of(source_plan(bundle), source_placements(bundle, delivery))
     block = episode_block(IPI_ROUTE, snapshot, verdict, delivery=delivery, plan=plan)
     block["evidence_status"] = _evidence_status(snapshot)
     if snapshot is None:
@@ -577,6 +577,16 @@ def ipi_episode(turns: list[dict[str, Any]], bundle: Bundle) -> dict[str, Any]:
     return block
 
 
+def source_entry(bundle: Bundle) -> dict[str, Any] | None:
+    """Return the bundle's one source entry, or None when it holds no single readable one."""
+
+    try:
+        (entry,) = json.loads((bundle.root / IPI_SOURCE).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    return entry if isinstance(entry, dict) else None
+
+
 def source_plan(bundle: Bundle) -> Any:
     """Return the plan of the bundle's one source entry: what the probe placed a payload with.
 
@@ -584,11 +594,29 @@ def source_plan(bundle: Bundle) -> Any:
     placements unestablished, never a guess.
     """
 
+    entry = source_entry(bundle)
     try:
-        (entry,) = json.loads((bundle.root / IPI_SOURCE).read_text(encoding="utf-8"))
-        return entry["injection_spec"]["plan"]
-    except (OSError, ValueError, TypeError, KeyError, IndexError):
+        return entry["injection_spec"]["plan"] if entry is not None else None
+    except (TypeError, KeyError):
         return None
+
+
+def source_placements(bundle: Bundle, delivery: dict[str, Any] | None) -> list[Any]:
+    """Return the placements that name each instruction's seed slot and record.
+
+    An entry compiled now carries the envelope's placements, so the receipt can name the
+    seed slot (``piggybank.note.body``) the payload was placed in, not the digest a delivery
+    fact names the planted target by. A bundle compiled before the entry carried them falls
+    back to its delivery document, whose facts name that digest; the two sources are never
+    merged, because a second (slot, record) for one instruction leaves its placement
+    ambiguous and the receipt would name neither slot nor record.
+    """
+
+    entry = source_entry(bundle)
+    found = entry.get("placements") if entry is not None else None
+    if isinstance(found, list):
+        return found
+    return placements_of(delivery) if delivery else []
 
 
 def sealed_snapshot(trace: dict[str, Any]) -> dict[str, Any] | None:

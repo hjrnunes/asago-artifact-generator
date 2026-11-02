@@ -98,6 +98,16 @@
       "package_digest": "0a180bc4a4c43e30fe9b86ae6fd22792a64f984dbb7b1964a431cadae76d46dd",
       "package_id": "SCN-102-SCN-102",
       "scenario_id": "SCN-102"
-    }
+    },
+    "placements": [
+      {
+        "carrier_operation": "list_notes",
+        "field": "notes[].body",
+        "instruction": 0,
+        "record": "NOTE-1",
+        "record_key": "note_id",
+        "slot": "piggybank.note.body"
+      }
+    ]
   }
 ]

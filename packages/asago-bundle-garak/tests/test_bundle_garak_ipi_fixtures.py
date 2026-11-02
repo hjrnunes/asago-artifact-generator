@@ -324,8 +324,10 @@ def test_the_episode_entry_is_the_one_both_routes_read() -> None:
         metadata = final_attempt(case)["notes"]["source_metadata"]
         spec = entry["injection_spec"]
 
-        assert sorted(entry) == ["injection_spec", "metadata"]
+        assert sorted(entry) == ["injection_spec", "metadata", "placements"]
         assert entry["metadata"] == metadata
+        (placement,) = entry["placements"]
+        assert (placement["slot"], placement["record"]) == ("piggybank.note.body", "NOTE-1")
         assert spec["turns"], f"{case}: the probe scripts the spec's turns"
         assert len(spec["turns"]) == CASES[case]["turns"]
         assert spec["tools"]["allowed"] == ["get_balance", "list_notes", "withdraw"]

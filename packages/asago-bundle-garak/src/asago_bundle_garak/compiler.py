@@ -170,14 +170,18 @@ def _compile_planted(
 
 
 def ipi_entry(envelope: Mapping[str, Any]) -> dict[str, Any]:
-    """Return one probe source entry: the injection spec and what the run is about.
+    """Return one probe source entry: the injection spec, its placements and what the run is about.
 
     ``injection_spec`` is the MiDojo document the envelope carries under its own
     ``episode`` key until M9; readers that predate the key still find the spec there.
+    ``placements`` is the envelope's own list of what each instruction plants in: the seed
+    slot, the record and the field. A report's delivery facts name each planted target by
+    its digest, so this entry is what lets a parser of the report name the seed slot.
     """
 
     return {
         "injection_spec": envelope["episode"],
+        "placements": list(envelope["placements"]),
         "metadata": {name: envelope[name] for name in IPI_METADATA},
     }
 

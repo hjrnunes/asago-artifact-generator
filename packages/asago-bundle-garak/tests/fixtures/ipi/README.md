@@ -40,7 +40,7 @@ call carried the payload and `delivery.json` holds no fact), `incomplete` names
 | `snapshot.json` | the snapshot MiDojo served, as `GET /runs/{id}/snapshot` returns it (`tampered` edits it after the seal) |
 | `verdict.json` | `midojo.grade`'s verdict of that snapshot, with the evaluation and snapshot IDs |
 | `delivery.json` | `midojo-delivery-v1`: MiDojo's delivery facts and the exposure it derives |
-| `ipi-episodes.json` | the compiled probe source entry: the injection spec and its metadata |
+| `ipi-episodes.json` | the compiled probe source entry: the injection spec, its placements and its metadata |
 | `expected.json` | what the receipt must say about the case |
 
 ## Regenerating

@@ -1001,8 +1001,10 @@ be prepared. A call without `--package`, `--target` or `--run` is a usage error 
 ## The Garak IPI route
 
 A `planted_item` package takes Garak's IPI route. `compile --target` writes
-`ipi-episodes.json`: one source entry `{injection_spec, metadata}`, where `injection_spec`
-is the injection spec the MiDojo adapter's `injection_spec_document` builds and `metadata`
+`ipi-episodes.json`: one source entry `{injection_spec, placements, metadata}`, where
+`injection_spec` is the injection spec the MiDojo adapter's `injection_spec_document`
+builds, `placements` holds each instruction's seed slot, record, carrier and field (the
+envelope's own list, as the MiDojo adapter writes it), and `metadata`
 holds `package_id`, `scenario_id`, `package_digest`, `claim_level` and `delivery`. The
 source keeps its filename; the entry key is what moved. It also
 writes a template named `garak-ipi-episode`, holding `conversation.template.json`,
@@ -1030,7 +1032,11 @@ cannot place is a `garak`-tooled capability gap.
 `parse` reads `reports/<scenario>.report.jsonl` and names the route
 `garak.midojo.InjectionSpecProbe`. It carries each attempt's `source_metadata`, refuses
 a report whose package digest or ID is not the bundle's own, and makes an unknown,
-invalid or undelivered chain inconclusive. A report recorded before the rename names
+invalid or undelivered chain inconclusive. The episode's `delivery`, `exposure` and
+`call_injections` are the seal's, as on the MiDojo route; each outcome's `slot` is the
+seed slot the entry's `placements` name, and an entry compiled before it carried them
+falls back to the delivery document, whose facts name the planted target by its digest.
+A report recorded before the rename names
 the old plugin and note names; `parse` reads both forms and gives the same outcome
 and verdict. A reply episode's `judge.verdict` states
 `supported` for a detection, `contradicted` for a decided resistance, and

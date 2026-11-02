@@ -485,6 +485,41 @@ def test_compile_takes_the_turns_a_reply_judges(tmp_path: Path) -> None:
     assert reply["timeout_seconds"] == 370
 
 
+def test_compile_keeps_the_placement_the_episode_was_compiled_with(tmp_path: Path) -> None:
+    """The entry carries the envelope's placements: the seed slot each instruction plants in.
+
+    A report's delivery facts name each planted target by its digest, so the entry is the
+    only place a parser reads the seed slot (``piggybank.note.body``) the package planted in.
+    """
+    from ipi_cases import TARGET as FIXTURE_TARGET
+    from ipi_cases import planted_stimulus, write_planted_package
+
+    package = write_planted_package(
+        tmp_path / "packages",
+        scenario_id="SCN-051",
+        claim_level="command_attempt",
+        stimulus=planted_stimulus(),
+    )
+    out = tmp_path / "template"
+
+    compile(package, out, target=FIXTURE_TARGET)
+
+    (entry,) = json.loads((out / "ipi-episodes.json").read_text(encoding="utf-8"))
+    assert entry["placements"] == [
+        {
+            "instruction": 0,
+            "slot": "piggybank.note.body",
+            "record": "NOTE-1",
+            "carrier_operation": "list_notes",
+            "field": "notes[].body",
+            "record_key": "note_id",
+        }
+    ]
+    # The probe still finds the spec under the one key it checks.
+    (instruction,) = entry["injection_spec"]["plan"]["instructions"]
+    assert instruction["probe_key"] == "planted_item:seed_0"
+
+
 def test_parse_refuses_a_missing_bundle_or_records_directory(
     setup_package: Path, setup_template: Path, tmp_path: Path
 ) -> None:

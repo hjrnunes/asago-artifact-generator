@@ -70,7 +70,7 @@ def test_a_planted_package_writes_the_ipi_source_and_its_templates(
         [SOURCE, CONVERSATION_TEMPLATE, RUN_TEMPLATE, BUNDLE_FILE]
     )
     (entry,) = source_of(out)
-    assert sorted(entry) == ["injection_spec", "metadata"]
+    assert sorted(entry) == ["injection_spec", "metadata", "placements"]
     assert sorted(entry["metadata"]) == [
         "claim_level",
         "delivery",

@@ -764,8 +764,9 @@ def test_an_unreadable_grade_leaves_the_episode_verdict_null(tmp_path: Path) -> 
 def test_a_sealed_chain_carries_the_delivery_the_probe_recorded(tmp_path: Path) -> None:
     """The episode block states the trace's delivery facts, exposure and each placement.
 
-    The plan is the bundle's own: its instruction's payload and target decide the digest and
-    the slot the receipt states, so a parser that recomputed either would disagree.
+    The slot the receipt states is the package's seed slot, read from the entry the compile
+    wrote: a delivery fact names the planted target by its digest, so a parser that read only
+    the seal could not name the slot the package planted in.
     """
 
     output = make_planted_bundle(tmp_path)
@@ -824,8 +825,57 @@ def test_a_sealed_chain_carries_the_delivery_the_probe_recorded(tmp_path: Path) 
     assert call_injection["function"] == "list_notes"
     (outcome,) = call_injection["injection_outcomes"]
     assert outcome["payload_sha256"] == payload_sha256
-    assert outcome["slot"] == {"id": slot["id"], "record": "NOTE-1", "mode": "append"}
+    assert outcome["slot"] == {
+        "id": "piggybank.note.body",
+        "record": "NOTE-1",
+        "mode": "append",
+    }
     assert not {"payload_digest", "placed_digest"} & set(outcome)
+
+
+def test_an_entry_without_placements_states_the_slot_the_seal_names(tmp_path: Path) -> None:
+    """A bundle compiled before the entry carried placements still states a slot.
+
+    Its delivery fact names the planted target by its digest, so that is the slot such a
+    receipt states: the parser falls back to the seal rather than leaving the placement
+    unestablished, and it never keeps both sources, which would leave the plan ambiguous.
+    """
+
+    output = make_planted_bundle(tmp_path)
+    source = output / "bundle" / "ipi-episodes.json"
+    (entry,) = json.loads(source.read_text(encoding="utf-8"))
+    entry.pop("placements")
+    source.write_text(json.dumps([entry]), encoding="utf-8")
+    (instruction,) = entry["injection_spec"]["plan"]["instructions"]
+    payload_sha256 = hashlib.sha256(instruction["payload"].encode("utf-8")).hexdigest()
+    slot = {
+        "id": slot_id(instruction["target"]),
+        "mode": instruction["mode"],
+        "target": instruction["target"],
+    }
+    write_entries(
+        output,
+        chain(
+            texts=TEXTS,
+            sealed=trace(
+                calls=(LIST_NOTES,),
+                outcomes={
+                    LIST_NOTES["call_id"]: [
+                        injection_outcome(payload_sha256=payload_sha256, slot=slot)
+                    ]
+                },
+                security=True,
+                delivery=(delivery_fact(slot=slot),),
+            ),
+            records=(verdict_record("detected", security=True),),
+        ),
+    )
+
+    receipt = parse(output)
+
+    (call_injection,) = receipt["episode"]["call_injections"]
+    (outcome,) = call_injection["injection_outcomes"]
+    assert outcome["slot"] == {"id": slot["id"], "record": "NOTE-1", "mode": "append"}
 
 
 def test_a_trace_whose_delivery_is_not_a_document_states_no_delivery(tmp_path: Path) -> None:
