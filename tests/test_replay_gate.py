@@ -572,7 +572,7 @@ def test_package_path_must_match_after_mapping_the_output_directory(tmp_path: Pa
     _write_tree(recorded, f"{recorded / 'output'}/{TASK_ID}")
     _write_tree(replayed, f"{replayed / 'output'}/{TASK_ID}")
 
-    compared, differences = compare_item_outputs(
+    compared, differences, _ = compare_item_outputs(
         TASK_ID,
         recorded_output=recorded / "output",
         recorded_log=recorded / "items" / f"{TASK_ID}.log",
@@ -589,7 +589,7 @@ def test_package_path_elsewhere_and_other_fields_still_differ(tmp_path: Path) ->
     _write_tree(recorded, f"{recorded / 'output'}/{TASK_ID}")
     _write_tree(replayed, f"/elsewhere/{TASK_ID}", status="accepted")
 
-    _, differences = compare_item_outputs(
+    _, differences, _ = compare_item_outputs(
         TASK_ID,
         recorded_output=recorded / "output",
         recorded_log=recorded / "items" / f"{TASK_ID}.log",
@@ -662,7 +662,7 @@ def test_missing_and_extra_files_are_differences(tmp_path: Path) -> None:
     (replayed / "output" / f"{TASK_ID}.blocked.json").write_text("{}", encoding="utf-8")
     (replayed / "output" / "SCN-9010.failure-evidence.json").write_text("{}", encoding="utf-8")
 
-    _, differences = compare_item_outputs(
+    _, differences, _ = compare_item_outputs(
         TASK_ID,
         recorded_output=recorded / "output",
         recorded_log=recorded / "items" / f"{TASK_ID}.log",
@@ -725,13 +725,25 @@ def _package_trees(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def _differences(recorded: Path, replayed: Path) -> tuple[int, list[Difference]]:
-    return compare_item_outputs(
+    compared, differences, _ = compare_item_outputs(
         TASK_ID,
         recorded_output=recorded / "output",
         recorded_log=recorded / "items" / f"{TASK_ID}.log",
         replayed_output=replayed / "output",
         replayed_log=replayed / "items" / f"{TASK_ID}.log",
     )
+    return compared, differences
+
+
+def _layout_declared(recorded: Path, replayed: Path) -> bool:
+    _, _, layout_declared = compare_item_outputs(
+        TASK_ID,
+        recorded_output=recorded / "output",
+        recorded_log=recorded / "items" / f"{TASK_ID}.log",
+        replayed_output=replayed / "output",
+        replayed_log=replayed / "items" / f"{TASK_ID}.log",
+    )
+    return layout_declared
 
 
 def test_a_recording_with_the_retired_request_copies_compares_equal(tmp_path: Path) -> None:
@@ -831,6 +843,32 @@ def test_a_recording_that_carries_findings_compares_them(tmp_path: Path) -> None
         f"{TASK_ID}/manifest.json",
     ]
     assert "$.findings[0].detail" in differences[0].detail
+
+
+def test_a_declared_package_layout_is_reported(tmp_path: Path) -> None:
+    recorded, replayed = _package_trees(tmp_path)
+    _add_findings(replayed / "output", TASK_ID, [ADVISORY_FINDING])
+
+    assert _layout_declared(recorded, replayed)
+
+
+def test_a_current_package_layout_is_not_reported(tmp_path: Path) -> None:
+    recorded, replayed = _package_trees(tmp_path)
+
+    assert not _layout_declared(recorded, replayed)
+
+
+def test_a_package_difference_beside_the_advisory_finding_is_not_a_layout(
+    tmp_path: Path,
+) -> None:
+    recorded, replayed = _package_trees(tmp_path)
+    _add_findings(
+        replayed / "output",
+        TASK_ID,
+        [ADVISORY_FINDING, {**ADVISORY_FINDING, "code": "unlisted_check"}],
+    )
+
+    assert not _layout_declared(recorded, replayed)
 
 
 # --- end to end -------------------------------------------------------------------
@@ -1438,6 +1476,7 @@ def test_stage_report_lists_totals_and_each_failure_in_order() -> None:
         "statuses:   accepted 1, unresolved 2",
         "dispatches: 8 served",
         "declared:   0 prompt differences",
+        "layout:     0 declared package layouts",
         "files:      12 compared",
         "time:       12.3s",
         "failed:     1",
@@ -1449,6 +1488,19 @@ def test_stage_report_lists_totals_and_each_failure_in_order() -> None:
         "    log: " + "x" * 300,
         "FAIL",
     ]
+
+
+def test_stage_report_names_each_declared_package_layout() -> None:
+    result = GateResult(
+        stage_dir=Path("/runs/r/stages/author"),
+        work=Path("/scratch/00-r"),
+        items=[_item("SCN-1", "accepted", layout_declared=True), _item("SCN-2", "accepted")],
+    )
+
+    report = result.report()
+
+    assert "layout:     1 declared package layouts" in report
+    assert "  layout declared: SCN-1" in report
 
 
 def test_stage_report_passes_only_when_every_item_passes() -> None:
@@ -1480,6 +1532,7 @@ def test_summary_totals_every_stage() -> None:
             "statuses:        accepted 2, blocked 1",
             "dispatches:      8 served",
             "prompt declared: 0",
+            "layout declared: 0",
             "prompt mismatch: 1",
             "stale entries:   0",
             "wall time:       61.0s",
@@ -1488,6 +1541,16 @@ def test_summary_totals_every_stage() -> None:
     )
     assert _summary([first], 0.0).splitlines()[-1] == "PASS"
     assert _summary([], 0.0).splitlines()[-1] == "FAIL"
+
+
+def test_summary_names_the_packages_whose_layout_it_declared() -> None:
+    result = GateResult(
+        stage_dir=Path("/a"),
+        work=Path("/w"),
+        items=[_item("SCN-1", "accepted", layout_declared=True), _item("SCN-3", "accepted")],
+    )
+
+    assert "layout declared: 1 (SCN-1)" in _summary([result], 1.0).splitlines()
 
 
 def test_summary_fails_when_an_entry_is_stale() -> None:

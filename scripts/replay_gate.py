@@ -34,7 +34,10 @@ A recording made while packages still copied each request (``authoring/``
 members, ``source-hashes.json``, a manifest ledger, and the ``<ID>.authoring/``
 request files of a failed item) is compared as the current writer lays it out:
 :func:`current_layout` drops those copies, whose content the failure evidence
-keeps, and the gate compares everything else.
+keeps, and the gate compares everything else.  :func:`declared_package_layout`
+rewrites a recorded package whose only difference is a declared finding; the
+report counts those rewrites and names each package, so a rewrite of the
+recording's ``checks.json`` and manifest never passes unseen.
 """
 
 from __future__ import annotations
@@ -1110,13 +1113,15 @@ def compare_item_outputs(
     replayed_log: Path,
     recorded_output_label: str | None = None,
     declared: Sequence[dict[str, Any]] = (),
-) -> tuple[int, list[Difference]]:
+) -> tuple[int, list[Difference], bool]:
     """Compare one item's output files and console log with the recording.
 
     *recorded_output_label* is the output directory as the recording names it
     (default: *recorded_output*).  *declared* holds the prompt version pairs the
     expected differences name, whose prompt records do not count as
-    differences.
+    differences.  The flag says whether :func:`declared_package_layout`
+    rewrote the recording, which the gate reports so the in-memory rewrite is
+    visible.
     """
 
     aliases = _location_aliases(replayed_output, recorded_output_label or str(recorded_output))
@@ -1124,7 +1129,9 @@ def compare_item_outputs(
         recorded_output, item_id, _owned_files(recorded_output, item_id)
     )
     right = _owned_files(replayed_output, item_id)
+    checks_name = f"{item_id}/checks.json"
     rewritten = declared_package_layout(recorded_output, replayed_output, item_id, rewritten)
+    layout_declared = checks_name in rewritten
     differences = [Difference(name, "only in recording") for name in sorted(left - right)]
     differences += [Difference(name, "only in replay") for name in sorted(right - left)]
     shared = sorted(left & right)
@@ -1148,7 +1155,7 @@ def compare_item_outputs(
         detail = compare_file(recorded_log, replayed_log, log_name, aliases)
         if detail:
             differences.append(Difference(log_name, detail))
-    return compared, differences
+    return compared, differences, layout_declared
 
 
 # --- the gate ----------------------------------------------------------------------
@@ -1168,6 +1175,10 @@ class ItemResult:
     network_attempts: list[str] = field(default_factory=list)
     files_compared: int = 0
     differences: list[Difference] = field(default_factory=list)
+    # The recording's package layout was rewritten as the term.7 declaration
+    # describes: the recorded checks.json had no findings and the replay adds
+    # advisory findings alone.
+    layout_declared: bool = False
     error: str | None = None
     log_tail: list[str] = field(default_factory=list)
     seconds: float = 0.0
@@ -1201,6 +1212,7 @@ class GateResult:
     def report(self, limit: int = 10) -> str:
         failed = [item for item in self.items if not item.passed]
         declared = [(item.item_id, record) for item in self.items for record in item.declared]
+        layouts = [item.item_id for item in self.items if item.layout_declared]
         lines = [
             f"stage:      {self.stage_dir}",
             f"scratch:    {self.work}",
@@ -1208,10 +1220,13 @@ class GateResult:
             "statuses:   " + _status_counts(self.items, "recorded_status"),
             f"dispatches: {sum(item.served for item in self.items)} served",
             f"declared:   {len(declared)} prompt differences",
+            f"layout:     {len(layouts)} declared package layouts",
             f"files:      {sum(item.files_compared for item in self.items)} compared",
             f"time:       {self.seconds:.1f}s",
             f"failed:     {len(failed)}",
         ]
+        for item_id in layouts[:limit]:
+            lines.append(f"  layout declared: {item_id}")
         for item_id, record in declared[:limit]:
             lines.append(
                 f"  declared: {item_id} dispatch {record['dispatch_index']}"
@@ -1389,7 +1404,7 @@ def _run_item(
         result.error = "the replayed item wrote no replay status"
     if network_log.is_file():
         result.network_attempts = network_log.read_text(encoding="utf-8").splitlines()
-    result.files_compared, result.differences = compare_item_outputs(
+    result.files_compared, result.differences, result.layout_declared = compare_item_outputs(
         prepared.item_id,
         recorded_output=stage_dir / "output",
         recorded_log=recorded_log,
@@ -1518,7 +1533,11 @@ def _summary(results: Sequence[GateResult], seconds: float) -> str:
     failed = [item for item in items if not item.passed]
     mismatches = sum(len(item.mismatches) for item in items)
     declared = sum(len(item.declared) for item in items)
+    layouts = [item.item_id for item in items if item.layout_declared]
     stale = [entry for result in results for entry in result.stale]
+    layout_line = f"layout declared: {len(layouts)}"
+    if layouts:
+        layout_line += f" ({', '.join(layouts)})"
     return "\n".join(
         [
             "== summary",
@@ -1527,6 +1546,7 @@ def _summary(results: Sequence[GateResult], seconds: float) -> str:
             "statuses:        " + _status_counts(items, "status"),
             f"dispatches:      {sum(item.served for item in items)} served",
             f"prompt declared: {declared}",
+            layout_line,
             f"prompt mismatch: {mismatches}",
             f"stale entries:   {len(stale)}",
             f"wall time:       {seconds:.1f}s",
