@@ -736,16 +736,16 @@ The v5 schema lists the member names (`plan.json`, `stimulus.json`,
 `review_status.artifact`), and requires an empty `creation_model`. The loader
 refuses a v5 package with any other member or manifest field.
 
-The loader still reads `artifact-package-v4`
-(`contracts/artifact-package/artifact-package-v4/`). v4 has two layouts. Older
-v4 packages also copy each request and may contain `source-hashes.json`,
-`authoring/ledger.json`, `authoring/reviews.json`,
-`authoring/transformations.json`, and `authoring/NN-<stage>.json`, `.prompt`,
-and `.raw` members. Later v4 packages have the v5 member set under the v4
-version string. Where present, the retired members are verified like the
-others and left out of the loaded members, and the manifest's `authoring` and
-`creation_model` stay open. The loader refuses any other member of a v4
-package, and the writer writes only v5, so it refuses a loaded v4 package.
+The loader reads only `artifact-package-v5`. It refuses a package that declares
+`artifact-package-v4`, or any other version, with an error that names the
+unsupported version it found. The v4 schema and its cases stay in
+`contracts/artifact-package/artifact-package-v4/` as frozen contract material
+that the orchestrator mirrors, but no reader loads a v4 package.
+
+The writer writes only `artifact-package-v5`. The lock's
+`package_schema_version` and `digest_domain` name v5. The manifest digest is
+the SHA-256 of the canonical manifest without `manifest_digest`.
+
 Each package carries the scoring input for its plan's claim level:
 
 - `tool_call_condition.json` holds the handoff's `tool_call_condition` exactly
@@ -762,22 +762,18 @@ slot's `mode`, and the planted text as `content`.
 The schema states no length limit, because the slot's `max_chars` bounds the
 text.
 
-The writer writes only `artifact-package-v5`; the loader reads
-`artifact-package-v5` and `artifact-package-v4`. The lock's `package_schema_version`
-and `digest_domain` name v5. The manifest digest is the SHA-256 of the canonical
-manifest without `manifest_digest`, in both versions, so a v4 package's digest
-verifies unchanged: its `schema_version` is part of the digested bytes.
-
-The version directory also holds the contract's cases: `valid/` packages every
-reader must load, `invalid/` packages every reader must reject, and
-`expected-violations.json`, which names each invalid case's stable code.
+The version directory also holds the contract's cases: `valid/` packages a
+reader must load, `invalid/` packages it must reject, and
+`expected-violations.json`, which names each invalid case's stable code. The v4
+cases stay frozen as contract material, and the consumer reader refuses every
+v4 package by version.
 `artifact-seed-v1/` holds the seed schema's cases the same way, except that
 each invalid seed's entry names the path and keyword where it fails first.
 `metadata-policy.json` lists the manifest metadata the closed secret policy
 accepts and rejects. Each case is one JSON file holding the manifest and the
 package files as text. `scripts/gen_artifact_package_cases.py` writes the cases
-and their lock entries; the orchestrator mirrors them and runs the same cases
-against its own loader, mapping each code to its own error wording.
+and their lock entries; the orchestrator mirrors them for its schema and loader
+tests, mapping each code to its own error wording.
 
 Runtime receipts remain outside the immutable package.
 

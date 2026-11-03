@@ -12,6 +12,7 @@ import pytest
 from asago_artifact_generator.input_adapter import InputView
 from asago_artifact_generator.package_io import (
     PackageIntegrityError,
+    _manifest_digest,
     build_package,
     load_package,
     write_package,
@@ -108,6 +109,24 @@ def test_a_v5_package_round_trips_and_a_version_swap_is_caught(tmp_path: Path) -
     assert load_package(destination).manifest.to_dict() == package.manifest.to_dict()
     manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
     manifest["schema_version"] = "artifact-package-v3"
+    manifest["manifest_digest"] = _manifest_digest(manifest)
     (destination / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    with pytest.raises(PackageIntegrityError):
+    with pytest.raises(
+        PackageIntegrityError,
+        match="^unsupported artifact package schema version: artifact-package-v3$",
+    ):
+        load_package(destination)
+
+
+def test_a_v4_package_is_refused_naming_the_unsupported_version(tmp_path: Path) -> None:
+    destination = write_package(tmp_path / "out", _build("scenario-handoff-v5"))
+    manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
+    manifest["schema_version"] = "artifact-package-v4"
+    manifest["manifest_digest"] = _manifest_digest(manifest)
+    (destination / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(
+        PackageIntegrityError,
+        match="^unsupported artifact package schema version: artifact-package-v4$",
+    ):
         load_package(destination)

@@ -1,11 +1,11 @@
 """An accepted package is an artifact-package-v5 that holds only the members a reader uses.
 
 Each request's prompt, reply, ledger record, and review stay in the sidecar
-failure evidence; the package keeps no copy. An artifact-package-v4 package
-written before then (``fixtures/package_with_request_copies``, written by
-c18e46d's writer) still loads: its copies are verified and dropped. So does a
-v4 package written after the copies were retired. The writer refuses the
-copies, a v5 package refuses them, and the loader refuses any other member.
+failure evidence; the package keeps no copy. A package written before then
+(``fixtures/package_with_request_copies``, written by c18e46d's writer) declares
+the retired artifact-package-v4 and no longer loads: the reader refuses it with
+an error that names the version. The writer refuses the copies, and a v5
+package refuses them too.
 """
 
 from __future__ import annotations
@@ -20,14 +20,12 @@ import pytest
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
 from asago_artifact_generator.package_io import (
     PACKAGE_SCHEMA_VERSION,
-    V4_SCHEMA_VERSION,
     PackageIntegrityError,
     PackagePathError,
     _manifest_digest,
     _member_record,
     build_package,
     load_package,
-    write_package,
 )
 
 from .support import review_response, scripted_orchestrator, world_builders
@@ -37,6 +35,7 @@ _framed, _inventory, _plan, _runtime_contract, _view = world_builders(
 )
 _orchestrator = partial(scripted_orchestrator, task_id="members")
 _OLD_PACKAGE = Path(__file__).parent / "fixtures" / "package_with_request_copies" / "package"
+_RETIRED_SCHEMA_VERSION = "artifact-package-v4"
 # What c18e46d's writer put in a package beside the members still written: per
 # request ``authoring/NN-<stage>`` with ``.json``, ``.prompt`` and ``.raw``, for the
 # stages call1, call2, correction, plan_review and artifact_review.
@@ -93,7 +92,7 @@ def _as_v4(package_dir: Path) -> Path:
 
     manifest_path = package_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["schema_version"] = V4_SCHEMA_VERSION
+    manifest["schema_version"] = _RETIRED_SCHEMA_VERSION
     manifest["manifest_digest"] = _manifest_digest(manifest)
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     return package_dir
@@ -166,69 +165,22 @@ def test_inputs_keep_the_runtime_inputs_and_their_provenance(package_dir: Path) 
     assert checks == {"interface": "artifact-authoring-v2", "status": "structurally_valid"}
 
 
-def test_a_package_written_by_c18e46d_loads_without_its_request_copies(
+def test_a_v4_package_written_by_c18e46d_is_refused_naming_the_version() -> None:
+    with pytest.raises(
+        PackageIntegrityError,
+        match=f"^unsupported artifact package schema version: {_RETIRED_SCHEMA_VERSION}$",
+    ):
+        load_package(_OLD_PACKAGE)
+
+
+def test_a_v4_package_written_after_the_copies_were_retired_is_refused(
     package_dir: Path,
 ) -> None:
-    loaded = load_package(_OLD_PACKAGE)
-
-    assert loaded.manifest.schema_version == V4_SCHEMA_VERSION
-    current = [name for name in _files(package_dir) if name != "manifest.json"]
-    assert sorted(loaded.members) == current
-    assert sorted(set(_files(_OLD_PACKAGE)) - {"manifest.json", *current}) == [
-        "authoring/01-call1.json",
-        "authoring/01-call1.prompt",
-        "authoring/01-call1.raw",
-        "authoring/02-plan_review.json",
-        "authoring/02-plan_review.prompt",
-        "authoring/02-plan_review.raw",
-        "authoring/03-call2.json",
-        "authoring/03-call2.prompt",
-        "authoring/03-call2.raw",
-        "authoring/04-artifact_review.json",
-        "authoring/04-artifact_review.prompt",
-        "authoring/04-artifact_review.raw",
-        "authoring/ledger.json",
-        "authoring/reviews.json",
-        "authoring/transformations.json",
-        "source-hashes.json",
-    ]
-    # The manifest is the one c18e46d sealed, ledger and creation model included.
-    assert loaded.manifest.authoring["attempts"] == 4
-    assert len(loaded.manifest.authoring["ledger"]) == 4
-    assert loaded.manifest.creation_model["model"] == "configured-private-authoring"
-    assert len(loaded.manifest.members) == len(_files(_OLD_PACKAGE)) - 1
-
-
-def test_a_v4_package_written_after_the_copies_were_retired_loads(package_dir: Path) -> None:
-    current = load_package(package_dir)
-
-    loaded = load_package(_as_v4(package_dir))
-
-    assert loaded.manifest.schema_version == V4_SCHEMA_VERSION
-    assert loaded.members == current.members
-    assert loaded.manifest.authoring == current.manifest.authoring
-
-
-@pytest.mark.parametrize("old", ["c18e46d", "retired"])
-def test_a_loaded_v4_package_cannot_be_written_back(
-    tmp_path: Path, package_dir: Path, old: str
-) -> None:
-    # The writer writes only v5; a c18e46d manifest also declares the members the loader dropped.
-    source = _OLD_PACKAGE if old == "c18e46d" else _as_v4(package_dir)
-    with pytest.raises(PackageIntegrityError, match="writes only artifact-package-v5 packages"):
-        write_package(tmp_path / "copy", load_package(source))
-
-    assert not (tmp_path / "copy").exists()
-
-
-@pytest.mark.parametrize("member", _RETIRED_MEMBERS)
-def test_the_loader_verifies_and_drops_a_retired_member_of_a_v4_package(
-    package_dir: Path, member: str
-) -> None:
-    expected = sorted(load_package(package_dir).members)
-    _add_member(_as_v4(package_dir), member)
-
-    assert sorted(load_package(package_dir).members) == expected
+    with pytest.raises(
+        PackageIntegrityError,
+        match=f"^unsupported artifact package schema version: {_RETIRED_SCHEMA_VERSION}$",
+    ):
+        load_package(_as_v4(package_dir))
 
 
 @pytest.mark.parametrize("member", _RETIRED_MEMBERS)
@@ -237,16 +189,6 @@ def test_a_v5_package_refuses_a_retired_member(package_dir: Path, member: str) -
 
     path = rf"members\.\d+\.path: '{re.escape(member)}' is not one of "
     with pytest.raises(PackageIntegrityError, match=f"^package manifest schema invalid at {path}"):
-        load_package(package_dir)
-
-
-@pytest.mark.parametrize("member", _UNKNOWN_MEMBERS)
-def test_the_loader_rejects_any_other_member_of_a_v4_package(
-    package_dir: Path, member: str
-) -> None:
-    _add_member(_as_v4(package_dir), member)
-
-    with pytest.raises(PackagePathError, match="unexpected package member path"):
         load_package(package_dir)
 
 
@@ -277,7 +219,6 @@ def test_a_v5_package_refuses_an_unknown_authoring_field(
 
     with pytest.raises(PackageIntegrityError, match="Additional properties are not allowed"):
         load_package(package_dir)
-    load_package(_as_v4(package_dir))
 
 
 @pytest.mark.parametrize("member", _RETIRED_MEMBERS)

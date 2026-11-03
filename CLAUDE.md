@@ -40,7 +40,7 @@ contracts and historical experiment details belong in their own documents.
 - This consumer designs concrete stimuli, setup declarations, runtime bindings,
   and semantic judge specifications using supplied facts and documented
   capabilities. Packages (`artifact-package-v5`, from a `scenario-handoff-v5`
-  input; the loader still reads `artifact-package-v4`) contain no detector code.
+  input) contain no detector code; the loader refuses a v4 package.
 - `generate` is target-free. The plan owns the experiment; artifact authoring turns
   the accepted plan into a frozen package. Code checks run before the applicable
   semantic review. Corrections stay within their stage.
@@ -138,8 +138,8 @@ missing path.
   checks and their order, and each caller words the `Violation`s. Authoring's policies sit
   beside its wording (`bindings.AUTHORING_POLICY`, `checks._FINDINGS_POLICY`); change a rule
   in the engine, for both.
-- `src/asago_artifact_generator/package_io.py`: the artifact-package-v5 writer and the
-  loader, which also reads artifact-package-v4.
+- `src/asago_artifact_generator/package_io.py`: the artifact-package-v5 writer
+  and loader. The loader refuses any other schema version, naming it.
 - `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
   `tool-bundle-v1` schema, slot markers, the capability-gap record, `BundleError`, the
   `testing` package builders, the `mcp_records` readers of the orchestrator's boundary

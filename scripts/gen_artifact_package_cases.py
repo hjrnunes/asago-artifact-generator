@@ -10,7 +10,8 @@ metadata the closed policy accepts, and rejected metadata with the exact
 violation paths.
 
 ``artifact-package-v5/`` holds the cases of the package version the writer writes, and
-``artifact-package-v4/`` those of the version before it, which readers still load.
+``artifact-package-v4/`` those of the version before it, which readers refuse but keep
+as frozen contract cases.
 
 ``artifact-seed-v1/`` holds the cases of the seed member's schema, each one
 seed document: ``valid/`` cases pass its ``schema.json``, and each

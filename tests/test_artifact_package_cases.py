@@ -1,9 +1,11 @@
-"""The consumer reader runs every artifact-package contract case.
+"""The consumer reader runs every artifact-package-v5 contract case.
 
 The cases live in ``contracts/artifact-package/`` and the orchestrator runs the
 same files from its mirror. Each invalid case names a stable code;
 ``_MESSAGES`` maps the code to this reader's error wording, and
-``_VERSION_MESSAGES`` names the wording a version's schema gives first.
+``_VERSION_MESSAGES`` names the wording a version's schema gives first. The
+artifact-package-v4 cases stay for the frozen schema checks; the reader refuses
+any v4 package with an error that names the unsupported version.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ from asago_artifact_generator.package_io import (
 _REPO = Path(__file__).resolve().parents[1]
 _ROOT = _REPO / "contracts" / "artifact-package"
 _VERSIONS = ("artifact-package-v4", "artifact-package-v5")
+_READABLE_VERSIONS = ("artifact-package-v5",)
 _SEED = "artifact-seed-v1"
 _MESSAGES = {
     "manifest_not_object": r"^package manifest must be an object$",
@@ -43,7 +46,7 @@ _MESSAGES = {
     "metadata_not_object": r"^manifest metadata must be objects$",
     "metadata_secret": r"^manifest contains secret-bearing metadata$",
     "input_kind_unsupported": r"^unsupported package input kind: ",
-    "schema_version_unknown": r"^unknown artifact package schema version$",
+    "schema_version_unknown": r"^unsupported artifact package schema version: ",
     "member_length_mismatch": r"^length mismatch for package member: ",
     "member_media_type_mismatch": r"^member digest or metadata mismatch: ",
     # The vendored schema's member path pattern rejects these before the path checks run.
@@ -119,7 +122,7 @@ def test_the_committed_cases_and_lock_are_the_generator_output() -> None:
 
 
 @pytest.mark.parametrize("version", _VERSIONS)
-def test_every_invalid_case_names_a_code_this_reader_maps(version: str) -> None:
+def test_every_invalid_case_names_a_known_code(version: str) -> None:
     expected = _json(_ROOT / version / "expected-violations.json")
 
     assert set(expected) == {f"invalid/{case.name}" for case in _cases(version, "invalid")}
@@ -138,7 +141,7 @@ def test_every_mapped_code_has_a_case() -> None:
 
 @pytest.mark.parametrize(
     "case",
-    [case for version in _VERSIONS for case in _cases(version, "valid")],
+    [case for version in _READABLE_VERSIONS for case in _cases(version, "valid")],
     ids=lambda case: f"{case.parent.parent.name}/{case.stem}",
 )
 def test_the_reader_loads_every_valid_case(tmp_path: Path, case: Path) -> None:
@@ -152,7 +155,7 @@ def test_the_reader_loads_every_valid_case(tmp_path: Path, case: Path) -> None:
 
 @pytest.mark.parametrize(
     "case",
-    [case for version in _VERSIONS for case in _cases(version, "invalid")],
+    [case for version in _READABLE_VERSIONS for case in _cases(version, "invalid")],
     ids=lambda case: f"{case.parent.parent.name}/{case.stem}",
 )
 def test_the_reader_rejects_every_invalid_case_with_its_code(tmp_path: Path, case: Path) -> None:
@@ -163,6 +166,19 @@ def test_the_reader_rejects_every_invalid_case_with_its_code(tmp_path: Path, cas
 
     message = _message(case.parents[1].name, code)
     assert re.search(message, str(raised.value)), (code, str(raised.value))
+
+
+@pytest.mark.parametrize(
+    "case",
+    _cases("artifact-package-v4", "valid"),
+    ids=lambda case: case.stem,
+)
+def test_the_reader_refuses_every_v4_case_naming_the_version(tmp_path: Path, case: Path) -> None:
+    with pytest.raises(
+        PackageIntegrityError,
+        match="^unsupported artifact package schema version: artifact-package-v4$",
+    ):
+        load_package(_materialize(case, tmp_path / "package"))
 
 
 def _first_seed_error(document: Any) -> ValidationError | None:
