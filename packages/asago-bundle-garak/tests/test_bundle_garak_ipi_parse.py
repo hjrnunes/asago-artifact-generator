@@ -496,6 +496,44 @@ def test_a_chain_that_ended_with_an_error_fails_the_run(tmp_path: Path) -> None:
     assert attempt["result"]["outcome"] != "not_detected"
 
 
+def test_a_release_the_interceptor_never_acknowledged_fails_the_run(tmp_path: Path) -> None:
+    """A sealed chain whose release was lost states the loss, and its verdict still stands.
+
+    The probe seals and grades the chain, then MiDojo's service never acknowledges the
+    unbind: ``handle.close()`` raises ``LinkLostError`` and the probe records
+    ``release_error`` on the same trace. The generation completed and the grade holds, so
+    the attempt keeps its verdict; the run fails with the loss named, never a clean
+    completion.
+    """
+
+    condition = condition_record("detected", matched_calls=[0])
+    entries = chain(
+        texts=TEXTS,
+        sealed=trace(calls=(WITHDRAW,), security=True, effect=True, release_error="link-lost"),
+        records=(
+            verdict_record("detected", security=True, condition=condition),
+            condition,
+        ),
+        effect=effect_record("detected", security=True, effect_observed=True),
+    )
+    receipt = parse(make_bundle(tmp_path, entries))
+
+    assert (receipt["execution_status"], receipt["incomplete_reason"]) == (
+        "failed",
+        "release_lost",
+    )
+    assert receipt["runtime_status"] is None
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"]["outcome"] == "detected", "the sealed grade stands"
+    assert attempt["generation"]["response_status"] == "completed"
+    assert {item["detector"]: item["outcome"] for item in attempt["detections"]} == {
+        "ToolCallCondition": "detected",
+        "EvaluationEffect": "detected",
+        "EvaluationVerdict": "detected",
+    }, "the sealed detections are still evidence"
+    assert receipt["episode"]["verdict"]["security"] is True
+
+
 def test_two_source_entries_make_two_attempts(tmp_path: Path) -> None:
     first = chain(
         texts=TEXTS,

@@ -177,6 +177,7 @@ def trace(
     capture_complete: bool = True,
     sealed: str = "final",
     error: str | None = None,
+    release_error: str | None = None,
     delivery: tuple[dict[str, Any], ...] = (),
     exposure: dict[str, Any] | None = None,
     evidence_status: dict[str, str] | None = None,
@@ -187,7 +188,9 @@ def trace(
     verify it. ``delivery`` and ``exposure`` are what ``midojo.delivery.delivery_facts`` and
     ``exposure`` return for the sealed calls; only a sealed chain states them, so a chain
     closed short (``sealed`` not ``final``) records neither, as the probe writes it. An
-    episode with no placement records no facts and every boundary unknown.
+    episode with no placement records no facts and every boundary unknown. ``release_error``
+    is the reason MiDojo's service gave for a release it never acknowledged after the seal,
+    and None when the probe closed the handle cleanly, as the probe writes both.
     """
 
     evidence = dict(evidence_status or {})
@@ -215,6 +218,7 @@ def trace(
         "sealed": sealed,
         "failure": None,
         "error": error,
+        "release_error": release_error,
         "tool_calls": list(calls),
         "delivery": list(delivery) if final else None,
         "exposure": (exposure if exposure is not None else UNEXPOSED) if final else None,

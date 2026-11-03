@@ -133,6 +133,11 @@ CHAIN_NOTES = ("injection_spec_chain", "ipi_episode")
 METADATA_NOTES = "source_metadata"
 TRACE_NOTES = ("evaluation_trace", "episode_trace")
 INTERRUPTED = "interrupted"
+# The trace key the probe writes when MiDojo's service never acknowledged the release after
+# the seal, and the receipt reason that loss becomes. The trace's value is MiDojo's own
+# reason (``link-lost``), so the receipt never restates a constant it does not own.
+RELEASE_ERROR = "release_error"
+RELEASE_LOST = "release_lost"
 UNFINISHED = "unfinished"
 PROXY_CALLS = Path("mcp_capture/calls.jsonl")
 GATEWAY_ACCOUNTING = Path("boundary/gateway-accounting.json")
@@ -737,6 +742,11 @@ def ipi_attempt(
     states no attempt at all: MiDojo's own reader builds none for the same seal, and an
     attempt would state a decision from evidence the receipt never verified. The caller
     reads the ``None`` attempt with the failure as the receipt's reason.
+
+    A sealed chain whose release MiDojo's service never acknowledged keeps its attempt, its
+    grade and its detections: the probe sealed the chain before the loss, so the verdict
+    stands. The caller reads the loss as the run's reason, because a release that lost the
+    link is a run that did not close cleanly.
     """
 
     final = turns[-1]
@@ -784,6 +794,8 @@ def ipi_attempt(
     metadata = source_metadata(final)
     if metadata is not None:
         attempt["source_metadata"] = metadata
+    if reason is None and sealed and trace.get(RELEASE_ERROR) is not None:
+        reason = RELEASE_LOST
     return attempt, reason
 
 

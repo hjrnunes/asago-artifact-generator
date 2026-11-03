@@ -209,7 +209,10 @@ Deterministic tests must not contact a model endpoint or target.
   (`snapshot_digest_mismatch`), and one that names another evaluation
   (`delivery_mismatch`): a verdict read from a seal nothing verified would decide an attack
   on unverified evidence. A chain the probe never sealed, or a generation that errored,
-  keeps its attempt and fails as `interrupted` or `generation_error`. Together the fixture
+  keeps its attempt and fails as `interrupted` or `generation_error`. A sealed chain whose
+  release MiDojo's service never acknowledged keeps its attempt and its verdict too, and
+  fails as `release_lost`: the probe records the loss on its trace, so the receipt never
+  reports a clean completion. Together the fixture
   README and the parity test are the executable spec of that receipt:
   `packages/asago-bundle-garak/tests/fixtures/ipi/README.md` names each case's expected
   outcome and what each sealed file holds, and
