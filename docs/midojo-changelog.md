@@ -4,7 +4,7 @@ This page holds the MiDojo adapter's revision history, fixture provenance and
 implementation notes, moved out of the agent guide (`CLAUDE.md`) so that guide
 stays short.
 
-The adapter currently pins `midojo-sdk` at `a240ac6`; `pyproject.toml` and
+The adapter currently pins `midojo-sdk` at `8813943`; `pyproject.toml` and
 `uv.lock` hold the full revision. The note below keeps each revision as it was
 recorded.
 
