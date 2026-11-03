@@ -11,7 +11,9 @@ The producer module arrives through the ``dev`` dependency group, whose
 ``asago-scenario-generator`` entry is an editable path source on the sibling
 checkout ``../asago-scenario-generator``. A checkout without that sibling, such
 as a consumer-only clone or CI, cannot run this pair; the module then skips and
-names the missing path instead of passing silently.
+names the missing path instead of passing silently. Any other import failure is
+a defect in the producer or its dependencies, so it stops collection rather than
+skipping these cases.
 """
 
 from __future__ import annotations
@@ -31,18 +33,23 @@ from asago_artifact_generator.input_adapter import (
     load_input,
 )
 
-try:  # The sibling checkout is a dev-group dependency; a consumer-only checkout has none.
-    from asago_scenario_generator.stpa.scenario_prod.handoff import (
-        ScenarioHandoffV5,
-        finalize_handoff,
-        write_scenario_handoff,
-    )
-except ImportError as exc:  # pragma: no cover - only reached without the sibling checkout
+# The sibling checkout is a dev-group dependency; a consumer-only checkout has none. Only
+# its absence may skip this pair: a producer that is present but cannot be imported is a
+# real defect, and the unguarded import below makes collection fail on it.
+PRODUCER_CHECKOUT = Path(__file__).resolve().parents[2] / "asago-scenario-generator"
+if not PRODUCER_CHECKOUT.is_dir():
     pytest.skip(
-        "requires the asago-scenario-generator sibling checkout installed by the dev "
-        f"dependency group (editable path source ../asago-scenario-generator): {exc}",
+        "requires the asago-scenario-generator sibling checkout at "
+        f"{PRODUCER_CHECKOUT} (editable path source ../asago-scenario-generator in the "
+        "dev dependency group)",
         allow_module_level=True,
     )
+
+from asago_scenario_generator.stpa.scenario_prod.handoff import (  # noqa: E402
+    ScenarioHandoffV5,
+    finalize_handoff,
+    write_scenario_handoff,
+)
 
 HANDOFFS = Path(__file__).resolve().parent / "fixtures" / "handoffs"
 # A producer-written v5 handoff with its checked-in .feature companion.
