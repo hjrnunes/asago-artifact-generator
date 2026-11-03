@@ -132,11 +132,13 @@ missing path.
   stages; `prompt_context.py`, `prompt_packets.py`, `review.py`, and
   `correction.py` build prompts; `contracts.py` and `checks.py` hold response
   contracts and structural checks; `transport.py` is the provider client.
-- `src/asago_artifact_generator/bindings.py`: binding sources and destinations.
-  `binding_rules.py` holds the binding and slot rules authoring and package preparation share,
-  and the one declaration-validation engine (`check_declarations`): a `BindingPolicy` names its
-  checks and their order, and each caller words the `Violation`s. Authoring's policies sit
-  beside its wording (`bindings.AUTHORING_POLICY`, `checks._FINDINGS_POLICY`); change a rule
+- `src/asago_artifact_generator/binding_rules.py` and `bindings.py`: re-exports of the
+  binding and slot rules the `asago-package` member owns. `asago_package.binding_rules`
+  holds the rules authoring and package preparation share, and the one
+  declaration-validation engine (`check_declarations`): a `BindingPolicy` names its
+  checks and their order, and each caller words the `Violation`s. `asago_package.bindings`
+  adds the binding sources and destinations. Authoring's policies sit beside its wording
+  (`asago_package.bindings.AUTHORING_POLICY`, `checks._FINDINGS_POLICY`); change a rule
   in the engine, for both.
 - `src/asago_artifact_generator/package_io.py`: a re-export of the artifact-package-v5
   writer and loader the `asago-package` member owns. The loader refuses any other schema
@@ -144,7 +146,8 @@ missing path.
 - `packages/asago-package/`: the package library workspace member (`asago_package`), which
   depends only on pydantic and jsonschema. It owns `package_io` (the v5 writer, loader and
   values), the contract kit (canonical JSON, framed digests, schema errors, lock checks, the
-  package's own `contract_dir`) and the `metadata_policy` secret walker. It ships the
+  package's own `contract_dir`), the `metadata_policy` secret walker, and the binding and
+  slot rules (`binding_rules`, plus authoring's `bindings`). It ships the
   authority copies of `artifact-package`, `runtime-contract` and `capability-gap` as package
   data under `src/asago_package/contracts/`, the only authority copies in this repository;
   the app's `contract_dir` keeps serving the seven kits the consumer still owns.

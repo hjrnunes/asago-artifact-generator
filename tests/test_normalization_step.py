@@ -164,6 +164,8 @@ _NORMALIZING = (
     (checks, "_normalize_prerequisite_binding_consumers"),
     (checks, "_normalize_stimulus_slots"),
 )
+# The entry points live in the ``asago-package`` member; the app's modules re-export them.
+_MODULE_ROOTS = ("asago_artifact_generator", "asago_package")
 
 
 def _count_normalizing_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -171,7 +173,8 @@ def _count_normalizing_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     A module attribute naming one is replaced, and so is a binding policy whose
     ``canonical_paths`` callback is one.  Each replacement records its name and
-    then calls the original.
+    then calls the original.  The scan covers both the library that implements the
+    entry points and the application that re-exports them.
     """
 
     calls: list[str] = []
@@ -185,7 +188,7 @@ def _count_normalizing_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         return counted
 
     for module in list(sys.modules.values()):
-        if not getattr(module, "__name__", "").startswith("asago_artifact_generator"):
+        if not getattr(module, "__name__", "").startswith(_MODULE_ROOTS):
             continue
         for attribute, value in list(vars(module).items()):
             if isinstance(value, BindingPolicy) and id(value.canonical_paths) in names:

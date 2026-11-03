@@ -31,13 +31,13 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
-from asago_artifact_generator.binding_rules import (
+from asago_package.binding_rules import (
     BindingError,
     RuntimeBinding,
     stimulus_history,
     validate_binding_declarations,
 )
-from asago_artifact_generator.package_io import ArtifactPackage
+from asago_package.package_io import ArtifactPackage
 
 from .bindings import resolve_bindings, select_value, substitute_slots
 from .errors import BundleError

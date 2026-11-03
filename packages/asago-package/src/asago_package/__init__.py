@@ -4,6 +4,10 @@ This library declares only pydantic and jsonschema, and it imports nothing from 
 authoring application, so a downstream tool can read or write a package without the
 authoring dependencies. It also carries the three authority contract kits the values
 verify: ``artifact-package``, ``runtime-contract`` and ``capability-gap``.
+
+:mod:`asago_package.binding_rules` owns the binding and slot rules, and
+:mod:`asago_package.bindings` adds authoring's canonical paths and wording, so package
+preparation and the adapters validate declarations from the same engine.
 """
 
 from __future__ import annotations

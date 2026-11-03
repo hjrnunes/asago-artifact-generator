@@ -9,11 +9,13 @@ description = "Shared core of the tool adapters: the tool-bundle-v1 schema, slot
 requires-python = ">=3.12"
 dependencies = [
     "asago-artifact-generator",
+    "asago-package",
     "jsonschema>=4.0",
 ]
 
 [tool.uv.sources]
 asago-artifact-generator = { workspace = true }
+asago-package = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/asago_bundle_core"]

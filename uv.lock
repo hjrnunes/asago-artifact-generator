@@ -104,12 +104,14 @@ version = "0.1.0"
 source = { editable = "packages/asago-bundle-core" }
 dependencies = [
     { name = "asago-artifact-generator" },
+    { name = "asago-package" },
     { name = "jsonschema" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "asago-artifact-generator", editable = "." },
+    { name = "asago-package", editable = "packages/asago-package" },
     { name = "jsonschema", specifier = ">=4.0" },
 ]
 
