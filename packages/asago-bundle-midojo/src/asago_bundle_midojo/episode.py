@@ -1,13 +1,14 @@
-"""Deprecated alias for :mod:`asago_bundle_midojo.injection_spec`, kept for one release.
+"""Deprecated alias for :mod:`asago_injection_spec.injection_spec`, kept until M9.
 
-MiDojo renamed its document to the injection spec v1, and this adapter followed. Import
-:mod:`asago_bundle_midojo.injection_spec`; every name here is that module's, and this module
+MiDojo renamed its document to the injection spec v1, and this adapter followed. The
+document now lives in the ``asago-injection-spec`` member; import
+:mod:`asago_injection_spec.injection_spec`. Every name here is that module's, and this module
 goes away at M9.
 """
 
 from __future__ import annotations
 
-from .injection_spec import (
+from asago_injection_spec.injection_spec import (
     EVERY,
     FIRST,
     HOST_INTERCEPTION,

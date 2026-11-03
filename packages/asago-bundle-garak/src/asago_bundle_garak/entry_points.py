@@ -31,7 +31,7 @@ from asago_bundle_core.preparation import (
     prepare_package,
 )
 from asago_bundle_core.target import TargetConfig, authorized_target, mcp_call_target
-from asago_bundle_midojo.judge_service import FINAL_TURN
+from asago_injection_spec import FINAL_TURN
 from asago_package.package_io import ArtifactPackage, load_package
 
 from .compiler import CompileError, compile_package

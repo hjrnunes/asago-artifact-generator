@@ -277,7 +277,7 @@ def write_case_package(root: Path, case: str) -> Path:
 def compile_case(root: Path, case: str, out: Path) -> dict[str, Any]:
     """Compile ``case``'s package for the fixture target into ``out``."""
 
-    from asago_bundle_midojo.injection_spec_compile import compile_injection_spec
+    from asago_injection_spec.injection_spec_compile import compile_injection_spec
 
     return compile_injection_spec(
         write_case_package(root, case),

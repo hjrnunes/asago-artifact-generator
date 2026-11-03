@@ -26,7 +26,7 @@ from asago_bundle_core.gap import (
 )
 from asago_bundle_core.preparation import PreparationIncomplete
 from asago_bundle_core.target import AUTHORIZATION_FIELD, AUTHORIZED_KINDS, authorized_target
-from asago_bundle_midojo.judge_service import FINAL_TURN, JUDGE_TURNS
+from asago_injection_spec import FINAL_TURN, JUDGE_TURNS
 
 from .compiler import CompileError
 from .entry_points import compile, instantiate, parse

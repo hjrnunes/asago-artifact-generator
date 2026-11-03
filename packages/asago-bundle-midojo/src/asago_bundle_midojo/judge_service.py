@@ -78,7 +78,6 @@ from typing import Any, TextIO
 from midojo_sdk.rubric_judge import (
     KEY_NAME,
     PROMPT_VERSION,
-    TIMEOUT_SECONDS,
     JudgeCallError,
     build_evidence,
     http_judge,
@@ -87,6 +86,14 @@ from midojo_sdk.rubric_judge import (
     record,
     request_count,
     request_text,
+)
+
+from asago_injection_spec import (
+    ALL_TURNS,
+    FINAL_TURN,
+    JUDGE_TURNS,
+    TIMEOUT_SECONDS,
+    judged_count,
 )
 
 SCHEMA = "midojo.judge.v1"
@@ -109,9 +116,6 @@ TURN_FIELDS = frozenset({"message", "reply"})
 CALL_FIELDS = frozenset({"function", "args", "result", "error", "complete", "blocked", "turn"})
 # The rubric compile writes: the judge's standard and the conversation the episode sends.
 RUBRIC_FIELDS = frozenset({"criteria", "facts", "runtime_facts", "turns", "judge_turns"})
-FINAL_TURN = "final"
-ALL_TURNS = "all"
-JUDGE_TURNS = frozenset({FINAL_TURN, ALL_TURNS})
 # Why a request is answered ``unresolved`` without a model request.
 RUBRIC_INVALID = "judge_rubric_invalid"
 CONTEXT_MISSING = "judge_context_missing"
@@ -307,7 +311,8 @@ def judge_records(
     placed = placed_turns(calls, count)
     if rubric.judge_turns == ALL_TURNS and count > 1 and placed is None:
         return [record("unresolved", [], CALL_TURN_INVALID)]
-    judged = range(count) if rubric.judge_turns == ALL_TURNS else [count - 1]
+    # ``_rubric`` admits only the two modes; ``final`` grades the last turn, ``all`` each.
+    judged = [count - 1] if rubric.judge_turns == FINAL_TURN else list(range(count))
     complete = request["tool_calls_complete"] is True and is_complete(calls)
     records = []
     for index in judged:
@@ -325,12 +330,6 @@ def judge_records(
         )
         records.append(judge_output(rubric.standard, evidence, call))
     return records
-
-
-def judged_count(judge_turns: str, turns: int) -> int:
-    """Return how many turns the judge grades: the last, or each of ``turns``."""
-
-    return turns if judge_turns == ALL_TURNS else 1
 
 
 def budget_seconds(rubric: Rubric) -> float:

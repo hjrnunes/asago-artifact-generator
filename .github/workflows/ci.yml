@@ -40,36 +40,50 @@ jobs:
           done
           exit "$status"
 
-  # Each adapter reads the package values, the binding rules and the condition evaluator
-  # from the `asago-package` member, and none of them may name the authoring application.
-  # The isolated environment installs only the adapter, the Asago members it declares and
-  # pytest, so an import of the authoring application fails and names the leak.
+  # Each adapter and the injection-spec library read the package values, the binding rules
+  # and the condition evaluator from the `asago-package` member, and none of them may name
+  # the authoring application. The isolated environment installs only the member, the Asago
+  # members it declares and pytest, so an import of the authoring application fails and
+  # names the leak. `bundle-garak` declares the injection-spec library, not the MiDojo
+  # adapter: its parity test (the only test that reads both adapters) is marked `parity` and
+  # deselected here.
   adapter-isolation:
-    name: ${{ matrix.adapter }} without the authoring application
+    name: ${{ matrix.adapter }} without the authoring application (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        python-version: ["3.12", "3.14"]
         include:
           - adapter: asago-bundle-core
             module: asago_bundle_core
             libraries: --with ./packages/asago-package
+            pytest_args: ""
           - adapter: asago-bundle-garak
             module: asago_bundle_garak
             libraries: >-
               --with ./packages/asago-package
               --with ./packages/asago-bundle-core
-              --with ./packages/asago-bundle-midojo
+              --with ./packages/asago-injection-spec
+            pytest_args: -m "not parity"
           - adapter: asago-bundle-midojo
             module: asago_bundle_midojo
+            libraries: >-
+              --with ./packages/asago-package
+              --with ./packages/asago-bundle-core
+              --with ./packages/asago-injection-spec
+            pytest_args: ""
+          - adapter: asago-injection-spec
+            module: asago_injection_spec
             libraries: --with ./packages/asago-package --with ./packages/asago-bundle-core
+            pytest_args: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v5
-      - name: The adapter imports in its isolated environment
+      - name: The member imports in its isolated environment
         run: |
           uv run --isolated --no-project \
             --with ./packages/${{ matrix.adapter }} ${{ matrix.libraries }} \
@@ -87,4 +101,4 @@ jobs:
           uv run --isolated --no-project \
             --with ./packages/${{ matrix.adapter }} ${{ matrix.libraries }} \
             --with pytest \
-            pytest packages/${{ matrix.adapter }}/tests -q
+            pytest packages/${{ matrix.adapter }}/tests -q ${{ matrix.pytest_args }}

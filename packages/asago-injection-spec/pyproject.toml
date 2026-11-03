@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "asago-injection-spec"
+version = "0.1.0"
+description = "The injection-spec compiler: a planted_item artifact package becomes one MiDojo injection spec, and its sealed result reads back as evidence"
+requires-python = ">=3.12"
+dependencies = [
+    "asago-bundle-core",
+    "asago-package",
+    # ``declared.py`` reads the target's tool list, which is YAML.
+    "pyyaml>=6.0",
+    # The SDK alone: it carries injection-spec document v1's schema and the snapshot digest,
+    # and it imports no part of the harness.
+    "midojo-sdk",
+]
+
+[tool.uv.sources]
+asago-bundle-core = { workspace = true }
+asago-package = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/asago_injection_spec"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

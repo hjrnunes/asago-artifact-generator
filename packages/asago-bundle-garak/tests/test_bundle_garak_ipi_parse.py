@@ -44,7 +44,7 @@ from asago_bundle_garak.cli import main
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import instantiate_bundle
 from asago_bundle_garak.report_parse import ParseError, parse_report
-from asago_bundle_midojo.sealed import slot_id
+from asago_injection_spec.sealed import slot_id
 
 SCENARIO = "SCN-051"
 BUNDLE = "bundle.json"

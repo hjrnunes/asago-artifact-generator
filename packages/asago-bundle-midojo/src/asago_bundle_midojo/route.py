@@ -1,13 +1,22 @@
-"""Routes: the client that drives one run of an injection spec.
+"""Deprecated alias for :mod:`asago_injection_spec.route`, kept until M9.
 
-The document is the same whatever drives it; the route is a choice per run, and the
-receipt records it (``route``). MiDojo's own route, its attacker loop over
-``midojo.open_evaluation``, is the one that exists. A PyRIT target or a Garak generator
-over the same API would each be one more name here, recorded the same way.
+The route names live in the ``asago-injection-spec`` workspace member, where both adapters
+read them without depending on each other. This module keeps the MiDojo adapter's old import
+path; every name is that module's, and this module goes away at M9.
 """
 
 from __future__ import annotations
 
-MIDOJO = "midojo"
-ROUTES = (MIDOJO,)
-DEFAULT_ROUTE = MIDOJO
+from asago_injection_spec import route as _moved
+
+__all__ = [name for name in dir(_moved) if not name.startswith("_")]
+
+
+def __getattr__(name: str) -> object:
+    """Return the moved module's attribute, so every old path keeps its object."""
+
+    return getattr(_moved, name)
+
+
+def __dir__() -> list[str]:
+    return dir(_moved)

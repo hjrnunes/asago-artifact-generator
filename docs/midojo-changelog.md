@@ -15,12 +15,21 @@ its binding ends first, including a driver whose socket aborted before the
 service read the disconnect); `pyproject.toml` and `uv.lock` hold the full
 revision. The note below keeps each revision as it was recorded.
 
+The injection-spec compiler, the consumer envelope, the placement and reachability checks,
+the sealed-result readers and the judge-turn vocabulary now live in the `asago-injection-spec`
+workspace member (`asago_injection_spec`). `bundle-midojo` keeps the old module paths as
+deprecated aliases until M9, and `bundle-garak` reads the library, so it declares no
+dependency on this adapter. This page describes the code where it lives now unless it
+records a past revision.
+
 ## Adapter notes
 
-- `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. It maps a
-  `planted_item` package to one MiDojo injection spec for a target config and parses the
-  sealed result; MiDojo runs the injection spec, and the adapter holds no proxy or
-  interception code. It names the MiDojo `asago/main` range `>=2a794f3`, the first revision
+- `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. Its compile and
+  parse CLIs wrap the `asago-injection-spec` library, which maps a `planted_item` package to
+  one MiDojo injection spec for a target config and parses the sealed result; its
+  `judge_service` answers the reply episode's judge request. MiDojo runs the injection spec,
+  and the adapter holds no proxy or interception code. It names the MiDojo `asago/main`
+  range `>=2a794f3`, the first revision
   that carries every capability the document uses and reads the document's ID, and pins
   `midojo-sdk` to the revision
   `pyproject.toml` and `uv.lock` record (`2a794f3`, the revision that renamed the document

@@ -47,6 +47,7 @@ import os
 import sys
 import tempfile
 import threading
+import tomllib
 import uuid
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
@@ -56,19 +57,33 @@ from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
-# The consumer's packages are not installed in MiDojo's environment; the generator adds
-# the sources and the case builders it reads, as the other fixture generators do. The
-# package library is its own member, so its source goes on the path beside the consumer's.
-for _member in (
-    REPO / "src",
-    REPO / "packages/asago-package/src",
-    REPO / "packages/asago-bundle-core/src",
-    REPO / "packages/asago-bundle-midojo/src",
-    REPO / "packages/asago-bundle-garak/src",
-    REPO / "packages/asago-bundle-midojo/tests",
-):
-    if str(_member) not in sys.path:
-        sys.path.insert(0, str(_member))
+
+
+def consumer_sources() -> Iterator[Path]:
+    """The consumer's own source roots: the app and every workspace member.
+
+    The consumer's packages are not installed in MiDojo's environment, so the generator adds
+    them to the path, as the other fixture generators do. The members come from the
+    workspace's own list, so a new member or a moved module needs no edit here.
+    """
+
+    members = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    patterns = members["tool"]["uv"]["workspace"]["members"]
+    yield REPO / "src"
+    for pattern in patterns:
+        for member in sorted(REPO.glob(pattern)):
+            if (member / "pyproject.toml").is_file():
+                yield member / "src"
+
+
+for _source in consumer_sources():
+    if str(_source) not in sys.path:
+        sys.path.insert(0, str(_source))
+# The case builders the generator reads stay in the MiDojo adapter's suite; they build
+# packages with the library's own helpers and import no adapter.
+_CASE_BUILDERS = REPO / "packages/asago-bundle-midojo/tests"
+if str(_CASE_BUILDERS) not in sys.path:
+    sys.path.insert(0, str(_CASE_BUILDERS))
 
 import episode as harness  # noqa: E402  (the scripted target and agent beside this file)
 import midojo  # noqa: E402
@@ -82,8 +97,8 @@ from midojo.delivery import delivery_facts, exposure  # noqa: E402
 
 from asago_bundle_core.text import canonical_text  # noqa: E402
 from asago_bundle_garak.compiler import ipi_entry  # noqa: E402
-from asago_bundle_midojo.injection_spec_compile import injection_spec_document  # noqa: E402
-from asago_bundle_midojo.sealed import (  # noqa: E402
+from asago_injection_spec.injection_spec_compile import injection_spec_document  # noqa: E402
+from asago_injection_spec.sealed import (  # noqa: E402
     DELIVERY_SCHEMA_VERSION,
     TURN_FAILED,
     Compiled,

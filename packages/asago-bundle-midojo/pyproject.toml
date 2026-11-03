@@ -9,11 +9,11 @@ description = "MiDojo adapter: compiles a planted_item artifact package into a r
 requires-python = ">=3.12"
 dependencies = [
     "asago-bundle-core",
+    # The injection-spec compiler, the envelope and the sealed-result reader, which Garak
+    # reads too.
+    "asago-injection-spec",
     "asago-package",
-    # ``declared.py`` reads the target's tool list, which is YAML.
-    "pyyaml>=6.0",
-    # The SDK alone: it carries episode document v1's schema and the snapshot digest, and it
-    # imports no part of the harness.
+    # The judge service and the CLI; the SDK carries no part of the harness.
     "midojo-sdk",
 ]
 
@@ -22,6 +22,7 @@ asago-bundle-midojo = "asago_bundle_midojo.cli:main"
 
 [tool.uv.sources]
 asago-bundle-core = { workspace = true }
+asago-injection-spec = { workspace = true }
 asago-package = { workspace = true }
 
 [tool.hatch.build.targets.wheel]

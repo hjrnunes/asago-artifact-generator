@@ -1,14 +1,15 @@
-"""Deprecated alias for :mod:`asago_bundle_midojo.injection_spec_compile`, one release.
+"""Deprecated alias for :mod:`asago_injection_spec.injection_spec_compile`, kept until M9.
 
-MiDojo renamed its document to the injection spec v1, and this adapter followed. Import
-:mod:`asago_bundle_midojo.injection_spec_compile`; ``compile_episode`` here is
+MiDojo renamed its document to the injection spec v1, and this adapter followed. The
+compiler now lives in the ``asago-injection-spec`` member; import
+:mod:`asago_injection_spec.injection_spec_compile`. ``compile_episode`` here is
 ``compile_injection_spec``, ``episode_document`` is ``injection_spec_document``, and
 ``EPISODE_FILE`` is the file compile wrote before the rename. This module goes away at M9.
 """
 
 from __future__ import annotations
 
-from .injection_spec_compile import (
+from asago_injection_spec.injection_spec_compile import (
     BLOCK,
     CLAIM_LEVELS,
     COMMAND_ATTEMPT,

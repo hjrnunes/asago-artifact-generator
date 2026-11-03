@@ -12,6 +12,7 @@ members = [
     "asago-bundle-core",
     "asago-bundle-garak",
     "asago-bundle-midojo",
+    "asago-injection-spec",
     "asago-package",
 ]
 
@@ -70,6 +71,7 @@ dev = [
     { name = "asago-bundle-core" },
     { name = "asago-bundle-garak" },
     { name = "asago-bundle-midojo" },
+    { name = "asago-injection-spec" },
     { name = "asago-scenario-generator" },
     { name = "pytest" },
     { name = "ruff" },
@@ -93,6 +95,7 @@ dev = [
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
     { name = "asago-bundle-garak", editable = "packages/asago-bundle-garak" },
     { name = "asago-bundle-midojo", editable = "packages/asago-bundle-midojo" },
+    { name = "asago-injection-spec", editable = "packages/asago-injection-spec" },
     { name = "asago-scenario-generator", editable = "../asago-scenario-generator" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.6" },
@@ -121,21 +124,48 @@ version = "0.1.0"
 source = { editable = "packages/asago-bundle-garak" }
 dependencies = [
     { name = "asago-bundle-core" },
-    { name = "asago-bundle-midojo" },
+    { name = "asago-injection-spec" },
     { name = "asago-package" },
+]
+
+[package.dev-dependencies]
+parity = [
+    { name = "asago-bundle-midojo" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
-    { name = "asago-bundle-midojo", editable = "packages/asago-bundle-midojo" },
+    { name = "asago-injection-spec", editable = "packages/asago-injection-spec" },
     { name = "asago-package", editable = "packages/asago-package" },
 ]
+
+[package.metadata.requires-dev]
+parity = [{ name = "asago-bundle-midojo", editable = "packages/asago-bundle-midojo" }]
 
 [[package]]
 name = "asago-bundle-midojo"
 version = "0.1.0"
 source = { editable = "packages/asago-bundle-midojo" }
+dependencies = [
+    { name = "asago-bundle-core" },
+    { name = "asago-injection-spec" },
+    { name = "asago-package" },
+    { name = "midojo-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
+    { name = "asago-injection-spec", editable = "packages/asago-injection-spec" },
+    { name = "asago-package", editable = "packages/asago-package" },
+    { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=162233f0910e5566c48d285a4b2401a2bdc5387c" },
+]
+
+[[package]]
+name = "asago-injection-spec"
+version = "0.1.0"
+source = { editable = "packages/asago-injection-spec" }
 dependencies = [
     { name = "asago-bundle-core" },
     { name = "asago-package" },

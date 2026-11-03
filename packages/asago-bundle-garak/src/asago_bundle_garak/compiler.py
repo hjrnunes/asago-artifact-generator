@@ -30,12 +30,12 @@ from asago_bundle_core.gap import CapabilityGap, capability_gap_record
 from asago_bundle_core.slots import bundle_slot, contains_marker, template_slots, value_slot
 from asago_bundle_core.target import TargetConfig
 from asago_bundle_core.text import canonical_text
-from asago_bundle_midojo.injection_spec_compile import (
+from asago_injection_spec import FINAL_TURN, JUDGE_TURNS
+from asago_injection_spec.injection_spec_compile import (
     JUDGE_TOKEN_ENV,
     JUDGE_URL_ENV,
     injection_spec_document,
 )
-from asago_bundle_midojo.judge_service import FINAL_TURN, JUDGE_TURNS
 from asago_package.package_io import ArtifactPackage, load_package
 
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"

@@ -67,7 +67,7 @@ from asago_bundle_core.mcp_records import (
     text,
 )
 from asago_bundle_core.text import canonical_text, jsonl_lines
-from asago_bundle_midojo.sealed import (
+from asago_injection_spec.sealed import (
     DELIVERY_SCHEMA_VERSION,
     delivery_shape,
     episode_block,
@@ -691,7 +691,7 @@ def sealed_trace_failure(trace: dict[str, Any]) -> str | None:
 def unreadable_document(document: Any, prefix: str) -> str:
     """Return the reason MiDojo's reader names for a sealed document it cannot read.
 
-    ``read_document`` (``asago_bundle_midojo.sealed``) names a document the seal never
+    ``read_document`` (``asago_injection_spec.sealed``) names a document the seal never
     states ``<prefix>_missing`` and one it states but cannot shape-check
     ``<prefix>_malformed``. This route names the same reasons, never a new one: the
     orchestrator's receipt reader places those reasons in evidence integrity.

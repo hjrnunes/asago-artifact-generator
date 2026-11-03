@@ -1454,7 +1454,8 @@ revision they come from, which the adapter's `pyproject.toml` pin must match.
 ├── packages/asago-package/          # package library (workspace member): artifact-package-v5 writer and loader, binding rules, tool-call-condition evaluator, contract kit, and the authority copies of artifact-package, runtime-contract and capability-gap
 ├── packages/asago-bundle-core/      # shared adapter core (workspace member): tool-bundle-v1 schema, slots, package preparation, target config, conformance helper
 ├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse as library entry points
-├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): planted_item packages to response-injection injection specs for a target config, sealed snapshots and verdicts to receipts; other packages exit 3
+├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): the compile and parse CLIs and the judge service; both adapters read the compiler from asago-injection-spec
+├── packages/asago-injection-spec/   # injection-spec library (workspace member): a planted_item package to one MiDojo injection spec and a sealed result to evidence; neither adapter depends on the other
 ├── contracts/                        # vendored and consumer-owned contracts the app keeps; the package library ships artifact-package, runtime-contract and capability-gap
 ├── scripts/                          # quality, replay, and budget tools
 ├── tools/fixture-generators/         # scripts run in MiDojo's interpreter to seal the adapter's fixtures

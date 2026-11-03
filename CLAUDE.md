@@ -186,8 +186,9 @@ missing path.
   also uses). The bundle's MCP server is the authorized config's `endpoint.mcp_url`.
   Its CLI `instantiate` requires `--package`, `--target` and `--run`.
   A `planted_item` package takes the IPI route: `compile --target` writes `ipi-episodes.json`
-  (one `{injection_spec, placements, metadata}` entry, the injection spec the MiDojo adapter's
-  `injection_spec_document` builds and that envelope's `placements`; the file keeps its name)
+  (one `{injection_spec, placements, metadata}` entry, the injection spec the shared
+  injection-spec library's `injection_spec_document` builds and that envelope's
+  `placements`; the file keeps its name)
   and a template named
   `garak-ipi-episode` that runs
   `midojo.InjectionSpecProbe` with `midojo.EvaluationVerdict`, `midojo.EvaluationEffect` and
@@ -252,8 +253,16 @@ missing path.
   `tools/fixture-generators/garak_ipi.py` reseals them with the MiDojo interpreter
   (`--check` reproduces every file byte for byte), and its README says what each case is
   real evidence of and what the report composes.
-- `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member (injection-spec
-  compile, sealed parse, judge service). Its revision history, fixture provenance
+- `packages/asago-injection-spec/`: the injection-spec library workspace member
+  (`asago_injection_spec`): the compiler from a `planted_item` package to one MiDojo
+  injection spec, the consumer envelope, the placement and reachability checks, the
+  sealed-result readers, and the judge-turn vocabulary compile and the judge service share.
+  Both adapters read it, so neither depends on the other; `bundle-garak`'s parity test is the
+  only test that also reads `bundle-midojo`, and it is marked `parity` because the MiDojo
+  adapter is a test-only dependency.
+- `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member (the compile and
+  parse CLIs and the judge service). Its deprecated modules re-export the injection-spec
+  library under the old paths until M9. Its revision history, fixture provenance
   and implementation notes are in `docs/midojo-changelog.md`.
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and

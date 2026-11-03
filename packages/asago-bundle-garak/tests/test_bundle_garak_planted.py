@@ -35,8 +35,8 @@ from asago_bundle_garak.compiler import (
     CompileError,
     compile_package,
 )
-from asago_bundle_midojo.document import read_envelope
-from asago_bundle_midojo.injection_spec_compile import compile_injection_spec
+from asago_injection_spec.document import read_envelope
+from asago_injection_spec.injection_spec_compile import compile_injection_spec
 
 SCENARIO = "SCN-051"
 SOURCE = "ipi-episodes.json"

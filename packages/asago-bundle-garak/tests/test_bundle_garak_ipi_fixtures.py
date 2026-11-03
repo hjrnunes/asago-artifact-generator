@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_bundle_garak_parity import garak_receipt
+from garak_receipts import garak_receipt
 
 from conftest import REPO
 

@@ -1,156 +1,22 @@
-"""Whether the episode's conversation can lead the agent to the record a seed item plants in.
+"""Deprecated alias for :mod:`asago_injection_spec.reachable`, kept until M9.
 
-An episode sends fixed user turns, and the interceptor plants an item only in the result of
-a call of its carrier that reaches the record. A carrier matched by its arguments
-(``Placement.call_arguments``: a field outside any list whose carrier requires the slot's
-``record_key`` as a text argument) returns the record only to a call that names it, so the
-agent must know the record's ID. This is a structural reference check of how it can learn
-it, from the declarations alone; the conversation reaches the record when either holds:
-
-- a user turn names the record: the record's ID appears in a turn as it is written, case
-  and all, not inside a longer run of letters, digits, ``-`` or ``_`` (``NOTE-2`` is named
-  by "Read NOTE-2, please." and not by "Read NOTE-20" or "read note-2"), because MiDojo
-  matches the call's argument to the record exactly;
-- an allowed tool whose input schema plainly takes no argument (``_takes_no_argument``: an
-  object schema built only from keywords that cannot require an argument, ``required``
-  empty and ``minProperties`` 0; any other keyword, such as a composition or ``$ref``,
-  makes it not count) declares the slot's ``record_key`` as a text property in its
-  output schema, at any depth through ``properties`` and an array's ``items``
-  (piggybank's ``list_notes`` returns ``notes[].note_id``), so the agent can list the IDs
-  and call the carrier with one.
-
-Anything else is a capability gap: an episode whose agent cannot name the record calls the
-carrier with no argument that matches, or not at all, and the item is never delivered.
-
-The check does not judge meaning. It does not read whether a turn asks for the record,
-only whether it names it; it does not follow a chain of calls (a tool whose required
-argument the conversation would have to supply first); it does not know whether a listing
-tool returns this record, only that it declares its key; and an ID the agent's own system
-prompt holds is not seen. A field inside a list, and a field whose result names the record
-(``by_result``), are not checked: the interceptor selects the record in the result of any
-call of the carrier, and which call returns it depends on argument values (a search query,
-a patient's ID) that the declarations do not tie to the record.
+The structural reference check lives in the ``asago-injection-spec`` workspace member, where
+both adapters read it without depending on each other. This module keeps the MiDojo adapter's
+old import path; every name is that module's, and this module goes away at M9.
 """
 
 from __future__ import annotations
 
-import re
-from collections.abc import Iterable, Mapping
-from typing import Any
+from asago_injection_spec import reachable as _moved
 
-from .declared import DeclaredTools
-from .placement import Placement
-
-# A character that continues an identifier: a record named inside a longer run is not named.
-_ID_CHARACTER = r"A-Za-z0-9_\-"
+__all__ = [name for name in dir(_moved) if not name.startswith("_")]
 
 
-def unreachable_reason(
-    placement: Placement, turns: list[str], declared: DeclaredTools, allowed: Iterable[str]
-) -> str | None:
-    """Return why the conversation cannot lead the agent to the placement's record, or None.
+def __getattr__(name: str) -> object:
+    """Return the moved module's attribute, so every old path keeps its object."""
 
-    ``turns`` are the episode's user turns and ``allowed`` the tools the agent may call.
-    Call it on a placement ``gap_reason`` accepts.
-    """
-
-    if placement.listed or placement.by_result or placement.record_key is None:
-        return None
-    record, key, carrier = placement.record, placement.record_key, placement.carrier
-    if any(names_record(turn, record) for turn in turns):
-        return None
-    if listing_tools(declared, allowed, key):
-        return None
-    return (
-        f"seed item {placement.index}: the conversation cannot reach record {record!r}: "
-        f"{carrier!r} returns it only to a call whose argument {key!r} names it, no user "
-        f"turn names {record!r}, and no allowed tool that takes no argument declares "
-        f"{key!r} in its result, so the agent cannot learn the record to ask {carrier!r} for"
-    )
+    return getattr(_moved, name)
 
 
-def names_record(turn: str, record: str) -> bool:
-    """Return whether ``turn`` holds ``record`` as written, not inside a longer identifier."""
-
-    pattern = rf"(?<![{_ID_CHARACTER}]){re.escape(record)}(?![{_ID_CHARACTER}])"
-    return re.search(pattern, turn) is not None
-
-
-def listing_tools(declared: DeclaredTools, allowed: Iterable[str], key: str) -> list[str]:
-    """Return the allowed tools that take no required argument and declare text ``key``."""
-
-    return sorted(
-        name
-        for name in allowed
-        if (tool := declared.tools.get(name)) is not None
-        and _takes_no_argument(tool)
-        and _declares_text_property(tool.get("outputSchema"), key)
-    )
-
-
-def _takes_no_argument(tool: Mapping[str, Any]) -> bool:
-    """Return whether the tool's input schema plainly accepts a call with no argument.
-
-    Only a ``"type": "object"`` schema whose keywords are all in ``_PLAIN_INPUT``, the
-    keywords that cannot make the empty arguments ``{}`` invalid, counts, with ``required``
-    empty or absent and ``minProperties`` 0 or absent. A keyword outside that set does not
-    count, whether or not it requires an argument here: a composition (``allOf``,
-    ``anyOf``, ``oneOf``, ``not``, ``if``), a ``$ref``, a dependent requirement, an object
-    ``const`` or ``enum``, or one this list does not know. Neither does a tool that declares
-    no input schema.
-    """
-
-    inputs = tool.get("inputSchema")
-    return (
-        isinstance(inputs, dict)
-        and inputs.get("type") == "object"
-        and set(inputs) <= _PLAIN_INPUT
-        and inputs.get("required", []) == []
-        and inputs.get("minProperties", 0) == 0
-    )
-
-
-# The input schema keywords that cannot make the empty arguments ``{}`` invalid: each
-# constrains only properties present, or annotates. ``required`` and ``minProperties``
-# count only when they ask for nothing.
-_PLAIN_INPUT = frozenset(
-    {
-        "$schema",
-        "$id",
-        "$anchor",
-        "$comment",
-        "$defs",
-        "definitions",
-        "type",
-        "title",
-        "description",
-        "default",
-        "examples",
-        "deprecated",
-        "readOnly",
-        "writeOnly",
-        "properties",
-        "patternProperties",
-        "additionalProperties",
-        "unevaluatedProperties",
-        "propertyNames",
-        "maxProperties",
-        "required",
-        "minProperties",
-    }
-)
-
-
-def _declares_text_property(node: Any, key: str) -> bool:
-    """Return whether ``node`` declares a text property ``key`` through properties and items."""
-
-    if not isinstance(node, dict):
-        return False
-    properties = node.get("properties")
-    if isinstance(properties, dict):
-        value = properties.get(key)
-        if isinstance(value, dict) and value.get("type") == "string":
-            return True
-        if any(_declares_text_property(child, key) for child in properties.values()):
-            return True
-    return _declares_text_property(node.get("items"), key)
+def __dir__() -> list[str]:
+    return dir(_moved)

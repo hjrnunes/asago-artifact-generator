@@ -15,22 +15,29 @@ reader does, states no attempt. The tampered case states no attempt on either ro
 The delivery guard is part of the parity: a grade whose security is false and whose payload
 the seal never recorded as delivered reads ``inconclusive`` through both parsers, never
 ``not_detected``.
+
+This is the only Garak test that reads the MiDojo adapter, so it is marked ``parity``: the
+adapter is a test-only dependency. The isolated CI run of ``bundle-garak`` installs no MiDojo
+adapter, and this module skips when it cannot import one; the run also deselects the marker
+with ``-m "not parity"`` where the adapter is installed.
 """
 
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
 import pytest
+from garak_receipts import canonical, garak_receipt, load
 
-from asago_bundle_garak.report_parse import parse_report
-from asago_bundle_midojo.document import build_envelope
-from asago_bundle_midojo.sealed import parse_sealed, placements_of
+pytest.importorskip("asago_bundle_midojo", reason="the adapter is a test-only dependency")
+from asago_bundle_midojo.cli import main as midojo_main  # noqa: E402  the test-only adapter
+from asago_injection_spec.document import build_envelope
+from asago_injection_spec.sealed import placements_of
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures" / "ipi"
+pytestmark = pytest.mark.parity
+
 CASES = (
     "blocked",
     "delivered",
@@ -45,16 +52,6 @@ EVIDENCE = ("delivery", "exposure", "verdict", "call_injections")
 # The MiDojo revision range the fixtures' injection specs were compiled for.
 TOOL_REVISION_RANGE = ">=89b25df"
 DOCUMENTS = ("snapshot.json", "verdict.json", "delivery.json")
-
-
-def load(case: str, name: str) -> Any:
-    return json.loads((FIXTURES / case / name).read_text(encoding="utf-8"))
-
-
-def canonical(value: Any) -> str:
-    """The byte form the two receipts compare by: canonical JSON, no whitespace."""
-
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def write_midojo_episode(root: Path, case: str) -> Path:
@@ -91,42 +88,32 @@ def midojo_receipt(root: Path, case: str) -> dict[str, Any]:
     """Read the case through ``bundle-midojo``'s ``parse --delivery``."""
 
     episode = write_midojo_episode(root, case)
-    return parse_sealed(
-        episode,
-        episode / "snapshot.json",
-        episode / "verdict.json",
-        root / "midojo-receipt.json",
-        delivery_path=episode / "delivery.json",
+    out = root / "midojo-receipt.json"
+    assert (
+        midojo_main(
+            [
+                "parse",
+                str(episode),
+                "--snapshot",
+                str(episode / "snapshot.json"),
+                "--verdict",
+                str(episode / "verdict.json"),
+                "--delivery",
+                str(episode / "delivery.json"),
+                "--out",
+                str(out),
+            ]
+        )
+        == 0
     )
+    return load_json(out)
 
 
-def garak_receipt(root: Path, case: str) -> dict[str, Any]:
-    """Read the case through ``bundle-garak``'s ``parse`` of the report the probe wrote."""
+def load_json(path: Path) -> dict[str, Any]:
+    """Return the receipt ``bundle-midojo`` wrote."""
 
-    source = load(case, "ipi-episodes.json")
-    (entry,) = source
-    metadata = entry["metadata"]
-    bundle = root / "bundle"
-    (bundle / "reports").mkdir(parents=True)
-    (bundle / "ipi-episodes.json").write_text(canonical(source), encoding="utf-8")
-    manifest = {
-        "schema_version": "tool-bundle-v1",
-        "tool": "garak",
-        "scenario_id": metadata["scenario_id"],
-        "package_id": metadata["package_id"],
-        "package_digest": metadata["package_digest"],
-        "claim_level": metadata["claim_level"],
-        "delivery": metadata["delivery"],
-        "template": "garak-ipi-episode",
-        "native_outputs": [f"reports/{case}.report.jsonl"],
-    }
-    (bundle / "bundle.json").write_text(canonical(manifest), encoding="utf-8")
-    messages = [{"role": "user", "content": turn} for turn in entry["injection_spec"]["turns"]]
-    (bundle / "conversations.jsonl").write_text(
-        canonical({"messages": messages}) + "\n", encoding="utf-8"
-    )
-    shutil.copyfile(FIXTURES / case / "report.jsonl", bundle / "reports" / f"{case}.report.jsonl")
-    return parse_report(bundle, root / "garak-receipt.json")
+    receipt: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return receipt
 
 
 @pytest.mark.parametrize("case", CASES)
