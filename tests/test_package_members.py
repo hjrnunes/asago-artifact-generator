@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from asago_artifact_generator.authoring.policy import AuthoringPolicy
-from asago_artifact_generator.package_io import (
+from asago_package.package_io import (
     PACKAGE_SCHEMA_VERSION,
     PackageIntegrityError,
     PackagePathError,

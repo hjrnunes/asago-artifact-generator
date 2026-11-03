@@ -467,7 +467,7 @@ handoff:
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional `runtime-context.json` (`runtime-context-v1`, written by the orchestrator's discover stage) for state and read observations.
 - A target-free runtime contract (`artifact-runtime-contract-v2`). `generate`
-  checks it against this repository's `contracts/runtime-contract/` schema and
+  checks it against the `asago-package` member's `contracts/runtime-contract/` schema and
   lock before any model request and stops at the first fault in path order:
   `runtime contract schema invalid at <path>: <reason>`.
 
@@ -723,8 +723,9 @@ lists the unknown keys (sorted, at most 10, each cut to 64 characters). Three ch
 `semantic_digest`. Authoring does not accept native semantic scenario files, reference tasks, benchmark
 answers, or hand-built inventories.
 
-The consumer-owned artifact-package contract lives in
-`contracts/artifact-package/artifact-package-v5/`. `package_io.write_package`
+The consumer-owned artifact-package contract lives in the `asago-package` member at
+`packages/asago-package/src/asago_package/contracts/artifact-package/artifact-package-v5/`,
+which the member ships as package data. `asago_package.package_io.write_package`
 writes a complete directory atomically, and `load_package` verifies its
 manifest, member paths, lengths, and digests before returning content. A
 manifest has no `detector_interface`, and a package has no `detector.py`.
@@ -739,7 +740,8 @@ refuses a v5 package with any other member or manifest field.
 The loader reads only `artifact-package-v5`. It refuses a package that declares
 `artifact-package-v4`, or any other version, with an error that names the
 unsupported version it found. The v4 schema and its cases stay in
-`contracts/artifact-package/artifact-package-v4/` as frozen contract material
+`packages/asago-package/src/asago_package/contracts/artifact-package/artifact-package-v4/`
+as frozen contract material
 that the orchestrator mirrors, but no reader loads a v4 package.
 
 The writer writes only `artifact-package-v5`. The lock's
@@ -758,7 +760,8 @@ Each package carries the scoring input for its plan's claim level:
 An `indirect` package also carries `seed.json` (`artifact-seed-v1`): the
 carrier operation and one item that names the seed slot, the record, the
 slot's `mode`, and the planted text as `content`.
-`contracts/artifact-package/artifact-seed-v1/schema.json` defines the format.
+`packages/asago-package/src/asago_package/contracts/artifact-package/artifact-seed-v1/schema.json`
+defines the format.
 The schema states no length limit, because the slot's `max_chars` bounds the
 text.
 
@@ -1434,6 +1437,9 @@ uv run pytest tests/ -q
 ```
 
 The unit test suite is deterministic and does not require an LLM endpoint.
+Each workspace member runs in its own session, for example
+`uv run pytest packages/asago-package/tests -q` and
+`uv run pytest packages/asago-bundle-core/tests -q`.
 
 The MiDojo adapter's tests hold byte copies of MiDojo's own files
 (`packages/asago-bundle-midojo/tests/fixtures/midojo/`: the injection-spec documents, the
@@ -1445,10 +1451,11 @@ revision they come from, which the adapter's `pyproject.toml` pin must match.
 
 ```
 ├── src/asago_artifact_generator/    # authoring, packages, CLI
+├── packages/asago-package/          # package library (workspace member): artifact-package-v5 writer and loader, contract kit, and the authority copies of artifact-package, runtime-contract and capability-gap
 ├── packages/asago-bundle-core/      # shared adapter core (workspace member): tool-bundle-v1 schema, slots, package preparation, target config, conformance helper
 ├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse as library entry points
 ├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): planted_item packages to response-injection injection specs for a target config, sealed snapshots and verdicts to receipts; other packages exit 3
-├── contracts/                        # vendored and consumer-owned contracts
+├── contracts/                        # vendored and consumer-owned contracts the app keeps; the package library ships artifact-package, runtime-contract and capability-gap
 ├── scripts/                          # quality, replay, and budget tools
 ├── tools/fixture-generators/         # scripts run in MiDojo's interpreter to seal the adapter's fixtures
 ├── tests/                            # unit tests

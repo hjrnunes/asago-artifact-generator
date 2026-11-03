@@ -12,6 +12,7 @@ members = [
     "asago-bundle-core",
     "asago-bundle-garak",
     "asago-bundle-midojo",
+    "asago-package",
 ]
 
 [[package]]
@@ -50,6 +51,7 @@ name = "asago-artifact-generator"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "asago-package" },
     { name = "jinja2" },
     { name = "jsonschema" },
     { name = "openai" },
@@ -75,6 +77,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asago-package", editable = "packages/asago-package" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "jsonschema", specifier = ">=4.0" },
     { name = "openai", specifier = ">=1.0" },
@@ -142,6 +145,21 @@ requires-dist = [
     { name = "asago-artifact-generator", editable = "." },
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
     { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=162233f0910e5566c48d285a4b2401a2bdc5387c" },
+]
+
+[[package]]
+name = "asago-package"
+version = "0.1.0"
+source = { editable = "packages/asago-package" }
+dependencies = [
+    { name = "jsonschema" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jsonschema", specifier = ">=4.0" },
+    { name = "pydantic", specifier = ">=2.0" },
 ]
 
 [[package]]

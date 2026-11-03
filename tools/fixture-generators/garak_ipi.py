@@ -57,9 +57,11 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 # The consumer's packages are not installed in MiDojo's environment; the generator adds
-# the sources and the case builders it reads, as the other fixture generators do.
+# the sources and the case builders it reads, as the other fixture generators do. The
+# package library is its own member, so its source goes on the path beside the consumer's.
 for _member in (
     REPO / "src",
+    REPO / "packages/asago-package/src",
     REPO / "packages/asago-bundle-core/src",
     REPO / "packages/asago-bundle-midojo/src",
     REPO / "packages/asago-bundle-garak/src",

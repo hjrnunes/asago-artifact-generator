@@ -1,6 +1,6 @@
 """Read the runtime contract that ``generate --runtime-contract`` supplies.
 
-This repository owns ``contracts/runtime-contract/``. The orchestrator writes one
+The ``asago-package`` member owns the runtime-contract kit. The orchestrator writes one
 contract per target and keeps a byte-identical copy of the kit.
 """
 
@@ -12,13 +12,9 @@ from typing import Any
 
 import yaml
 
-from .contract_kit import (
-    contract_dir,
-    first_schema_error,
-    load_json_file,
-    parse_document,
-    verify_contract_lock,
-)
+from asago_package.contract_kit import contract_dir, first_schema_error, load_json_file
+
+from .contract_kit import parse_document, verify_contract_lock
 
 SCHEMA_VERSION = "artifact-runtime-contract-v2"
 _CONTRACT_ROOT = contract_dir("runtime-contract")

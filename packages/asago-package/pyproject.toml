@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "asago-package"
+version = "0.1.0"
+description = "The artifact-package-v5 values, writer and reader, with the authority contract kits it verifies"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0",
+    "jsonschema>=4.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/asago_package"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -40,8 +40,9 @@ from asago_artifact_generator.bindings import (
     normalize_binding_declarations,
     supplied_binding_values,
 )
+from asago_package.contract_kit import contract_dir
 
-_ROOT = Path(__file__).resolve().parents[1] / "contracts" / "artifact-package" / "binding-cases"
+_ROOT = contract_dir("artifact-package") / "binding-cases"
 _CHECKS = ("declaration", "values", "slots")
 _REASONS = {
     "consumers_empty": (r"^plan_binding_validation: binding consumers must be non-empty strings"),

@@ -10,7 +10,8 @@ import jsonschema
 import pytest
 
 from asago_artifact_generator.input_adapter import InputView
-from asago_artifact_generator.package_io import (
+from asago_package.contract_kit import contract_dir
+from asago_package.package_io import (
     PackageIntegrityError,
     _manifest_digest,
     build_package,
@@ -21,7 +22,7 @@ from asago_artifact_generator.package_io import (
 from .support import ScriptedAuthoringTransport, stage_local_orchestrator, world
 from .turn_support import direct_view, sequential_metadata, sequential_plan, sequential_runtime
 
-_SCHEMAS = Path(__file__).resolve().parents[1] / "contracts" / "artifact-package"
+_SCHEMAS = contract_dir("artifact-package")
 
 
 def _author(tmp_path: Path, view: InputView, turns: int):

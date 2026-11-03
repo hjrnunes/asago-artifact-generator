@@ -41,6 +41,7 @@ from asago_artifact_generator.package_io import (
     tool_call_condition_bytes,
     write_package,
 )
+from asago_package.contract_kit import contract_dir
 
 # A neutral producer tool-call condition: the record command exceeds its bound.
 NEUTRAL_TOOL_CALL_CONDITION = {
@@ -187,12 +188,7 @@ MINIMAL_TARGET_PROFILE = (
     _ROOT / "contracts" / "target-profile" / "target-profile-v1" / "valid" / "minimal.json"
 )
 MINIMAL_RUNTIME_CONTRACT = (
-    _ROOT
-    / "contracts"
-    / "runtime-contract"
-    / "artifact-runtime-contract-v2"
-    / "valid"
-    / "minimal.json"
+    contract_dir("runtime-contract") / "artifact-runtime-contract-v2" / "valid" / "minimal.json"
 )
 
 

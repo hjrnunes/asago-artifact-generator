@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from asago_artifact_generator import package_io
-from asago_artifact_generator.package_io import (
+from asago_package import package_io
+from asago_package.contract_kit import contract_dir
+from asago_package.package_io import (
     ArtifactPackage,
     PackageIntegrityError,
     PackagePathError,
@@ -386,7 +387,7 @@ def test_claim_level_requires_its_scoring_member(
 def test_written_manifest_matches_the_locked_v5_schema(tmp_path: Path) -> None:
     import jsonschema
 
-    root = Path(package_io.__file__).resolve().parents[2] / "contracts" / "artifact-package"
+    root = contract_dir("artifact-package")
     lock = json.loads((root / "CONTRACT.lock").read_text(encoding="utf-8"))
     schema = json.loads((root / "artifact-package-v5" / "schema.json").read_text(encoding="utf-8"))
     destination = write_package(tmp_path / "package", _package())

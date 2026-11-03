@@ -1,9 +1,7 @@
-"""The consumer-owned artifact-package contract: v5, which the writer writes and the loader reads.
+"""The artifact-package authority contract: v5, which the writer writes and the reader loads.
 
-The v4 schema stays frozen alongside v5 for the contract cases and the
-orchestrator's mirror; the consumer loader refuses a v4 package. The input
-adapter reads only the vendored scenario-handoff-v5 kit
-(tests/test_handoff_v5.py). The package writer writes only artifact-package-v5.
+The v4 schema stays frozen alongside v5 for the contract cases and the orchestrator's
+mirror; the reader refuses a v4 package. The writer writes only artifact-package-v5.
 """
 
 from __future__ import annotations
@@ -15,9 +13,10 @@ from typing import Any
 import jsonschema
 import pytest
 
-from asago_artifact_generator import package_io
+from asago_package import package_io
+from asago_package.contract_kit import contract_dir
 
-_PACKAGE = Path(__file__).resolve().parents[1] / "contracts" / "artifact-package"
+_PACKAGE = contract_dir("artifact-package")
 _V4 = "artifact-package-v4"
 _V5 = "artifact-package-v5"
 

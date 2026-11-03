@@ -22,8 +22,9 @@ from jsonschema.exceptions import best_match
 from asago_artifact_generator.package_io import load_package
 from asago_bundle_core.gap import capability_gap_record
 from asago_bundle_core.testing import sequential_stimulus, write_test_package
+from asago_package.contract_kit import contract_dir
 
-_ROOT = Path(__file__).resolve().parents[3] / "contracts" / "capability-gap"
+_ROOT = contract_dir("capability-gap")
 _VERSION = "capability-gap-v1"
 _CASES = _ROOT / _VERSION
 

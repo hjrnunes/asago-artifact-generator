@@ -33,11 +33,10 @@ from asago_bundle_core.bindings import (
     validate_stimulus_declarations,
 )
 from asago_bundle_core.preparation import _render_stimulus, supplied_fact_values
+from asago_package.contract_kit import contract_dir
 
 _ROOT = Path(__file__).resolve().parent / "fixtures" / "binding-cases"
-_CONTRACT_ROOT = (
-    Path(__file__).resolve().parents[3] / "contracts" / "artifact-package" / "binding-cases"
-)
+_CONTRACT_ROOT = contract_dir("artifact-package") / "binding-cases"
 _CHECKS = ("declaration", "values", "slots")
 _IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
 _REASONS = {

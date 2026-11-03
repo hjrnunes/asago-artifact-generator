@@ -1,7 +1,7 @@
 """The consumer reader runs every artifact-package-v5 contract case.
 
-The cases live in ``contracts/artifact-package/`` and the orchestrator runs the
-same files from its mirror. Each invalid case names a stable code;
+The cases live in the ``asago-package`` member's ``contracts/artifact-package/`` and the
+orchestrator runs the same files from its mirror. Each invalid case names a stable code;
 ``_MESSAGES`` maps the code to this reader's error wording, and
 ``_VERSION_MESSAGES`` names the wording a version's schema gives first. The
 artifact-package-v4 cases stay for the frozen schema checks; the reader refuses
@@ -24,15 +24,17 @@ from asago_artifact_generator.authoring.core import AuthoringError
 from asago_artifact_generator.authoring.prompt_safety import assert_no_secrets
 from asago_artifact_generator.metadata_policy import secret_metadata_paths
 from asago_artifact_generator.package_io import (
+    ArtifactPackage,
     PackageIntegrityError,
     PackagePathError,
     build_package,
     load_package,
     validate_artifact_package_contract,
 )
+from asago_package.contract_kit import contract_dir
 
 _REPO = Path(__file__).resolve().parents[1]
-_ROOT = _REPO / "contracts" / "artifact-package"
+_ROOT = contract_dir("artifact-package")
 _VERSIONS = ("artifact-package-v4", "artifact-package-v5")
 _READABLE_VERSIONS = ("artifact-package-v5",)
 _SEED = "artifact-seed-v1"
@@ -230,14 +232,20 @@ def test_the_seed_member_of_every_valid_package_follows_the_seed_schema(case: Pa
 _POLICY = _json(_ROOT / "metadata-policy.json")
 
 
-def _package_with(authoring: dict[str, Any]) -> object:
+def _package_with(metadata: dict[str, Any]) -> ArtifactPackage:
+    """Build the package the metadata policy cases run through.
+
+    The metadata goes in ``runtime_capabilities``: the v5 schema closes ``authoring`` to
+    status fields, while the secret policy walks both, so every policy case is a legal
+    package the writer accepts.
+    """
     return build_package(
         package_id="usage-policy",
         scenario_id="usage-policy",
         input_kind="scenario-handoff-v5",
         source_digests={"input": "a" * 64},
         members={"explanation.json": b"{}\n"},
-        authoring=authoring,
+        runtime_capabilities=metadata,
     )
 
 
@@ -247,7 +255,7 @@ def test_the_metadata_policy_accepts_every_allowed_case(entry: dict[str, Any]) -
 
     assert secret_metadata_paths(metadata) == []
     assert_no_secrets({"authoring": metadata})
-    assert _package_with(metadata).manifest.authoring == metadata
+    assert _package_with(metadata).manifest.runtime_capabilities == metadata
 
 
 @pytest.mark.parametrize("entry", _POLICY["rejected"], ids=lambda entry: entry["name"])

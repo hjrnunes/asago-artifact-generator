@@ -138,8 +138,16 @@ missing path.
   checks and their order, and each caller words the `Violation`s. Authoring's policies sit
   beside its wording (`bindings.AUTHORING_POLICY`, `checks._FINDINGS_POLICY`); change a rule
   in the engine, for both.
-- `src/asago_artifact_generator/package_io.py`: the artifact-package-v5 writer
-  and loader. The loader refuses any other schema version, naming it.
+- `src/asago_artifact_generator/package_io.py`: a re-export of the artifact-package-v5
+  writer and loader the `asago-package` member owns. The loader refuses any other schema
+  version, naming it.
+- `packages/asago-package/`: the package library workspace member (`asago_package`), which
+  depends only on pydantic and jsonschema. It owns `package_io` (the v5 writer, loader and
+  values), the contract kit (canonical JSON, framed digests, schema errors, lock checks, the
+  package's own `contract_dir`) and the `metadata_policy` secret walker. It ships the
+  authority copies of `artifact-package`, `runtime-contract` and `capability-gap` as package
+  data under `src/asago_package/contracts/`, the only authority copies in this repository;
+  the app's `contract_dir` keeps serving the seven kits the consumer still owns.
 - `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
   `tool-bundle-v1` schema, slot markers, the capability-gap record, `BundleError`, the
   `testing` package builders, the `mcp_records` readers of the orchestrator's boundary
@@ -241,7 +249,7 @@ missing path.
   and implementation notes are in `docs/midojo-changelog.md`.
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
-  `uv run pytest packages/asago-bundle-garak/tests -q`.
+  `uv run pytest packages/asago-package/tests -q`.
 - `tests/`: executable examples and regression coverage for the changed behavior.
 
 Finish the requested slice once its behavior and required checks pass. Report

@@ -680,7 +680,7 @@ def test_missing_and_extra_files_are_differences(tmp_path: Path) -> None:
 def _age_package(output: Path, item_id: str) -> None:
     """Rewrite a current package in the layout a recording made before the copies were dropped."""
 
-    from asago_artifact_generator.package_io import _manifest_digest, _member_record
+    from asago_package.package_io import _manifest_digest, _member_record
 
     package = output / item_id
     copies = {
@@ -778,7 +778,7 @@ def test_a_retired_layout_still_shows_a_difference_in_a_kept_member(tmp_path: Pa
 def _add_findings(output: Path, item_id: str, findings: list[dict]) -> None:
     """Write a checks member's findings and refresh the manifest that names it."""
 
-    from asago_artifact_generator.package_io import _manifest_digest, _member_record
+    from asago_package.package_io import _manifest_digest, _member_record
 
     package = output / item_id
     checks = json.loads((package / "checks.json").read_bytes())

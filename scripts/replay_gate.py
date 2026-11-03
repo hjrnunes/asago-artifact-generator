@@ -975,7 +975,7 @@ def current_layout(
     """
 
     from asago_artifact_generator.contract_kit import canonical_json
-    from asago_artifact_generator.package_io import (
+    from asago_package.package_io import (
         PACKAGE_SCHEMA_VERSION,
         _manifest_digest,
         _member_record,
@@ -1058,7 +1058,7 @@ def declared_package_layout(
     """
 
     from asago_artifact_generator.contract_kit import canonical_json
-    from asago_artifact_generator.package_io import _manifest_digest, _member_record
+    from asago_package.package_io import _manifest_digest, _member_record
 
     checks_name = f"{item_id}/checks.json"
     manifest_name = f"{item_id}/manifest.json"

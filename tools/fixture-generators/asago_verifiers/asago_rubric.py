@@ -8,9 +8,11 @@ library only.
 The evidence, request and response checks are a port of Garak's
 ``garak/detectors/rubric_judge.py`` at revision 968cc22 (``build_evidence``,
 ``build_request``, ``request_text``, ``assess_response`` and the helpers they call).
-``tests/fixtures/rubric/vectors.json`` holds inputs and outputs computed by the Garak
-functions in Garak's interpreter, and a test requires this port to give the same output
-on every vector. Garak's own file is Apache-2.0 licensed (NVIDIA CORPORATION).
+MiDojo owns the vectors: ``tests/fixtures/rubric/vectors.json`` beside MiDojo's
+``rubric_judge`` holds inputs and outputs computed by the Garak functions in Garak's
+interpreter, and MiDojo's ``tests/test_rubric_judge_vectors.py`` requires the port to
+give the same output on every vector. Garak's own file is Apache-2.0 licensed (NVIDIA
+CORPORATION).
 
 Three things differ from Garak, each by what MiDojo hands a verifier:
 

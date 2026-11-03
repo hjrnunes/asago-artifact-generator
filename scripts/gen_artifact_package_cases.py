@@ -9,6 +9,7 @@ reader runs the same cases: ``valid/`` cases must load, and each
 metadata the closed policy accepts, and rejected metadata with the exact
 violation paths.
 
+The cases live in the ``asago-package`` member's ``contracts/artifact-package/``.
 ``artifact-package-v5/`` holds the cases of the package version the writer writes, and
 ``artifact-package-v4/`` those of the version before it, which readers refuse but keep
 as frozen contract cases.
@@ -34,10 +35,11 @@ import copy
 import hashlib
 import json
 import sys
-from pathlib import Path
 from typing import Any
 
-CONTRACT_ROOT = Path(__file__).resolve().parents[1] / "contracts" / "artifact-package"
+from asago_package.contract_kit import contract_dir
+
+CONTRACT_ROOT = contract_dir("artifact-package")
 V4 = "artifact-package-v4"
 V5 = "artifact-package-v5"
 BINDING_CASES = "binding-cases"

@@ -19,8 +19,9 @@ from jsonschema.exceptions import ValidationError
 
 from asago_artifact_generator import runtime_contract
 from asago_artifact_generator.runtime_contract import RuntimeContractError, load_runtime_contract
+from asago_package.contract_kit import contract_dir
 
-_ROOT = Path(__file__).resolve().parents[1] / "contracts" / "runtime-contract"
+_ROOT = contract_dir("runtime-contract")
 _VERSION = "artifact-runtime-contract-v2"
 _CASES = _ROOT / _VERSION
 

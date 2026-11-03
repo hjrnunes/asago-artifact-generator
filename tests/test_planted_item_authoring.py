@@ -49,6 +49,7 @@ from asago_artifact_generator.authoring.sequential_turns import (
 from asago_artifact_generator.authoring.templates import prose
 from asago_artifact_generator.input_adapter import InputView
 from asago_artifact_generator.package_io import load_package
+from asago_package.contract_kit import contract_dir
 
 from .support import (
     ScriptedAuthoringTransport,
@@ -85,13 +86,7 @@ def setup(tmp_path: Path, turns: int = 2):
 
 
 LIMIT = CARRIER_SLOT["max_chars"]
-SEED_SCHEMA = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "artifact-package"
-    / "artifact-seed-v1"
-    / "schema.json"
-)
+SEED_SCHEMA = contract_dir("artifact-package") / "artifact-seed-v1" / "schema.json"
 
 
 def runtime_with(**slot: Any) -> dict[str, Any]:
