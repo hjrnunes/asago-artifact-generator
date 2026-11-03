@@ -29,6 +29,7 @@ dev = [
     "asago-bundle-core",
     "asago-bundle-garak",
     "asago-bundle-midojo",
+    "asago-scenario-generator",
     "pytest>=8.0",
     "ruff>=0.6",
 ]
@@ -47,6 +48,7 @@ asago-bundle-midojo = { workspace = true }
 # adapter depends on the SDK alone; the harness (``midojo``) never enters this workspace. The
 # revision is a pushed ``asago/main`` SHA, and the subdirectory is the SDK's workspace member.
 midojo-sdk = { git = "https://github.com/hjrnunes/midojo.git", subdirectory = "interception/python-sdk", rev = "619864565e21c4416f8e2657b139d61d9fe1175f" }
+asago-scenario-generator = { path = "../asago-scenario-generator", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/asago_artifact_generator"]

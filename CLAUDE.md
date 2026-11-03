@@ -67,6 +67,12 @@ Use focused tests during implementation and the required broad gates once at
 final delivery. Repeat only for relevant changes or unresolved failures.
 Deterministic tests must not contact a model endpoint or target.
 
+The `dev` dependency group names the producer sibling as an editable path source,
+`../asago-scenario-generator`, so `uv sync --locked` needs that checkout next to
+this one. `tests/test_handoff_writer_reader_pair.py` drives the producer's real
+handoff writer through it; without the sibling the module skips and names the
+missing path.
+
 ## Model-facing work
 
 - Let the LLM design and reason. Code validates structure, resolves documented

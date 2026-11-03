@@ -68,6 +68,7 @@ dev = [
     { name = "asago-bundle-core" },
     { name = "asago-bundle-garak" },
     { name = "asago-bundle-midojo" },
+    { name = "asago-scenario-generator" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -89,6 +90,7 @@ dev = [
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
     { name = "asago-bundle-garak", editable = "packages/asago-bundle-garak" },
     { name = "asago-bundle-midojo", editable = "packages/asago-bundle-midojo" },
+    { name = "asago-scenario-generator", editable = "../asago-scenario-generator" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.6" },
 ]
@@ -140,6 +142,40 @@ requires-dist = [
     { name = "asago-artifact-generator", editable = "." },
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
     { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=619864565e21c4416f8e2657b139d61d9fe1175f" },
+]
+
+[[package]]
+name = "asago-scenario-generator"
+version = "0.1.0"
+source = { editable = "../asago-scenario-generator" }
+dependencies = [
+    { name = "jinja2" },
+    { name = "jsonschema" },
+    { name = "openai" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "typer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jinja2", specifier = ">=3.1" },
+    { name = "jsonschema", specifier = ">=4.0" },
+    { name = "mcp", marker = "extra == 'target-discovery'", specifier = ">=1.9.0,<2" },
+    { name = "openai", specifier = ">=1.0" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "ruff", marker = "extra == 'dev'" },
+    { name = "typer", specifier = ">=0.12" },
+]
+provides-extras = ["dev", "target-discovery"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "hypothesis", specifier = ">=6.164.0" },
+    { name = "pytest-xdist", specifier = ">=3.8.0" },
+    { name = "ruff" },
 ]
 
 [[package]]
