@@ -29,8 +29,7 @@ from judge_cases import (
     post,
     rubric,
 )
-
-from asago_artifact_generator.authoring import rubric_judge as rubric_judge
+from midojo_sdk import rubric_judge as rubric_judge
 
 MESSAGES = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
 KEY = "sk-judge-key-that-stays-here"

@@ -13,7 +13,6 @@ from typing import Any
 
 import pytest
 
-from asago_artifact_generator.package_io import load_package
 from asago_bundle_core.conformance import (
     AdapterUnderTest,
     _marker_failures,
@@ -29,6 +28,7 @@ from asago_bundle_core.slots import BUNDLE, bundle_slot, fill, value_slot
 from asago_bundle_core.testing import write_test_package
 from asago_bundle_core.text import canonical_text
 from asago_bundle_core.values import check_values, render_entrypoint
+from asago_package.package_io import load_package
 
 RECEIPT_SCHEMA = (
     Path(__file__).resolve().parents[3]

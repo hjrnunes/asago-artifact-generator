@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from asago_artifact_generator.package_io import build_package, write_package
+from asago_package.package_io import build_package, write_package
 
 CONDITION = {
     "comparisons": [

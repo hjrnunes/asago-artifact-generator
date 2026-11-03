@@ -9,12 +9,6 @@ from typing import Any
 
 import pytest
 
-from asago_artifact_generator.package_io import (
-    ArtifactPackage,
-    build_package,
-    load_package,
-    write_package,
-)
 from asago_bundle_core.bindings import (
     BindingError,
     RuntimeBinding,
@@ -36,6 +30,12 @@ from asago_bundle_core.preparation import (
     _validate_setup,
     check_prerequisites,
     prepare_package,
+)
+from asago_package.package_io import (
+    ArtifactPackage,
+    build_package,
+    load_package,
+    write_package,
 )
 
 _CONDITION = {"comparisons": [{"kind": "called", "operation": "process_refund"}]}

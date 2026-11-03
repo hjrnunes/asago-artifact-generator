@@ -23,7 +23,6 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
-from asago_artifact_generator.package_io import ArtifactPackage, load_package
 from asago_bundle_core.preparation import (
     PreparationError,
     PreparationIncomplete,
@@ -33,6 +32,7 @@ from asago_bundle_core.preparation import (
 )
 from asago_bundle_core.target import TargetConfig, authorized_target, mcp_call_target
 from asago_bundle_midojo.judge_service import FINAL_TURN
+from asago_package.package_io import ArtifactPackage, load_package
 
 from .compiler import CompileError, compile_package
 from .instantiate import CHECKS, InstantiateError, Template, fill_template, read_template

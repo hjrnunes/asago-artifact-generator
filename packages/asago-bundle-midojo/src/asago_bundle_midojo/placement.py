@@ -67,8 +67,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
-from asago_artifact_generator.package_io import ArtifactPackage
 from asago_bundle_core.errors import BundleError
+from asago_package.package_io import ArtifactPackage
 
 from .declared import DeclaredTools
 from .injection_spec import EVERY, probe_key, tool_output_instruction

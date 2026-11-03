@@ -624,7 +624,7 @@ validated against the vendored schema of its version:
   only an earlier call with an equal value for that argument counts. The
   authoritative semantics are
   in `contracts/tool-call-condition/tool-call-condition-v2/README.md`, which the
-  consumer's evaluator (`authoring/condition_eval.py`) implements; the v1 kit
+  `asago-package` member's `condition_eval.py` implements; the v1 kit
   stays mirrored beside it. The
   `record_selection` is `observed`, with a `record_path` and optional
   `argument_values` paths, or `unavailable`, with a `reason`.
@@ -1451,7 +1451,7 @@ revision they come from, which the adapter's `pyproject.toml` pin must match.
 
 ```
 ├── src/asago_artifact_generator/    # authoring, packages, CLI
-├── packages/asago-package/          # package library (workspace member): artifact-package-v5 writer and loader, contract kit, and the authority copies of artifact-package, runtime-contract and capability-gap
+├── packages/asago-package/          # package library (workspace member): artifact-package-v5 writer and loader, binding rules, tool-call-condition evaluator, contract kit, and the authority copies of artifact-package, runtime-contract and capability-gap
 ├── packages/asago-bundle-core/      # shared adapter core (workspace member): tool-bundle-v1 schema, slots, package preparation, target config, conformance helper
 ├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse as library entry points
 ├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): planted_item packages to response-injection injection specs for a target config, sealed snapshots and verdicts to receipts; other packages exit 3

@@ -39,3 +39,52 @@ jobs:
             uv run pytest "${dir}tests" -q || status=1
           done
           exit "$status"
+
+  # Each adapter reads the package values, the binding rules and the condition evaluator
+  # from the `asago-package` member, and none of them may name the authoring application.
+  # The isolated environment installs only the adapter, the Asago members it declares and
+  # pytest, so an import of the authoring application fails and names the leak.
+  adapter-isolation:
+    name: ${{ matrix.adapter }} without the authoring application
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - adapter: asago-bundle-core
+            module: asago_bundle_core
+            libraries: --with ./packages/asago-package
+          - adapter: asago-bundle-garak
+            module: asago_bundle_garak
+            libraries: >-
+              --with ./packages/asago-package
+              --with ./packages/asago-bundle-core
+              --with ./packages/asago-bundle-midojo
+          - adapter: asago-bundle-midojo
+            module: asago_bundle_midojo
+            libraries: --with ./packages/asago-package --with ./packages/asago-bundle-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+      - name: The adapter imports in its isolated environment
+        run: |
+          uv run --isolated --no-project \
+            --with ./packages/${{ matrix.adapter }} ${{ matrix.libraries }} \
+            python -c "import ${{ matrix.module }}"
+      - name: The authoring application does not
+        run: |
+          if uv run --isolated --no-project \
+            --with ./packages/${{ matrix.adapter }} ${{ matrix.libraries }} \
+            python -c "import asago_artifact_generator"; then
+            echo "::error::the ${{ matrix.adapter }} environment imports the authoring application"
+            exit 1
+          fi
+      - name: Tests
+        run: |
+          uv run --isolated --no-project \
+            --with ./packages/${{ matrix.adapter }} ${{ matrix.libraries }} \
+            --with pytest \
+            pytest packages/${{ matrix.adapter }}/tests -q

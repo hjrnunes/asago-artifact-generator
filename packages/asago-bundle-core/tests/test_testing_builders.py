@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from asago_artifact_generator.package_io import load_package
 from asago_bundle_core.testing import (
     CONDITION,
     JUDGE,
@@ -15,6 +14,7 @@ from asago_bundle_core.testing import (
     single_stimulus,
     write_test_package,
 )
+from asago_package.package_io import load_package
 
 
 def member(package_dir: Path, name: str) -> dict:

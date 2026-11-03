@@ -1,4 +1,5 @@
-"""The package library owns package IO and the binding rules; the consumer re-exports them.
+"""The package library owns package IO, the binding rules and the evaluator; the consumer
+re-exports them.
 
 The implementation lives in the ``asago-package`` workspace member, which imports nothing
 from this application and declares only pydantic and jsonschema. The consumer keeps its old
@@ -13,12 +14,14 @@ from types import ModuleType
 
 import pytest
 
+import asago_artifact_generator.authoring.condition_eval as application_condition_eval
 import asago_artifact_generator.binding_rules as application_binding_rules
 import asago_artifact_generator.bindings as application_bindings
 import asago_artifact_generator.metadata_policy as application_metadata_policy
 import asago_artifact_generator.package_io as application_package_io
 import asago_package.binding_rules as package_binding_rules
 import asago_package.bindings as package_bindings
+import asago_package.condition_eval as package_condition_eval
 import asago_package.metadata_policy as package_metadata_policy
 import asago_package.package_io as package_package_io
 from asago_artifact_generator.contract_kit import contract_dir as application_contract_dir
@@ -38,21 +41,22 @@ def test_the_consumer_module_reexports_the_same_object(name: str) -> None:
     assert getattr(application_package_io, name) is getattr(package_package_io, name)
 
 
-_BINDING_MODULES = (
+_REEXPORTED_MODULES = (
     pytest.param(application_binding_rules, package_binding_rules, id="binding_rules"),
     pytest.param(application_bindings, package_bindings, id="bindings"),
+    pytest.param(application_condition_eval, package_condition_eval, id="condition_eval"),
 )
 
 
-@pytest.mark.parametrize(("application", "package"), _BINDING_MODULES)
-def test_the_consumer_binding_modules_reexport_the_whole_public_surface(
+@pytest.mark.parametrize(("application", "package"), _REEXPORTED_MODULES)
+def test_each_consumer_module_reexports_the_whole_public_surface(
     application: ModuleType, package: ModuleType
 ) -> None:
     assert application.__all__ == package.__all__
 
 
-@pytest.mark.parametrize(("application", "package"), _BINDING_MODULES)
-def test_the_consumer_binding_modules_reexport_the_same_objects(
+@pytest.mark.parametrize(("application", "package"), _REEXPORTED_MODULES)
+def test_each_consumer_module_reexports_the_same_objects(
     application: ModuleType, package: ModuleType
 ) -> None:
     separate = [

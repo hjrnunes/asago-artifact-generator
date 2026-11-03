@@ -22,7 +22,7 @@ from typing import Any
 
 import jsonschema
 
-from asago_artifact_generator.package_io import ArtifactPackage, load_package
+from asago_package.package_io import ArtifactPackage, load_package
 
 from .errors import BundleError
 from .gap import CapabilityGap

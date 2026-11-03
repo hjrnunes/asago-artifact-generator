@@ -52,8 +52,8 @@ from typing import Any
 
 import yaml
 
-from asago_artifact_generator.package_io import SEED_MEMBER, build_package, write_package
 from asago_bundle_core.testing import write_test_package
+from asago_package.package_io import SEED_MEMBER, build_package, write_package
 
 REPO = Path(__file__).resolve().parents[3]
 PIGGYBANK = REPO / "tests" / "fixtures" / "targets" / "piggybank"

@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from asago_artifact_generator.package_io import load_package
 from asago_bundle_core.schema import validate_manifest
 from asago_bundle_core.slots import template_slots
 from asago_bundle_core.testing import CONDITION, JUDGE, sequential_stimulus, write_test_package
@@ -17,6 +16,7 @@ from asago_bundle_garak.compiler import (
     CompileError,
     compile_package,
 )
+from asago_package.package_io import load_package
 from conftest import REPO
 
 # Written by c18e46d's package writer (see its generate.py).

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from asago_artifact_generator.package_io import ArtifactPackage
+from asago_package.package_io import ArtifactPackage
 
 EXIT_OK = 0
 EXIT_INPUT = 1

@@ -8,8 +8,10 @@ version = "0.1.0"
 description = "MiDojo adapter: compiles a planted_item artifact package into a response-injection MiDojo episode for a target and parses its sealed snapshot and verdict into an execution receipt"
 requires-python = ">=3.12"
 dependencies = [
-    "asago-artifact-generator",
     "asago-bundle-core",
+    "asago-package",
+    # ``declared.py`` reads the target's tool list, which is YAML.
+    "pyyaml>=6.0",
     # The SDK alone: it carries episode document v1's schema and the snapshot digest, and it
     # imports no part of the harness.
     "midojo-sdk",
@@ -19,8 +21,8 @@ dependencies = [
 asago-bundle-midojo = "asago_bundle_midojo.cli:main"
 
 [tool.uv.sources]
-asago-artifact-generator = { workspace = true }
 asago-bundle-core = { workspace = true }
+asago-package = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/asago_bundle_midojo"]

@@ -25,7 +25,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from asago_artifact_generator.package_io import ArtifactPackage, load_package
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.gap import CapabilityGap, capability_gap_record
 from asago_bundle_core.slots import bundle_slot, contains_marker, template_slots, value_slot
@@ -37,6 +36,7 @@ from asago_bundle_midojo.injection_spec_compile import (
     injection_spec_document,
 )
 from asago_bundle_midojo.judge_service import FINAL_TURN, JUDGE_TURNS
+from asago_package.package_io import ArtifactPackage, load_package
 
 BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
 TOOL = "garak"

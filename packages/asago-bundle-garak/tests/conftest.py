@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from asago_artifact_generator.package_io import build_package, write_package
 from asago_bundle_core.testing import CONDITION, JUDGE, sequential_stimulus, write_test_package
+from asago_package.package_io import build_package, write_package
 
 
 @pytest.fixture

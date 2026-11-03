@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Collection
 from typing import Any
 
-from asago_artifact_generator.binding_rules import (
+from asago_package.binding_rules import (
     SLOT_PATTERN,
     BindingError,
     RuntimeBinding,

@@ -103,16 +103,16 @@ name = "asago-bundle-core"
 version = "0.1.0"
 source = { editable = "packages/asago-bundle-core" }
 dependencies = [
-    { name = "asago-artifact-generator" },
     { name = "asago-package" },
     { name = "jsonschema" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "asago-artifact-generator", editable = "." },
     { name = "asago-package", editable = "packages/asago-package" },
     { name = "jsonschema", specifier = ">=4.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 
 [[package]]
@@ -120,16 +120,16 @@ name = "asago-bundle-garak"
 version = "0.1.0"
 source = { editable = "packages/asago-bundle-garak" }
 dependencies = [
-    { name = "asago-artifact-generator" },
     { name = "asago-bundle-core" },
     { name = "asago-bundle-midojo" },
+    { name = "asago-package" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "asago-artifact-generator", editable = "." },
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
     { name = "asago-bundle-midojo", editable = "packages/asago-bundle-midojo" },
+    { name = "asago-package", editable = "packages/asago-package" },
 ]
 
 [[package]]
@@ -137,16 +137,18 @@ name = "asago-bundle-midojo"
 version = "0.1.0"
 source = { editable = "packages/asago-bundle-midojo" }
 dependencies = [
-    { name = "asago-artifact-generator" },
     { name = "asago-bundle-core" },
+    { name = "asago-package" },
     { name = "midojo-sdk" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "asago-artifact-generator", editable = "." },
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
+    { name = "asago-package", editable = "packages/asago-package" },
     { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=162233f0910e5566c48d285a4b2401a2bdc5387c" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 
 [[package]]
