@@ -4,13 +4,12 @@ This page holds the MiDojo adapter's revision history, fixture provenance and
 implementation notes, moved out of the agent guide (`CLAUDE.md`) so that guide
 stays short.
 
-The adapter currently pins `midojo-sdk` at `1d0e240` (the binding-conformance
-fixes: a stream starts at frame 0, the handshake asks for the
-`midojo-binding.v1` subprotocol while the messages keep the `midojo-binding-v1`
-API name, the service holds a request until `bound`, the dispatcher sends the
-heartbeat, and an unacknowledged release after the seal reports `link-lost`);
-`pyproject.toml` and `uv.lock` hold the full revision. The note below keeps
-each revision as it was recorded.
+The adapter currently pins `midojo-sdk` at `6198645` (the held-request fix on
+top of `1d0e240`'s binding-conformance fixes: a request waiting at a binding's
+`/b/<id>/mcp` before `bound` answers 401, never 500, when its binding ends
+first, including a driver whose socket aborted before the service read the
+disconnect; the SDK itself is unchanged); `pyproject.toml` and `uv.lock` hold
+the full revision. The note below keeps each revision as it was recorded.
 
 ## Adapter notes
 
