@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from asago_package import package_io
 from asago_package.contract_kit import contract_dir
 from asago_package.package_io import (
+    PACKAGE_SCHEMA_VERSION,
     ArtifactPackage,
     PackageIntegrityError,
     PackagePathError,
@@ -303,6 +305,86 @@ def test_loader_rejects_a_package_whose_layout_differs_from_the_manifest(
     for destination, message in cases:
         with pytest.raises(PackageIntegrityError, match=message):
             load_package(destination)
+
+
+def test_the_reader_names_its_root_digest_version_and_members(tmp_path: Path) -> None:
+    destination = write_package(tmp_path / "package", _package())
+    manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
+
+    package = load_package(destination)
+
+    assert package.root == destination.resolve()
+    assert package.digest == manifest["manifest_digest"]
+    assert package.schema_version == PACKAGE_SCHEMA_VERSION
+    assert package.json_member("plan.json") == {"plan": "exact"}
+    assert package.json_member("absent.json") is None
+    assert package.json_member("absent.json", default={"fallback": True}) == {"fallback": True}
+
+
+def test_the_reader_refuses_a_member_that_is_not_json_only_when_asked(
+    tmp_path: Path,
+) -> None:
+    package = build_package(
+        package_id="pkg-1",
+        scenario_id="scenario-1",
+        input_kind="scenario-handoff-v5",
+        source_digests={"source": "a" * 64},
+        members={"explanation.json": b"not json\n"},
+    )
+    loaded = load_package(write_package(tmp_path / "package", package))
+
+    assert loaded.members["explanation.json"] == b"not json\n"
+    with pytest.raises(
+        PackageIntegrityError,
+        match="^invalid JSON package member: explanation.json$",
+    ):
+        loaded.json_member("explanation.json")
+
+
+def test_the_reader_resolves_the_package_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = write_package(tmp_path / "package", _package())
+    resolved = destination.resolve()
+
+    assert load_package(destination).root == resolved
+
+    monkeypatch.chdir(tmp_path)
+    assert load_package(Path("package")).root == resolved
+
+    (tmp_path / "nested").mkdir()
+    assert load_package(tmp_path / "nested" / ".." / "package").root == resolved
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert load_package("~/package").root == resolved
+
+    alias = tmp_path / "alias"
+    alias.symlink_to(destination, target_is_directory=True)
+    assert load_package(alias).root == resolved
+
+
+@pytest.mark.parametrize("name", ["absent", "manifest.json"])
+def test_the_reader_names_a_path_that_is_not_a_package_directory(
+    tmp_path: Path, name: str
+) -> None:
+    destination = write_package(tmp_path / "package", _package())
+    path = destination / name
+
+    with pytest.raises(
+        PackageIntegrityError,
+        match=rf"^package directory is unavailable: {re.escape(str(path))}$",
+    ):
+        load_package(path)
+
+
+def test_the_reader_ignores_finder_metadata_files(tmp_path: Path) -> None:
+    destination = write_package(tmp_path / "package", _package())
+    (destination / ".DS_Store").write_bytes(b"\x00\x00\x00\x01Bud1")
+
+    package = load_package(destination)
+
+    assert package.members == _package().members
+    assert ".DS_Store" not in package.members
 
 
 @pytest.mark.parametrize(

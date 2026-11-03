@@ -238,7 +238,11 @@ def test_the_reader_refuses_a_manifest_digest_that_does_not_cover_its_fields(
         ),
         (
             {"runtime_capabilities": {"api_key": "not persisted"}},
-            "manifest contains secret-bearing metadata",
+            "manifest runtime_capabilities contains secret-bearing metadata",
+        ),
+        (
+            {"authoring": {"status": "produced", "api_key": "not persisted"}},
+            "manifest authoring contains secret-bearing metadata",
         ),
         ({"authoring": None}, "package manifest schema invalid at authoring"),
     ],

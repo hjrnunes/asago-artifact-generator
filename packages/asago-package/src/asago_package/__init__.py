@@ -16,7 +16,10 @@ authoring application.
 from __future__ import annotations
 
 from .package_io import (
+    JUDGE_MEMBER,
     PACKAGE_SCHEMA_VERSION,
+    SEED_MEMBER,
+    TOOL_CALL_CONDITION_MEMBER,
     ArtifactPackage,
     PackageIntegrityError,
     PackageManifest,
@@ -28,7 +31,10 @@ from .package_io import (
 )
 
 __all__ = [
+    "JUDGE_MEMBER",
     "PACKAGE_SCHEMA_VERSION",
+    "SEED_MEMBER",
+    "TOOL_CALL_CONDITION_MEMBER",
     "ArtifactPackage",
     "PackageIntegrityError",
     "PackageManifest",

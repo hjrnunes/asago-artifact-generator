@@ -1,4 +1,10 @@
-"""Contained, atomic persistence for the consumer-owned artifact package."""
+"""Contained, atomic persistence for the consumer-owned artifact package.
+
+The writer and reader are the only code that seals or opens a package. Orch
+loads packages through this module, so the reader keeps the strictest of the
+rows both callers need: it resolves the package root, ignores Finder metadata,
+and names the manifest field that carries secret-bearing metadata.
+"""
 
 from __future__ import annotations
 
@@ -24,7 +30,10 @@ from .value_checks import is_sha256_hex
 
 PACKAGE_SCHEMA_VERSION = "artifact-package-v5"
 TOOL_CALL_CONDITION_MEMBER = "tool_call_condition.json"
+JUDGE_MEMBER = "judge.json"
 SEED_MEMBER = "seed.json"
+# Finder metadata is not a package member and never reaches a caller.
+_FINDER_METADATA = frozenset({".DS_Store"})
 _ALLOWED_MEMBER_NAMES = {
     "plan.json",
     "stimulus.json",
@@ -34,7 +43,7 @@ _ALLOWED_MEMBER_NAMES = {
     "checks.json",
     "inputs.json",
     "observations.json",
-    "judge.json",
+    JUDGE_MEMBER,
     "explanation.json",
     "examples.json",
     TOOL_CALL_CONDITION_MEMBER,
@@ -43,7 +52,7 @@ _ALLOWED_MEMBER_NAMES = {
 # Each claim level names the member that downstream detection reads.
 _CLAIM_LEVEL_MEMBERS = {
     ClaimLevel.COMMAND_ATTEMPT.value: TOOL_CALL_CONDITION_MEMBER,
-    ClaimLevel.REPLY.value: "judge.json",
+    ClaimLevel.REPLY.value: JUDGE_MEMBER,
 }
 _CONTRACT_ROOT = contract_dir("artifact-package")
 # The handoff version a package may come from; the v5 schema lists it.
@@ -93,10 +102,43 @@ class PackageManifest:
 
 @dataclass
 class ArtifactPackage:
-    """An in-memory package whose members have not yet been persisted."""
+    """A typed manifest with the member bytes the contract seals.
+
+    ``root`` is the resolved directory the reader loaded; a package the writer
+    built in memory has none. ``digest`` and ``schema_version`` name the values
+    the manifest seals, and ``json_member`` decodes one member on first read.
+    """
 
     manifest: PackageManifest
     members: dict[str, bytes]
+    root: Path | None = None
+
+    @property
+    def digest(self) -> str:
+        """Return the sealed manifest digest."""
+
+        return self.manifest.manifest_digest
+
+    @property
+    def schema_version(self) -> str:
+        """Return the package schema version the manifest declares."""
+
+        return self.manifest.schema_version
+
+    def json_member(self, name: str, *, default: Any = None) -> Any:
+        """Return a member's decoded JSON, or ``default`` when the package has none.
+
+        A member whose bytes are not JSON raises; a caller that reads such a
+        member first is the one that fails on it.
+        """
+
+        content = self.members.get(name)
+        if content is None:
+            return default
+        try:
+            return json.loads(content)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise PackageIntegrityError(f"invalid JSON package member: {name}") from exc
 
 
 def build_package(
@@ -204,14 +246,16 @@ def _remove_path(path: Path) -> None:
 def load_package(path: str | Path) -> ArtifactPackage:
     """Load and verify every package member before returning any content.
 
-    The loader reads only ``artifact-package-v5``. A package that declares a
-    retired or unknown version, ``artifact-package-v4`` included, fails with an
-    error that names the version it found.
+    The loader reads only ``artifact-package-v5``. It resolves the root (``~``,
+    relative segments and symlinks) so every member path is checked against the
+    directory it actually read. A package that declares a retired or unknown
+    version, ``artifact-package-v4`` included, fails with an error that names
+    the version it found.
     """
 
     validate_artifact_package_contract()
-    root = Path(path)
-    if not root.is_dir() or root.is_symlink():
+    root = Path(path).expanduser().resolve()
+    if not root.is_dir():
         raise PackageIntegrityError(f"package directory is unavailable: {root}")
     manifest_path = root / "manifest.json"
     try:
@@ -227,8 +271,8 @@ def load_package(path: str | Path) -> ArtifactPackage:
         relative, content = _load_member(root, record, members)
         members[relative] = content
     _verify_package_layout(root, set(members))
-    _validate_package(ArtifactPackage(manifest, members))
-    return ArtifactPackage(manifest, members)
+    _validate_package(ArtifactPackage(manifest, members, root))
+    return ArtifactPackage(manifest, members, root)
 
 
 def _load_member(root: Path, record: Any, loaded: dict[str, bytes]) -> tuple[str, bytes]:
@@ -254,7 +298,7 @@ def _verify_package_layout(root: Path, expected_paths: set[str]) -> None:
     actual_paths = {
         path.relative_to(root).as_posix()
         for path in root.rglob("*")
-        if path.is_file() and path.name != "manifest.json"
+        if path.is_file() and path.name != "manifest.json" and path.name not in _FINDER_METADATA
     }
     if actual_paths != expected_paths:
         raise PackageIntegrityError("package member set does not match manifest")
@@ -385,12 +429,8 @@ def _validate_manifest_fields(manifest: PackageManifest) -> None:
     _validate_manifest_names(manifest)
     if not _is_source_digest_map(manifest.source_digests):
         raise PackageIntegrityError("manifest source_digests must contain SHA-256 strings")
-    for value in (
-        manifest.authoring,
-        manifest.runtime_capabilities,
-        manifest.creation_model,
-    ):
-        _validate_manifest_metadata(value)
+    for name in ("authoring", "runtime_capabilities", "creation_model"):
+        _validate_manifest_metadata(name, getattr(manifest, name))
     if not isinstance(manifest.members, list):
         raise PackageIntegrityError("manifest members must be a list")
 
@@ -414,11 +454,20 @@ def _is_source_digest_map(value: Any) -> bool:
     )
 
 
-def _validate_manifest_metadata(value: Any) -> None:
-    if value is not None and not isinstance(value, dict):
-        raise PackageIntegrityError("manifest metadata must be objects")
-    if value is not None and secret_metadata_paths(value):
-        raise PackageIntegrityError("manifest contains secret-bearing metadata")
+def _validate_manifest_metadata(name: str, value: Any) -> None:
+    """Refuse non-object metadata, and name the field that carries a secret.
+
+    The walk runs before the schema check, so a metadata object the schema
+    would also reject names its secret-bearing field first. A ``None`` value
+    stays for the schema to refuse, with the schema's own message.
+    """
+
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise PackageIntegrityError(f"manifest {name} must be an object")
+    if secret_metadata_paths(value):
+        raise PackageIntegrityError(f"manifest {name} contains secret-bearing metadata")
 
 
 def _validate_package(package: ArtifactPackage) -> None:
@@ -482,6 +531,7 @@ def validate_artifact_package_contract() -> None:
 
 __all__ = [
     "ArtifactPackage",
+    "JUDGE_MEMBER",
     "PACKAGE_SCHEMA_VERSION",
     "PackageIntegrityError",
     "PackageManifest",

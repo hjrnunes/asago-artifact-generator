@@ -1,7 +1,7 @@
 """The consumer reader runs every artifact-package-v5 contract case.
 
 The cases live in the ``asago-package`` member's ``contracts/artifact-package/`` and the
-orchestrator runs the same files from its mirror. Each invalid case names a stable code;
+orchestrator reads the same files through that library. Each invalid case names a stable code;
 ``_MESSAGES`` maps the code to this reader's error wording, and
 ``_VERSION_MESSAGES`` names the wording a version's schema gives first. The
 artifact-package-v4 cases stay for the frozen schema checks; the reader refuses
@@ -45,8 +45,8 @@ _MESSAGES = {
     "source_digests_invalid": r"^manifest source_digests must contain SHA-256 strings$",
     "manifest_digest_mismatch": r"^manifest digest mismatch$",
     "members_empty": r"^package manifest schema invalid at members: \[\] should be non-empty$",
-    "metadata_not_object": r"^manifest metadata must be objects$",
-    "metadata_secret": r"^manifest contains secret-bearing metadata$",
+    "metadata_not_object": r"^manifest creation_model must be an object$",
+    "metadata_secret": r"^manifest runtime_capabilities contains secret-bearing metadata$",
     "input_kind_unsupported": r"^unsupported package input kind: ",
     "schema_version_unknown": r"^unsupported artifact package schema version: ",
     "member_length_mismatch": r"^length mismatch for package member: ",
