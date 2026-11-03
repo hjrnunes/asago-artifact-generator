@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from asago_artifact_generator.package_io import ArtifactPackage, build_package
+from asago_artifact_generator.package_io import (
+    ArtifactPackage,
+    build_package,
+    load_package,
+    write_package,
+)
 from asago_bundle_core.bindings import (
     BindingError,
     RuntimeBinding,
@@ -52,6 +58,7 @@ def _package(
     claim_level: str | None = "command_attempt",
     stimulus_text: str | None = None,
     history: Any = None,
+    setup_permissions: list[str] | None = None,
 ) -> ArtifactPackage:
     stimulus: dict[str, Any] = {
         "user_text": stimulus_text
@@ -62,10 +69,13 @@ def _package(
     }
     if history is not None:
         stimulus["history"] = history
+    runtime_contract = {
+        "setup_permissions": ["prepare"] if setup_permissions is None else setup_permissions
+    }
     members = {
         "plan.json": json.dumps(
             {
-                "runtime_contract": {"setup_permissions": ["prepare"]},
+                "runtime_contract": runtime_contract,
                 "scenario": "meaning",
                 **(
                     {"observation_claim": {"claim_level": claim_level}}
@@ -137,7 +147,7 @@ def _package(
                         }
                     ]
                 },
-                "runtime_contract": {"setup_permissions": ["prepare"]},
+                "runtime_contract": runtime_contract,
             }
         ).encode(),
     }
@@ -153,7 +163,7 @@ def _package(
         input_kind="scenario-handoff-v5",
         source_digests={"input": "a" * 64},
         members=members,
-        authoring={"attempts": 2, "max_retries": 0},
+        authoring={"status": "produced"},
     )
 
 
@@ -179,6 +189,12 @@ def _prepared(package: ArtifactPackage, result: object) -> PreparedPackage:
     prepared = prepare_package(package, call_target=_returning(result))
     assert isinstance(prepared, PreparedPackage), prepared
     return prepared
+
+
+def _written(package: ArtifactPackage, root: Path) -> ArtifactPackage:
+    """Publish ``package`` with the consumer's package writer and read it back."""
+
+    return load_package(write_package(root, package))
 
 
 @pytest.mark.parametrize(
@@ -312,6 +328,30 @@ def test_a_prepared_package_has_its_rendered_stimulus_and_setup_ledger() -> None
     }
     assert prepared.setup_outputs == {"prepare": {"order_id": "ord-1"}}
     assert prepared.bindings == {"order_id": "ord-1"}
+
+
+def test_prepare_package_reads_a_package_the_writer_publishes(tmp_path: Path) -> None:
+    package = _written(_package(prerequisite=True), tmp_path / "package")
+
+    prepared = _prepared(package, {"order_id": "ord-1"})
+
+    assert prepared.stimulus == {"user_text": "refund ord-1", "history": []}
+    assert prepared.bindings == {"order_id": "ord-1"}
+    assert [(result["name"], result["status"]) for result in prepared.prerequisites] == [
+        ("ready", "passed")
+    ]
+
+
+def test_prepare_package_refuses_a_written_package_with_an_undeclared_permission(
+    tmp_path: Path,
+) -> None:
+    package = _written(_package(setup_permissions=[]), tmp_path / "package")
+
+    prepared = _incomplete(package, {"order_id": "ord-1"})
+
+    assert prepared.reason == "setup_failed"
+    assert prepared.error == "setup operation not permitted: prepare"
+    assert prepared.setup_ledger == []
 
 
 def test_the_setup_ledger_keeps_the_mcp_result_beside_the_decoded_one() -> None:
