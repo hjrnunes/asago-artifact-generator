@@ -4,12 +4,14 @@ This page holds the MiDojo adapter's revision history, fixture provenance and
 implementation notes, moved out of the agent guide (`CLAUDE.md`) so that guide
 stays short.
 
-The adapter currently pins `midojo-sdk` at `6198645` (the held-request fix on
-top of `1d0e240`'s binding-conformance fixes: a request waiting at a binding's
-`/b/<id>/mcp` before `bound` answers 401, never 500, when its binding ends
-first, including a driver whose socket aborted before the service read the
-disconnect; the SDK itself is unchanged); `pyproject.toml` and `uv.lock` hold
-the full revision. The note below keeps each revision as it was recorded.
+The adapter currently pins `midojo-sdk` at `9e1f90f`, which retires the
+tool-call-condition v1 fixtures from MiDojo's test suite; the SDK itself is
+unchanged since `6198645` (the held-request fix on top of `1d0e240`'s
+binding-conformance fixes: a request waiting at a binding's `/b/<id>/mcp`
+before `bound` answers 401, never 500, when its binding ends first, including a
+driver whose socket aborted before the service read the disconnect);
+`pyproject.toml` and `uv.lock` hold the full revision. The note below keeps
+each revision as it was recorded.
 
 ## Adapter notes
 
