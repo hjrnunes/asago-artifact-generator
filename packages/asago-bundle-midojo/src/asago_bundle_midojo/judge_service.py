@@ -7,7 +7,7 @@ A reply episode's security check is MiDojo's built-in ``reply_judge`` predicate
 turn's ``message`` and the agent's ``reply``, the earlier turns (``prior_turns``) and the
 recorded calls (``tool_calls``, each naming the turn it was made in, and
 ``tool_calls_complete``). This service answers it with the Garak-ported rubric judge
-(``asago_artifact_generator.authoring.rubric_judge``): it sends the model the requests
+(``midojo_sdk.rubric_judge``): it sends the model the requests
 Garak's ``RubricJudge`` sends for the same conversation, and answers ``supported``,
 ``contradicted`` or ``unresolved``, which MiDojo grades True, False and unknown.
 
@@ -75,16 +75,16 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, TextIO
 
-from asago_artifact_generator.authoring.rubric_judge import (
+from midojo_sdk.rubric_judge import (
     KEY_NAME,
     PROMPT_VERSION,
     TIMEOUT_SECONDS,
     JudgeCallError,
-    _record,
     build_evidence,
     http_judge,
     is_complete,
     judge_output,
+    record,
     request_count,
     request_text,
 )
@@ -298,15 +298,15 @@ def judge_records(
     """
 
     if "prior_turns" not in request or "tool_calls" not in request:
-        return [_record("unresolved", [], CONTEXT_MISSING)]
+        return [record("unresolved", [], CONTEXT_MISSING)]
     turns = conversation(rubric, request)
     if isinstance(turns, str):
-        return [_record("unresolved", [], turns)]
+        return [record("unresolved", [], turns)]
     calls = list(request["tool_calls"])
     count = len(turns)
     placed = placed_turns(calls, count)
     if rubric.judge_turns == ALL_TURNS and count > 1 and placed is None:
-        return [_record("unresolved", [], CALL_TURN_INVALID)]
+        return [record("unresolved", [], CALL_TURN_INVALID)]
     judged = range(count) if rubric.judge_turns == ALL_TURNS else [count - 1]
     complete = request["tool_calls_complete"] is True and is_complete(calls)
     records = []
@@ -398,7 +398,7 @@ def judge(
 
     rubric = parse_rubric(request["claim"], request["rubric"])
     if rubric is None:
-        records = [_record("unresolved", [], RUBRIC_INVALID)]
+        records = [record("unresolved", [], RUBRIC_INVALID)]
         judge_turns = None
     else:
         records = judge_records(rubric, request, calls(budget_seconds(rubric)))

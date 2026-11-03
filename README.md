@@ -1057,11 +1057,12 @@ Garak adapter reaches the same result through the Garak IPI route:
 its `compile --target` writes `ipi-episodes.json`, and Garak's `InjectionSpecProbe`
 probe plants through the same host interceptor. Neither adapter writes a `seed.json`
 into the target. The adapter reads and writes MiDojo's documents through `midojo-sdk`,
-which `pyproject.toml` pins by commit to `asago/main` at `9e1f90f` (subdirectory
+which `pyproject.toml` pins by commit to `asago/main` at `162233f` (subdirectory
 `interception/python-sdk`), and it never imports `midojo`: the injection-spec schema,
-the plan and the snapshot digest are the SDK's (`midojo_sdk.injection_spec_schema`,
-`midojo_sdk.injection` and `midojo_sdk.snapshot`).
-The runner runs the injection spec with the same revision, `asago/main` at `9e1f90f`. It
+the plan, the snapshot digest and the rubric judge are the SDK's
+(`midojo_sdk.injection_spec_schema`, `midojo_sdk.injection`, `midojo_sdk.snapshot` and
+`midojo_sdk.rubric_judge`).
+The runner runs the injection spec with the same revision, `asago/main` at `162233f`. It
 reads the v1 document under either ID: `midojo.episode_handle.open`, the deprecated alias
 of `midojo.evaluation_handle`, with `HostInterception`
 (`src/midojo/interception_host.py`), `midojo.grade`
@@ -1211,10 +1212,11 @@ a run with one sends a second, different request in the same grading. The same i
 give the same bytes.
 
 `asago-bundle-midojo judge-serve` answers that request with the rubric judge
-(`authoring/rubric_judge.py`, Garak's port): for the conversation the request holds it
-sends the model the requests Garak's `RubricJudge` sends, one per judged turn (the last
-turn for `final`, each in order for `all`, whose last verdict is the answer), checked
-against Garak's (`packages/asago-bundle-midojo/tests/fixtures/rubric/`). It answers
+(`midojo_sdk.rubric_judge`, Garak's port; `authoring/rubric_judge.py` re-exports it): for
+the conversation the request holds it sends the model the requests Garak's `RubricJudge`
+sends, one per judged turn (the last turn for `final`, each in order for `all`, whose last
+verdict is the answer), checked against Garak's (`midojo`'s `tests/fixtures/rubric/`). It
+answers
 `supported`, `contradicted` or `unresolved`, which MiDojo grades true, false and unknown;
 `rationale` is the judge's reason (`judge_completed`, `judge_parse_failed`,
 `judge_failed:<label>`, ...), `model` the model asked, and `details` `{prompt_version,

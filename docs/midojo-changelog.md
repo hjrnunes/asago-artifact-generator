@@ -4,14 +4,16 @@ This page holds the MiDojo adapter's revision history, fixture provenance and
 implementation notes, moved out of the agent guide (`CLAUDE.md`) so that guide
 stays short.
 
-The adapter currently pins `midojo-sdk` at `9e1f90f`, which retires the
-tool-call-condition v1 fixtures from MiDojo's test suite; the SDK itself is
-unchanged since `6198645` (the held-request fix on top of `1d0e240`'s
-binding-conformance fixes: a request waiting at a binding's `/b/<id>/mcp`
-before `bound` answers 401, never 500, when its binding ends first, including a
-driver whose socket aborted before the service read the disconnect);
-`pyproject.toml` and `uv.lock` hold the full revision. The note below keeps
-each revision as it was recorded.
+The adapter currently pins `midojo-sdk` at `162233f`, which moves the rubric
+judge into the SDK (`midojo_sdk.rubric_judge`, stdlib only; the consumer's
+`authoring/rubric_judge.py` now re-exports it) and pins the console goldens to a
+fixed height. Before it, `9e1f90f` retired the tool-call-condition v1 fixtures
+from MiDojo's test suite, and the SDK was unchanged since `6198645` (the
+held-request fix on top of `1d0e240`'s binding-conformance fixes: a request
+waiting at a binding's `/b/<id>/mcp` before `bound` answers 401, never 500, when
+its binding ends first, including a driver whose socket aborted before the
+service read the disconnect); `pyproject.toml` and `uv.lock` hold the full
+revision. The note below keeps each revision as it was recorded.
 
 ## Adapter notes
 
@@ -67,8 +69,9 @@ each revision as it was recorded.
   `JUDGE_TOKEN`, earlier turns and calls sent, 180 s per judged turn + 10), answered by
   `judge_service.py` (CLI `judge-serve`, 127.0.0.1; model from `JUDGE_MODEL_URL`,
   `JUDGE_MODEL`, `OPENAICOMPATIBLE_API_KEY`; token `JUDGE_SERVICE_TOKEN`), which runs
-  `authoring/rubric_judge.py` per judged turn, three-valued, its model requests checked
-  against Garak's (`tests/fixtures/rubric/`); a conversation that is not the rubric's
+  `midojo_sdk.rubric_judge` per judged turn (re-exported by
+  `authoring/rubric_judge.py`), three-valued, its model requests checked against Garak's
+  (`midojo`'s `tests/fixtures/rubric/`); a conversation that is not the rubric's
   turns is `unresolved`. Its `details` summarize each turn (no evidence or model text),
   the model key and token are redacted, and its log is method and status only.
   `verifiers` is `[]`; compile writes `injection-spec.json` alone. Direct and user-turn

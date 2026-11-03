@@ -49,13 +49,15 @@ except ModuleNotFoundError as exc:
         raise
     from asago_artifact_generator.authoring.rubric_judge import (
         RUBRIC_NAME,
-        _record,
         build_evidence,
         field,
         http_judge,
         is_complete,
         judge_output,
+        record,
     )
+
+    _record = record
 
 EPISODE_RUBRIC_NAME = f"{RUBRIC_NAME}_episode"
 SPEC_KEYS = frozenset({"rubric", "turns", "judge_turns"})
