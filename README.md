@@ -948,10 +948,13 @@ written or sent to the target.
 
 The Garak adapter's `compile`, `instantiate` and `parse` are library functions, and
 its command line calls them. `instantiate` prepares the package for one run with
-`asago_bundle_core.preparation.prepare_package`: the setup steps go to the target's MCP
-server by default (real writes), the bindings resolve from their results, the prerequisites are
-checked, and the rendered stimulus and the judge's facts become the bundle values. A
-package that cannot be prepared returns `PreparationIncomplete` and writes no bundle.
+`asago_bundle_core.preparation.prepare_package`. Preparation first admits the package's
+setup and binding declarations against its inventory and runtime contract, with no target
+call, so a malformed declaration writes nothing; then the setup steps go to the target's
+MCP server by default (real writes), the bindings resolve from their results, the
+prerequisites are checked, and the rendered stimulus and the judge's facts become the
+bundle values. A package that cannot be prepared returns `PreparationIncomplete` and
+writes no bundle.
 
 ```python
 from asago_bundle_core.target import load_target_config

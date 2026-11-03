@@ -591,21 +591,69 @@ def test_setup_without_a_target_call_is_incomplete() -> None:
     assert (prepared.reason, prepared.error) == ("setup_failed", "setup dispatch unavailable")
 
 
-def test_a_refused_setup_declaration_calls_nothing() -> None:
+@pytest.mark.parametrize(
+    ("member", "declaration", "reason", "error"),
+    [
+        (
+            "setup.json",
+            [{"operation": "audit"}],
+            "setup_failed",
+            "setup operation undocumented: audit",
+        ),
+        (
+            "bindings.json",
+            [{"name": "order_id", "expected_type": "string"}],
+            "binding_missing",
+            None,
+        ),
+        (
+            "bindings.json",
+            [
+                {
+                    "name": "order_id",
+                    "expected_type": "string",
+                    "source_kind": "setup_output",
+                    "source_ref": "setup:withdraw",
+                    "selector": "result.order_id",
+                    "consumers": ["stimulus.user_text"],
+                    "on_missing": "stop",
+                }
+            ],
+            "binding_invalid",
+            None,
+        ),
+    ],
+)
+def test_a_malformed_declaration_makes_no_target_call(
+    member: str, declaration: list[dict[str, object]], reason: str, error: str | None
+) -> None:
     package = _package()
-    members = dict(package.members)
-    members["setup.json"] = b'[{"operation": "audit"}]'
+    members = {**package.members, member: json.dumps(declaration).encode()}
     call_target = _returning({"order_id": "ord-1"})
 
     prepared = prepare_package(ArtifactPackage(package.manifest, members), call_target=call_target)
 
     assert isinstance(prepared, PreparationIncomplete)
-    assert (prepared.reason, prepared.error) == (
-        "setup_failed",
-        "setup operation undocumented: audit",
-    )
+    assert prepared.reason == reason
+    assert prepared.error == error
     assert call_target.calls == []
     assert prepared.setup_ledger == []
+    assert prepared.setup_outputs == {}
+
+
+def test_a_setup_dependent_failure_keeps_its_setup_ledger() -> None:
+    call_target = _returning({"unrelated": "value"})
+
+    prepared = prepare_package(_package(), call_target=call_target)
+
+    assert isinstance(prepared, PreparationIncomplete)
+    assert prepared.reason == "binding_missing"
+    assert call_target.calls == [("prepare", {})]
+    assert prepared.setup_outputs == {"prepare": {"unrelated": "value"}}
+    assert [
+        (record["operation"], record["status"], record["result"])
+        for record in prepared.setup_ledger
+    ] == [("prepare", "completed", {"unrelated": "value"})]
 
 
 def test_a_member_that_is_not_json_is_refused_before_setup() -> None:

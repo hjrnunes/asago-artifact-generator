@@ -147,11 +147,13 @@ missing path.
   `parse` of an adapter and returns failure messages). A new bundle adapter runs
   `check_round_trip` in its tests; the MiDojo adapter writes injection specs, not bundles.
   `preparation.prepare_package(package, call_target=...)` prepares a package for one run:
-  it runs setup through a target call (real writes, not graded, returned as a
-  ledger), resolves the bindings, checks the prerequisites, renders the stimulus and returns
-  the judge's facts, or an incomplete reason. So far only the Garak adapter's public
-  `instantiate` runs it; the lower-level template filler (`instantiate_bundle`) takes
-  values already resolved. Recording the result is the caller's job. `target`
+  it admits the setup and binding declarations against the package's inventory and runtime
+  contract (no target call), runs setup through a target call (real writes, not graded,
+  returned as a ledger), resolves the bindings, checks the prerequisites, renders the
+  stimulus and returns the judge's facts, or an incomplete reason. So far only the Garak
+  adapter's public `instantiate` runs it; the lower-level template filler
+  (`instantiate_bundle`) takes values already resolved. Recording the result is the
+  caller's job. `target`
   holds the target config an adapter's `instantiate` takes (a `target.yaml` path or a loaded
   mapping): one whose `authorized_as` is not `mock` or `test_instance` is refused before any
   work. `mcp_call_target` sends a setup step to the target's MCP server over streamable HTTP

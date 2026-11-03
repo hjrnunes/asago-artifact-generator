@@ -1,19 +1,26 @@
-"""Prepare a package for one run: setup, bindings, prerequisites, stimulus and judge facts.
+"""Prepare a package for one run: admission, setup, bindings and the run's facts.
 
 ``prepare_package`` is what an adapter's public ``instantiate`` runs (the Garak
 adapter's ``entry_points.instantiate``) before it hands the rendered stimulus and
 the judge's facts to its lower-level template filler, which takes them already
-resolved. It runs the package's setup operations through a target call (the
-caller's own, or the adapter's MCP call to the target), validates and resolves the
-package's bindings, checks its prerequisites, fills the binding values into the
-stimulus, and resolves the facts the judge reads.
+resolved. It runs in three stages:
+
+1. Admission checks the setup and binding declarations against the package's own
+   inventory and runtime contract. It makes no target call, so a malformed
+   declaration fails before anything is written.
+2. Setup capture runs the package's setup operations through a target call (the
+   caller's own, or the adapter's MCP call to the target).
+3. Resolution fills the bindings from the captured setup outputs and supplied
+   facts, checks the prerequisites, fills the binding values into the stimulus,
+   and resolves the facts the judge reads.
 
 Setup is preparation, not graded: each operation calls the target directly and
 makes a real write, which the returned setup ledger records. The result is plain
 data; recording it in a receipt is the caller's job.
 
 A package that cannot be prepared returns ``PreparationIncomplete`` with one of
-``INCOMPLETE_REASONS``; nothing after the failed step runs.
+``INCOMPLETE_REASONS``; nothing after the failed step runs. A failure after
+admission keeps the setup ledger it reached.
 """
 
 from __future__ import annotations
@@ -144,12 +151,14 @@ class PreparationIncomplete:
 def prepare_package(
     package: ArtifactPackage, *, call_target: TargetCall | None
 ) -> PreparedPackage | PreparationIncomplete:
-    """Run the package's setup through ``call_target`` and resolve what the run needs.
+    """Admit the package, run its setup through ``call_target`` and resolve the run.
 
-    ``call_target`` is called once per setup operation, in declared order,
-    with the operation name and its arguments, and returns the target's result
-    object. Without it, a package that declares setup is incomplete
-    (``setup_failed``). Raises ``PreparationError`` when a member is not JSON.
+    Admission reads no target, so a malformed setup or binding declaration makes
+    no call. ``call_target`` is then called once per admitted setup operation, in
+    declared order, with the operation name and its arguments, and returns the
+    target's result object. Without it, a package that declares setup is
+    incomplete (``setup_failed``). Raises ``PreparationError`` when a member is
+    not JSON.
     """
 
     members = _Members.read(package)
@@ -164,23 +173,34 @@ def prepare_package(
             reason, error, setup_outputs, ledger, values, provenance, prerequisites
         )
 
+    # Admission: the declarations checked against the package's own inventory and
+    # runtime contract. No target is read, so a malformed declaration stops here.
     try:
-        _validate_setup(members.setup, members.inventory, members.runtime_contract)
-        setup_outputs = _run_setup(members.setup, call_target, ledger)
-        declarations = validate_binding_declarations(
-            members.bindings,
-            inventory=members.inventory,
-            runtime_contract=members.runtime_contract,
-        )
+        admission = _admit(members)
+    except SetupError as exc:
+        return incomplete("setup_failed", str(exc))
+    except BindingError as exc:
+        return incomplete(_binding_reason(exc))
+
+    # Setup capture: the only stage that calls the target. Each record joins the
+    # ledger before its call and stays there if a later stage fails.
+    try:
+        setup_outputs = _run_setup(admission.setup, call_target, ledger)
+    except SetupError as exc:
+        return incomplete("setup_failed", str(exc))
+
+    # Resolution: the bindings from the captured outputs and supplied facts, then
+    # the prerequisites that read them, the stimulus and the judge's facts.
+    try:
         resolved, resolved_provenance = resolve_bindings(
-            declarations,
+            admission.declarations,
             setup_outputs=setup_outputs,
             supplied_inputs=members.supplied_facts,
             allow_null_bindings=_null_prerequisite_bindings(
                 members.prerequisites if members.canonical_prerequisites else []
             ),
         )
-        _annotate_binding_provenance(resolved_provenance, declarations, ledger)
+        _annotate_binding_provenance(resolved_provenance, admission.declarations, ledger)
         values, provenance = resolved, resolved_provenance
         prerequisites = check_prerequisites(
             members.prerequisites,
@@ -191,11 +211,9 @@ def prepare_package(
         reason = _prerequisite_failure_reason(prerequisites)
         if reason is not None:
             return incomplete(reason)
-        rendered = _render_stimulus(members.stimulus, values, declarations)
+        rendered = _render_stimulus(members.stimulus, values, admission.declarations)
     except BindingError as exc:
         return incomplete(_binding_reason(exc))
-    except SetupError as exc:
-        return incomplete("setup_failed", str(exc))
     return PreparedPackage(
         setup_outputs=setup_outputs,
         setup_ledger=ledger,
@@ -204,6 +222,33 @@ def prepare_package(
         prerequisites=prerequisites,
         stimulus=rendered,
         judge_facts=dict(values) if members.claim_level == "reply" else {},
+    )
+
+
+@dataclass(frozen=True)
+class _Admission:
+    """A package's setup and binding declarations, accepted before any target call.
+
+    ``setup`` is the checked list ``_run_setup`` runs, and ``declarations`` the
+    typed bindings resolution fills. Admission reads the package's own members
+    alone: its inventory and its runtime contract.
+    """
+
+    setup: list[dict[str, Any]]
+    declarations: tuple[RuntimeBinding, ...]
+
+
+def _admit(members: _Members) -> _Admission:
+    """Check the setup and binding declarations; a violation here calls no target."""
+
+    _validate_setup(members.setup, members.inventory, members.runtime_contract)
+    return _Admission(
+        members.setup,
+        validate_binding_declarations(
+            members.bindings,
+            inventory=members.inventory,
+            runtime_contract=members.runtime_contract,
+        ),
     )
 
 
