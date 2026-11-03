@@ -12,6 +12,14 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
+# The corpus lives outside every checkout. A reader given a missing root must
+# fail and name it, never fall through to a usage message or a silent pass.
+corpus="${ASAGO_REPLAY_CORPUS:-}"
+if [ -n "$corpus" ] && [ ! -d "$corpus" ]; then
+  echo "error: ASAGO_REPLAY_CORPUS points at a missing corpus folder: $corpus" >&2
+  exit 2
+fi
+
 if [ "$#" -eq 0 ]; then
   echo "usage: $0 [--jobs N] [--item ID] STAGE_DIR [STAGE_DIR ...]" >&2
   exit 2

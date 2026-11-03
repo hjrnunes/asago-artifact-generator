@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -1827,3 +1828,20 @@ def test_prepare_item_rejects_argv_it_cannot_redirect(
 
     with pytest.raises(ValueError, match=re.escape(message)):
         replay_gate._prepare_item({"id": "SCN-1", "argv": argv}, copies, tmp_path / "out")
+
+
+def test_replay_check_names_a_missing_corpus_root(tmp_path: Path) -> None:
+    missing = tmp_path / "no-such-corpus"
+    script = Path(__file__).resolve().parents[1] / "scripts" / "replay-check.sh"
+    environment = {**os.environ, "ASAGO_REPLAY_" + "CORPUS": str(missing)}
+
+    for arguments in ([], [str(missing / "consumer" / "*" / "stages" / "author")]):
+        completed = subprocess.run(
+            ["bash", str(script), *arguments],
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+
+        assert completed.returncode != 0
+        assert str(missing) in completed.stderr + completed.stdout
