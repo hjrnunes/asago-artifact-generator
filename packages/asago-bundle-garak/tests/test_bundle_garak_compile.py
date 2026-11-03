@@ -185,19 +185,18 @@ def test_cli_compile_writes_the_template(
     assert (out / "bundle.json").is_file()
 
 
-def test_cli_compile_takes_a_package_written_before_the_request_copies_were_retired(
-    tmp_path: Path,
+def test_cli_compile_refuses_a_package_written_before_the_request_copies_were_retired(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Its authoring/ request copies and source-hashes.json are verified, then ignored.
+    # The reader refuses artifact-package-v4, so its authoring/ request copies and
+    # source-hashes.json never reach compile.
     out = tmp_path / "template"
 
     code = main(["compile", str(PACKAGE_WITH_REQUEST_COPIES), "--out", str(out)])
 
-    assert code == 0
-    manifest = read(out / "bundle.json")
-    package = read(PACKAGE_WITH_REQUEST_COPIES / "manifest.json")
-    assert manifest["package_digest"] == package["manifest_digest"]
-    assert manifest["claim_level"] == "command_attempt"
+    assert code == 1
+    assert "artifact-package-v4" in capsys.readouterr().err
+    assert not (out / "bundle.json").exists()
 
 
 def test_cli_compile_refuses_a_sequential_gap_with_exit_3(
