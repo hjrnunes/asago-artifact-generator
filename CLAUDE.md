@@ -107,7 +107,7 @@ missing path.
   context limit and stop policy; do not enlarge allowances. Every physical
   request goes through `RequestBoundary.dispatch` in `authoring/transport.py`,
   the only caller of the SDK's create method: it reserves budget through the
-  transport's `attempt_gate`, records the attempt with its reason, and sends
+  dispatch's `RequestSession`, records the attempt with its reason, and sends
   once. Retry and fallback rules only ask for another dispatch. The transport
   makes one recorded retry after a transport error (HTTP 5xx or a non-timeout
   connection error) and nothing else retries: not timeouts, 4xx, or invalid

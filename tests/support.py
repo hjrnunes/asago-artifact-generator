@@ -33,7 +33,11 @@ from asago_artifact_generator.authoring.core import (
 )
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
 from asago_artifact_generator.authoring.policy import AuthoringPolicy, AuthoringResult
-from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
+from asago_artifact_generator.authoring.transport import (
+    FIRST_ATTEMPT,
+    PrivateModelAuthoringTransport,
+    RequestSession,
+)
 from asago_artifact_generator.failure_evidence import FAILURE_EVIDENCE_SCHEMA_VERSION
 from asago_artifact_generator.input_adapter import _framed_digest, load_input
 from asago_artifact_generator.package_io import (
@@ -80,17 +84,25 @@ class ScriptedAuthoringTransport:
         self.responses = list(responses)
         self.requests: list[dict[str, Any]] = []
 
-    def complete(self, packet: PromptPacket) -> TransportResponse | str | bytes:
-        self.requests.append(
-            {
-                "stage": packet.stage,
-                "version": packet.version,
-                "system": packet.system,
-                "user": packet.user,
-                "payload": packet.payload,
-                "extra_body": deepcopy(getattr(self, "extra_body", None)),
-            }
-        )
+    def complete(
+        self, packet: PromptPacket, session: RequestSession | None = None
+    ) -> TransportResponse | str | bytes:
+        session = session if session is not None else RequestSession()
+        boundary = session.new_boundary(self._answer)
+        return boundary.dispatch(self._request(packet), FIRST_ATTEMPT)
+
+    def _request(self, packet: PromptPacket) -> dict[str, Any]:
+        return {
+            "stage": packet.stage,
+            "version": packet.version,
+            "system": packet.system,
+            "user": packet.user,
+            "payload": packet.payload,
+            "extra_body": deepcopy(getattr(self, "extra_body", None)),
+        }
+
+    def _answer(self, **request: Any) -> TransportResponse | str | bytes:
+        self.requests.append(request)
         if not self.responses:
             raise RuntimeError("scripted transport exhausted")
         response = self.responses.pop(0)

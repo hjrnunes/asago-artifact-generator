@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any
 
 from ..profiles import DEFAULT_STRICT_JSON_SCHEMA, DEFAULT_TIMEOUT_SECONDS
@@ -75,6 +76,56 @@ class RequestBoundary:
         return [_ledger_retry(attempt) for attempt in self.attempts[1:]]
 
 
+@dataclass(frozen=True)
+class RequestOutcome:
+    """What one dispatch's request session did.
+
+    ``attempts`` counts the physical requests the session sent; ``retries``
+    lists the requests after the first in the ledger's shape.
+    """
+
+    attempts: int = 0
+    retries: tuple[dict[str, Any], ...] = ()
+
+
+class RequestSession:
+    """The budget hook and outcome of one logical request.
+
+    The caller creates one session per dispatch and passes it to
+    :meth:`PrivateModelAuthoringTransport.complete`.  The session's boundary
+    asks :meth:`allow` before every physical request; a refusal raises
+    :class:`AttemptRefused` and sends nothing.  ``reserve`` receives each
+    request's reason and reports whether the session may send it; without a
+    reserve hook every request is allowed.  After the call, returned or
+    raised, :meth:`outcome` reports what the session did.
+    """
+
+    def __init__(self, reserve: Callable[[str], bool] | None = None) -> None:
+        self._reserve = reserve
+        self._boundary: RequestBoundary | None = None
+
+    def allow(self, reason: str) -> bool:
+        """Report whether the physical request of *reason* may be sent."""
+
+        return True if self._reserve is None else self._reserve(reason)
+
+    def new_boundary(self, send: Callable[..., Any]) -> RequestBoundary:
+        """Return the boundary that asks this session before it sends."""
+
+        self._boundary = RequestBoundary(send, self.allow)
+        return self._boundary
+
+    def outcome(self) -> RequestOutcome:
+        """Report the attempts this session sent."""
+
+        if self._boundary is None:
+            return RequestOutcome()
+        return RequestOutcome(
+            attempts=len(self._boundary.attempts),
+            retries=tuple(self._boundary.extra_requests()),
+        )
+
+
 def _ledger_retry(attempt: dict[str, Any]) -> dict[str, Any]:
     record: dict[str, Any] = {"attempt": attempt["attempt"], "retry_of": attempt["retry_of"]}
     if attempt["reason"] != TRANSPORT_RETRY:
@@ -107,10 +158,10 @@ class PrivateModelAuthoringTransport:
     The SDK's own retries are off (``max_retries = 0``).  Every physical
     request goes through one :class:`RequestBoundary`: the first attempt, the
     one retry after a transport error (see :func:`retryable_failure`), and the
-    service-tier fallback after a rate limit.  ``attempt_gate`` receives the
-    reason of each request and lets the caller reserve or refuse it, for
-    example when the request budget has no request left.  ``last_retries``
-    lists the requests after the first in the ledger's shape.
+    service-tier fallback after a rate limit.  Each call opens a
+    :class:`RequestSession` (the caller's, when given) that reserves every
+    physical request before it is sent and reports the requests after the
+    first.
     """
 
     max_retries = 0
@@ -168,7 +219,6 @@ class PrivateModelAuthoringTransport:
         self.strict_json_schema = strict_json_schema
         self.timeout = timeout
         self.last_controls: dict[str, Any] | None = None
-        self.attempt_gate: Callable[[str], bool] | None = None
         self.extra_body = deepcopy(extra_body) if extra_body is not None else None
         self.review_extra_body = (
             deepcopy(review_extra_body) if review_extra_body is not None else None
@@ -184,7 +234,7 @@ class PrivateModelAuthoringTransport:
             "timeout": timeout,
         }
         self._client = client if client is not None else OpenAI(**client_options)
-        self._boundary = self._new_boundary()
+        self._boundary = RequestBoundary(self._client.chat.completions.create)
 
     def extra_body_for(self, packet: PromptPacket) -> dict[str, Any] | None:
         """Return the extra_body controls for this packet's role."""
@@ -222,19 +272,13 @@ class PrivateModelAuthoringTransport:
             return max(filled, self.max_completion_tokens)
         return self.max_completion_tokens
 
-    def _new_boundary(self) -> RequestBoundary:
-        """Return the boundary of one call: the only sender of the SDK's create request."""
+    def complete(
+        self, packet: PromptPacket, session: RequestSession | None = None
+    ) -> TransportResponse:
+        """Complete one logical request; *session* reserves and records each attempt."""
 
-        return RequestBoundary(self._client.chat.completions.create, self.attempt_gate)
-
-    @property
-    def last_retries(self) -> list[dict[str, Any]]:
-        """The requests after the first of the latest call, as the ledger records them."""
-
-        return self._boundary.extra_requests()
-
-    def complete(self, packet: PromptPacket) -> TransportResponse:
-        self._boundary = self._new_boundary()
+        session = session if session is not None else RequestSession()
+        self._boundary = session.new_boundary(self._client.chat.completions.create)
         self.preflight_context_budget(packet)
         extra_body = self.extra_body_for(packet)
         max_completion_tokens = self.max_completion_tokens_for(packet)

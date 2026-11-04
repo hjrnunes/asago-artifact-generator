@@ -324,11 +324,11 @@ class _EvidenceAtRequest(ScriptedAuthoringTransport):
         self.evidence_path = evidence_path
         self.evidence: list[dict[str, Any] | None] = []
 
-    def complete(self, packet: PromptPacket) -> Any:
+    def complete(self, packet: PromptPacket, session: Any = None) -> Any:
         self.evidence.append(
             load_failure_evidence(self.evidence_path) if self.evidence_path.exists() else None
         )
-        return super().complete(packet)
+        return super().complete(packet, session)
 
 
 def test_a_rejected_review_the_retry_recovers_from_leaves_no_run_finding(

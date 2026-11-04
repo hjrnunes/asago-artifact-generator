@@ -11,13 +11,16 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ..binding_rules import SLOT_PATTERN
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from ..contract_kit import canonical_json as _canonical_json
 from ..contract_kit import sha256_hex as _sha256
 from ..failure_evidence import redact_metadata
+
+if TYPE_CHECKING:
+    from .transport import RequestSession
 
 AUTHORING_INTERFACE_VERSION_V2 = "artifact-authoring-v2"
 # The response wire remains v2, while its model-facing templates advance
@@ -76,11 +79,20 @@ _PROMPT_TOKEN_RE = re.compile(
 
 
 class AuthoringTransport(Protocol):
-    """Adapter for one provider request. Implementations must not retry."""
+    """Adapter for one logical request. Implementations must not retry.
+
+    ``complete`` receives the dispatch's request session, which reserves
+    every physical request before it is sent.  A transport that sends more
+    than one physical request asks ``session.allow(reason)`` before each one
+    and sends through ``session.new_boundary(send)``, so the reservation
+    lands just before that request and the session keeps the outcome.
+    """
 
     max_retries: int
 
-    def complete(self, packet: PromptPacket) -> TransportResponse | str | bytes: ...
+    def complete(
+        self, packet: PromptPacket, session: RequestSession | None = None
+    ) -> TransportResponse | str | bytes: ...
 
 
 class AuthoringError(ValueError):

@@ -640,9 +640,9 @@ def _replay_item(
     class RecordedPromptTransport(PrivateModelAuthoringTransport):
         """Give the replay client the prompt the code renders for each dispatch."""
 
-        def complete(self, packet: Any) -> Any:
+        def complete(self, packet: Any, session: Any = None) -> Any:
             client.prompt = PromptIdentity(packet.stage, packet.version)
-            return super().complete(packet)
+            return super().complete(packet, session)
 
     def transport(**options: Any) -> PrivateModelAuthoringTransport:
         return RecordedPromptTransport(**options, client=client)

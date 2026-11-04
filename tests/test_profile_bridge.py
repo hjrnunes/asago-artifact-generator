@@ -318,7 +318,7 @@ def test_profile_secret_is_redacted_from_failure_evidence(
         def __init__(self, **_: object) -> None:
             pass
 
-        def complete(self, _packet: object) -> object:
+        def complete(self, _packet: object, _session: object = None) -> object:
             raise RuntimeError("offline")
 
     monkeypatch.setattr(cli, "PrivateModelAuthoringTransport", FailingTransport)

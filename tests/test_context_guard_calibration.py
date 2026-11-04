@@ -49,9 +49,9 @@ class _ContextGuardedScriptedTransport:
             max_completion_tokens=AUTHORING_MAX_COMPLETION_TOKENS,
         )
 
-    def complete(self, packet: PromptPacket):
+    def complete(self, packet: PromptPacket, session: object | None = None):
         self.preflight_context_budget(packet)
-        return self.scripted.complete(packet)
+        return self.scripted.complete(packet, session)
 
 
 def _packet_with_model_facing_bytes(total_bytes: int, stage: str = "call1") -> PromptPacket:

@@ -19,6 +19,8 @@ from asago_artifact_generator.authoring.transport import (
     AttemptRefused,
     PrivateModelAuthoringTransport,
     RequestBoundary,
+    RequestOutcome,
+    RequestSession,
 )
 
 from .support import (
@@ -86,6 +88,51 @@ def test_one_dispatch_reserves_then_sends_exactly_one_request() -> None:
     assert response == "response 1"
     assert sender.requests == [{"model": "m"}]
     assert order == [f"reserve {FIRST_ATTEMPT}", "send"]
+
+
+def test_a_session_reserves_every_physical_request_before_it_sends() -> None:
+    sender = _Sender()
+    order: list[str] = []
+    session = RequestSession(lambda reason: order.append(f"reserve {reason}") or True)
+    boundary = session.new_boundary(lambda **request: order.append("send") or sender(**request))
+
+    boundary.dispatch({"model": "m"}, FIRST_ATTEMPT)
+    boundary.dispatch({"model": "m"}, SERVICE_TIER_FALLBACK_REASON, _RATE_LIMIT)
+
+    assert order == [
+        f"reserve {FIRST_ATTEMPT}",
+        "send",
+        f"reserve {SERVICE_TIER_FALLBACK_REASON}",
+        "send",
+    ]
+    assert session.outcome() == RequestOutcome(
+        attempts=2,
+        retries=({"attempt": 2, "retry_of": _RATE_LIMIT, "reason": SERVICE_TIER_FALLBACK_REASON},),
+    )
+
+
+def test_a_refused_session_sends_nothing_and_reports_no_attempt() -> None:
+    sender = _Sender()
+    session = RequestSession(lambda _reason: False)
+    boundary = session.new_boundary(sender)
+
+    with pytest.raises(AttemptRefused) as refused:
+        boundary.dispatch({"model": "m"}, FIRST_ATTEMPT)
+
+    assert refused.value.reason == FIRST_ATTEMPT
+    assert sender.requests == []
+    assert session.outcome() == RequestOutcome()
+
+
+def test_a_session_without_a_reserve_hook_allows_every_request() -> None:
+    session = RequestSession()
+    boundary = session.new_boundary(_Sender())
+
+    boundary.dispatch({"model": "m"}, FIRST_ATTEMPT)
+    boundary.dispatch({"model": "m"}, TRANSPORT_RETRY, _BAD_GATEWAY)
+
+    assert session.outcome().attempts == 2
+    assert session.outcome().retries == ({"attempt": 2, "retry_of": _BAD_GATEWAY},)
 
 
 @pytest.mark.parametrize("reason", _REASONS)
@@ -235,76 +282,80 @@ def test_every_physical_request_of_the_transport_passes_through_the_boundary(
     assert len(client.requests) == 3
 
 
-def test_the_transport_asks_its_attempt_gate_for_every_physical_request() -> None:
+def test_the_transport_asks_its_session_before_every_physical_request() -> None:
     asked: list[str] = []
+    session = RequestSession(lambda reason: asked.append(reason) or True)
     transport = _tiered(_rate_limit_then_bad_gateway_then(chat_completion()))
-    transport.attempt_gate = _budget_gate(_budget(10), asked)
 
-    transport.complete(prompt_packet())
+    transport.complete(prompt_packet(), session)
 
     assert asked == [FIRST_ATTEMPT, SERVICE_TIER_FALLBACK_REASON, TRANSPORT_RETRY]
+    assert session.outcome() == RequestOutcome(
+        attempts=3,
+        retries=(
+            {"attempt": 2, "retry_of": _RATE_LIMIT, "reason": SERVICE_TIER_FALLBACK_REASON},
+            {"attempt": 3, "retry_of": _BAD_GATEWAY},
+        ),
+    )
 
 
 def test_a_refused_first_attempt_sends_nothing() -> None:
     client = scripted_client([chat_completion()])
     transport = private_transport(client=client)
-    transport.attempt_gate = lambda reason: False
+    session = RequestSession(lambda _reason: False)
 
     with pytest.raises(AttemptRefused):
-        transport.complete(prompt_packet())
+        transport.complete(prompt_packet(), session)
 
     assert client.requests == []
-    assert transport.last_retries == []
+    assert session.outcome() == RequestOutcome()
 
 
 def test_a_fallback_followed_by_a_retryable_error_cannot_pass_the_cap() -> None:
     budget = _budget(2)
     client = _rate_limit_then_bad_gateway_then(chat_completion())
     transport = _tiered(client)
-    transport.attempt_gate = _budget_gate(budget)
+    session = RequestSession(_budget_gate(budget))
 
     with pytest.raises(openai.InternalServerError):
-        transport.complete(prompt_packet())
+        transport.complete(prompt_packet(), session)
 
     assert len(client.requests) == 2
     assert budget.total_dispatched == 2
-    assert transport.last_retries == [
-        {"attempt": 2, "retry_of": _RATE_LIMIT, "reason": SERVICE_TIER_FALLBACK_REASON}
-    ]
+    assert session.outcome().retries == (
+        {"attempt": 2, "retry_of": _RATE_LIMIT, "reason": SERVICE_TIER_FALLBACK_REASON},
+    )
 
 
 def test_a_refused_fallback_keeps_the_controls_of_the_request_that_was_sent() -> None:
     transport = _tiered(scripted_client([status_error(429)]))
-    transport.attempt_gate = lambda reason: reason == FIRST_ATTEMPT
+    session = RequestSession(lambda reason: reason == FIRST_ATTEMPT)
 
     with pytest.raises(openai.RateLimitError):
-        transport.complete(prompt_packet())
+        transport.complete(prompt_packet(), session)
 
     assert transport.last_controls is not None
     assert transport.last_controls["service_tier"] == "flex"
     assert transport.last_controls["service_tier_fallback_used"] is False
+    assert session.outcome() == RequestOutcome(attempts=1)
 
 
-# --- the orchestrator reserves every physical request at the boundary --------------
+# --- the orchestrator opens one request session per dispatch -----------------------
 
 
-class _GateSpyTransport(PrivateModelAuthoringTransport):
-    """Record each reason the orchestrator's gate is asked about."""
+class _SessionRecordingTransport(PrivateModelAuthoringTransport):
+    """Record the session each dispatch hands to the transport."""
 
-    asked: list[str]
+    sessions: list[RequestSession]
 
-    def complete(self, packet: Any) -> Any:
-        gate = self.attempt_gate
-        assert gate is not None, "the orchestrator installs the gate before the request"
-        self.attempt_gate = lambda reason: self.asked.append(reason) or gate(reason)
-        try:
-            return super().complete(packet)
-        finally:
-            self.attempt_gate = gate
+    def complete(self, packet: Any, session: RequestSession | None = None) -> Any:
+        assert session is not None, "the orchestrator opens a session before the dispatch"
+        self.sessions.append(session)
+        return super().complete(packet, session)
 
 
-def _spy_transport(client: Any) -> _GateSpyTransport:
-    transport = _GateSpyTransport(
+def _session_transport(client: Any) -> _SessionRecordingTransport:
+    transport = _SessionRecordingTransport(
         base_url="https://private.invalid/v1",
         api_key="secret-value",
         model="luna",
@@ -312,7 +363,7 @@ def _spy_transport(client: Any) -> _GateSpyTransport:
         service_tier_fallback="default",
         client=client,
     )
-    transport.asked = []
+    transport.sessions = []
     return transport
 
 
@@ -325,11 +376,9 @@ def _orchestrate(tmp_path: Path, transport: Any, budget: AuthoringBudget) -> Any
     ).run(_view(), _inventory_v2(), _runtime_contract_v2())
 
 
-def test_the_orchestrator_reserves_every_physical_request_at_the_boundary(
-    tmp_path: Path,
-) -> None:
+def test_the_orchestrator_opens_one_session_per_dispatch(tmp_path: Path) -> None:
     budget = _budget(10)
-    transport = _spy_transport(
+    transport = _session_transport(
         _rate_limit_then_bad_gateway_then(
             chat_completion(json.dumps(_plan_v2())), chat_completion(_framed().decode())
         )
@@ -338,16 +387,53 @@ def test_the_orchestrator_reserves_every_physical_request_at_the_boundary(
     result = _orchestrate(tmp_path, transport, budget)
 
     assert result.status == "accepted"
-    assert transport.asked == [
-        FIRST_ATTEMPT,
-        SERVICE_TIER_FALLBACK_REASON,
-        TRANSPORT_RETRY,
-        FIRST_ATTEMPT,
+    assert [session.outcome() for session in transport.sessions] == [
+        RequestOutcome(
+            attempts=3,
+            retries=(
+                {"attempt": 2, "retry_of": _RATE_LIMIT, "reason": SERVICE_TIER_FALLBACK_REASON},
+                {"attempt": 3, "retry_of": _BAD_GATEWAY},
+            ),
+        ),
+        RequestOutcome(attempts=1),
     ]
     assert budget.total_dispatched == 4
     assert [record["dispatch_index"] for record in result.ledger] == [1, 2]
     assert [retry["attempt"] for retry in result.ledger[0]["transport_retries"]] == [2, 3]
-    assert transport.attempt_gate is None
+
+
+class _ReserveRecordingBudget(AuthoringBudget):
+    """Record each reservation at the moment the budget makes it."""
+
+    def __init__(self, events: list[str], **options: Any) -> None:
+        super().__init__(**options)
+        self.events = events
+
+    def reserve(self, task_id: str, *, role: str = "author") -> int:
+        self.events.append("reserve")
+        return super().reserve(task_id, role=role)
+
+
+def test_the_orchestrator_reserves_just_before_every_physical_request(tmp_path: Path) -> None:
+    events: list[str] = []
+    budget = _ReserveRecordingBudget(
+        events, aggregate_limit=10, task_limit=10, author_limit=10, review_limit=10
+    )
+    client = _rate_limit_then_bad_gateway_then(
+        chat_completion(json.dumps(_plan_v2())), chat_completion(_framed().decode())
+    )
+    send = client.chat.completions.create
+
+    def recorded_send(**request: Any) -> Any:
+        events.append("send")
+        return send(**request)
+
+    client.chat.completions.create = recorded_send
+
+    result = _orchestrate(tmp_path, _session_transport(client), budget)
+
+    assert result.status == "accepted"
+    assert events == ["reserve", "send"] * 4
 
 
 def test_a_first_attempt_over_the_cap_opens_no_record_and_leaves_the_last_one_alone(

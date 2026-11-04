@@ -131,6 +131,7 @@ from .sequential_turns import (
     sequential_plan_findings,
 )
 from .shape_gate import shape_refusal_findings
+from .transport import RequestSession
 
 CRASH_FINDING_CODE = "authoring_crashed"
 _CRASH_MESSAGE_LIMIT = 200
@@ -541,42 +542,40 @@ class AuthoringOrchestrator:
             context_preflight(packet)
         role = "reviewer" if packet.stage in _REVIEW_STAGES else "author"
         opened: list[int] = []
+        session = self._request_session(packet, role, opened)
         try:
-            response = self._complete_through_boundary(packet, role, opened)
+            response = self.transport.complete(packet, session=session)
         except Exception:
+            self._record_request_outcome(session)
             if opened:
                 self._record_transport_failure_controls()
             raise
+        self._record_request_outcome(session)
         self._record_dispatch_response(opened[0], response)
         self._journal.flush()
         return response
 
-    def _complete_through_boundary(
+    def _request_session(
         self, packet: PromptPacket, role: str, opened: list[int]
-    ) -> TransportResponse | str | bytes:
-        """Complete one logical request; every physical request reserves budget first.
+    ) -> RequestSession:
+        """Return this dispatch's session; it reserves every physical request.
 
-        A transport with ``attempt_gate`` asks it before each physical request
-        (first attempt, transport retry, service-tier fallback) and lists the
-        requests after the first in ``last_retries``.  A transport without the
-        gate sends one request per call, reserved here.  The first reservation
-        opens the dispatch record and appends its index to *opened*.
+        The transport asks the session before each attempt (first attempt,
+        transport retry, service-tier fallback).  The first reservation opens
+        the dispatch record and appends its index to *opened*, so a budget stop
+        before the first request leaves no dispatch event behind.  A later
+        request that the budget refuses makes the session refuse it.
         """
 
-        if not hasattr(self.transport, "attempt_gate"):
-            self._reserve_physical_request(packet, role, opened)
-            return self.transport.complete(packet)
-        self.transport.attempt_gate = lambda _reason: self._reserve_physical_request(
-            packet, role, opened
-        )
-        try:
-            return self.transport.complete(packet)
-        finally:
-            self.transport.attempt_gate = None
-            for retry in self.transport.last_retries:
-                self._journal.append(
-                    TransportRetried(retry["attempt"], retry["retry_of"], retry.get("reason"))
-                )
+        return RequestSession(lambda _reason: self._reserve_physical_request(packet, role, opened))
+
+    def _record_request_outcome(self, session: RequestSession) -> None:
+        """Journal the physical requests the session sent after the first."""
+
+        for retry in session.outcome().retries:
+            self._journal.append(
+                TransportRetried(retry["attempt"], retry["retry_of"], retry.get("reason"))
+            )
 
     def _reserve_physical_request(
         self, packet: PromptPacket, role: str, opened: list[int]

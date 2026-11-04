@@ -17,6 +17,8 @@ from asago_artifact_generator.authoring.transport import (
     SERVICE_TIER_FALLBACK_REASON,
     TRANSPORT_RETRY,
     PrivateModelAuthoringTransport,
+    RequestOutcome,
+    RequestSession,
 )
 
 from .support import (
@@ -58,31 +60,39 @@ def test_a_transport_error_is_retried_once_and_recorded(
 ) -> None:
     client = scripted_client([failure, chat_completion('{"ok": true}')])
     transport = _transport(client)
+    session = RequestSession()
 
-    response = transport.complete(prompt_packet())
+    response = transport.complete(prompt_packet(), session)
 
     assert response.raw == b'{"ok": true}'
     assert len(client.requests) == 2
     assert client.requests[0] == client.requests[1]
-    assert transport.last_retries == [{"attempt": 2, "retry_of": recorded}]
+    assert session.outcome() == RequestOutcome(
+        attempts=2, retries=({"attempt": 2, "retry_of": recorded},)
+    )
 
 
 def test_a_call_without_a_failure_records_no_retry() -> None:
     transport = _transport(scripted_client([chat_completion()]))
+    session = RequestSession()
 
-    transport.complete(prompt_packet())
+    transport.complete(prompt_packet(), session)
 
-    assert transport.last_retries == []
+    assert session.outcome() == RequestOutcome(attempts=1)
 
 
-def test_the_retry_record_does_not_outlive_its_call() -> None:
+def test_each_session_reports_only_its_own_requests() -> None:
     client = scripted_client([connection_error(), chat_completion(), chat_completion()])
     transport = _transport(client)
 
-    transport.complete(prompt_packet())
-    transport.complete(prompt_packet())
+    retried = RequestSession()
+    transport.complete(prompt_packet(), retried)
+    clean = RequestSession()
+    transport.complete(prompt_packet(), clean)
 
-    assert transport.last_retries == []
+    assert retried.outcome().attempts == 2
+    assert [retry["attempt"] for retry in retried.outcome().retries] == [2]
+    assert clean.outcome() == RequestOutcome(attempts=1)
 
 
 @pytest.mark.parametrize(
@@ -95,12 +105,14 @@ def test_two_transport_errors_surface_after_exactly_two_requests(
 ) -> None:
     client = scripted_client([failure, failure])
     transport = _transport(client)
+    session = RequestSession()
 
     with pytest.raises(type(failure)):
-        transport.complete(prompt_packet())
+        transport.complete(prompt_packet(), session)
 
     assert len(client.requests) == 2
-    assert len(transport.last_retries) == 1
+    assert session.outcome().attempts == 2
+    assert len(session.outcome().retries) == 1
 
 
 @pytest.mark.parametrize(
@@ -116,19 +128,21 @@ def test_two_transport_errors_surface_after_exactly_two_requests(
 def test_other_provider_errors_are_never_retried(failure: BaseException) -> None:
     client = scripted_client([failure])
     transport = _transport(client)
+    session = RequestSession()
 
     with pytest.raises(type(failure)):
-        transport.complete(prompt_packet())
+        transport.complete(prompt_packet(), session)
 
     assert len(client.requests) == 1
-    assert transport.last_retries == []
+    assert session.outcome() == RequestOutcome(attempts=1)
 
 
 def test_the_service_tier_fallback_keeps_its_own_rule_and_a_5xx_on_it_retries() -> None:
     client = scripted_client([status_error(429), status_error(502), chat_completion()])
     transport = _transport(client, service_tier="flex", service_tier_fallback="default")
+    session = RequestSession()
 
-    response = transport.complete(prompt_packet())
+    response = transport.complete(prompt_packet(), session)
 
     assert [request.get("service_tier") for request in client.requests] == [
         "flex",
@@ -136,66 +150,70 @@ def test_the_service_tier_fallback_keeps_its_own_rule_and_a_5xx_on_it_retries() 
         "default",
     ]
     assert response.controls["service_tier_fallback_used"] is True
-    assert transport.last_retries == [
+    assert session.outcome() == RequestOutcome(
+        attempts=3,
+        retries=(
+            {
+                "attempt": 2,
+                "retry_of": {"type": "RateLimitError", "status_code": 429},
+                "reason": "service_tier_fallback",
+            },
+            {"attempt": 3, "retry_of": {"type": "InternalServerError", "status_code": 502}},
+        ),
+    )
+
+
+def test_a_refusing_session_stops_the_tier_fallback_and_surfaces_the_rate_limit() -> None:
+    client = scripted_client([status_error(429), chat_completion()])
+    transport = _transport(client, service_tier="flex", service_tier_fallback="default")
+    session = RequestSession(lambda reason: reason == FIRST_ATTEMPT)
+
+    with pytest.raises(openai.RateLimitError):
+        transport.complete(prompt_packet(), session)
+
+    assert len(client.requests) == 1
+    assert session.outcome() == RequestOutcome(attempts=1)
+
+
+def test_the_tier_fallback_is_recorded_with_its_reason_and_asks_the_session_once() -> None:
+    asked: list[str] = []
+    client = scripted_client([status_error(429), chat_completion()])
+    transport = _transport(client, service_tier="flex", service_tier_fallback="default")
+    session = RequestSession(lambda reason: asked.append(reason) or True)
+
+    transport.complete(prompt_packet(), session)
+
+    assert asked == [FIRST_ATTEMPT, SERVICE_TIER_FALLBACK_REASON]
+    assert session.outcome().retries == (
         {
             "attempt": 2,
             "retry_of": {"type": "RateLimitError", "status_code": 429},
             "reason": "service_tier_fallback",
         },
-        {"attempt": 3, "retry_of": {"type": "InternalServerError", "status_code": 502}},
-    ]
+    )
 
 
-def test_a_refusing_gate_stops_the_tier_fallback_and_surfaces_the_rate_limit() -> None:
-    client = scripted_client([status_error(429), chat_completion()])
-    transport = _transport(client, service_tier="flex", service_tier_fallback="default")
-    transport.attempt_gate = lambda reason: reason == FIRST_ATTEMPT
-
-    with pytest.raises(openai.RateLimitError):
-        transport.complete(prompt_packet())
-
-    assert len(client.requests) == 1
-    assert transport.last_retries == []
-
-
-def test_the_tier_fallback_is_recorded_with_its_reason_and_asks_the_gate_once() -> None:
-    asked: list[str] = []
-    client = scripted_client([status_error(429), chat_completion()])
-    transport = _transport(client, service_tier="flex", service_tier_fallback="default")
-    transport.attempt_gate = lambda reason: asked.append(reason) or True
-
-    transport.complete(prompt_packet())
-
-    assert asked == [FIRST_ATTEMPT, SERVICE_TIER_FALLBACK_REASON]
-    assert transport.last_retries == [
-        {
-            "attempt": 2,
-            "retry_of": {"type": "RateLimitError", "status_code": 429},
-            "reason": "service_tier_fallback",
-        }
-    ]
-
-
-def test_a_retry_after_the_fallback_is_the_third_attempt_and_is_gated_too() -> None:
+def test_a_retry_after_the_fallback_is_the_third_attempt_and_is_reserved_too() -> None:
     asked: list[str] = []
     client = scripted_client([status_error(429), status_error(502), chat_completion()])
     transport = _transport(client, service_tier="flex", service_tier_fallback="default")
-    transport.attempt_gate = lambda reason: asked.append(reason) or True
+    session = RequestSession(lambda reason: asked.append(reason) or True)
 
-    transport.complete(prompt_packet())
+    transport.complete(prompt_packet(), session)
 
     assert asked == [FIRST_ATTEMPT, SERVICE_TIER_FALLBACK_REASON, TRANSPORT_RETRY]
-    assert [retry["attempt"] for retry in transport.last_retries] == [2, 3]
+    assert [retry["attempt"] for retry in session.outcome().retries] == [2, 3]
 
 
 def test_a_validation_failure_is_not_a_transport_error() -> None:
     client = scripted_client([chat_completion("not json at all")])
     transport = _transport(client)
+    session = RequestSession()
 
-    transport.complete(prompt_packet())
+    transport.complete(prompt_packet(), session)
 
     assert len(client.requests) == 1
-    assert transport.last_retries == []
+    assert session.outcome() == RequestOutcome(attempts=1)
 
 
 def test_the_retry_waits_the_fixed_delay_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -222,25 +240,25 @@ def test_sdk_retries_stay_off_and_the_controls_say_so() -> None:
     assert response.controls["max_retries"] == 0
 
 
-def test_a_refusing_gate_stops_the_retry_and_surfaces_the_first_error() -> None:
+def test_a_refusing_session_stops_the_retry_and_surfaces_the_first_error() -> None:
     client = scripted_client([connection_error(), chat_completion()])
     transport = _transport(client)
-    transport.attempt_gate = lambda reason: reason == FIRST_ATTEMPT
+    session = RequestSession(lambda reason: reason == FIRST_ATTEMPT)
 
     with pytest.raises(openai.APIConnectionError):
-        transport.complete(prompt_packet())
+        transport.complete(prompt_packet(), session)
 
     assert len(client.requests) == 1
-    assert transport.last_retries == []
+    assert session.outcome() == RequestOutcome(attempts=1)
 
 
-def test_an_allowing_gate_is_asked_once_per_physical_request() -> None:
+def test_an_allowing_session_is_asked_once_per_physical_request() -> None:
     asked: list[str] = []
     client = scripted_client([connection_error(), chat_completion()])
     transport = _transport(client)
-    transport.attempt_gate = lambda reason: asked.append(reason) or True
+    session = RequestSession(lambda reason: asked.append(reason) or True)
 
-    transport.complete(prompt_packet())
+    transport.complete(prompt_packet(), session)
 
     assert asked == [FIRST_ATTEMPT, TRANSPORT_RETRY]
 
