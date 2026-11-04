@@ -9,6 +9,7 @@ the same objects, so ``asago_artifact_generator.package_io.write_package`` and
 from __future__ import annotations
 
 from asago_package.package_io import (
+    JUDGE_MEMBER,
     PACKAGE_SCHEMA_VERSION,
     SEED_MEMBER,
     TOOL_CALL_CONDITION_MEMBER,
@@ -25,6 +26,7 @@ from asago_package.package_io import (
 
 __all__ = [
     "ArtifactPackage",
+    "JUDGE_MEMBER",
     "PACKAGE_SCHEMA_VERSION",
     "PackageIntegrityError",
     "PackageManifest",
