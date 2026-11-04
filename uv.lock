@@ -233,6 +233,7 @@ dependencies = [
 requires-dist = [
     { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
     { name = "asago-package", editable = "packages/asago-package" },
+    { name = "asago-target-discovery", marker = "extra == 'target-discovery'", editable = "../asago-scenario-generator/packages/asago-target-discovery" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "jsonschema", specifier = ">=4.0" },
     { name = "mcp", marker = "extra == 'target-discovery'", specifier = ">=1.9.0,<2" },
@@ -247,6 +248,7 @@ provides-extras = ["dev", "target-discovery"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "asago-target-discovery", editable = "../asago-scenario-generator/packages/asago-target-discovery" },
     { name = "hypothesis", specifier = ">=6.164.0" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "ruff" },
