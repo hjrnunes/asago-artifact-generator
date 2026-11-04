@@ -1,0 +1,103 @@
+{
+  "contract": "scenario-handoff",
+  "kit": "scenario-handoff-v6",
+  "rules": [
+    {
+      "codes": [
+        "schema_violation:safe_observable_outcome"
+      ],
+      "invalid": [
+        "invalid/safe-call-argument-blank-name.json",
+        "invalid/safe-call-argument-value-not-scalar.json",
+        "invalid/safe-call-duplicate-argument-name.json",
+        "invalid/safe-call-made-not-boolean.json",
+        "invalid/safe-call-not-made-with-arguments.json"
+      ],
+      "kind": "handoff",
+      "name": "safe-call-arguments",
+      "rule": "A safe observable outcome names each call argument once, with a non-blank name, only when the call is made.",
+      "valid": [
+        "valid/safe-call-arguments.json",
+        "valid/safe-call-not-made.json"
+      ]
+    },
+    {
+      "codes": [
+        "schema_violation:procedure",
+        "schema_violation:<root>"
+      ],
+      "invalid": [
+        "invalid/v5-procedure-step-id-out-of-order.json",
+        "invalid/v5-procedure-leads-to-wrong.json",
+        "invalid/v5-procedure-technique-without-tactic.json",
+        "invalid/v5-procedure-step-missing-tactic-key.json"
+      ],
+      "kind": "handoff",
+      "name": "procedure-chain",
+      "rule": "Procedure steps are S00, S01, ... in order, each leads to the next, and a step names a tactic exactly when it names a technique.",
+      "valid": [
+        "valid/adversarial-direct-multi-turn.json"
+      ]
+    },
+    {
+      "codes": [
+        "schema_violation:taxonomy"
+      ],
+      "invalid": [
+        "invalid/taxonomy-unsorted-references.json",
+        "invalid/taxonomy-duplicate-reference.json"
+      ],
+      "kind": "handoff",
+      "name": "reference-order",
+      "rule": "Taxonomy references are sorted by scheme and id, and each appears once.",
+      "valid": [
+        "valid/taxonomy-block.json"
+      ]
+    },
+    {
+      "codes": [
+        "artifact_design_field:",
+        "prose_hiding:"
+      ],
+      "invalid": [
+        "invalid/narrative-role-serialization.json",
+        "invalid/narrative-turn-array.json",
+        "invalid/ownership-deliver-this-message.json",
+        "invalid/ownership-dotted-key.json",
+        "invalid/ownership-judge-prompt.json",
+        "invalid/ownership-key-name-pattern.json",
+        "invalid/ownership-oracle-basis-key.json",
+        "invalid/ownership-oracle-kind-key.json",
+        "invalid/ownership-oracle-observes-key.json",
+        "invalid/ownership-system-prompt-is.json",
+        "invalid/prepared-message-field.json",
+        "invalid/role-turn-array.json",
+        "invalid/smuggled-prose.json",
+        "invalid/stimulus-turn-field.json"
+      ],
+      "kind": "handoff",
+      "name": "ownership-walker",
+      "rule": "No mapping key or string names an artifact-design field or hides one in prose.",
+      "valid": [
+        "valid/adversarial-direct-single.json"
+      ]
+    },
+    {
+      "codes": [
+        "feature_companion:"
+      ],
+      "invalid": [
+        "companions/feature-companion-comments.json",
+        "companions/feature-companion-feature-line.json",
+        "companions/feature-companion-scenario-line.json",
+        "companions/feature-companion-steps.json"
+      ],
+      "kind": "companion",
+      "name": "feature-companion",
+      "rule": "A feature file holds the handoff's feature line, scenario line, given, when and then_expected steps in order, and one comment per unsafe alternative.",
+      "valid": [
+        "companions/feature-companion-holds.json"
+      ]
+    }
+  ]
+}

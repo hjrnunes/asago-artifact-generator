@@ -60,12 +60,12 @@ from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
 from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
 from .planted_item import (
-    CONTROLLING_PARTY_PATH,
     CONTROLLING_PARTY_UNKNOWN,
     PLANTED_TEXT_FIELD,
     RECORD_FIELD,
     choose_planted_target,
     controlling_party,
+    controlling_party_path,
     planted_item_findings,
     writable_by,
 )
@@ -554,7 +554,7 @@ def slot_party_findings(
             f"the scenario's controlling party is {party}, and slot {target.slot} is writable "
             f"by {target.controller}; the package keeps the slot and records the mismatch "
             "as advisory",
-            CONTROLLING_PARTY_PATH,
+            controlling_party_path(shape),
             {
                 "controlling_party": party,
                 "slot": target.slot,

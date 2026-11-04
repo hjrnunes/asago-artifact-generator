@@ -37,7 +37,9 @@ VERBATIM_RUN = 40
 # A shape that states no assumption about who wrote the item puts no party preference on
 # the slot choice and records no mismatch.
 CONTROLLING_PARTY_UNKNOWN = "unknown"
-CONTROLLING_PARTY_PATH = "attack_shape.indirect.party_relation.controller"
+# scenario-handoff-v6 renamed the party and scenario-handoff-v5 still reads, so a shape
+# states it under one of these names; the newest comes first.
+CONTROLLING_PARTY_FIELDS = ("controlling_party", "controller")
 
 # The two planted-item party names are different concepts: the shape's controlling party
 # is the scenario's assumption about who wrote the item, and a slot's writable-by party is
@@ -134,10 +136,28 @@ def _states_limit_and_mode(slot: dict[str, Any]) -> bool:
     )
 
 
+def controlling_party_field(shape: dict[str, Any]) -> str:
+    """Return the ``party_relation`` field the shape states the party under."""
+
+    relation = shape["indirect"]["party_relation"]
+    for field in CONTROLLING_PARTY_FIELDS:
+        if field in relation:
+            return field
+    raise KeyError("party_relation states no controlling party")
+
+
+def controlling_party_path(shape: dict[str, Any]) -> str:
+    """Return the shape path a finding about the controlling party names."""
+
+    field = controlling_party_field(shape)
+    return f"attack_shape.indirect.party_relation.{field}"
+
+
 def controlling_party(shape: dict[str, Any]) -> str:
     """Return the scenario's assumption about who wrote the planted item."""
 
-    return shape["indirect"]["party_relation"]["controller"]
+    relation = shape["indirect"]["party_relation"]
+    return relation[controlling_party_field(shape)]
 
 
 def writable_by(slot_writer: str) -> frozenset[str]:
@@ -309,7 +329,7 @@ def indirect_block(
     shape = view.attack_shape
     turns = shape["turn_count"]
     relation = shape["indirect"]["party_relation"]
-    controlling_party = relation["controller"]
+    party = controlling_party(shape)
     contract = runtime_contract or {}
     target = choose_planted_target(shape, contract, plan)
     if target is None:
@@ -328,8 +348,8 @@ def indirect_block(
         "delivery": PLANTED_ITEM_DELIVERY,
         "benign_user_actor_ref": relation["benign_user_actor_ref"],
         "shape_controlling_party": {
-            "party": controlling_party,
-            "meaning": _CONTROLLING_PARTY_MEANINGS[controlling_party],
+            "party": party,
+            "meaning": _CONTROLLING_PARTY_MEANINGS[party],
         },
         "turn_plan": [
             {
@@ -497,7 +517,7 @@ def planted_review_sections(
     text = metadata.get(PLANTED_TEXT_FIELD) if isinstance(metadata, dict) else None
     if not is_indirect(view) or not isinstance(text, str):
         return ()
-    controlling_party = view.attack_shape["indirect"]["party_relation"]["controller"]
+    party = controlling_party(view.attack_shape)
     target = choose_planted_target(view.attack_shape, runtime_contract or {}, plan)
     return (
         (
@@ -509,8 +529,8 @@ def planted_review_sections(
                 if target is None
                 else _fixed_entry(target, view.attack_shape, plan),
                 "shape_controlling_party": {
-                    "party": controlling_party,
-                    "meaning": _CONTROLLING_PARTY_MEANINGS[controlling_party],
+                    "party": party,
+                    "meaning": _CONTROLLING_PARTY_MEANINGS[party],
                 },
                 "check": prose("planted_item/review_check"),
             },

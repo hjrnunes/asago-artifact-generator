@@ -12,12 +12,17 @@ from typing import Any
 
 import yaml
 from asago_handoff import Violation, feature_violations, validate_handoff
-from asago_handoff.contract import Contract, ContractError, load_ownership_rules
+from asago_handoff.contract import (
+    Contract,
+    ContractError,
+    load_contract,
+    load_ownership_rules,
+)
 from asago_handoff.envelope import (
     ENVELOPE_FIELD,
     ContractEnvelopeError,
-    SpecSet,
-    load_specs,
+    InvalidDocumentError,
+    UnknownFieldError,
 )
 from asago_handoff.shape import attack_shape_violation
 
@@ -43,6 +48,11 @@ class InputKind(StrEnum):
     """The supported design-time input representations, recorded in package manifests."""
 
     SCENARIO_HANDOFF_V5 = "scenario-handoff-v5"
+    SCENARIO_HANDOFF_V6 = "scenario-handoff-v6"
+
+
+#: The versions the mirrored kit publishes, by the name a document states.
+_HANDOFF_VERSIONS = {kind.value: kind for kind in InputKind}
 
 
 # The structured-analysis fields of scenario-handoff-v5, in the producer's order.
@@ -147,9 +157,11 @@ class InputView:
 def load_input(source_path: str | Path) -> InputView:
     """Load one producer scenario handoff and produce a source-pinned view.
 
-    The mirrored kit declares one supported version. The shared
-    ``asago_handoff`` validator owns that rule, as it owns the rest: a document
-    that states another version, or none, is refused with the producer's codes.
+    The mirrored kit publishes two versions: v5, which every recorded handoff
+    names, and v6, which renames the controlling party and requires the envelope.
+    The shared ``asago_handoff`` validator owns the version rule, as it owns the
+    rest: a document that states another version, or none, is refused with the
+    producer's codes; a v6 document without the envelope is refused.
     """
 
     path = Path(source_path)
@@ -206,13 +218,25 @@ def _parse_document(path: Path, source_bytes: bytes) -> Any:
         raise InputSourceError(f"cannot parse input source {path}: {exc}") from exc
 
 
+def _handoff_kind(payload: Any) -> InputKind:
+    """Return the version a document states, or v5 when it states an unpublished one.
+
+    A document that names no published version keeps the v5 kit's schema and
+    refusals, so the shared validator reports the producer's codes for it; the
+    version it states is named in the code.
+    """
+
+    version = payload.get("schema_version") if isinstance(payload, dict) else None
+    return _HANDOFF_VERSIONS.get(version, InputKind.SCENARIO_HANDOFF_V5)
+
+
 def _handoff_view(
     path: Path,
     payload: Any,
     source_bytes: bytes,
     source: SourceSnapshot,
 ) -> InputView:
-    kind = InputKind.SCENARIO_HANDOFF_V5
+    kind = _handoff_kind(payload)
     version = _validate_handoff_kit(kind)
     _validate_handoff_payload(payload, version.kit)
     expected_digest = payload.get("content_digest", "")
@@ -261,8 +285,10 @@ def _handoff_view(
 def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V5) -> _HandoffVersion:
     """Verify the mirrored lock and return the version entry it declares for ``kind``.
 
-    The lock names one schema version at its top level, and the mirror holds that
-    version's directory; the digest domain is the version's own name.
+    The lock names the newest published version at its top level, and its rows
+    cover every published version's directory; the digest domain is the
+    version's own name. A lock that names no published version, or that holds no
+    file of the version a document states, declares nothing this reader can use.
     """
 
     verify_contract_lock(
@@ -276,7 +302,8 @@ def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V5) -> _H
     lock = load_json_file(
         _HANDOFF_ROOT / "CONTRACT.lock", InputSourceError, "cannot read vendored handoff lock"
     )
-    if lock.get("schema_version") != kind.value:
+    locked = {relative.split("/", 1)[0] for relative in lock.get("files", {})}
+    if lock.get("schema_version") not in _HANDOFF_VERSIONS or kind.value not in locked:
         raise InputSourceError(f"vendored handoff lock does not declare {kind.value}")
     return _HandoffVersion(kind, kind.value, kind.value)
 
@@ -285,15 +312,6 @@ def _handoff_schema(kit: str = "scenario-handoff-v5") -> dict[str, Any]:
     return load_json_file(
         _HANDOFF_ROOT / kit / "schema.json", InputSourceError, f"cannot read vendored {kit} schema"
     )
-
-
-def _handoff_specs() -> SpecSet:
-    """Read the mirrored spec set the shared validator selects the version through."""
-
-    try:
-        return load_specs(_HANDOFF_ROOT.parent)
-    except ContractEnvelopeError as exc:
-        raise InputSourceError(f"cannot read vendored handoff spec: {exc}") from exc
 
 
 def _read_ownership_rules(
@@ -307,18 +325,19 @@ def _read_ownership_rules(
         raise InputSourceError(f"cannot read vendored ownership rules: {exc}") from exc
 
 
-def _handoff_contract(kit: str = "scenario-handoff-v5") -> Contract:
-    """Read the mirrored contract documents the shared validator walks."""
+def _handoff_contract() -> Contract:
+    """Read the mirrored contract documents the shared validator walks.
 
-    forbidden_keys, forbidden_patterns = _read_ownership_rules(
-        _HANDOFF_ROOT / "ownership-rules.json"
-    )
-    return Contract(
-        schema=_handoff_schema(kit),
-        forbidden_keys=forbidden_keys,
-        forbidden_patterns=forbidden_patterns,
-        specs=_handoff_specs(),
-    )
+    The mirror publishes both versions, so the contract carries each version's
+    schema and the shared validator selects by the document's own
+    ``schema_version``; ``schema`` is the newest, which a reader with no version
+    uses.
+    """
+
+    try:
+        return load_contract(_HANDOFF_ROOT)
+    except (ContractError, ContractEnvelopeError) as exc:
+        raise InputSourceError(f"cannot read vendored handoff contract: {exc}") from exc
 
 
 def _validate_handoff_payload(payload: Any, kit: str) -> None:
@@ -329,10 +348,19 @@ def _validate_handoff_payload(payload: Any, kit: str) -> None:
     and the hand rules the schema cannot state, the schema version included.
     The consumer keeps the typed attack-shape refusal for a break confined to
     the shape, and reports every other break, including a document that is not
-    a JSON object, as :class:`HandoffSchemaInvalid`.
+    a JSON object, as :class:`HandoffSchemaInvalid`. A body the version's schema
+    rejects still reports the producer's codes: the envelope states who wrote
+    the document, not that its content holds. A document the reader alone can
+    refuse, such as v6 without the envelope, names that refusal instead.
     """
 
-    violations = validate_handoff(payload, contract=_handoff_contract(kit))
+    contract = _handoff_contract()
+    try:
+        violations = validate_handoff(payload, contract=contract)
+    except (InvalidDocumentError, UnknownFieldError):
+        violations = validate_handoff(payload, contract=contract, through_spec=False)
+    except ContractEnvelopeError as exc:
+        raise InputSourceError(f"scenario handoff envelope refused: {exc}") from exc
     if not violations:
         return
     breaks = [item for item in violations if item.code.startswith("schema_violation:")]

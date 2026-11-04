@@ -1,0 +1,12 @@
+{
+  "cases": "cases",
+  "contract": "scenario-handoff",
+  "docs": "README.md",
+  "envelope": "required",
+  "extensions": [],
+  "schema": "schema.json",
+  "spec_digest": "sha256:a2f3bfe6fa4e3ee926bada66bc420d55a2ea9989a2dd62981acb705426c2f79a",
+  "status": "published",
+  "supports": [],
+  "version": "scenario-handoff-v6"
+}

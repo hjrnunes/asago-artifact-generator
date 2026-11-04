@@ -1,10 +1,11 @@
-"""The scenario-handoff kit: its mirrored spec, its documents and its refusals.
+"""The scenario-handoff kit: its mirrored specs, its documents and its refusals.
 
 The producer owns ``data/contracts/scenario-handoff/``; this repository mirrors
 the whole contract under ``contracts/scenario-handoff`` and the adapter reads
 every input through the mirrored spec before its own checks. The mirror is byte
-for byte the authority's, so the spec digest and the reader rules are the same
-on both sides.
+for byte the authority's and publishes both versions, so the spec digest and the
+reader rules are the same on both sides: v5 still reads without the envelope and
+v6 requires it.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from asago_handoff import read_handoff
 from asago_handoff.envelope import (
     ENVELOPE_FIELD,
     ContractSpec,
+    MissingEnvelopeError,
     SpecDigestMismatchError,
     SpecSet,
     UnknownContractError,
@@ -34,27 +36,38 @@ from asago_handoff.envelope import (
 from asago_artifact_generator.input_adapter import InputKind, load_input
 
 CONTRACT = "scenario-handoff"
-VERSION = "scenario-handoff-v5"
+V5 = "scenario-handoff-v5"
+V6 = "scenario-handoff-v6"
+VERSION = V6
+LEGACY_VERSION = V5
+VERSIONS = (V5, V6)
+_ENVELOPE = {V5: "optional", V6: "required"}
+_KIND = {V5: InputKind.SCENARIO_HANDOFF_V5, V6: InputKind.SCENARIO_HANDOFF_V6}
 _CONTRACT_DIR = Path(__file__).resolve().parents[1] / "contracts" / CONTRACT
-_VERSION_DIR = _CONTRACT_DIR / VERSION
-_CASES = _VERSION_DIR / "cases"
-_SCHEMA = _VERSION_DIR / "schema.json"
 
 
 def _json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _version_dir(version: str) -> Path:
+    return _CONTRACT_DIR / version
+
+
 def _specs() -> SpecSet:
     return load_specs(_CONTRACT_DIR.parent)
 
 
-def _spec() -> ContractSpec:
-    return _specs().spec(CONTRACT, VERSION)
+def _spec(version: str = V5) -> ContractSpec:
+    return _specs().spec(CONTRACT, version)
 
 
-def _cases(kind: str) -> list[Path]:
-    return sorted((_CASES / kind).glob("*.json"))
+def _valid_case(version: str) -> dict[str, Any]:
+    return _json(sorted((_version_dir(version) / "cases" / "valid").glob("*.json"))[0])
+
+
+def _cases(version: str, kind: str) -> list[Path]:
+    return sorted((_version_dir(version) / "cases" / kind).glob("*.json"))
 
 
 def _enveloped(spec: ContractSpec, document: dict[str, Any], **overrides: Any) -> dict[str, Any]:
@@ -78,103 +91,132 @@ def _enveloped(spec: ContractSpec, document: dict[str, Any], **overrides: Any) -
 def _recorded_documents() -> list[Path]:
     """Return every recorded handoff the reader must keep reading."""
 
-    documents = _cases("valid")
+    documents = _cases(LEGACY_VERSION, "valid")
     corpus = os.environ.get("ASAGO_REPLAY_CORPUS")
     if corpus:
         documents = documents + sorted(Path(corpus).rglob("handoff.json"))
     return documents
 
 
-def test_the_mirrored_spec_is_the_scenario_handoff_v5() -> None:
-    spec = _spec()
-    body = _json(_VERSION_DIR / "spec.json")
+@pytest.mark.parametrize("version", VERSIONS)
+def test_the_mirrored_spec_states_its_version(version: str) -> None:
+    spec = _spec(version)
+    body = _json(_version_dir(version) / "spec.json")
 
     assert (spec.contract, spec.version, spec.status, spec.envelope) == (
         CONTRACT,
-        VERSION,
+        version,
         "published",
-        "optional",
+        _ENVELOPE[version],
     )
     assert spec.supports == ()
     assert spec.extensions == ()
     assert body["cases"] == "cases"
     assert body["docs"] == "README.md"
-    assert spec.spec_digest == spec_digest(body, _SCHEMA.read_bytes())
+    schema = (_version_dir(version) / "schema.json").read_bytes()
+    assert spec.spec_digest == spec_digest(body, schema)
 
 
-@pytest.mark.parametrize("case", _cases("valid"), ids=lambda case: case.stem)
-def test_the_reader_accepts_every_valid_case_as_a_legacy_document(case: Path) -> None:
+def test_the_mirror_installs_both_versions() -> None:
+    installed = {spec.version for spec in _specs().specs if spec.contract == CONTRACT}
+
+    assert installed == set(VERSIONS)
+
+
+@pytest.mark.parametrize("case", _cases(LEGACY_VERSION, "valid"), ids=lambda case: case.stem)
+def test_the_reader_accepts_every_valid_v5_case_as_a_legacy_document(case: Path) -> None:
     """A v5 document without the envelope still reads; the recorded handoffs never had one."""
 
-    assert read_handoff(_json(case)).version == VERSION
+    assert read_handoff(_json(case)).version == LEGACY_VERSION
 
 
-@pytest.mark.parametrize("case", _cases("valid"), ids=lambda case: case.stem)
-def test_the_reader_accepts_every_valid_case_with_the_envelope(case: Path) -> None:
+_ENVELOPED_CASES = [
+    pytest.param(version, case, id=f"{version}-{case.stem}")
+    for version in VERSIONS
+    for case in _cases(version, "valid")
+]
+
+
+@pytest.mark.parametrize(("version", "case"), _ENVELOPED_CASES)
+def test_the_reader_accepts_every_valid_case_with_the_envelope(version: str, case: Path) -> None:
     written = write_envelope(
         _json(case),
-        _spec(),
+        _spec(version),
         writer="tests.handoff_contract",
         writer_version="0.1.0",
     )
 
-    assert read_handoff(written).version == VERSION
+    assert read_handoff(written).version == version
+
+
+def test_a_v6_document_without_the_envelope_is_rejected() -> None:
+    with pytest.raises(MissingEnvelopeError) as raised:
+        _specs().read(_valid_case(V6))
+
+    assert ENVELOPE_FIELD in str(raised.value)
+    assert V6 in str(raised.value)
 
 
 @pytest.mark.parametrize("case", _recorded_documents(), ids=lambda case: case.name)
 def test_every_recorded_handoff_still_reads(case: Path) -> None:
     document = _json(case)
 
-    assert document.get("schema_version") == VERSION
-    assert read_handoff(document).version == VERSION
+    assert document.get("schema_version") == LEGACY_VERSION
+    assert read_handoff(document).version == LEGACY_VERSION
 
 
-def test_the_adapter_accepts_an_enveloped_handoff(tmp_path: Path) -> None:
-    case = _json(_cases("valid")[0])
+@pytest.mark.parametrize("version", VERSIONS)
+def test_the_adapter_accepts_an_enveloped_handoff(tmp_path: Path, version: str) -> None:
+    case = _valid_case(version)
+    case["schema_version"] = version
     written = write_envelope(
-        case, _spec(), writer="tests.handoff_contract", writer_version="0.1.0"
+        case, _spec(version), writer="tests.handoff_contract", writer_version="0.1.0"
     )
     path = tmp_path / "handoff.json"
     path.write_text(json.dumps(written), encoding="utf-8")
 
     view = load_input(path)
 
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V5
-    assert view.payload[ENVELOPE_FIELD]["version"] == VERSION
+    assert view.kind is _KIND[version]
+    assert view.payload[ENVELOPE_FIELD]["version"] == version
 
 
 def test_an_unsupported_version_names_the_supported_versions() -> None:
-    case = _json(_cases("valid")[0])
+    case = _valid_case(V5)
 
     with pytest.raises(UnsupportedVersionError) as raised:
-        _specs().read(_enveloped(_spec(), case, version="scenario-handoff-v9"))
+        _specs().read(_enveloped(_spec(V5), case, version="scenario-handoff-v9"))
 
     assert "scenario-handoff-v9" in str(raised.value)
-    assert VERSION in str(raised.value)
+    for version in VERSIONS:
+        assert version in str(raised.value)
 
 
-def test_an_unknown_contract_names_the_installed_one() -> None:
-    case = _json(_cases("valid")[0])
+@pytest.mark.parametrize("version", VERSIONS)
+def test_an_unknown_contract_names_the_installed_one(version: str) -> None:
+    case = _valid_case(version)
 
     with pytest.raises(UnknownContractError) as raised:
-        _specs().read(_enveloped(_spec(), case, id="not-a-contract"))
+        _specs().read(_enveloped(_spec(version), case, id="not-a-contract"))
 
     assert CONTRACT in str(raised.value)
 
 
-def test_an_unknown_requires_entry_is_rejected() -> None:
-    case = _json(_cases("valid")[0])
+@pytest.mark.parametrize("version", VERSIONS)
+def test_an_unknown_requires_entry_is_rejected(version: str) -> None:
+    case = _valid_case(version)
 
     with pytest.raises(UnknownRequirementError) as raised:
-        _specs().read(_enveloped(_spec(), case, requires=["scenario-handoff-v2"]))
+        _specs().read(_enveloped(_spec(version), case, requires=["scenario-handoff-v2"]))
 
     assert "scenario-handoff-v2" in str(raised.value)
 
 
-def test_an_unknown_field_outside_an_extension_is_rejected() -> None:
-    case = _json(_cases("valid")[0])
-    document = _enveloped(_spec(), case)
-    document["probe_key"] = "a field v5 never declared"
+@pytest.mark.parametrize("version", VERSIONS)
+def test_an_unknown_field_outside_an_extension_is_rejected(version: str) -> None:
+    case = _valid_case(version)
+    document = _enveloped(_spec(version), case)
+    document["probe_key"] = "a field the version never declared"
 
     with pytest.raises(UnknownFieldError) as raised:
         _specs().read(document)
@@ -183,9 +225,10 @@ def test_an_unknown_field_outside_an_extension_is_rejected() -> None:
     assert "declared extensions: none" in str(raised.value)
 
 
-def test_a_draft_with_a_mismatched_spec_digest_is_rejected() -> None:
-    case = _json(_cases("valid")[0])
-    draft = replace(_spec(), status="draft")
+@pytest.mark.parametrize("version", VERSIONS)
+def test_a_draft_with_a_mismatched_spec_digest_is_rejected(version: str) -> None:
+    case = _valid_case(version)
+    draft = replace(_spec(version), status="draft")
     other = "sha256:" + "0" * 64
 
     with pytest.raises(SpecDigestMismatchError) as raised:

@@ -19,6 +19,7 @@ skipping these cases.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,7 @@ if not PRODUCER_CHECKOUT.is_dir():
 
 from asago_scenario_generator.stpa.scenario_prod.handoff import (  # noqa: E402
     ScenarioHandoffV5,
+    ScenarioHandoffV6,
     finalize_handoff,
     write_scenario_handoff,
 )
@@ -54,6 +56,16 @@ from asago_scenario_generator.stpa.scenario_prod.handoff import (  # noqa: E402
 HANDOFFS = Path(__file__).resolve().parent / "fixtures" / "handoffs"
 # A producer-written v5 handoff with its checked-in .feature companion.
 PRODUCER_FILE = HANDOFFS / "klarna-attack-path-SCN-027.yaml"
+# The mirrored v6 kit's indirect case, which states the renamed controlling party.
+V6_CASE = (
+    Path(__file__).resolve().parents[1]
+    / "contracts"
+    / "scenario-handoff"
+    / "scenario-handoff-v6"
+    / "cases"
+    / "valid"
+    / "adversarial-indirect-listing.json"
+)
 
 
 def _hand_built_payload() -> dict[str, Any]:
@@ -221,9 +233,13 @@ def _hand_built_payload() -> dict[str, Any]:
     }
 
 
-def _publish(payload: dict[str, Any], directory: Path) -> tuple[Path, Path]:
+def _publish(
+    payload: dict[str, Any],
+    directory: Path,
+    model: type[ScenarioHandoffV5] = ScenarioHandoffV5,
+) -> tuple[Path, Path]:
     """Validate, finalize, and write a payload with the producer's own writer."""
-    handoff = finalize_handoff(ScenarioHandoffV5.model_validate(payload))
+    handoff = finalize_handoff(model.model_validate(payload))
     return write_scenario_handoff(handoff, directory)
 
 
@@ -240,6 +256,25 @@ def test_a_hand_built_dict_passes_the_writer_and_the_reader(tmp_path: Path) -> N
     assert view.tool_call_condition == payload["tool_call_condition"]
     assert view.gherkin_text == feature_path.read_text(encoding="utf-8")
     assert view.source_sha256 == hashlib.sha256(handoff_path.read_bytes()).hexdigest()
+
+
+def test_a_v6_handoff_publishes_the_envelope_and_the_reader_reads_it(
+    tmp_path: Path,
+) -> None:
+    payload = json.loads(V6_CASE.read_text(encoding="utf-8"))
+    relation = payload["attack_shape"]["indirect"]["party_relation"]
+
+    handoff_path, feature_path = _publish(payload, tmp_path, ScenarioHandoffV6)
+
+    view = load_input(handoff_path)
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V6
+    assert view.payload["schema_version"] == "scenario-handoff-v6"
+    assert view.payload["contract"]["version"] == "scenario-handoff-v6"
+    assert view.attack_shape["indirect"]["party_relation"] == {
+        "controlling_party": relation["controlling_party"],
+        "benign_user_actor_ref": relation["benign_user_actor_ref"],
+    }
+    assert view.gherkin_text == feature_path.read_text(encoding="utf-8")
 
 
 def test_a_producer_written_file_passes_the_writer_and_the_reader(tmp_path: Path) -> None:

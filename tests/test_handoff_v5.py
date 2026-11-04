@@ -1,11 +1,12 @@
-"""The input adapter accepts only scenario-handoff-v5, and the prompts carry its analysis.
+"""The adapter keeps reading scenario-handoff-v5, and the prompts carry its analysis.
 
 The v5 kit, mirrored from the producer, carries each scenario's attack path and
 six structured-analysis fields; its ``expected-violations.json`` lists the
 producer's codes for each invalid case. The shared ``asago_handoff`` validator
 owns every rule, the schema version included: a document that states another
 version, or none, is refused with the two codes the kit expects. The adapter
-validates the attack shape with typed refusals.
+validates the attack shape with typed refusals. ``tests/test_handoff_v6.py``
+covers the newer version the same mirror publishes.
 """
 
 from __future__ import annotations
@@ -42,8 +43,10 @@ from .prompt_support import STAGES, render_stage_packets
 from .support import json_section
 
 _V5 = "scenario-handoff-v5"
+_V6 = "scenario-handoff-v6"
 _CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
 _VERSION_DIR = _CONTRACT / "scenario-handoff-v5"
+_V6_DIR = _CONTRACT / _V6
 _KIT = _VERSION_DIR / "cases"
 _EXPECTED = json.loads((_KIT / "expected-violations.json").read_text(encoding="utf-8"))
 _DIGESTS = json.loads((_KIT / "canonical-digests.json").read_text(encoding="utf-8"))[
@@ -83,31 +86,41 @@ def _signed(tmp_path: Path, payload: dict[str, Any], domain: str = _V5) -> Path:
     return path
 
 
-def test_the_lock_declares_v5_and_locks_every_v5_file() -> None:
-    lock = json.loads((_CONTRACT / "CONTRACT.lock").read_text(encoding="utf-8"))
-    locked = {name for name in lock["files"] if name.startswith("scenario-handoff-v5/")}
+def _mirrored(tmp_path: Path) -> Path:
+    """Copy the contract tree to *tmp_path* so a lock can be rewritten beside it."""
 
-    assert locked == {
-        path.relative_to(_CONTRACT).as_posix()
-        for path in _VERSION_DIR.rglob("*")
-        if path.is_file()
-    }
-    assert lock["schema_version"] == _V5
-    assert lock["contract"] == "scenario-handoff"
-
-    version = input_adapter._validate_handoff_kit()
-    assert (version.kit, version.digest_domain) == (_V5, _V5)
-
-
-def test_a_lock_without_the_v5_entry_refuses_a_v5_handoff(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
     mirror = tmp_path / "scenario-handoff"
     for path in _CONTRACT.rglob("*"):
         if path.is_file():
             target = mirror / path.relative_to(_CONTRACT)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(path.read_bytes())
+    return mirror
+
+
+def test_the_lock_names_the_newest_version_and_locks_both_kits() -> None:
+    lock = json.loads((_CONTRACT / "CONTRACT.lock").read_text(encoding="utf-8"))
+
+    for version_dir in (_VERSION_DIR, _V6_DIR):
+        locked = {name for name in lock["files"] if name.startswith(f"{version_dir.name}/")}
+        assert locked == {
+            path.relative_to(_CONTRACT).as_posix()
+            for path in version_dir.rglob("*")
+            if path.is_file()
+        }, version_dir.name
+    assert lock["schema_version"] == _V6
+    assert lock["contract"] == "scenario-handoff"
+
+    version = input_adapter._validate_handoff_kit()
+    assert (version.kit, version.digest_domain) == (_V5, _V5)
+    newest = input_adapter._validate_handoff_kit(InputKind.SCENARIO_HANDOFF_V6)
+    assert (newest.kit, newest.digest_domain) == (_V6, _V6)
+
+
+def test_a_lock_that_names_an_unpublished_version_refuses_a_v5_handoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mirror = _mirrored(tmp_path)
     lock = json.loads((mirror / "CONTRACT.lock").read_text(encoding="utf-8"))
     lock["schema_version"] = "scenario-handoff-v9"
     (mirror / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
@@ -115,6 +128,37 @@ def test_a_lock_without_the_v5_entry_refuses_a_v5_handoff(
 
     with pytest.raises(InputSourceError, match="does not declare scenario-handoff-v5"):
         load_input(_KIT / "valid" / "adversarial-direct-single.json")
+
+
+def test_a_lock_that_names_an_unpublished_version_refuses_a_v6_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mirror = _mirrored(tmp_path)
+    lock = json.loads((mirror / "CONTRACT.lock").read_text(encoding="utf-8"))
+    lock["schema_version"] = "scenario-handoff-v9"
+    (mirror / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
+    monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", mirror)
+
+    with pytest.raises(InputSourceError, match="does not declare scenario-handoff-v6"):
+        input_adapter._validate_handoff_kit(InputKind.SCENARIO_HANDOFF_V6)
+
+
+@pytest.mark.parametrize("version_dir", [_VERSION_DIR, _V6_DIR], ids=["v5", "v6"])
+def test_a_lock_whose_rows_drop_a_version_refuses_that_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version_dir: Path
+) -> None:
+    mirror = _mirrored(tmp_path)
+    lock = json.loads((mirror / "CONTRACT.lock").read_text(encoding="utf-8"))
+    lock["files"] = {
+        name: digest
+        for name, digest in lock["files"].items()
+        if not name.startswith(f"{version_dir.name}/")
+    }
+    (mirror / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
+    monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", mirror)
+
+    with pytest.raises(InputSourceError, match=f"does not declare {version_dir.name}"):
+        input_adapter._validate_handoff_kit(InputKind(version_dir.name))
 
 
 @pytest.mark.parametrize("relative", sorted(_DIGESTS))
