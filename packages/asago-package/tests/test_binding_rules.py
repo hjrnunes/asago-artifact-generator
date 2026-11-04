@@ -1,9 +1,9 @@
 """The library owns the binding and slot rules package preparation validates with.
 
 Preparation runs downstream of authoring, so the rules it uses live in the member that
-declares only pydantic and jsonschema. These cases read the rules through the member's
-own import path, with hand-built values, so the member's session covers them without the
-authoring application.
+declares only pydantic, jsonschema and ``asago-contracts-core``. These cases read the rules
+through the member's own import path, with hand-built values, so the member's session covers
+them without the authoring application.
 """
 
 from __future__ import annotations

@@ -467,9 +467,11 @@ handoff:
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional `runtime-context.json` (`runtime-context-v1`, written by the orchestrator's discover stage) for state and read observations.
 - A target-free runtime contract (`artifact-runtime-contract-v2`). `generate`
-  checks it against the `asago-package` member's `contracts/runtime-contract/` schema and
-  lock before any model request and stops at the first fault in path order:
-  `runtime contract schema invalid at <path>: <reason>`.
+  reads it through the installed spec set in the `asago-package` member
+  (`contracts/runtime-contract/artifact-runtime-contract-v2/`) and its lock
+  before any model request, and stops at the first fault in path order:
+  `runtime contract schema invalid at <path>: <reason>`. A contract written with
+  the optional `contract` envelope reads too.
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
 vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and

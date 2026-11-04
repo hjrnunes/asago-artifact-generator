@@ -203,7 +203,11 @@ MINIMAL_TARGET_PROFILE = (
     _ROOT / "contracts" / "target-profile" / "target-profile-v1" / "valid" / "minimal.json"
 )
 MINIMAL_RUNTIME_CONTRACT = (
-    contract_dir("runtime-contract") / "artifact-runtime-contract-v2" / "valid" / "minimal.json"
+    contract_dir("runtime-contract")
+    / "artifact-runtime-contract-v2"
+    / "cases"
+    / "valid"
+    / "minimal.json"
 )
 
 

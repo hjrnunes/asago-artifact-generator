@@ -150,13 +150,15 @@ missing path.
   `tests/test_condition_eval.py` and the injection-spec compiler read it; orch's probe names
   the same module.
 - `packages/asago-package/`: the package library workspace member (`asago_package`), which
-  depends only on pydantic and jsonschema. It owns `package_io` (the v5 writer, loader and
-  values), the contract kit (canonical JSON, framed digests, schema errors, lock checks, the
-  package's own `contract_dir`), the `metadata_policy` secret walker, and the binding and
-  slot rules (`binding_rules`, plus authoring's `bindings`). It ships the
-  authority copies of `artifact-package`, `runtime-contract` and `capability-gap` as package
-  data under `src/asago_package/contracts/`, the only authority copies in this repository;
-  the app's `contract_dir` keeps serving the seven kits the consumer still owns.
+  depends only on pydantic, jsonschema and `asago-contracts-core`. It owns `package_io` (the
+  v5 writer, loader and values), the contract kit (canonical JSON, framed digests, schema
+  errors, lock checks, the package's own `contract_dir`), the `metadata_policy` secret
+  walker, and the binding and slot rules (`binding_rules`, plus authoring's `bindings`). It
+  ships the authority copies of `artifact-package`, `runtime-contract` and `capability-gap`
+  as package data under `src/asago_package/contracts/`, the only authority copies in this
+  repository; the app's `contract_dir` keeps serving the seven kits the consumer still owns.
+  `runtime_contract_spec` reads every runtime contract through the installed spec set, and
+  the app's loader and the producer's builder both call it.
 - `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
   `tool-bundle-v1` runtime spec, slot markers, the capability-gap record, `BundleError`, the
   `testing` package builders, the `mcp_records` readers of the orchestrator's boundary

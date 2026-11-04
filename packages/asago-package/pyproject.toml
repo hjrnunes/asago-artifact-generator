@@ -8,6 +8,10 @@ version = "0.1.0"
 description = "The artifact-package-v5 values, writer and reader, with the authority contract kits it verifies"
 requires-python = ">=3.12"
 dependencies = [
+    # ``runtime_contract_spec`` reads the runtime contract through the same installed spec
+    # set every other contract uses. The contract itself rides as package data, so the
+    # reader and the authority copy cannot drift.
+    "asago-contracts-core>=0.1,<0.2",
     "pydantic>=2.0",
     "jsonschema>=4.0",
 ]

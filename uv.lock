@@ -230,12 +230,14 @@ name = "asago-package"
 version = "0.1.0"
 source = { editable = "packages/asago-package" }
 dependencies = [
+    { name = "asago-contracts-core" },
     { name = "jsonschema" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "jsonschema", specifier = ">=4.0" },
     { name = "pydantic", specifier = ">=2.0" },
 ]

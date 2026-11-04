@@ -1,9 +1,9 @@
 """The package library owns package IO and the binding rules; the consumer re-exports them.
 
 The implementation lives in the ``asago-package`` workspace member, which imports nothing
-from this application and declares only pydantic and jsonschema. The consumer keeps its old
-import paths as re-exports, and the three authority contract kits moved with the module, so
-each one exists in exactly one place in this checkout.
+from this application and declares only pydantic, jsonschema and ``asago-contracts-core``.
+The consumer keeps its old import paths as re-exports, and the three authority contract
+kits moved with the module, so each one exists in exactly one place in this checkout.
 """
 
 from __future__ import annotations
