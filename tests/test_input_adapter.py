@@ -280,10 +280,10 @@ _ANALYTICAL_SAFE = _all(
 _CRIT = "observation.criteria.0"
 
 
-# The mirrored schema cannot state these rules (blank text, formats, presence
-# where the schema has a default, and cross-field pairings), so this reader
-# keeps them. The first ten are this reader's alone: the producer accepts those
-# documents and no kit case carries them.
+# This reader keeps the rules the mirrored schema cannot state. The schema
+# states the safe-outcome rules below (blank text, the claim and evidence
+# pairing, uniqueness and the analytical-only omissions), so it reports those
+# breaks first; the code names the same top-level field either way.
 @pytest.mark.parametrize(
     ("mutate", "field", "detail"),
     [
@@ -354,22 +354,22 @@ _CRIT = "observation.criteria.0"
         (
             _set("safe_observable_outcome.statement", " "),
             "safe_observable_outcome",
-            "safe_observable_outcome.statement: must not be blank",
+            "safe_observable_outcome.statement: ' ' does not match '\\\\S'",
         ),
         (
             _set("safe_observable_outcome.evidence", "tool_call"),
             "safe_observable_outcome",
-            "safe_observable_outcome: claim_level and evidence do not match",
+            "safe_observable_outcome.evidence: 'assistant_message' was expected",
         ),
         (
             _set("safe_observable_outcome.operation_name", " "),
             "safe_observable_outcome",
-            "safe_observable_outcome.operation_name: must not be blank",
+            "safe_observable_outcome.operation_name: ' ' does not match '\\\\S'",
         ),
         (
             _all(_ANALYTICAL_SAFE, _set("safe_observable_outcome.claim_level", "reply")),
             "safe_observable_outcome",
-            "safe_observable_outcome: an analytical-only safe outcome must omit claim_level",
+            "safe_observable_outcome.claim_level: 'reply' is not of type 'null'",
         ),
         (
             _drop("safe_observable_outcome.record_refs"),
@@ -379,17 +379,17 @@ _CRIT = "observation.criteria.0"
         (
             _set("safe_observable_outcome.record_refs", [" "]),
             "safe_observable_outcome",
-            "safe_observable_outcome.record_refs.0: must not be blank",
+            "safe_observable_outcome.record_refs.0: ' ' does not match '\\\\S'",
         ),
         (
             _set("safe_observable_outcome.fact_refs", ["F-1", "F-1"]),
             "safe_observable_outcome",
-            "safe_observable_outcome.fact_refs: must be unique",
+            "safe_observable_outcome.fact_refs: ['F-1', 'F-1'] has non-unique elements",
         ),
         (
             _all(_ANALYTICAL_SAFE, _set("safe_observable_outcome.fact_refs", ["F-1"])),
             "safe_observable_outcome",
-            "safe_observable_outcome: an analytical-only safe outcome must omit record and fact",
+            "safe_observable_outcome.fact_refs: ['F-1'] is expected to be empty",
         ),
         (
             _set("deduplication.scenario_id", " "),
@@ -405,7 +405,7 @@ _CRIT = "observation.criteria.0"
         ),
     ],
 )
-def test_each_hand_rule_reports_its_top_level_field(
+def test_each_break_reports_its_top_level_field(
     tmp_path: Path, mutate, field: str, detail: str
 ) -> None:
     payload = _full_handoff()

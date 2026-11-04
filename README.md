@@ -482,9 +482,10 @@ producer scenario-handoff-v5 document; found <version>".
 
 Before the digest check, the adapter applies the mirrored
 `handoff-v5/schema.json`, the producer's ownership rules in the mirrored
-`ownership-rules.json`, and the rules the schema cannot state: non-blank text,
-the observation-contract format, and cross-field pairings. A rejection raises
-`HandoffSchemaInvalid`. Its `codes`
+`ownership-rules.json`, and its own reading of the rules the schema leaves out:
+non-blank text, the observation-contract format, and cross-field pairings. The
+schema states the rules it can express, so a break it reports comes first. A
+rejection raises `HandoffSchemaInvalid`. Its `codes`
 are the producer's codes as the kit's `expected-violations.json` records them:
 ownership codes first, then `schema_violation:<top-level field>`. Its message is
 `handoff schema invalid: <codes> (<path>: <reason>)` for the first break. A
@@ -495,10 +496,10 @@ fields: `uca` (the unsafe control
 action, its STPA type, and its hazards), `actor` (the adversary and its goal;
 null for a functional scenario), `causal_factors`, `preconditions`,
 `procedure` (the attack steps with their MITRE ATLAS tactic, technique, and
-channel), and `worst_case_threat`. The adapter also checks the procedure chain
-the schema cannot state: steps are numbered `S00`, `S01`, ... in order, each
-leads to the next, and a step names a tactic exactly when it names a technique;
-a break reports `schema_violation:<root>`. Every prompt that carries the
+channel), and `worst_case_threat`. The schema pairs a step's tactic with its
+technique; the adapter checks the chain it cannot state: steps are numbered
+`S00`, `S01`, ... in order, each leads to the next, and a break reports
+`schema_violation:<root>`. Every prompt that carries the
 scenario meaning (Call 1, the plan review, Call 2, the artifact review, and both
 corrections) shows these fields under `structured_analysis`, with a fixed
 `note` that explains them; a null or empty field is left out. A causal
@@ -513,8 +514,9 @@ producer's pinned MITRE ATLAS release (`YYYY.MM`), and `references`, the
 scenario's OWASP LLM and Agentic Top 10 2026 entries. Each reference has
 `scheme` (`owasp-llm` or `owasp-asi`), `edition`, `id` (`LLMnn` under
 `owasp-llm`, `ASInn` under `owasp-asi`; the schema states the pairing), and
-`name`. The adapter checks the rule the schema cannot state: the references are
-sorted by scheme and id, each once, and a break reports
+`name`. The schema states that the references hold no exact duplicate; the
+adapter checks the order it cannot state: the references are sorted by scheme
+and id, each scheme and id once, and a break reports
 `schema_violation:taxonomy`. The block is outside `V5_FIELDS` and the model
 view, so it never enters a prompt; it stays in the package's source record. A
 handoff without it is valid and keeps its digest.

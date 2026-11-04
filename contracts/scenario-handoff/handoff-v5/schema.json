@@ -1316,7 +1316,8 @@
             "$ref": "#/$defs/HandoffTaxonomyRef"
           },
           "title": "References",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         }
       },
       "required": [
@@ -1967,7 +1968,242 @@
         "statement"
       ],
       "title": "SafeObservableOutcome",
-      "type": "object"
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "observable": {
+                "const": true
+              }
+            },
+            "required": [
+              "observable"
+            ]
+          },
+          "then": {
+            "required": [
+              "claim_level",
+              "evidence"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "claim_level": {
+                "const": "command_attempt"
+              }
+            },
+            "required": [
+              "claim_level"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "const": "tool_call"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "claim_level": {
+                "const": "reply"
+              }
+            },
+            "required": [
+              "claim_level"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "const": "assistant_message"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "claim_level": {
+                "const": "returned_result"
+              }
+            },
+            "required": [
+              "claim_level"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "const": "tool_result"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "claim_level": {
+                "const": "state_effect"
+              }
+            },
+            "required": [
+              "claim_level"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "const": "snapshot"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "observable": {
+                "const": false
+              }
+            },
+            "required": [
+              "observable"
+            ]
+          },
+          "then": {
+            "properties": {
+              "claim_level": {
+                "type": "null"
+              },
+              "evidence": {
+                "type": "null"
+              },
+              "operation_name": {
+                "type": "null"
+              },
+              "call_made": {
+                "type": "null"
+              },
+              "call_arguments": {
+                "maxItems": 0
+              },
+              "record_refs": {
+                "maxItems": 0
+              },
+              "fact_refs": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "call_made": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "call_made"
+            ]
+          },
+          "then": {
+            "required": [
+              "claim_level",
+              "operation_name"
+            ],
+            "properties": {
+              "claim_level": {
+                "const": "command_attempt"
+              },
+              "operation_name": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "call_arguments": {
+                "minItems": 1
+              }
+            },
+            "required": [
+              "call_arguments"
+            ]
+          },
+          "then": {
+            "required": [
+              "claim_level",
+              "operation_name"
+            ],
+            "properties": {
+              "claim_level": {
+                "const": "command_attempt"
+              },
+              "operation_name": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "call_made": {
+                "const": false
+              }
+            },
+            "required": [
+              "call_made"
+            ]
+          },
+          "then": {
+            "properties": {
+              "call_arguments": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "statement": {
+              "pattern": "\\S"
+            },
+            "operation_name": {
+              "pattern": "\\S"
+            },
+            "record_refs": {
+              "items": {
+                "pattern": "\\S"
+              },
+              "uniqueItems": true
+            },
+            "fact_refs": {
+              "items": {
+                "pattern": "\\S"
+              },
+              "uniqueItems": true
+            },
+            "call_arguments": {
+              "items": {
+                "properties": {
+                  "argument": {
+                    "pattern": "\\S"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "ScenarioDeduplication": {
       "additionalProperties": false,
@@ -2604,6 +2840,60 @@
           },
           "procedure": {
             "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "procedure": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "procedure"
+        ]
+      },
+      "then": {
+        "properties": {
+          "procedure": {
+            "items": {
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "tactic": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "technique": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "technique": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "tactic": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
           }
         }
       }

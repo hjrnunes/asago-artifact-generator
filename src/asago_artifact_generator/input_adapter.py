@@ -307,9 +307,9 @@ def _validate_handoff_payload(payload: dict[str, Any], kit: str) -> None:
     """Report the producer's codes for every rule the handoff breaks, ownership first.
 
     The mirrored schema of the handoff's version runs whole. Only a schema-valid
-    handoff reaches the hand rules, which the schema cannot state; the first one
-    that fails reports its top-level field. A break confined to the attack shape
-    keeps its typed refusal.
+    handoff reaches the hand rules, which repeat the rules the schema can state
+    and add the ones it cannot; the first one that fails reports its top-level
+    field. A break confined to the attack shape keeps its typed refusal.
     """
 
     ownership = _ownership_violations(payload)

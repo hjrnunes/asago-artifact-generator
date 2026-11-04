@@ -3,7 +3,7 @@
   "contract": "scenario-handoff",
   "digest_domain": "scenario-handoff-v5",
   "files": {
-    "handoff-v5/canonical-digests.json": "8561df5390df263f7cec0844189d73ca69edd08bfdaa7f047a012f6cb8d9ce58",
+    "handoff-v5/canonical-digests.json": "372d51313bbc59d6def6a0e81a7ea833ce87606e620e415a8fff6690baf0251a",
     "handoff-v5/companions/feature-companion-comments.json": "0875d9a1673c5031ee70933272ad8994a3a44eb62ed2b2fd1278378d06b8595e",
     "handoff-v5/companions/feature-companion-feature-line.json": "f382bead00448acf962c344304f5d211eab0d1e4b8f9e1b5c11718babb80afd8",
     "handoff-v5/companions/feature-companion-holds.json": "4dc59085c83cfb0a3b2056a965be725f033899c77ef6dec76474442a78fce58f",
@@ -164,7 +164,7 @@
     "handoff-v5/invalid/v5-uca-unknown-field.json": "7dd0a448036406793a6887b7dc341636a52381a19224d2ebd8acdaa7d78f2e49",
     "handoff-v5/invalid/v5-worst-case-threat-blank.json": "c82679990ebbfb94940eaf53cb0700c8e0e84e619a8c8d97cf467f3ea0a5897d",
     "handoff-v5/invalid/v5-worst-case-threat-missing.json": "2f8b59e8bb8e2b963971b1ed9c991cc8d41a065fa6e6f5eca13ae41f20a1999c",
-    "handoff-v5/schema.json": "b0eee6b5691ac87229a5418f4f957b839b892c2f02d0155113a29b375fabae59",
+    "handoff-v5/schema.json": "5204e71e2d388c4380f246f81e2f1f99c2089ab9cdc253720f30990182d5f3e2",
     "handoff-v5/valid/adversarial-condition-omitted.json": "de567792ab0a689e5a1cb2bc2b4da3eb439be96a607b3088498a457422eedcd0",
     "handoff-v5/valid/adversarial-direct-multi-turn.json": "812264273283a647c2c0d3b68844f0e3325e344db1dbdac35acb175cf910cd52",
     "handoff-v5/valid/adversarial-direct-single.json": "cfd6692c17b3106f9eca32c975299d9a1a7d4854de3c096c8feda9a302626bd1",
