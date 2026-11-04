@@ -3,10 +3,11 @@
 The producer's v5 kit carries ``invalid/schema-*.json``, one broken field of
 a bound handoff each, with the producer's codes in ``expected-violations.json``.
 This reader reports the same codes in the same order on the raised error's
-``codes``; only the unknown-version case stops earlier, at the version gate.
+``codes``. The shared validator owns every rule, the schema version included,
+so no case stops before the code comparison.
 
-``conformance-cases.json`` names the cases for the five rules this reader
-re-implements: safe-call arguments, the procedure chain, reference order, the
+``conformance-cases.json`` names the cases for the five rules the shared
+validator owns: safe-call arguments, the procedure chain, reference order, the
 ownership walker, and the feature companion. Each rule carries at least one
 valid and one invalid case; the producer runs the same manifest.
 """
@@ -14,11 +15,13 @@ valid and one invalid case; the producer runs the same manifest.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
 from asago_artifact_generator.input_adapter import (
+    HandoffSchemaInvalid,
     InputKind,
     InputSourceError,
     load_input,
@@ -28,7 +31,6 @@ _CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handof
 _KIT = _CONTRACT / "handoff-v5"
 _EXPECTED = json.loads((_KIT / "expected-violations.json").read_text("utf-8"))
 _MANIFEST = json.loads((_KIT / "conformance-cases.json").read_text("utf-8"))
-_VERSION_GATE = "schema-unknown-version"
 RULE_NAMES = frozenset(
     {
         "safe-call-arguments",
@@ -38,6 +40,18 @@ RULE_NAMES = frozenset(
         "feature-companion",
     }
 )
+
+
+@dataclass(frozen=True)
+class CaseSummary:
+    """How many of a runner's cases passed, and how many it checked."""
+
+    label: str
+    passed: int
+    total: int
+
+    def __str__(self) -> str:
+        return f"{self.label}: {self.passed}/{self.total}"
 
 
 def _cases(verdict: str, kind: str) -> list[str]:
@@ -58,11 +72,51 @@ def _companion(tmp_path: Path, relative: str) -> tuple[Path, str]:
 
 
 def _schema_cases() -> list[str]:
-    return [
-        path.stem
-        for path in sorted((_KIT / "invalid").glob("schema-*.json"))
-        if path.stem != _VERSION_GATE
+    return [path.stem for path in sorted((_KIT / "invalid").glob("schema-*.json"))]
+
+
+def _expected_violation_summary() -> CaseSummary:
+    """Check every entry of the kit's expectation file through the public reader."""
+
+    passed = 0
+    for relative, codes in _EXPECTED.items():
+        with pytest.raises(HandoffSchemaInvalid) as raised:
+            load_input(_KIT / relative)
+        if raised.value.codes == tuple(codes):
+            passed += 1
+    return CaseSummary("expected-violations", passed, len(_EXPECTED))
+
+
+def _conformance_case_holds(tmp_path: Path, kind: str, valid: bool, relative: str) -> bool:
+    if kind == "companion":
+        handoff, text = _companion(tmp_path, relative)
+        try:
+            view = load_input(handoff)
+        except InputSourceError as raised:
+            return not valid and str(raised).startswith("Gherkin companion does not match")
+        return valid and view.gherkin_text == text
+    if valid:
+        return load_input(_KIT / relative).kind is InputKind.SCENARIO_HANDOFF_V5
+    with pytest.raises(HandoffSchemaInvalid) as raised:
+        load_input(_KIT / relative)
+    return raised.value.codes == tuple(_EXPECTED[relative])
+
+
+def _conformance_summary(tmp_path: Path) -> CaseSummary:
+    """Check every case the kit's conformance manifest names through the public reader."""
+
+    entries = [
+        (rule["kind"], verdict == "valid", relative)
+        for rule in _MANIFEST["rules"]
+        for verdict in ("valid", "invalid")
+        for relative in rule[verdict]
     ]
+    passed = sum(
+        1
+        for kind, valid, relative in entries
+        if _conformance_case_holds(tmp_path, kind, valid, relative)
+    )
+    return CaseSummary("conformance", passed, len(entries))
 
 
 @pytest.mark.parametrize("name", _schema_cases())
@@ -77,14 +131,23 @@ def test_the_reader_rejects_each_schema_case_with_the_kits_codes(name: str) -> N
     assert str(raised.value).startswith(f"handoff schema invalid: {', '.join(codes)}")
 
 
-def test_the_unknown_version_case_stops_at_the_version_gate() -> None:
-    with pytest.raises(InputSourceError) as raised:
-        load_input(_KIT / "invalid" / f"{_VERSION_GATE}.json")
+def test_the_case_runner_checks_every_expected_violation_and_conformance_case(
+    tmp_path: Path,
+) -> None:
+    expected = _expected_violation_summary()
+    conformance = _conformance_summary(tmp_path)
 
-    assert str(raised.value) == (
-        "authoring source must be a producer scenario-handoff-v5 "
-        "document; found scenario-handoff-v9"
+    assert (str(expected), str(conformance)) == (
+        "expected-violations: 153/153",
+        "conformance: 33/33",
     )
+
+
+def test_every_invalid_fixture_carries_its_expected_codes() -> None:
+    fixtures = {path.relative_to(_KIT).as_posix() for path in (_KIT / "invalid").glob("*.json")}
+
+    assert len(_EXPECTED) == 153
+    assert set(_EXPECTED) == fixtures
 
 
 def test_the_kit_carries_a_case_for_each_of_the_five_rules() -> None:

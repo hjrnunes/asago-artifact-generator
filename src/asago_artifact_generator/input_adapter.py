@@ -140,14 +140,18 @@ class InputView:
 
 
 def load_input(source_path: str | Path) -> InputView:
-    """Load one producer scenario handoff and produce a source-pinned view."""
+    """Load one producer scenario handoff and produce a source-pinned view.
+
+    The mirrored kit declares one supported version. The shared
+    ``asago_handoff`` validator owns that rule, as it owns the rest: a document
+    that states another version, or none, is refused with the producer's codes.
+    """
 
     path = Path(source_path)
     source_bytes = _read_source(path)
     source = SourceSnapshot(str(path), sha256_hex(source_bytes), len(source_bytes))
     payload = _parse_document(path, source_bytes)
-    kind = _validate_handoff_schema_version(payload)
-    return _handoff_view(path, payload, source_bytes, source, kind)
+    return _handoff_view(path, payload, source_bytes, source)
 
 
 def build_scenario_handoff_view(view: InputView) -> dict[str, Any]:
@@ -199,11 +203,11 @@ def _parse_document(path: Path, source_bytes: bytes) -> Any:
 
 def _handoff_view(
     path: Path,
-    payload: dict[str, Any],
+    payload: Any,
     source_bytes: bytes,
     source: SourceSnapshot,
-    kind: InputKind,
 ) -> InputView:
+    kind = InputKind.SCENARIO_HANDOFF_V5
     version = _validate_handoff_kit(kind)
     _validate_handoff_payload(payload, version.kit)
     expected_digest = payload.get("content_digest", "")
@@ -243,17 +247,6 @@ def _handoff_view(
             "gherkin": sha256_hex(gherkin_bytes),
         },
     )
-
-
-def _validate_handoff_schema_version(document: Any) -> InputKind:
-    version = document.get("schema_version") if isinstance(document, dict) else None
-    if version not in set(InputKind):
-        found = version if isinstance(version, str) else "no schema_version"
-        raise InputSourceError(
-            "authoring source must be a producer "
-            f"{' or '.join(kind.value for kind in InputKind)} document; found {found}"
-        )
-    return InputKind(version)
 
 
 def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V5) -> _HandoffVersion:
@@ -320,20 +313,22 @@ def _handoff_contract(kit: str = "handoff-v5") -> Contract:
     )
 
 
-def _validate_handoff_payload(payload: dict[str, Any], kit: str) -> None:
+def _validate_handoff_payload(payload: Any, kit: str) -> None:
     """Report the shared validator's codes for every rule the handoff breaks.
 
     ``asago_handoff.validate_handoff`` walks the ownership boundary first, then
-    the mirrored schema's rules and the hand rules the schema cannot state. The
-    consumer keeps the typed attack-shape refusal for a break confined to the
-    shape, and reports every other break as :class:`HandoffSchemaInvalid`.
+    the mirrored schema's rules and the hand rules the schema cannot state,
+    the schema version included. The consumer keeps the typed attack-shape
+    refusal for a break confined to the shape, and reports every other break,
+    including a document that is not a JSON object, as
+    :class:`HandoffSchemaInvalid`.
     """
 
     violations = validate_handoff(payload, contract=_handoff_contract(kit))
     if not violations:
         return
     breaks = [item for item in violations if item.code.startswith("schema_violation:")]
-    if breaks and len(breaks) == len(violations):
+    if breaks and len(breaks) == len(violations) and isinstance(payload, dict):
         _raise_shape_refusal(payload, breaks, kit)
     raise HandoffSchemaInvalid(list(violations))
 

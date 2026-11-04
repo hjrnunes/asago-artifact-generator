@@ -476,14 +476,17 @@ vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and
 record SHA-256 source pins. The mirrored `CONTRACT.lock` declares
 `scenario-handoff-v5` with its kit directory and digest domain. The adapter
 verifies `content_digest` in the `scenario-handoff-v5` domain, and packages
-record that version as `input_kind`. Authoring rejects every other document,
-including `scenario-handoff-v1` to `v4`, with "authoring source must be a
-producer scenario-handoff-v5 document; found <version>".
+record that version as `input_kind`. The shared `asago_handoff` validator owns
+the schema-version rule: a document that states another version, including
+`scenario-handoff-v1` to `v4`, or none, is refused with the kit's
+`schema_violation:schema_version` and `schema_violation:attack_shape` codes; a
+document that is not a JSON object gets `schema_violation:<root>`.
 
-Before the digest check, the adapter applies the mirrored
-`handoff-v5/schema.json`, the producer's ownership rules in the mirrored
-`ownership-rules.json`, and its own reading of the rules the schema leaves out:
-non-blank text, the observation-contract format, and cross-field pairings. The
+Before the digest check, the adapter runs the producer's
+`asago_handoff.validate_handoff` over the mirrored `handoff-v5/schema.json` and
+`ownership-rules.json`: the schema's rules, the ownership boundary, and the
+hand rules the schema cannot state (non-blank text, the observation-contract
+format, cross-field pairings, and the procedure chain). The
 schema states the rules it can express, so a break it reports comes first. A
 rejection raises `HandoffSchemaInvalid`. Its `codes`
 are the producer's codes as the kit's `expected-violations.json` records them:
@@ -497,9 +500,9 @@ action, its STPA type, and its hazards), `actor` (the adversary and its goal;
 null for a functional scenario), `causal_factors`, `preconditions`,
 `procedure` (the attack steps with their MITRE ATLAS tactic, technique, and
 channel), and `worst_case_threat`. The schema pairs a step's tactic with its
-technique; the adapter checks the chain it cannot state: steps are numbered
-`S00`, `S01`, ... in order, each leads to the next, and a break reports
-`schema_violation:<root>`. Every prompt that carries the
+technique; the shared validator checks the chain the schema cannot state: steps
+are numbered `S00`, `S01`, ... in order, each leads to the next, and a break
+reports `schema_violation:<root>`. Every prompt that carries the
 scenario meaning (Call 1, the plan review, Call 2, the artifact review, and both
 corrections) shows these fields under `structured_analysis`, with a fixed
 `note` that explains them; a null or empty field is left out. A causal

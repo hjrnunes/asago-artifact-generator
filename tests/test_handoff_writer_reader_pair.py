@@ -313,8 +313,13 @@ def test_the_reader_rejects_a_writer_file_rewritten_to_a_foreign_schema_version(
         encoding="utf-8",
     )
 
-    with pytest.raises(InputSourceError, match="scenario-handoff-v4"):
+    with pytest.raises(HandoffSchemaInvalid) as raised:
         load_input(handoff_path)
+
+    assert raised.value.codes == (
+        "schema_violation:schema_version",
+        "schema_violation:attack_shape",
+    )
 
 
 def test_the_reader_rejects_a_writer_file_whose_companion_disagrees(tmp_path: Path) -> None:

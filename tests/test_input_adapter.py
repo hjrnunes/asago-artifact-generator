@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from asago_artifact_generator.input_adapter import (
+    HandoffSchemaInvalid,
     InputKind,
     InputSourceError,
     build_scenario_handoff_view,
@@ -33,22 +34,32 @@ def test_handoff_view_preserves_source_hash_and_authoritative_content() -> None:
 
 
 @pytest.mark.parametrize(
-    ("name", "text"),
+    ("name", "text", "codes"),
     [
-        pytest.param("native.yaml", "scenario_id: native\n", id="yaml-without-a-schema-version"),
-        pytest.param("handoff.json", "[1, 2]", id="json-that-is-not-an-object"),
+        pytest.param(
+            "native.yaml",
+            "scenario_id: native\n",
+            ("schema_violation:schema_version", "schema_violation:attack_shape"),
+            id="yaml-without-a-schema-version",
+        ),
+        pytest.param(
+            "handoff.json",
+            "[1, 2]",
+            ("schema_violation:<root>",),
+            id="json-that-is-not-an-object",
+        ),
     ],
 )
-def test_non_handoff_source_is_rejected(tmp_path: Path, name: str, text: str) -> None:
+def test_a_document_that_is_not_a_v5_handoff_is_rejected_with_the_shared_codes(
+    tmp_path: Path, name: str, text: str, codes: tuple[str, ...]
+) -> None:
     source_path = tmp_path / name
     source_path.write_text(text, encoding="utf-8")
 
-    with pytest.raises(InputSourceError) as raised:
+    with pytest.raises(HandoffSchemaInvalid) as raised:
         load_input(source_path)
 
-    assert str(raised.value) == (
-        "authoring source must be a producer scenario-handoff-v5 document; found no schema_version"
-    )
+    assert raised.value.codes == codes
 
 
 def test_tampered_handoff_fails_before_a_view_is_created(tmp_path: Path) -> None:
@@ -497,16 +508,19 @@ def test_unbound_view_has_no_tool_call_condition() -> None:
     "version",
     ["scenario-handoff-v1", "scenario-handoff-v2", "scenario-handoff-v3", "scenario-handoff-v4"],
 )
-def test_retired_handoff_versions_are_rejected_for_authoring(tmp_path: Path, version: str) -> None:
+def test_retired_handoff_versions_are_rejected_with_the_shared_codes(
+    tmp_path: Path, version: str
+) -> None:
     payload = json.loads(CONTRACT_HANDOFF.read_text(encoding="utf-8"))
     source_path = tmp_path / "handoff.json"
     source_path.write_text(json.dumps({**payload, "schema_version": version}), encoding="utf-8")
 
-    with pytest.raises(InputSourceError) as raised:
+    with pytest.raises(HandoffSchemaInvalid) as raised:
         load_input(source_path)
 
-    assert str(raised.value) == (
-        f"authoring source must be a producer scenario-handoff-v5 document; found {version}"
+    assert raised.value.codes == (
+        "schema_violation:schema_version",
+        "schema_violation:attack_shape",
     )
 
 

@@ -2,8 +2,10 @@
 
 The v5 kit, mirrored from the producer, carries each scenario's attack path and
 six structured-analysis fields; its ``expected-violations.json`` lists the
-producer's codes for each invalid case. The adapter validates the attack shape
-with typed refusals.
+producer's codes for each invalid case. The shared ``asago_handoff`` validator
+owns every rule, the schema version included: a document that states another
+version, or none, is refused with the two codes the kit expects. The adapter
+validates the attack shape with typed refusals.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from asago_artifact_generator.authoring.prompt_context import _case_meaning
 from asago_artifact_generator.authoring.templates import prose
 from asago_artifact_generator.input_adapter import (
     V5_FIELDS,
+    HandoffSchemaInvalid,
     InputKind,
     InputSourceError,
     ShapeVersionMalformed,
@@ -41,16 +44,7 @@ from .support import json_section
 _V5 = "scenario-handoff-v5"
 _CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
 _KIT = _CONTRACT / "handoff-v5"
-_ALL_EXPECTED = json.loads((_KIT / "expected-violations.json").read_text(encoding="utf-8"))
-# A case whose schema_version is not v5 stops at the version gate, before any producer code.
-_VERSION_GATED = {
-    relative
-    for relative in _ALL_EXPECTED
-    if json.loads((_KIT / relative).read_text(encoding="utf-8")).get("schema_version") != _V5
-}
-_EXPECTED = {
-    relative: codes for relative, codes in _ALL_EXPECTED.items() if relative not in _VERSION_GATED
-}
+_EXPECTED = json.loads((_KIT / "expected-violations.json").read_text(encoding="utf-8"))
 _DIGESTS = json.loads((_KIT / "canonical-digests.json").read_text(encoding="utf-8"))[
     "handoff_digests"
 ]
@@ -145,29 +139,29 @@ def test_every_invalid_v5_fixture_is_rejected_with_its_expected_codes(relative: 
     assert raised.value.codes == tuple(_EXPECTED[relative])
 
 
-@pytest.mark.parametrize("relative", sorted(_VERSION_GATED))
-def test_a_case_with_another_schema_version_stops_at_the_version_gate(relative: str) -> None:
-    found = json.loads((_KIT / relative).read_text(encoding="utf-8"))["schema_version"]
+def test_an_unknown_schema_version_reports_the_kits_codes() -> None:
+    relative = "invalid/schema-unknown-version.json"
 
-    with pytest.raises(InputSourceError) as raised:
+    with pytest.raises(HandoffSchemaInvalid) as raised:
         load_input(_KIT / relative)
 
-    assert str(raised.value) == (
-        f"authoring source must be a producer scenario-handoff-v5 document; found {found}"
+    assert raised.value.codes == tuple(_EXPECTED[relative])
+    assert raised.value.codes == (
+        "schema_violation:schema_version",
+        "schema_violation:attack_shape",
     )
-    assert not hasattr(raised.value, "codes")
 
 
-def test_a_scenario_handoff_v4_document_is_refused(tmp_path: Path) -> None:
+def test_a_scenario_handoff_v4_document_is_refused_with_the_kits_codes(tmp_path: Path) -> None:
     payload = _valid("adversarial-direct-single.json")
     payload["schema_version"] = "scenario-handoff-v4"
 
-    with pytest.raises(InputSourceError) as raised:
+    with pytest.raises(HandoffSchemaInvalid) as raised:
         load_input(_signed(tmp_path, payload, "scenario-handoff-v4"))
 
-    assert str(raised.value) == (
-        "authoring source must be a producer scenario-handoff-v5 document; "
-        "found scenario-handoff-v4"
+    assert raised.value.codes == (
+        "schema_violation:schema_version",
+        "schema_violation:attack_shape",
     )
 
 
