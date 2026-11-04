@@ -417,6 +417,31 @@ def test_the_full_handoff_used_by_the_hand_rule_table_is_valid(tmp_path: Path) -
     assert load_input(source_path).payload["deduplication"]["status"] == "canonical"
 
 
+@pytest.mark.parametrize("key", ("record_refs", "fact_refs"))
+def test_references_repeating_after_stripping_are_refused(tmp_path: Path, key: str) -> None:
+    """The shared validator repeats the producer's stripping before uniqueness.
+
+    JSON Schema compares raw strings, so ``"R-1"`` and ``" R-1"`` pass the
+    published schema. The producer's model refuses the pair, and the consumer
+    does too once the digest matches the edited content.
+    """
+
+    payload = _full_handoff()
+    payload["safe_observable_outcome"][key] = ["R-1", " R-1"]
+    payload.pop("content_digest")
+    from asago_artifact_generator.input_adapter import _framed_digest
+
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
+    source_path = tmp_path / "handoff.json"
+    source_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(InputSourceError) as raised:
+        load_input(source_path)
+
+    assert raised.value.codes == ("schema_violation:safe_observable_outcome",)
+    assert raised.value.schema_path == f"safe_observable_outcome.{key}"
+
+
 def test_a_schema_violation_is_reported_before_the_digest_check(tmp_path: Path) -> None:
     payload = _full_handoff()
     payload["gherkin"]["given"] = [1]
