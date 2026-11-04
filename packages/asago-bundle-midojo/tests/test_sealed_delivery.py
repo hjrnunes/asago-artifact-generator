@@ -20,6 +20,7 @@ from typing import Any
 
 import jsonschema
 import pytest
+from asago_contracts_core import write_envelope
 from injection_spec_cases import EPISODES, REGRADED
 from midojo_sdk.snapshot import snapshot_digest
 
@@ -31,11 +32,12 @@ from asago_bundle_midojo.sealed import (
     delivery_shape,
     parse_sealed,
 )
+from asago_injection_spec.delivery_contract import installed_specs
 from conftest import DELIVERY_CONTRACT, RECEIPT_SCHEMA, as_sealed
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 DELIVERY_SCHEMA = json.loads(
-    (DELIVERY_CONTRACT / "midojo-delivery-v1.schema.json").read_text(encoding="utf-8")
+    (DELIVERY_CONTRACT / "midojo-delivery-v1" / "schema.json").read_text(encoding="utf-8")
 )
 
 
@@ -522,6 +524,43 @@ def test_the_delivery_schema_refuses_what_parse_refuses(name: str) -> None:
         jsonschema.validate(_delivery_variant(name), DELIVERY_SCHEMA)
 
 
+def test_a_delivery_document_with_the_envelope_is_read_through_its_installed_spec(
+    tmp_path: Path,
+) -> None:
+    spec = installed_specs().spec("midojo-delivery", "midojo-delivery-v1")
+    document = write_envelope(
+        recorded(REPORTED, "command-single", "detected", "delivery.json"),
+        spec,
+        writer="tests.delivery",
+        writer_version="0.1.0",
+    )
+
+    receipt = parsed(tmp_path, "command-single", "detected", root=REPORTED, delivery=document)
+
+    assert receipt["execution_status"] == "completed"
+    assert receipt["episode"]["exposure"]["emitted"] == "exposed"
+
+
+def test_a_delivery_document_naming_an_unsupported_version_fails_the_receipt(
+    tmp_path: Path,
+) -> None:
+    spec = installed_specs().spec("midojo-delivery", "midojo-delivery-v1")
+    document = write_envelope(
+        recorded(REPORTED, "command-single", "detected", "delivery.json"),
+        spec,
+        writer="tests.delivery",
+        writer_version="0.1.0",
+    )
+    document["contract"]["version"] = "midojo-delivery-v9"
+
+    receipt = parsed(tmp_path, "command-single", "detected", root=REPORTED, delivery=document)
+
+    assert (receipt["execution_status"], receipt["incomplete_reason"]) == (
+        "failed",
+        "delivery_malformed",
+    )
+
+
 @pytest.mark.parametrize(("root", "case", "scenario"), RUNS)
 def test_every_recorded_delivery_document_meets_the_schema_and_the_parser(
     root: Path, case: str, scenario: str
@@ -610,11 +649,15 @@ def test_parse_reads_the_delivery_document_it_is_given(tmp_path: Path) -> None:
     [
         *[
             (path, True)
-            for path in sorted((DELIVERY_CONTRACT / "midojo-delivery-v1/valid").glob("*.json"))
+            for path in sorted(
+                (DELIVERY_CONTRACT / "midojo-delivery-v1" / "cases" / "valid").glob("*.json")
+            )
         ],
         *[
             (path, False)
-            for path in sorted((DELIVERY_CONTRACT / "midojo-delivery-v1/invalid").glob("*.json"))
+            for path in sorted(
+                (DELIVERY_CONTRACT / "midojo-delivery-v1" / "cases" / "invalid").glob("*.json")
+            )
         ],
     ],
     ids=lambda value: value.stem if isinstance(value, Path) else str(value),

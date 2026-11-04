@@ -9,6 +9,7 @@ description = "The injection-spec compiler: a planted_item artifact package beco
 requires-python = ">=3.12"
 dependencies = [
     "asago-bundle-core",
+    "asago-contracts-core>=0.1,<0.2",
     "asago-handoff>=0.1,<0.2",
     "asago-package",
     # ``declared.py`` reads the target's tool list, which is YAML.
@@ -20,6 +21,7 @@ dependencies = [
 
 [tool.uv.sources]
 asago-bundle-core = { workspace = true }
+asago-contracts-core = { path = "../../../asago-scenario-generator/packages/asago-contracts-core", editable = true }
 asago-package = { workspace = true }
 
 [tool.hatch.build.targets.wheel]

@@ -115,12 +115,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from asago_contracts_core import ENVELOPE_FIELD, ContractEnvelopeError
 from midojo_sdk.snapshot import CONTENT_FIELDS, DigestFault, verified
 
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.mcp_records import decoded, read_json, text
 from asago_bundle_core.text import canonical_text
 
+from .delivery_contract import read_delivery
 from .document import Envelope, EnvelopeError, read_envelope
 from .injection_spec_compile import (
     COMMAND_ATTEMPT,
@@ -347,7 +349,7 @@ def parse_sealed(
     delivery, delivery_reason = None, None
     if delivery_path is not None:
         native.append(Path(delivery_path))
-        delivery, delivery_reason = read_document(Path(delivery_path), "delivery", delivery_shape)
+        delivery, delivery_reason = read_delivery_file(Path(delivery_path))
     reason = reason or verdict_reason or delivery_reason
     attempt, plan = None, None
     if reason is None:
@@ -405,6 +407,30 @@ def read_compiled(root: Path) -> Compiled:
     if not _one_of(envelope.claim_level, DETECTORS):
         raise ParseError(f"the episode's claim level is not graded: {envelope.claim_level!r}")
     return Compiled(root, document, envelope)
+
+
+def read_delivery_file(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    """Read the runner's ``delivery.json`` through its installed contract.
+
+    A document without the self-identifying envelope is a legacy ``midojo-delivery-v1``
+    document and keeps the hand-written shape's exact acceptance. A document with one is
+    selected by its contract id and version, so an unsupported version, an unknown
+    ``requires`` entry, an unknown field or a mismatched ``spec_digest`` is refused. Either
+    way a document the shape refuses is ``delivery_malformed``.
+    """
+
+    if not path.is_file():
+        return None, "delivery_missing"
+    document = read_json(path)
+    if not isinstance(document, dict):
+        return None, "delivery_malformed"
+    try:
+        read_delivery(document)
+    except ContractEnvelopeError:
+        return None, "delivery_malformed"
+    if not delivery_shape(document):
+        return None, "delivery_malformed"
+    return document, None
 
 
 def read_document(
@@ -690,11 +716,15 @@ def _three_valued(value: Any) -> bool:
 
 def delivery_shape(document: dict[str, Any]) -> bool:
     """The runner's ``delivery.json``: ``midojo-delivery-v1``, the evaluation and snapshot it
-    describes, MiDojo's ``DeliveryFact`` list and its ``Exposure``, field for field."""
+    describes, MiDojo's ``DeliveryFact`` list and its ``Exposure``, field for field.
+
+    A document that carries the self-identifying envelope adds the ``contract`` block; the
+    installed-spec reader validates that block, and this shape leaves it out.
+    """
 
     exposure = document.get("exposure")
     return (
-        set(document) == DELIVERY_FIELDS
+        set(document) - {ENVELOPE_FIELD} == DELIVERY_FIELDS
         and document["schema_version"] == DELIVERY_SCHEMA_VERSION
         and isinstance(document["evaluation_id"], str)
         and isinstance(document["snapshot_id"], str)

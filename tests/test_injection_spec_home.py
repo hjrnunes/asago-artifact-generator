@@ -84,6 +84,7 @@ def test_the_injection_spec_is_a_workspace_member() -> None:
         "requires-python": ">=3.12",
         "dependencies": [
             "asago-bundle-core",
+            "asago-contracts-core>=0.1,<0.2",
             "asago-handoff>=0.1,<0.2",
             "asago-package",
             "pyyaml>=6.0",

@@ -1422,7 +1422,13 @@ placement keys, which the receipt carries as each outcome's `payload_sha256` and
 Without `--delivery` both are null: unknown, never undelivered. A named document that is
 missing (`delivery_missing`), does not match the contract (`delivery_malformed`) or names
 another evaluation or snapshot than the snapshot's (`delivery_mismatch`) fails the
-receipt. A payload the host placed in the environment has no delivery fact, so its
+receipt. The reader selects the version it installs
+(`packages/asago-injection-spec/src/asago_injection_spec/contracts/midojo-delivery/`, whose
+`midojo-delivery-v1/spec.json` is the authority's, byte for byte); a document that carries
+the shared `contract` envelope names its version there, and an uninstalled version, an
+unknown `requires` entry, an unknown top-level field or another `spec_digest` is
+`delivery_malformed`. A document without the envelope is a v1 document, as before. A
+payload the host placed in the environment has no delivery fact, so its
 exposure, and `injection_delivered`, stay unknown; a response-injection placement gives
 real facts.
 `parse` recomputes the snapshot's ID with MiDojo's digest of its content

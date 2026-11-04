@@ -206,6 +206,7 @@ version = "0.1.0"
 source = { editable = "packages/asago-injection-spec" }
 dependencies = [
     { name = "asago-bundle-core" },
+    { name = "asago-contracts-core" },
     { name = "asago-handoff" },
     { name = "asago-package" },
     { name = "midojo-sdk" },
@@ -215,6 +216,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
+    { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
     { name = "asago-package", editable = "packages/asago-package" },
     { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=162233f0910e5566c48d285a4b2401a2bdc5387c" },
