@@ -9,6 +9,7 @@ description = "The injection-spec compiler: a planted_item artifact package beco
 requires-python = ">=3.12"
 dependencies = [
     "asago-bundle-core",
+    "asago-handoff>=0.1,<0.2",
     "asago-package",
     # ``declared.py`` reads the target's tool list, which is YAML.
     "pyyaml>=6.0",

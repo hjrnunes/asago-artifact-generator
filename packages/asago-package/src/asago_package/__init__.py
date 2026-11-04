@@ -8,9 +8,8 @@ verify: ``artifact-package``, ``runtime-contract`` and ``capability-gap``.
 :mod:`asago_package.binding_rules` owns the binding and slot rules, and
 :mod:`asago_package.bindings` adds authoring's canonical paths and wording, so package
 preparation and the adapters validate declarations from the same engine.
-:mod:`asago_package.condition_eval` owns the tool-call-condition-v2 validator and
-evaluator, so the adapters and the orchestrator's probe check a condition without the
-authoring application.
+The tool-call-condition-v2 validator and evaluator come from ``asago_handoff``, the
+producer's package, so this library stays free of the condition rules.
 """
 
 from __future__ import annotations

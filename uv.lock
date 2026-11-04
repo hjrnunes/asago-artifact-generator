@@ -52,6 +52,7 @@ name = "asago-artifact-generator"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "asago-handoff" },
     { name = "asago-package" },
     { name = "jinja2" },
     { name = "jsonschema" },
@@ -79,6 +80,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
     { name = "asago-package", editable = "packages/asago-package" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "jsonschema", specifier = ">=4.0" },
@@ -163,11 +165,26 @@ requires-dist = [
 ]
 
 [[package]]
+name = "asago-handoff"
+version = "0.1.0"
+source = { editable = "../asago-scenario-generator/packages/asago-handoff" }
+dependencies = [
+    { name = "jsonschema" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "jsonschema", specifier = ">=4.0" }]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest" }]
+
+[[package]]
 name = "asago-injection-spec"
 version = "0.1.0"
 source = { editable = "packages/asago-injection-spec" }
 dependencies = [
     { name = "asago-bundle-core" },
+    { name = "asago-handoff" },
     { name = "asago-package" },
     { name = "midojo-sdk" },
     { name = "pyyaml" },
@@ -176,6 +193,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
+    { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
     { name = "asago-package", editable = "packages/asago-package" },
     { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=162233f0910e5566c48d285a4b2401a2bdc5387c" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -201,6 +219,7 @@ name = "asago-scenario-generator"
 version = "0.1.0"
 source = { editable = "../asago-scenario-generator" }
 dependencies = [
+    { name = "asago-handoff" },
     { name = "jinja2" },
     { name = "jsonschema" },
     { name = "openai" },
@@ -211,6 +230,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "jsonschema", specifier = ">=4.0" },
     { name = "mcp", marker = "extra == 'target-discovery'", specifier = ">=1.9.0,<2" },

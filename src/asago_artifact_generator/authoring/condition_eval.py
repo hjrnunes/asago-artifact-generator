@@ -1,20 +1,19 @@
-"""The tool-call-condition evaluator, re-exported from the ``asago-package`` member.
+"""The tool-call-condition-v2 evaluator, re-exported from the shared ``asago_handoff``.
 
-The validator and the evaluator live in ``packages/asago-package``, where authoring, the
-adapters and the orchestrator's probe read them without the authoring application. This
-module keeps the consumer's old import path working and binds the same objects, so
-``asago_artifact_generator.authoring.condition_eval`` and
-``asago_package.condition_eval`` are one implementation.
+The one definition lives in ``asago_handoff.condition_eval``, the producer's package, where
+authoring, the adapters, the injection-spec compiler and the orchestrator's probe read it.
+This module keeps the consumer's old import path working and binds the same objects.
 """
 
 from __future__ import annotations
 
-from asago_package.condition_eval import (
+from asago_handoff.condition_eval import (
     DETECTED,
     INCONCLUSIVE,
     NOT_DETECTED,
     ConditionEvaluation,
     evaluate_condition,
+    evaluate_condition_v2,
     validate_condition,
 )
 
@@ -24,5 +23,6 @@ __all__ = [
     "NOT_DETECTED",
     "ConditionEvaluation",
     "evaluate_condition",
+    "evaluate_condition_v2",
     "validate_condition",
 ]

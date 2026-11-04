@@ -1,5 +1,4 @@
-"""The package library owns package IO, the binding rules and the evaluator; the consumer
-re-exports them.
+"""The package library owns package IO and the binding rules; the consumer re-exports them.
 
 The implementation lives in the ``asago-package`` workspace member, which imports nothing
 from this application and declares only pydantic and jsonschema. The consumer keeps its old
@@ -12,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import ModuleType
 
+import asago_handoff.condition_eval as shared_condition_eval
 import pytest
 
 import asago_artifact_generator.authoring.condition_eval as application_condition_eval
@@ -21,7 +21,6 @@ import asago_artifact_generator.metadata_policy as application_metadata_policy
 import asago_artifact_generator.package_io as application_package_io
 import asago_package.binding_rules as package_binding_rules
 import asago_package.bindings as package_bindings
-import asago_package.condition_eval as package_condition_eval
 import asago_package.metadata_policy as package_metadata_policy
 import asago_package.package_io as package_package_io
 from asago_artifact_generator.contract_kit import contract_dir as application_contract_dir
@@ -44,7 +43,6 @@ def test_the_consumer_module_reexports_the_same_object(name: str) -> None:
 _REEXPORTED_MODULES = (
     pytest.param(application_binding_rules, package_binding_rules, id="binding_rules"),
     pytest.param(application_bindings, package_bindings, id="bindings"),
-    pytest.param(application_condition_eval, package_condition_eval, id="condition_eval"),
 )
 
 
@@ -63,6 +61,17 @@ def test_each_consumer_module_reexports_the_same_objects(
         name
         for name in package.__all__
         if getattr(application, name) is not getattr(package, name)
+    ]
+
+    assert separate == []
+
+
+def test_the_consumer_evaluator_path_reexports_the_shared_module() -> None:
+    assert application_condition_eval.__all__ == shared_condition_eval.__all__
+    separate = [
+        name
+        for name in shared_condition_eval.__all__
+        if getattr(application_condition_eval, name) is not getattr(shared_condition_eval, name)
     ]
 
     assert separate == []

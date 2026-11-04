@@ -61,13 +61,14 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from asago_handoff.condition_eval import validate_condition
+
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.gap import CapabilityGap, capability_gap_record
 from asago_bundle_core.slots import contains_marker
 from asago_bundle_core.target import TargetConfig, authorized_target
 from asago_bundle_core.text import canonical_text
 from asago_package.binding_rules import SLOT_PATTERN
-from asago_package.condition_eval import validate_condition
 from asago_package.package_io import ArtifactPackage, load_package
 
 from .declared import DeclarationFault, DeclaredTools, declared_tools

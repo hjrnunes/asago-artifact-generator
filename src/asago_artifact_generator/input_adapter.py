@@ -11,12 +11,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import best_match
+from asago_handoff import Violation, feature_violations, validate_handoff
+from asago_handoff.contract import Contract, ContractError, load_ownership_rules
+from asago_handoff.shape import attack_shape_violation
 
-from .attack_shape import attack_shape_violation
 from .contract_kit import (
-    ClaimLevel,
     canonical_json,
     contract_dir,
     framed_digest,
@@ -25,7 +24,7 @@ from .contract_kit import (
     sha256_hex,
     verify_contract_lock,
 )
-from .value_checks import is_nonblank_str, is_sha256_hex
+from .value_checks import is_nonblank_str
 
 _HANDOFF_CONDITION_FIELDS = (
     "discriminating_condition",
@@ -33,8 +32,6 @@ _HANDOFF_CONDITION_FIELDS = (
     "condition_omitted_reason",
 )
 _HANDOFF_ROOT = contract_dir("scenario-handoff")
-_REGEX_FLAGS = {"IGNORECASE": re.IGNORECASE}
-_OwnershipRules = tuple[frozenset[str], tuple[tuple[str, re.Pattern[str]], ...]]
 
 
 class InputKind(StrEnum):
@@ -299,87 +296,58 @@ def _handoff_schema(kit: str = "handoff-v5") -> dict[str, Any]:
     )
 
 
-# One violation: its code, the dotted path of the break, and the reason.
-_Violation = tuple[str, str, str]
+def _read_ownership_rules(
+    path: Path,
+) -> tuple[frozenset[str], tuple[tuple[str, re.Pattern[str]], ...]]:
+    """Read an ownership-rules document, naming a file the reader cannot use."""
+
+    try:
+        return load_ownership_rules(path)
+    except ContractError as exc:
+        raise InputSourceError(f"cannot read vendored ownership rules: {exc}") from exc
+
+
+def _handoff_contract(kit: str = "handoff-v5") -> Contract:
+    """Read the mirrored contract documents the shared validator walks."""
+
+    forbidden_keys, forbidden_patterns = _read_ownership_rules(
+        _HANDOFF_ROOT / "ownership-rules.json"
+    )
+    return Contract(
+        schema=_handoff_schema(kit),
+        forbidden_keys=forbidden_keys,
+        forbidden_patterns=forbidden_patterns,
+    )
 
 
 def _validate_handoff_payload(payload: dict[str, Any], kit: str) -> None:
-    """Report the producer's codes for every rule the handoff breaks, ownership first.
+    """Report the shared validator's codes for every rule the handoff breaks.
 
-    The mirrored schema of the handoff's version runs whole. Only a schema-valid
-    handoff reaches the hand rules, which repeat the rules the schema can state
-    and add the ones it cannot; the first one that fails reports its top-level
-    field. A break confined to the attack shape keeps its typed refusal.
+    ``asago_handoff.validate_handoff`` walks the ownership boundary first, then
+    the mirrored schema's rules and the hand rules the schema cannot state. The
+    consumer keeps the typed attack-shape refusal for a break confined to the
+    shape, and reports every other break as :class:`HandoffSchemaInvalid`.
     """
 
-    ownership = _ownership_violations(payload)
-    breaks = _schema_violations(payload, kit) or _hand_rule_violations(payload, kit)
-    if not ownership:
+    violations = validate_handoff(payload, contract=_handoff_contract(kit))
+    if not violations:
+        return
+    breaks = [item for item in violations if item.code.startswith("schema_violation:")]
+    if breaks and len(breaks) == len(violations):
         _raise_shape_refusal(payload, breaks, kit)
-    violations = [*ownership, *breaks]
-    if violations:
-        raise HandoffSchemaInvalid(violations)
+    raise HandoffSchemaInvalid(list(violations))
 
 
-def _raise_shape_refusal(payload: dict[str, Any], breaks: list[_Violation], kit: str) -> None:
+def _raise_shape_refusal(payload: dict[str, Any], breaks: list[Violation], kit: str) -> None:
     """Raise the typed attack-shape refusal when every break concerns the shape."""
 
-    if breaks and {code for code, _, _ in breaks} <= _SHAPE_CODES:
+    if breaks and {item.code for item in breaks} <= _SHAPE_CODES:
         refusal = _attack_shape_refusal(payload, kit)
         if refusal is not None:
             raise refusal
 
 
 _SHAPE_CODES = frozenset({"schema_violation:attack_shape", "schema_violation:<root>"})
-
-
-def _schema_violations(payload: dict[str, Any], kit: str) -> list[_Violation]:
-    """Map the schema's errors to the producer's codes: one per top-level field.
-
-    A ``required`` error names the missing field; an ``additionalProperties``
-    error names each extra field. The root if/then/else pairings report
-    ``<root>`` only when no field breaks.
-    """
-
-    found: dict[str, _Violation] = {}
-    rooted: _Violation | None = None
-    # The producer lists a missing required field before the fields it rejects as extra,
-    # whatever order the schema's keywords come in.
-    errors = sorted(
-        Draft202012Validator(_handoff_schema(kit)).iter_errors(payload),
-        key=lambda error: not (error.validator == "required" and not error.path),
-    )
-    for error in errors:
-        where, reason = _error_detail(error)
-        if _is_root_pairing(error):
-            rooted = rooted or ("schema_violation:<root>", where, reason)
-            continue
-        for name in _error_fields(error):
-            found.setdefault(name, (f"schema_violation:{name}", where, reason))
-    if found or rooted is None:
-        return list(found.values())
-    return [rooted]
-
-
-def _error_detail(error: Any) -> tuple[str, str]:
-    # best_match descends into anyOf branches, so the reason names the break
-    # inside an optional object rather than restating the whole object.
-    detail = best_match([error]) or error
-    return ".".join(str(part) for part in detail.absolute_path) or "<root>", detail.message
-
-
-def _is_root_pairing(error: Any) -> bool:
-    return bool(error.schema_path) and error.schema_path[0] == "allOf"
-
-
-def _error_fields(error: Any) -> list[str]:
-    if error.path:
-        return [str(error.path[0])]
-    if error.validator == "required":
-        return [error.message.split("'")[1]]
-    if error.validator == "additionalProperties":
-        return re.findall(r"'([^']+)'", error.message.split("(", 1)[1])
-    return ["<root>"]
 
 
 def _attack_shape_refusal(payload: dict[str, Any], kit: str) -> ShapeVersionMalformed | None:
@@ -400,351 +368,6 @@ def _attack_shape_refusal(payload: dict[str, Any], kit: str) -> ShapeVersionMalf
     return ShapeVersionMalformed(*violation) if violation is not None else None
 
 
-def _hand_rule_violations(payload: dict[str, Any], kit: str) -> list[_Violation]:
-    found = _hand_rule_violation(payload, kit)
-    return [found] if found is not None else []
-
-
-def _hand_rule_violation(payload: dict[str, Any], kit: str) -> _Violation | None:
-    """Return the first rule the schema cannot state that a schema-valid handoff breaks.
-
-    The rules are blank text, the observation-contract format, presence where
-    the schema has a default, and cross-field pairings. The reported code names
-    the top-level field the rule reads; the v5 procedure chain, a rule across
-    the steps that the producer checks on the whole handoff, reports ``<root>``.
-    """
-
-    for key, rules in _HAND_RULES:
-        if payload.get(key) is None:
-            continue
-        for rule in rules:
-            found = rule(payload[key], key)
-            if found is not None:
-                return (f"schema_violation:{key}", *found)
-    if payload.get("attack_shape") is not None:
-        refusal = _attack_shape_refusal(payload, kit)
-        if refusal is not None:
-            return ("schema_violation:attack_shape", refusal.schema_path, refusal.reason)
-    if "procedure" in payload:
-        found = _procedure_chain(payload["procedure"], "procedure")
-        if found is not None:
-            return ("schema_violation:<root>", *found)
-    return None
-
-
-_Break = tuple[str, str] | None
-
-
-def _nonblank_text(value: str, path: str) -> _Break:
-    return None if value.strip() else (path, "must not be blank")
-
-
-def _semantic_failure_call(value: dict[str, Any], path: str) -> _Break:
-    return _nonblank_text(value["operation_name"], f"{path}.operation_name")
-
-
-def _observation_contract(value: dict[str, Any], path: str) -> _Break:
-    for key in ("contract_schema", "contract_id", "contract_digest"):
-        if not value[key].strip():
-            return f"{path}.{key}", "must not be blank"
-    if not is_sha256_hex(value["contract_digest"]):
-        return f"{path}.contract_digest", "is not a SHA-256 hex digest"
-    if value["contract_schema"] != "observation-contract-v1":
-        return f"{path}.contract_schema", "must be observation-contract-v1"
-    return None
-
-
-def _observation_criteria(value: dict[str, Any], path: str) -> _Break:
-    for index, criterion in enumerate(value["criteria"]):
-        found = _observation_criterion(criterion, f"{path}.criteria.{index}")
-        if found is not None:
-            return found
-    return None
-
-
-def _observation_criterion(criterion: dict[str, Any], path: str) -> _Break:
-    for key in ("criterion_id", "outcome", "reason"):
-        if not criterion[key].strip():
-            return f"{path}.{key}", "must not be blank"
-    return _criterion_claim(criterion, path) or _criterion_operation(criterion, path)
-
-
-def _criterion_claim(criterion: dict[str, Any], path: str) -> _Break:
-    if not criterion["observable"]:
-        if any(criterion.get(key) is not None for key in ("claim_level", "evidence")):
-            return path, "an analytical-only criterion must omit claim_level and evidence"
-        return None
-    for key in ("claim_level", "evidence"):
-        if not is_nonblank_str(criterion.get(key)):
-            return path, f"an observable criterion requires {key}"
-    return None
-
-
-def _criterion_operation(criterion: dict[str, Any], path: str) -> _Break:
-    operation_name = criterion.get("operation_name")
-    if operation_name is None:
-        return None
-    if not is_nonblank_str(operation_name):
-        return f"{path}.operation_name", "must not be blank"
-    if not criterion["observable"]:
-        return path, "an analytical-only criterion must omit operation_name"
-    return None
-
-
-def _observation_assessment(value: dict[str, Any], path: str) -> _Break:
-    assessment = value["assessment"]
-    path = f"{path}.assessment"
-    if not {"supported_criteria", "unsupported_criteria"} <= set(assessment):
-        return path, "requires supported_criteria and unsupported_criteria"
-    if not assessment["reason"].strip():
-        return f"{path}.reason", "must not be blank"
-    for key in ("supported_criteria", "unsupported_criteria"):
-        for index, item in enumerate(assessment[key]):
-            if not item.strip():
-                return f"{path}.{key}.{index}", "must not be blank"
-    return None
-
-
-_SAFE_OUTCOME_EXPECTED_EVIDENCE = {
-    ClaimLevel.COMMAND_ATTEMPT.value: "tool_call",
-    ClaimLevel.REPLY.value: "assistant_message",
-    ClaimLevel.RETURNED_RESULT.value: "tool_result",
-    ClaimLevel.STATE_EFFECT.value: "snapshot",
-}
-
-
-def _safe_outcome_claim(value: dict[str, Any], path: str) -> _Break:
-    if not value["statement"].strip():
-        return f"{path}.statement", "must not be blank"
-    claim_level = value.get("claim_level")
-    operation_name = value.get("operation_name")
-    if not value["observable"]:
-        if any(
-            value.get(key) is not None for key in ("claim_level", "evidence", "operation_name")
-        ):
-            return path, (
-                "an analytical-only safe outcome must omit claim_level, evidence "
-                "and operation_name"
-            )
-        return None
-    if (
-        claim_level not in _SAFE_OUTCOME_EXPECTED_EVIDENCE
-        or value.get("evidence") != _SAFE_OUTCOME_EXPECTED_EVIDENCE[claim_level]
-    ):
-        return path, "claim_level and evidence do not match"
-    if operation_name is not None and not is_nonblank_str(operation_name):
-        return f"{path}.operation_name", "must not be blank"
-    return None
-
-
-def _safe_outcome_refs(value: dict[str, Any], path: str) -> _Break:
-    for key in ("record_refs", "fact_refs"):
-        if key not in value:
-            return f"{path}.{key}", "is required"
-        refs = value[key]
-        for index, item in enumerate(refs):
-            if not item.strip():
-                return f"{path}.{key}.{index}", "must not be blank"
-        if len(refs) != len(set(refs)):
-            return f"{path}.{key}", "must be unique"
-    if not value["observable"] and (value["record_refs"] or value["fact_refs"]):
-        return path, "an analytical-only safe outcome must omit record and fact references"
-    return None
-
-
-def _on_safe_call(value: dict[str, Any]) -> bool:
-    return value.get("claim_level") == ClaimLevel.COMMAND_ATTEMPT.value and bool(
-        value.get("operation_name")
-    )
-
-
-def _safe_outcome_call_made(value: dict[str, Any], path: str) -> _Break:
-    """State call_made only on a command attempt that names its operation.
-
-    The rule is the producer's ``SafeObservableOutcome`` call_made check; keep
-    both in step. A null call_made says nothing, as an absent one does.
-    """
-
-    if value.get("call_made") is None:
-        return None
-    path = f"{path}.call_made"
-    if not value["observable"]:
-        return path, "an analytical-only safe outcome must omit call_made"
-    if not _on_safe_call(value):
-        return path, "requires claim_level command_attempt and an operation_name"
-    return None
-
-
-def _safe_outcome_call_arguments(value: dict[str, Any], path: str) -> _Break:
-    """State each argument of the safe call once, by a non-blank name.
-
-    The rules are the producer's ``SafeObservableOutcome`` call-argument checks;
-    keep both in step. An empty list states no value, as an absent one does.
-    call_made false states that the call is not made, so it has no arguments.
-    """
-
-    arguments = value.get("call_arguments")
-    if not arguments:
-        return None
-    path = f"{path}.call_arguments"
-    names = [item["argument"] for item in arguments]
-    for index, name in enumerate(names):
-        if not name.strip():
-            return f"{path}.{index}.argument", "must not be blank"
-    if not value["observable"]:
-        return path, "an analytical-only safe outcome must omit call_arguments"
-    if not _on_safe_call(value):
-        return path, "requires claim_level command_attempt and an operation_name"
-    if value.get("call_made") is False:
-        return path, (
-            "call_made false states that the call is not made, so it has no call_arguments"
-        )
-    if len({name.strip() for name in names}) != len(names):
-        return path, "must name each argument once"
-    return None
-
-
-def _procedure_chain(steps: list[dict[str, Any]], path: str) -> _Break:
-    """Number the steps S00, S01, ... in order and link each to the next.
-
-    A step names a tactic exactly when it names a technique. The rules are the
-    producer's ``ScenarioHandoffV5.validate_procedure_chain``; keep both in step.
-    """
-
-    ids = [f"S{index:02d}" for index in range(len(steps))]
-    for index, step in enumerate(steps):
-        if step["step_id"] != ids[index]:
-            return f"{path}.{index}.step_id", f"must be {ids[index]}"
-        if step["leads_to"] != ids[index + 1 : index + 2]:
-            return f"{path}.{index}.leads_to", f"must be {ids[index + 1 : index + 2]}"
-        if (step["tactic"] is None) != (step["technique"] is None):
-            return f"{path}.{index}", "names a tactic exactly when it names a technique"
-    return None
-
-
-def _taxonomy_references(taxonomy: dict[str, Any], path: str) -> _Break:
-    """List the references sorted by scheme and id, each once.
-
-    The rule is the producer's ``HandoffTaxonomy.validate_reference_order``; keep both in step.
-    """
-
-    keys = [(ref["scheme"], ref["id"]) for ref in taxonomy.get("references", [])]
-    if keys != sorted(set(keys)):
-        return f"{path}.references", "must be sorted by scheme and id, each once"
-    return None
-
-
-def _tool_call_status_reason(status: dict[str, Any], path: str) -> _Break:
-    if (status["status"] == "bound") != (status["reason"] == "bound"):
-        return path, "reason must be bound exactly when the status is bound"
-    return None
-
-
-def _deduplication(value: dict[str, Any], path: str) -> _Break:
-    if not value["scenario_id"].strip():
-        return f"{path}.scenario_id", "must not be blank"
-    duplicate_of = value.get("duplicate_of")
-    if value["status"] != "duplicate":
-        if duplicate_of is not None:
-            return path, "canonical and analytical-only handoffs must omit duplicate_of"
-    elif duplicate_of is None:
-        return path, "a duplicate requires duplicate_of"
-    elif not duplicate_of.strip():
-        return f"{path}.duplicate_of", "must not be blank"
-    return _deduplication_key(value["key"], f"{path}.key")
-
-
-def _deduplication_key(key: dict[str, Any], path: str) -> _Break:
-    for name in ("condition", "uca_id", "control_action_id", "operation_name"):
-        if key.get(name) is not None and not key[name].strip():
-            return f"{path}.{name}", "must not be blank"
-    for index, constraint_id in enumerate(key.get("constraint_ids", ())):
-        if not constraint_id.strip():
-            return f"{path}.constraint_ids.{index}", "must not be blank"
-    return None
-
-
-_HAND_RULES: tuple[tuple[str, tuple[Any, ...]], ...] = (
-    *(
-        (key, (_nonblank_text,))
-        for key in (
-            "scenario_id",
-            "hypothesis_framing",
-            "narrative",
-            "semantic_failure_criterion",
-            "safe_alternative",
-        )
-    ),
-    ("observation", (_observation_contract, _observation_criteria, _observation_assessment)),
-    ("semantic_failure_call", (_semantic_failure_call,)),
-    (
-        "safe_observable_outcome",
-        (
-            _safe_outcome_claim,
-            _safe_outcome_refs,
-            _safe_outcome_call_made,
-            _safe_outcome_call_arguments,
-        ),
-    ),
-    ("deduplication", (_deduplication,)),
-    ("tool_call_condition_status", (_tool_call_status_reason,)),
-    ("taxonomy", (_taxonomy_references,)),
-)
-
-
-def _ownership_rules() -> _OwnershipRules:
-    """Return the producer's ownership rules from the mirrored, lock-checked kit."""
-
-    return _read_ownership_rules(_HANDOFF_ROOT / "ownership-rules.json")
-
-
-def _read_ownership_rules(path: Path) -> _OwnershipRules:
-    rules = load_json_file(path, InputSourceError, "cannot read vendored ownership rules")
-    patterns = []
-    for entry in rules["forbidden_value_patterns"]:
-        unknown = sorted(set(entry["flags"]) - _REGEX_FLAGS.keys())
-        if unknown:
-            raise InputSourceError(
-                f"vendored ownership rule {entry['code']} has unknown flags: {unknown}"
-            )
-        flags = 0
-        for name in entry["flags"]:
-            flags |= _REGEX_FLAGS[name]
-        patterns.append((entry["code"], re.compile(entry["pattern"], flags)))
-    return frozenset(rules["forbidden_keys"]), tuple(patterns)
-
-
-def _ownership_violations(payload: dict[str, Any]) -> list[_Violation]:
-    forbidden_keys, forbidden_patterns = _ownership_rules()
-    found: dict[str, _Violation] = {}
-    for path, text in _keys_and_strings(payload):
-        leaf = path.rsplit(".", 1)[-1].lower()
-        where = path.lstrip(".")
-        if leaf in forbidden_keys:
-            code = f"artifact_design_field:{leaf}"
-            found.setdefault(code, (code, where, "is an artifact-design field"))
-        for slug, pattern in forbidden_patterns:
-            if pattern.search(text):
-                code = f"prose_hiding:{slug}"
-                found.setdefault(code, (code, where, f"matches the {slug} pattern"))
-    return list(found.values())
-
-
-def _keys_and_strings(value: Any, path: str = "") -> list[tuple[str, str]]:
-    """List ``(path, text)`` for every mapping key and string scalar, as the producer does."""
-    found: list[tuple[str, str]] = []
-    if isinstance(value, dict):
-        for key, item in value.items():
-            found.append((f"{path}.{key}", str(key)))
-            found.extend(_keys_and_strings(item, f"{path}.{key}"))
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            found.extend(_keys_and_strings(item, f"{path}[{index}]"))
-    elif isinstance(value, str):
-        found.append((path, value))
-    return found
-
-
 def _framed_digest(domain: str, value: Any) -> str:
     return framed_digest(domain, value, nfc=True)
 
@@ -752,45 +375,11 @@ def _framed_digest(domain: str, value: Any) -> str:
 def _companion_mismatch(gherkin: dict[str, Any], text: str) -> str | None:
     """Name the first rule a feature file breaks, or None when it holds the block.
 
-    The rules are the producer's `feature_matches`
-    (`asago_scenario_generator/report/scenario_panels.py`); keep both in step.
+    ``asago_handoff.feature_violations`` states the rule the producer's
+    ``feature_matches`` states; the consumer reports its first failure.
     """
-    lines = [stripped for line in text.splitlines() if (stripped := line.strip())]
-    for rule in (_feature_rule, _scenario_rule, _steps_rule, _comments_rule):
-        if failed := rule(gherkin, lines):
-            return failed
-    return None
-
-
-def _feature_rule(gherkin: dict[str, Any], lines: list[str]) -> str | None:
-    if lines[:1] == [f"Feature: {gherkin['feature']}"]:
-        return None
-    return f"Feature line: the first line is not 'Feature: {gherkin['feature']}'"
-
-
-def _scenario_rule(gherkin: dict[str, Any], lines: list[str]) -> str | None:
-    if f"Scenario: {gherkin['scenario']}" in lines:
-        return None
-    return f"Scenario line: no line reads 'Scenario: {gherkin['scenario']}'"
-
-
-def _steps_rule(gherkin: dict[str, Any], lines: list[str]) -> str | None:
-    skipped = ("Feature:", "Background:", "Scenario:", "#")
-    steps = [line for line in lines if not line.startswith(skipped)]
-    expected = [
-        step for key in ("given", "when", "then_expected") for step in gherkin.get(key, [])
-    ]
-    if steps == expected:
-        return None
-    return "steps: they differ from given, when and then_expected in order"
-
-
-def _comments_rule(gherkin: dict[str, Any], lines: list[str]) -> str | None:
-    comments = sum(line.startswith("#") for line in lines)
-    expected = len(gherkin.get("then_unsafe_alternative", []))
-    if comments == expected:
-        return None
-    return f"comment count: {comments} comments, then_unsafe_alternative holds {expected}"
+    violations = feature_violations(gherkin, text)
+    return violations[0].reason if violations else None
 
 
 def _render_handoff_gherkin(gherkin: dict[str, Any]) -> str:

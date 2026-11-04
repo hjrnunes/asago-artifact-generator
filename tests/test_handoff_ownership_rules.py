@@ -23,10 +23,10 @@ _KIT = _CONTRACT / "handoff-v5"
 def test_the_reader_uses_the_mirrored_rules_in_file_order() -> None:
     rules = json.loads(_RULES.read_text(encoding="utf-8"))
 
-    keys, patterns = input_adapter._ownership_rules()
+    contract = input_adapter._handoff_contract("handoff-v5")
 
-    assert keys == frozenset(rules["forbidden_keys"])
-    assert [(code, pattern.pattern) for code, pattern in patterns] == [
+    assert contract.forbidden_keys == frozenset(rules["forbidden_keys"])
+    assert [(code, pattern.pattern) for code, pattern in contract.forbidden_patterns] == [
         (entry["code"], entry["pattern"]) for entry in rules["forbidden_value_patterns"]
     ]
 

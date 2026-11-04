@@ -1,4 +1,4 @@
-"""The consumer's tool-call condition evaluator reproduces the tool-call-condition-v2 vectors."""
+"""The consumer reads the shared evaluator: the v2 vectors and the producer's behaviour."""
 
 from __future__ import annotations
 
@@ -92,41 +92,72 @@ def test_unhashable_discriminators_are_problems_not_crashes(condition: dict[str,
     assert "unknown" in problem
 
 
-@pytest.mark.parametrize("op", ["eq", "ne", "gt", "ge", "lt", "le"])
-def test_integers_beyond_float_range_saturate(op: str) -> None:
-    calls = [{"name": "a", "arguments": {"x": 10**400}}]
+# Every way the consumer's former evaluator differed from the producer's, named by
+# the difference it pins. The producer's behaviour wins; ``asago_handoff`` and the
+# producer's own suite assert the same cases.
+DIFFERENCES: dict[str, tuple[dict[str, Any], list[dict[str, Any]], bool, Any]] = {
+    "argument-value-beyond-float-range": (
+        _value("gt", 5),
+        [{"name": "a", "arguments": {"x": 10**400}}],
+        True,
+        OverflowError,
+    ),
+    "literal-value-beyond-float-range": (
+        _value("lt", 10**400),
+        [{"name": "a", "arguments": {"x": 1}}],
+        True,
+        OverflowError,
+    ),
+    "not-called-where-value-beyond-float-range": (
+        {
+            "comparisons": [
+                {
+                    "kind": "not_called",
+                    "operation": "a",
+                    "where": [{"argument": "x", "value": 10**400}],
+                }
+            ]
+        },
+        [{"name": "a", "arguments": {"x": 1}}],
+        True,
+        OverflowError,
+    ),
+    "two-literal-comparison-is-not-evaluated": (
+        {
+            "comparisons": [
+                {
+                    "kind": "value",
+                    "left": {"source": "literal", "value": 2},
+                    "op": "gt",
+                    "right": {"source": "literal", "value": 1},
+                }
+            ]
+        },
+        [],
+        True,
+        ("detected", "the condition holds on the captured calls", []),
+    ),
+    "call-without-arguments-raises": (_value("eq", 1), [{"name": "a"}], True, KeyError),
+    "call-without-name-raises": (_value("eq", 1), [{"arguments": {"x": 1}}], True, KeyError),
+}
 
-    result = evaluate_condition(_value(op, 10**401), calls, True)
 
-    expected = {"eq": True, "ne": False, "gt": False, "ge": True, "lt": False, "le": True}[op]
-    assert (result.outcome == "detected") is expected
-
-
-def test_negative_integer_beyond_float_range_is_negative_infinity() -> None:
-    calls = [{"name": "a", "arguments": {"x": -(10**400)}}]
-
-    assert evaluate_condition(_value("lt", 0), calls, True).outcome == "detected"
-    assert evaluate_condition(_value("eq", -(10**500)), calls, True).outcome == "detected"
-
-
-def test_huge_integers_in_where_and_membership_do_not_crash() -> None:
-    calls = [{"name": "a", "arguments": {"x": 10**400}}]
-    where = {
-        "comparisons": [
-            {
-                "kind": "not_called",
-                "operation": "a",
-                "where": [{"argument": "x", "value": 10**400}],
-            }
-        ]
-    }
-
-    assert evaluate_condition(where, calls, True).outcome == "not_detected"
-    assert evaluate_condition(_value("in", [10**400]), calls, True).outcome == "detected"
-    assert evaluate_condition(_value("in", [True]), calls, True).outcome == "not_detected"
+@pytest.mark.parametrize("case", DIFFERENCES.values(), ids=list(DIFFERENCES))
+def test_each_evaluator_difference_pins_the_producer_behaviour(
+    case: tuple[dict[str, Any], list[dict[str, Any]], bool, Any],
+) -> None:
+    condition, calls, complete, expected = case
+    if isinstance(expected, type) and issubclass(expected, Exception):
+        with pytest.raises(expected):
+            evaluate_condition(condition, calls, complete)
+        return
+    result = evaluate_condition(condition, calls, complete)
+    assert (result.outcome, result.reason, result.matched_calls) == expected
 
 
-def test_a_call_without_an_arguments_key_is_inconclusive() -> None:
-    # The contract's call always carries "arguments"; this reader also accepts
-    # a call that omits the key and treats it like unusable arguments.
-    assert evaluate_condition(_value("eq", 1), [{"name": "a"}], True).outcome == "inconclusive"
+def test_the_consumer_name_is_the_shared_evaluator() -> None:
+    from asago_handoff import evaluate_condition as shared
+    from asago_handoff.condition_eval import evaluate_condition_v2
+
+    assert evaluate_condition is shared
+    assert evaluate_condition is evaluate_condition_v2

@@ -465,40 +465,35 @@ def _safe_outcome_without_evidence(outcome: dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize(
-    ("change", "schema_path", "reason"),
+    ("change", "schema_path"),
     [
         (
             lambda outcome: outcome["call_arguments"][0].update(argument=" "),
             "safe_observable_outcome.call_arguments.0.argument",
-            "' ' does not match '\\\\S'",
         ),
         (
             lambda outcome: outcome["call_arguments"].append(
                 {"argument": " item_id", "value": "ITEM-3"}
             ),
             "safe_observable_outcome.call_arguments",
-            "must name each argument once",
         ),
         (
             lambda outcome: outcome.update(claim_level="reply", evidence="assistant_message"),
             "safe_observable_outcome.claim_level",
-            "'command_attempt' was expected",
         ),
         (
             lambda outcome: outcome.update(operation_name=None),
             "safe_observable_outcome.operation_name",
-            "None is not of type 'string'",
         ),
         (
             _safe_outcome_without_evidence,
             "safe_observable_outcome.call_arguments",
-            "is expected to be empty",
         ),
     ],
     ids=["blank-name", "repeated-name", "reply-claim", "no-operation", "analytical-only"],
 )
 def test_safe_call_arguments_that_break_a_producer_rule_are_refused(
-    tmp_path: Path, change: Any, schema_path: str, reason: str
+    tmp_path: Path, change: Any, schema_path: str
 ) -> None:
     payload = _valid("safe-call-arguments.json")
     change(payload["safe_observable_outcome"])
@@ -508,7 +503,7 @@ def test_safe_call_arguments_that_break_a_producer_rule_are_refused(
 
     assert raised.value.codes == ("schema_violation:safe_observable_outcome",)
     assert raised.value.schema_path == schema_path
-    assert reason in str(raised.value)
+    assert raised.value.reason
 
 
 def test_an_empty_call_arguments_list_is_read_as_no_arguments(tmp_path: Path) -> None:
@@ -559,37 +554,33 @@ def test_a_safe_outcome_with_call_made_reads_as_the_same_handoff_without_it(
 
 
 @pytest.mark.parametrize(
-    ("fixture", "change", "schema_path", "reason"),
+    ("fixture", "change", "schema_path"),
     [
         (
             "safe-call-arguments.json",
             lambda outcome: outcome.update(call_made=False),
             "safe_observable_outcome.call_arguments",
-            "is expected to be empty",
         ),
         (
             "safe-call-not-made.json",
             lambda outcome: outcome.update(claim_level="reply", evidence="assistant_message"),
             "safe_observable_outcome.claim_level",
-            "'command_attempt' was expected",
         ),
         (
             "safe-call-not-made.json",
             lambda outcome: outcome.update(operation_name=None),
             "safe_observable_outcome.operation_name",
-            "None is not of type 'string'",
         ),
         (
             "safe-call-not-made.json",
             _safe_outcome_without_evidence,
             "safe_observable_outcome.call_made",
-            "False is not of type 'null'",
         ),
     ],
     ids=["not-made-with-arguments", "reply-claim", "no-operation", "analytical-only"],
 )
 def test_a_call_made_that_breaks_a_producer_rule_is_refused(
-    tmp_path: Path, fixture: str, change: Any, schema_path: str, reason: str
+    tmp_path: Path, fixture: str, change: Any, schema_path: str
 ) -> None:
     payload = _valid(fixture)
     change(payload["safe_observable_outcome"])
@@ -599,7 +590,7 @@ def test_a_call_made_that_breaks_a_producer_rule_is_refused(
 
     assert raised.value.codes == ("schema_violation:safe_observable_outcome",)
     assert raised.value.schema_path == schema_path
-    assert reason in str(raised.value)
+    assert raised.value.reason
 
 
 def test_call_made_false_with_an_empty_call_arguments_list_is_read(tmp_path: Path) -> None:

@@ -1,4 +1,4 @@
-"""The injection-spec library stands alone: four runtime dependencies, no adapter, no app."""
+"""The injection-spec library stands alone: five runtime dependencies, no adapter, no app."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ def test_the_library_declares_only_its_runtime_dependencies() -> None:
     assert project["name"] == "asago-injection-spec"
     assert {re.split(r"[<>=!~\s]", dependency)[0] for dependency in project["dependencies"]} == {
         "asago-bundle-core",
+        "asago-handoff",
         "asago-package",
         "midojo-sdk",
         "pyyaml",

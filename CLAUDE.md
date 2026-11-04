@@ -144,15 +144,15 @@ missing path.
   writer and loader the `asago-package` member owns. The loader refuses any other schema
   version, naming it.
 - `src/asago_artifact_generator/authoring/condition_eval.py`: a re-export of the
-  tool-call-condition-v2 validator and evaluator the `asago-package` member owns
-  (`asago_package.condition_eval`). Authoring's self-test and `tests/test_condition_eval.py`
-  read it through the old path; the adapters and orch's probe import the library directly.
+  tool-call-condition-v2 validator and evaluator the producer's `packages/asago-handoff`
+  member owns (`asago_handoff.condition_eval`). Authoring's self-test,
+  `tests/test_condition_eval.py` and the injection-spec compiler read it; orch's probe names
+  the same module.
 - `packages/asago-package/`: the package library workspace member (`asago_package`), which
   depends only on pydantic and jsonschema. It owns `package_io` (the v5 writer, loader and
   values), the contract kit (canonical JSON, framed digests, schema errors, lock checks, the
-  package's own `contract_dir`), the `metadata_policy` secret walker, the binding and
-  slot rules (`binding_rules`, plus authoring's `bindings`), and the tool-call-condition-v2
-  validator and evaluator (`condition_eval`). It ships the
+  package's own `contract_dir`), the `metadata_policy` secret walker, and the binding and
+  slot rules (`binding_rules`, plus authoring's `bindings`). It ships the
   authority copies of `artifact-package`, `runtime-contract` and `capability-gap` as package
   data under `src/asago_package/contracts/`, the only authority copies in this repository;
   the app's `contract_dir` keeps serving the seven kits the consumer still owns.

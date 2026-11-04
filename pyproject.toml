@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Policy-driven agentic red-teaming artifact generator for LLM evaluation platforms"
 requires-python = ">=3.12"
 dependencies = [
+    "asago-handoff>=0.1,<0.2",
     "asago-package",
     "pyyaml>=6.0",
     "jsonschema>=4.0",
@@ -43,6 +44,9 @@ exclude-newer = "7 days"
 members = ["packages/*"]
 
 [tool.uv.sources]
+# The producer-owned handoff contract: one validator and one condition-v2 evaluator
+# shared by the producer, this repository and the orchestrator.
+asago-handoff = { path = "../asago-scenario-generator/packages/asago-handoff", editable = true }
 asago-bundle-core = { workspace = true }
 asago-bundle-garak = { workspace = true }
 asago-bundle-midojo = { workspace = true }

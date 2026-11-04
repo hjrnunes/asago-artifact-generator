@@ -76,7 +76,28 @@ def consumer_sources() -> Iterator[Path]:
                 yield member / "src"
 
 
-for _source in consumer_sources():
+def dependency_sources() -> Iterator[Path]:
+    """The source roots of the consumer's editable path dependencies.
+
+    The injection-spec member compiles every specification with the shared
+    ``asago_handoff`` condition evaluator, so the generator needs that member's source on
+    the path too. The consumer declares the dependency as a path source in its own
+    ``pyproject.toml``, so the generator reads the path there instead of naming a sibling
+    checkout.
+    """
+
+    project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    sources = project.get("tool", {}).get("uv", {}).get("sources", {})
+    for _name, source in sorted(sources.items()):
+        path = source.get("path")
+        if path is None:
+            continue
+        source_root = (REPO / path) / "src"
+        if source_root.is_dir():
+            yield source_root
+
+
+for _source in (*consumer_sources(), *dependency_sources()):
     if str(_source) not in sys.path:
         sys.path.insert(0, str(_source))
 # The case builders the generator reads stay in the MiDojo adapter's suite; they build

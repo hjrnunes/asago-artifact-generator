@@ -280,133 +280,94 @@ _ANALYTICAL_SAFE = _all(
 _CRIT = "observation.criteria.0"
 
 
-# This reader keeps the rules the mirrored schema cannot state. The schema
-# states the safe-outcome rules below (blank text, the claim and evidence
-# pairing, uniqueness and the analytical-only omissions), so it reports those
-# breaks first; the code names the same top-level field either way.
+# The shared validator reports the producer's codes and the dotted path of the
+# first break; these rows assert both, never the schema library's wording.
 @pytest.mark.parametrize(
-    ("mutate", "field", "detail"),
+    ("mutate", "field", "schema_path"),
     [
-        (_set("observation.contract_id", " "), "observation", "observation.contract_id: must not"),
-        (
-            _set("observation.contract_digest", "abc"),
-            "observation",
-            "observation.contract_digest: is not a SHA-256 hex digest",
-        ),
+        (_set("observation.contract_id", " "), "observation", "observation.contract_id"),
+        (_set("observation.contract_digest", "abc"), "observation", "observation.contract_digest"),
         (
             _set("observation.contract_schema", "other"),
             "observation",
-            "observation.contract_schema: must be observation-contract-v1",
+            "observation.contract_schema",
         ),
-        (
-            _criterion(operation_name=" "),
-            "observation",
-            f"{_CRIT}.operation_name: must not be blank",
-        ),
+        (_criterion(operation_name=" "), "observation", "observation.criteria.0.operation_name"),
         (
             _set("observation.assessment.unsupported_criteria", [""]),
             "observation",
-            "observation.assessment.unsupported_criteria.0: must not be blank",
+            "observation.assessment.unsupported_criteria.0",
         ),
-        (
-            _set("deduplication.status", "duplicate"),
-            "deduplication",
-            "deduplication: a duplicate requires duplicate_of",
-        ),
-        (
-            _set("deduplication.duplicate_of", "SCN-0"),
-            "deduplication",
-            "deduplication: canonical and analytical-only handoffs must omit duplicate_of",
-        ),
-        (
-            _set("deduplication.key.uca_id", " "),
-            "deduplication",
-            "deduplication.key.uca_id: must not be blank",
-        ),
-        (
-            _set("deduplication.key.condition", " "),
-            "deduplication",
-            "deduplication.key.condition: must not be blank",
-        ),
+        (_set("deduplication.status", "duplicate"), "deduplication", "deduplication"),
+        (_set("deduplication.duplicate_of", "SCN-0"), "deduplication", "deduplication"),
+        (_set("deduplication.key.uca_id", " "), "deduplication", "deduplication.key.uca_id"),
+        (_set("deduplication.key.condition", " "), "deduplication", "deduplication.key.condition"),
         (
             _set("deduplication.key.constraint_ids", ["SC-1", " "]),
             "deduplication",
-            "deduplication.key.constraint_ids.1: must not be blank",
+            "deduplication.key.constraint_ids.1",
         ),
-        (_set("scenario_id", " "), "scenario_id", "scenario_id: must not be blank"),
-        (_set("observation.contract_schema", " "), "observation", "contract_schema: must not"),
-        (_criterion(reason=" "), "observation", f"{_CRIT}.reason: must not be blank"),
-        (
-            _criterion(evidence=_ABSENT),
-            "observation",
-            f"{_CRIT}: an observable criterion requires evidence",
-        ),
+        (_set("scenario_id", " "), "scenario_id", "scenario_id"),
+        (_set("observation.contract_schema", " "), "observation", "observation.contract_schema"),
+        (_criterion(reason=" "), "observation", "observation.criteria.0.reason"),
+        (_criterion(evidence=_ABSENT), "observation", "observation.criteria.0"),
         (
             _all(_ANALYTICAL_CRITERION, _criterion(claim_level="reply")),
             "observation",
-            f"{_CRIT}: an analytical-only criterion must omit claim_level and evidence",
+            "observation.criteria.0",
         ),
         (
             _drop("observation.assessment.supported_criteria"),
             "observation",
-            "observation.assessment: requires supported_criteria and unsupported_criteria",
+            "observation.assessment",
         ),
         (
             _set("safe_observable_outcome.statement", " "),
             "safe_observable_outcome",
-            "safe_observable_outcome.statement: ' ' does not match '\\\\S'",
+            "safe_observable_outcome.statement",
         ),
         (
             _set("safe_observable_outcome.evidence", "tool_call"),
             "safe_observable_outcome",
-            "safe_observable_outcome.evidence: 'assistant_message' was expected",
+            "safe_observable_outcome.evidence",
         ),
         (
             _set("safe_observable_outcome.operation_name", " "),
             "safe_observable_outcome",
-            "safe_observable_outcome.operation_name: ' ' does not match '\\\\S'",
+            "safe_observable_outcome.operation_name",
         ),
         (
             _all(_ANALYTICAL_SAFE, _set("safe_observable_outcome.claim_level", "reply")),
             "safe_observable_outcome",
-            "safe_observable_outcome.claim_level: 'reply' is not of type 'null'",
-        ),
-        (
-            _drop("safe_observable_outcome.record_refs"),
-            "safe_observable_outcome",
-            "safe_observable_outcome.record_refs: is required",
+            "safe_observable_outcome.claim_level",
         ),
         (
             _set("safe_observable_outcome.record_refs", [" "]),
             "safe_observable_outcome",
-            "safe_observable_outcome.record_refs.0: ' ' does not match '\\\\S'",
+            "safe_observable_outcome.record_refs.0",
         ),
         (
             _set("safe_observable_outcome.fact_refs", ["F-1", "F-1"]),
             "safe_observable_outcome",
-            "safe_observable_outcome.fact_refs: ['F-1', 'F-1'] has non-unique elements",
+            "safe_observable_outcome.fact_refs",
         ),
         (
             _all(_ANALYTICAL_SAFE, _set("safe_observable_outcome.fact_refs", ["F-1"])),
             "safe_observable_outcome",
-            "safe_observable_outcome.fact_refs: ['F-1'] is expected to be empty",
+            "safe_observable_outcome.fact_refs",
         ),
-        (
-            _set("deduplication.scenario_id", " "),
-            "deduplication",
-            "deduplication.scenario_id: must not be blank",
-        ),
+        (_set("deduplication.scenario_id", " "), "deduplication", "deduplication.scenario_id"),
         (
             _all(
                 _set("deduplication.status", "duplicate"), _set("deduplication.duplicate_of", " ")
             ),
             "deduplication",
-            "deduplication.duplicate_of: must not be blank",
+            "deduplication.duplicate_of",
         ),
     ],
 )
-def test_each_break_reports_its_top_level_field(
-    tmp_path: Path, mutate, field: str, detail: str
+def test_each_break_reports_its_top_level_field_and_path(
+    tmp_path: Path, mutate, field: str, schema_path: str
 ) -> None:
     payload = _full_handoff()
     mutate(payload)
@@ -417,8 +378,31 @@ def test_each_break_reports_its_top_level_field(
         load_input(source_path)
 
     assert raised.value.codes == (f"schema_violation:{field}",)
+    assert raised.value.schema_path == schema_path
+    assert raised.value.reason
     assert str(raised.value).startswith(f"handoff schema invalid: schema_violation:{field} (")
-    assert detail in str(raised.value)
+
+
+def test_a_missing_safe_outcome_record_refs_is_the_schema_default(tmp_path: Path) -> None:
+    """The producer fills ``record_refs``'s default, so the document still holds.
+
+    The schema defaults ``record_refs`` to ``[]``; the consumer's former hand rule
+    required the key and was stricter than the producer. The shared validator
+    reports the producer's rules only.
+    """
+
+    payload = _full_handoff()
+    _drop("safe_observable_outcome.record_refs")(payload)
+    payload.pop("content_digest")
+    from asago_artifact_generator.input_adapter import _framed_digest
+
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
+    source_path = tmp_path / "handoff.json"
+    source_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    view = load_input(source_path)
+
+    assert "record_refs" not in view.payload["safe_observable_outcome"]
 
 
 def test_the_full_handoff_used_by_the_hand_rule_table_is_valid(tmp_path: Path) -> None:
