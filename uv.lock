@@ -220,6 +220,7 @@ version = "0.1.0"
 source = { editable = "../asago-scenario-generator" }
 dependencies = [
     { name = "asago-handoff" },
+    { name = "asago-package" },
     { name = "jinja2" },
     { name = "jsonschema" },
     { name = "openai" },
@@ -231,6 +232,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
+    { name = "asago-package", editable = "packages/asago-package" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "jsonschema", specifier = ">=4.0" },
     { name = "mcp", marker = "extra == 'target-discovery'", specifier = ">=1.9.0,<2" },

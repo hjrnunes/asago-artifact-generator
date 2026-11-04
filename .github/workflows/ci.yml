@@ -12,16 +12,32 @@ jobs:
   lint-test:
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    # Both checkouts live under repos/ so the producer sits beside the consumer at
+    # the paths its lock and members resolve the sibling from.
+    defaults:
+      run:
+        working-directory: repos/asago-artifact-generator
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repos/asago-artifact-generator
+      # The lock resolves asago-handoff and the producer app from
+      # ../asago-scenario-generator, so the producer fork is checked out as the
+      # consumer's sibling. Both forks are public, so the default GITHUB_TOKEN
+      # suffices.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: hjrnunes/asago-scenario-generator
+          ref: main
+          path: repos/asago-scenario-generator
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       - run: uv sync --locked
       - run: ./scripts/quality.sh
       - run: uv run pytest tests/ -q
@@ -50,10 +66,22 @@ jobs:
   adapter-isolation:
     name: ${{ matrix.adapter }} without the authoring application (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: repos/asago-artifact-generator
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.14"]
+        # The adapter is a matrix axis, not only an include value: an include-only
+        # adapter list merges into the same two combinations and the last entry wins,
+        # so only one adapter runs per Python. Each include entry augments the
+        # combinations that already name its adapter.
+        adapter:
+          - asago-bundle-core
+          - asago-bundle-garak
+          - asago-bundle-midojo
+          - asago-injection-spec
         include:
           - adapter: asago-bundle-core
             module: asago_bundle_core
@@ -78,11 +106,20 @@ jobs:
             libraries: --with ./packages/asago-package --with ./packages/asago-bundle-core
             pytest_args: ""
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repos/asago-artifact-generator
+      # The members resolve asago-handoff through the workspace's path source, which
+      # names ../asago-scenario-generator/packages/asago-handoff.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: hjrnunes/asago-scenario-generator
+          ref: main
+          path: repos/asago-scenario-generator
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       - name: The member imports in its isolated environment
         run: |
           uv run --isolated --no-project \
