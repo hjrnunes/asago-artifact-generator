@@ -30,7 +30,7 @@ OPENSHELL = FIXTURES / "openshell-4e5176a"
 REVISION = json.loads((OPENSHELL / "recording.json").read_text(encoding="utf-8"))[
     "midojo_revision"
 ]
-CASES = REPO / "contracts/execution-receipt/execution-receipt-v1/valid"
+CASES = REPO / "contracts/execution-receipt/execution-receipt-v1/cases/valid"
 DENIED = {
     "decision": "denied",
     "host": "exfil.test",

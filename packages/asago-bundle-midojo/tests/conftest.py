@@ -17,7 +17,7 @@ from asago_bundle_midojo.injection_spec_compile import (
 )
 
 REPO = Path(__file__).resolve().parents[3]
-RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v1.schema.json"
+RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v1/schema.json"
 DELIVERY_CONTRACT = REPO / "contracts/midojo-delivery"
 # The range the recorded fixtures name, compiled at 8e8208f. Compile's minimum rose to
 # 2a794f3 when the document gained the ID that revision reads; a fixture keeps its bytes

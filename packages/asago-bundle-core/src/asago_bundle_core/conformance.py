@@ -8,7 +8,8 @@ signatures differ per tool; the adapter closes over any extra arguments of its o
 ``check_round_trip`` runs the steps in order and stops at the first step that fails:
 ``compile`` writes ``<work>/template``, ``instantiate`` writes ``<work>/bundle``, and
 ``parse`` writes ``<work>/bundle/receipt.json`` (a tool's report must lie inside the
-receipt's directory).
+receipt's directory). The receipt is read through its installed ``execution-receipt``
+contract, so the helper enforces the spec both adapters ship rather than a schema path.
 """
 
 from __future__ import annotations
@@ -20,12 +21,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import jsonschema
+from asago_contracts_core import ContractEnvelopeError
 
 from asago_package.package_io import ArtifactPackage, load_package
 
 from .errors import BundleError
 from .gap import CapabilityGap
+from .receipt_contract import read_receipt
 from .schema import manifest_errors
 from .slots import contains_marker, template_slots
 from .text import canonical_text, jsonl_lines
@@ -66,7 +68,6 @@ def check_round_trip(
     package_dir: Path,
     values: dict[str, Any],
     work: Path,
-    receipt_schema: Path,
 ) -> list[str]:
     """Run compile, instantiate and parse on one package; a faithful gap also passes."""
 
@@ -81,7 +82,7 @@ def check_round_trip(
     failures = check_instantiate(adapter, work / TEMPLATE, values, work)
     if failures:
         return failures
-    return check_parse(adapter, work / BUNDLE, values, receipt_schema)
+    return check_parse(adapter, work / BUNDLE, values)
 
 
 def check_gap(record: Any, package_dir: Path) -> list[str]:
@@ -134,9 +135,7 @@ def check_instantiate(
     ]
 
 
-def check_parse(
-    adapter: AdapterUnderTest, bundle_dir: Path, values: dict[str, Any], receipt_schema: Path
-) -> list[str]:
+def check_parse(adapter: AdapterUnderTest, bundle_dir: Path, values: dict[str, Any]) -> list[str]:
     """Parse a concrete bundle without, then with, its native output.
 
     ``bundle_dir`` must hold no native output yet; ``write_native`` adds it.
@@ -149,7 +148,7 @@ def check_parse(
     receipt = adapter.parse(bundle_dir, bundle_dir / RECEIPT)
     return [
         *failures,
-        *_receipt_schema_failures(receipt, receipt_schema),
+        *_receipt_contract_failures(receipt),
         *_receipt_package_failures(receipt, manifest),
         *_attempt_failures(receipt, manifest, values),
     ]
@@ -324,12 +323,14 @@ def _missing_native_failures(adapter: AdapterUnderTest, bundle_dir: Path) -> lis
     return []
 
 
-def _receipt_schema_failures(receipt: Any, schema_path: Path) -> list[str]:
-    validator = jsonschema.Draft202012Validator(
-        json.loads(schema_path.read_text(encoding="utf-8"))
-    )
-    errors = sorted(validator.iter_errors(receipt), key=lambda e: [str(p) for p in e.path])
-    return [f"receipt does not validate: {error.message}" for error in errors]
+def _receipt_contract_failures(receipt: Any) -> list[str]:
+    """Read the receipt through its installed contract; the spec's own message says why."""
+
+    try:
+        read_receipt(receipt)
+    except ContractEnvelopeError as error:
+        return [f"receipt does not validate: {error}"]
+    return []
 
 
 def _receipt_package_failures(receipt: dict[str, Any], manifest: dict[str, Any]) -> list[str]:

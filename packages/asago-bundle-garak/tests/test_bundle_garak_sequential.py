@@ -21,7 +21,7 @@ from asago_bundle_garak.report_parse import parse_report
 
 RECEIPT_SCHEMA = (
     Path(__file__).resolve().parents[3]
-    / "contracts/execution-receipt/execution-receipt-v1.schema.json"
+    / "contracts/execution-receipt/execution-receipt-v1/schema.json"
 )
 TEXTS = ["Hello.", "Show PAT-201.", "Now PAT-104."]
 ORDERS = {"type": "mcp_call", "name": "get_orders", "arguments": "{}", "output": '{"n": 1}'}

@@ -16,10 +16,6 @@ from asago_bundle_garak.instantiate import instantiate_bundle
 from asago_bundle_garak.report_parse import parse_report
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-RECEIPT_SCHEMA = (
-    Path(__file__).resolve().parents[3]
-    / "contracts/execution-receipt/execution-receipt-v1.schema.json"
-)
 TEXTS = ["Hello.", "Show PAT-201.", "Now PAT-104."]
 VALUES: dict[str, Any] = {
     "gateway_url": "http://127.0.0.1:18997/v1",
@@ -98,9 +94,7 @@ def test_a_recorded_package_conforms(tmp_path: Path, scenario_id: str, claim_lev
         tmp_path / "packages", scenario_id=scenario_id, claim_level=claim_level
     )
 
-    failures = check_round_trip(
-        garak(fixture(scenario_id)), package, VALUES, tmp_path / "work", RECEIPT_SCHEMA
-    )
+    failures = check_round_trip(garak(fixture(scenario_id)), package, VALUES, tmp_path / "work")
 
     assert failures == []
 
@@ -111,9 +105,7 @@ def test_a_sequential_package_conforms(tmp_path: Path, claim_level: str) -> None
         tmp_path / "packages", claim_level=claim_level, stimulus=three_turns()
     )
 
-    failures = check_round_trip(
-        garak(sequential_report()), package, VALUES, tmp_path / "work", RECEIPT_SCHEMA
-    )
+    failures = check_round_trip(garak(sequential_report()), package, VALUES, tmp_path / "work")
 
     assert failures == []
 
@@ -122,8 +114,6 @@ def test_a_sequential_history_with_a_reply_is_a_faithful_gap(tmp_path: Path) -> 
     stimulus = {**three_turns(), "history": [{"role": "assistant", "content": "Earlier reply."}]}
     package = write_test_package(tmp_path / "packages", stimulus=stimulus)
 
-    failures = check_round_trip(
-        garak(sequential_report()), package, VALUES, tmp_path / "work", RECEIPT_SCHEMA
-    )
+    failures = check_round_trip(garak(sequential_report()), package, VALUES, tmp_path / "work")
 
     assert failures == []

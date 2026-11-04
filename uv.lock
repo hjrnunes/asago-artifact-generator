@@ -112,6 +112,7 @@ name = "asago-bundle-core"
 version = "0.1.0"
 source = { editable = "packages/asago-bundle-core" }
 dependencies = [
+    { name = "asago-contracts-core" },
     { name = "asago-package" },
     { name = "jsonschema" },
     { name = "pyyaml" },
@@ -119,6 +120,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "asago-package", editable = "packages/asago-package" },
     { name = "jsonschema", specifier = ">=4.0" },
     { name = "pyyaml", specifier = ">=6.0" },

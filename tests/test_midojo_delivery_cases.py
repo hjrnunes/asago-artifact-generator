@@ -165,7 +165,7 @@ def test_an_unknown_contract_names_the_installed_one() -> None:
     case = _json(_CASES / "valid" / "emitted.json")
 
     with pytest.raises(UnknownContractError) as raised:
-        _specs().read(_enveloped(_spec(), case, id="execution-receipt"))
+        _specs().read(_enveloped(_spec(), case, id="not-a-contract"))
 
     assert "midojo-delivery" in str(raised.value)
 

@@ -26,7 +26,7 @@ from asago_bundle_garak import Instantiated, InstantiateError, RunSettings, comp
 from asago_bundle_garak import parse as parse_receipt
 from conftest import PIGGYBANK, REPO, WITHDRAW, write_setup_package
 
-RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v1.schema.json"
+RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v1/schema.json"
 RUN = RunSettings(
     gateway_url="http://127.0.0.1:18999/v1",
     model="fixture-model",

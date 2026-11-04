@@ -30,10 +30,6 @@ from asago_bundle_core.text import canonical_text
 from asago_bundle_core.values import check_values, render_entrypoint
 from asago_package.package_io import load_package
 
-RECEIPT_SCHEMA = (
-    Path(__file__).resolve().parents[3]
-    / "contracts/execution-receipt/execution-receipt-v1.schema.json"
-)
 VALUES = {
     "messages": [{"role": "user", "content": "Show PAT-201."}],
     "mcp_url": "http://127.0.0.1:1/mcp",
@@ -260,7 +256,7 @@ def round_trip(
     tmp_path: Path, package: Path, *flaws: str, values: dict[str, Any] = VALUES, attempts: int = 1
 ) -> list[str]:
     adapter = FakeAdapter(*flaws, attempts=attempts).under_test()
-    return check_round_trip(adapter, package, values, tmp_path / "work", RECEIPT_SCHEMA)
+    return check_round_trip(adapter, package, values, tmp_path / "work")
 
 
 def test_a_faithful_adapter_has_no_failures(tmp_path: Path, package: Path) -> None:
@@ -281,7 +277,7 @@ def test_each_check_runs_on_its_own(tmp_path: Path, package: Path) -> None:
 
     assert check_compile(adapter, package, work) == []
     assert check_instantiate(adapter, work / "template", VALUES, work) == []
-    assert check_parse(adapter, work / "bundle", VALUES, RECEIPT_SCHEMA) == []
+    assert check_parse(adapter, work / "bundle", VALUES) == []
 
 
 @pytest.mark.parametrize(
@@ -436,6 +432,6 @@ def test_a_compile_failure_stops_the_round_trip_before_instantiate(
 ) -> None:
     adapter = FakeAdapter("wrong-digest")
 
-    check_round_trip(adapter.under_test(), package, VALUES, tmp_path / "work", RECEIPT_SCHEMA)
+    check_round_trip(adapter.under_test(), package, VALUES, tmp_path / "work")
 
     assert not (tmp_path / "work" / "bundle").exists()

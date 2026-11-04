@@ -33,7 +33,8 @@ REFERRAL = RESULT_RECORDS / "referral" / "detected"
 NOTE_SLOT = {"id": "piggybank.note.body", "record": "NOTE-1", "mode": "append"}
 REFERRAL_SLOT = {"id": "clinic.referral.reason", "record": "REF-101", "mode": "append"}
 CONTRACT_CASE = (
-    REPO / "contracts/execution-receipt/execution-receipt-v1/valid/midojo-episode-placement.json"
+    REPO
+    / "contracts/execution-receipt/execution-receipt-v1/cases/valid/midojo-episode-placement.json"
 )
 RESULT_RECORD_REVISION = json.loads((RESULT_RECORDS / "recording.json").read_text())[
     "midojo_revision"

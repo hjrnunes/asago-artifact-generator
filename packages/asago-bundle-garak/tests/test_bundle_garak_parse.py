@@ -18,8 +18,11 @@ from typing import Any
 
 import jsonschema
 import pytest
+from asago_contracts_core import UnknownFieldError
 
+from asago_bundle_core.receipt_contract import read_receipt
 from asago_bundle_core.testing import MOCK_TARGET, write_test_package
+from asago_bundle_garak import report_parse
 from asago_bundle_garak.cli import main
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import instantiate_bundle
@@ -29,7 +32,7 @@ from asago_package.package_io import load_package
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 RECEIPT_SCHEMA = (
     Path(__file__).resolve().parents[3]
-    / "contracts/execution-receipt/execution-receipt-v1.schema.json"
+    / "contracts/execution-receipt/execution-receipt-v1/schema.json"
 )
 MESSAGES = [{"role": "user", "content": "Show the referral for PAT-201."}]
 CALL = {
@@ -554,3 +557,27 @@ def test_cli_parse_refuses_an_unreadable_bundle_with_exit_1(
     assert code == 1
     assert "bundle" in capsys.readouterr().err
     assert not (tmp_path / "r.json").exists()
+
+
+def test_the_written_receipt_reads_through_the_installed_contract(command_output: Path) -> None:
+    receipt = parse_report(command_output / "bundle", command_output / "execution-receipt.json")
+
+    assert read_receipt(receipt).version == "execution-receipt-v1"
+
+
+def test_a_receipt_the_contract_refuses_is_an_error_naming_the_path(
+    command_output: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = command_output / "execution-receipt.json"
+
+    def refuse(document: Any) -> None:
+        raise UnknownFieldError("receipt: at /: probe_key was unexpected")
+
+    monkeypatch.setattr(report_parse, "read_receipt", refuse)
+
+    with pytest.raises(ParseError) as raised:
+        parse_report(command_output / "bundle", out)
+
+    assert str(out) in str(raised.value)
+    assert "probe_key" in str(raised.value)
+    assert not out.exists()

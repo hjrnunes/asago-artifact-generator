@@ -20,6 +20,7 @@ from typing import Any
 
 import jsonschema
 import pytest
+from asago_contracts_core import UnknownFieldError
 from injection_spec_cases import (
     EPISODES,
     EPISODES_A5F81E9,
@@ -29,6 +30,7 @@ from injection_spec_cases import (
 )
 from midojo_sdk.snapshot import canonical, dumps, snapshot_digest
 
+from asago_bundle_core.receipt_contract import read_receipt
 from asago_bundle_midojo.route import ROUTES
 from asago_bundle_midojo.sealed import (
     INCONCLUSIVE,
@@ -1097,3 +1099,35 @@ def test_a_verdict_that_is_not_midojo_s_verdict_is_malformed(tmp_path: Path, nam
     receipt = parsed(tmp_path, "command-single", "unfinished", verdict=_verdict_variant(name))
 
     assert receipt["incomplete_reason"] == "verdict_malformed"
+
+
+def test_the_written_receipt_reads_through_the_installed_contract(tmp_path: Path) -> None:
+    receipt = parsed(tmp_path, "command-single", "not-detected")
+
+    assert read_receipt(receipt).version == "execution-receipt-v1"
+
+
+def test_a_receipt_the_contract_refuses_is_an_error_naming_the_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = run_dir(tmp_path, "command-single", "not-detected")
+    out = run / "receipt.json"
+
+    def refuse(document: Any) -> None:
+        raise UnknownFieldError("receipt: at /: probe_key was unexpected")
+
+    monkeypatch.setattr("asago_injection_spec.sealed.read_receipt", refuse)
+
+    with pytest.raises(ParseError) as raised:
+        parse_sealed(
+            EPISODES / "command-single",
+            run / "snapshot.json",
+            run / "verdict.json",
+            out,
+            tool_revision="3824922f",
+            adapter_revision="abc123",
+        )
+
+    assert str(out) in str(raised.value)
+    assert "probe_key" in str(raised.value)
+    assert not out.exists()

@@ -50,7 +50,7 @@ SCENARIO = "SCN-051"
 BUNDLE = "bundle.json"
 RECEIPT_SCHEMA = (
     Path(__file__).resolve().parents[3]
-    / "contracts/execution-receipt/execution-receipt-v1.schema.json"
+    / "contracts/execution-receipt/execution-receipt-v1/schema.json"
 )
 TEXTS = ("Can you read me my notes?",)
 TWO_TURNS = ("Can you read me my notes?", "Thanks, is there anything I should do?")

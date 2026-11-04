@@ -56,6 +56,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from asago_contracts_core import ContractEnvelopeError
+
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.mcp_records import (
     count_value,
@@ -66,6 +68,7 @@ from asago_bundle_core.mcp_records import (
     read_json,
     text,
 )
+from asago_bundle_core.receipt_contract import read_receipt
 from asago_bundle_core.text import canonical_text, jsonl_lines
 from asago_injection_spec.sealed import (
     DELIVERY_SCHEMA_VERSION,
@@ -161,6 +164,20 @@ class ParseError(BundleError):
     """The bundle cannot be read, so no receipt can name its package."""
 
 
+def _read_back(receipt: dict[str, Any], out: Path) -> None:
+    """Read the receipt through its installed contract before this writer hands it on.
+
+    Every document this parser writes is an ``execution-receipt-v1`` document, so the
+    installed spec accepts it. A document the reader refuses is a defect here, not a
+    saved outcome: the error names the path and the spec's own reason.
+    """
+
+    try:
+        read_receipt(receipt)
+    except ContractEnvelopeError as error:
+        raise ParseError(f"{out}: the receipt is not {SCHEMA_VERSION}: {error}") from error
+
+
 @dataclass(frozen=True)
 class Records:
     """What the boundary services recorded for the package, when present."""
@@ -224,6 +241,7 @@ def parse_report(
     }
     if episode is not None:
         receipt["episode"] = episode
+    _read_back(receipt, out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(canonical_text(receipt), encoding="utf-8")
     return receipt

@@ -120,6 +120,7 @@ from midojo_sdk.snapshot import CONTENT_FIELDS, DigestFault, verified
 
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.mcp_records import decoded, read_json, text
+from asago_bundle_core.receipt_contract import read_receipt
 from asago_bundle_core.text import canonical_text
 
 from .delivery_contract import read_delivery
@@ -270,6 +271,20 @@ PLACEMENT_MODES = frozenset({"append", "replace"})
 UNPLACED: dict[str, Any] = {"payload_sha256": None, "slot": None}
 
 
+def _read_back(receipt: dict[str, Any], out: Path) -> None:
+    """Read the receipt through its installed contract before this writer hands it on.
+
+    Every document this parser writes is an ``execution-receipt-v1`` document, so the
+    installed spec accepts it. A document the reader refuses is a defect here, not a
+    saved outcome: the error names the path and the spec's own reason.
+    """
+
+    try:
+        read_receipt(receipt)
+    except ContractEnvelopeError as error:
+        raise ParseError(f"{out}: the receipt is not {RECEIPT_SCHEMA_VERSION}: {error}") from error
+
+
 class ParseError(BundleError):
     """The episode cannot be read, so no receipt can name its package."""
 
@@ -372,6 +387,7 @@ def parse_sealed(
         "native": native_files(tuple(native), out.parent),
         "episode": episode_block(route, snapshot, verdict, delivery, plan),
     }
+    _read_back(receipt, out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(canonical_text(receipt), encoding="utf-8")
     return receipt

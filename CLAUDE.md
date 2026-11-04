@@ -161,8 +161,13 @@ missing path.
   `tool-bundle-v1` schema, slot markers, the capability-gap record, `BundleError`, the
   `testing` package builders, the `mcp_records` readers of the orchestrator's boundary
   records, and the `conformance` helper that round-trips `compile`, `instantiate` and
-  `parse` of an adapter and returns failure messages). A new bundle adapter runs
-  `check_round_trip` in its tests; the MiDojo adapter writes injection specs, not bundles.
+  `parse` of an adapter and returns failure messages). `receipt_contract` ships the
+  consumer's `execution-receipt-v1` spec as package data and reads every receipt an adapter
+  writes through `SpecSet.read`; `contracts/execution-receipt/` is the authority, and a
+  test refuses a copy that differs. `check_round_trip` reads the receipt it parses through
+  that reader, and both adapters' `parse` reads back the receipt it writes. A new bundle
+  adapter runs `check_round_trip` in its tests; the MiDojo adapter writes injection specs,
+  not bundles.
   `preparation.prepare_package(package, call_target=...)` prepares a package for one run:
   it admits the setup and binding declarations against the package's inventory and runtime
   contract (no target call), runs setup through a target call (real writes, not graded,
