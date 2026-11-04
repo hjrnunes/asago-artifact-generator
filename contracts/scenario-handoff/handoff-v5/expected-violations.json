@@ -52,6 +52,9 @@
   "invalid/safe-call-argument-value-not-scalar.json": [
     "schema_violation:safe_observable_outcome"
   ],
+  "invalid/safe-call-duplicate-argument-name.json": [
+    "schema_violation:safe_observable_outcome"
+  ],
   "invalid/safe-call-made-not-boolean.json": [
     "schema_violation:safe_observable_outcome"
   ],
@@ -315,6 +318,9 @@
     "schema_violation:taxonomy"
   ],
   "invalid/taxonomy-bad-edition.json": [
+    "schema_violation:taxonomy"
+  ],
+  "invalid/taxonomy-duplicate-reference.json": [
     "schema_violation:taxonomy"
   ],
   "invalid/taxonomy-extra-key.json": [

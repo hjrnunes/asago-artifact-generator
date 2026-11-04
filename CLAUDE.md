@@ -144,8 +144,9 @@ missing path.
   writer and loader the `asago-package` member owns. The loader refuses any other schema
   version, naming it.
 - `src/asago_artifact_generator/authoring/condition_eval.py`: a re-export of the
-  tool-call-condition-v2 validator and evaluator the producer's `packages/asago-handoff`
-  member owns (`asago_handoff.condition_eval`). Authoring's self-test,
+  tool-call-condition-v2 validator and evaluator the producer's
+  `packages/asago-contracts-core` member owns (`asago_contracts_core.condition_eval`,
+  re-exported as `asago_handoff.condition_eval`). Authoring's self-test,
   `tests/test_condition_eval.py` and the injection-spec compiler read it; orch's probe names
   the same module.
 - `packages/asago-package/`: the package library workspace member (`asago_package`), which

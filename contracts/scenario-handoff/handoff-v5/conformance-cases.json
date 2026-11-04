@@ -3,9 +3,13 @@
   "kit": "handoff-v5",
   "rules": [
     {
+      "codes": [
+        "schema_violation:safe_observable_outcome"
+      ],
       "invalid": [
         "invalid/safe-call-argument-blank-name.json",
         "invalid/safe-call-argument-value-not-scalar.json",
+        "invalid/safe-call-duplicate-argument-name.json",
         "invalid/safe-call-made-not-boolean.json",
         "invalid/safe-call-not-made-with-arguments.json"
       ],
@@ -18,6 +22,10 @@
       ]
     },
     {
+      "codes": [
+        "schema_violation:procedure",
+        "schema_violation:<root>"
+      ],
       "invalid": [
         "invalid/v5-procedure-step-id-out-of-order.json",
         "invalid/v5-procedure-leads-to-wrong.json",
@@ -32,8 +40,12 @@
       ]
     },
     {
+      "codes": [
+        "schema_violation:taxonomy"
+      ],
       "invalid": [
-        "invalid/taxonomy-unsorted-references.json"
+        "invalid/taxonomy-unsorted-references.json",
+        "invalid/taxonomy-duplicate-reference.json"
       ],
       "kind": "handoff",
       "name": "reference-order",
@@ -43,6 +55,10 @@
       ]
     },
     {
+      "codes": [
+        "artifact_design_field:",
+        "prose_hiding:"
+      ],
       "invalid": [
         "invalid/narrative-role-serialization.json",
         "invalid/narrative-turn-array.json",
@@ -67,6 +83,9 @@
       ]
     },
     {
+      "codes": [
+        "feature_companion:"
+      ],
       "invalid": [
         "companions/feature-companion-comments.json",
         "companions/feature-companion-feature-line.json",

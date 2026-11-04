@@ -52,6 +52,7 @@ name = "asago-artifact-generator"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "asago-contracts-core" },
     { name = "asago-handoff" },
     { name = "asago-package" },
     { name = "jinja2" },
@@ -80,6 +81,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
     { name = "asago-package", editable = "packages/asago-package" },
     { name = "jinja2", specifier = ">=3.1" },
@@ -165,15 +167,33 @@ requires-dist = [
 ]
 
 [[package]]
-name = "asago-handoff"
+name = "asago-contracts-core"
 version = "0.1.0"
-source = { editable = "../asago-scenario-generator/packages/asago-handoff" }
+source = { editable = "../asago-scenario-generator/packages/asago-contracts-core" }
 dependencies = [
     { name = "jsonschema" },
 ]
 
 [package.metadata]
 requires-dist = [{ name = "jsonschema", specifier = ">=4.0" }]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest" }]
+
+[[package]]
+name = "asago-handoff"
+version = "0.1.0"
+source = { editable = "../asago-scenario-generator/packages/asago-handoff" }
+dependencies = [
+    { name = "asago-contracts-core" },
+    { name = "jsonschema" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
+    { name = "jsonschema", specifier = ">=4.0" },
+]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest" }]
