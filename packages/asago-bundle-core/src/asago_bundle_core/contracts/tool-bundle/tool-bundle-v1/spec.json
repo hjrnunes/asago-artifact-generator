@@ -1,0 +1,12 @@
+{
+  "contract": "tool-bundle",
+  "version": "tool-bundle-v1",
+  "status": "published",
+  "envelope": "optional",
+  "supports": [],
+  "extensions": [],
+  "schema": "schema.json",
+  "cases": "cases",
+  "docs": "README.md",
+  "spec_digest": "sha256:0363bb1988d8af94b31d92005cd129bb300bcd72f6c0a028578142501c0d0e52"
+}

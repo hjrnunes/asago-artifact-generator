@@ -1,0 +1,28 @@
+{
+  "authority": "asago-artifact-generator",
+  "contract": "tool-bundle",
+  "schema_version": "tool-bundle-v1",
+  "files": {
+    "tool-bundle-v1/README.md": "0a0c14e929404e147190b2086c55d2c57fc86138cb95a0731e71769360579286",
+    "tool-bundle-v1/cases/expected-violations.json": "0961eff537e9ed43a67cda99133233606e098744a76b61688d866b3d46ba49ce",
+    "tool-bundle-v1/cases/invalid/claim-level-not-a-value.json": "3e33b1f2fabb5d35c636e401648d26f541fbecf9141204b45a455c9c866e0ab6",
+    "tool-bundle-v1/cases/invalid/delivery-not-a-value.json": "634b149f97a7cdbb42e114466c7c897495fad955fad5cb1c6b488b7ca6db4adb",
+    "tool-bundle-v1/cases/invalid/duplicate-require.json": "17c7fb2c6d140b38eb61d4210681c0870ff720314681489b2ea8deaa129fa38c",
+    "tool-bundle-v1/cases/invalid/empty-entrypoint.json": "1cb7ec2631e844d0f180dce46cb43e0c8efa4f95431666bd40e109485c468c5b",
+    "tool-bundle-v1/cases/invalid/empty-tool.json": "ce6d380fc75c2d5eae9d54d18fb4bd5d6c582f12c17347b25d64fd1a9484fdb9",
+    "tool-bundle-v1/cases/invalid/environment-name-lowercase.json": "640367c6c1b0276562b1fc62315a0696d11cc731249f70282b9d68b570996bd2",
+    "tool-bundle-v1/cases/invalid/missing-requires.json": "43da2832c0e046b7cf078976dd08ed230025da4e260c28a6aa5f7fd8cf214866",
+    "tool-bundle-v1/cases/invalid/other-version.json": "9af12253efa014f6b24d7be2963ffb7ffc80e7d9da70130043c10ceb40acfb74",
+    "tool-bundle-v1/cases/invalid/repeats-unknown-key.json": "62923aefe2f200c9aaf6c165ec1099b1a6a16c5f6e2d5bed2ad049d1dec94f6e",
+    "tool-bundle-v1/cases/invalid/serve-without-argv.json": "01e286539dc2418d90f6f255e075e734138947c2b7ad525cb832ad62640b5746",
+    "tool-bundle-v1/cases/invalid/short-package-digest.json": "c4068896c561882e3675829761b16c9e238624ea6796d3b73da536349fc376b0",
+    "tool-bundle-v1/cases/invalid/unknown-field.json": "5cb423550849d9a71ad5a58642665a0e17ffad8c8ea389912d64257bf6bb3583",
+    "tool-bundle-v1/cases/invalid/uppercase-package-digest.json": "047caa7ca371c00f0296f4a4f854c31c2c387484957f5b2b03f4aeb9d4d6f834",
+    "tool-bundle-v1/cases/valid/concrete-state-effect-serve.json": "250e88eddba51eb4b342a3e9c0bf46870145051da5180f1cc3edc61612257fbb",
+    "tool-bundle-v1/cases/valid/garak-command-single.json": "c98c9929edc7c0c12652ea14d1a658518dac6146a398eaad30d424575e5acc90",
+    "tool-bundle-v1/cases/valid/garak-concrete-sequential.json": "fe376379c3fa91d37d9063177c805970be1ca4566bd2688c9d9d82cfc8466357",
+    "tool-bundle-v1/cases/valid/minimal.json": "acbb2d8660634e265b6c6531d16ae4b742fce9f28674e64ee33380936dccdc9f",
+    "tool-bundle-v1/schema.json": "4a5d897c501ff756e399c2fe73235e186dccc8ee560e9da9f74c9da26d52adf6",
+    "tool-bundle-v1/spec.json": "325647212a18f64da67d4c339b4144b1b069c0299abb301ee477490081dfabcf"
+  }
+}

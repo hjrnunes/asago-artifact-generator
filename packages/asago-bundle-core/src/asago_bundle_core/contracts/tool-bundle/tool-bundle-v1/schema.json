@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tool-bundle-v1",
+  "title": "Tool bundle manifest",
+  "description": "bundle.json: what a tool adapter's compile wrote, which values the orchestrator must supply, and how to run the tool on the concrete bundle.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tool",
+    "tool_revision_range",
+    "package_id",
+    "scenario_id",
+    "package_digest",
+    "claim_level",
+    "delivery",
+    "plugins",
+    "requires",
+    "environment",
+    "templates",
+    "entrypoint",
+    "native_outputs"
+  ],
+  "properties": {
+    "schema_version": {"const": "tool-bundle-v1"},
+    "template": {
+      "description": "Optional; the adapter's template name, which says how the bundle runs. A bundle that omits it runs the adapter's default route; Garak writes 'garak-ipi-episode' for a bundle whose probe runs a MiDojo episode.",
+      "type": "string",
+      "minLength": 1
+    },
+    "tool": {"type": "string", "minLength": 1},
+    "tool_revision_range": {"type": "string", "minLength": 1},
+    "package_id": {"type": "string", "minLength": 1},
+    "scenario_id": {"type": "string", "minLength": 1},
+    "package_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "claim_level": {"enum": ["command_attempt", "reply", "state_effect"]},
+    "delivery": {"enum": ["single", "sequential"]},
+    "plugins": {
+      "description": "Tool plugins the bundle loads, in the tool's own naming.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "requires": {
+      "description": "Keys values.json must carry; instantiate refuses a missing one.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "environment": {
+      "description": "Environment variable names the entrypoint reads; the orchestrator sets placeholder keys, never real credentials.",
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$"},
+      "uniqueItems": true
+    },
+    "templates": {
+      "description": "Template files relative to the bundle template directory.",
+      "type": "object",
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "files": {
+      "description": "Optional; static files the package ships beside its templates and the tool reads unchanged. instantiate copies each from the template directory into the concrete bundle under the same name. Garak lists the ipi-episodes.json source of a planted_item bundle.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "entrypoint": {
+      "description": "Argument vector. {tool_python} is the tool interpreter the orchestrator runs; in a template, {bundle} and value keys such as {model} are placeholders that instantiate renders.",
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string"}
+    },
+    "values_digest": {
+      "description": "Concrete bundles only: SHA-256 of the canonical values.json that instantiate filled in.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "native_outputs": {
+      "description": "Tool output paths relative to the concrete bundle.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "repeats": {
+      "description": "Optional; a bundle that omits it is read as {\"native\": false}. native true means the tool repeats the run by itself, with the count arriving as a requires value; false means the orchestrator runs the bundle again for each repeat.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["native"],
+      "properties": {"native": {"type": "boolean"}}
+    },
+    "serve": {
+      "description": "Optional; a tool that must be serving before entrypoint runs. argv starts the service (placeholders as in entrypoint); ready_url is a template over the same value keys that answers once the service is ready.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv", "ready_url"],
+      "properties": {
+        "argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "ready_url": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

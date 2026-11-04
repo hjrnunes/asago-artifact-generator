@@ -1468,7 +1468,7 @@ revision they come from, which the adapter's `pyproject.toml` pin must match.
 ```
 ├── src/asago_artifact_generator/    # authoring, packages, CLI
 ├── packages/asago-package/          # package library (workspace member): artifact-package-v5 writer and loader, binding rules, tool-call-condition evaluator, contract kit, and the authority copies of artifact-package, runtime-contract and capability-gap
-├── packages/asago-bundle-core/      # shared adapter core (workspace member): tool-bundle-v1 schema, slots, package preparation, target config, conformance helper, and the installed execution-receipt spec its reader selects
+├── packages/asago-bundle-core/      # shared adapter core (workspace member): the installed tool-bundle and execution-receipt specs, slots, package preparation, target config, conformance helper
 ├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse as library entry points
 ├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): the compile and parse CLIs and the judge service; both adapters read the compiler from asago-injection-spec
 ├── packages/asago-injection-spec/   # injection-spec library (workspace member): a planted_item package to one MiDojo injection spec and a sealed result to evidence; neither adapter depends on the other
