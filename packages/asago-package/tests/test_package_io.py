@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from asago_package import package_io
-from asago_package.contract_kit import contract_dir
+from asago_package.contract_kit import canonical_json, contract_dir
 from asago_package.package_io import (
     PACKAGE_SCHEMA_VERSION,
     ArtifactPackage,
@@ -407,7 +407,7 @@ def test_build_package_names_the_rejected_member_path(name: str, message: str) -
     assert str(caught.value) == message
 
 
-def _claim_package(claim_level: str, extra: dict[str, bytes]) -> ArtifactPackage:
+def _claim_package(claim_level: object, extra: dict[str, bytes]) -> ArtifactPackage:
     plan = {"observation_claim": {"claim_level": claim_level}}
     return build_package(
         package_id="pkg-claim",
@@ -416,6 +416,10 @@ def _claim_package(claim_level: str, extra: dict[str, bytes]) -> ArtifactPackage
         source_digests={"scenario.json": "a" * 64},
         members={"plan.json": json.dumps(plan).encode() + b"\n", **extra},
     )
+
+
+_NON_STRING_CLAIM_LEVELS = [[], {}]
+_NON_STRING_CLAIM_LEVEL_MESSAGE = r"plan\.json observation_claim\.claim_level must be a string"
 
 
 def test_manifest_carries_no_detector_interface_and_rejects_a_detector_member(
@@ -464,6 +468,38 @@ def test_claim_level_requires_its_scoring_member(
 
     written = write_package(tmp_path / "present", _claim_package(claim_level, {member: b"{}\n"}))
     assert load_package(written).members[member] == b"{}\n"
+
+
+def _materialize(destination: Path, package: ArtifactPackage) -> Path:
+    """Write a package's member bytes and manifest, as a reader finds them."""
+
+    destination.mkdir()
+    for name, content in package.members.items():
+        (destination / name).write_bytes(content)
+    (destination / "manifest.json").write_text(
+        canonical_json(package.manifest.to_dict()) + "\n", encoding="utf-8"
+    )
+    return destination
+
+
+@pytest.mark.parametrize("claim_level", _NON_STRING_CLAIM_LEVELS)
+def test_the_writer_refuses_a_non_string_claim_level(tmp_path: Path, claim_level: object) -> None:
+    # A plan the consumer's plan model would refuse reaches the writer as a
+    # hand-built value: the writer refuses it as an integrity error, never a
+    # TypeError from the member lookup.
+    with pytest.raises(PackageIntegrityError, match=_NON_STRING_CLAIM_LEVEL_MESSAGE):
+        write_package(tmp_path / "package", _claim_package(claim_level, {}))
+    assert not (tmp_path / "package").exists()
+
+
+@pytest.mark.parametrize("claim_level", _NON_STRING_CLAIM_LEVELS)
+def test_the_reader_refuses_a_non_string_claim_level(tmp_path: Path, claim_level: object) -> None:
+    # The reader checks the member the claim level names. A digest-valid
+    # package can still carry a level no writer emits; it is a refusal.
+    destination = _materialize(tmp_path / "package", _claim_package(claim_level, {}))
+
+    with pytest.raises(PackageIntegrityError, match=_NON_STRING_CLAIM_LEVEL_MESSAGE):
+        load_package(destination)
 
 
 def test_written_manifest_matches_the_locked_v5_schema(tmp_path: Path) -> None:

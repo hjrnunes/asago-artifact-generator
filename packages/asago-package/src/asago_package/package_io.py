@@ -498,6 +498,10 @@ def _validate_claim_level_member(members: dict[str, bytes]) -> None:
         raise PackageIntegrityError(f"package plan.json is not JSON: {exc}") from exc
     claim = plan.get("observation_claim") if isinstance(plan, dict) else None
     level = claim.get("claim_level") if isinstance(claim, dict) else None
+    if level is not None and not isinstance(level, str):
+        raise PackageIntegrityError(
+            "package plan.json observation_claim.claim_level must be a string"
+        )
     required = _CLAIM_LEVEL_MEMBERS.get(level)
     if required is not None and required not in members:
         raise PackageIntegrityError(f"{level} package requires member: {required}")
