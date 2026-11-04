@@ -8,6 +8,7 @@ recorded contract, and assert the four refusals a reader owes.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import replace
@@ -138,6 +139,22 @@ def test_every_recorded_contract_still_reads() -> None:
 
     for path in recorded:
         assert read_runtime_contract(_json(path)).version == VERSION, path
+
+
+def test_the_lock_names_every_file_of_the_version_directory() -> None:
+    """The installed copy is the whole version directory, so the lock names all of it."""
+
+    lock = _json(_ROOT / "CONTRACT.lock")
+    files = {
+        path.relative_to(_ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(_ROOT.rglob("*"))
+        if path.is_file() and path.name != "CONTRACT.lock"
+    }
+
+    assert lock["authority"] == "asago-artifact-generator"
+    assert lock["contract"] == CONTRACT
+    assert lock["schema_version"] == VERSION
+    assert lock["files"] == files
 
 
 def test_an_unsupported_version_names_the_supported_versions() -> None:
