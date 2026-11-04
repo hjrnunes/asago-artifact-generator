@@ -135,7 +135,7 @@ def test_the_manifest_names_the_template_the_probe_and_the_detectors(
     assert manifest == json.loads((out / BUNDLE_FILE).read_text(encoding="utf-8"))
     assert manifest["template"] == "garak-ipi-episode"
     assert manifest["tool"] == "garak"
-    assert manifest["delivery"] == "single"
+    assert manifest["conversation_mode"] == "single"
     assert manifest["plugins"] == [
         "midojo.InjectionSpecProbe",
         "midojo.EvaluationVerdict",
@@ -159,7 +159,7 @@ def test_the_template_fills_the_source_path_and_the_upstream_from_its_values(
 
     manifest = compiled(planted_package, out)
 
-    assert sorted(manifest["requires"]) == [
+    assert sorted(manifest["values_required"]) == [
         "gateway_url",
         "mcp_url",
         "messages",
@@ -192,14 +192,14 @@ def test_a_two_turn_episode_keeps_one_source_entry_and_its_turns(
     manifest = compiled(package, out)
 
     assert len(source_of(out)) == 1
-    assert manifest["delivery"] == "sequential"
+    assert manifest["conversation_mode"] == "sequential"
     assert source_of(out)[0]["metadata"]["delivery"] == "sequential"
     conversation = json.loads((out / CONVERSATION_TEMPLATE).read_text(encoding="utf-8"))
     assert conversation["messages"] == [
         {"role": "user", "content": value_slot("user_turn_1")},
         {"role": "user", "content": value_slot("user_turn_2")},
     ]
-    assert "user_turn_2" in manifest["requires"]
+    assert "user_turn_2" in manifest["values_required"]
 
 
 def test_a_sequential_reply_episode_judges_the_turns_judge_turns_names(
@@ -317,7 +317,7 @@ def test_a_direct_package_takes_the_direct_route_and_names_no_template(
     assert sorted(path.name for path in out.iterdir()) == sorted(
         [CONVERSATION_TEMPLATE, RUN_TEMPLATE, BUNDLE_FILE]
     )
-    assert manifest["requires"] == [
+    assert manifest["values_required"] == [
         "allowed_tools",
         "gateway_url",
         "mcp_url",

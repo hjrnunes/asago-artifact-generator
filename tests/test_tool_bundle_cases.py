@@ -1,9 +1,11 @@
-"""The tool-bundle kit: its runtime spec, lock, cases and reader rules.
+"""The tool-bundle kit: both runtime specs, the lock, the cases and the reader rules.
 
 This repository owns ``contracts/tool-bundle/``: both tool adapters write ``bundle.json``
 documents that validate against it, and the orchestrator keeps a byte-identical copy.
-``tool-bundle-v1/`` holds the runtime spec (``spec.json`` and ``schema.json``), the cases
-under ``cases/`` and the docs; the spec digest covers the runtime spec alone.
+``tool-bundle-v1/`` and ``tool-bundle-v2/`` hold the runtime specs (``spec.json`` and
+``schema.json``), the cases under ``cases/`` and the docs; a spec digest covers its own
+runtime spec alone. v2 renames the manifest's ``delivery`` to ``conversation_mode`` and its
+top-level ``requires`` to ``values_required``; every reader accepts both versions.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import pytest
 from asago_contracts_core import (
     ENVELOPE_FIELD,
     ContractSpec,
+    MissingEnvelopeError,
     SpecDigestMismatchError,
     SpecSet,
     UnknownContractError,
@@ -33,10 +36,8 @@ from asago_artifact_generator.contract_kit import verify_contract_lock
 
 _ROOT = Path(__file__).resolve().parents[1] / "contracts" / "tool-bundle"
 _CONTRACTS = _ROOT.parent
-_VERSION = "tool-bundle-v1"
-_SPEC_ROOT = _ROOT / _VERSION
-_CASES = _SPEC_ROOT / "cases"
-_SCHEMA = _SPEC_ROOT / "schema.json"
+_VERSIONS = ("tool-bundle-v1", "tool-bundle-v2")
+_VERSION = "tool-bundle-v2"
 
 
 def _json(path: Path) -> Any:
@@ -47,16 +48,16 @@ def _specs() -> SpecSet:
     return load_specs(_CONTRACTS)
 
 
-def _spec() -> ContractSpec:
-    return _specs().spec("tool-bundle", _VERSION)
+def _spec(version: str = _VERSION) -> ContractSpec:
+    return _specs().spec("tool-bundle", version)
 
 
-def _validator() -> Draft202012Validator:
-    return Draft202012Validator(_json(_SCHEMA))
+def _validator(version: str = _VERSION) -> Draft202012Validator:
+    return Draft202012Validator(_json(_ROOT / version / "schema.json"))
 
 
-def _cases(kind: str) -> list[Path]:
-    return sorted((_CASES / kind).glob("*.json"))
+def _cases(version: str, kind: str) -> list[Path]:
+    return sorted((_ROOT / version / "cases" / kind).glob("*.json"))
 
 
 def _enveloped(spec: ContractSpec, document: dict[str, Any], **overrides: Any) -> dict[str, Any]:
@@ -95,58 +96,95 @@ def test_the_lock_holds_every_file() -> None:
     }
 
 
-def test_the_spec_identifies_the_runtime_spec_alone() -> None:
-    spec = _spec()
-    body = _json(_SPEC_ROOT / "spec.json")
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_the_spec_identifies_the_runtime_spec_alone(version: str) -> None:
+    spec = _spec(version)
+    body = _json(_ROOT / version / "spec.json")
 
-    assert (spec.contract, spec.version, spec.status, spec.envelope) == (
-        "tool-bundle",
-        _VERSION,
-        "published",
-        "optional",
-    )
+    assert (spec.contract, spec.version, spec.status) == ("tool-bundle", version, "published")
+    assert spec.envelope == ("required" if version == _VERSION else "optional")
     assert spec.supports == ()
     assert spec.extensions == ()
+    assert (spec.schema, spec.cases, spec.docs) == (
+        _json(_ROOT / version / "schema.json"),
+        "cases",
+        "README.md",
+    )
     assert body["cases"] == "cases"
     assert body["docs"] == "README.md"
-    assert spec.spec_digest == spec_digest(body, _SCHEMA.read_bytes())
+    assert spec.spec_digest == spec_digest(body, (_ROOT / version / "schema.json").read_bytes())
 
 
-@pytest.mark.parametrize("case", _cases("valid"), ids=lambda case: case.stem)
-def test_every_valid_case_validates(case: Path) -> None:
-    assert list(_validator().iter_errors(_json(case))) == []
+def test_v2_renames_the_delivery_and_requires_fields() -> None:
+    v1 = _json(_ROOT / "tool-bundle-v1" / "schema.json")["properties"]
+    v2 = _json(_ROOT / "tool-bundle-v2" / "schema.json")["properties"]
+
+    assert {"delivery", "requires"} <= v1.keys()
+    assert {"conversation_mode", "values_required"} <= v2.keys()
+    assert {"delivery", "requires"}.isdisjoint(v2)
 
 
-@pytest.mark.parametrize("case", _cases("valid"), ids=lambda case: case.stem)
-def test_the_reader_accepts_every_valid_case_as_a_legacy_document(case: Path) -> None:
-    """A v1 document without the envelope still reads; the recorded bundles never had one."""
+@pytest.mark.parametrize(
+    ("version", "case"),
+    [(version, case) for version in _VERSIONS for case in _cases(version, "valid")],
+    ids=lambda value: value.name if isinstance(value, Path) else value,
+)
+def test_every_valid_case_validates(version: str, case: Path) -> None:
+    assert list(_validator(version).iter_errors(_json(case))) == []
 
-    assert _specs().read(_json(case)).version == _VERSION
+
+@pytest.mark.parametrize(
+    ("version", "case"),
+    [(version, case) for version in _VERSIONS for case in _cases(version, "valid")],
+    ids=lambda value: value.name if isinstance(value, Path) else value,
+)
+def test_the_reader_accepts_every_valid_case_with_its_version(version: str, case: Path) -> None:
+    spec = _spec(version)
+    document = _json(case)
+    written = write_envelope(document, spec, writer="tests.tool_bundle", writer_version="0.1.0")
+
+    assert _specs().read(written).version == version
+    if spec.envelope == "optional":
+        assert _specs().read(document).version == version
+    else:
+        with pytest.raises(MissingEnvelopeError):
+            _specs().read(document)
 
 
-@pytest.mark.parametrize("case", _cases("valid"), ids=lambda case: case.stem)
-def test_the_reader_accepts_every_valid_case_with_the_envelope(case: Path) -> None:
-    written = write_envelope(
-        _json(case),
-        _spec(),
-        writer="tests.tool_bundle",
-        writer_version="0.1.0",
+def test_the_reader_accepts_both_versions() -> None:
+    legacy = _spec("tool-bundle-v1")
+    current = _spec(_VERSION)
+    v1_case = _json(_cases("tool-bundle-v1", "valid")[0])
+    v2_case = _json(_cases(_VERSION, "valid")[0])
+
+    assert _specs().read(v1_case) == legacy
+    assert _specs().read(_enveloped(legacy, v1_case)) == legacy
+    assert _specs().read(_enveloped(current, v2_case)) == current
+    with pytest.raises(MissingEnvelopeError):
+        _specs().read(v2_case)
+
+
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_every_invalid_case_names_its_violation(version: str) -> None:
+    expected = _json(_ROOT / version / "cases" / "expected-violations.json")
+
+    assert set(expected) == {f"invalid/{case.name}" for case in _cases(version, "invalid")}
+
+
+@pytest.mark.parametrize(
+    ("version", "case"),
+    [(version, case) for version in _VERSIONS for case in _cases(version, "invalid")],
+    ids=lambda value: value.name if isinstance(value, Path) else value,
+)
+def test_each_invalid_case_fails_first_where_it_says(version: str, case: Path) -> None:
+    expected = _json(_ROOT / version / "cases" / "expected-violations.json")[
+        f"invalid/{case.name}"
+    ]
+
+    errors = sorted(
+        _validator(version).iter_errors(_json(case)),
+        key=lambda e: list(e.absolute_path),
     )
-
-    assert _specs().read(written).version == _VERSION
-
-
-def test_every_invalid_case_names_its_violation() -> None:
-    expected = _json(_CASES / "expected-violations.json")
-
-    assert set(expected) == {f"invalid/{case.name}" for case in _cases("invalid")}
-
-
-@pytest.mark.parametrize("case", _cases("invalid"), ids=lambda case: case.stem)
-def test_each_invalid_case_fails_first_where_it_says(case: Path) -> None:
-    expected = _json(_CASES / "expected-violations.json")[f"invalid/{case.name}"]
-
-    errors = sorted(_validator().iter_errors(_json(case)), key=lambda e: list(e.absolute_path))
 
     assert errors
     first = errors[0]
@@ -154,38 +192,43 @@ def test_each_invalid_case_fails_first_where_it_says(case: Path) -> None:
     assert {"path": path, "keyword": first.validator} == expected
 
 
-def test_an_unsupported_version_names_the_supported_versions() -> None:
-    case = _json(_cases("valid")[0])
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_an_unsupported_version_names_the_supported_versions(version: str) -> None:
+    case = _json(_cases(version, "valid")[0])
 
     with pytest.raises(UnsupportedVersionError) as raised:
-        _specs().read(_enveloped(_spec(), case, version="tool-bundle-v9"))
+        _specs().read(_enveloped(_spec(version), case, version="tool-bundle-v9"))
 
     assert "tool-bundle-v9" in str(raised.value)
-    assert _VERSION in str(raised.value)
+    assert "tool-bundle-v1" in str(raised.value)
+    assert "tool-bundle-v2" in str(raised.value)
 
 
-def test_an_unknown_contract_names_the_installed_one() -> None:
-    case = _json(_cases("valid")[0])
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_an_unknown_contract_names_the_installed_one(version: str) -> None:
+    case = _json(_cases(version, "valid")[0])
 
     with pytest.raises(UnknownContractError) as raised:
-        _specs().read(_enveloped(_spec(), case, id="not-a-contract"))
+        _specs().read(_enveloped(_spec(version), case, id="not-a-contract"))
 
     assert "tool-bundle" in str(raised.value)
 
 
-def test_an_unknown_requires_entry_is_rejected() -> None:
-    case = _json(_cases("valid")[0])
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_an_unknown_requires_entry_is_rejected(version: str) -> None:
+    case = _json(_cases(version, "valid")[0])
 
     with pytest.raises(UnknownRequirementError) as raised:
-        _specs().read(_enveloped(_spec(), case, requires=["tool-bundle-v2"]))
+        _specs().read(_enveloped(_spec(version), case, requires=["future-feature"]))
 
-    assert "tool-bundle-v2" in str(raised.value)
+    assert "future-feature" in str(raised.value)
 
 
-def test_an_unknown_field_outside_an_extension_is_rejected() -> None:
-    case = _json(_cases("valid")[0])
-    document = _enveloped(_spec(), case)
-    document["probe_key"] = "a field v1 never declared"
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_an_unknown_field_outside_an_extension_is_rejected(version: str) -> None:
+    case = _json(_cases(version, "valid")[0])
+    document = _enveloped(_spec(version), case)
+    document["probe_key"] = f"a field {version} never declared"
 
     with pytest.raises(UnknownFieldError) as raised:
         _specs().read(document)
@@ -194,9 +237,10 @@ def test_an_unknown_field_outside_an_extension_is_rejected() -> None:
     assert "declared extensions: none" in str(raised.value)
 
 
-def test_a_draft_with_a_mismatched_spec_digest_is_rejected() -> None:
-    case = _json(_cases("valid")[0])
-    draft = replace(_spec(), status="draft")
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_a_draft_with_a_mismatched_spec_digest_is_rejected(version: str) -> None:
+    case = _json(_cases(version, "valid")[0])
+    draft = replace(_spec(version), status="draft")
     other = "sha256:" + "0" * 64
 
     with pytest.raises(SpecDigestMismatchError) as raised:

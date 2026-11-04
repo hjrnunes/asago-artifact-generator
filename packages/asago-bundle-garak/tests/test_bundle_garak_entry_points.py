@@ -231,23 +231,26 @@ def test_a_run_mcp_url_equal_to_the_targets_is_accepted(
             lambda t: _edit_manifest(t, templates={"conversation": "conversation.template.json"}),
             id="templates-without-run",
         ),
-        pytest.param(lambda t: _edit_manifest(t, requires="model"), id="requires-not-a-list"),
+        pytest.param(
+            lambda t: _edit_manifest(t, values_required="model"),
+            id="values-required-not-a-list",
+        ),
         pytest.param(lambda t: _edit_manifest(t, entrypoint=[1]), id="entrypoint-not-texts"),
         pytest.param(lambda t: _edit_manifest(t, entrypoint=[]), id="entrypoint-empty"),
-        pytest.param(lambda t: _require(t, 3), id="requires-a-number"),
-        pytest.param(lambda t: _require(t, "model"), id="requires-a-repeat"),
-        pytest.param(lambda t: _require(t, "sandbox_id"), id="requires-an-unknown-key"),
-        pytest.param(lambda t: _require(t, "user_turn_0"), id="requires-turn-zero"),
+        pytest.param(lambda t: _require(t, 3), id="values-required-a-number"),
+        pytest.param(lambda t: _require(t, "model"), id="values-required-a-repeat"),
+        pytest.param(lambda t: _require(t, "sandbox_id"), id="values-required-an-unknown-key"),
+        pytest.param(lambda t: _require(t, "user_turn_0"), id="values-required-turn-zero"),
         pytest.param(
-            lambda t: _edit_manifest(t, requires=_requires(t, drop="model")),
-            id="requires-lacks-the-entrypoint-model",
+            lambda t: _edit_manifest(t, values_required=_requires(t, drop="model")),
+            id="values-required-lacks-the-entrypoint-model",
         ),
         pytest.param(lambda t: _plant(t, {"$value": "secret"}), id="value-slot-undeclared"),
         pytest.param(lambda t: _plant(t, {"$value": 3}), id="value-slot-not-a-key"),
         pytest.param(lambda t: _plant(t, {"$bundle": "../outside"}), id="bundle-slot-escapes"),
         pytest.param(lambda t: _plant(t, {"$bundle": "/etc/passwd"}), id="bundle-slot-absolute"),
         pytest.param(lambda t: _plant(t, {"$bundle": 3}), id="bundle-slot-not-a-path"),
-        pytest.param(lambda t: _require(t, "user_turn_999"), id="requires-an-unused-turn"),
+        pytest.param(lambda t: _require(t, "user_turn_999"), id="values-required-an-unused-turn"),
         pytest.param(
             lambda t: _edit_manifest(t, entrypoint=[*_entrypoint(t), "--x", "{bogus}"]),
             id="entrypoint-unknown-placeholder",
@@ -282,7 +285,7 @@ def _edit_manifest(template: Path, **fields: Any) -> None:
 
 def _requires(template: Path, drop: str | None = None) -> list[Any]:
     manifest = json.loads((template / "bundle.json").read_text("utf-8"))
-    return [key for key in manifest["requires"] if key != drop]
+    return [key for key in manifest["values_required"] if key != drop]
 
 
 def _entrypoint(template: Path) -> list[str]:
@@ -290,7 +293,7 @@ def _entrypoint(template: Path) -> list[str]:
 
 
 def _require(template: Path, key: Any) -> None:
-    _edit_manifest(template, requires=[*_requires(template), key])
+    _edit_manifest(template, values_required=[*_requires(template), key])
 
 
 def _plant(template: Path, slot: dict[str, Any]) -> None:
@@ -457,7 +460,7 @@ def test_a_package_without_an_inventory_needs_the_allowed_tools(
     )
     assert isinstance(result, Instantiated)
     assert result.values["allowed_tools"] == ["get_referral"]
-    assert "judge_url" not in result.manifest["requires"]
+    assert "judge_url" not in result.manifest["values_required"]
 
 
 def test_compile_refuses_a_missing_package_directory(tmp_path: Path) -> None:

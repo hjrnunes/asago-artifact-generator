@@ -20,6 +20,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from asago_bundle_core.errors import BundleError
+from asago_bundle_core.manifest import (
+    LEGACY_REQUIRES,
+    VALUES_REQUIRED,
+    values_field,
+    values_required,
+)
 from asago_bundle_core.schema import manifest_errors
 from asago_bundle_core.slots import BUNDLE, VALUE, fill, template_slots
 from asago_bundle_core.target import TargetConfig, authorized_target
@@ -37,7 +43,8 @@ from .compiler import (
 
 MESSAGE_ROLES = frozenset({"system", "user", "assistant"})
 JUDGE_TURNS = frozenset({"final", "all"})
-TEMPLATE_KEYS = frozenset({"requires", "templates", "entrypoint"})
+TEMPLATE_KEYS = frozenset({"templates", "entrypoint"})
+VALUE_KEY_FIELDS = frozenset({VALUES_REQUIRED, LEGACY_REQUIRES})
 TEMPLATE_ROLES = frozenset({"conversation", "run"})
 USER_TURN = re.compile(rf"{USER_TURN_PREFIX}[1-9][0-9]*")
 PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
@@ -80,13 +87,14 @@ class Template:
 def read_template(template_dir: str | Path) -> Template:
     """Read a bundle template and refuse every defect of its own that filling could meet.
 
-    The manifest must satisfy ``tool-bundle-v1`` and name exactly a conversation and a run
-    template, each a file inside the template directory holding a JSON object. The slot
-    markers are the ones core ``fill`` replaces (``$value`` and ``$bundle``); any other
-    object, ``$``-prefixed keys included, is data. Every ``$value`` must name a text key
-    and every ``$bundle`` a relative path inside the bundle. ``requires`` must list exactly
-    the ``$value`` keys plus the entrypoint's value keys (``ENTRYPOINT_VALUES``), each one
-    this adapter checks (``check_for``), and the entrypoint may hold no placeholder
+    The manifest must satisfy the installed ``tool-bundle`` spec, whose v1 and v2 both
+    read, and name exactly a conversation and a run template, each a file inside the
+    template directory holding a JSON object. The slot markers are the ones core ``fill``
+    replaces (``$value`` and ``$bundle``); any other object, ``$``-prefixed keys included,
+    is data. Every ``$value`` must name a text key and every ``$bundle`` a relative path
+    inside the bundle. ``values_required`` (v1: ``requires``) must list exactly the
+    ``$value`` keys plus the entrypoint's value keys (``ENTRYPOINT_VALUES``), each one this
+    adapter checks (``check_for``), and the entrypoint may hold no placeholder
     ``render_entrypoint`` does not render besides ``{tool_python}``. A manifest that lists
     ``files`` must name only files that exist beside the templates, and instantiate copies
     them into the bundle unchanged. What is left to ``fill_template`` is the values
@@ -95,11 +103,15 @@ def read_template(template_dir: str | Path) -> Template:
 
     template = Path(template_dir)
     manifest = _read_json(template / BUNDLE_FILE)
-    if not isinstance(manifest, dict) or not TEMPLATE_KEYS <= manifest.keys():
+    if (
+        not isinstance(manifest, dict)
+        or not TEMPLATE_KEYS <= manifest.keys()
+        or not VALUE_KEY_FIELDS & manifest.keys()
+    ):
         raise InstantiateError(f"{BUNDLE_FILE} is not a bundle template manifest")
     errors = manifest_errors(manifest)
     if errors:
-        raise InstantiateError(f"{BUNDLE_FILE} is not a tool-bundle-v1 template: {errors[0]}")
+        raise InstantiateError(f"{BUNDLE_FILE} is not a tool-bundle template: {errors[0]}")
     names = manifest["templates"]
     if set(names) != TEMPLATE_ROLES:
         raise InstantiateError(f"{BUNDLE_FILE} templates must name {sorted(TEMPLATE_ROLES)}")
@@ -110,11 +122,12 @@ def read_template(template_dir: str | Path) -> Template:
     problem = _files_problem(template, files, set(names.values()))
     if problem:
         raise InstantiateError(f"{BUNDLE_FILE} {problem}")
-    requires = manifest["requires"]
+    field = values_field(manifest)
+    requires = values_required(manifest)
     unknown = sorted(key for key in requires if check_for(key) is None)
     if unknown:
         raise InstantiateError(
-            f"{BUNDLE_FILE} requires keys this adapter has no check for: {unknown}"
+            f"{BUNDLE_FILE} {field} names keys this adapter has no check for: {unknown}"
         )
     unrendered = sorted(
         {
@@ -136,7 +149,7 @@ def read_template(template_dir: str | Path) -> Template:
     used = template_slots(documents.values()) | set(ENTRYPOINT_VALUES)
     if set(requires) != used:
         raise InstantiateError(
-            f"{BUNDLE_FILE} requires does not match what the templates and the entrypoint "
+            f"{BUNDLE_FILE} {field} does not match what the templates and the entrypoint "
             f"use: unused {sorted(set(requires) - used)}, unlisted {sorted(used - set(requires))}"
         )
     return Template(manifest, documents, tuple(files), template)
@@ -148,10 +161,10 @@ def fill_template(
     """Write the concrete bundle of a template ``read_template`` returned; return its manifest.
 
     The caller has authorized the target. Raises ``InstantiateError`` for values that lack
-    a ``requires`` key or carry a malformed one, and for an output directory in use.
+    a ``values_required`` key or carry a malformed one, and for an output directory in use.
     """
 
-    check_values(template.manifest["requires"], values, check_for, InstantiateError)
+    check_values(values_required(template.manifest), values, check_for, InstantiateError)
     return _write_bundle(template, values, out_dir)
 
 

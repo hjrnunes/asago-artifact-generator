@@ -1,0 +1,52 @@
+{
+  "schema_version": "tool-bundle-v2",
+  "template": "garak-ipi-episode",
+  "tool": "garak",
+  "tool_revision_range": ">=3097e41b",
+  "package_id": "SCN-011-SCN-011",
+  "scenario_id": "SCN-011",
+  "package_digest": "24cc668d54b711a829298346a43059403f8f55ee6a11015bd618c73568033953",
+  "claim_level": "reply",
+  "conversation_mode": "sequential",
+  "plugins": [
+    "midojo.InjectionSpecProbe",
+    "midojo.EvaluationVerdict",
+    "midojo.EvaluationEffect",
+    "toolcall.ToolCallCondition"
+  ],
+  "values_required": [
+    "gateway_url",
+    "mcp_url",
+    "model",
+    "user_turn_1",
+    "user_turn_2"
+  ],
+  "environment": [
+    "OPENAI_API_KEY",
+    "JUDGE_URL",
+    "JUDGE_TOKEN"
+  ],
+  "templates": {},
+  "files": [
+    "ipi-episodes.json"
+  ],
+  "entrypoint": [
+    "{tool_python}",
+    "-m",
+    "garak",
+    "--config",
+    "{bundle}/run.yaml",
+    "--target_type",
+    "openai.OpenAIResponsesGenerator",
+    "--target_name",
+    "{model}",
+    "--probes",
+    "midojo.InjectionSpecProbe",
+    "--detectors",
+    "midojo.EvaluationVerdict,midojo.EvaluationEffect,toolcall.ToolCallCondition"
+  ],
+  "values_digest": "1668d8295ac9b86282d1456acab2bffb7f5505729fdd6444072d9c98f13525ba",
+  "native_outputs": [
+    "reports/SCN-011.report.jsonl"
+  ]
+}

@@ -28,6 +28,13 @@ class CapabilityGap(Exception):
 def capability_gap_record(
     tool: str, package: ArtifactPackage, delivery: str, reason: str
 ) -> dict[str, Any]:
+    """Return a capability-gap record for ``package``.
+
+    The field keeps the name ``delivery``: the capability-gap schema types it as any
+    non-empty string, not the single/sequential set, so the tool bundle's rename to
+    ``conversation_mode`` does not reach it.
+    """
+
     return {
         "kind": "capability_gap",
         "tool": tool,

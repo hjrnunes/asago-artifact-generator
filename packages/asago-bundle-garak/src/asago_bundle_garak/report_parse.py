@@ -59,6 +59,7 @@ from typing import Any
 from asago_contracts_core import ContractEnvelopeError
 
 from asago_bundle_core.errors import BundleError
+from asago_bundle_core.manifest import conversation_mode
 from asago_bundle_core.mcp_records import (
     count_value,
     decoded,
@@ -223,7 +224,7 @@ def parse_report(
     episode = None
     if bundle.manifest.get("template") == IPI_TEMPLATE:
         attempts, reason, episode = ipi_report(report_file, bundle, records)
-    elif bundle.manifest.get("delivery") == SEQUENTIAL:
+    elif conversation_mode(bundle.manifest) == SEQUENTIAL:
         attempt, reason = sequential_attempt(report_file, bundle, records)
         attempts = [attempt] if attempt else []
     else:

@@ -3,7 +3,7 @@
 The template is one conversation entry and one Garak run configuration, both
 with slots for the values ``instantiate`` resolves for one run (from the prepared
 package, the target config and the run settings), plus
-``bundle.json`` (``tool-bundle-v1``), which names those values and the command
+``bundle.json`` (``tool-bundle-v2``), which names those values and the command
 that runs Garak on the concrete bundle. ``injection.IndirectInjection`` sends a
 single-turn package's messages in one request; ``injection.SequentialInjection``
 sends a sequential package's user turns one per request, each after the target's
@@ -25,6 +25,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from asago_bundle_core.bundle_contract import VERSION, write_bundle
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.gap import CapabilityGap, capability_gap_record
 from asago_bundle_core.slots import bundle_slot, contains_marker, template_slots, value_slot
@@ -38,7 +39,11 @@ from asago_injection_spec.injection_spec_compile import (
 )
 from asago_package.package_io import ArtifactPackage, load_package
 
-BUNDLE_SCHEMA_VERSION = "tool-bundle-v1"
+BUNDLE_SCHEMA_VERSION = VERSION
+# What this compiler writes, and the writer its envelope names: the module and the
+# package's version (``asago-bundle-garak``).
+WRITER = "asago_bundle_garak.compiler"
+WRITER_VERSION = "0.1.0"
 TOOL = "garak"
 TOOL_REVISION_RANGE = ">=3097e41b"
 PROBES = {
@@ -116,12 +121,12 @@ def compile_package(
         raise CapabilityGap(gap)
     level = claim_level(_json_member(package, "plan.json"))
     turns = user_turn_count(stimulus)
-    delivery = SINGLE if turns is None else SEQUENTIAL
+    conversation_mode = SINGLE if turns is None else SEQUENTIAL
     scenario_id = package.manifest.scenario_id
     conversation = conversation_template(package, level, turns)
-    run = run_template(level, scenario_id, delivery)
+    run = run_template(level, scenario_id, conversation_mode)
     requires = sorted(template_slots([conversation, run]) | set(ENTRYPOINT_VALUES))
-    manifest = bundle_manifest(package, level, requires, delivery)
+    manifest = bundle_manifest(package, level, requires, conversation_mode)
     _write(out, {CONVERSATION_TEMPLATE: conversation, RUN_TEMPLATE: run, BUNDLE_FILE: manifest})
     return manifest
 
@@ -227,7 +232,7 @@ def ipi_manifest(
 ) -> dict[str, Any]:
     scenario_id = package.manifest.scenario_id
     detector = DETECTORS["command_attempt"]
-    return {
+    manifest = {
         "schema_version": BUNDLE_SCHEMA_VERSION,
         "template": IPI_TEMPLATE,
         "tool": TOOL,
@@ -236,9 +241,9 @@ def ipi_manifest(
         "scenario_id": scenario_id,
         "package_digest": package.manifest.manifest_digest,
         "claim_level": envelope["claim_level"],
-        "delivery": envelope["delivery"],
+        "conversation_mode": envelope["delivery"],
         "plugins": [IPI_PROBE, IPI_DETECTOR, IPI_EFFECT, detector],
-        "requires": requires,
+        "values_required": requires,
         "environment": _environment(envelope["claim_level"], planted=True),
         "templates": {"conversation": CONVERSATION_TEMPLATE, "run": RUN_TEMPLATE},
         "files": [IPI_SOURCE],
@@ -259,6 +264,7 @@ def ipi_manifest(
         ],
         "native_outputs": [f"{REPORTS}/{scenario_id}.report.jsonl"],
     }
+    return write_bundle(manifest, writer=WRITER, writer_version=WRITER_VERSION)
 
 
 def delivery_mode(stimulus: Any) -> Any:
@@ -364,16 +370,16 @@ def judge_rubric(judge: Any) -> dict[str, Any]:
     return {**_slot_free(rubric), "runtime_facts": value_slot("judge_runtime_facts")}
 
 
-def run_template(level: str, scenario_id: str, delivery: str = SINGLE) -> dict[str, Any]:
+def run_template(level: str, scenario_id: str, conversation_mode: str = SINGLE) -> dict[str, Any]:
     """Return the Garak run configuration with its slots.
 
     A sequential reply bundle takes ``judge_turns`` (``final`` or ``all``);
     the tool-call condition runs after every turn and needs none.
     """
 
-    probe = PROBES[delivery].split(".")[1]
+    probe = PROBES[conversation_mode].split(".")[1]
     options: dict[str, Any] = {"conversation_source": bundle_slot(CONVERSATIONS)}
-    if delivery == SEQUENTIAL and level == "reply":
+    if conversation_mode == SEQUENTIAL and level == "reply":
         options["judge_turns"] = value_slot("judge_turns")
 
     plugins: dict[str, Any] = {
@@ -413,12 +419,12 @@ def _judge_model() -> dict[str, Any]:
 
 
 def bundle_manifest(
-    package: ArtifactPackage, level: str, requires: list[str], delivery: str = SINGLE
+    package: ArtifactPackage, level: str, requires: list[str], conversation_mode: str = SINGLE
 ) -> dict[str, Any]:
     detector = DETECTORS[level]
-    probe = PROBES[delivery]
+    probe = PROBES[conversation_mode]
     scenario_id = package.manifest.scenario_id
-    return {
+    manifest = {
         "schema_version": BUNDLE_SCHEMA_VERSION,
         "tool": TOOL,
         "tool_revision_range": TOOL_REVISION_RANGE,
@@ -426,9 +432,9 @@ def bundle_manifest(
         "scenario_id": scenario_id,
         "package_digest": package.manifest.manifest_digest,
         "claim_level": level,
-        "delivery": delivery,
+        "conversation_mode": conversation_mode,
         "plugins": [probe, detector],
-        "requires": requires,
+        "values_required": requires,
         "environment": _environment(level),
         "templates": {"conversation": CONVERSATION_TEMPLATE, "run": RUN_TEMPLATE},
         "entrypoint": [
@@ -448,6 +454,7 @@ def bundle_manifest(
         ],
         "native_outputs": [f"{REPORTS}/{scenario_id}.report.jsonl"],
     }
+    return write_bundle(manifest, writer=WRITER, writer_version=WRITER_VERSION)
 
 
 def _environment(level: str, *, planted: bool = False) -> list[str]:

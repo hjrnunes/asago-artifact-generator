@@ -27,6 +27,7 @@ from asago_package.package_io import ArtifactPackage, load_package
 
 from .errors import BundleError
 from .gap import CapabilityGap
+from .manifest import values_field, values_required
 from .receipt_contract import read_receipt
 from .schema import manifest_errors
 from .slots import contains_marker, template_slots
@@ -126,7 +127,7 @@ def check_instantiate(
     except BundleError as exc:
         return [f"instantiate refused the values: {exc}"]
     template = _read_json(template_dir / BUNDLE_FILE)
-    requires = template.get("requires", []) if isinstance(template, dict) else []
+    requires = values_required(template)
     return [
         *_manifest_failures("concrete manifest", _read_json(bundle / BUNDLE_FILE), concrete),
         *_values_digest_failures(bundle, values),
@@ -243,12 +244,11 @@ def _requires_failures(
     templates = manifest.get("templates")
     names = templates.values() if isinstance(templates, dict) else []
     documents = [document for document in (_read_json(directory / n) for n in names) if document]
-    missing = (template_slots(documents) | set(entrypoint_keys)) - set(
-        manifest.get("requires", [])
-    )
+    missing = (template_slots(documents) | set(entrypoint_keys)) - set(values_required(manifest))
     if not missing:
         return []
-    return [f"requires lacks {sorted(missing)}: the templates or the entrypoint use them"]
+    field = values_field(manifest)
+    return [f"{field} lacks {sorted(missing)}: the templates or the entrypoint use them"]
 
 
 def _values_digest_failures(bundle: Path, values: dict[str, Any]) -> list[str]:

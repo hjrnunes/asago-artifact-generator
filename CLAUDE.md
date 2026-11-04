@@ -160,13 +160,13 @@ missing path.
   `runtime_contract_spec` reads every runtime contract through the installed spec set, and
   the app's loader and the producer's builder both call it.
 - `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
-  `tool-bundle-v1` runtime spec, slot markers, the capability-gap record, `BundleError`, the
-  `testing` package builders, the `mcp_records` readers of the orchestrator's boundary
-  records, and the `conformance` helper that round-trips `compile`, `instantiate` and
-  `parse` of an adapter and returns failure messages). `receipt_contract` and
-  `bundle_contract` ship the consumer's `execution-receipt-v1` and `execution-receipt-v2`
-  specs (and `tool-bundle-v1`) as package data and read every receipt and bundle an
-  adapter writes through `SpecSet.read`;
+  `tool-bundle-v2` runtime spec, whose v1 still reads, slot markers, the capability-gap
+  record, `BundleError`, the `testing` package builders, the `mcp_records` readers of the
+  orchestrator's boundary records, and the `conformance` helper that round-trips
+  `compile`, `instantiate` and `parse` of an adapter and returns failure messages).
+  `receipt_contract` and `bundle_contract` ship the consumer's `execution-receipt-v1` and
+  `execution-receipt-v2` specs (and both `tool-bundle` versions) as package data and read
+  every receipt and bundle an adapter writes through `SpecSet.read`;
   `contracts/execution-receipt/` and `contracts/tool-bundle/` are the authorities, and a
   test refuses a copy that differs. `schema.manifest_errors` reads a manifest through
   `bundle_contract` before it applies the schema, and `check_round_trip` reads the receipt

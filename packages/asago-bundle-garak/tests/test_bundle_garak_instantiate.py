@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from asago_bundle_core.schema import validate_manifest
+from asago_bundle_core.schema import manifest_errors
 from asago_bundle_core.testing import CONDITION, JUDGE, MOCK_TARGET
 from asago_bundle_core.text import jsonl_lines
 from asago_bundle_garak.compiler import compile_package
@@ -130,7 +130,31 @@ def test_concrete_manifest_renders_the_entrypoint(command_template: Path, tmp_pa
     assert not any("{bundle}" in arg or "{model}" in arg for arg in manifest["entrypoint"])
     assert manifest["templates"] == {}
     assert len(manifest["values_digest"]) == 64
-    validate_manifest(manifest)
+    assert manifest_errors(manifest) == []
+
+
+def test_a_v1_template_still_fills(command_template: Path, tmp_path: Path) -> None:
+    path = command_template / "bundle.json"
+    manifest = json.loads(path.read_text("utf-8"))
+    renamed = {
+        key: value
+        for key, value in manifest.items()
+        if key not in {"contract", "schema_version", "conversation_mode", "values_required"}
+    }
+    renamed.update(
+        schema_version="tool-bundle-v1",
+        delivery=manifest["conversation_mode"],
+        requires=manifest["values_required"],
+    )
+    path.write_text(json.dumps(renamed), "utf-8")
+    out = tmp_path / "bundle"
+
+    concrete = instantiate_bundle(command_template, values(), out, target=MOCK_TARGET)
+
+    assert concrete["schema_version"] == "tool-bundle-v1"
+    assert concrete["delivery"] == "single"
+    assert "contract" not in concrete
+    assert read_bundle(out).messages == MESSAGES
 
 
 def test_reply_entry_carries_the_resolved_judge_facts(

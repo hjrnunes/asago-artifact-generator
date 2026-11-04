@@ -23,6 +23,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
+from asago_bundle_core.manifest import values_required
 from asago_bundle_core.preparation import (
     PreparationError,
     PreparationIncomplete,
@@ -141,7 +142,7 @@ def instantiate(
     settings = run if isinstance(run, RunSettings) else RunSettings.from_mapping(run)
     package = _package(package_dir)
     template = _template(_directory(template_dir, "template", InstantiateError), package)
-    requires = template.manifest["requires"]
+    requires = values_required(template.manifest)
     _new_directory(out_dir, InstantiateError)
     mcp_url = loaded.mcp_url
     if not mcp_url or "{" in mcp_url:

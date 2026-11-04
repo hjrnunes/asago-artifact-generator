@@ -1,8 +1,10 @@
 """The installed ``tool-bundle`` contract: copy, identity, reader rules and cases.
 
-Both tool adapters write ``bundle.json`` and read it back; this library ships the version
+Both tool adapters write ``bundle.json`` and read it back; this library ships the versions
 their readers enforce. The tests compare that copy with the consumer's authority, recompute
-the spec digest, read every recorded bundle, and assert the four refusals a reader owes.
+each spec digest, read every recorded bundle, and assert the four refusals a reader owes
+against both versions. v2 renames the manifest's ``delivery`` to ``conversation_mode`` and
+its top-level ``requires`` to ``values_required``; v1 documents keep reading.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import pytest
 from asago_contracts_core import (
     ENVELOPE_FIELD,
     ContractSpec,
+    MissingEnvelopeError,
     SpecDigestMismatchError,
     SpecSet,
     UnknownContractError,
@@ -30,17 +33,18 @@ from asago_contracts_core import (
 
 from asago_bundle_core.bundle_contract import (
     CONTRACT,
+    LEGACY_VERSION,
     VERSION,
     installed_specs,
     read_bundle,
 )
 
 REPO = Path(__file__).resolve().parents[3]
-_AUTHORITY = REPO / "contracts" / "tool-bundle" / VERSION
-_INSTALLED = (
-    Path(__file__).resolve().parents[1] / "src/asago_bundle_core/contracts/tool-bundle" / VERSION
+_AUTHORITY_ROOT = REPO / "contracts" / "tool-bundle"
+_INSTALLED_ROOT = (
+    Path(__file__).resolve().parents[1] / "src/asago_bundle_core/contracts/tool-bundle"
 )
-_CASES = _AUTHORITY / "cases"
+_VERSIONS = (LEGACY_VERSION, VERSION)
 
 
 def _json(path: Path) -> Any:
@@ -48,11 +52,11 @@ def _json(path: Path) -> Any:
 
 
 def _specs() -> SpecSet:
-    return load_specs(_INSTALLED.parents[1])
+    return load_specs(_INSTALLED_ROOT.parent)
 
 
-def _spec() -> ContractSpec:
-    return installed_specs().spec(CONTRACT, VERSION)
+def _spec(version: str = VERSION) -> ContractSpec:
+    return installed_specs().spec(CONTRACT, version)
 
 
 def _files(root: Path) -> dict[str, bytes]:
@@ -63,8 +67,8 @@ def _files(root: Path) -> dict[str, bytes]:
     }
 
 
-def _valid_cases() -> list[Path]:
-    return sorted((_CASES / "valid").glob("*.json"))
+def _cases(version: str, kind: str) -> list[Path]:
+    return sorted((_AUTHORITY_ROOT / version / "cases" / kind).glob("*.json"))
 
 
 def _enveloped(spec: ContractSpec, document: dict[str, Any], **overrides: Any) -> dict[str, Any]:
@@ -86,39 +90,47 @@ def _enveloped(spec: ContractSpec, document: dict[str, Any], **overrides: Any) -
 
 
 def test_the_installed_copy_is_the_authority_byte_for_byte() -> None:
-    assert _INSTALLED.is_dir()
-    assert _files(_INSTALLED) == _files(_AUTHORITY)
+    for version in _VERSIONS:
+        installed = _INSTALLED_ROOT / version
+        assert installed.is_dir()
+        assert _files(installed) == _files(_AUTHORITY_ROOT / version)
 
 
-def test_the_installed_spec_is_the_tool_bundle_version() -> None:
-    spec = _spec()
-    body = _json(_INSTALLED / "spec.json")
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_each_installed_spec_is_the_tool_bundle_version(version: str) -> None:
+    spec = _spec(version)
+    body = _json(_INSTALLED_ROOT / version / "spec.json")
 
-    assert (spec.contract, spec.version, spec.status, spec.envelope) == (
-        CONTRACT,
-        VERSION,
-        "published",
-        "optional",
-    )
+    assert (spec.contract, spec.version, spec.status) == (CONTRACT, version, "published")
+    assert spec.envelope == ("required" if version == VERSION else "optional")
     assert spec.supports == ()
     assert spec.extensions == ()
+    assert (spec.cases, spec.docs) == ("cases", "README.md")
     assert body["cases"] == "cases"
     assert body["docs"] == "README.md"
-    assert spec.spec_digest == spec_digest(body, (_INSTALLED / "schema.json").read_bytes())
-
-
-@pytest.mark.parametrize("case", _valid_cases(), ids=lambda case: case.stem)
-def test_the_reader_accepts_every_valid_case_as_a_legacy_document(case: Path) -> None:
-    assert read_bundle(_json(case)).version == VERSION
-
-
-@pytest.mark.parametrize("case", _valid_cases(), ids=lambda case: case.stem)
-def test_the_reader_accepts_every_valid_case_with_the_envelope(case: Path) -> None:
-    written = write_envelope(
-        _json(case), _spec(), writer="tests.bundle_contract", writer_version="0.1.0"
+    assert spec.spec_digest == spec_digest(
+        body, (_INSTALLED_ROOT / version / "schema.json").read_bytes()
     )
 
-    assert read_bundle(written).version == VERSION
+
+@pytest.mark.parametrize(
+    ("version", "case"),
+    [(version, case) for version in _VERSIONS for case in _cases(version, "valid")],
+    ids=lambda value: value.name if isinstance(value, Path) else value,
+)
+def test_the_reader_accepts_every_valid_case(version: str, case: Path) -> None:
+    spec = _spec(version)
+    document = _json(case)
+    written = write_envelope(
+        document, spec, writer="tests.bundle_contract", writer_version="0.1.0"
+    )
+
+    assert read_bundle(written).version == version
+    if spec.envelope == "optional":
+        assert read_bundle(document).version == version
+    else:
+        with pytest.raises(MissingEnvelopeError):
+            read_bundle(document)
 
 
 def test_every_recorded_bundle_still_reads() -> None:
@@ -135,41 +147,46 @@ def test_every_recorded_bundle_still_reads() -> None:
         pytest.skip(f"no recorded bundles under {corpus}")
 
     for path in recorded:
-        assert read_bundle(_json(path)).version == VERSION, path
+        assert read_bundle(_json(path)).version == LEGACY_VERSION, path
 
 
-def test_an_unsupported_version_names_the_supported_versions() -> None:
-    case = _json(_valid_cases()[0])
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_an_unsupported_version_names_the_supported_versions(version: str) -> None:
+    case = _json(_cases(version, "valid")[0])
 
     with pytest.raises(UnsupportedVersionError) as raised:
-        _specs().read(_enveloped(_spec(), case, version="tool-bundle-v9"))
+        _specs().read(_enveloped(_spec(version), case, version="tool-bundle-v9"))
 
     assert "tool-bundle-v9" in str(raised.value)
+    assert LEGACY_VERSION in str(raised.value)
     assert VERSION in str(raised.value)
 
 
-def test_an_unknown_contract_names_the_installed_one() -> None:
-    case = _json(_valid_cases()[0])
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_an_unknown_contract_names_the_installed_one(version: str) -> None:
+    case = _json(_cases(version, "valid")[0])
 
     with pytest.raises(UnknownContractError) as raised:
-        _specs().read(_enveloped(_spec(), case, id="not-a-contract"))
+        _specs().read(_enveloped(_spec(version), case, id="not-a-contract"))
 
     assert CONTRACT in str(raised.value)
 
 
-def test_an_unknown_requires_entry_is_rejected() -> None:
-    case = _json(_valid_cases()[0])
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_an_unknown_requires_entry_is_rejected(version: str) -> None:
+    case = _json(_cases(version, "valid")[0])
 
     with pytest.raises(UnknownRequirementError) as raised:
-        _specs().read(_enveloped(_spec(), case, requires=["tool-bundle-v2"]))
+        _specs().read(_enveloped(_spec(version), case, requires=["future-feature"]))
 
-    assert "tool-bundle-v2" in str(raised.value)
+    assert "future-feature" in str(raised.value)
 
 
-def test_an_unknown_field_outside_an_extension_is_rejected() -> None:
-    case = _json(_valid_cases()[0])
-    document = _enveloped(_spec(), case)
-    document["probe_key"] = "a field v1 never declared"
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_an_unknown_field_outside_an_extension_is_rejected(version: str) -> None:
+    case = _json(_cases(version, "valid")[0])
+    document = _enveloped(_spec(version), case)
+    document["probe_key"] = f"a field {version} never declared"
 
     with pytest.raises(UnknownFieldError) as raised:
         read_bundle(document)
@@ -178,9 +195,10 @@ def test_an_unknown_field_outside_an_extension_is_rejected() -> None:
     assert "declared extensions: none" in str(raised.value)
 
 
-def test_a_draft_with_a_mismatched_spec_digest_is_rejected() -> None:
-    case = _json(_valid_cases()[0])
-    draft = replace(_spec(), status="draft")
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_a_draft_with_a_mismatched_spec_digest_is_rejected(version: str) -> None:
+    case = _json(_cases(version, "valid")[0])
+    draft = replace(_spec(version), status="draft")
     other = "sha256:" + "0" * 64
 
     with pytest.raises(SpecDigestMismatchError) as raised:

@@ -1,0 +1,54 @@
+{
+  "invalid/claim-level-not-a-value.json": {
+    "path": "/claim_level",
+    "keyword": "enum"
+  },
+  "invalid/conversation-mode-not-a-value.json": {
+    "path": "/conversation_mode",
+    "keyword": "enum"
+  },
+  "invalid/duplicate-value-key.json": {
+    "path": "/values_required",
+    "keyword": "uniqueItems"
+  },
+  "invalid/empty-entrypoint.json": {
+    "path": "/entrypoint",
+    "keyword": "minItems"
+  },
+  "invalid/empty-tool.json": {
+    "path": "/tool",
+    "keyword": "minLength"
+  },
+  "invalid/environment-name-lowercase.json": {
+    "path": "/environment/0",
+    "keyword": "pattern"
+  },
+  "invalid/missing-values-required.json": {
+    "path": "/",
+    "keyword": "required"
+  },
+  "invalid/other-version.json": {
+    "path": "/schema_version",
+    "keyword": "const"
+  },
+  "invalid/repeats-unknown-key.json": {
+    "path": "/repeats",
+    "keyword": "additionalProperties"
+  },
+  "invalid/serve-without-argv.json": {
+    "path": "/serve",
+    "keyword": "required"
+  },
+  "invalid/short-package-digest.json": {
+    "path": "/package_digest",
+    "keyword": "pattern"
+  },
+  "invalid/unknown-field.json": {
+    "path": "/",
+    "keyword": "additionalProperties"
+  },
+  "invalid/uppercase-package-digest.json": {
+    "path": "/package_digest",
+    "keyword": "pattern"
+  }
+}

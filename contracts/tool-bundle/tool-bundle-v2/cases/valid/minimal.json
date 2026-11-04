@@ -1,0 +1,18 @@
+{
+  "schema_version": "tool-bundle-v2",
+  "tool": "garak",
+  "tool_revision_range": ">=968cc224",
+  "package_id": "SCN-001-SCN-001",
+  "scenario_id": "SCN-001",
+  "package_digest": "abababababababababababababababababababababababababababababababab",
+  "claim_level": "reply",
+  "conversation_mode": "single",
+  "plugins": [],
+  "values_required": [],
+  "environment": [],
+  "templates": {},
+  "entrypoint": [
+    "true"
+  ],
+  "native_outputs": []
+}

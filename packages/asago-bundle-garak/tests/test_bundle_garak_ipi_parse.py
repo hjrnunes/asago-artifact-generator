@@ -161,7 +161,7 @@ def bundle_metadata(output: Path) -> dict[str, Any]:
         "scenario_id": manifest["scenario_id"],
         "package_digest": manifest["package_digest"],
         "claim_level": manifest["claim_level"],
-        "delivery": manifest["delivery"],
+        "delivery": manifest["conversation_mode"],
     }
 
 

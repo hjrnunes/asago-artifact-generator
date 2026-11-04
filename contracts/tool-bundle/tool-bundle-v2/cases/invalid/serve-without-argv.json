@@ -1,0 +1,41 @@
+{
+  "schema_version": "tool-bundle-v2",
+  "tool": "garak",
+  "tool_revision_range": ">=968cc224",
+  "package_id": "SCN-001-SCN-001",
+  "scenario_id": "SCN-001",
+  "package_digest": "abababababababababababababababababababababababababababababababab",
+  "claim_level": "command_attempt",
+  "conversation_mode": "single",
+  "plugins": [
+    "injection.IndirectInjection",
+    "toolcall.ToolCallCondition"
+  ],
+  "values_required": [
+    "allowed_tools",
+    "gateway_url",
+    "mcp_url",
+    "messages",
+    "model"
+  ],
+  "environment": [
+    "OPENAI_API_KEY"
+  ],
+  "templates": {
+    "conversation": "conversation.template.json",
+    "run": "run.template.json"
+  },
+  "entrypoint": [
+    "{tool_python}",
+    "-m",
+    "garak",
+    "--config",
+    "{bundle}/run.yaml"
+  ],
+  "native_outputs": [
+    "reports/SCN-001.report.jsonl"
+  ],
+  "serve": {
+    "ready_url": "http://127.0.0.1:{service_port}/health"
+  }
+}
