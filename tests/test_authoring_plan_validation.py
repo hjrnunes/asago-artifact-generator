@@ -112,7 +112,8 @@ def test_plan_validation_carries_canonical_deduplicated_bindings_into_prerequisi
             }
         ],
     )
-    plan, transformations, _, _ = normalize_plan_v2(plan, inventory)
+    normalized = normalize_plan_v2(plan, inventory, _contract())
+    plan, transformations = normalized.plan, normalized.transformations
 
     findings = collect_plan_findings_v2(plan, inventory, _contract())
 
@@ -183,7 +184,7 @@ def test_plan_validation_accepts_a_record_shorthand_whose_selector_repeats_the_k
         ],
         prerequisites=[],
     )
-    plan, _, _, _ = normalize_plan_v2(plan, inventory)
+    plan = normalize_plan_v2(plan, inventory, _contract()).plan
 
     findings = collect_plan_findings_v2(plan, inventory, _contract())
 
@@ -227,7 +228,8 @@ def test_plan_validation_adds_missing_prerequisite_consumer_and_records_rewrite(
             }
         ],
     )
-    plan, transformations, _, _ = normalize_plan_v2(plan, inventory)
+    normalized = normalize_plan_v2(plan, inventory, _contract())
+    plan, transformations = normalized.plan, normalized.transformations
 
     findings = collect_plan_findings_v2(plan, inventory, _contract())
 

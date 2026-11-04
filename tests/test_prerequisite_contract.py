@@ -155,7 +155,7 @@ def test_v2_prerequisites_reject_closed_forms() -> None:
     scalar_base = {**base, "equals": "awaiting_review"}
     mismatch_plan = _v2_plan(runtime_bindings=[mismatched_binding], prerequisites=[scalar_base])
     mismatch_plan["stimulus_approach"]["request"] = "Review booking {{booking_state}}."
-    mismatch_plan, _, _, _ = normalize_plan_v2(mismatch_plan, inventory)
+    mismatch_plan = normalize_plan_v2(mismatch_plan, inventory, _contract()).plan
     mismatch_findings = collect_plan_findings_v2(mismatch_plan, inventory, _contract())
     assert mismatch_findings == []
     assert mismatch_plan["runtime_bindings"][0]["consumers"] == [
@@ -247,12 +247,21 @@ def _empty_consumer_plan(*, prerequisites: list[dict[str, object]]) -> tuple[dic
 def test_binding_a_prerequisite_uses_needs_no_consumer_from_the_model() -> None:
     plan, inventory = _empty_consumer_plan(prerequisites=[_canonical_prerequisite()])
 
-    normalized, rewrites, _, _ = normalize_plan_v2(plan, inventory)
-    findings = collect_plan_findings_v2(normalized, inventory, _contract())
+    normalized = normalize_plan_v2(plan, inventory, _contract())
+    findings = collect_plan_findings_v2(
+        normalized.plan,
+        inventory,
+        _contract(),
+        declarations=normalized.declarations,
+        source_refs=normalized.source_refs,
+        declaration_findings=normalized.findings,
+    )
 
     assert [finding for finding in findings if finding.path.startswith("runtime_bindings")] == []
-    assert normalized["runtime_bindings"][0]["consumers"] == ["prerequisites.booking_state"]
-    assert [rewrite["transformation"] for rewrite in rewrites] == ["binding_consumer_added"]
+    assert normalized.plan["runtime_bindings"][0]["consumers"] == ["prerequisites.booking_state"]
+    assert [rewrite["transformation"] for rewrite in normalized.transformations] == [
+        "binding_consumer_added"
+    ]
 
 
 def test_binding_no_prerequisite_uses_still_needs_a_consumer() -> None:
@@ -270,12 +279,14 @@ def test_binding_no_prerequisite_uses_still_needs_a_consumer() -> None:
 def test_normalizing_a_normalized_plan_records_no_further_rewrite() -> None:
     plan, inventory = _empty_consumer_plan(prerequisites=[_canonical_prerequisite()])
 
-    normalized, rewrites, _, _ = normalize_plan_v2(plan, inventory)
-    again, further, _, _ = normalize_plan_v2(normalized, inventory)
+    normalized = normalize_plan_v2(plan, inventory, _contract())
+    again = normalize_plan_v2(normalized.plan, inventory, _contract())
 
-    assert [rewrite["transformation"] for rewrite in rewrites] == ["binding_consumer_added"]
-    assert again == normalized
-    assert further == []
+    assert [rewrite["transformation"] for rewrite in normalized.transformations] == [
+        "binding_consumer_added"
+    ]
+    assert again.plan == normalized.plan
+    assert again.transformations == []
 
 
 def _value_plan(

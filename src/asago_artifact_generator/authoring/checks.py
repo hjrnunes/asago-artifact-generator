@@ -10,7 +10,7 @@ import json
 from collections.abc import Callable, Collection, Iterator, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import Any, NamedTuple
+from typing import Any
 
 from ..binding_rules import (
     CLOSED_TYPES,
@@ -264,6 +264,7 @@ def collect_plan_findings_v2(
     condition: Mapping[str, Any] | None = None,
     declarations: Any = None,
     source_refs: Mapping[tuple[str, str], str] | None = None,
+    declaration_findings: Collection[Finding] | None = None,
 ) -> list[Finding]:
     """Return every structural finding for a v2 plan that ``normalize_plan_v2`` returned.
 
@@ -279,10 +280,12 @@ def collect_plan_findings_v2(
     ``assumptions[].ref``; every other reference field stays limited to
     supplied inventory references. ``condition`` is the handoff's
     discriminating condition; its not_called comparisons add the omission
-    trigger check.  ``declarations`` and ``source_refs`` are the
-    ``NormalizedPlan`` fields of the same names: the declarations the binding
-    and prerequisite checks read (by default the plan's ``runtime_bindings``)
-    and the sources their lookups read (by default each as written).
+    trigger check.  ``declarations``, ``source_refs`` and
+    ``declaration_findings`` are the ``NormalizedPlan`` fields of the same
+    names: the declarations the binding and prerequisite checks read (by
+    default the plan's ``runtime_bindings``), the sources their lookups read
+    (by default each as written), and the diagnostics those declarations
+    already earned (by default recomputed here).
     """
 
     if not isinstance(plan, dict):
@@ -313,6 +316,7 @@ def collect_plan_findings_v2(
                 provenance_ids,
                 declarations,
                 source_refs or {},
+                declaration_findings,
             ),
             "plan",
         )
@@ -1094,6 +1098,7 @@ def _plan_field_findings(
     provenance_ids: Collection[str],
     declarations: Any,
     source_refs: Mapping[tuple[str, str], str],
+    declaration_findings: Collection[Finding] | None = None,
 ) -> list[Finding]:
     findings = _plan_list_type_findings(plan)
     references = _inventory_references(inventory)
@@ -1104,16 +1109,14 @@ def _plan_field_findings(
         findings.extend(_collect_setup_findings(setup_recipe, inventory, runtime_contract))
     if isinstance(plan.get("runtime_bindings"), list) and isinstance(declarations, list):
         findings.extend(
-            _collect_binding_findings(
-                declarations,
+            _declaration_findings(
+                plan,
                 inventory,
                 runtime_contract,
-                finding_code="plan_binding_validation",
-                source_refs=source_refs,
+                declarations,
+                source_refs,
+                declaration_findings,
             )
-        )
-        findings.extend(
-            _judge_consumer_findings(plan, declarations, finding_code="plan_binding_validation")
         )
     findings.extend(_stimulus_approach_findings(plan, runtime_contract))
     findings.extend(_observation_claim_findings(plan, runtime_contract))
@@ -1560,6 +1563,34 @@ def _collect_binding_findings(
             except BindingValidationError as exc:
                 findings.append(Finding(finding_code, str(exc), path))
     return findings
+
+
+def _declaration_findings(
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    runtime_contract: dict[str, Any],
+    declarations: list[Any],
+    source_refs: Mapping[tuple[str, str], str],
+    found: Collection[Finding] | None = None,
+) -> list[Finding]:
+    """Return the declarations' diagnostics, recomputing them when none were passed.
+
+    ``normalize_plan_v2`` computes these once and returns them; a caller that
+    normalizes nothing passes none and reads the same findings here.
+    """
+
+    if found is not None:
+        return list(found)
+    return [
+        *_collect_binding_findings(
+            declarations,
+            inventory,
+            runtime_contract,
+            finding_code="plan_binding_validation",
+            source_refs=source_refs,
+        ),
+        *_judge_consumer_findings(plan, declarations, finding_code="plan_binding_validation"),
+    ]
 
 
 def _looked_up_sources(source_refs: Mapping[tuple[str, str], str]) -> CanonicalPaths:
@@ -2024,20 +2055,39 @@ def _consumer_declarations_by_name(runtime_bindings: list[Any]) -> dict[str, dic
     }
 
 
-class NormalizedPlan(NamedTuple):
-    """What ``normalize_plan_v2`` returns; the plan checks read all but ``transformations``."""
+@dataclass(frozen=True)
+class NormalizedPlan:
+    """What one normalization pass read, accepted and reported.
+
+    ``plan`` is the accepted canonical plan: its bindings are canonical, its
+    prerequisites carry the consumers the closure added, and it is what the
+    checks and the package read.
+
+    ``declarations`` are the bindings the author sent, before a declaration the
+    prerequisite closure made equal to an earlier one was dropped.  Keeping
+    them as their own value keeps the evidence: the checks read every one of
+    them, so a rejected plan's diagnostics survive the drop.
+
+    ``findings`` are those declarations' diagnostics, which the plan checks
+    merge in place of recomputing them: the binding engine's and the
+    judge-consumer ones, worded as the plan wire reports them.  ``source_refs``
+    records the root-selector lookups the findings name.
+
+    ``transformations`` lists the deterministic rewrites between the response
+    and the accepted plan.
+    """
 
     plan: Any
-    transformations: list[dict[str, Any]]
-    # The plan's runtime bindings before declarations the consumer closure made
-    # equal were dropped; the binding and prerequisite checks read these.
     declarations: Any
-    # The sources the binding checks look up with a root selector (root_source_refs).
+    findings: list[Finding]
+    transformations: list[dict[str, Any]]
     source_refs: dict[tuple[str, str], str]
 
 
-def normalize_plan_v2(plan: Any, inventory: dict[str, Any]) -> NormalizedPlan:
-    """Return a normalized copy of a v2 plan and the deterministic rewrites that made it.
+def normalize_plan_v2(
+    plan: Any, inventory: dict[str, Any], runtime_contract: dict[str, Any]
+) -> NormalizedPlan:
+    """Return the accepted plan, the author's declarations, their findings and the rewrites.
 
     The bindings are canonicalized and exact duplicates dropped, then each
     prerequisite's binding gets its closed consumer.  A declaration the binding
@@ -2046,9 +2096,8 @@ def normalize_plan_v2(plan: Any, inventory: dict[str, Any]) -> NormalizedPlan:
 
     An added consumer can make a declaration equal to an earlier one of its
     name; the plan keeps the first.  That drop is not recorded either: the two
-    declarations differed as written, so ``declarations`` keeps both and the
-    binding and prerequisite checks read both; the second is reported as a
-    duplicate binding, which rejects the plan.
+    declarations differed as written, so ``declarations`` keeps both and their
+    findings report the duplicate, which rejects the plan.
 
     Normalizing the returned plan again changes nothing, unless that drop left
     another declaration of the name last without the prerequisite consumer:
@@ -2059,12 +2108,12 @@ def normalize_plan_v2(plan: Any, inventory: dict[str, Any]) -> NormalizedPlan:
     """
 
     if not isinstance(plan, dict):
-        return NormalizedPlan(plan, [], None, {})
+        return NormalizedPlan(plan, None, [], [], {})
     normalized = deepcopy(plan)
     transformations: list[dict[str, Any]] = []
     runtime_bindings = normalized.get("runtime_bindings")
     if not isinstance(runtime_bindings, list):
-        return NormalizedPlan(normalized, transformations, runtime_bindings, {})
+        return NormalizedPlan(normalized, runtime_bindings, [], transformations, {})
     normalize_binding_declarations(
         runtime_bindings, inventory=inventory, transformations=transformations
     )
@@ -2076,9 +2125,11 @@ def normalize_plan_v2(plan: Any, inventory: dict[str, Any]) -> NormalizedPlan:
     )
     declarations = list(runtime_bindings)
     normalize_binding_declarations(runtime_bindings, inventory=inventory)
-    return NormalizedPlan(
-        normalized, transformations, declarations, root_source_refs(declarations, inventory)
+    source_refs = root_source_refs(declarations, inventory)
+    findings = _declaration_findings(
+        normalized, inventory, runtime_contract, declarations, source_refs
     )
+    return NormalizedPlan(normalized, declarations, findings, transformations, source_refs)
 
 
 def normalize_artifact_v2(metadata: Any, plan: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:

@@ -971,7 +971,7 @@ class AuthoringOrchestrator:
         self, view: InputView, inventory: dict[str, Any], runtime_contract: dict[str, Any]
     ) -> _Stage:
         def normalize(decoded: Any) -> tuple[Any, list[Any], NormalizedPlan]:
-            normalized = normalize_plan_v2(decoded, inventory)
+            normalized = normalize_plan_v2(decoded, inventory, runtime_contract)
             return normalized.plan, normalized.transformations, normalized
 
         def checks(normalized: NormalizedPlan) -> list[Finding]:
@@ -983,6 +983,7 @@ class AuthoringOrchestrator:
                 condition=view.payload.get("discriminating_condition"),
                 declarations=normalized.declarations,
                 source_refs=normalized.source_refs,
+                declaration_findings=normalized.findings,
             ) + sequential_plan_findings(view, normalized.plan, runtime_contract)
 
         return _Stage(

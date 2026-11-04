@@ -167,7 +167,8 @@ def test_v2_plan_adds_prerequisite_consumers_then_artifact_derives_slots() -> No
         "history": [],
         "slots": [],
     }
-    plan, plan_transformations, _, _ = normalize_plan_v2(plan, inventory)
+    normalized_plan = normalize_plan_v2(plan, inventory, _runtime_contract())
+    plan, plan_transformations = normalized_plan.plan, normalized_plan.transformations
     metadata, artifact_transformations = normalize_artifact_v2(metadata, plan)
 
     findings = collect_artifact_findings_v2(metadata, plan, inventory, _runtime_contract())
