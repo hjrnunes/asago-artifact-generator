@@ -28,7 +28,7 @@ from asago_artifact_generator.input_adapter import (
 )
 
 _CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
-_KIT = _CONTRACT / "handoff-v5"
+_KIT = _CONTRACT / "scenario-handoff-v5" / "cases"
 _EXPECTED = json.loads((_KIT / "expected-violations.json").read_text("utf-8"))
 _MANIFEST = json.loads((_KIT / "conformance-cases.json").read_text("utf-8"))
 RULE_NAMES = frozenset(
@@ -154,7 +154,7 @@ def test_the_kit_carries_a_case_for_each_of_the_five_rules() -> None:
     rules = _MANIFEST["rules"]
 
     assert _MANIFEST["contract"] == "scenario-handoff"
-    assert _MANIFEST["kit"] == "handoff-v5"
+    assert _MANIFEST["kit"] == "scenario-handoff-v5"
     assert {rule["name"] for rule in rules} == RULE_NAMES
     assert len(rules) == len(RULE_NAMES)
     for rule in rules:

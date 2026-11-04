@@ -1,6 +1,6 @@
 {
   "contract": "scenario-handoff",
-  "kit": "handoff-v5",
+  "kit": "scenario-handoff-v5",
   "rules": [
     {
       "codes": [

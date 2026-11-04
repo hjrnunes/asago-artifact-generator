@@ -17,13 +17,13 @@ from asago_artifact_generator.input_adapter import InputSourceError, load_input
 
 _CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
 _RULES = _CONTRACT / "ownership-rules.json"
-_KIT = _CONTRACT / "handoff-v5"
+_KIT = _CONTRACT / "scenario-handoff-v5" / "cases"
 
 
 def test_the_reader_uses_the_mirrored_rules_in_file_order() -> None:
     rules = json.loads(_RULES.read_text(encoding="utf-8"))
 
-    contract = input_adapter._handoff_contract("handoff-v5")
+    contract = input_adapter._handoff_contract()
 
     assert contract.forbidden_keys == frozenset(rules["forbidden_keys"])
     assert [(code, pattern.pattern) for code, pattern in contract.forbidden_patterns] == [

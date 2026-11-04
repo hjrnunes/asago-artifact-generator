@@ -483,7 +483,8 @@ the schema-version rule: a document that states another version, including
 document that is not a JSON object gets `schema_violation:<root>`.
 
 Before the digest check, the adapter runs the producer's
-`asago_handoff.validate_handoff` over the mirrored `handoff-v5/schema.json` and
+`asago_handoff.validate_handoff` over the mirrored
+`scenario-handoff-v5/schema.json` and
 `ownership-rules.json`: the schema's rules, the ownership boundary, and the
 hand rules the schema cannot state (non-blank text, the observation-contract
 format, cross-field pairings, and the procedure chain). The

@@ -43,7 +43,8 @@ from .support import json_section
 
 _V5 = "scenario-handoff-v5"
 _CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
-_KIT = _CONTRACT / "handoff-v5"
+_VERSION_DIR = _CONTRACT / "scenario-handoff-v5"
+_KIT = _VERSION_DIR / "cases"
 _EXPECTED = json.loads((_KIT / "expected-violations.json").read_text(encoding="utf-8"))
 _DIGESTS = json.loads((_KIT / "canonical-digests.json").read_text(encoding="utf-8"))[
     "handoff_digests"
@@ -82,23 +83,20 @@ def _signed(tmp_path: Path, payload: dict[str, Any], domain: str = _V5) -> Path:
     return path
 
 
-def _lock_entries(lock: dict[str, Any]) -> list[dict[str, Any]]:
-    return [lock, *lock.get("additional_versions", [])]
-
-
 def test_the_lock_declares_v5_and_locks_every_v5_file() -> None:
     lock = json.loads((_CONTRACT / "CONTRACT.lock").read_text(encoding="utf-8"))
-    locked = {name for name in lock["files"] if name.startswith("handoff-v5/")}
+    locked = {name for name in lock["files"] if name.startswith("scenario-handoff-v5/")}
 
-    assert locked == {str(path.relative_to(_CONTRACT)) for path in _KIT.rglob("*.json")}
-    [entry] = [
-        entry for entry in _lock_entries(lock) if entry.get("handoff_schema_version") == _V5
-    ]
-    assert entry["digest_domain"] == _V5
-    assert {"attack_shape", *V5_FIELDS} <= set(entry["metadata_fields"])
+    assert locked == {
+        path.relative_to(_CONTRACT).as_posix()
+        for path in _VERSION_DIR.rglob("*")
+        if path.is_file()
+    }
+    assert lock["schema_version"] == _V5
+    assert lock["contract"] == "scenario-handoff"
 
     version = input_adapter._validate_handoff_kit()
-    assert (version.kit, version.digest_domain) == ("handoff-v5", _V5)
+    assert (version.kit, version.digest_domain) == (_V5, _V5)
 
 
 def test_a_lock_without_the_v5_entry_refuses_a_v5_handoff(
@@ -111,9 +109,7 @@ def test_a_lock_without_the_v5_entry_refuses_a_v5_handoff(
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(path.read_bytes())
     lock = json.loads((mirror / "CONTRACT.lock").read_text(encoding="utf-8"))
-    for entry in _lock_entries(lock):
-        if entry.get("handoff_schema_version") == _V5:
-            entry["handoff_schema_version"] = entry["digest_domain"] = "scenario-handoff-v9"
+    lock["schema_version"] = "scenario-handoff-v9"
     (mirror / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
     monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", mirror)
 

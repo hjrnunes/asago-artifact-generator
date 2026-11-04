@@ -120,7 +120,8 @@ def test_verify_contract_lock_accepts_matching_metadata_and_digests(tmp_path: Pa
 
 
 _HANDOFF_SCHEMA = (
-    Path(__file__).resolve().parents[1] / "contracts/scenario-handoff/handoff-v5/schema.json"
+    Path(__file__).resolve().parents[1]
+    / "contracts/scenario-handoff/scenario-handoff-v5/schema.json"
 )
 
 

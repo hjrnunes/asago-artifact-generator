@@ -13,6 +13,12 @@ from typing import Any
 import yaml
 from asago_handoff import Violation, feature_violations, validate_handoff
 from asago_handoff.contract import Contract, ContractError, load_ownership_rules
+from asago_handoff.envelope import (
+    ENVELOPE_FIELD,
+    ContractEnvelopeError,
+    SpecSet,
+    load_specs,
+)
 from asago_handoff.shape import attack_shape_violation
 
 from .contract_kit import (
@@ -24,7 +30,6 @@ from .contract_kit import (
     sha256_hex,
     verify_contract_lock,
 )
-from .value_checks import is_nonblank_str
 
 _HANDOFF_CONDITION_FIELDS = (
     "discriminating_condition",
@@ -211,7 +216,11 @@ def _handoff_view(
     version = _validate_handoff_kit(kind)
     _validate_handoff_payload(payload, version.kit)
     expected_digest = payload.get("content_digest", "")
-    digest_payload = {key: value for key, value in payload.items() if key != "content_digest"}
+    digest_payload = {
+        key: value
+        for key, value in payload.items()
+        if key not in ("content_digest", ENVELOPE_FIELD)
+    }
     if expected_digest != _framed_digest(version.digest_domain, digest_payload):
         raise InputSourceError("scenario handoff content_digest does not match source")
     gherkin = payload["gherkin"]
@@ -252,8 +261,8 @@ def _handoff_view(
 def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V5) -> _HandoffVersion:
     """Verify the mirrored lock and return the version entry it declares for ``kind``.
 
-    The lock's top level declares one version and ``additional_versions``, when present,
-    declares the others.
+    The lock names one schema version at its top level, and the mirror holds that
+    version's directory; the digest domain is the version's own name.
     """
 
     verify_contract_lock(
@@ -267,26 +276,24 @@ def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V5) -> _H
     lock = load_json_file(
         _HANDOFF_ROOT / "CONTRACT.lock", InputSourceError, "cannot read vendored handoff lock"
     )
-    top = {
-        "handoff_schema_version": lock.get("handoff_schema_version"),
-        "digest_domain": lock.get("digest_domain"),
-        "kit": str(lock.get("handoff_schema_version", "")).removeprefix("scenario-"),
-    }
-    for entry in (top, *lock.get("additional_versions", [])):
-        if isinstance(entry, dict) and entry.get("handoff_schema_version") == kind.value:
-            kit, domain = entry.get("kit"), entry.get("digest_domain")
-            if not is_nonblank_str(kit) or not is_nonblank_str(domain):
-                raise InputSourceError(
-                    f"vendored handoff lock entry for {kind.value} is incomplete"
-                )
-            return _HandoffVersion(kind, kit, domain)
-    raise InputSourceError(f"vendored handoff lock does not declare {kind.value}")
+    if lock.get("schema_version") != kind.value:
+        raise InputSourceError(f"vendored handoff lock does not declare {kind.value}")
+    return _HandoffVersion(kind, kind.value, kind.value)
 
 
-def _handoff_schema(kit: str = "handoff-v5") -> dict[str, Any]:
+def _handoff_schema(kit: str = "scenario-handoff-v5") -> dict[str, Any]:
     return load_json_file(
         _HANDOFF_ROOT / kit / "schema.json", InputSourceError, f"cannot read vendored {kit} schema"
     )
+
+
+def _handoff_specs() -> SpecSet:
+    """Read the mirrored spec set the shared validator selects the version through."""
+
+    try:
+        return load_specs(_HANDOFF_ROOT.parent)
+    except ContractEnvelopeError as exc:
+        raise InputSourceError(f"cannot read vendored handoff spec: {exc}") from exc
 
 
 def _read_ownership_rules(
@@ -300,7 +307,7 @@ def _read_ownership_rules(
         raise InputSourceError(f"cannot read vendored ownership rules: {exc}") from exc
 
 
-def _handoff_contract(kit: str = "handoff-v5") -> Contract:
+def _handoff_contract(kit: str = "scenario-handoff-v5") -> Contract:
     """Read the mirrored contract documents the shared validator walks."""
 
     forbidden_keys, forbidden_patterns = _read_ownership_rules(
@@ -310,18 +317,19 @@ def _handoff_contract(kit: str = "handoff-v5") -> Contract:
         schema=_handoff_schema(kit),
         forbidden_keys=forbidden_keys,
         forbidden_patterns=forbidden_patterns,
+        specs=_handoff_specs(),
     )
 
 
 def _validate_handoff_payload(payload: Any, kit: str) -> None:
     """Report the shared validator's codes for every rule the handoff breaks.
 
-    ``asago_handoff.validate_handoff`` walks the ownership boundary first, then
-    the mirrored schema's rules and the hand rules the schema cannot state,
-    the schema version included. The consumer keeps the typed attack-shape
-    refusal for a break confined to the shape, and reports every other break,
-    including a document that is not a JSON object, as
-    :class:`HandoffSchemaInvalid`.
+    ``asago_handoff.validate_handoff`` reads the document through the mirrored
+    spec first, then walks the ownership boundary, the mirrored schema's rules
+    and the hand rules the schema cannot state, the schema version included.
+    The consumer keeps the typed attack-shape refusal for a break confined to
+    the shape, and reports every other break, including a document that is not
+    a JSON object, as :class:`HandoffSchemaInvalid`.
     """
 
     violations = validate_handoff(payload, contract=_handoff_contract(kit))

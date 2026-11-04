@@ -652,9 +652,11 @@ def test_unreadable_vendored_handoff_schema_is_a_source_error(
 
     monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", tmp_path)
     if schema_text is not None:
-        schema = tmp_path / "handoff-v5" / "schema.json"
+        schema = tmp_path / "scenario-handoff-v5" / "schema.json"
         schema.parent.mkdir()
         schema.write_text(schema_text, encoding="utf-8")
 
-    with pytest.raises(InputSourceError, match="^cannot read vendored handoff-v5 schema: "):
+    with pytest.raises(
+        InputSourceError, match="^cannot read vendored scenario-handoff-v5 schema: "
+    ):
         input_adapter._handoff_schema()
