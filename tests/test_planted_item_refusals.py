@@ -226,7 +226,7 @@ def test_the_shapes_record_is_used_when_the_slot_lists_it() -> None:
         carrier_operation="get_listing",
         field="title",
         content_kind="listing_content",
-        controller="counterparty",
+        writable_by=("counterparty",),
         record_ref="LST-104",
         mode="replace",
         max_chars=2000,
@@ -304,7 +304,30 @@ def test_a_slot_that_lists_the_controlling_party_wins_a_tie_of_the_same_kind() -
 
     target = choose_planted_target(shape_of(LISTING), with_slots(other_party, party))
 
-    assert (target.slot, target.controller) == ("airbnb.listing.party", "third_party")
+    assert (target.slot, target.writable_by) == ("airbnb.listing.party", ("third_party",))
+
+
+def test_a_slot_several_parties_can_write_matches_whichever_one_controls_the_item() -> None:
+    """term.7's one-element-set shim becomes real set logic: any listed party matches."""
+
+    other_party = {**LISTING_SLOT, "id": "airbnb.listing.other", "controller": "counterparty"}
+    several = {
+        key: value
+        for key, value in {
+            **LISTING_SLOT,
+            "id": "airbnb.listing.several",
+            "writable_by": ["counterparty", "third_party"],
+        }.items()
+        if key != "controller"
+    }
+
+    target = choose_planted_target(shape_of(LISTING), with_slots(other_party, several))
+
+    assert (target.slot, target.writable_by) == (
+        "airbnb.listing.several",
+        ("counterparty", "third_party"),
+    )
+    assert slot_party_findings(shape_of(LISTING), with_slots(other_party, several)) == []
 
 
 def test_a_content_kind_match_wins_over_a_party_match_of_another_kind() -> None:

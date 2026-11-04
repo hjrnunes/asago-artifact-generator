@@ -466,12 +466,13 @@ handoff:
 - `scenario-handoff-v5` JSON or YAML for scenario meaning.
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional `runtime-context.json` (`runtime-context-v1`, written by the orchestrator's discover stage) for state and read observations.
-- A target-free runtime contract (`artifact-runtime-contract-v2`). `generate`
-  reads it through the installed spec set in the `asago-package` member
-  (`contracts/runtime-contract/artifact-runtime-contract-v2/`) and its lock
-  before any model request, and stops at the first fault in path order:
-  `runtime contract schema invalid at <path>: <reason>`. A contract written with
-  the optional `contract` envelope reads too.
+- A target-free runtime contract (`artifact-runtime-contract-v3`, and
+  `artifact-runtime-contract-v2` still reads). `generate` reads it through the
+  installed spec set in the `asago-package` member
+  (`contracts/runtime-contract/`) and its lock before any model request, and
+  stops at the first fault in path order:
+  `runtime contract schema invalid at <path>: <reason>`. A v3 contract requires
+  the `contract` envelope; a v2 contract's envelope stays optional.
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
 vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and
@@ -549,7 +550,7 @@ An `indirect` shape puts the attack text in a record that a carrier operation
 returns to the agent, and every user turn stays benign. Code picks the seed slot
 from the runtime contract's `seed_slots`: a slot of the shape's carrier, of the
 shape's content kind when one matches, and among those the first whose
-`controller` lists the shape's controlling party; an `unknown` controlling
+`writable_by` includes the shape's controlling party; an `unknown` controlling
 party prefers no slot, and a slot that cannot hold the record the shape names is
 skipped. Each slot states `max_chars`, the most
 characters of planted text the target accepts, and `mode`, how the target
@@ -569,9 +570,10 @@ artifact stages (Call 2, its correction, and the artifact review) see the
 `stimulus` fields, `planted_text`, and the rule that asks for it. The rule block
 keeps the two party names apart: `shape_controlling_party.party` is the party
 the scenario assumes wrote the item, and `slot_writable_by` is the party the
-target lets write the slot. A scalar `controller` counts as a one-element set.
-When the shape names the record and the chosen slot's `controller` does not
-include the controlling party, `planted_item/slot_writable_by_note` says so
+target lets write the slot. A v2 slot that still states the scalar `controller`
+counts as a one-element set. When the shape names the record and the chosen
+slot's `writable_by` does not include the controlling party,
+`planted_item/slot_writable_by_note` says so
 without asking for a change, and the package records the advisory
 `slot_party_mismatch` finding in `checks.json`, which the author report shows.
 An `unknown` controlling party records no finding.
@@ -1135,7 +1137,7 @@ document, and `compile` validates it against `midojo_sdk.injection_spec_schema`:
   picks the one item whose key field is the record. The key is the slot's `record_key`,
   used as declared: the name whose value is the record's ID, here a list item property.
   A slot declares it in the target's `runtime-spec.yaml` (`record_key: note_id`), in the
-  package's runtime contract (`artifact-runtime-contract-v2` allows the optional field),
+  package's runtime contract (`artifact-runtime-contract-v3` allows the optional field),
   or both, and the two must agree. Compile checks that the carrier's output schema
   declares the key as a text property of the list's items. A field outside any list
   (`body`) is placed only when the carrier returns one record: the carrier's output

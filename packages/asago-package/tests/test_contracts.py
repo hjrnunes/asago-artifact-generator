@@ -33,7 +33,7 @@ LOCKS: dict[str, dict[str, str]] = {
     "runtime-contract": {
         "authority": "asago-artifact-generator",
         "contract": "runtime-contract",
-        "schema_version": "artifact-runtime-contract-v2",
+        "schema_version": "artifact-runtime-contract-v3",
     },
     "capability-gap": {
         "authority": "asago-artifact-generator",

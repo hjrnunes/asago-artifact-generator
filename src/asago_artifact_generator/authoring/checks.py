@@ -546,19 +546,20 @@ def slot_party_findings(
     if target is None:
         return []
     party = controlling_party(shape)
-    if party == CONTROLLING_PARTY_UNKNOWN or party in writable_by(target.controller):
+    writers = ", ".join(target.writable_by)
+    if party == CONTROLLING_PARTY_UNKNOWN or party in writable_by(target.writable_by):
         return []
     return [
         Finding(
             "slot_party_mismatch",
             f"the scenario's controlling party is {party}, and slot {target.slot} is writable "
-            f"by {target.controller}; the package keeps the slot and records the mismatch "
+            f"by {writers}; the package keeps the slot and records the mismatch "
             "as advisory",
             controlling_party_path(shape),
             {
                 "controlling_party": party,
                 "slot": target.slot,
-                "slot_writable_by": target.controller,
+                "slot_writable_by": writers,
             },
         )
     ]
